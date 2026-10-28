@@ -1,0 +1,28 @@
+# Optional external wrk path through the existing Coolify Traefik proxy.
+# Keep diagnostic routes restricted to the load generator's public IP.
+# Direct-DNS mode requires A/AAAA routing, Coolify network and letsencrypt.
+# For an already proxied Cloudflare domain, also apply compose.cloudflare.yml.
+services:
+  app:
+    environment:
+      # Above Traefik's default 90s upstream idle timeout.
+      GUNICORN_KEEPALIVE: '120'
+    networks:
+      - default
+      - coolify
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: coolify
+      traefik.http.routers.sandloom-qualification-https.entrypoints: https
+      traefik.http.routers.sandloom-qualification-https.rule: 'Host(`${SANDLOOM_BENCH_DOMAIN:?set test domain}`) && (PathPrefix(`/s5/`) || PathPrefix(`/s5plan/`) || Path(`/ready`))'
+      traefik.http.routers.sandloom-qualification-https.tls: 'true'
+      traefik.http.routers.sandloom-qualification-https.tls.certresolver: letsencrypt
+      traefik.http.routers.sandloom-qualification-https.middlewares: sandloom-qualification-source,sandloom-qualification-nocache
+      traefik.http.routers.sandloom-qualification-https.service: sandloom-qualification
+      traefik.http.middlewares.sandloom-qualification-source.ipallowlist.sourcerange: ${SANDLOOM_BENCH_CLIENT_CIDR:?set load generator IP/CIDR}
+      traefik.http.middlewares.sandloom-qualification-nocache.headers.customresponseheaders.Cache-Control: no-store
+      traefik.http.services.sandloom-qualification.loadbalancer.server.port: '2222'
+
+networks:
+  coolify:
+    external: true

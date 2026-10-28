@@ -1,0 +1,16 @@
+{
+  "format": 3,
+  "module": "projecthub.modules.taskboard",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/taskboard/tasks",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

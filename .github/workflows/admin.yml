@@ -1,0 +1,74 @@
+name: Optional admin UI
+on:
+  pull_request:
+    paths: ['admin/**', 'src/sandloom/**', 'tools/smoke/admin_live_acceptance.py', '.github/workflows/admin.yml']
+  push:
+    branches: [main]
+    paths: ['admin/**', 'src/sandloom/**', 'tools/smoke/admin_live_acceptance.py', '.github/workflows/admin.yml']
+permissions:
+  contents: read
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: sandloom_test
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: '0.13.4'
+          python-version: '3.12'
+      - run: uv sync --frozen --project .
+        working-directory: .
+      - run: npm ci
+      - run: npm run contracts:check
+      - run: npm run format:check
+      # ESLint (strict type-checked, a11y, no inline styles / arbitrary values)
+      # plus the design-token gate (no raw colors, px or ms outside tokens.css).
+      - run: npm run lint
+      # Type check, production build, license notices and the bundle budget.
+      - run: npm run build
+      - run: npm test
+      - run: npm run build-storybook
+      - run: npm run audit
+      - run: npx playwright install --with-deps chromium
+      # Main flows + axe accessibility checks in light and dark themes.
+      - run: npm run test:browser
+      - name: Owner console against the real backend
+        run: npm run test:live
+        env:
+          SANDLOOM_TEST_DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+          SANDLOOM_TEST_CACHE_URL: redis://127.0.0.1:6380/0
+          SANDLOOM_TEST_BROKER_URL: redis://127.0.0.1:6380/1
+      - run: docker build -t sandloom-admin:local .
+      - run: python3 scripts/smoke-container.py
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: admin-browser-results
+          path: |
+            admin/test-results
+            admin/playwright-report

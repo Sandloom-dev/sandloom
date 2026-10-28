@@ -1,0 +1,122 @@
+# Monolith profile for projecthub: one process loads every module in SANDLOOM_MODULES.
+# Split into services later by running multiple copies with different
+# SANDLOOM_MODULES values behind a gateway — no code change.
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#
+# Requires JWT_SECRET and INTERNAL_API_TOKEN in the environment (or a .env next
+# to this file): openssl rand -hex 32
+
+x-app-env: &app-env
+  SANDLOOM_MODULES: '["projecthub.modules.projects", "projecthub.modules.tasks", "projecthub.modules.taskboard", "projecthub.modules.notifications"]'
+  # Explicit: ENVIRONMENT defaults to dev, which must never reach a deploy.
+  ENVIRONMENT: prod
+  DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/projecthub
+  CACHE_URL: redis://redis:6379/1
+  BROKER_URL: redis://redis:6379/2
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
+
+
+x-app-build: &app-build
+  # The project root (one level up from deploy/) holds the Dockerfile.
+  context: ..
+  dockerfile: Dockerfile
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sandloom
+      POSTGRES_PASSWORD: sandloom
+      POSTGRES_DB: projecthub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sandloom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+
+  # One-shot schema migration: runs to completion before the app starts.
+  migrate:
+    build: *app-build
+    command: ["sandloom", "migrate", "upgrade-all", "--apply"]
+    environment:
+      <<: *app-env
+      SANDLOOM_COMPOSITION_ROOT: projecthub.asgi
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: *app-build
+    environment:
+      <<: *app-env
+      # Workers x (DB_POOL_SIZE + DB_MAX_OVERFLOW) must stay under Postgres
+      # max_connections; the image caps the default at min(2*cpus+1, 4).
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+  # Celery worker: the FRAMEWORK entrypoint boots projecthub.asgi (same SANDLOOM_MODULES)
+  # and registers each loaded module's tasks.py on the taskqueue's app.
+  worker:
+    build: *app-build
+    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    environment:
+      <<: *app-env
+      SANDLOOM_COMPOSITION_ROOT: projecthub.asgi
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+    healthcheck:
+      disable: true
+    depends_on:
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384m
+
+  # Exactly ONE beat per deployment (it schedules the modules' periodic tasks).
+  beat:
+    build: *app-build
+    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+              "--schedule=/tmp/celerybeat-schedule"]
+    environment:
+      <<: *app-env
+      SANDLOOM_COMPOSITION_ROOT: projecthub.asgi
+    healthcheck:
+      disable: true
+    depends_on:
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m

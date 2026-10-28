@@ -1,0 +1,26 @@
+{
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [],
+      "name": "notifications.mail.v1",
+      "required": true
+    },
+    {
+      "methods": [],
+      "name": "payments.charges.v1",
+      "required": true
+    }
+  ],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "academy.modules.enrollment",
+  "projections": [],
+  "sagas": [
+    {
+      "name": "enroll",
+      "version": 1
+    }
+  ]
+}

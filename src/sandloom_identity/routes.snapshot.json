@@ -1,0 +1,644 @@
+{
+  "format": 3,
+  "module": "sandloom_identity",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/permissions",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/permissions",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/roles",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/roles/{role_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/roles/{role_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PUT",
+      "path": "/api/v1/roles/{role_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/roles/{role_id}/permissions/{permission_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/roles/{role_id}/permissions/{permission_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/users",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/users/{user_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/users/{user_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PUT",
+      "path": "/api/v1/users/{user_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sensitive()"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/users/{user_id}/block",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/block",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/reset-2fa",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/revoke-sessions",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/users/{user_id}/roles",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/users/{user_id}/roles/{role_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/roles/{role_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/unblock",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/auth/2fa/backup-codes",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/2fa/backup-codes/regenerate",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/2fa/disable",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/2fa/enable",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/2fa/init",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/auth/2fa/status",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/2fa/verify",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/change-password",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/auth/health",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "module liveness probe (no caller)",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/login",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "issues_tokens": true,
+        "public_reason": "password login: the caller has no token yet",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/logout",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "logout: the refresh token in the body is the credential",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/auth/me",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/auth/me",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/refresh",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "issues_tokens": true,
+        "public_reason": "refresh-token exchange: the refresh token is the credential",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/register",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "sign-up: the caller has no account yet",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/request-password-reset",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "password reset: the caller cannot log in",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/resend-verification",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "unverified accounts cannot log in yet",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/reset-password",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "password reset: the reset token is the credential",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/auth/sso/me/linked",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/sso/mfa",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "issues_tokens": true,
+        "public_reason": "SSO MFA step: the MFA challenge token is the credential",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/auth/sso/providers",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "login page: list the SSO providers",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/auth/sso/{provider}/callback",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "issues_tokens": true,
+        "public_reason": "SSO callback: provider assertion + binding cookie",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/auth/sso/{provider}/link",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/auth/sso/{provider}/link/redirect",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/auth/sso/{provider}/redirect",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "SSO login starts before the caller has a token",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/auth/sso/{provider}/unlink",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/auth/verify-email",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "e-mail verification: the signed link token is the credential",
+        "session": "none",
+        "write_store": "default"
+      }
+    }
+  ]
+}

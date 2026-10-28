@@ -1,0 +1,407 @@
+{
+  "format": 3,
+  "module": "sandloom_billing",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/billing/checkout-session",
+      "policy": {
+        "effect": "write",
+        "idempotency": "explicit in-flight, fail-closed",
+        "operation_intent": "PSP session issued under a persisted intent",
+        "session": "live, release_check",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/billing/credits",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/billing/customer-portal",
+      "policy": {
+        "effect": "write",
+        "idempotency": "explicit in-flight, fail-closed",
+        "operation_intent": "PSP session issued under a persisted intent",
+        "session": "live, release_check",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/api/v1/billing/plans",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "public plan catalog (pricing page)",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/billing/subscription",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/api/v1/billing/webhooks/stripe",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "PSP webhook; the Stripe signature is verified in the endpoint",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/balances",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/balances/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/customers",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/customers/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/platform/billing/customers/{record_id}/adjust-credits",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check every unit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/grants",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/grants/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/intents",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/intents/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/ledger",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/ledger/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/payment-states",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/prices",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/prices/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/products",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/products/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/api/v1/platform/billing/products/{record_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check every unit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/provider",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/subscriptions",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/subscriptions/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/webhooks",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/billing/webhooks/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

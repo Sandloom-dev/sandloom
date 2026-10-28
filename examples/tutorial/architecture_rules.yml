@@ -1,0 +1,61 @@
+# Import-boundary manifest for the tasklist application — enforced by
+#
+#     sandloom check            (also in .github/workflows/ci.yml + pre-commit)
+#
+# Business modules under tasklist.modules.* are atomic: each may import only the
+# framework public API below, sandloom.shared.* and its own package — never a
+# sibling module (or an installed module package such as sandloom_identity). Cross-module
+# interaction goes through versioned events or service-registry contracts.
+version: 1
+
+# Directory holding the business-module packages, and its dotted package.
+modules_path: tasklist/modules
+modules_package: tasklist.modules
+# sys.path root the app package is importable from (resolves relative imports).
+source_root: .
+
+# The framework's ENFORCED public API for business modules: sandloom.sdk (Public
+# API 1.0), and the sandloom.core modules it supersedes until the 1.0 migration
+# completes.
+public_api:
+  - sandloom.sdk
+  - sandloom.sdk.app
+  - sandloom.sdk.authz
+  - sandloom.sdk.contracts
+  - sandloom.sdk.data
+  - sandloom.sdk.effects
+  - sandloom.sdk.errors
+  - sandloom.sdk.events
+  - sandloom.sdk.infra
+  - sandloom.sdk.migrations
+  - sandloom.sdk.module
+  - sandloom.sdk.projections
+  - sandloom.sdk.sagas
+  - sandloom.sdk.security
+  - sandloom.sdk.tenant
+  - sandloom.sdk.testing
+  - sandloom.sdk.tooling
+  - sandloom.sdk.web
+  - sandloom.core.di
+  - sandloom.core.facade
+  - sandloom.core.module_api
+  - sandloom.core.descriptors
+  - sandloom.core.orm
+  - sandloom.core.projections
+# Further framework packages a module may import.
+shared_api:
+  - sandloom.shared
+  - tasklist.shared
+# Generated contract stubs, DTO copies and exported event schemas
+# (sandloom generate writes them).
+shared_package: tasklist.shared
+
+# Extra glob patterns to forbid (e.g. "tasklist.modules.*._internal*").
+forbidden_patterns:
+  # sandloom.sdk's private layers: import the public sandloom.sdk modules.
+  - "sandloom.sdk._*"
+  - "sandloom.sdk.*._*"
+
+# Justified, file-scoped exceptions: {file: <glob relative to this file>,
+# imports: [<glob>, ...]}. Keep it empty — every entry is a hole.
+allowlist: []

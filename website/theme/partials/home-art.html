@@ -1,0 +1,90 @@
+{% macro module_art() %}
+<svg class="art-wide" viewBox="0 0 560 260" fill="none" aria-hidden="true">
+  <defs><linearGradient id="module-top" x1="150" y1="60" x2="395" y2="185" gradientUnits="userSpaceOnUse"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient><linearGradient id="module-side" x1="90" y1="130" x2="440" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="var(--art-fill)"/><stop offset="1" stop-color="var(--art-deep)"/></linearGradient><linearGradient id="module-mark" gradientUnits="userSpaceOnUse" x1="10" y1="10" x2="75" y2="70"><stop stop-color="var(--sl-accent)"/><stop offset="1" stop-color="var(--art-copper)"/></linearGradient><filter id="module-shadow" x="-30%" y="-50%" width="160%" height="210%"><feDropShadow dx="0" dy="18" stdDeviation="15" flood-opacity=".28"/></filter></defs>
+  <path d="m24 185 260-91 254 91M85 231l199-70 195 70M111 90l173 61L457 90M170 59l114 40 114-40" stroke="var(--art-line)" stroke-opacity=".45"/>
+  <g filter="url(#module-shadow)"><path d="m91 133 191-68 191 68v23l-191 69-191-69v-23Z" fill="url(#module-side)" stroke="var(--art-line)"/><path d="m91 133 191-68 191 68-191 69-191-69Z" fill="url(#module-top)" stroke="var(--art-line)"/><path d="m111 129 171-60 170 60-170 61-171-61Z" fill="var(--art-deep)" stroke="var(--art-line)"/>
+    <g transform="matrix(1.65 -.58 1.65 .58 150 132)" fill="url(#module-mark)"><path d="M18 12h32c12.15 0 22 9.85 22 22v12H58V34a8 8 0 0 0-8-8H18V12Z"/><path d="M62 68H30C17.85 68 8 58.15 8 46V34h14v12a8 8 0 0 0 8 8h32v14Z"/><path d="M30 33h20v14H30z"/></g>
+    <path d="M282 202v22M91 145l191 69 191-69" stroke="var(--art-line)" stroke-opacity=".75"/>
+  </g>
+  <path d="M121 107V62h85M433 109V59h-70M282 224v18" stroke="var(--art-line)" stroke-dasharray="3 4"/>
+  <rect x="196" y="37" width="177" height="36" rx="7" fill="var(--art-panel)" stroke="var(--art-line)"/><circle cx="213" cy="55" r="3" fill="var(--sl-accent)"/><text x="226" y="59" fill="var(--art-ink)" font-size="13">your_module/</text>
+  <rect x="36" y="63" width="106" height="32" rx="6" fill="var(--art-panel)" stroke="var(--art-line)"/><text x="60" y="83" fill="var(--art-muted)" font-size="12">small SDK</text>
+  <rect x="415" y="62" width="111" height="32" rx="6" fill="var(--art-panel)" stroke="var(--art-line)"/><text x="433" y="82" fill="var(--art-muted)" font-size="12">clear scope</text>
+  <text x="282" y="256" text-anchor="middle" fill="var(--art-muted)" font-size="12.5" letter-spacing="2">ISOLATED BY DESIGN</text>
+</svg>
+
+<svg class="art-narrow" viewBox="70 22 424 238" fill="none" aria-hidden="true">
+  <defs><linearGradient id="module-top-n" x1="150" y1="60" x2="395" y2="185" gradientUnits="userSpaceOnUse"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient><linearGradient id="module-side-n" x1="90" y1="130" x2="440" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="var(--art-fill)"/><stop offset="1" stop-color="var(--art-deep)"/></linearGradient><linearGradient id="module-mark-n" gradientUnits="userSpaceOnUse" x1="10" y1="10" x2="75" y2="70"><stop stop-color="var(--sl-accent)"/><stop offset="1" stop-color="var(--art-copper)"/></linearGradient><filter id="module-shadow-n" x="-30%" y="-50%" width="160%" height="210%"><feDropShadow dx="0" dy="18" stdDeviation="15" flood-opacity=".28"/></filter></defs>
+  <path d="m85 231 199-70 195 70M111 90l173 61L457 90" stroke="var(--art-line)" stroke-opacity=".45"/>
+  <g filter="url(#module-shadow-n)"><path d="m91 133 191-68 191 68v23l-191 69-191-69v-23Z" fill="url(#module-side-n)" stroke="var(--art-line)"/><path d="m91 133 191-68 191 68-191 69-191-69Z" fill="url(#module-top-n)" stroke="var(--art-line)"/><path d="m111 129 171-60 170 60-170 61-171-61Z" fill="var(--art-deep)" stroke="var(--art-line)"/>
+    <g transform="matrix(1.65 -.58 1.65 .58 150 132)" fill="url(#module-mark-n)"><path d="M18 12h32c12.15 0 22 9.85 22 22v12H58V34a8 8 0 0 0-8-8H18V12Z"/><path d="M62 68H30C17.85 68 8 58.15 8 46V34h14v12a8 8 0 0 0 8 8h32v14Z"/><path d="M30 33h20v14H30z"/></g>
+  </g>
+  <rect x="178" y="26" width="208" height="42" rx="8" fill="var(--art-panel)" stroke="var(--art-line)"/><circle cx="198" cy="47" r="4" fill="var(--sl-accent)"/><text x="212" y="53" fill="var(--art-ink)" font-size="17">your_module/</text>
+  <text x="282" y="254" text-anchor="middle" fill="var(--art-muted)" font-size="14" letter-spacing="2">ISOLATED BY DESIGN</text>
+</svg>
+{% endmacro %}
+{% macro identity_art() %}
+<svg viewBox="0 0 300 170" fill="none" aria-hidden="true"><defs><linearGradient id="id-card" gradientUnits="userSpaceOnUse" x1="125" y1="21" x2="192" y2="133"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient></defs>
+<circle cx="150" cy="94" r="75" stroke="var(--art-line)" stroke-opacity=".35"/><circle cx="150" cy="94" r="52" stroke="var(--art-line)" stroke-opacity=".7"/>
+<path d="M67 94h33m100 0h33" stroke="var(--art-line)" stroke-dasharray="3 4"/>
+<rect x="105" y="42" width="90" height="104" rx="10" fill="var(--art-deep)" stroke="var(--art-line)"/><rect x="99" y="34" width="90" height="104" rx="10" fill="url(#id-card)" stroke="var(--art-line)"/>
+<circle cx="144" cy="70" r="12" stroke="var(--sl-accent)" stroke-width="1.5"/><path d="M123 105c0-22 42-22 42 0" stroke="var(--sl-accent)" stroke-width="1.5"/><path d="M126 120h36" stroke="var(--art-line)"/>
+<rect x="36" y="75" width="43" height="38" rx="8" fill="var(--art-panel)" stroke="var(--art-line)"/><path d="M49 94h17m-12-6v12m7-12v12" stroke="var(--art-muted)"/>
+<rect x="220" y="75" width="43" height="38" rx="8" fill="var(--art-panel)" stroke="var(--art-line)"/><path d="M234 92v-4a6 6 0 0 1 12 0v4m-14 0h16v13h-16V92Z" stroke="var(--sl-accent)"/>
+</svg>
+{% endmacro %}
+{% macro billing_art() %}
+<svg viewBox="0 0 300 170" fill="none" aria-hidden="true"><defs><linearGradient id="billing-card" gradientUnits="userSpaceOnUse" x1="62" y1="50" x2="230" y2="140"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient></defs>
+<rect x="65" y="56" width="176" height="102" rx="10" fill="var(--art-deep)" stroke="var(--art-line)" transform="rotate(-8 65 56)"/><rect x="54" y="48" width="176" height="102" rx="10" fill="url(#billing-card)" stroke="var(--art-line)" transform="rotate(-8 54 48)"/>
+<path d="m73 70 148-21" stroke="var(--art-line)" stroke-width="14"/><rect x="81" y="91" width="25" height="19" rx="4" stroke="var(--sl-accent)" transform="rotate(-8 81 91)"/><path d="m79 129 61-9m-61 16 42-6" stroke="var(--art-muted)" stroke-opacity=".7"/>
+<circle cx="222" cy="118" r="32" fill="var(--art-panel)" stroke="var(--art-line)"/><circle cx="222" cy="118" r="24" stroke="var(--sl-accent)" stroke-opacity=".5"/><path d="M230 107h-12a6 6 0 0 0 0 12h6a6 6 0 0 1 0 12h-12m9-30v36" stroke="var(--sl-accent)" stroke-width="1.5"/>
+</svg>
+{% endmacro %}
+{% macro guarantees_art() %}
+<svg class="art-wide" viewBox="62 20 376 133" fill="none" aria-hidden="true"><defs><linearGradient id="write-card" gradientUnits="userSpaceOnUse" x1="126" y1="41" x2="202" y2="120"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient></defs>
+<path d="M83 120h334M83 113v14m334-14v14" stroke="var(--art-line)"/>
+<rect x="115" y="34" width="106" height="88" rx="8" fill="var(--art-deep)" stroke="var(--art-line)"/><rect x="108" y="26" width="106" height="88" rx="8" fill="url(#write-card)" stroke="var(--art-line)"/>
+<rect x="132" y="47" width="22" height="28" rx="3" stroke="var(--sl-accent)"/><path d="M161 51h30m-30 8h24m-55 27h61" stroke="var(--art-muted)" stroke-opacity=".7"/><text x="161" y="103" fill="var(--art-ink)" text-anchor="middle" font-size="12">business data</text>
+<rect x="285" y="34" width="106" height="88" rx="8" fill="var(--art-deep)" stroke="var(--art-line)"/><rect x="278" y="26" width="106" height="88" rx="8" fill="url(#write-card)" stroke="var(--art-line)"/>
+<path d="M301 50h25v24h-25V50Zm0 7h25m-15 4h4m12-11h31m-31 8h24m-58 28h61" stroke="var(--art-muted)" stroke-opacity=".7"/><text x="331" y="103" fill="var(--art-ink)" text-anchor="middle" font-size="12">event intent</text>
+<path d="M230 68h31m-15-8v16" stroke="var(--sl-accent)" stroke-width="1.5"/><rect x="178" y="126" width="144" height="24" rx="12" fill="var(--art-panel)" stroke="var(--art-line)"/><text x="250" y="142" fill="var(--art-muted)" text-anchor="middle" font-size="12">ONE TRANSACTION</text>
+</svg>
+
+<svg class="art-narrow" viewBox="-8 0 346 112" fill="none" aria-hidden="true"><defs><linearGradient id="write-card-n" gradientUnits="userSpaceOnUse" x1="126" y1="41" x2="202" y2="120"><stop stop-color="var(--art-hi)"/><stop offset="1" stop-color="var(--art-fill)"/></linearGradient></defs>
+  <path d="M14 88h302M14 82v12m302-12v12" stroke="var(--art-line)"/>
+  <rect x="26" y="9" width="116" height="66" rx="8" fill="var(--art-deep)" stroke="var(--art-line)"/><rect x="20" y="3" width="116" height="66" rx="8" fill="url(#write-card-n)" stroke="var(--art-line)"/>
+  <rect x="34" y="14" width="16" height="21" rx="3" stroke="var(--sl-accent)"/><path d="M58 18h30m-30 8h22" stroke="var(--art-muted)" stroke-opacity=".7"/><text x="78" y="58" fill="var(--art-ink)" text-anchor="middle" font-size="12">business data</text>
+  <rect x="194" y="9" width="116" height="66" rx="8" fill="var(--art-deep)" stroke="var(--art-line)"/><rect x="188" y="3" width="116" height="66" rx="8" fill="url(#write-card-n)" stroke="var(--art-line)"/>
+  <path d="M202 15h22v18h-22V15Zm0 6h22m22-6h30m-30 8h22" stroke="var(--art-muted)" stroke-opacity=".7"/><text x="246" y="58" fill="var(--art-ink)" text-anchor="middle" font-size="12">event intent</text>
+  <path d="M152 36h26m-13-13v26" stroke="var(--sl-accent)" stroke-width="1.5"/>
+  <rect x="96" y="90" width="138" height="22" rx="11" fill="var(--art-panel)" stroke="var(--art-line)"/><text x="165" y="105" fill="var(--art-muted)" text-anchor="middle" font-size="11.5">ONE TRANSACTION</text>
+</svg>
+{% endmacro %}
+{% macro infra_art() %}
+<svg viewBox="0 0 400 170" fill="none" aria-hidden="true"><path d="M98 85h62m40 0h48m-48 0V43h48m-48 42v42h48" stroke="var(--art-line)"/>
+<rect x="30" y="63" width="80" height="45" rx="8" fill="var(--art-fill)" stroke="var(--art-line)"/><text x="70" y="90" text-anchor="middle" fill="var(--art-ink)" font-size="13">module</text>
+<rect x="151" y="63" width="49" height="45" rx="8" fill="var(--art-panel)" stroke="var(--art-line)"/><path d="m165 78-7 7 7 7m20-14 7 7-7 7m-10-16-4 17" stroke="var(--sl-accent)"/>
+<g fill="var(--art-fill)" stroke="var(--art-line)"><rect x="248" y="24" width="122" height="38" rx="7"/><rect x="248" y="67" width="122" height="38" rx="7"/><rect x="248" y="110" width="122" height="38" rx="7"/></g>
+<g fill="var(--art-ink)" font-size="12"><text x="272" y="48">PostgreSQL</text><text x="272" y="91">Redis</text><text x="272" y="134">SMTP / files</text></g><g fill="var(--sl-accent)"><circle cx="260" cy="43" r="2"/><circle cx="260" cy="86" r="2"/><circle cx="260" cy="129" r="2"/></g>
+</svg>
+{% endmacro %}
+{% macro scale_art() %}
+<svg class="art-wide" viewBox="20 20 456 160" fill="none" aria-hidden="true"><rect x="32" y="35" width="169" height="110" rx="10" fill="var(--art-fill)" stroke="var(--art-line)"/>
+<g fill="var(--art-panel)" stroke="var(--art-line)"><rect x="45" y="49" width="68" height="37" rx="5"/><rect x="121" y="49" width="67" height="37" rx="5"/><rect x="45" y="94" width="68" height="37" rx="5"/><rect x="121" y="94" width="67" height="37" rx="5"/></g>
+<g fill="var(--art-muted)" font-size="11" text-anchor="middle"><text x="79" y="72">identity</text><text x="154" y="72">tenancy</text><text x="79" y="117">billing</text><text x="154" y="117">your code</text></g>
+<path d="M220 90h47m-9-7 9 7-9 7" stroke="var(--sl-accent)" stroke-width="1.5"/><text x="244" y="122" fill="var(--art-muted)" text-anchor="middle" font-size="10">same modules</text>
+<g fill="var(--art-fill)" stroke="var(--art-line)"><rect x="292" y="28" width="74" height="53" rx="7"/><rect x="382" y="28" width="74" height="53" rx="7"/><rect x="292" y="99" width="74" height="53" rx="7"/><rect x="382" y="99" width="74" height="53" rx="7"/></g><path d="M329 81v18m90-18v18m-53-45h16m-16 72h16" stroke="var(--art-line)" stroke-dasharray="3 4"/>
+<g fill="var(--art-ink)" font-size="11" text-anchor="middle"><text x="329" y="59">identity</text><text x="419" y="59">tenancy</text><text x="329" y="130">billing</text><text x="419" y="130">your code</text></g><g fill="var(--art-muted)" font-size="10" text-anchor="middle" letter-spacing="1"><text x="116" y="171">ONE PROCESS</text><text x="375" y="171">SERVICES</text></g>
+</svg>
+
+<svg class="art-narrow" viewBox="-14 0 358 128" fill="none" aria-hidden="true">
+  <rect x="4" y="6" width="142" height="84" rx="9" fill="var(--art-fill)" stroke="var(--art-line)"/>
+  <g fill="var(--art-panel)" stroke="var(--art-line)"><rect x="12" y="14" width="61" height="32" rx="5"/><rect x="77" y="14" width="61" height="32" rx="5"/><rect x="12" y="50" width="61" height="32" rx="5"/><rect x="77" y="50" width="61" height="32" rx="5"/></g>
+  <g fill="var(--art-muted)" font-size="11" text-anchor="middle"><text x="42.5" y="34">identity</text><text x="107.5" y="34">tenancy</text><text x="42.5" y="70">billing</text><text x="107.5" y="70">your code</text></g>
+  <path d="M152 48h24m-7-6 7 6-7 6" stroke="var(--sl-accent)" stroke-width="1.5"/>
+  <g fill="var(--art-fill)" stroke="var(--art-line)"><rect x="184" y="6" width="68" height="38" rx="7"/><rect x="258" y="6" width="68" height="38" rx="7"/><rect x="184" y="52" width="68" height="38" rx="7"/><rect x="258" y="52" width="68" height="38" rx="7"/></g>
+  <g fill="var(--art-ink)" font-size="11" text-anchor="middle"><text x="218" y="29">identity</text><text x="292" y="29">tenancy</text><text x="218" y="75">billing</text><text x="292" y="75">your code</text></g>
+  <g fill="var(--art-muted)" font-size="11" text-anchor="middle" letter-spacing="1"><text x="75" y="114">ONE PROCESS</text><text x="255" y="114">SERVICES</text></g>
+  <text x="165" y="126" fill="var(--art-muted)" text-anchor="middle" font-size="10.5">same modules</text>
+</svg>
+{% endmacro %}

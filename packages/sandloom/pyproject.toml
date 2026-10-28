@@ -1,0 +1,124 @@
+[project]
+name = "sandloom"
+version = "0.7.0a1"
+classifiers = ["Development Status :: 3 - Alpha"]
+description = "Sandloom: configurable-monolith framework for SaaS (kernel, public SDK sandloom.sdk, CLI)."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+    { name = "Vasyl Cherniavskyi" },
+]
+requires-python = ">=3.11"
+# Ranges, never exact pins: `>=tested,<next breaking release` (for a 0.x
+# project the next minor). Exact versions live only in uv.lock. A narrower
+# range says why: the framework relies on that release's internals there.
+dependencies = [
+    # Remove the compromised emSign CA from outbound HTTPS trust bundles.
+    "certifi>=2026.10.19",
+    # route dependant pruning (sandloom.core.route_markers) and the OpenAPI
+    # hooks rely on FastAPI internals: one minor at a time.
+    "fastapi>=0.136.3,<0.137",
+    # the request middleware relies on Starlette internals (checked up to 1.6).
+    "starlette>=1.3.1,<1.7",
+    "uvicorn[standard]>=0.54.0,<1",
+    "uvicorn-worker>=0.4.0,<0.5",
+    # the planner compiler (sql_alchemy/planner_adapter) uses 2.1 internals.
+    "sqlalchemy[asyncio]>=2.1.4,<2.2",
+    "alembic>=1.20.0,<2",
+    # the event reader rewrites pydantic-core schemas (sdk/_decl/events.py):
+    # version-specific internals, one minor at a time.
+    "pydantic>=2.14.1,<2.15",
+    "pydantic-settings>=2.16.1,<3",
+    "python-dotenv>=1.2.4,<2",
+    "httpx>=0.28.1,<0.29",
+    # the RPC transport probes aiohttp connector internals
+    # (rpc_transport_compat falls back to httpx on a mismatch).
+    "aiohttp>=3.14.5,<3.15",
+    "msgpack>=1.2.3,<2",
+    "orjson>=3.13.0,<4",
+    "asyncpg>=0.32.0,<0.33",
+    # the sync driver of `sandloom migrate`, backup and extract-module.
+    "psycopg2-binary>=2.9.11,<3",
+    "pyjwt>=2.15.1,<3",
+    "cryptography>=50.0.2,<51",
+    "argon2-cffi>=25.1.0,<26",
+    # imported by the app factory, the UoW and eventing (default path).
+    "prometheus-client>=0.26.0,<0.27",
+    "jsonschema>=4.26.0,<5",
+    # the CMD of the framework and every generated production image
+    # (gunicorn -c python:sandloom.core.cli.gunicorn_conf).
+    "gunicorn>=26.2.0,<27",
+]
+
+[project.urls]
+Homepage = "https://sandloom.dev/"
+Documentation = "https://sandloom.dev/docs/"
+Repository = "https://github.com/Sandloom-dev/sandloom"
+Issues = "https://github.com/Sandloom-dev/sandloom/issues"
+Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom/CHANGELOG.md"
+
+[project.optional-dependencies]
+redis = [
+    "redis>=5.2.1,<6",
+]
+celery = [
+    "celery[redis]>=5.6.3,<6",
+]
+# The batteries-included set: the three standard modules plus Redis and Celery.
+standard = [
+    "sandloom[redis,celery]",
+    "sandloom-identity>=0.7.0a1,<0.8",
+    "sandloom-tenancy>=0.7.0a1,<0.8",
+    "sandloom-billing>=0.7.0a1,<0.8",
+]
+fast = [
+    "redis[hiredis]>=5.2.1,<6",
+    "jsonschema-rs>=0.59.0,<0.60",
+]
+# `sandloom check` reads YAML manifests.
+check = [
+    "PyYAML>=6.0.2,<7",
+]
+# The test kit (sandloom.sdk.testing, `sandloom test`): pytest plugins and the
+# parallel runner a generated app's dev tools bring.
+testing = [
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    "pytest-xdist>=3.8.0,<4",
+]
+# Imported only when SENTRY_DSN is set (sandloom.core.observability).
+sentry = [
+    "sentry-sdk>=2.72.0,<3",
+]
+
+[project.scripts]
+sandloom = "sandloom:main"
+
+[build-system]
+requires = [
+    "hatchling>=1.27",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [
+    "../editable/sandloom",
+]
+bypass-selection = true
+
+[tool.hatch.build.hooks.custom]
+path = "../../tools/packaging/package_build.py"
+
+[tool.sandloom.sources]
+"../../src/sandloom" = "sandloom"
+"../../migrations/core" = "sandloom/core/migrations/core_chain"
+
+# Repository-only agent files. `sandloom.shared` ships whole (DTOs, the
+# standard modules' generated stubs and event schemas, authz, guards): every
+# caller process imports it (SANDLOOM-C012).
+[tool.sandloom.exclude]
+paths = [
+    "sandloom/AGENTS.md",
+    "sandloom/CLAUDE.md",
+]

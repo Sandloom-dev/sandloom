@@ -1,0 +1,36 @@
+{
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [
+        "get",
+        "list_for_tenant"
+      ],
+      "name": "projects.read.v1",
+      "required": true
+    },
+    {
+      "methods": [
+        "list_for_tenant"
+      ],
+      "name": "tasks.read.v1",
+      "required": true
+    }
+  ],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "projecthub.modules.taskboard",
+  "projections": [
+    {
+      "name": "project_task_query_index",
+      "source_channels": [
+        "tasks.task.created.v1",
+        "tasks.task.updated.v1",
+        "projects.project.created.v1",
+        "projects.project.updated.v1"
+      ]
+    }
+  ],
+  "sagas": []
+}

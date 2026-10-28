@@ -1,0 +1,251 @@
+# Development environment only; publish only packages/* (sandloom, sandloom-*).
+[project]
+name = "sandloom-dev"
+version = "0.7.0a1"
+description = "Local development environment for the Sandloom monorepo"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+dependencies = [
+    "sandloom[standard,check,fast,sentry]",
+    "sandloom-billing",
+    "sandloom-identity",
+    "sandloom-tenancy",
+]
+
+[project.optional-dependencies]
+docs = [
+    "zensical==0.0.73",
+    "PyYAML>=6.0.2",
+    "pymdown-extensions>=11.0",
+    "tomli-w>=1.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.17.1",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-mock==3.17.0",
+    "pytest-cov==7.1.0",
+    "pytest-xdist==3.8.0",
+    "pytest-html==4.2.0",
+    "factory-boy==3.3.3",
+    "hypothesis==6.168.5",
+    "pre-commit==4.7.0",
+    "import-linter==2.15",
+    "pyright==1.1.414",
+    "types-redis==4.6.0.20241004",
+    "types-requests==2.33.0.20261006",
+    "types-Pillow==10.2.0.20240822",
+    "types-pyOpenSSL==24.1.0.20240722",
+    "types-cryptography==3.3.23.2",
+    "types-itsdangerous==1.1.6",
+    "types-qrcode==8.2.0.20260518",
+    "types-jsonschema==4.26.0.20261006",
+    "types-PyYAML==6.0.12.20260906",
+]
+
+[tool.uv]
+required-version = ">=0.13.4"
+constraint-dependencies = [
+    "starlette<1.7",
+]
+package = false
+
+[tool.uv.sources.sandloom]
+path = "packages/sandloom"
+editable = true
+
+[tool.uv.sources.sandloom-billing]
+path = "packages/sandloom-billing"
+editable = true
+
+[tool.uv.sources.sandloom-identity]
+path = "packages/sandloom-identity"
+editable = true
+
+[tool.uv.sources.sandloom-tenancy]
+path = "packages/sandloom-tenancy"
+editable = true
+
+[tool.ruff]
+target-version = "py311"
+fix = true
+force-exclude = true
+extend-exclude = [
+    "alembic",
+    "src/*/migrations/versions",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+    "PLC0415",
+    "BLE",
+    "S",
+    "ASYNC",
+    "SIM",
+    "PERF",
+    "C901",
+    "RUF",
+    "PGH004",
+]
+ignore = [
+    "B008",
+    "UP042",
+    "SIM105",
+    "RUF022",
+    "RUF023",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"!src/sandloom/{core,shared}/**" = [
+    "PLC0415",
+]
+"src/sandloom/sdk/_prim/recipes.py" = [
+    "E501",
+]
+"**/tests/**" = [
+    "E501",
+    "PLC0415",
+    "S101",
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S311",
+    "S603",
+    "S607",
+    "S608",
+    "ASYNC109",
+    "ASYNC110",
+    "ASYNC2",
+    "SIM300",
+    "SIM117",
+    "PERF",
+    "C901",
+    "RUF012",
+    "RUF043",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+mypy_path = "src"
+files = [
+    "src/",
+]
+exclude = [
+    ".venv/",
+    "tests/",
+    "alembic/",
+    "/migrations/",
+]
+strict = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+plugins = [
+    "pydantic.mypy",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "alembic.*",
+    "celery.*",
+    "uvicorn.*",
+    "opentelemetry.*",
+    "msgpack.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "src",
+    "tests/integration",
+    "tests/e2e",
+    "tests/split_conformance",
+    "tests/extraction",
+    "tests/perf_budgets",
+    "tests/sdk",
+    "tests/laws",
+]
+python_files = [
+    "test_*.py",
+]
+python_classes = [
+    "Test*",
+]
+python_functions = [
+    "test_*",
+]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--asyncio-mode=auto",
+    "-p",
+    "sandloom.core.testing.shuffle",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "api: marks tests as API tests",
+    "e2e: multi-process end-to-end tests (real uvicorn subprocesses; skip without Postgres/Redis)",
+    "split_conformance: monolith vs every module-subset deployment matrix (real uvicorn subprocesses)",
+    "extraction_e2e: monolith -> microservices data extraction scenario (opt-in: SANDLOOM_EXTRACTION_E2E=1)",
+    "sandloom_allow_server_errors: the client returns a masked 500 instead of re-raising the endpoint's exception (SANDLOOM-R006)",
+    "guarantees: an enforcing test of the guarantee ledger (guarantees.yml; applied automatically by src/conftest.py)",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error::DeprecationWarning:sandloom",
+]
+
+[tool.coverage.run]
+source = [
+    "src",
+]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

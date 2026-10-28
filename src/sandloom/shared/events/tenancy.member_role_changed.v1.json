@@ -1,0 +1,62 @@
+{
+  "description": "A member's role changed (both sides of an ownership transfer too).",
+  "properties": {
+    "actor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actor Id",
+      "x-sandloom-default": true
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Role",
+      "x-sandloom-default": true
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version",
+      "x-sandloom-default": true
+    }
+  },
+  "required": [
+    "organization_id",
+    "user_id"
+  ],
+  "title": "MemberRoleChanged",
+  "type": "object"
+}

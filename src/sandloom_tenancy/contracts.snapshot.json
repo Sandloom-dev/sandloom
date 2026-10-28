@@ -1,0 +1,278 @@
+{
+  "contracts": {
+    "tenancy.claims.v1": {
+      "hash": "a46bbd40b36396d1533c8ce1430be0f7",
+      "methods": {
+        "contribute": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "any"
+              }
+            }
+          ],
+          "returns": {
+            "k": "dict",
+            "key": {
+              "k": "scalar",
+              "t": "str"
+            },
+            "value": {
+              "k": "any"
+            }
+          }
+        }
+      }
+    },
+    "tenancy.membership.v1": {
+      "hash": "fbf42e7650aa13c0878c442f6080d419",
+      "methods": {
+        "get_member_state": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "organization_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "fields": {
+              "organization_id": {
+                "required": true,
+                "type": {
+                  "k": "scalar",
+                  "t": "uuid"
+                }
+              },
+              "role": {
+                "required": true,
+                "type": {
+                  "k": "union",
+                  "of": [
+                    {
+                      "k": "scalar",
+                      "t": "str"
+                    },
+                    {
+                      "k": "none"
+                    }
+                  ]
+                }
+              },
+              "user_id": {
+                "required": true,
+                "type": {
+                  "k": "scalar",
+                  "t": "uuid"
+                }
+              },
+              "version": {
+                "required": true,
+                "type": {
+                  "k": "scalar",
+                  "t": "int"
+                }
+              }
+            },
+            "k": "model",
+            "ref": "sandloom_tenancy.schemas.membership:MemberState",
+            "schema_hash": "7227b9f9c24badbc"
+          }
+        },
+        "get_role": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "organization_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "k": "scalar",
+                "t": "str"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "has_role_at_least": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "organization_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "minimum",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "is_member": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "organization_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "list_member_user_ids": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "organization_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "after",
+              "required": true,
+              "type": {
+                "k": "union",
+                "of": [
+                  {
+                    "k": "scalar",
+                    "t": "uuid"
+                  },
+                  {
+                    "k": "none"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "limit",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "k": "scalar",
+              "t": "uuid"
+            },
+            "k": "list"
+          }
+        },
+        "list_user_organization_ids": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "k": "scalar",
+              "t": "uuid"
+            },
+            "k": "list"
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "sandloom_tenancy"
+}

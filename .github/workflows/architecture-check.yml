@@ -1,0 +1,72 @@
+name: Architecture Check
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "packages/**"
+      - "tools/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "docs/adr/**"
+      - "docs/reference/guarantees.md"
+      - ".github/workflows/architecture-check.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "packages/**"
+      - "tools/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "docs/adr/**"
+      - "docs/reference/guarantees.md"
+      - ".github/workflows/architecture-check.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # These checks are purely static (AST / import-boundary analysis) and open no
+    # connections, but collecting the tests imports the app settings, which
+    # validate these required fields at import time. The runner has no `.env`
+    # (it is gitignored), so provide dummy values to satisfy validation.
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
+      CACHE_URL: redis://localhost:6379/0
+      BROKER_URL: redis://localhost:6379/1
+      JWT_SECRET: ci-architecture-check-not-a-real-secret
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+
+      - name: Install dependencies
+        # Locked: the default `dev` group pins the exact tool versions.
+        run: uv sync --frozen
+
+      - name: Run architecture checker
+        run: uv run python tools/checks/check_architecture.py
+
+      - name: Run public API surface gate
+        run: uv run python tools/packaging/check_public_api.py
+
+      - name: Run architecture test
+        run: uv run pytest src/sandloom/core/tests/test_architecture.py -q

@@ -1,0 +1,27 @@
+"""DELIBERATELY BROKEN: a module test importing outside its WHITELIST.
+
+Module tests may import the public API, sandloom.shared, the test API
+(sandloom.core.testing, sandloom.core.contract_testing) and their OWN package —
+nothing else from ``sandloom`` or the application's modules package. Read by
+test_archcheck_library (``test-imports`` rule).
+"""
+
+import importlib
+
+import sandloom_tenancy  # VIOLATION: an installed module package
+from sandloom.core.config.settings import settings  # VIOLATION: kernel module, not test API
+from sandloom_identity.services import TokenService  # VIOLATION: cross-module
+from acme.modules.billing_lite.models import Plan  # VIOLATION: sibling module
+from ...billing_lite import services  # VIOLATION: sibling, relative spelling
+
+# Allowed: harness, public API, shared API, own package (absolute + relative).
+from sandloom.core.contract_testing import assert_contract_conformance
+from sandloom.core.di import bind_tenant
+from sandloom.core.testing import make_user_headers
+from sandloom.shared.contracts.tenancy_dto import MemberState
+from acme.modules.orders.models import Order
+from ..services import orders_service
+
+
+def later() -> None:
+    importlib.import_module("sandloom_billing")  # VIOLATION: dynamic cross-module

@@ -1,0 +1,59 @@
+# Import-boundary manifest for the projecthub application — enforced by
+#
+#     sandloom check            (also in .github/workflows/ci.yml + pre-commit)
+#
+# Business modules under projecthub.modules.* are atomic: each may import only the
+# framework public API below (sandloom.sdk), the generated contract stubs and DTOs
+# of projecthub.shared, and its own package — never a sibling module (or an installed
+# module package such as sandloom_identity). Cross-module interaction goes through typed
+# events and contracts.
+version: 1
+
+# Directory holding the business-module packages, and its dotted package.
+modules_path: projecthub/modules
+modules_package: projecthub.modules
+# sys.path root the app package is importable from (resolves relative imports).
+source_root: .
+
+# The framework's ENFORCED public API for business modules (Public API 1.0).
+public_api:
+  - sandloom.sdk
+  - sandloom.sdk.app
+  - sandloom.sdk.authz
+  - sandloom.sdk.contracts
+  - sandloom.sdk.data
+  - sandloom.sdk.effects
+  - sandloom.sdk.errors
+  - sandloom.sdk.events
+  - sandloom.sdk.infra
+  - sandloom.sdk.migrations
+  - sandloom.sdk.module
+  - sandloom.sdk.projections
+  - sandloom.sdk.sagas
+  - sandloom.sdk.security
+  - sandloom.sdk.tenant
+  - sandloom.sdk.testing
+  - sandloom.sdk.testing.fixtures
+  - sandloom.sdk.tooling
+  - sandloom.sdk.web
+  # Kernel modules still imported where the sandloom.sdk name is a stub until
+  # its Public API 1.0 hand-off (each import line says what it flips to).
+  - sandloom.core.di
+  - sandloom.core.module_api
+# Further framework packages a module may import.
+shared_api:
+  - sandloom.shared
+  - projecthub.shared
+# Generated contract stubs, DTO copies and exported event schemas
+# (sandloom generate writes them).
+shared_package: projecthub.shared
+
+# Extra glob patterns to forbid (e.g. "projecthub.modules.*._internal*").
+forbidden_patterns:
+  # sandloom.sdk's private layers: import the public sandloom.sdk modules.
+  - "sandloom.sdk._*"
+  - "sandloom.sdk.*._*"
+
+# Justified, file-scoped exceptions: {file: <glob relative to this file>,
+# imports: [<glob>, ...]}. Keep it empty — every entry is a hole.
+allowlist: []

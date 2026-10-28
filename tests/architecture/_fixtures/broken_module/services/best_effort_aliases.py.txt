@@ -1,0 +1,30 @@
+"""DELIBERATELY BROKEN: best-effort effects hidden behind an alias or **kwargs.
+
+Read by test_best_effort_effects_rule: each call in ``violations`` may
+downgrade the effect to best-effort without a marker; ``compliant`` is clean.
+"""
+
+from sandloom.core.di import publish_event as emit
+from sandloom.core.di import record_audit as audit
+from sandloom.core import di
+
+
+async def violations(opts: dict) -> None:
+    # VIOLATION 1: aliased import, explicit downgrade.
+    await emit("orders.created.v1", {"id": "1"}, required=False)
+    # VIOLATION 2: aliased audit.
+    audit("orders.created", required=False)
+    # VIOLATION 3: **kwargs may carry required=False.
+    await emit("orders.created.v1", {"id": "1"}, **opts)
+    # VIOLATION 4: a re-bound name.
+    send = di.publish_event
+    await send("orders.created.v1", {}, required=False)
+    # VIOLATION 5: **kwargs on the plain name too.
+    await di.record_audit("orders.created", **opts)
+
+
+async def compliant(opts: dict) -> None:
+    await emit("orders.created.v1", {"id": "1"})
+    audit("orders.created", required=True)
+    # sandloom: best-effort hint only, a lost event is harmless
+    await emit("orders.warmed.v1", {}, **opts)

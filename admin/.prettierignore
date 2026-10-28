@@ -1,0 +1,11 @@
+src/api/generated.ts
+contracts/openapi.json
+package-lock.json
+dist/
+node_modules/
+test-results/
+playwright-report/
+storybook-static/
+coverage/
+public/admin-manifest.json
+tests/fixtures/

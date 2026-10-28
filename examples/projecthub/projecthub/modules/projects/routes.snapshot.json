@@ -1,0 +1,28 @@
+{
+  "format": 3,
+  "module": "projecthub.modules.projects",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/api/v1/projects/{project_id}",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    }
+  ]
+}

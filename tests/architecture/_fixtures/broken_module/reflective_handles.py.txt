@@ -1,0 +1,20 @@
+"""DELIBERATELY BROKEN: kernel handles and provider escape hatches reached
+reflectively (by name) instead of by attribute.
+
+Read by test_archcheck_library (``kernel-handles``, ``raw-provider``).
+"""
+
+import builtins
+import operator
+from operator import attrgetter
+
+
+async def leak(core, request, cache):
+    bus = getattr(core, "event_bus")  # VIOLATION kernel-handles
+    reg = builtins.getattr(core, "infra")  # VIOLATION kernel-handles
+    svc = attrgetter("service_registry")(core)  # VIOLATION kernel-handles
+    full = getattr(request.app.state, "core")  # VIOLATION kernel-handles
+    client = await getattr(cache, "raw_client")()  # VIOLATION raw-provider
+    backend = operator.attrgetter("raw_backend")(cache)  # VIOLATION raw-provider
+    ok = getattr(core, "get_service")("tenancy.membership.v1")  # sanctioned
+    return bus, reg, svc, full, client, backend, ok

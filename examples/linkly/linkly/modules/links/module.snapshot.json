@@ -1,0 +1,31 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [],
+  "events": {
+    "links.created.v1": {
+      "description": "A short code was created.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "link_id": {
+          "format": "uuid",
+          "title": "Link Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "link_id",
+        "code"
+      ],
+      "title": "LinkCreated",
+      "type": "object"
+    }
+  },
+  "format": 1,
+  "module": "linkly.modules.links",
+  "projections": [],
+  "sagas": []
+}

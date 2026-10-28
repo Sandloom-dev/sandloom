@@ -1,0 +1,122 @@
+# Repository quality gates.
+#
+# Fast static checks run before every commit. Expensive checks that mirror the
+# GitHub Actions jobs run before push; ``pre-commit install`` installs both hook
+# types so a push cannot bypass the local CI tier accidentally.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+    -   id: check-yaml
+        # Compose overlays can use custom YAML tags; validate their syntax.
+        args: [--unsafe]
+    -   id: end-of-file-fixer
+        # Raw qualification artifacts are immutable and SHA256-manifested.
+        exclude: ^benchmarks/qualification/results/
+    -   id: trailing-whitespace
+        exclude: ^benchmarks/qualification/results/
+
+# Every tool hook is a LOCAL `uv run --locked` hook: it runs the exact ruff /
+# mypy / pytest versions pinned in pyproject.toml + uv.lock (the same
+# ones CI installs with `uv sync --frozen`), never a separately-versioned
+# pre-commit mirror, and fails if uv.lock is stale instead of re-resolving.
+-   repo: local
+    hooks:
+    -   id: credential-patterns
+        name: credential-patterns
+        entry: python3 tools/checks/check_secrets.py
+        language: system
+        pass_filenames: true
+
+    -   id: ruff
+        name: ruff
+        entry: bash -c 'uv run --locked ruff check src/'
+        language: system
+        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
+    -   id: ruff-format
+        name: ruff-format
+        entry: bash -c 'uv run --locked ruff format --check src/'
+        language: system
+        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
+    -   id: mypy
+        name: mypy
+        entry: bash -c 'uv run --locked mypy src/'
+        language: system
+        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
+    -   id: architecture-tests
+        name: architecture-tests
+        entry: bash -c 'uv run --locked pytest tests/architecture/'
+        language: system
+        files: ^((src/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml|tools/checks/guarantees\.py)|docs/adr/|docs/reference/guarantees\.md)
+        pass_filenames: false
+
+    # Kernel import contracts (ADR-0007): layers, acyclic packages, config leaf.
+    -   id: import-contracts
+        name: import-contracts
+        entry: bash -c 'cd src && uv run --locked lint-imports --config ../.importlinter --no-cache'
+        language: system
+        files: ^(src/sandloom/|\.importlinter|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
+    -   id: architecture-manifest
+        name: architecture-manifest
+        entry: bash -c 'uv run --locked python tools/checks/check_architecture.py'
+        language: system
+        files: ^(src/|tools/checks/check_architecture\.py|architecture_rules\.yml)
+        pass_filenames: false
+
+    -   id: public-api
+        name: public-api
+        entry: bash -c 'uv run --locked python tools/packaging/check_public_api.py'
+        language: system
+        files: ^(src/|tools/packaging/check_public_api\.py|architecture_rules\.yml|public_api_baseline\.json)
+        pass_filenames: false
+
+    # Heavy checks mirror the CI jobs and run once per push, not once per
+    # commit — and not at all when a FULL local CI run (tools/ci/ci_local.sh)
+    # already passed on the exact tree being pushed (tools/ci/unless_ci_passed.sh;
+    # SANDLOOM_PREPUSH_IGNORE_CI_PASS=1 forces them).
+    # commit. ``always_run`` also protects pushes containing non-Python backend
+    # changes that still affect packaging, docs or the production image.
+    # Refuses the shared default test database: SANDLOOM_TEST_DATABASE_URL must
+    # name this checkout's own (see the script / docs/guides/testing.md).
+    -   id: backend-full-tests
+        name: backend-full-tests
+        entry: tools/ci/unless_ci_passed.sh tools/checks/prepush_full_tests.sh
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+    -   id: package-distributions
+        name: package-distributions
+        entry: bash -c 'uv run --locked python tools/packaging/check_package_distributions.py'
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+    -   id: docs-build
+        name: docs-build
+        entry: tools/ci/unless_ci_passed.sh uv run --locked --extra docs python tools/docs/docs_site.py build
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+    -   id: production-image
+        name: production-image
+        entry: tools/ci/unless_ci_passed.sh docker build --target production -f deploy/docker/Dockerfile --tag sandloom-backend:pre-push .
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false

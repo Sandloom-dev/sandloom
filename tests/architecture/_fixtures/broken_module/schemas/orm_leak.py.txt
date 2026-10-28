@@ -1,0 +1,14 @@
+"""DELIBERATELY BROKEN: ORM ``models`` reached from ``schemas/`` by spellings
+the old analyzer missed (package-relative and ``from <pkg> import models``).
+"""
+
+import importlib
+
+from .. import models  # VIOLATION: from .. import models
+from sandloom_identity import models as identity_models  # VIOLATION
+from ..models.order import Order  # VIOLATION (relative submodule)
+from .common import Money  # allowed: a sibling DTO module
+
+
+def later() -> None:
+    importlib.import_module("sandloom_billing.models")  # VIOLATION (dynamic)

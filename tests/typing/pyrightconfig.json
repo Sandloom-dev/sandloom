@@ -1,0 +1,11 @@
+{
+  "include": ["proofs"],
+  "extraPaths": ["../.."],
+  "typeCheckingMode": "strict",
+  "enableTypeIgnoreComments": true,
+  "reportUnnecessaryTypeIgnoreComment": "error",
+  "reportMissingTypeStubs": "none",
+  "reportPrivateUsage": "none",
+  "reportUnusedFunction": "none",
+  "reportUnusedVariable": "none"
+}

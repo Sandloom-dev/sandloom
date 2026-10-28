@@ -1,0 +1,23 @@
+# The start app of the app-mode tasks that extend an EXISTING product module
+# (t4, t5, t7, t8, t9: `seed = "teamhub"` in their metadata). The harness
+# builds it once per label (appmode.build_seed): it runs the `sandloom new` below
+# through the built wheels, `uv sync`, `uv run sandloom add module <m>` for each
+# module, deletes `remove`, copies `files/` over the app, runs `sandloom
+# generate` and `sandloom test` (which must pass). The agent starts from a
+# copy; the same build is the diff base, so only the agent's edits count.
+#
+# teamhub's product modules:
+# - invites:   members invite people by email (tenant table with a hashed link
+#              token and an expiry); publishes invites.invitation.sent.v1
+# - activity:  the organization's feed; consumes invites.invitation.sent.v1
+#              (another team's module, deployed on its own schedule)
+# - workspace: the organization's settings (admin-only write)
+new = ["teamhub", "--with", "identity,tenancy,billing"]
+modules = ["invites", "activity", "workspace"]
+remove = [
+    "teamhub/modules/invites/models/item.py",
+    "teamhub/modules/activity/models/item.py",
+    "teamhub/modules/activity/events.py",
+    "teamhub/modules/workspace/models/item.py",
+    "teamhub/modules/workspace/events.py",
+]

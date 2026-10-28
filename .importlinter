@@ -1,0 +1,235 @@
+; Kernel import contracts (ADR-0007, docs/adr/0007-kernel-layers.md).
+;
+; Checked by `lint-imports` (import-linter, pinned in the dev extras) — run by
+; tests/architecture/test_kernel_import_contracts.py and the pre-commit
+; hook. Every runtime import counts: module-level and function-local; only
+; `if TYPE_CHECKING:` blocks are excluded.
+;
+; Layers run TOP (tooling, composition) to BOTTOM (configuration). A module
+; may import its own layer or a lower one. `:` separates siblings of one layer
+; that may import each other (kernel-acyclic keeps them a DAG). `exhaustive`
+; fails every new sandloom.core child until it is placed in a layer.
+;
+; No contract has ignore_imports. Should one ever be needed, it is debt: a
+; written `; reason:` line with an owner right above the entry (the
+; architecture test refuses one without it); unmatched entries fail.
+
+[importlinter]
+root_package = sandloom
+exclude_type_checking_imports = true
+
+[importlinter:contract:kernel-layers]
+name = sandloom.core is layered (ADR-0007)
+type = layers
+containers =
+    sandloom.core
+exhaustive = true
+layers =
+    cli : testing : contract_testing : archcheck
+    app_factory : admin : composition : worker : gc_tuning : guarantee_windows : di : lifecycle : facade
+    rpc : loader : module_api : sagas : contract_compat : route_snapshots : contract_cache_shadow : rpc_transport : rpc_transport_compat
+    http : idempotency : route_policy : auth : internal_auth : production_profile : route_markers : guard_order : rpc_binding : rpc_identity : rpc_pair_mac : ingress
+    _internal : drivers
+    projections : tasks : async_runner : beat_lease : consumers
+    migrations : orm : sql_alchemy : planner : unit_of_work : tenant
+    eventing : runtime
+    infra
+    exceptions : error_codes : tenant_context : contract_context : observability : signing_keys : contract_wire : effects : descriptors : contracts : schema : claims : utils : cpu_quota : guarantee_lattice
+    config
+
+[importlinter:contract:kernel-acyclic]
+name = sandloom.core packages and modules are acyclic at every level
+type = acyclic_siblings
+ancestors =
+    sandloom.core
+depth = 20
+
+[importlinter:contract:kernel-config-leaf]
+name = configuration (sandloom.core.config) imports no other kernel package
+type = forbidden
+source_modules =
+    sandloom.core.config
+forbidden_modules =
+    sandloom.core._internal
+    sandloom.core.admin
+    sandloom.core.app_factory
+    sandloom.core.archcheck
+    sandloom.core.async_runner
+    sandloom.core.auth
+    sandloom.core.beat_lease
+    sandloom.core.claims
+    sandloom.core.cli
+    sandloom.core.composition
+    sandloom.core.consumers
+    sandloom.core.contract_cache_shadow
+    sandloom.core.contract_compat
+    sandloom.core.contract_context
+    sandloom.core.contract_testing
+    sandloom.core.contract_wire
+    sandloom.core.contracts
+    sandloom.core.cpu_quota
+    sandloom.core.descriptors
+    sandloom.core.di
+    sandloom.core.drivers
+    sandloom.core.effects
+    sandloom.core.error_codes
+    sandloom.core.eventing
+    sandloom.core.exceptions
+    sandloom.core.facade
+    sandloom.core.gc_tuning
+    sandloom.core.guarantee_windows
+    sandloom.core.guard_order
+    sandloom.core.http
+    sandloom.core.idempotency
+    sandloom.core.infra
+    sandloom.core.ingress
+    sandloom.core.internal_auth
+    sandloom.core.lifecycle
+    sandloom.core.loader
+    sandloom.core.migrations
+    sandloom.core.module_api
+    sandloom.core.observability
+    sandloom.core.orm
+    sandloom.core.planner
+    sandloom.core.production_profile
+    sandloom.core.projections
+    sandloom.core.route_markers
+    sandloom.core.route_policy
+    sandloom.core.route_snapshots
+    sandloom.core.rpc
+    sandloom.core.rpc_binding
+    sandloom.core.rpc_identity
+    sandloom.core.rpc_pair_mac
+    sandloom.core.rpc_transport
+    sandloom.core.rpc_transport_compat
+    sandloom.core.runtime
+    sandloom.core.sagas
+    sandloom.core.schema
+    sandloom.core.signing_keys
+    sandloom.core.sql_alchemy
+    sandloom.core.tasks
+    sandloom.core.tenant
+    sandloom.core.tenant_context
+    sandloom.core.testing
+    sandloom.core.unit_of_work
+    sandloom.core.utils
+    sandloom.core.worker
+
+; ---------------------------------------------------------------- sandloom.sdk
+; Public API 1.0 (spec §3, ADR-0010; text supplied by WS-B at H0). sandloom.sdk
+; sits above the kernel: it may import only the public kernel surface (the
+; modules Appendix C maps to it), never a kernel internal (indirect imports
+; through that surface are the surface's business); the kernel never imports
+; it; and inside it the public modules > _decl (L1) > _prim (L2).
+
+[importlinter:contract:sdk-kernel-surface]
+name = sandloom.sdk imports only the public kernel surface (spec §3)
+type = forbidden
+source_modules =
+    sandloom.sdk
+forbidden_modules =
+    sandloom.core._internal
+    sandloom.core.admin
+    sandloom.core.archcheck
+    sandloom.core.async_runner
+    sandloom.core.auth
+    sandloom.core.beat_lease
+    sandloom.core.claims
+    sandloom.core.composition
+    sandloom.core.config
+    sandloom.core.consumers
+    sandloom.core.contract_cache_shadow
+    sandloom.core.contract_compat
+    sandloom.core.contract_context
+    sandloom.core.contract_wire
+    sandloom.core.contracts
+    sandloom.core.cpu_quota
+    sandloom.core.drivers
+    sandloom.core.effects
+    sandloom.core.error_codes
+    sandloom.core.eventing
+    sandloom.core.exceptions
+    sandloom.core.gc_tuning
+    sandloom.core.guarantee_windows
+    sandloom.core.guard_order
+    sandloom.core.http
+    sandloom.core.idempotency
+    sandloom.core.infra
+    sandloom.core.ingress
+    sandloom.core.internal_auth
+    sandloom.core.lifecycle
+    sandloom.core.loader
+    sandloom.core.observability
+    sandloom.core.planner
+    sandloom.core.production_profile
+    sandloom.core.route_markers
+    sandloom.core.route_policy
+    sandloom.core.route_snapshots
+    sandloom.core.rpc
+    sandloom.core.rpc_binding
+    sandloom.core.rpc_identity
+    sandloom.core.rpc_pair_mac
+    sandloom.core.rpc_transport
+    sandloom.core.rpc_transport_compat
+    sandloom.core.runtime
+    sandloom.core.sagas
+    sandloom.core.schema
+    sandloom.core.sql_alchemy
+    sandloom.core.tasks
+    sandloom.core.tenant
+    sandloom.core.tenant_context
+    sandloom.core.unit_of_work
+    sandloom.core.utils
+    sandloom.core.worker
+    sandloom.core.cli._operator
+    sandloom.core.facade._claims
+    sandloom.core.facade._registries
+    sandloom.core.facade._runtime
+    sandloom.core.facade._services
+    sandloom.core.facade._state
+    sandloom.core.module_api._bootstrap
+    sandloom.core.module_api._call
+    sandloom.core.module_api._context
+    sandloom.core.module_api._dedupe
+    sandloom.core.module_api._define
+    sandloom.core.module_api._errors
+    sandloom.core.module_api._method
+    sandloom.core.module_api._provider
+    sandloom.core.module_api._read_guard
+    sandloom.core.module_api._read_scope
+    sandloom.core.module_api._registration
+    sandloom.core.module_api._schema
+    sandloom.core.module_api._service_registry
+    sandloom.core.module_api._spec
+    sandloom.core.testing._uow
+allow_indirect_imports = true
+
+[importlinter:contract:kernel-never-imports-sdk]
+name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk (ADR-0010)
+type = forbidden
+source_modules =
+    sandloom.core
+    sandloom.shared
+forbidden_modules =
+    sandloom.sdk
+
+[importlinter:contract:sdk-decl-l1]
+name = L1 (sandloom.sdk._decl) is built only from L2: no kernel import (spec §3)
+type = forbidden
+source_modules =
+    sandloom.sdk._decl
+forbidden_modules =
+    sandloom.core
+    sandloom.shared.authz
+    sandloom.shared.guards
+allow_indirect_imports = true
+
+[importlinter:contract:sdk-layers]
+name = sandloom.sdk is layered: public modules > _decl > _prim (spec §3)
+type = layers
+containers =
+    sandloom.sdk
+layers =
+    module : app : migrations : tooling : web : data : tenant : events : effects : contracts : authz : sagas : projections : infra : security : errors : testing
+    _decl
+    _prim

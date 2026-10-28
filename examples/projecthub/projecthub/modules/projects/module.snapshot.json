@@ -1,0 +1,92 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "get",
+        "list_for_tenant"
+      ],
+      "name": "projects.read.v1"
+    }
+  ],
+  "events": {
+    "projects.project.created.v1": {
+      "description": "A project was created (``version`` 1).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "tenant_id",
+        "name",
+        "status",
+        "version"
+      ],
+      "title": "ProjectCreated",
+      "type": "object"
+    },
+    "projects.project.updated.v1": {
+      "description": "A project changed; ``version`` grew by one.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "tenant_id",
+        "name",
+        "status",
+        "version"
+      ],
+      "title": "ProjectUpdated",
+      "type": "object"
+    }
+  },
+  "format": 1,
+  "module": "projecthub.modules.projects",
+  "projections": [],
+  "sagas": []
+}

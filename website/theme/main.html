@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block fonts %}
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family={{ config.theme.font.text | replace(' ', '+') }}:400,500,600,700&amp;display=fallback">
+  <style>:root{--md-text-font:"{{ config.theme.font.text }}";--md-code-font:"{{ config.theme.font.code }}"}</style>
+{% endblock %}
+{% block extrahead %}
+  {{ super() }}
+  <script src="/assets/theme.js"></script>
+{% endblock %}
+{% block tabs %}{% endblock %}
+{% block site_nav %}
+  <aside class="sl-sidebar" aria-label="Documentation navigation">
+    <p class="sl-sidebar-label">Documentation</p>
+    {% include "partials/site-tree.html" %}
+  </aside>
+  {% if "toc.integrate" not in features %}
+    {% set hidden = "hidden" if page.meta and page.meta.hide and "toc" in page.meta.hide %}
+    <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" {{ hidden }}>
+      <div class="md-sidebar__scrollwrap">
+        {% set toc = page.toc %}
+        {% set first = toc | first %}
+        {% if first and first.level == 1 %}{% set toc = first.children %}{% endif %}
+        {% if toc %}
+        <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+        <div class="md-sidebar-button__wrapper"><label class="md-sidebar-button" for="__toc"></label></div>
+        {% endif %}
+        <div class="md-sidebar__inner">{% include "partials/toc.html" %}</div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

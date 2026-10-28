@@ -1,0 +1,37 @@
+{
+  "description": "A ticket moved from ``old_status`` to ``new_status``.",
+  "properties": {
+    "actor_id": {
+      "format": "uuid",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "new_status": {
+      "title": "New Status",
+      "type": "string"
+    },
+    "old_status": {
+      "title": "Old Status",
+      "type": "string"
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "ticket_id": {
+      "format": "uuid",
+      "title": "Ticket Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ticket_id",
+    "organization_id",
+    "old_status",
+    "new_status",
+    "actor_id"
+  ],
+  "title": "TicketStatusChanged",
+  "type": "object"
+}

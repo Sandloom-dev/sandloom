@@ -1,0 +1,27 @@
+{
+  "format": 3,
+  "module": "academy.modules.payments",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/payments/balance",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/payments/topup",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    }
+  ]
+}

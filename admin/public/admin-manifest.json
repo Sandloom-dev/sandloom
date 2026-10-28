@@ -1,0 +1,3275 @@
+{
+  "modules": [
+    "identity",
+    "tenancy",
+    "billing",
+    "core"
+  ],
+  "resources": [
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [
+        {
+          "access": null,
+          "confirm": "Every refresh token is revoked and existing access tokens are rejected. The user must sign in again.",
+          "fields": [
+            "reason"
+          ],
+          "has_body": true,
+          "idempotency_field": null,
+          "inputs": [
+            {
+              "label": "Reason",
+              "maxLength": 500,
+              "minLength": 3,
+              "name": "reason",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "label": "Revoke sessions",
+          "method": "POST",
+          "name": "revoke-sessions",
+          "path": "/api/v1/users/{user_id}/revoke-sessions",
+          "placement": "widget",
+          "tone": "default",
+          "typed_confirmation": null
+        },
+        {
+          "access": null,
+          "confirm": "Emergency stop: every request with an existing token is rejected, sign-in is refused and all sessions end. Recorded in the audit log with your reason.",
+          "fields": [
+            "reason"
+          ],
+          "has_body": true,
+          "idempotency_field": null,
+          "inputs": [
+            {
+              "label": "Reason",
+              "maxLength": 500,
+              "minLength": 3,
+              "name": "reason",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "label": "Block user",
+          "method": "POST",
+          "name": "block",
+          "path": "/api/v1/users/{user_id}/block",
+          "placement": "widget",
+          "tone": "danger",
+          "typed_confirmation": "email"
+        },
+        {
+          "access": null,
+          "confirm": "Requests and sign-in are accepted again. Sessions ended by the block stay ended.",
+          "fields": [
+            "reason"
+          ],
+          "has_body": true,
+          "idempotency_field": null,
+          "inputs": [
+            {
+              "label": "Reason",
+              "maxLength": 500,
+              "minLength": 3,
+              "name": "reason",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "label": "Unblock user",
+          "method": "POST",
+          "name": "unblock",
+          "path": "/api/v1/users/{user_id}/unblock",
+          "placement": "widget",
+          "tone": "default",
+          "typed_confirmation": null
+        }
+      ],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "user"
+      },
+      "columns": [
+        {
+          "label": "Full name",
+          "maxLength": 255,
+          "minLength": 1,
+          "name": "full_name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "email",
+          "label": "Email",
+          "name": "email",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "label": "Email verified",
+          "name": "is_verified",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "format": "date-time",
+          "label": "Created",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": {
+        "method": "DELETE",
+        "path": "/api/v1/users/{user_id}"
+      },
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/users/{user_id}"
+      },
+      "edit": {
+        "fields": [
+          "full_name",
+          "first_name",
+          "last_name",
+          "username",
+          "is_active"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Full name",
+            "maxLength": 255,
+            "minLength": 1,
+            "name": "full_name",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "label": "First name",
+            "maxLength": 100,
+            "name": "first_name",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "label": "Last name",
+            "maxLength": 100,
+            "name": "last_name",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "label": "Username",
+            "maxLength": 50,
+            "name": "username",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "label": "Active",
+            "name": "is_active",
+            "nullable": true,
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "method": "PUT",
+        "path": "/api/v1/users/{user_id}"
+      },
+      "edit_widgets": [],
+      "filters": [
+        {
+          "description": "Case-insensitive literal substring of full name, email or username (3+ characters use the trigram index)",
+          "label": "Search",
+          "maxLength": 100,
+          "minLength": 1,
+          "name": "q",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Active",
+          "name": "is_active",
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "group": "Customers",
+      "icon": "users",
+      "items_field": null,
+      "label": "Users",
+      "labels": {
+        "created_at": "Created",
+        "email": "Email",
+        "first_name": "First name",
+        "full_name": "Full name",
+        "id": "ID",
+        "is_active": "Active",
+        "is_verified": "Email verified",
+        "last_login_at": "Last sign-in",
+        "last_name": "Last name",
+        "q": "Search",
+        "reason": "Reason",
+        "username": "Username"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/users"
+      },
+      "module": "identity",
+      "name": "users",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "Full name",
+          "maxLength": 255,
+          "minLength": 1,
+          "name": "full_name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "email",
+          "label": "Email",
+          "name": "email",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Username",
+          "maxLength": 50,
+          "name": "username",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "label": "Email verified",
+          "name": "is_verified",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "format": "date-time",
+          "label": "Created",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Last sign-in",
+          "name": "last_login_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [
+        "identity.account-safety",
+        "identity.user-roles",
+        "identity.directory"
+      ],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "role"
+      },
+      "columns": [
+        {
+          "label": "Name",
+          "maxLength": 100,
+          "minLength": 1,
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Code",
+          "maxLength": 50,
+          "minLength": 1,
+          "name": "code",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Description",
+          "name": "description",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "System role",
+          "name": "is_system",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "create": {
+        "fields": [
+          "name",
+          "code",
+          "description"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Name",
+            "maxLength": 100,
+            "minLength": 1,
+            "name": "name",
+            "nullable": false,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "label": "Code",
+            "maxLength": 50,
+            "minLength": 1,
+            "name": "code",
+            "nullable": false,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "label": "Description",
+            "name": "description",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "method": "POST",
+        "path": "/api/v1/roles"
+      },
+      "delete": {
+        "method": "DELETE",
+        "path": "/api/v1/roles/{role_id}"
+      },
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/roles/{role_id}"
+      },
+      "edit": {
+        "fields": [
+          "name",
+          "description"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Name",
+            "maxLength": 100,
+            "minLength": 1,
+            "name": "name",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "label": "Description",
+            "name": "description",
+            "nullable": true,
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "method": "PUT",
+        "path": "/api/v1/roles/{role_id}"
+      },
+      "edit_widgets": [
+        "identity.role-permissions"
+      ],
+      "filters": [],
+      "group": "Access control",
+      "icon": "shield",
+      "items_field": null,
+      "label": "Platform roles",
+      "labels": {
+        "code": "Code",
+        "description": "Description",
+        "id": "ID",
+        "is_system": "System role",
+        "name": "Name"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/roles"
+      },
+      "module": "identity",
+      "name": "roles",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "all",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Name",
+          "maxLength": 100,
+          "minLength": 1,
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Code",
+          "maxLength": 50,
+          "minLength": 1,
+          "name": "code",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Description",
+          "name": "description",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "System role",
+          "name": "is_system",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "show_widgets": [
+        "identity.role-permissions"
+      ],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "Name",
+          "maxLength": 100,
+          "minLength": 1,
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Code",
+          "maxLength": 100,
+          "minLength": 1,
+          "name": "code",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource",
+          "maxLength": 50,
+          "name": "resource",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Action",
+          "maxLength": 50,
+          "name": "action",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [],
+      "group": "Access control",
+      "icon": "key",
+      "items_field": null,
+      "label": "Permissions",
+      "labels": {
+        "action": "Action",
+        "code": "Code",
+        "name": "Name",
+        "resource": "Resource"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/permissions"
+      },
+      "module": "identity",
+      "name": "permissions",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "all",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "organization"
+      },
+      "columns": [
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Slug",
+          "name": "slug",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Owner ID",
+          "name": "owner_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/tenancy/organizations/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Search name or slug",
+          "maxLength": 100,
+          "name": "q",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "format": "uuid",
+          "label": "Owner ID",
+          "name": "owner_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Customers",
+      "icon": "building",
+      "items_field": null,
+      "label": "All organizations",
+      "labels": {
+        "created_at": "Created at",
+        "id": "Id",
+        "is_active": "Is active",
+        "name": "Name",
+        "owner_id": "Owner ID",
+        "q": "Search name or slug",
+        "slug": "Slug",
+        "updated_at": "Updated at"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/tenancy/organizations"
+      },
+      "module": "tenancy",
+      "name": "organizations",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "format": "uuid",
+          "label": "Id",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Slug",
+          "name": "slug",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Owner ID",
+          "name": "owner_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Updated at",
+          "name": "updated_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [
+        "tenancy.directory",
+        "tenancy.workspace"
+      ],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "format": "uuid",
+          "label": "Organization ID",
+          "name": "organization_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "User ID",
+          "name": "user_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Role",
+          "name": "role",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Organization ID",
+          "name": "organization_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "User ID",
+          "name": "user_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Customers",
+      "icon": "users-group",
+      "items_field": null,
+      "label": "Organization members",
+      "labels": {
+        "created_at": "Created at",
+        "organization_id": "Organization ID",
+        "q": "Search name or slug",
+        "role": "Role",
+        "user_id": "User ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/tenancy/members"
+      },
+      "module": "tenancy",
+      "name": "organization_members",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [
+        {
+          "access": null,
+          "confirm": "Apply this credit adjustment? This changes credits only. Reuse the operation reference when retrying an uncertain result.",
+          "fields": [
+            "direction",
+            "amount",
+            "reason",
+            "operation_key"
+          ],
+          "has_body": true,
+          "idempotency_field": "operation_key",
+          "inputs": [
+            {
+              "enum": [
+                "grant",
+                "deduct"
+              ],
+              "label": "Direction",
+              "name": "direction",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            },
+            {
+              "exclusiveMinimum": 0.0,
+              "label": "Credits",
+              "maximum": 1000000000000.0,
+              "name": "amount",
+              "nullable": false,
+              "required": true,
+              "type": "integer"
+            },
+            {
+              "label": "Reason / support reference",
+              "maxLength": 300,
+              "minLength": 8,
+              "name": "reason",
+              "nullable": false,
+              "pattern": ".*\\S.*",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "format": "uuid",
+              "label": "Operation reference",
+              "name": "operation_key",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "label": "Adjust credits",
+          "method": "POST",
+          "name": "adjust-credits",
+          "path": "/api/v1/platform/billing/customers/{record_id}/adjust-credits",
+          "placement": "toolbar",
+          "tone": "default",
+          "typed_confirmation": null
+        }
+      ],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "billing_customer"
+      },
+      "columns": [
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "User ID",
+          "name": "user_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Organization ID",
+          "name": "organization_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Stripe customer ID",
+          "name": "stripe_customer_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Tenant type",
+          "name": "tenant_type",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Tenant ID",
+          "name": "tenant_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/customers/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "User ID",
+          "name": "user_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Organization ID",
+          "name": "organization_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing",
+      "icon": "wallet",
+      "items_field": null,
+      "label": "Billing customers",
+      "labels": {
+        "amount": "Credits",
+        "balance_after": "Resulting balance (credits)",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "organization_id": "Organization ID",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "stripe_customer_id": "Stripe customer ID",
+        "tenant_id": "Tenant ID",
+        "tenant_type": "Tenant type",
+        "user_id": "User ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/customers"
+      },
+      "module": "billing",
+      "name": "billing_customers",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "User ID",
+          "name": "user_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Organization ID",
+          "name": "organization_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Stripe customer ID",
+          "name": "stripe_customer_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Tenant type",
+          "name": "tenant_type",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Tenant ID",
+          "name": "tenant_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [
+        "billing.customer"
+      ],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": {
+        "id_field": "stripe_subscription_id",
+        "resource_type": "billing_subscription"
+      },
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Price ID",
+          "name": "price_id",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Stripe subscription ID",
+          "name": "stripe_subscription_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Current period end",
+          "name": "current_period_end",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/subscriptions/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing",
+      "icon": "repeat",
+      "items_field": null,
+      "label": "Subscriptions",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "cancel_at_period_end": "Cancel at period end",
+        "canceled_at": "Canceled at",
+        "current_period_end": "Current period end",
+        "customer_id": "Customer ID",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "intent_id": "Intent ID",
+        "operation_key": "Operation reference",
+        "origin": "Origin",
+        "price_id": "Price ID",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "status": "Status",
+        "stripe_customer_id": "Stripe customer ID",
+        "stripe_subscription_id": "Stripe subscription ID",
+        "trial_end": "Trial end"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/subscriptions"
+      },
+      "module": "billing",
+      "name": "billing_subscriptions",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Price ID",
+          "name": "price_id",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Stripe subscription ID",
+          "name": "stripe_subscription_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Current period end",
+          "name": "current_period_end",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Trial end",
+          "name": "trial_end",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Cancel at period end",
+          "name": "cancel_at_period_end",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "format": "date-time",
+          "label": "Canceled at",
+          "name": "canceled_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Origin",
+          "name": "origin",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Intent ID",
+          "name": "intent_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "billing_product"
+      },
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Type",
+          "name": "type",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "label": "Stripe product ID",
+          "name": "stripe_product_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/products/{record_id}"
+      },
+      "edit": {
+        "fields": [
+          "name",
+          "is_active",
+          "reason"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Name",
+            "maxLength": 255,
+            "minLength": 1,
+            "name": "name",
+            "nullable": false,
+            "pattern": ".*\\S.*",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "label": "Is active",
+            "name": "is_active",
+            "nullable": false,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "label": "Reason / support reference",
+            "maxLength": 300,
+            "minLength": 8,
+            "name": "reason",
+            "nullable": false,
+            "pattern": ".*\\S.*",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "method": "PATCH",
+        "path": "/api/v1/platform/billing/products/{record_id}"
+      },
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "group": "Billing catalog",
+      "icon": "package",
+      "items_field": null,
+      "label": "Products",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "is_active": "Is active",
+        "name": "Name",
+        "operation_key": "Operation reference",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "stripe_customer_id": "Stripe customer ID",
+        "stripe_product_id": "Stripe product ID",
+        "type": "Type"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/products"
+      },
+      "module": "billing",
+      "name": "billing_products",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Type",
+          "name": "type",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Is active",
+          "name": "is_active",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "label": "Stripe product ID",
+          "name": "stripe_product_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Product ID",
+          "name": "product_id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Amount (minor currency units)",
+          "name": "amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Currency",
+          "name": "currency",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Recurring interval",
+          "name": "recurring_interval",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Credits",
+          "name": "credits",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/prices/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Product ID",
+          "name": "product_id",
+          "nullable": true,
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "group": "Billing catalog",
+      "icon": "tag",
+      "items_field": null,
+      "label": "Prices",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "credits": "Credits",
+        "currency": "Currency",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "product_id": "Product ID",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "recurring_interval": "Recurring interval",
+        "stripe_customer_id": "Stripe customer ID",
+        "stripe_price_id": "Stripe price ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/prices"
+      },
+      "module": "billing",
+      "name": "billing_prices",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Product ID",
+          "name": "product_id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Amount (minor currency units)",
+          "name": "amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Currency",
+          "name": "currency",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Recurring interval",
+          "name": "recurring_interval",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Credits",
+          "name": "credits",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Stripe price ID",
+          "name": "stripe_price_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Balance (credits)",
+          "name": "amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/balances/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing",
+      "icon": "scale",
+      "items_field": null,
+      "label": "Credit balances",
+      "labels": {
+        "amount": "Balance (credits)",
+        "balance_after": "Resulting balance (credits)",
+        "customer_id": "Customer ID",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "stripe_customer_id": "Stripe customer ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/balances"
+      },
+      "module": "billing",
+      "name": "billing_balances",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Balance (credits)",
+          "name": "amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Change (credits)",
+          "name": "delta",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Reason / support reference",
+          "name": "reason",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Operation reference",
+          "name": "operation_key",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resulting balance (credits)",
+          "name": "balance_after",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/ledger/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing",
+      "icon": "ledger",
+      "items_field": null,
+      "label": "Credit ledger",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "created_at": "Created at",
+        "customer_id": "Customer ID",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "stripe_customer_id": "Stripe customer ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/ledger"
+      },
+      "module": "billing",
+      "name": "billing_ledger",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Change (credits)",
+          "name": "delta",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Reason / support reference",
+          "name": "reason",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Operation reference",
+          "name": "operation_key",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resulting balance (credits)",
+          "name": "balance_after",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "PSP session ID",
+          "name": "psp_session_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Psp payment intent ID",
+          "name": "psp_payment_intent_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Price ID",
+          "name": "price_id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Credits",
+          "name": "credits",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/grants/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing",
+      "icon": "receipt",
+      "items_field": null,
+      "label": "Credit purchases",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "created_at": "Created at",
+        "credits": "Credits",
+        "currency": "Currency",
+        "customer_id": "Customer ID",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "price_id": "Price ID",
+        "psp_payment_intent_id": "Psp payment intent ID",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "reversed": "Reversed",
+        "stripe_customer_id": "Stripe customer ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/grants"
+      },
+      "module": "billing",
+      "name": "billing_grants",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "PSP session ID",
+          "name": "psp_session_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Psp payment intent ID",
+          "name": "psp_payment_intent_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Price ID",
+          "name": "price_id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Credits",
+          "name": "credits",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Amount (minor currency units)",
+          "name": "amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Currency",
+          "name": "currency",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Reversed",
+          "name": "reversed",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Event ID",
+          "name": "event_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Received at",
+          "name": "received_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/webhooks/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing operations",
+      "icon": "webhook",
+      "items_field": null,
+      "label": "Webhook journal",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "event_id": "Event ID",
+        "id": "ID",
+        "operation_key": "Operation reference",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "received_at": "Received at",
+        "status": "Status",
+        "stripe_customer_id": "Stripe customer ID"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/webhooks"
+      },
+      "module": "billing",
+      "name": "billing_webhooks",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Event ID",
+          "name": "event_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Received at",
+          "name": "received_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": {
+        "id_field": "id",
+        "resource_type": "billing_intent"
+      },
+      "columns": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Operation",
+          "name": "operation",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Reconcile attempts",
+          "name": "reconcile_attempts",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "date-time",
+          "label": "Followup at",
+          "name": "followup_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/intents/{record_id}"
+      },
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Followup",
+          "name": "followup",
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "group": "Billing operations",
+      "icon": "zap",
+      "items_field": null,
+      "label": "Operation intents",
+      "labels": {
+        "actor_id": "Actor ID",
+        "amount": "Amount (minor currency units)",
+        "balance_after": "Resulting balance (credits)",
+        "created_at": "Created at",
+        "customer_id": "Customer ID",
+        "delta": "Change (credits)",
+        "direction": "Direction",
+        "followup": "Followup",
+        "followup_at": "Followup at",
+        "id": "ID",
+        "issued_at": "Issued at",
+        "operation": "Operation",
+        "operation_key": "Operation reference",
+        "price_id": "Price ID",
+        "psp_expired_at": "Psp expired at",
+        "psp_session_id": "PSP session ID",
+        "reason": "Reason / support reference",
+        "reconcile_attempts": "Reconcile attempts",
+        "status": "Status",
+        "stripe_customer_id": "Stripe customer ID",
+        "tenant_id": "Tenant ID",
+        "tenant_type": "Tenant type",
+        "updated_at": "Updated at"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/intents"
+      },
+      "module": "billing",
+      "name": "billing_intents",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "format": "uuid",
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Customer ID",
+          "name": "customer_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Tenant type",
+          "name": "tenant_type",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Tenant ID",
+          "name": "tenant_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor ID",
+          "name": "actor_id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Operation",
+          "name": "operation",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Price ID",
+          "name": "price_id",
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "PSP session ID",
+          "name": "psp_session_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Issued at",
+          "name": "issued_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Psp expired at",
+          "name": "psp_expired_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Reconcile attempts",
+          "name": "reconcile_attempts",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "date-time",
+          "label": "Followup at",
+          "name": "followup_at",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Created at",
+          "name": "created_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Updated at",
+          "name": "updated_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "ID",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "PSP customer ID",
+          "name": "psp_customer_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Currency",
+          "name": "currency",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Refunded (minor units)",
+          "name": "amount_refunded",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Dispute status",
+          "name": "dispute_status",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Disputed (minor units)",
+          "name": "dispute_amount",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "format": "date-time",
+          "label": "Updated",
+          "name": "updated_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "PSP customer ID",
+          "maxLength": 255,
+          "name": "psp_customer_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Billing operations",
+      "icon": "undo",
+      "items_field": null,
+      "label": "Refunds and disputes",
+      "labels": {
+        "amount": "Amount (minor currency units)",
+        "amount_refunded": "Refunded (minor units)",
+        "balance_after": "Resulting balance (credits)",
+        "currency": "Currency",
+        "delta": "Change (credits)",
+        "dispute_amount": "Disputed (minor units)",
+        "dispute_status": "Dispute status",
+        "id": "ID",
+        "psp_customer_id": "PSP customer ID",
+        "psp_session_id": "PSP session ID",
+        "stripe_customer_id": "Stripe customer ID",
+        "updated_at": "Updated"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/payment-states"
+      },
+      "module": "billing",
+      "name": "billing_payment_states",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "format": "date-time",
+          "label": "Occurred at",
+          "name": "occurred_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Action",
+          "name": "action",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "name": "resource_type",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "name": "resource_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Request id",
+          "name": "request_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Action starts with",
+          "maxLength": 200,
+          "minLength": 1,
+          "name": "action_prefix",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "maxLength": 100,
+          "name": "resource_type",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "maxLength": 200,
+          "name": "resource_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Since",
+          "name": "since",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Until",
+          "name": "until",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Platform",
+      "icon": "audit",
+      "items_field": null,
+      "label": "Audit log · identity",
+      "labels": {
+        "action": "Action",
+        "action_prefix": "Action starts with",
+        "actor_id": "Actor id",
+        "occurred_at": "Occurred at",
+        "request_id": "Request id",
+        "resource_id": "Resource id",
+        "resource_type": "Resource type",
+        "since": "Since",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/identity/audit"
+      },
+      "module": "core",
+      "name": "audit_identity",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "cursor",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "Id",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Category",
+          "name": "category",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [],
+      "group": "Platform",
+      "icon": "health",
+      "items_field": null,
+      "label": "Service health · identity",
+      "labels": {
+        "action_prefix": "Action starts with",
+        "category": "Category",
+        "id": "Id",
+        "since": "Since",
+        "status": "Status",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/identity/services"
+      },
+      "module": "core",
+      "name": "services_identity",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "all",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "format": "date-time",
+          "label": "Occurred at",
+          "name": "occurred_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Action",
+          "name": "action",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "name": "resource_type",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "name": "resource_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Request id",
+          "name": "request_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Action starts with",
+          "maxLength": 200,
+          "minLength": 1,
+          "name": "action_prefix",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "maxLength": 100,
+          "name": "resource_type",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "maxLength": 200,
+          "name": "resource_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Since",
+          "name": "since",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Until",
+          "name": "until",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Platform",
+      "icon": "audit",
+      "items_field": null,
+      "label": "Audit log · tenancy",
+      "labels": {
+        "action": "Action",
+        "action_prefix": "Action starts with",
+        "actor_id": "Actor id",
+        "occurred_at": "Occurred at",
+        "request_id": "Request id",
+        "resource_id": "Resource id",
+        "resource_type": "Resource type",
+        "since": "Since",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/tenancy/audit"
+      },
+      "module": "core",
+      "name": "audit_tenancy",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "cursor",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "Id",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Category",
+          "name": "category",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [],
+      "group": "Platform",
+      "icon": "health",
+      "items_field": null,
+      "label": "Service health · tenancy",
+      "labels": {
+        "action_prefix": "Action starts with",
+        "category": "Category",
+        "id": "Id",
+        "since": "Since",
+        "status": "Status",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/tenancy/services"
+      },
+      "module": "core",
+      "name": "services_tenancy",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "all",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "format": "date-time",
+          "label": "Occurred at",
+          "name": "occurred_at",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Action",
+          "name": "action",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "name": "resource_type",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "name": "resource_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Request id",
+          "name": "request_id",
+          "nullable": true,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [
+        {
+          "label": "Action starts with",
+          "maxLength": 200,
+          "minLength": 1,
+          "name": "action_prefix",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "uuid",
+          "label": "Actor id",
+          "name": "actor_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource type",
+          "maxLength": 100,
+          "name": "resource_type",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "label": "Resource id",
+          "maxLength": 200,
+          "name": "resource_id",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Since",
+          "name": "since",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "label": "Until",
+          "name": "until",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Platform",
+      "icon": "audit",
+      "items_field": null,
+      "label": "Audit log · billing",
+      "labels": {
+        "action": "Action",
+        "action_prefix": "Action starts with",
+        "actor_id": "Actor id",
+        "occurred_at": "Occurred at",
+        "request_id": "Request id",
+        "resource_id": "Resource id",
+        "resource_type": "Resource type",
+        "since": "Since",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/audit"
+      },
+      "module": "core",
+      "name": "audit_billing",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "cursor",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    },
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [],
+      "audit": null,
+      "columns": [
+        {
+          "label": "Id",
+          "name": "id",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Status",
+          "name": "status",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Category",
+          "name": "category",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "create": null,
+      "delete": null,
+      "detail": null,
+      "edit": null,
+      "edit_widgets": [],
+      "filters": [],
+      "group": "Platform",
+      "icon": "health",
+      "items_field": null,
+      "label": "Service health · billing",
+      "labels": {
+        "action_prefix": "Action starts with",
+        "category": "Category",
+        "id": "Id",
+        "since": "Since",
+        "status": "Status",
+        "until": "Until"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/platform/billing/services"
+      },
+      "module": "core",
+      "name": "services_billing",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "all",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [],
+      "show_widgets": [],
+      "sort_fields": [],
+      "sort_parameter": null
+    }
+  ],
+  "version": 1
+}

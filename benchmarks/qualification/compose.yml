@@ -1,0 +1,120 @@
+# Local release qualification only. Diagnostic benchmark routes hold no user data.
+x-env: &env
+  ENVIRONMENT: prod
+  PRODUCTION_PROFILE: multi_tenant_strict
+  SANDLOOM_MODULES: '["sandloom_identity", "benchsuite.bench"]'
+  PYTHONPATH: /benchmarks
+  BENCH_S5: '1'
+  BENCH_WRITE_DIAG: '1'
+  DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD:?run prepare}@db:5432/qualification
+  CACHE_URL: redis://cache:6379/0
+  BROKER_URL: redis://cache:6379/2
+  SECURITY_CACHE_INSTANCE: security
+  INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
+  JWT_SECRET: ${JWT_SECRET:?run prepare}
+  TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?run prepare}
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?run prepare}
+  AUTH_REVOCATION_FAIL_CLOSED: 'true'
+  PLANNER_OPTIMIZED_EXECUTOR: ${SANDLOOM_QUALIFICATION_PLANNER_OPTIMIZED:-false}
+  RATE_LIMIT_ENABLED: 'false'
+  LOG_LEVEL: WARNING
+  WEB_CONCURRENCY: '2'
+  DB_POOL_SIZE: '5'
+  DB_MAX_OVERFLOW: '5'
+  CONTRACT_DB_POOL_SIZE: '2'
+  CONTRACT_DB_MAX_OVERFLOW: '2'
+  OUTBOX_RELAY_INTERVAL_SECONDS: '1'
+
+x-app: &app
+  image: ${SANDLOOM_QUALIFICATION_IMAGE:-sandloom-release:qualification}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+    target: production
+  environment: *env
+  volumes:
+    - ../:/benchmarks:ro
+  command: [gunicorn, -c, 'python:sandloom.core.cli.gunicorn_conf', 'benchsuite.apps.sandloom_app:app']
+  cpus: 2
+  mem_limit: 1g
+  depends_on:
+    setup:
+      condition: service_completed_successfully
+  stop_grace_period: 15s
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qualification_owner
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?run prepare}
+      POSTGRES_DB: qualification
+    volumes:
+      - pg:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U qualification_owner -d qualification]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    cpus: 2
+    mem_limit: 1g
+  cache:
+    image: redis:7-alpine
+    command: [redis-server, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru]
+    cpus: 0.5
+    mem_limit: 192m
+  security:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes', --appendfsync, always, --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    volumes:
+      - security:/data
+    cpus: 0.5
+    mem_limit: 192m
+  setup:
+    <<: *app
+    environment:
+      <<: *env
+      ENVIRONMENT: dev
+      PRODUCTION_PROFILE: standard
+      DATABASE_URL: postgresql+asyncpg://qualification_owner:${DB_PASSWORD}@db:5432/qualification
+      INFRA: '{}'
+      S5_APP_ROLE: qualification_app
+      S5_APP_PASSWORD: ${APP_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+      security:
+        condition: service_started
+    command: [sh, -ec, 'sandloom migrate upgrade-all --apply; python /benchmarks/qualification/seed.py']
+    healthcheck:
+      disable: true
+  app:
+    <<: *app
+    ports:
+      - '127.0.0.1:${QUALIFICATION_PORT:-18222}:2222'
+  restored-cache:
+    image: redis:7-alpine
+    profiles: [restore]
+    command: [redis-server, --save, '', --appendonly, 'no']
+    cpus: 0.5
+    mem_limit: 192m
+  restored-app:
+    <<: *app
+    profiles: [restore]
+    environment:
+      <<: *env
+      DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD}@db:5432/${RESTORE_DATABASE:-qualification_restore}
+      CACHE_URL: redis://restored-cache:6379/0
+      BROKER_URL: redis://restored-cache:6379/2
+    ports:
+      - '127.0.0.1:18223:2222'
+
+volumes:
+  pg:
+  security:
+
+# The restore target is a NEW database on the isolated PostgreSQL server.
+# Roles and secrets stay in this local cluster; cross-host role/key recovery
+# remains a separate operator exercise.

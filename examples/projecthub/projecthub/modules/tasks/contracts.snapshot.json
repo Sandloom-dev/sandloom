@@ -1,0 +1,39 @@
+{
+  "contracts": {
+    "tasks.read.v1": {
+      "hash": "cbc18beef7fd44432e84014d45097fac",
+      "methods": {
+        "list_for_tenant": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "k": "dict",
+              "key": {
+                "k": "scalar",
+                "t": "str"
+              },
+              "value": {
+                "k": "any"
+              }
+            },
+            "k": "list"
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "projecthub.modules.tasks"
+}

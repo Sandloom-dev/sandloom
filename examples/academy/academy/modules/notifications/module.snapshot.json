@@ -1,0 +1,18 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "send"
+      ],
+      "name": "notifications.mail.v1"
+    }
+  ],
+  "events": {},
+  "format": 1,
+  "module": "academy.modules.notifications",
+  "projections": [],
+  "sagas": []
+}

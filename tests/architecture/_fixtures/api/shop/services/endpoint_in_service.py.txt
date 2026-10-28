@@ -1,0 +1,16 @@
+"""DELIBERATELY BROKEN: an endpoint in a service file of a module that lives
+under an ``api/`` directory ABOVE the module root (``/srv/api/...``).
+
+``endpoints-outside-api`` must judge the path relative to the module root
+(``shop/``): ``services/`` is not the API layer, whatever the checkout's
+absolute path contains.
+"""
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/orders")
+async def list_orders() -> list[str]:  # VIOLATION: endpoint in services/
+    return []

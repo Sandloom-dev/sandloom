@@ -1,0 +1,40 @@
+{
+  "format": 3,
+  "module": "linkly.modules.links",
+  "routes": [
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/api/v1/links",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none",
+        "public_reason": "linkly is a fully public shortener (no auth module loaded)",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/api/v1/links/{code}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "linkly is a fully public shortener (no auth module loaded)",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/api/v1/links/{code}/stats",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "linkly is a fully public shortener (no auth module loaded)",
+        "session": "none"
+      }
+    }
+  ]
+}

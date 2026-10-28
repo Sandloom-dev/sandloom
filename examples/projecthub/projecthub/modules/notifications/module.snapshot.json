@@ -1,0 +1,22 @@
+{
+  "consumers": [
+    {
+      "bind_tenant_from": null,
+      "channel": "tasks.task.created.v1",
+      "database": "default",
+      "dead_letter": true,
+      "durable": true,
+      "group": null,
+      "name": "notifications@task.created",
+      "required": true,
+      "start_from": "earliest"
+    }
+  ],
+  "consumes": [],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "projecthub.modules.notifications",
+  "projections": [],
+  "sagas": []
+}

@@ -1,0 +1,28 @@
+{
+  "format": 3,
+  "module": "projecthub.modules.tasks",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/api/v1/tasks/{task_id}",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "description": "A ticket was opened in an organization.",
+  "properties": {
+    "actor_id": {
+      "format": "uuid",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "priority": {
+      "title": "Priority",
+      "type": "string"
+    },
+    "ticket_id": {
+      "format": "uuid",
+      "title": "Ticket Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ticket_id",
+    "organization_id",
+    "actor_id",
+    "priority"
+  ],
+  "title": "TicketCreated",
+  "type": "object"
+}

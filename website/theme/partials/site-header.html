@@ -1,0 +1,22 @@
+<header class="sl-header{% if is_docs %} md-header{% endif %}" data-md-component="header">
+  <div class="sl-header-inner">
+    <button type="button" class="sl-menu sl-icon-button" data-sandloom-menu-toggle aria-label="Open navigation" aria-expanded="false" aria-controls="sl-site-menu">
+      {% include "partials/menu-icon.html" %}
+    </button>
+    <a class="sl-brand" href="/" aria-label="Sandloom home">
+      <img src="/docs/assets/sandloom-mark.svg" alt="" width="30" height="30"><span>sandloom</span>
+    </a>
+    <div class="sl-header-search">{% include "partials/site-search.html" %}</div>
+    <nav class="sl-nav" aria-label="Main navigation">
+      {% include "partials/site-links.html" %}
+    </nav>
+    <button class="sl-theme sl-icon-button" type="button" data-sandloom-theme-toggle aria-label="Switch color theme" title="Switch color theme">
+      <svg class="sl-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20.5 13.2A8.7 8.7 0 0 1 10.8 3.5a8.7 8.7 0 1 0 9.7 9.7Z"/></svg>
+      <svg class="sl-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+    </button>
+  </div>
+  {% if is_docs %}
+  <div class="sl-native-palette" hidden>{% include "partials/palette.html" %}{% include "partials/javascripts/palette.html" %}</div>
+  {% endif %}
+</header>
+{% include "partials/site-menu.html" %}

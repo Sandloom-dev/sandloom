@@ -1,0 +1,9 @@
+# Add after compose.yml and compose.https.yml for an already proxied domain.
+# Trust the client header only when the TCP peer is an official Cloudflare edge.
+# No changes to the shared proxy's global forwarded-header trust are required.
+services:
+  app:
+    labels:
+      traefik.http.routers.sandloom-qualification-https.rule: 'Host(`${SANDLOOM_BENCH_DOMAIN:?set test domain}`) && Header(`CF-Connecting-IP`, `${SANDLOOM_BENCH_CLIENT_IP:?set load generator IP}`) && (PathPrefix(`/s5/`) || PathPrefix(`/s5plan/`) || Path(`/ready`))'
+      traefik.http.routers.sandloom-qualification-https.middlewares: sandloom-qualification-cloudflare,sandloom-qualification-nocache
+      traefik.http.middlewares.sandloom-qualification-cloudflare.ipallowlist.sourcerange: ${SANDLOOM_BENCH_EDGE_CIDRS:?set official Cloudflare CIDRs}

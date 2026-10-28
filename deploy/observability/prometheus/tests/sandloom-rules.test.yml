@@ -1,0 +1,153 @@
+# promtool unit tests for the Sandloom rules: `deploy/observability/check.sh`.
+# They pin the thresholds' behaviour (fires above, silent below) and the label
+# conventions (exported_instance for the cache instance).
+rule_files:
+  - ../rules/sandloom-alerts.yml
+  - ../rules/sandloom-slo.yml
+
+evaluation_interval: 30s
+
+tests:
+  - name: outbox backlog — warning at 10 s, page at 60 s, relay absent
+    interval: 30s
+    input_series:
+      - series: 'sandloom_outbox_oldest_pending_age_seconds{job="sandloom", database="default"}'
+        values: '0+0x9 30+0x20 120+0x20'
+      - series: 'sandloom_startup_duration_seconds{job="sandloom"}'
+        values: '3+0x60'
+      - series: 'sandloom_startup_duration_seconds{job="sandloom-norelay"}'
+        values: '3+0x60'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: SandloomOutboxBacklogAgeingWarning
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SandloomOutboxBacklogAgeingWarning
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sandloom, database: default}
+            exp_annotations:
+              summary: "Outbox of sandloom/default: oldest undelivered event is 30s old"
+              description: "Early warning for SandloomOutboxBacklogAgeing (the normal age is well under a second)."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+      - eval_time: 10m
+        alertname: SandloomOutboxBacklogAgeing
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: SandloomOutboxBacklogAgeing
+        exp_alerts:
+          - exp_labels: {severity: page, job: sandloom, database: default}
+            exp_annotations:
+              summary: "Outbox of sandloom/default: oldest undelivered event is 2m 0s old"
+              description: "Committed events are not reaching the broker: broker down (outbox_relay_circuit_open == 1), relay not running (outbox_relay_last_run_timestamp stale) or a backlog the relay cannot drain."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+      - eval_time: 11m
+        alertname: SandloomOutboxRelayAbsent
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sandloom-norelay}
+            exp_annotations:
+              summary: "sandloom-norelay serves traffic but no process runs the outbox relay"
+              description: "The age gauge is exported only by the relay. Check OUTBOX_RELAY_ENABLED (auto = prod only) and the Gunicorn relay leader election in the app logs."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+
+  - name: security cache errors page, other caches warn
+    interval: 1m
+    input_series:
+      - series: 'sandloom_cache_operation_errors_total{job="sandloom", exported_instance="security", operation="get"}'
+        values: '0+60x10'
+      - series: 'sandloom_cache_operation_errors_total{job="sandloom", exported_instance="default", operation="get"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: SandloomSecurityCacheErrors
+        exp_alerts:
+          - exp_labels: {severity: page, job: sandloom, exported_instance: security}
+            exp_annotations:
+              summary: "sandloom: security cache errors 1/s"
+              description: "The Redis holding revocation marks, blocks and idempotency records is unreachable or timing out: authenticated requests answer 503 (fail-closed) or skip revocation (fail-open)."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+      - eval_time: 6m
+        alertname: SandloomCacheErrors
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sandloom, exported_instance: default}
+            exp_annotations:
+              summary: "sandloom: cache default errors 1/s"
+              description: "Redis unreachable or timing out; rate limiting falls back to its fail-open / fail-closed policy."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+
+  - name: durable revocation pending — warning then page
+    interval: 1m
+    input_series:
+      - series: 'auth_revocation_pending_seconds{job="sandloom"}'
+        values: '0 30 90 400'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SandloomRevocationPending
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: SandloomRevocationPending
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sandloom}
+            exp_annotations:
+              summary: "sandloom: a durable revocation is pending for 1m 30s"
+              description: "The identity replica answers /ready 503 (revocations_pending) until it drains. Fix the cache."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#secrets-management
+      - eval_time: 3m
+        alertname: SandloomRevocationPendingCritical
+        exp_alerts:
+          - exp_labels: {severity: page, job: sandloom}
+            exp_annotations:
+              summary: "sandloom: a durable revocation is pending for 6m 40s"
+              description: "A revoked token may still be accepted wherever the cache is reachable."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/operations/operator-reference.md#secrets-management
+
+  - name: read availability fast burn pages, healthy traffic does not
+    interval: 1m
+    input_series:
+      # 100 reads/s, 3 % of them 5xx (30x the 0.1 % budget).
+      - series: 'sandloom_http_requests_total{job="sandloom", method="GET", path="/api/v1/items", status="200"}'
+        values: '0+5820x90'
+      - series: 'sandloom_http_requests_total{job="sandloom", method="GET", path="/api/v1/items", status="500"}'
+        values: '0+180x90'
+      # Healthy job: 0.01 % 5xx; probes never count.
+      - series: 'sandloom_http_requests_total{job="ok", method="GET", path="/api/v1/items", status="200"}'
+        values: '0+5999x90'
+      - series: 'sandloom_http_requests_total{job="ok", method="GET", path="/api/v1/items", status="503"}'
+        values: '0+1x90'
+      - series: 'sandloom_http_requests_total{job="ok", method="GET", path="/health", status="503"}'
+        values: '0+6000x90'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: SandloomApiReadAvailabilityBurnFast
+        exp_alerts:
+          - exp_labels: {severity: page, slo: api-read-availability, job: sandloom}
+            exp_annotations:
+              summary: "sandloom: API reads burn the 99.9 % availability budget 14x too fast"
+              description: "5xx ratio over 1h: 3%. At this rate the 30-day budget is gone in ~2 days."
+              runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+    promql_expr_test:
+      - expr: round(sandloom:sli_read_errors:ratio_rate5m, 0.001)
+        eval_time: 30m
+        exp_samples:
+          - labels: '{job="sandloom"}'
+            value: 0.03
+          - labels: '{job="ok"}'
+            value: 0
+      # No writes at all: no sample (never NaN, which would poison the
+      # 30-day budget averages).
+      - expr: sandloom:sli_write_errors:ratio_rate5m
+        eval_time: 30m
+        exp_samples: []
+
+  - name: event latency SLI matches both le spellings
+    interval: 1m
+    input_series:
+      - series: 'sandloom_event_end_to_end_latency_seconds_bucket{job="sandloom", consumer="c", le="5.0"}'
+        values: '0+90x10'
+      - series: 'sandloom_event_end_to_end_latency_seconds_count{job="sandloom", consumer="c"}'
+        values: '0+100x10'
+    promql_expr_test:
+      - expr: round(sandloom:sli_event_slow:ratio_rate5m, 0.001)
+        eval_time: 6m
+        exp_samples:
+          - labels: '{job="sandloom"}'
+            value: 0.1

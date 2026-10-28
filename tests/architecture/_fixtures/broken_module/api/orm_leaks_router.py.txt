@@ -1,0 +1,61 @@
+"""Deliberately-broken fixture: an API-layer router that leaks ORM models and
+SQLAlchemy into its endpoints in every way. Read by test_api_no_orm_leakage to
+prove the analyzer catches each leak."""
+
+from uuid import UUID
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+# VIOLATION: SQLAlchemy imported in the API layer.
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# VIOLATION: ORM model imported in the API layer.
+from sandloom_identity.models import User
+
+
+class UserSchema(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+
+
+leaky_router = APIRouter()
+
+
+@leaky_router.get("/users/{user_id}/leak_response_model", response_model=User)
+async def get_user_leaking_response_model(user_id: UUID, db: AsyncSession):
+    # VIOLATION: ORM model in response_model.
+    user = await db.get(User, user_id)
+    return user
+
+
+@leaky_router.get("/users/{user_id}/leak_return_hint")
+async def get_user_leaking_return_hint(user_id: UUID, db: AsyncSession) -> User:
+    # VIOLATION: ORM model in the return annotation.
+    user = await db.get(User, user_id)
+    return user
+
+
+@leaky_router.get("/users/leak_in_generic", response_model=list[User])
+async def get_users_leaking_in_generic(db: AsyncSession) -> list[User]:
+    # VIOLATION: ORM model nested in a generic type.
+    result = await db.execute(select(User).limit(10))
+    return result.scalars().all()
+
+
+@leaky_router.post("/users/leak_in_parameter")
+async def update_user_leaking_in_parameter(user: User, db: AsyncSession):
+    # VIOLATION: ORM model as a parameter type.
+    db.add(user)
+    return {"status": "ok"}
+
+
+@leaky_router.get("/users/{user_id}/leak_in_body", response_model=UserSchema)
+async def get_user_leaking_in_body(user_id: UUID, db: AsyncSession) -> UserSchema:
+    # VIOLATION: ORM model and SQLAlchemy expression used in the body.
+    user_instance = await db.get(User, user_id)
+    query = select(User).where(User.id == user_id)
+    _ = query
+    return UserSchema.model_validate(user_instance)

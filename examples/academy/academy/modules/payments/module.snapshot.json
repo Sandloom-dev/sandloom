@@ -1,0 +1,20 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "charge",
+        "refund",
+        "topup"
+      ],
+      "name": "payments.charges.v1"
+    }
+  ],
+  "events": {},
+  "format": 1,
+  "module": "academy.modules.payments",
+  "projections": [],
+  "sagas": []
+}

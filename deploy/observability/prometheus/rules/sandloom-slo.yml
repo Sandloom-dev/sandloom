@@ -1,0 +1,240 @@
+# Sandloom SLIs and EXAMPLE SLO burn-rate alerts (docs/reference/slo.md).
+#
+# Recording rules: sandloom:sli_<name>:ratio_rate<window> = the share of BAD events
+# (5xx, slower than the threshold) over the window, per job. 0 = perfect. A
+# window without valid events records NO sample (`> 0` on the denominator),
+# never NaN, so 30-day averages of an idle service stay defined.
+# Latency thresholds must be histogram bucket boundaries: the HTTP histogram
+# uses prometheus_client's default buckets (… 0.1, 0.25, 0.5, 0.75, 1, 2.5 …),
+# the event latency histogram its own (… 2.5, 5, 10, 30 …). `le` is matched by
+# regex so both "5" and "5.0" spellings work.
+#
+# The burn-rate alerts below use the EXAMPLE targets of slo.md (99.9 %
+# availability). Change a target here, in slo.md and in the SLO dashboard
+# (deploy/observability/build_dashboards.py) together. Multi-window,
+# multi-burn-rate per the Google SRE workbook: page at 14.4x the budget over
+# 1h AND 5m (2 % of a 30-day budget in an hour), ticket at 6x over 6h AND 30m.
+# Low-traffic services: a handful of 5xx is a large ratio — add a minimum
+# request rate (`and sum by (job) (rate(...[1h])) > 1`) if that pages you.
+
+groups:
+  - name: sandloom-sli
+    interval: 30s
+    rules:
+      - record: sandloom:sli_read_errors:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", status!~"5.."}[5m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[5m])) > 0)
+          )
+      - record: sandloom:sli_write_errors:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", status!~"5.."}[5m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[5m])) > 0)
+          )
+      - record: sandloom:sli_read_slow:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", le=~"0\\.25"}[5m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[5m])) > 0)
+          )
+      - record: sandloom:sli_write_slow:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", le=~"0\\.5"}[5m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[5m])) > 0)
+          )
+      - record: sandloom:sli_login_errors:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login", status!~"5.."}[5m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login"}[5m])) > 0)
+          )
+      - record: sandloom:sli_login_slow:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{method="POST", path="/auth/login", le=~"2\\.5"}[5m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{method="POST", path="/auth/login"}[5m])) > 0)
+          )
+      - record: sandloom:sli_event_slow:ratio_rate5m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[5m]))
+            / (sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_count{}[5m])) > 0)
+          )
+      - record: sandloom:sli_read_errors:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", status!~"5.."}[30m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[30m])) > 0)
+          )
+      - record: sandloom:sli_write_errors:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", status!~"5.."}[30m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[30m])) > 0)
+          )
+      - record: sandloom:sli_read_slow:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", le=~"0\\.25"}[30m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[30m])) > 0)
+          )
+      - record: sandloom:sli_write_slow:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", le=~"0\\.5"}[30m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[30m])) > 0)
+          )
+      - record: sandloom:sli_login_errors:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login", status!~"5.."}[30m]))
+            / (sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login"}[30m])) > 0)
+          )
+      - record: sandloom:sli_login_slow:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{method="POST", path="/auth/login", le=~"2\\.5"}[30m]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{method="POST", path="/auth/login"}[30m])) > 0)
+          )
+      - record: sandloom:sli_event_slow:ratio_rate30m
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[30m]))
+            / (sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_count{}[30m])) > 0)
+          )
+      - record: sandloom:sli_read_errors:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", status!~"5.."}[1h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[1h])) > 0)
+          )
+      - record: sandloom:sli_write_errors:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", status!~"5.."}[1h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[1h])) > 0)
+          )
+      - record: sandloom:sli_read_slow:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", le=~"0\\.25"}[1h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[1h])) > 0)
+          )
+      - record: sandloom:sli_write_slow:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", le=~"0\\.5"}[1h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[1h])) > 0)
+          )
+      - record: sandloom:sli_login_errors:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login", status!~"5.."}[1h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login"}[1h])) > 0)
+          )
+      - record: sandloom:sli_login_slow:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{method="POST", path="/auth/login", le=~"2\\.5"}[1h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{method="POST", path="/auth/login"}[1h])) > 0)
+          )
+      - record: sandloom:sli_event_slow:ratio_rate1h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[1h]))
+            / (sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_count{}[1h])) > 0)
+          )
+      - record: sandloom:sli_read_errors:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", status!~"5.."}[6h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[6h])) > 0)
+          )
+      - record: sandloom:sli_write_errors:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", status!~"5.."}[6h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[6h])) > 0)
+          )
+      - record: sandloom:sli_read_slow:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD", le=~"0\\.25"}[6h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"GET|HEAD"}[6h])) > 0)
+          )
+      - record: sandloom:sli_write_slow:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE", le=~"0\\.5"}[6h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{path!~"/health.*|/ready|/metrics|<unmatched>", method=~"POST|PUT|PATCH|DELETE"}[6h])) > 0)
+          )
+      - record: sandloom:sli_login_errors:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login", status!~"5.."}[6h]))
+            / (sum by (job) (rate(sandloom_http_requests_total{method="POST", path="/auth/login"}[6h])) > 0)
+          )
+      - record: sandloom:sli_login_slow:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_http_request_duration_seconds_bucket{method="POST", path="/auth/login", le=~"2\\.5"}[6h]))
+            / (sum by (job) (rate(sandloom_http_request_duration_seconds_count{method="POST", path="/auth/login"}[6h])) > 0)
+          )
+      - record: sandloom:sli_event_slow:ratio_rate6h
+        expr: |-
+          1 - (
+            sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_bucket{le=~"5(\\.0)?"}[6h]))
+            / (sum by (job) (rate(sandloom_event_end_to_end_latency_seconds_count{}[6h])) > 0)
+          )
+      - record: sandloom:sli_outbox_fresh:bool
+        expr: max by (job) (sandloom_outbox_oldest_pending_age_seconds) < bool 10
+
+  - name: sandloom-slo-burn
+    rules:
+      - alert: SandloomApiReadAvailabilityBurnFast
+        expr: >-
+          sandloom:sli_read_errors:ratio_rate1h > (14.4 * 0.001)
+          and sandloom:sli_read_errors:ratio_rate5m > (14.4 * 0.001)
+        labels:
+          severity: page
+          slo: api-read-availability
+        annotations:
+          summary: "{{ $labels.job }}: API reads burn the 99.9 % availability budget 14x too fast"
+          description: "5xx ratio over 1h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~2 days."
+          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+      - alert: SandloomApiReadAvailabilityBurnSlow
+        expr: >-
+          sandloom:sli_read_errors:ratio_rate6h > (6 * 0.001)
+          and sandloom:sli_read_errors:ratio_rate30m > (6 * 0.001)
+        labels:
+          severity: warning
+          slo: api-read-availability
+        annotations:
+          summary: "{{ $labels.job }}: API reads burn the 99.9 % availability budget 6x too fast"
+          description: "5xx ratio over 6h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~5 days."
+          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+      - alert: SandloomApiWriteAvailabilityBurnFast
+        expr: >-
+          sandloom:sli_write_errors:ratio_rate1h > (14.4 * 0.001)
+          and sandloom:sli_write_errors:ratio_rate5m > (14.4 * 0.001)
+        labels:
+          severity: page
+          slo: api-write-availability
+        annotations:
+          summary: "{{ $labels.job }}: API writes burn the 99.9 % availability budget 14x too fast"
+          description: "5xx ratio over 1h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~2 days."
+          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+      - alert: SandloomApiWriteAvailabilityBurnSlow
+        expr: >-
+          sandloom:sli_write_errors:ratio_rate6h > (6 * 0.001)
+          and sandloom:sli_write_errors:ratio_rate30m > (6 * 0.001)
+        labels:
+          severity: warning
+          slo: api-write-availability
+        annotations:
+          summary: "{{ $labels.job }}: API writes burn the 99.9 % availability budget 6x too fast"
+          description: "5xx ratio over 6h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~5 days."
+          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts

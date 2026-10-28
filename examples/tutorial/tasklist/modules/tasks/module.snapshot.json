@@ -1,0 +1,39 @@
+{
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [
+        "may_create_item"
+      ],
+      "name": "stats.quota.v1",
+      "required": true
+    }
+  ],
+  "contracts": [],
+  "events": {
+    "tasks.item.created.v1": {
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "tenant_id"
+      ],
+      "title": "ItemCreated",
+      "type": "object"
+    }
+  },
+  "format": 1,
+  "module": "tasklist.modules.tasks",
+  "projections": [],
+  "sagas": []
+}

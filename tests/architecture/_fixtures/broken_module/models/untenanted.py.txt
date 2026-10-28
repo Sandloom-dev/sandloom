@@ -1,0 +1,87 @@
+"""Deliberately broken: tenant-owned tables the ORM tenant guard never sees.
+
+Read by test_tenant_scoped_models_rule.py; never imported.
+"""
+
+import uuid
+
+import sqlalchemy as sa
+from sqlalchemy import Column, MetaData, Table
+from sqlalchemy.orm import Mapped, mapped_column
+
+from sandloom.core import orm
+from sandloom.core.orm import Base, TenantScoped
+
+metadata = MetaData()
+
+
+# VIOLATION: declares its own tenant_id instead of inheriting TenantScoped.
+class Invoice(Base):
+    __tablename__ = "broken_invoices"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+
+
+# VIOLATION: classic Column() assignment, no annotation.
+class Ledger(Base):
+    __tablename__ = "broken_ledger"
+
+    id = sa.Column(sa.Integer, primary_key=True)
+    tenant_id = sa.Column(sa.UUID, nullable=False)
+
+
+# A local mixin that declares tenant_id but is NOT TenantScoped ...
+class HasTenant:
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+
+
+# VIOLATION: ... inherited by a model.
+class Shipment(HasTenant, Base):
+    __tablename__ = "broken_shipments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+
+# VIOLATION: a Core table with a tenant_id column.
+audit_rows = Table(
+    "broken_audit_rows",
+    metadata,
+    Column("id", sa.Integer, primary_key=True),
+    Column("tenant_id", sa.UUID, nullable=False),
+)
+
+
+# --- compliant controls ------------------------------------------------------
+
+
+class Order(TenantScoped, Base):
+    __tablename__ = "ok_orders"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+
+class Line(orm.TenantScoped, orm.Base):
+    __tablename__ = "ok_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+
+class ScopedMixin(TenantScoped):
+    pass
+
+
+class Parcel(ScopedMixin, Base):
+    __tablename__ = "ok_parcels"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+
+class TenantDTO:  # not a table: no __tablename__
+    tenant_id: uuid.UUID
+
+
+class Plan(Base):  # a table without tenant_id
+    __tablename__ = "ok_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)

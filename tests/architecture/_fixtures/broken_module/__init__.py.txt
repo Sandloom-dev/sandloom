@@ -1,0 +1,84 @@
+"""Deliberately-broken fixture: like boards, plus extra evasion tricks
+(getattr-style access, builtins, sys.modules). Read by test_module_boundaries
+to prove the boundary analyzer catches each one."""
+
+from uuid import UUID
+
+# --- Style 1: direct absolute import ---
+from sandloom_identity.models import User
+from sandloom_identity.services.user_service import UserService
+
+_ = User
+_ = UserService
+
+
+# --- Style 2: whole-module import ---
+import sandloom_identity.schemas
+import sandloom_identity.services as id_services
+
+_ = sandloom_identity.schemas
+_ = id_services
+
+
+# --- Style 3: from sandloom import ... ---
+from sandloom import identity
+
+_ = identity
+
+
+# --- Style 4: sneaky relative imports ---
+from .. import identity as sibling_identity
+from ..identity import events
+from ..identity.models.role import Role as IdentityRole
+
+_ = sibling_identity
+_ = events
+_ = IdentityRole
+
+
+# --- Style 5: dynamic imports ---
+import importlib
+
+dynamic_user_model = __import__("sandloom_identity.models.user", fromlist=["User"])
+dynamic_auth_service = importlib.import_module("sandloom_identity.services.auth_service")
+
+_ = dynamic_user_model
+_ = dynamic_auth_service
+
+
+# --- Style 6: legal import, illegal attribute access ---
+import sandloom
+
+illegal_access = sandloom_identity
+
+_ = illegal_access
+
+
+# --- Style 7: dynamic access via a method ---
+class SomeService:
+    def get_identity_module_dynamically(self):
+        identity_module = sandloom_identity
+        return identity_module
+
+    async def generate_user_report(self, user_id: UUID):
+        id_mod = self.get_identity_module_dynamically()
+        return f"Report for user {user_id} using {id_mod}"
+
+
+_ = SomeService()
+
+# --- Style 8: via builtins ---
+import builtins
+
+import sandloom
+
+another_illegal_access = sandloom_identity
+
+_ = another_illegal_access
+
+# --- Style 9: via sys.modules ---
+import sys
+
+if "sandloom_identity" in sys.modules:
+    identity_via_sys = sys.modules["sandloom_identity"]
+    _ = identity_via_sys

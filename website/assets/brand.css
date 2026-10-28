@@ -1,0 +1,138 @@
+@font-face {
+  font-family: "Hack Nerd Font Mono";
+  src: url("/assets/fonts/hack-nerd-mono-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hack Nerd Font Mono";
+  src: url("/assets/fonts/hack-nerd-mono-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+/* Shared Sandloom tokens and navigation, used by the homepage and Zensical. */
+:root, [data-md-color-scheme="default"] {
+  color-scheme: light;
+  --sl-code-font: "Hack Nerd Font Mono", ui-monospace, monospace;
+  --sl-bg: #f7f6f2;
+  --sl-surface: #ffffff;
+  --sl-ink: #24272a;
+  --sl-muted: #686c6f;
+  --sl-line: #dedfda;
+  --sl-accent: #8b6841;
+  --sl-button-bg: #282a2d;
+  --sl-button-fg: #faf9f5;
+  --sl-code-bg: #eeede8;
+  --sl-header-bg: #f7f6f2;
+  --color-foreground: 36 39 42;
+  --color-background: 247 246 242;
+  --color-background-subtle: 238 237 232;
+  --color-backdrop: 247 246 242;
+}
+:root[data-sandloom-theme="dark"], [data-md-color-scheme="slate"] {
+  color-scheme: dark;
+  --sl-bg: #111213;
+  --sl-surface: #191b1d;
+  --sl-ink: #edeee9;
+  --sl-muted: #a5aaa8;
+  --sl-line: #303337;
+  --sl-accent: #d8b892;
+  --sl-button-bg: #d8b892;
+  --sl-button-fg: #1a1815;
+  --sl-code-bg: #222528;
+  --sl-header-bg: #111213;
+  --color-foreground: 237 238 233;
+  --color-background: 17 18 19;
+  --color-background-subtle: 34 37 40;
+  --color-backdrop: 9 10 11;
+}
+/* A shared site header. The mobile menu replaces the desktop links. */
+:root { scrollbar-gutter: stable; }
+.sl-header, .sl-header *, .sl-site-menu, .sl-site-menu *, .sl-doc-tree * { box-sizing: border-box; }
+.sl-header {
+  position: sticky; top: 0; z-index: 3; width: 100%;
+  background: var(--sl-header-bg); color: var(--sl-ink);
+  border-bottom: 1px solid var(--sl-line); box-shadow: none;
+  font: 500 14px/1.5 "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+.sl-header-inner { display: flex; align-items: center; gap: 28px; max-width: 1440px; min-height: 72px; margin: 0 auto; padding: 0 32px; }
+.sl-header a, .sl-site-menu a { color: inherit; text-decoration: none; }
+.sl-header a:hover, .sl-site-menu a:hover { text-decoration: none; }
+.sl-brand { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 23px; font-weight: 750; letter-spacing: -.045em; }
+.sl-brand img { display: block; width: 30px; height: 30px; filter: grayscale(1); }
+[data-sandloom-theme="dark"] .sl-brand img { filter: brightness(0) invert(1); }
+.sl-nav { display: flex; align-items: center; gap: 26px; margin-left: auto; white-space: nowrap; }
+.sl-nav a { padding: 9px 0; color: var(--sl-muted); }
+.sl-nav a:hover, .sl-nav a[aria-current] { color: var(--sl-ink); }
+.sl-nav a[aria-current] { box-shadow: 0 2px 0 var(--sl-accent); }
+.sl-icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 7px; color: var(--sl-ink); background: transparent; cursor: pointer; }
+.sl-icon-button:hover { background: var(--sl-code-bg); }
+.sl-menu { display: none; }
+.sl-sun { display: none; }
+[data-sandloom-theme="dark"] .sl-sun { display: block; }
+[data-sandloom-theme="dark"] .sl-moon { display: none; }
+.sl-header a:focus-visible, .sl-site-menu a:focus-visible, .sl-icon-button:focus-visible, .sl-doc-tree summary:focus-visible {
+  outline: 2px solid var(--sl-accent); outline-offset: 3px;
+}
+.sl-native-palette { display: none; }
+/* One native search instance, shared by the header and menu shortcut. */
+.sl-header-search { flex: 1; min-width: 160px; max-width: 480px; }
+.sl-header .sl-search { display: block; width: 100%; margin: 0; }
+.sl-header .sl-search .md-search__button, .sl-menu-search {
+  display: flex; position: relative; align-items: center; gap: 10px;
+  width: 100%; height: 38px; padding: 0 12px;
+  border: 1px solid var(--sl-line); border-radius: 7px;
+  color: var(--sl-muted); background: var(--sl-surface);
+  font: inherit; cursor: pointer;
+}
+.sl-header .sl-search .md-search__button:before, .sl-header .sl-search .md-search__button:after { display: none; }
+.sl-search svg, .sl-menu-search svg { flex-shrink: 0; }
+.sl-search kbd, .sl-menu-search kbd { margin-left: auto; padding: 0 5px; border: 1px solid var(--sl-line); border-radius: 4px; color: var(--sl-muted); font: 11px/20px var(--sl-code-font); }
+.sl-search button:focus-visible, .sl-menu-search:focus-visible { outline: 2px solid var(--sl-accent); outline-offset: 3px; }
+/* The same resolved documentation tree in the sidebar and mobile menu. */
+.sl-doc-tree { color: var(--sl-muted); font: 500 14px/1.5 "Manrope", ui-sans-serif, system-ui, sans-serif; }
+.sl-tree-list { list-style: none; padding: 0; margin: 0; }
+.sl-tree-list > li { padding: 0; margin: 3px 0; }
+.sl-tree-list a, .sl-tree-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 6px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.sl-tree-list a:hover, .sl-tree-group > summary:hover { background: var(--sl-code-bg); color: var(--sl-ink); }
+.sl-tree-list a[aria-current="page"] { background: var(--sl-code-bg); color: var(--sl-ink); font-weight: 700; box-shadow: inset 3px 0 var(--sl-accent); }
+.sl-tree-group > summary { cursor: pointer; list-style: none; font-weight: 650; color: var(--sl-ink); }
+.sl-tree-group > summary::-webkit-details-marker { display: none; }
+.sl-tree-group > .sl-tree-list { margin: 4px 0 12px 16px; padding-left: 8px; border-left: 1px solid var(--sl-line); }
+.sl-chevron { width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); margin-right: 3px; }
+.sl-tree-group[open] > summary .sl-chevron { transform: rotate(45deg); }
+/* A full-screen mobile menu, with native focus trapping and Escape handling. */
+html.sl-menu-open { overflow: hidden; }
+.sl-site-menu { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--sl-bg); color: var(--sl-ink); font: 14px/1.5 "Manrope", ui-sans-serif, system-ui, sans-serif; }
+.sl-site-menu[open] { display: flex; flex-direction: column; }
+.sl-site-menu::backdrop { background: #101f1a55; }
+.sl-menu-heading { display: flex; align-items: center; gap: 20px; flex-shrink: 0; min-height: 72px; padding: env(safe-area-inset-top) 24px 0; border-bottom: 1px solid var(--sl-line); }
+.sl-menu-heading .sl-icon-button { margin-left: auto; }
+.sl-menu-title { color: var(--sl-muted); font-size: 13px; }
+.sl-menu-body { overflow-y: auto; overscroll-behavior: contain; flex: 1; padding: 24px max(24px, calc((100vw - 720px) / 2)) calc(40px + env(safe-area-inset-bottom)); }
+.sl-menu-search { height: 44px; margin-bottom: 20px; }
+.sl-menu-site { display: flex; flex-wrap: wrap; gap: 8px; }
+.sl-menu-site a { padding: 9px 12px; border: 1px solid var(--sl-line); border-radius: 6px; color: var(--sl-ink); }
+.sl-menu-label { margin: 28px 12px 12px; color: var(--sl-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+.sl-site-menu .sl-doc-tree { font-size: 15px; }
+.sl-site-menu .sl-tree-list a, .sl-site-menu .sl-tree-group > summary { min-height: 44px; }
+@media (max-width: 1219px) {
+  .sl-menu { display: inline-flex; }
+  .sl-nav { display: none; }
+  .sl-header-inner { min-height: 64px; padding: 0 24px; gap: 20px; }
+  .sl-header-search { margin-left: auto; }
+  .sl-menu-heading { min-height: 64px; }
+}
+@media (max-width: 640px) {
+  .sl-header-inner { padding: 0 16px; gap: 12px; }
+  .sl-brand { font-size: 21px; gap: 8px; }
+  .sl-brand img { width: 27px; height: 27px; }
+  .sl-header-search { flex: 0 0 36px; min-width: 36px; }
+  .sl-header .sl-search .md-search__button { justify-content: center; width: 36px; padding: 0; border: 0; background: transparent; }
+  .sl-search span, .sl-search kbd { display: none; }
+  .sl-menu-heading { padding-left: 20px; padding-right: 16px; }
+  .sl-menu-body { padding-left: 16px; padding-right: 16px; }
+}
+.sl-menu-site a[aria-current] { background: var(--sl-code-bg); color: var(--sl-ink); border-color: var(--sl-accent); font-weight: 700; }

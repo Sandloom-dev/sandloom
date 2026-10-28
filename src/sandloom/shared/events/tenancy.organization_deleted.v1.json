@@ -1,0 +1,29 @@
+{
+  "description": "An organization was deactivated.",
+  "properties": {
+    "actor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actor Id",
+      "x-sandloom-default": true
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "organization_id"
+  ],
+  "title": "OrganizationDeleted",
+  "type": "object"
+}

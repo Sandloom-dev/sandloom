@@ -1,0 +1,309 @@
+{
+  "contracts": {
+    "billing.claims.v1": {
+      "hash": "a46bbd40b36396d1533c8ce1430be0f7",
+      "methods": {
+        "contribute": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "any"
+              }
+            }
+          ],
+          "returns": {
+            "k": "dict",
+            "key": {
+              "k": "scalar",
+              "t": "str"
+            },
+            "value": {
+              "k": "any"
+            }
+          }
+        }
+      }
+    },
+    "billing.credits.v1": {
+      "hash": "5e511d6aece0248f210741c83fa79687",
+      "methods": {
+        "get_balance": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          }
+        },
+        "spend": {
+          "idempotency_key": "operation_key",
+          "idempotency_scope": [
+            "tenant_type",
+            "tenant_id"
+          ],
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "amount",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "keyword_only",
+              "name": "reason",
+              "required": false,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          },
+          "risk": "money"
+        }
+      }
+    },
+    "billing.entitlements.v1": {
+      "hash": "f14fd7c0722a333eec8fdf851a5a8568",
+      "methods": {
+        "check_subscription_active": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "get_credit_balance": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          }
+        },
+        "subscription_claims": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "dict",
+            "key": {
+              "k": "scalar",
+              "t": "str"
+            },
+            "value": {
+              "k": "any"
+            }
+          }
+        }
+      }
+    },
+    "billing.facts.v1": {
+      "hash": "d7057ecaa2d2af00f979afa498e49208",
+      "methods": {
+        "describe": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
+          "returns": {
+            "item": {
+              "k": "dict",
+              "key": {
+                "k": "scalar",
+                "t": "str"
+              },
+              "value": {
+                "k": "any"
+              }
+            },
+            "k": "list"
+          }
+        },
+        "evaluate": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "name",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "subject",
+              "required": true,
+              "type": {
+                "k": "dict",
+                "key": {
+                  "k": "scalar",
+                  "t": "str"
+                },
+                "value": {
+                  "k": "any"
+                }
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "request",
+              "required": false,
+              "type": {
+                "k": "union",
+                "of": [
+                  {
+                    "k": "dict",
+                    "key": {
+                      "k": "scalar",
+                      "t": "str"
+                    },
+                    "value": {
+                      "k": "any"
+                    }
+                  },
+                  {
+                    "k": "none"
+                  }
+                ]
+              }
+            }
+          ],
+          "returns": {
+            "k": "dict",
+            "key": {
+              "k": "scalar",
+              "t": "str"
+            },
+            "value": {
+              "k": "any"
+            }
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "sandloom_billing"
+}

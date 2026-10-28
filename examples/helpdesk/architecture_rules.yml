@@ -1,0 +1,63 @@
+# Import-boundary manifest for the helpdesk application — enforced by
+#
+#     sandloom check            (also in .github/workflows/ci.yml + pre-commit)
+#
+# Business modules under helpdesk.modules.* are atomic: each may import only the
+# framework public API below (sandloom.sdk), the generated contract stubs and DTOs
+# of helpdesk.shared, and its own package — never a sibling module (or an installed
+# module package such as sandloom_identity). Cross-module interaction goes through typed
+# events and contracts.
+version: 1
+
+# Directory holding the business-module packages, and its dotted package.
+modules_path: helpdesk/modules
+modules_package: helpdesk.modules
+# sys.path root the app package is importable from (resolves relative imports).
+source_root: .
+
+# The framework's ENFORCED public API for business modules (Public API 1.0).
+public_api:
+  - sandloom.sdk
+  - sandloom.sdk.app
+  - sandloom.sdk.authz
+  - sandloom.sdk.contracts
+  - sandloom.sdk.data
+  - sandloom.sdk.effects
+  - sandloom.sdk.errors
+  - sandloom.sdk.events
+  - sandloom.sdk.infra
+  - sandloom.sdk.migrations
+  - sandloom.sdk.module
+  - sandloom.sdk.projections
+  - sandloom.sdk.sagas
+  - sandloom.sdk.security
+  - sandloom.sdk.tenant
+  - sandloom.sdk.testing
+  - sandloom.sdk.testing.fixtures
+  - sandloom.sdk.tooling
+  - sandloom.sdk.web
+# Further framework packages a module may import.
+shared_api:
+  - sandloom.shared
+  - helpdesk.shared
+# Generated contract stubs, DTO copies and exported event schemas
+# (sandloom generate writes them).
+shared_package: helpdesk.shared
+
+# Extra glob patterns to forbid (e.g. "helpdesk.modules.*._internal*").
+forbidden_patterns:
+  # sandloom.sdk's private layers: import the public sandloom.sdk modules.
+  - "sandloom.sdk._*"
+  - "sandloom.sdk.*._*"
+
+# Justified, file-scoped exceptions: {file: <glob relative to this file>,
+# imports: [<glob>, ...]}. Keep it empty — every entry is a hole.
+allowlist: []
+
+tenant_scope_exempt:
+  - table: tickets_tickets
+    reason: >-
+      predates TenantScoped: every ticket query filters on organization_id
+      and is authorized per request through tenancy.membership.v1 (the
+      caller's role in that organisation). Converting it to TenantScoped +
+      RLS is a tracked follow-up.

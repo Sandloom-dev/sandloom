@@ -1,0 +1,95 @@
+name: Docs
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "website/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "tools/docs/**"
+      - "zensical.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "src/**"
+      - ".github/workflows/docs.yml"
+      # the stale-symbol lint also covers the agent docs and READMEs
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/README.md"
+      - ".claude/**"
+      - "deploy/**"
+      - "benchmarks/dx/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "website/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "tools/docs/**"
+      - "zensical.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "src/**"
+      - ".github/workflows/docs.yml"
+      # the stale-symbol lint also covers the agent docs and READMEs
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/README.md"
+      - ".claude/**"
+      - "deploy/**"
+      - "benchmarks/dx/**"
+
+# Documentation builds remain private CI artifacts until the public launch.
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Names Public API 1.0 removed or renamed (spec Appendix C) must not
+      # survive in the docs, AGENTS.md files, skills or READMEs (stdlib only).
+      - name: Stale-symbol lint
+        run: |
+          python3 tools/docs/docs_stale_symbols.py --self-test
+          python3 tools/docs/docs_stale_symbols.py
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      # dev: the reference pages import sandloom.sdk.testing, which needs pytest.
+      - name: Install backend + docs dependencies
+        working-directory: .
+        run: |
+          uv sync --locked --all-extras
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build docs (strict)
+        run: python3 tools/docs/docs_site.py build
+
+      - name: Check published pages, search and Markdown examples
+        run: uv run --locked python -m unittest discover -s tools/docs -p test_docs_site.py
+
+      - name: Upload built documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandloom-docs
+          path: build/site

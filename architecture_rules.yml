@@ -1,0 +1,117 @@
+version: 1
+
+# Tree layout read by `sandloom check` / sandloom.core.archcheck (same schema as the
+# manifest `sandloom new` generates for an application).
+# The standard modules are top-level packages next to the kernel
+# (src/sandloom_identity, ...), exactly like a third party's ecosystem module:
+# modules_package "" (modules_path == source_root).
+modules_path: src
+modules_package: ""
+source_root: src
+# The kernel (sandloom: core, sdk, shared) is not a business module; its
+# boundaries are the import-linter contracts in .importlinter.
+kernel_package: sandloom
+# The generated contract stubs and exported event schemas of the standard
+# modules land here; `sandloom.shared` ships whole in the `sandloom`
+# distribution (with the hand-written contract DTOs, SANDLOOM-C012).
+shared_package: sandloom.shared
+
+# Public API surface of core available to business modules
+public_api:
+  - sandloom.core.facade
+  - sandloom.core.di
+  # Narrow registration surface handed to register(core) (ModuleAPI):
+  - sandloom.core.module_api
+  # Minimal stable contracts/types that modules may import directly:
+  - sandloom.core.descriptors
+  - sandloom.core.orm
+  # Cross-Module Query / Projection layer (descriptors, registry, rebuild
+  # contract and the version-guarded write helpers a read module applies):
+  - sandloom.core.projections
+  # Queue access is internal; business modules should not import it directly.
+  # Public API 1.0 (tests/fixtures/specs/public-api-1.0-spec.md §2): the sandloom.sdk
+  # namespace, public alongside the modules above until the migration (H3)
+  # removes them. Only the public modules; the private _decl / _prim layers
+  # are refused by forbidden_patterns below.
+  - sandloom.sdk
+  - sandloom.sdk.app
+  - sandloom.sdk.authz
+  - sandloom.sdk.contracts
+  - sandloom.sdk.data
+  - sandloom.sdk.effects
+  - sandloom.sdk.errors
+  - sandloom.sdk.events
+  - sandloom.sdk.infra
+  - sandloom.sdk.migrations
+  - sandloom.sdk.module
+  - sandloom.sdk.projections
+  - sandloom.sdk.sagas
+  - sandloom.sdk.security
+  - sandloom.sdk.tenant
+  - sandloom.sdk.testing
+  - sandloom.sdk.testing.fixtures
+  - sandloom.sdk.tooling
+  - sandloom.sdk.web
+
+# Forbidden import patterns (glob-like). Keep minimal initially to avoid false positives.
+# Examples to enable later:
+# forbidden_patterns:
+#   - "sandloom.core.*.internal"
+#   - "sandloom.core.*._*"
+# The sandloom.core.module_api package's underscore submodules are kernel internals:
+# business modules import the package itself (its __init__ is the API).
+forbidden_patterns:
+  - "sandloom.core.module_api._*"
+  # Likewise the sandloom.core.facade package's underscore submodules (the
+  # CoreFacade mixins): modules import sandloom.core.facade itself.
+  - "sandloom.core.facade._*"
+  # sandloom.sdk's private layers (L1 _decl, L2 _prim, helpers): import the
+  # public sandloom.sdk modules instead (spec §2.1 rule 1).
+  - "sandloom.sdk._*"
+  - "sandloom.sdk.*._*"
+
+# Kernel layering is enforced by import-linter (.importlinter, ADR-0007).
+# Optional downstream layering configuration is deliberately empty here.
+layers:
+  enabled: false
+  definitions: []
+  rules: []
+
+# Temporary exceptions with expiry (not used yet)
+allowlist: []
+
+# Tables with a tenant-like column (tenant_id, organization_id, org_id,
+# workspace_id) that deliberately do NOT inherit TenantScoped
+# (rule `tenant-scoped-models`, SANDLOOM-C014). Each needs a written reason; an entry that no
+# longer matches a model fails the check. Policy: C-13 / C4-N13 in
+# docs/design/remediation-2026-10-22/infra.md (bundled global tables).
+tenant_scope_exempt:
+  - table: billing_operation_intents
+    reason: >-
+      tenant_id is the BILLING subject (tenant_type user|organization — a
+      personal tenant is a user id), not the request's bound tenant; every
+      intent is authorized through billing's operation-intent authority path
+      (membership version + actor), and the reconciler scans across subjects.
+  - table: billing_customers
+    reason: >-
+      a billing customer is the billing SUBJECT, not tenant data: a personal
+      customer has organization_id NULL, and the PSP webhook and reconciler
+      resolve customers across subjects with no request tenant bound; every
+      read is authorized through billing's subject resolution (user or org
+      membership via tenancy.membership.v1).
+  - table: tenancy_members
+    reason: >-
+      tenancy is the organisation authority itself: the membership contract
+      lists one user's memberships across every organisation (no tenant can
+      be bound for that question), and each mutation is authorized by
+      tenancy's own org-role checks.
+  - table: tenancy_member_versions
+    reason: >-
+      the per-membership version ledger behind tenancy.membership.v1; read by
+      user across organisations like tenancy_members and written only by
+      tenancy's membership service.
+  - table: tenancy_invitations
+    reason: >-
+      an invitation is accepted by a user who is not yet a member of the
+      organisation, so no tenant can be bound from their token; creation,
+      listing and revocation are authorized by tenancy's org-role checks.

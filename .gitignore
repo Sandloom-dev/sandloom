@@ -1,0 +1,34 @@
+# Local environments and runtime data
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+!.env.test
+**/__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+.ci-local/
+node_modules/
+dist/
+build/
+site/
+test-results/
+playwright-report/
+storybook-static/
+data/
+test_data/
+storage/
+private/local-state/
+*.egg-info/
+.observed_effects.json
+.observed_effects.json.lock
+.DS_Store
+
+# Internal preparation material stays outside public source.
+private/

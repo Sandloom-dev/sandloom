@@ -1,0 +1,54 @@
+name: bench-tools
+description: >-
+  Install the benchmark load generators into $RUNNER_TEMP/bench-tools:
+  oha (pinned release, SHA-256 checked) and wrk / wrk2 built from pinned
+  commits (benchmarks/ci/build_wrk.sh), cached with actions/cache keyed by the
+  commit SHAs (caches are fine; artifact storage is over quota). Also raises
+  Postgres max_connections for multi-worker runs. Expects OHA_VERSION,
+  OHA_SHA256, WRK_SHA and WRK2_SHA in the environment.
+inputs:
+  postgres-container:
+    description: "job.services.postgres.id (empty: skip the Postgres tuning)"
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install oha (pinned + checksum)
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/bench-tools"
+        curl -fsSL -o "$RUNNER_TEMP/bench-tools/oha" \
+          "https://github.com/hatoo/oha/releases/download/v${OHA_VERSION}/oha-linux-amd64"
+        echo "${OHA_SHA256}  $RUNNER_TEMP/bench-tools/oha" | sha256sum -c -
+        chmod +x "$RUNNER_TEMP/bench-tools/oha"
+        "$RUNNER_TEMP/bench-tools/oha" --version
+    - name: Restore wrk / wrk2 (cached by commit SHA)
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/bench-wrk
+        key: bench-wrk-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.WRK_SHA }}-${{ env.WRK2_SHA }}-v1
+    - name: Build wrk / wrk2 from pinned commits
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          build-essential libssl-dev unzip zlib1g-dev
+        benchmarks/ci/build_wrk.sh wrk "$WRK_SHA" ~/.cache/bench-wrk
+        benchmarks/ci/build_wrk.sh wrk2 "$WRK2_SHA" ~/.cache/bench-wrk "$WRK_SHA"
+    - name: Link wrk / wrk2
+      shell: bash
+      run: |
+        cp ~/.cache/bench-wrk/wrk ~/.cache/bench-wrk/wrk2 "$RUNNER_TEMP/bench-tools/"
+        "$RUNNER_TEMP/bench-tools/wrk" -v | head -1 || true
+        "$RUNNER_TEMP/bench-tools/wrk2" -v | head -1 || true
+    - name: Tune Postgres (connections for multi-worker runs)
+      if: inputs.postgres-container != ''
+      shell: bash
+      run: |
+        PG="${{ inputs.postgres-container }}"
+        docker exec "$PG" psql -U bench -d bench -c "ALTER SYSTEM SET max_connections = 300"
+        docker restart "$PG"
+        until docker exec "$PG" pg_isready -U bench -d bench; do sleep 1; done

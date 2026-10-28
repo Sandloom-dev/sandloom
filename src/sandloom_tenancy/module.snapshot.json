@@ -1,0 +1,639 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "get_member_state",
+        "get_role",
+        "has_role_at_least",
+        "is_member",
+        "list_member_user_ids",
+        "list_user_organization_ids"
+      ],
+      "name": "tenancy.membership.v1"
+    }
+  ],
+  "events": {
+    "tenancy.invitation_accepted.v1": {
+      "description": "An invitation was accepted.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "invitation_id": {
+          "format": "uuid",
+          "title": "Invitation Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "invitation_id"
+      ],
+      "title": "InvitationAccepted",
+      "type": "object"
+    },
+    "tenancy.invitation_created.v1": {
+      "description": "An invitation was sent.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "invitation_id": {
+          "format": "uuid",
+          "title": "Invitation Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "invitation_id"
+      ],
+      "title": "InvitationCreated",
+      "type": "object"
+    },
+    "tenancy.invitation_revoked.v1": {
+      "description": "An invitation was revoked.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "invitation_id": {
+          "format": "uuid",
+          "title": "Invitation Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "invitation_id"
+      ],
+      "title": "InvitationRevoked",
+      "type": "object"
+    },
+    "tenancy.member_added.v1": {
+      "description": "A member joined (``add_member``, an accepted invitation, a new owner).",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "user_id"
+      ],
+      "title": "MemberAdded",
+      "type": "object"
+    },
+    "tenancy.member_added.v2": {
+      "description": "A member joined (v2).\n\nThe organization is ``tenant_id`` (a consumer binds it; a projection's\n``tenant_from``). ``version`` is required and per ``(organization_id,\nuser_id)``: order and dedupe by it (a projection's ``version_field``).\nPublished with the v1 channel in one unit.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who made the change.",
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "description": "The organization (= tenant_id).",
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "member, admin or owner; absent on member_removed.",
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "description": "The organization (the event's tenant).",
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "The member.",
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "description": "Per (organization_id, user_id), monotonic over the membership's whole lifecycle: order and dedupe by it.",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "organization_id",
+        "user_id",
+        "version"
+      ],
+      "title": "MemberAddedV2",
+      "type": "object"
+    },
+    "tenancy.member_removed.v1": {
+      "description": "A member was removed or left (no ``role``).",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "user_id"
+      ],
+      "title": "MemberRemoved",
+      "type": "object"
+    },
+    "tenancy.member_removed.v2": {
+      "description": "A member was removed or left (v2, no ``role``).\n\nThe organization is ``tenant_id`` (a consumer binds it; a projection's\n``tenant_from``). ``version`` is required and per ``(organization_id,\nuser_id)``: order and dedupe by it (a projection's ``version_field``).\nPublished with the v1 channel in one unit.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who made the change.",
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "description": "The organization (= tenant_id).",
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "member, admin or owner; absent on member_removed.",
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "description": "The organization (the event's tenant).",
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "The member.",
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "description": "Per (organization_id, user_id), monotonic over the membership's whole lifecycle: order and dedupe by it.",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "organization_id",
+        "user_id",
+        "version"
+      ],
+      "title": "MemberRemovedV2",
+      "type": "object"
+    },
+    "tenancy.member_role_changed.v1": {
+      "description": "A member's role changed (both sides of an ownership transfer too).",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version",
+          "x-sandloom-default": true
+        }
+      },
+      "required": [
+        "organization_id",
+        "user_id"
+      ],
+      "title": "MemberRoleChanged",
+      "type": "object"
+    },
+    "tenancy.member_role_changed.v2": {
+      "description": "A member's role changed (v2).\n\nThe organization is ``tenant_id`` (a consumer binds it; a projection's\n``tenant_from``). ``version`` is required and per ``(organization_id,\nuser_id)``: order and dedupe by it (a projection's ``version_field``).\nPublished with the v1 channel in one unit.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who made the change.",
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "description": "The organization (= tenant_id).",
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "member, admin or owner; absent on member_removed.",
+          "title": "Role",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "description": "The organization (the event's tenant).",
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "The member.",
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "description": "Per (organization_id, user_id), monotonic over the membership's whole lifecycle: order and dedupe by it.",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "organization_id",
+        "user_id",
+        "version"
+      ],
+      "title": "MemberRoleChangedV2",
+      "type": "object"
+    },
+    "tenancy.organization_created.v1": {
+      "description": "An organization was created (its owner is ``actor_id``).",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "organization_id"
+      ],
+      "title": "OrganizationCreated",
+      "type": "object"
+    },
+    "tenancy.organization_deleted.v1": {
+      "description": "An organization was deactivated.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "organization_id"
+      ],
+      "title": "OrganizationDeleted",
+      "type": "object"
+    },
+    "tenancy.organization_updated.v1": {
+      "description": "An organization's name or settings changed.",
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id",
+          "x-sandloom-default": true
+        },
+        "organization_id": {
+          "format": "uuid",
+          "title": "Organization Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "organization_id"
+      ],
+      "title": "OrganizationUpdated",
+      "type": "object"
+    }
+  },
+  "format": 1,
+  "module": "sandloom_tenancy",
+  "projections": [],
+  "sagas": []
+}

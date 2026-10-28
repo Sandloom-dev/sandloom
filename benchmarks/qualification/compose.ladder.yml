@@ -1,0 +1,12 @@
+# Read-only benchmark comparison with the historical native Uvicorn run.
+# Use together with compose.yml; this does not change the release fixture.
+# No app CPU quota: results are single-worker throughput, NOT a guaranteed
+# one-core capacity. PostgreSQL and both Redis instances retain their budgets.
+services:
+  app:
+    cpus: 0
+    environment:
+      WEB_CONCURRENCY: '1'
+      DB_POOL_SIZE: '10'
+      DB_MAX_OVERFLOW: '20'
+    command: [uvicorn, 'benchsuite.apps.sandloom_app:app', --host, '0.0.0.0', --port, '2222', --loop, uvloop, --http, httptools, --workers, '1', --no-access-log, --log-level, warning]

@@ -1,0 +1,15 @@
+"""DELIBERATELY BROKEN: a single-file ``schemas.py`` importing the ORM.
+
+A module's DTO layer may be a ``schemas/`` package OR one ``schemas.py``;
+``schema-orm-imports`` checks both.
+"""
+
+from . import models  # VIOLATION: relative package import of models
+from acme.modules.orders import models as orm  # VIOLATION: absolute, aliased
+import sqlalchemy as sa  # VIOLATION: SQLAlchemy in a DTO module
+
+from pydantic import BaseModel  # allowed
+
+
+class OrderOut(BaseModel):
+    id: str

@@ -1,0 +1,36 @@
+{
+  "description": "A project changed; ``version`` grew by one.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "tenant_id": {
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "tenant_id",
+    "name",
+    "status",
+    "version"
+  ],
+  "title": "ProjectUpdated",
+  "type": "object"
+}

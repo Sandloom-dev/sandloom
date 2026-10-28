@@ -1,0 +1,35 @@
+# Production infrastructure semantics with synthetic users and a fake PSP.
+# No real charges, mail or customer data; never reuse the generated test keys.
+x-modules: &modules
+  SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing","benchsuite.bench"]'
+  BILLING_PROVIDER: fake
+  SANDLOOM_ACCEPTED_RISKS: fake_psp_in_prod
+
+services:
+  broker:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes', --appendfsync, always, --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes:
+      - broker:/data
+    cpus: 0.5
+    mem_limit: 384m
+  setup:
+    environment:
+      <<: *modules
+  app:
+    volumes:
+      - objects:/app/data
+    environment:
+      <<: *modules
+      BROKER_URL: redis://broker:6379/2
+      INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"security":{"driver":"redis","url":"redis://security:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://broker:6379/0"}}}'
+      GUNICORN_KEEPALIVE: '120'
+      PLANNER_OPTIMIZED_EXECUTOR: ${SANDLOOM_PRODUCTION_PLANNER_OPTIMIZED:-true}
+      BENCH_EDGE_TRACE: '1'
+    depends_on:
+      broker:
+        condition: service_started
+
+volumes:
+  broker:
+  objects:

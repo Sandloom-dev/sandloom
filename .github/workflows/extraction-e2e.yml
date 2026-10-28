@@ -1,0 +1,81 @@
+# Opt-in slow scenario: monolith -> microservices WITH the data
+# (`sandloom migrate extract-module`, tests/extraction). A monolith with a
+# small SaaS dataset is extracted (tenancy + billing) and restarted as three
+# services; answers, tables, in-flight events and a credit workload across a
+# SIGKILL of billing are verified. ~2 minutes.
+#
+# Runs manually (workflow_dispatch), nightly, or on a PR when the
+# `extraction-e2e` label is added — never on plain push/PR.
+#
+#   gh workflow run extraction-e2e.yml --ref <branch>
+name: extraction-e2e
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  extraction-e2e:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'extraction-e2e'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Extraction scenario + extractor integration tests
+        run: >-
+          uv run pytest tests/extraction
+          src/sandloom/core/tests/test_module_extraction.py
+          -q --no-cov -p no:cacheprovider -rs -s
+        env:
+          SANDLOOM_EXTRACTION_E2E: "1"
+          SANDLOOM_E2E_REQUIRED: "1"
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/14
+          JWT_SECRET: ci-extraction-not-a-real-secret-0123456789

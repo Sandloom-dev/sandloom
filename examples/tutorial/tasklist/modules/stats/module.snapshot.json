@@ -1,0 +1,30 @@
+{
+  "consumers": [
+    {
+      "bind_tenant_from": "tenant_id",
+      "channel": "tasks.item.created.v1",
+      "database": "default",
+      "dead_letter": true,
+      "durable": true,
+      "group": null,
+      "name": "on_item_created",
+      "required": true,
+      "start_from": "earliest"
+    }
+  ],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "may_create_item"
+      ],
+      "name": "stats.quota.v1"
+    }
+  ],
+  "events": {},
+  "format": 1,
+  "module": "tasklist.modules.stats",
+  "projections": [],
+  "sagas": []
+}

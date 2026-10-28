@@ -1,0 +1,16 @@
+{
+  "format": 3,
+  "module": "academy.modules.notifications",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/notifications/inbox",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

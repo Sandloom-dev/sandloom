@@ -1,0 +1,837 @@
+name: Monorepo CI
+
+on:
+  workflow_call:
+    inputs:
+      full_validation:
+        type: boolean
+        default: false
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# dorny/paths-filter calls the PR "list files" API on pull_request events; the
+# default GITHUB_TOKEN is read-restricted here, so grant the reads it needs.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ inputs.full_validation && 'true' || steps.filter.outputs.backend }}
+      admin: ${{ inputs.full_validation && 'true' || steps.filter.outputs.admin }}
+      examples: ${{ inputs.full_validation && 'true' || steps.filter.outputs.examples }}
+      deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
+      benchmarks: ${{ inputs.full_validation && 'true' || steps.filter.outputs.benchmarks }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: ${{ !inputs.full_validation }}
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/**'
+              - 'tests/**'
+              - 'packages/**'
+              - 'tools/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            admin:
+              - 'admin/**'
+              - 'src/sandloom/**'
+              - 'uv.lock'
+            examples:
+              - 'examples/**'
+              - 'docs/tutorial-app/**'
+              - 'src/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            deploy:
+              - 'deploy/**'
+              - 'deploy/docker/Dockerfile'
+            benchmarks:
+              - 'src/**'
+              - 'tests/**'
+              - 'packages/**'
+              - 'tools/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'benchmarks/**'
+              - '.github/workflows/ci.yml'
+
+  backend-static:
+    # Lint / format / types / architecture: no services, runs in parallel with
+    # the test matrix (it used to be serialized in front of the suite).
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      # Importing the package instantiates Settings at module load, so the
+      # architecture-test collection needs a valid (dummy) settings env.
+      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5433/ci
+      CACHE_URL: redis://localhost:6380/0
+      BROKER_URL: redis://localhost:6380/1
+      JWT_SECRET: ci-architecture-tests-not-a-real-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        # Locked sync: the default `dev` dependency group carries the EXACT
+        # ruff/mypy/pytest pins from uv.lock, so CI lints and type-checks with
+        # the same tool versions as every developer machine and pre-commit
+        # (--frozen fails instead of silently re-resolving).
+        run: uv sync --frozen
+
+      - name: Restore mypy cache
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.12-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.12-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+
+      - name: Linting
+        run: uv run ruff check --no-fix src/
+
+      - name: Credential patterns
+        working-directory: .
+        run: python3 tools/checks/check_secrets.py
+
+      - name: Formatting
+        run: uv run ruff format --check src/
+
+      - name: Type checking
+        run: uv run mypy src/
+
+      - name: Architecture tests
+        run: uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider
+
+      - name: Import-boundary manifest
+        run: uv run python tools/checks/check_architecture.py
+
+      - name: Public API surface gate
+        run: uv run python tools/packaging/check_public_api.py
+
+      - name: Installed-wheel RPC transport smoke
+        # Builds the sandloom wheel, installs it ALONE into a clean venv
+        # and runs tools/packaging/wheel_rpc_smoke.py there (isolated mode, outside the
+        # source tree): aiohttp is packaged, its probe passes, a live RPC call
+        # works, and a simulated aiohttp internal-API mismatch falls back to
+        # httpx — from the distribution, not the monorepo source.
+        run: uv run python tools/packaging/check_wheel_rpc_transport.py
+
+      - name: Dependency vulnerability audit
+        run: uv run --with pip-audit pip-audit
+
+  supply-chain:
+    # SBOM (CycloneDX from uv.lock). SAST is ruff rule family S in
+    # backend-static. One script, the same locally: tools/checks/supply_chain.sh
+    # (tool versions pinned there).
+    # docs/contributing/supply-chain.md; PR dependency review is its own
+    # workflow (dependency-review.yml).
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+
+      - name: SBOM
+        run: tools/checks/supply_chain.sh all
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        # Informational only: an artifact-storage outage must not fail the job.
+        continue-on-error: true
+        with:
+          name: backend-sbom
+          path: sbom-out/sandloom-backend.cdx.json
+          retention-days: 90
+
+  backend-tests:
+    # Full suite in parallel (pytest-xdist, one test FILE per worker at a
+    # time; each worker gets its own database `<db>_gw<N>` and its own Redis
+    # DB indexes — sandloom.core.testing.workers). Supported floor (3.11) and the
+    # 3.13 and 3.14 run without coverage; the coverage run is on
+    # 3.12 with the low-overhead sys.monitoring tracer (COVERAGE_CORE=sysmon).
+    # The `slow` multi-process suites (split conformance, module extraction,
+    # the generated project, boot configuration checks — `-m slow`, ~45 % of
+    # a job) run on 3.11 and 3.12 only; 3.13 and 3.14 run `-m "not slow"`
+    # (owner decision, 2026-10-25: ~12 % of a full CI run).
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.11"
+            coverage: false
+            slow: true
+          - python: "3.13"
+            coverage: false
+            slow: false
+          - python: "3.14"
+            coverage: false
+            slow: false
+          - python: "3.12"
+            coverage: true
+            slow: true
+    name: backend-tests (py${{ matrix.python }}${{ matrix.coverage && ', coverage' || '' }}${{ !matrix.slow && ', not slow' || '' }})
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Redis with enough databases for every xdist worker
+        # Service containers cannot pass a command, and each worker offsets
+        # its Redis DB indexes by 16 * (N + 1) — the default 16 databases are
+        # not enough. `--databases 256` covers 15 workers.
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Full test suite (modules + core)
+        # --sandloom-shuffle: a fresh seeded order per run (printed in the header
+        # and the summary; replay with --sandloom-shuffle=<seed>).
+        run: >-
+          uv run pytest -q -n auto --dist loadfile --sandloom-shuffle=random
+          ${{ matrix.coverage && '--cov --cov-report=term-missing --cov-report=html' || '' }}
+          ${{ !matrix.slow && '-m "not slow"' || '' }}
+        env:
+          COVERAGE_CORE: ${{ matrix.coverage && 'sysmon' || '' }}
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
+          # Keep this on a DIFFERENT redis db than .env.test (db 15): the billing
+          # conftest points the idempotency cache at .env.test's CACHE_URL, and
+          # the redis driver only takes the shared global client when the
+          # instance URL equals settings.cache_url. Matching URLs would route
+          # billing through the process-wide default client (mutated by earlier
+          # tests) and fail closed with 503 — mirror the local split instead.
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/14
+          JWT_SECRET: ci-full-suite-not-a-real-secret
+          # SSO redirect tests need a "configured" Google provider; the values
+          # are never sent anywhere (the test only inspects the built auth URL).
+          GOOGLE_CLIENT_ID: ci-dummy-google-client-id
+          GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
+          # The split-deployment e2e (tests/e2e) and the split conformance
+          # matrix (tests/split_conformance: every module subset vs the
+          # monolith, real uvicorn processes) must RUN in CI: with this set,
+          # missing Postgres/Redis fails the job instead of skipping.
+          SANDLOOM_E2E_REQUIRED: "1"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: ${{ always() && matrix.coverage }}
+        # Informational only: an artifact-storage outage must not fail the job.
+        continue-on-error: true
+        with:
+          name: backend-coverage-html
+          path: htmlcov
+          retention-days: 14
+
+  backend-tests-isolation:
+    # Test isolation gate: the full suite SERIALLY in one process, in a
+    # seeded random order (sandloom.core.testing.shuffle: the files, then the tests
+    # inside each file). The parallel jobs give each worker a fixed slice of
+    # files, which hides a test that passes only because an earlier one left
+    # a registry, a binding or a row behind; one process running everything
+    # in a fresh order finds it. The seed is printed in the header and the
+    # summary: replay with `uv run pytest -p no:xdist --sandloom-shuffle=<seed>`.
+    # docs/guides/testing.md#test-isolation.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Full suite, serial, shuffled
+        run: uv run pytest -q -p no:xdist -p no:cacheprovider --sandloom-shuffle=random
+        env:
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/14
+          JWT_SECRET: ci-isolation-suite-not-a-real-secret
+          GOOGLE_CLIENT_ID: ci-dummy-google-client-id
+          GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
+          SANDLOOM_E2E_REQUIRED: "1"
+
+  benchmarks-security:
+    # The S5 secure-read security suite (benchmarks/tests): FORCEd RLS
+    # isolation under a NON-superuser NOBYPASSRLS role, cross-tenant 404s,
+    # fail-closed without a tenant, no GUC leak on a pool of one, 401/402/403
+    # with zero DB I/O, read-only write refusal, connection lifecycle and the
+    # wire-level round-trip budgets of every variant. It runs on the
+    # FRAMEWORK's venv + test harness (benchsuite comes in via PYTHONPATH; the
+    # separate benchmarks uv project is only needed for load runs). The
+    # service user is a superuser, so the suite's `admin` fixture can (re)build
+    # the S5 schema and create the app role itself (benchsuite.setup_db's
+    # s5_statements). Variant-matrix skips are explicit (`-rs` lists them).
+    # It also runs the ladder load-harness negative controls first, serially
+    # (they assert latencies); the S5 suite then runs under xdist like the
+    # backend suite: each worker gets its own database, Redis indexes
+    # (allocated: this Redis has 16) and app role (<S5_TEST_ROLE>_gw<N>).
+    needs: changes
+    if: ${{ needs.changes.outputs.benchmarks == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Load-harness negative controls
+        # benchmarks/tests/test_harness_*.py: the ladder load client against a
+        # fake server with known rates of wrong statuses / 5xx / timeouts /
+        # dropped connections (exact per-class counts, run fails on an
+        # unexpected status, sub-ms latency), and the dataset reset (identical
+        # row counts at every run start).
+        run: >-
+          uv run --frozen pytest -c pyproject.toml
+          benchmarks/tests/test_harness_loadclient.py
+          benchmarks/tests/test_harness_dataset.py
+          -q --no-cov -p no:cacheprovider -rs
+        env:
+          PYTHONPATH: benchmarks:src
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/14
+          JWT_SECRET: ci-s5-suite-not-a-real-secret-0123456789
+          SANDLOOM_E2E_REQUIRED: "1"
+
+      - name: S5 secure-read security suite
+        run: >-
+          uv run --frozen pytest -c pyproject.toml benchmarks/tests
+          --ignore=benchmarks/tests/test_harness_loadclient.py
+          --ignore=benchmarks/tests/test_harness_dataset.py
+          -n auto --dist loadfile
+          -q --no-cov -p no:cacheprovider -rs
+        env:
+          PYTHONPATH: benchmarks:src
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/14
+          SANDLOOM_TEST_REDIS_DB_STRIDE: auto
+          JWT_SECRET: ci-s5-suite-not-a-real-secret-0123456789
+          S5_TEST_ROLE: bench_app_ci
+          # A missing database fails the job instead of skipping the suite.
+          SANDLOOM_E2E_REQUIRED: "1"
+
+
+  examples:
+    # Every example app (examples/*) and the tutorial app pass their OWN gate,
+    # the command an app developer runs: `sandloom test --ci --full` (generated
+    # files checked, schema & deploy, the full suite, ruff check and format,
+    # mypy, `sandloom check`, contract and route snapshots, migration drift), then
+    # migrate a fresh database with `sandloom migrate upgrade-all` — against the
+    # framework from this commit.
+    needs: changes
+    if: ${{ needs.changes.outputs.examples == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: linkly
+            path: examples/linkly
+          - app: helpdesk
+            path: examples/helpdesk
+          - app: projecthub
+            path: examples/projecthub
+          - app: academy
+            path: examples/academy
+          - app: tasklist
+            path: examples/tutorial
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    defaults:
+      run:
+        working-directory: ./${{ matrix.path }}
+    env:
+      BIN: ${{ github.workspace }}/.venv/bin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install the framework (locked, with dev tools)
+        working-directory: .
+        run: uv sync --frozen
+      - name: The app's own gate (sandloom test --ci --full)
+        # .env.test points at the services; a fresh seeded test order per run
+        # (printed; replay: sandloom test --seed <seed>). --ci writes nothing.
+        run: $BIN/sandloom test --ci --full
+      - name: Migrate a fresh database (core chain + module chains)
+        env:
+          PGPASSWORD: test_password
+          ENVIRONMENT: test
+          EVENT_BUS_BACKEND: memory
+          JWT_SECRET: ci-examples-not-a-real-secret-0123456789
+          CACHE_URL: redis://localhost:6380/0
+          BROKER_URL: redis://localhost:6380/1
+        run: |
+          db="mig_${{ matrix.app }}"
+          psql -h localhost -p 5433 -U test_user -d sandloom_test -c "CREATE DATABASE $db"
+          psql -h localhost -p 5433 -U test_user -d "$db" -c "CREATE EXTENSION IF NOT EXISTS citext"
+          export PYTHONPATH="$PWD" SANDLOOM_COMPOSITION_ROOT="${{ matrix.app }}.asgi"
+          # Unset in .env.example (the tutorial app): every discovered module
+          # (sed, not grep: no match is no error under bash -e).
+          modules="$(sed -n 's/^SANDLOOM_MODULES=//p' .env.example)"
+          if [ -n "$modules" ]; then export SANDLOOM_MODULES="$modules"; fi
+          export DATABASE_URL="postgresql+asyncpg://test_user:test_password@localhost:5433/$db"
+          $BIN/sandloom migrate upgrade-all --apply
+          $BIN/sandloom migrate upgrade-all --apply   # idempotent second run
+
+  quickstart:
+    # The documented quickstart, end to end, in an empty directory, with no
+    # manual step: `sandloom new` against the framework from this commit, then the
+    # "Next steps" it prints, verbatim (uv sync, sandloom add module, sandloom test with
+    # every step PASS, migrations on a fresh database, the app under uvicorn:
+    # /health 200 and an authenticated round trip), then `sandloom test --ci`.
+    # One script, the same locally (tools/ci/ci_local.sh <ref> --jobs
+    # quickstart). Mandatory: it always runs, whatever changed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Quickstart (sandloom new -> next steps -> app round trip -> sandloom test --ci)
+        run: >-
+          python3 tools/smoke/quickstart_check.py
+          --postgres-url postgresql://test_user:test_password@localhost:5433
+          --redis-url redis://localhost:6380 --redis-db-base 0
+
+  app-split:
+    # An `sandloom new` app moves to microservices by configuration only, in an
+    # empty directory with no manual step: `sandloom new hub --with
+    # identity,tenancy,billing` (the framework from this commit), two modules
+    # where one calls the other's contract and consumes its event, the
+    # documented `sandloom add deploy` commands (a repeated run changes nothing, no
+    # Python file changes), `docker compose config` of the generated profile,
+    # the split invariants `sandloom test` checks (SANDLOOM-T014) and every service
+    # booted alone with its bindings (`sandloom add deploy --check`). Nothing
+    # connects to a database. One script, the same locally
+    # (tools/ci/ci_local.sh <ref> --jobs app-split); `--smoke` (run by hand, or
+    # SANDLOOM_SPLIT_E2E=1 SANDLOOM_SPLIT_SMOKE=1 tests/e2e/test_app_split.py) also
+    # starts the stack and calls through the gateway. Mandatory: it always
+    # runs, whatever changed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Split a fresh app (sandloom new -> sandloom add deploy -> compose config -> checks)
+        run: python3 tools/smoke/split_check.py --require-docker
+
+  app-recipes:
+    # The `sandloom docs` recipes run as written in a fresh `sandloom new hub --with
+    # identity,tenancy,billing` app (the framework from this commit): each
+    # recipe's `uv run sandloom add|migrate new` lines and `# file:` blocks, then
+    # `sandloom test` on the whole app (every recipe's tests and gates), then
+    # `sandloom docs` for contracts, events and recipes from the installed
+    # packages. One script, the same locally (tools/ci/ci_local.sh <ref>
+    # --jobs app-recipes). Mandatory: it always runs, whatever changed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6380:6379
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Recipes (sandloom new -> every recipe -> sandloom test -> sandloom docs)
+        run: >-
+          python3 tools/smoke/recipes_check.py
+          --postgres-url postgresql://test_user:test_password@localhost:5433
+          --redis-url redis://localhost:6380 --redis-db-base 0
+
+  deploy-profiles:
+    # The shipped compose profiles must parse and interpolate with the required
+    # variables set (their env is validated against Settings by
+    # src/sandloom/core/tests/test_deploy_profiles.py).
+    needs: changes
+    if: ${{ needs.changes.outputs.deploy == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-deploy-not-a-real-secret
+      JWT_PRIVATE_KEY: ci-deploy-not-a-real-key
+      JWT_PUBLIC_KEYS: '{}'
+      JWT_KID: ci-deploy
+      IDENTITY_RPC_PRIVATE_KEY: ci-deploy-not-a-real-key
+      IDENTITY_RPC_KEY_ID: identity-ci
+      BILLING_RPC_PRIVATE_KEY: ci-deploy-not-a-real-key
+      BILLING_RPC_KEY_ID: billing-ci
+      RPC_SERVICE_KEYS: '{}'
+      IDENTITY_RPC_DH_PRIVATE_KEY: ci-deploy-not-a-real-key
+      IDENTITY_RPC_DH_KEY_ID: identity-dh-ci
+      TENANCY_RPC_DH_PRIVATE_KEY: ci-deploy-not-a-real-key
+      TENANCY_RPC_DH_KEY_ID: tenancy-dh-ci
+      BILLING_RPC_DH_PRIVATE_KEY: ci-deploy-not-a-real-key
+      BILLING_RPC_DH_KEY_ID: billing-dh-ci
+      RPC_SERVICE_DH_KEYS: '{}'
+      INTERNAL_API_TOKEN: ci-deploy-not-a-real-token
+      TWOFA_ENCRYPTION_KEY: ci-deploy-not-a-real-key
+      BILLING_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config
+        run: |
+          docker compose -f deploy/compose/monolith.yml config --quiet
+          docker compose -f deploy/compose/microservices.yml config --quiet
+          METRICS_TOKEN=ci-deploy-not-a-real-token GRAFANA_ADMIN_PASSWORD=ci \
+            docker compose -f deploy/compose/monolith.yml \
+            -f deploy/docker-compose.observability.yml --profile observability config --quiet
+      # Dashboards regenerate identically; promtool checks the scrape config,
+      # the alert / SLO rules and runs their unit tests (metric names vs the
+      # kernel registry: backend test_observability_bundle.py).
+      - name: Observability bundle (promtool)
+        run: deploy/observability/check.sh
+
+  microservices-smoke:
+    # Bring up the real microservices profile (one container per module behind
+    # the nginx gateway) and smoke-test it end to end: gateway /health,
+    # register + login through identity, an org on tenancy, a billing
+    # endpoint gated on org membership resolved over internal RPC to tenancy,
+    # a task executed by the health-checked worker, and a peer outage (billing
+    # stopped: the others stay live + ready, the gateway fails fast and then
+    # follows the recreated container without a restart).
+    needs: changes
+    if: ${{ needs.changes.outputs.deploy == 'true' || needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_FILE: deploy/compose/microservices.yml
+      BILLING_PROVIDER: fake
+      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,fake_psp_in_prod
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dummy secrets (never real; fresh per run)
+        run: |
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "INTERNAL_API_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "TWOFA_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          # Asymmetric access tokens (identity signs, the others verify):
+          # a fresh Ed25519 pair, PEMs \n-escaped onto one env line.
+          openssl genpkey -algorithm ed25519 -out "$RUNNER_TEMP/jwt.pem"
+          openssl pkey -in "$RUNNER_TEMP/jwt.pem" -pubout -out "$RUNNER_TEMP/jwt.pub"
+          echo "JWT_KID=jwt-ci" >> "$GITHUB_ENV"
+          echo "JWT_PRIVATE_KEY=$(awk '{printf "%s\\n", $0}' "$RUNNER_TEMP/jwt.pem")" >> "$GITHUB_ENV"
+          echo "JWT_PUBLIC_KEYS=$(python3 -c 'import json,sys; print(json.dumps({"jwt-ci": open(sys.argv[1]).read()}))' "$RUNNER_TEMP/jwt.pub")" >> "$GITHUB_ENV"
+          # Service identities for internal RPC: one Ed25519 key per caller.
+          for svc in identity billing; do
+            openssl genpkey -algorithm ed25519 -out "$RUNNER_TEMP/$svc-rpc.pem"
+            openssl pkey -in "$RUNNER_TEMP/$svc-rpc.pem" -pubout -out "$RUNNER_TEMP/$svc-rpc.pub"
+            upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]')
+            echo "${upper}_RPC_KEY_ID=$svc-ci" >> "$GITHUB_ENV"
+            echo "${upper}_RPC_PRIVATE_KEY=$(awk '{printf "%s\\n", $0}' "$RUNNER_TEMP/$svc-rpc.pem")" >> "$GITHUB_ENV"
+          done
+          echo "RPC_SERVICE_KEYS=$(python3 -c 'import json,sys; d=sys.argv[1]; print(json.dumps({s: {s + "-ci": open(f"{d}/{s}-rpc.pub").read()} for s in ("identity", "billing")}))' "$RUNNER_TEMP")" >> "$GITHUB_ENV"
+          # Response binding: a SEPARATE X25519 key per service (providers too).
+          for svc in identity tenancy billing; do
+            openssl genpkey -algorithm x25519 -out "$RUNNER_TEMP/$svc-dh.pem"
+            openssl pkey -in "$RUNNER_TEMP/$svc-dh.pem" -pubout -out "$RUNNER_TEMP/$svc-dh.pub"
+            upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]')
+            echo "${upper}_RPC_DH_KEY_ID=$svc-dh-ci" >> "$GITHUB_ENV"
+            echo "${upper}_RPC_DH_PRIVATE_KEY=$(awk '{printf "%s\\n", $0}' "$RUNNER_TEMP/$svc-dh.pem")" >> "$GITHUB_ENV"
+          done
+          echo "RPC_SERVICE_DH_KEYS=$(python3 -c 'import json,sys; d=sys.argv[1]; print(json.dumps({s: {s + "-dh-ci": open(f"{d}/{s}-dh.pub").read()} for s in ("identity", "tenancy", "billing")}))' "$RUNNER_TEMP")" >> "$GITHUB_ENV"
+      - name: Build and start the microservices profile
+        run: docker compose up -d --build
+      - name: Smoke test through the gateway
+        run: deploy/smoke/microservices-smoke.sh http://localhost:8080
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  docker-build:
+    # Build the production image so a broken Dockerfile fails CI, not deploy.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/docker/Dockerfile
+          target: production
+          push: false
+          load: true
+          tags: sandloom-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  admin-contracts:
+    # The admin console's generated contracts are current: contracts/openapi.json
+    # is what the backend serves and src/api/generated.ts is what
+    # openapi-typescript makes of it (`npm run contracts:check`). admin.yml runs
+    # the whole console pipeline; this gate runs with the framework's PR gates
+    # (and tools/ci/ci_local.sh), so a backend route change or an openapi.json
+    # change without its regenerated generated.ts cannot merge.
+    needs: changes
+    if: ${{ needs.changes.outputs.admin == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the backend (export_openapi.py imports the app)
+        working-directory: .
+        run: uv sync --frozen
+
+      - name: Install the admin's dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generated contracts are current
+        run: npm run contracts:check

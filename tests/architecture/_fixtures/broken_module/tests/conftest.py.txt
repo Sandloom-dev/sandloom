@@ -1,0 +1,19 @@
+"""DELIBERATELY BROKEN: a module test conftest reaching kernel internals.
+
+Every import below is a `test-imports` violation — module tests must use
+sandloom.core.testing (plugin fixtures, make_user_headers, bind_test_uow) instead.
+"""
+
+import sandloom.core.drivers.redis_cache as _redis_cache
+from sandloom.core import database
+from sandloom.core._internal.db_provider import get_db
+from sandloom.core.database import Base
+from sandloom.core.sql_alchemy.testing import reset_schema
+
+# Allowed: the public harness and the public ORM base.
+from sandloom.core.orm import Base as PublicBase
+from sandloom.core.testing import bind_test_uow, make_user_headers
+
+
+def later() -> None:
+    from sandloom.core.drivers import sqlalchemy_database  # function-local too

@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  postgres_test:
+    image: postgres:16
+    container_name: sandloom_postgres_test
+    environment:
+      POSTGRES_DB: sandloom_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432" # Используем порт 5433, чтобы не конфликтовать с основной БД
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d sandloom_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis_test:
+    image: redis:7-alpine
+    container_name: sandloom_redis_test
+    ports:
+      - "6380:6379" # Используем порт 6380 для тестов, чтобы не конфликтовать с основным Redis
+    # pytest-xdist workers offset their Redis DB index by 16 * (N + 1)
+    # (sandloom.core.testing.workers): 256 databases cover 15 workers.
+    command: ["redis-server", "--databases", "256"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Redis не требует volumes для тестов - данные эфемерные
+
+volumes:
+  postgres_test_data:

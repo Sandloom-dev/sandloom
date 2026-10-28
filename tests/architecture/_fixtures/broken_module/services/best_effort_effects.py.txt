@@ -1,0 +1,36 @@
+"""Deliberately-broken fixture: best-effort write-path effects without a marker.
+Read by test_best_effort_effects_rule to prove the analyzer flags every
+unjustified downgrade and accepts the guaranteed / marked forms."""
+
+from sandloom.core import di
+from sandloom.core.di import publish_event, publish_event_versions, record_audit
+
+
+async def violations(flag: bool) -> None:
+    # VIOLATION 1: best-effort publish, no marker.
+    await publish_event("orders.created.v1", {"id": "1"}, required=False)
+    # VIOLATION 2: best-effort audit, no marker.
+    record_audit("orders.created", required=False)
+    # VIOLATION 3: a non-literal `required=` cannot be proven guaranteed.
+    await di.publish_event("orders.created.v1", {"id": "1"}, required=flag)
+    # VIOLATION 4: dual-publish helper downgraded.
+    await publish_event_versions(
+        {"orders.created.v1": {}, "orders.created.v2": {}},
+        required=False,
+    )
+    # VIOLATION 5: a marker without a justification does not count.
+    record_audit("orders.viewed", required=False)  # sandloom: best-effort
+
+
+async def compliant() -> None:
+    # Guaranteed forms (default and explicit) are always fine.
+    await publish_event("orders.created.v1", {"id": "1"})
+    record_audit("orders.created", required=True)
+    # Justified downgrades.
+    await publish_event(  # sandloom: best-effort cache-warm hint, loss is harmless
+        "orders.warmed.v1",
+        {"id": "1"},
+        required=False,
+    )
+    # sandloom: best-effort read-path telemetry, never a business fact
+    record_audit("orders.viewed", required=False)

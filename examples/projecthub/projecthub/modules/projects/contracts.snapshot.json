@@ -1,0 +1,72 @@
+{
+  "contracts": {
+    "projects.read.v1": {
+      "hash": "1e7ce1715cf9f46de33f77dc550cca54",
+      "methods": {
+        "get": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "project_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "k": "dict",
+                "key": {
+                  "k": "scalar",
+                  "t": "str"
+                },
+                "value": {
+                  "k": "any"
+                }
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "list_for_tenant": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "k": "dict",
+              "key": {
+                "k": "scalar",
+                "t": "str"
+              },
+              "value": {
+                "k": "any"
+              }
+            },
+            "k": "list"
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "projecthub.modules.projects"
+}

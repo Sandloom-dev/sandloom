@@ -1,0 +1,125 @@
+{
+  "contracts": {
+    "payments.charges.v1": {
+      "hash": "ed3d211606214ff3381b98afaee3cc8e",
+      "methods": {
+        "charge": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "customer_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "amount",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          },
+          "risk": "money"
+        },
+        "refund": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "customer_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "charge_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          },
+          "risk": "money"
+        },
+        "topup": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "customer_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "amount",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "int"
+          },
+          "risk": "money"
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "academy.modules.payments"
+}

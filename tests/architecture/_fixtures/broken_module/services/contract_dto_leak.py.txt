@@ -1,0 +1,50 @@
+"""Deliberately broken: own-package contract DTOs without a generated copy
+(the copy file is broken_module_dto.py.txt, which holds LocalDTO only)."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from pydantic import BaseModel
+
+import broken_module.schemas as own_schemas
+from sandloom.core.module_api import contract_method
+from sandloom.sdk import contract
+from sandloom.shared.contracts.tenancy_dto import MemberState
+
+from ..schemas import WidgetOut
+
+
+class LocalDTO(BaseModel):
+    id: UUID
+
+
+class WidgetContract:
+    @classmethod
+    @contract_method
+    async def get(cls, widget_id: UUID) -> WidgetOut | None:  # relative import
+        ...
+
+    @classmethod
+    @contract_method
+    async def local(cls, dto: LocalDTO) -> list["LocalDTO"]:  # control: copied
+        ...
+
+    @classmethod
+    @contract_method
+    async def aliased(cls) -> own_schemas.Gadget:  # module alias
+        ...
+
+    @classmethod
+    @contract_method
+    async def shared_ok(cls, org: UUID) -> MemberState:  # control: shared DTO
+        ...
+
+
+@contract("broken.widgets.v1")
+class Widgets:
+    async def find(self, widget_id: UUID) -> WidgetOut:  # L1 provider, no copy
+        ...
+
+    async def _helper(self) -> own_schemas.Hidden:  # private: not the contract
+        ...

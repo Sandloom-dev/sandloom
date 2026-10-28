@@ -1,0 +1,120 @@
+name: Release (PyPI)
+
+# Publishes a single Sandloom package to PyPI using Trusted Publishing (OIDC — no
+# API tokens or secrets). Triggered by a per-package tag `sandloom-<pkg>-vX.Y.Z`
+# (e.g. `sandloom-v0.7.0`, `sandloom-identity-v0.7.0`) or manually via workflow_dispatch.
+#
+# SAFETY: this workflow never runs on a normal push/PR — only on a matching tag
+# or an explicit manual dispatch. Publishing additionally requires a PyPI
+# "pending publisher" (Trusted Publisher) to be configured for each package;
+# until that exists on PyPI the publish step fails closed (no credentials), so
+# nothing can be published by accident. See docs/guides/publishing.md.
+
+# DISABLED: Apache-2.0 was selected on 2026-10-28; publication remains deferred
+# while source preparation and release validation are pending. The tag trigger
+# is commented out and the publish step is gated off. A manual dispatch still
+# builds the distributions (dry run). Re-enable only when publication proceeds.
+on:
+  # push:
+  #   tags:
+  #     - "sandloom-v*"
+  #     - "sandloom-*-v*"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package directory under packages to build"
+        required: true
+        type: choice
+        options:
+          - sandloom
+          - sandloom-identity
+          - sandloom-tenancy
+          - sandloom-billing
+      dry_run:
+        description: "Build only; do not publish to PyPI"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+    with:
+      full_validation: true
+
+  distributions:
+    uses: ./.github/workflows/packages.yml
+
+  release:
+    needs: [validate, distributions]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target package
+        id: pkg
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            pkg="${{ inputs.package }}"
+          else
+            tag="${GITHUB_REF_NAME}"        # e.g. sandloom-identity-v0.1.0
+            pkg="${tag%-v*}"                 # strip trailing -vX.Y.Z
+          fi
+          if [ ! -d "packages/${pkg}" ]; then
+            echo "::error::unknown package directory: packages/${pkg}"
+            exit 1
+          fi
+          echo "name=${pkg}" >> "$GITHUB_OUTPUT"
+          echo "Resolved package: ${pkg}"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify release tag matches package version
+        if: ${{ github.event_name == 'push' }}
+        env:
+          PACKAGE: ${{ steps.pkg.outputs.name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+          package = os.environ["PACKAGE"]
+          metadata = tomllib.loads(pathlib.Path(f"packages/{package}/pyproject.toml").read_text())
+          expected = f"{package}-v{metadata['project']['version']}"
+          if os.environ["GITHUB_REF_NAME"] != expected:
+              raise SystemExit(f"Tag must match package version: {expected}")
+          PY
+
+      - name: Build ${{ steps.pkg.outputs.name }} wheel + sdist
+        working-directory: ./packages/${{ steps.pkg.outputs.name }}
+        run: uv build
+
+      - name: Upload built distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ steps.pkg.outputs.name }}
+          path: packages/${{ steps.pkg.outputs.name }}/dist/*
+
+      - name: Publish to PyPI (Trusted Publishing)
+        # Publication remains deferred. Future condition:
+        # `github.event_name == 'push' || inputs.dry_run == false`.
+        if: ${{ false }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/${{ steps.pkg.outputs.name }}/dist
+          skip-existing: true

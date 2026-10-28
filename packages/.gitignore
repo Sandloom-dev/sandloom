@@ -1,0 +1,4 @@
+# Build artifacts from `uv build` — not committed.
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,15 @@
+# Local gates for this app (install with `pre-commit install`).
+repos:
+-   repo: local
+    hooks:
+    -   id: sandloom-check
+        name: sandloom check (module isolation)
+        entry: sandloom check
+        language: system
+        files: (\.py|architecture_rules\.yml)$
+        pass_filenames: false
+    -   id: ruff
+        name: ruff
+        entry: ruff check
+        language: system
+        types: [python]

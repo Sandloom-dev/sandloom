@@ -1,0 +1,19 @@
+"""Deliberately-broken fixture: an HTTP endpoint defined in a service file.
+Read by test_no_endpoints_outside_api_layer to prove the analyzer flags an
+endpoint outside the api/ layer."""
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+class ViolatorService:
+    def do_business_logic(self) -> dict[str, str]:
+        return {"status": "ok"}
+
+
+# VIOLATION: an HTTP endpoint in the service layer.
+@router.post("/internal/trigger-logic")
+def trigger_logic() -> dict[str, str]:
+    service = ViolatorService()
+    return service.do_business_logic()

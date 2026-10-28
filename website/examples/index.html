@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Examples — Sandloom</title>
+<meta name="author" content="Vasyl Cherniavskyi">
+<meta name="description" content="Explore four standalone Sandloom applications: a URL shortener, multi-tenant helpdesk, course-enrollment saga and cross-module project read model.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Manrope:400,500,600,700&amp;display=fallback">
+<link rel="stylesheet" href="/assets/brand.css"><link rel="stylesheet" href="/assets/site.css">
+<script src="/assets/theme.js"></script>
+<script>{{ search_bootstrap | safe }}</script>
+</head><body data-md-color-scheme="default">
+<script>document.body.dataset.mdColorScheme = document.documentElement.dataset.sandloomTheme === "dark" ? "slate" : "default";</script>
+<input type="checkbox" id="__drawer" data-md-toggle="drawer" hidden>
+<input type="checkbox" id="__search" data-md-toggle="search" hidden>
+<a class="skip-link" href="#main">Skip to content</a>
+{% include "partials/site-header.html" %}
+<main id="main" class="examples-page" data-md-component="main">
+  <section class="examples-intro">
+    <p class="eyebrow">Example applications</p>
+    <h1>Find your starting point.</h1>
+    <p class="intro">Four standalone applications, each focused on a different Sandloom pattern. Explore how the public SDK fits real business code, from one module to a process spanning several.</p>
+    <p class="examples-note">New to Sandloom? <a href="/docs/getting-started/tutorial/">Follow the first-feature tutorial →</a></p>
+  </section>
+  <section class="example-grid" aria-label="Example applications">
+    <article class="example-card">
+      <p class="eyebrow">01 / Minimal application</p>
+      <h2 id="linkly">Linkly</h2>
+      <p>A URL shortener with public routes, a cache-backed lookup and a typed link-created event. A compact starting point without bundled identity or billing.</p>
+      <ul><li>One business module</li><li>Public route policy</li><li>Cache and typed events</li></ul>
+      <p class="example-source">Source in the repository <a href="https://github.com/Sandloom-dev/sandloom/tree/main/examples/linkly"><code>examples/linkly/</code></a></p>
+      <a href="/docs/concepts/route-policy/">Understand route policies →</a>
+    </article>
+    <article class="example-card">
+      <p class="eyebrow">02 / SaaS with bundled modules</p>
+      <h2 id="helpdesk">Helpdesk</h2>
+      <p>Organization ticketing that builds on identity, tenancy and billing. Membership checks use a contract; organization billing gates protect access.</p>
+      <ul><li>Organizations and roles</li><li>Contracts and billing gates</li><li>Events and audit records</li></ul>
+      <p class="example-source">Source in the repository <a href="https://github.com/Sandloom-dev/sandloom/tree/main/examples/helpdesk"><code>examples/helpdesk/</code></a></p>
+      <a href="/docs/concepts/authorization/">Understand authorization →</a>
+    </article>
+    <article class="example-card">
+      <p class="eyebrow">03 / Cross-module process</p>
+      <h2 id="academy">Academy</h2>
+      <p>A course-enrollment flow across enrollment, payments and notifications. A saga coordinates the steps, compensation and retries.</p>
+      <ul><li>Three isolated modules</li><li>Typed saga steps and commands</li><li>Compensation and retry boundaries</li></ul>
+      <p class="example-source">Source in the repository <a href="https://github.com/Sandloom-dev/sandloom/tree/main/examples/academy"><code>examples/academy/</code></a></p>
+      <a href="/docs/concepts/sagas/">Understand sagas →</a>
+    </article>
+    <article class="example-card">
+      <p class="eyebrow">04 / Cross-module read model</p>
+      <h2 id="projecthub">Projecthub</h2>
+      <p>A taskboard built from projects and tasks events. A projection maintains a read model for queries across module boundaries.</p>
+      <ul><li>Typed event views</li><li>Durable projection consumers</li><li>Cross-module queries without runtime joins</li></ul>
+      <p class="example-source">Source in the repository <a href="https://github.com/Sandloom-dev/sandloom/tree/main/examples/projecthub"><code>examples/projecthub/</code></a></p>
+      <a href="/docs/concepts/projections/">Understand projections →</a>
+    </article>
+  </section>
+  <section class="examples-next" aria-label="Using the examples">
+    <div><h2>Application code you can read.</h2><p>The examples live in <code>examples/</code> in the Sandloom repository. Each owns its application namespace and uses the public <code>sandloom.sdk</code>. Open an application's README for its setup and module map.</p></div>
+    <a class="secondary" href="/docs/getting-started/building-a-product/">Create your own application →</a>
+  </section>
+</main><footer><a class="sl-brand" href="/">sandloom</a><p>Configurable topology. Isolated business modules.</p><a href="/docs/">Read the documentation →</a><a href="https://github.com/Sandloom-dev/sandloom">GitHub</a></footer><script id="__config" type="application/json">{{ search_config | tojson }}</script>
+<script src="{{ search_bundle }}"></script>
+</body></html>

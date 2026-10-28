@@ -1,0 +1,29 @@
+# Prometheus for the Sandloom observability overlay (deploy/docker-compose.observability.yml).
+#
+# /metrics is token-gated: the scrape sends METRICS_TOKEN (scrape-only, see
+# docs/operations/operator-reference.md → Observability) as X-Internal-Token, read from the
+# compose secret file. Under Gunicorn ONE scrape returns the aggregate of all
+# live workers (PROMETHEUS_MULTIPROC_DIR) — scrape the service, not workers.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Monolith profile: one app service. For the microservices profile add one
+  # target per service (identity:2222, tenancy:2222, billing:2222) on the
+  # compose network, each with its own `job` label (dashboards and alerts
+  # aggregate `by (job)`).
+  - job_name: sandloom
+    metrics_path: /metrics
+    http_headers:
+      X-Internal-Token:
+        files: [/run/secrets/metrics_token]
+    static_configs:
+      - targets: ["app:2222"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

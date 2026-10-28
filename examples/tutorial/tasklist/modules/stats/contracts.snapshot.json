@@ -1,0 +1,20 @@
+{
+  "contracts": {
+    "stats.quota.v1": {
+      "hash": "d2dec4073756acdc9d5e1a0bec0d00d4",
+      "methods": {
+        "may_create_item": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "tasklist.modules.stats"
+}

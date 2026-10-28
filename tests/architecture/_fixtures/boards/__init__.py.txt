@@ -1,0 +1,52 @@
+"""Deliberately-broken fixture: every way to violate module isolation by
+reaching into the `identity` business module from `boards`. Read by
+test_module_boundaries to prove the boundary analyzer catches each one."""
+
+# --- Style 1: direct absolute import ---
+from sandloom_identity.models import User
+from sandloom_identity.services.user_service import UserService
+
+_ = User
+_ = UserService
+
+
+# --- Style 2: whole-module import ---
+import sandloom_identity.schemas
+import sandloom_identity.services as id_services
+
+_ = sandloom_identity.schemas
+_ = id_services
+
+
+# --- Style 3: from sandloom import ... ---
+from sandloom import identity
+
+_ = identity
+
+
+# --- Style 4: sneaky relative imports ---
+from .. import identity as sibling_identity
+from ..identity import events
+from ..identity.models.role import Role as IdentityRole
+
+_ = sibling_identity
+_ = events
+_ = IdentityRole
+
+
+# --- Style 5: dynamic imports ---
+import importlib
+
+dynamic_user_model = __import__("sandloom_identity.models.user", fromlist=["User"])
+dynamic_auth_service = importlib.import_module("sandloom_identity.services.auth_service")
+
+_ = dynamic_user_model
+_ = dynamic_auth_service
+
+
+# --- Style 6: legal import, illegal attribute access ---
+import sandloom
+
+illegal_access = sandloom_identity
+
+_ = illegal_access

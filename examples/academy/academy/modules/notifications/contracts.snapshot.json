@@ -1,0 +1,48 @@
+{
+  "contracts": {
+    "notifications.mail.v1": {
+      "hash": "5c9c0ad3c1f13c7567fda8840bca802a",
+      "methods": {
+        "send": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "recipient_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "template",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "uuid"
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "academy.modules.notifications"
+}

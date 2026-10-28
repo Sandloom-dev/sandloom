@@ -1,0 +1,20 @@
+{
+  "properties": {
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    },
+    "tenant_id": {
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "tenant_id"
+  ],
+  "title": "ItemCreated",
+  "type": "object"
+}

@@ -1,0 +1,108 @@
+[project]
+name = "helpdesk"
+version = "0.1.0"
+description = "A Sandloom application."
+requires-python = ">=3.11"
+dependencies = [
+    "sandloom[redis,celery]>=0.7.0a1,<0.8",
+    "sandloom-identity>=0.7.0a1,<0.8",
+    "sandloom-tenancy>=0.7.0a1,<0.8",
+    "sandloom-billing>=0.7.0a1,<0.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.17.1",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-xdist==3.8.0",
+    "pre-commit==4.7.0",
+    "sandloom[check,testing]",
+]
+
+[dependency-groups]
+dev = [
+    "helpdesk[dev]",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "helpdesk",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    ".",
+]
+testpaths = [
+    "helpdesk",
+    "tests",
+]
+python_files = [
+    "test_*.py",
+]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--asyncio-mode=auto",
+    "-p",
+    "sandloom.sdk.testing.plugin",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error::DeprecationWarning",
+]
+
+[tool.ruff]
+fix = true
+force-exclude = true
+extend-exclude = [
+    "helpdesk/modules/*/migrations",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
+ignore = [
+    "B008",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "sandloom",
+    "helpdesk",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = [
+    "E501",
+]
+
+[tool.mypy]
+strict = true
+plugins = [
+    "pydantic.mypy",
+]
+exclude = [
+    "/migrations/",
+    ".*/tests/.*",
+]
+
+[tool.uv.sources]
+sandloom = { path = "../../packages/sandloom", editable = true }
+sandloom-identity = { path = "../../packages/sandloom-identity", editable = true }
+sandloom-tenancy = { path = "../../packages/sandloom-tenancy", editable = true }
+sandloom-billing = { path = "../../packages/sandloom-billing", editable = true }

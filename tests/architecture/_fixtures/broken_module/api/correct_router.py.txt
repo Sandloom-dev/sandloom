@@ -1,0 +1,12 @@
+"""Control fixture (intentionally CORRECT): an endpoint that lives in the api/
+layer, so it must NOT be flagged. Read by test_no_endpoints_outside_api_layer
+to prove the analyzer does not false-positive on a properly-placed endpoint."""
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/correct/path")
+def get_data() -> dict[str, str]:
+    return {"data": "some correct data"}

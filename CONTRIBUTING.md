@@ -1,0 +1,52 @@
+# Contributing to Sandloom
+
+Development takes place in [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
+The target is private and awaiting source transfer during release preparation.
+Use GitHub issues for ordinary bugs and feature requests once the repository is
+public; use [private security reporting](SECURITY.md) for vulnerabilities.
+
+Read [AGENTS.md](AGENTS.md) and the area-specific contract before changing code.
+Business modules and their tests use the public SDK and their own package.
+
+## Licensing contributions
+
+Sandloom uses [Apache-2.0](LICENSE). Unless explicitly stated otherwise,
+contributions intentionally submitted for inclusion are provided under that
+license, as described in its section 5. Contributors retain copyright in their
+work and must have the right to submit it. Preserve third-party notices and
+identify any included third-party material and its license.
+
+## Development environment
+
+Run from the repository root:
+
+```bash
+uv sync --locked --all-extras
+docker compose -f deploy/compose/test.yml up -d --wait
+uv run sandloom test <module>
+uv run sandloom test --full
+```
+
+Use your own `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
+`SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` on shared machines.
+
+The root `sandloom-dev` project is not published. Release distributions are
+built from `packages/sandloom-*` using the shared packaging hook. Preserve one
+`src/sandloom` source tree and the module-local tests. The public testing kit is
+runtime product code; repository test suites do not belong in runtime wheels.
+
+## Documentation and website
+
+Edit prose in `docs/`, the homepage in `website/`, and tutorial code in
+`examples/tutorial/`. Docs include the real tutorial files instead of a second
+copy. Generated references and snapshots are refreshed by their owning tools,
+not hand-edited. The combined site build places documentation at `/docs/`.
+
+## Review and validation
+
+Explain the behavior, the reason and validation for a change. Preserve existing
+architecture checks, guarantee IDs, migration revisions and public API baselines.
+Agent-context, generators and API changes require a DX evaluation before release.
+See the [source snapshot policy](docs/contributing/source-export.md) for source
+selection and the limits of its checks. Transfer and publication are separate
+operator actions.

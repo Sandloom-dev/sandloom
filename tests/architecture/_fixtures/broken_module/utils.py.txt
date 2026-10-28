@@ -1,0 +1,17 @@
+"""Deliberately-broken fixture: an HTTP endpoint defined in a NON-API file
+(utils). Read by test_no_endpoints_outside_api_layer to prove the analyzer
+flags an endpoint outside the api/ layer."""
+
+from fastapi import APIRouter
+
+util_router = APIRouter()
+
+
+def some_helper_function() -> bool:
+    return True
+
+
+# VIOLATION: an HTTP endpoint in a utils file (not the API layer).
+@util_router.get("/_debug/health")
+def debug_health_check() -> dict[str, bool]:
+    return {"healthy": some_helper_function()}

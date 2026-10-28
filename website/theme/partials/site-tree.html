@@ -1,0 +1,20 @@
+{# One tree from Zensical's resolved nav: also reused by the homepage build. #}
+{% macro branches(items) %}
+<ul class="sl-tree-list">
+  {% for item in items %}
+  <li>
+    {% if item.children %}
+    <details class="sl-tree-group"{% if item.active %} open{% endif %}>
+      <summary>{{ item.title }}<span class="sl-chevron" aria-hidden="true"></span></summary>
+      {{ branches(item.children) }}
+    </details>
+    {% else %}
+    <a href="/docs/{{ item.url }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.title }}</a>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+<nav class="sl-doc-tree" aria-label="Documentation sections" data-sandloom-navigation>
+  {{ branches(nav.items) }}
+</nav>

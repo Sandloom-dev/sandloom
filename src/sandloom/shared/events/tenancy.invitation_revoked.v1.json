@@ -1,0 +1,48 @@
+{
+  "description": "An invitation was revoked.",
+  "properties": {
+    "actor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actor Id",
+      "x-sandloom-default": true
+    },
+    "invitation_id": {
+      "format": "uuid",
+      "title": "Invitation Id",
+      "type": "string"
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Role",
+      "x-sandloom-default": true
+    }
+  },
+  "required": [
+    "organization_id",
+    "invitation_id"
+  ],
+  "title": "InvitationRevoked",
+  "type": "object"
+}

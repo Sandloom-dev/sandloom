@@ -1,0 +1,42 @@
+{
+  "description": "A task was created (``version`` 1).",
+  "properties": {
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "task_id": {
+      "format": "uuid",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "tenant_id": {
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "task_id",
+    "tenant_id",
+    "project_id",
+    "title",
+    "status",
+    "version"
+  ],
+  "title": "TaskCreated",
+  "type": "object"
+}

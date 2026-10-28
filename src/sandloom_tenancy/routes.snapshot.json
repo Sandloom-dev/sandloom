@@ -1,0 +1,253 @@
+{
+  "format": 3,
+  "module": "sandloom_tenancy",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/invitations/accept",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "automatic S",
+        "risk": {
+          "admin": [
+            "sensitive()"
+          ]
+        },
+        "session": "live, re-check every unit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/orgs",
+      "policy": {
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/orgs/{org_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{org_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/api/v1/orgs/{org_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{org_id}/invitations",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/orgs/{org_id}/invitations",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/orgs/{org_id}/invitations/{invitation_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{org_id}/members",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "DELETE",
+      "path": "/api/v1/orgs/{org_id}/members/{member_user_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sensitive()"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "PATCH",
+      "path": "/api/v1/orgs/{org_id}/members/{member_user_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{org_id}/membership",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/orgs/{org_id}/transfer-ownership/{new_owner_id}",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "explicit cache, fail-closed",
+        "risk": {
+          "admin": [
+            "sandloom_tenancy.access.require_org_role.<locals>._guard"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/tenancy/members",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/tenancy/organizations",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/platform/tenancy/organizations/{record_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

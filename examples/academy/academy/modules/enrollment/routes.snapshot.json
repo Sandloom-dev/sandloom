@@ -1,0 +1,27 @@
+{
+  "format": 3,
+  "module": "academy.modules.enrollment",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/enrollments",
+      "policy": {
+        "effect": "write",
+        "idempotency": "explicit durable, fail-closed",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/enrollments/{enrollment_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

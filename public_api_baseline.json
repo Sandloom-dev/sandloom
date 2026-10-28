@@ -1,0 +1,5362 @@
+{
+  "sandloom.core.contract_testing": {
+    "ContractCase": {
+      "kind": "class",
+      "members": [
+        "args",
+        "describe",
+        "label",
+        "tenant"
+      ],
+      "signature": "(method:POSITIONAL_OR_KEYWORD|str, args:POSITIONAL_OR_KEYWORD|tuple[Any, ...]=tuple(), kwargs:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, tenant:POSITIONAL_OR_KEYWORD|UUID | None=None, label:POSITIONAL_OR_KEYWORD|str='') -> None"
+    },
+    "ContractConformanceError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Outcome": {
+      "kind": "class",
+      "members": [
+        "error",
+        "value"
+      ],
+      "signature": "(ok:POSITIONAL_OR_KEYWORD|bool, value:POSITIONAL_OR_KEYWORD|Any=None, error:POSITIONAL_OR_KEYWORD|tuple[Any, ...] | None=None) -> None"
+    },
+    "RpcKeys": {
+      "kind": "class",
+      "members": [],
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, kid:POSITIONAL_OR_KEYWORD|str, private_key:POSITIONAL_OR_KEYWORD|str, public_key:POSITIONAL_OR_KEYWORD|str, dh_private_key:POSITIONAL_OR_KEYWORD|str, dh_public_key:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "UNIQUE": {
+      "kind": "value"
+    },
+    "assert_contract_conformance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> None"
+    },
+    "check_contract_conformance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> list[tuple[ContractCase, Outcome, Outcome]]"
+    },
+    "in_process_rpc_client": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, settings:POSITIONAL_OR_KEYWORD|Any=None) -> httpx.AsyncClient"
+    },
+    "keyed_rpc_settings": {
+      "kind": "function",
+      "signature": "(cfg:POSITIONAL_OR_KEYWORD|Any, contracts:POSITIONAL_OR_KEYWORD|Iterable[str], service_id:POSITIONAL_OR_KEYWORD|str='sandloom-conformance') -> Any"
+    },
+    "rpc_client_for": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, transport:POSITIONAL_OR_KEYWORD|str, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[tuple[Any, str]]"
+    },
+    "rpc_env": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, peers:KEYWORD_ONLY|Iterable[str]=tuple(), allowed_calls:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> dict[str, str]"
+    },
+    "rpc_keys": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str) -> RpcKeys"
+    },
+    "rpc_proxy_for": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, client:POSITIONAL_OR_KEYWORD|Any, base_url:POSITIONAL_OR_KEYWORD|str='http://sandloom-conformance', settings:KEYWORD_ONLY|Any=None) -> Any"
+    },
+    "rpc_request_headers": {
+      "kind": "function",
+      "signature": "(settings:POSITIONAL_OR_KEYWORD|Any, target:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|bytes=b'', http_method:KEYWORD_ONLY|str='POST', provider:KEYWORD_ONLY|str | None=None, sign:KEYWORD_ONLY|bool=False) -> dict[str, str]"
+    },
+    "rpc_response_headers": {
+      "kind": "function",
+      "signature": "(settings:POSITIONAL_OR_KEYWORD|Any, request_headers:POSITIONAL_OR_KEYWORD|Mapping[str, str], status_code:POSITIONAL_OR_KEYWORD|int, body:POSITIONAL_OR_KEYWORD|bytes) -> dict[str, str]"
+    },
+    "rpc_settings": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, peers:KEYWORD_ONLY|Iterable[str]=tuple(), allowed_calls:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> dict[str, Any]"
+    },
+    "served_rpc": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, app:POSITIONAL_OR_KEYWORD|Any=None, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[str]"
+    }
+  },
+  "sandloom.core.descriptors": {
+    "BACKWARD": {
+      "kind": "value"
+    },
+    "CapabilityRequirement": {
+      "kind": "class",
+      "members": [
+        "instance",
+        "required",
+        "version"
+      ],
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str='default', version:POSITIONAL_OR_KEYWORD|str='v1', features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, required:POSITIONAL_OR_KEYWORD|bool=True) -> None"
+    },
+    "CommandStep": {
+      "kind": "class",
+      "members": [
+        "args",
+        "call",
+        "check_args",
+        "compensate",
+        "compensate_args",
+        "compensate_contract",
+        "compensate_method",
+        "contract",
+        "deadline",
+        "has_compensation",
+        "kind",
+        "local",
+        "method",
+        "name",
+        "refuse_on",
+        "undo_args"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:POSITIONAL_OR_KEYWORD|str, args:POSITIONAL_OR_KEYWORD|ArgsFn, compensate:POSITIONAL_OR_KEYWORD|str | None=None, compensate_args:POSITIONAL_OR_KEYWORD|ArgsFn | None=None, kind:POSITIONAL_OR_KEYWORD|StepKind | None=None, refuse_on:POSITIONAL_OR_KEYWORD|frozenset[int]=frozenset(), check_args:POSITIONAL_OR_KEYWORD|bool=True, deadline:POSITIONAL_OR_KEYWORD|timedelta | None=None) -> None"
+    },
+    "ContractRequirement": {
+      "kind": "class",
+      "members": [
+        "methods",
+        "reason",
+        "required"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool=True, reason:POSITIONAL_OR_KEYWORD|str='', methods:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple()) -> None"
+    },
+    "Direction": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "FORWARD": {
+      "kind": "value"
+    },
+    "FailedModule": {
+      "kind": "class",
+      "members": [
+        "error",
+        "name",
+        "required"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, error:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool) -> None"
+    },
+    "HealthCheck": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "HealthResult": {
+      "kind": "class",
+      "members": [
+        "details",
+        "status"
+      ],
+      "signature": "(status:POSITIONAL_OR_KEYWORD|HealthStatus, details:POSITIONAL_OR_KEYWORD|dict[str, object] | None=None) -> None"
+    },
+    "HealthStatus": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "LocalStep": {
+      "kind": "class",
+      "members": [
+        "apply",
+        "compensate",
+        "deadline",
+        "has_compensation",
+        "kind",
+        "local",
+        "name"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, apply:POSITIONAL_OR_KEYWORD|LocalFn, compensate:POSITIONAL_OR_KEYWORD|LocalFn | None=None, kind:POSITIONAL_OR_KEYWORD|StepKind | None=None, deadline:POSITIONAL_OR_KEYWORD|timedelta | None=None) -> None"
+    },
+    "MigrationTargetError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ModuleDescriptor": {
+      "kind": "class",
+      "members": [
+        "capabilities",
+        "consumes",
+        "database_instances",
+        "depends_on",
+        "effective_capabilities",
+        "health_check",
+        "issues_tokens",
+        "migration_chain_key",
+        "migrations_chain",
+        "migrations_database",
+        "migrations_path",
+        "name",
+        "optional",
+        "routes",
+        "version"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "ModuleLoadSummary": {
+      "kind": "class",
+      "members": [
+        "consumes",
+        "duplicates",
+        "explicit",
+        "failed",
+        "loaded",
+        "manifests",
+        "skipped",
+        "success",
+        "to_dict"
+      ],
+      "signature": "(loaded:POSITIONAL_OR_KEYWORD|list[ModuleDescriptor]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, skipped:POSITIONAL_OR_KEYWORD|list[SkippedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, failed:POSITIONAL_OR_KEYWORD|list[FailedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, duplicates:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, explicit:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, consumes:POSITIONAL_OR_KEYWORD|dict[str, list[dict[str, Any]]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, manifests:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Saga": {
+      "kind": "class",
+      "members": [
+        "bind",
+        "describe",
+        "index_of",
+        "registered",
+        "saga_type",
+        "step_named"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:KEYWORD_ONLY|int, input:KEYWORD_ONLY|type[InputT], deadline:KEYWORD_ONLY|timedelta, steps:KEYWORD_ONLY|Sequence[SagaStep], compensation_deadline:KEYWORD_ONLY|timedelta | None=None) -> None"
+    },
+    "SagaContext": {
+      "kind": "class",
+      "members": [
+        "input",
+        "key",
+        "result",
+        "results",
+        "saga_id",
+        "saga_type",
+        "synthetic"
+      ],
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, input:POSITIONAL_OR_KEYWORD|InputT, results:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, synthetic:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "SagaDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "fatal_at_startup",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "SagaStep": {
+      "kind": "value"
+    },
+    "SkippedModule": {
+      "kind": "class",
+      "members": [
+        "name",
+        "reason"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, reason:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "StepKind": {
+      "kind": "class",
+      "members": [
+        "COMPENSATABLE",
+        "PIVOT",
+        "RETRIABLE",
+        "capitalize",
+        "casefold",
+        "center",
+        "count",
+        "encode",
+        "endswith",
+        "expandtabs",
+        "find",
+        "format",
+        "format_map",
+        "index",
+        "isalnum",
+        "isalpha",
+        "isascii",
+        "isdecimal",
+        "isdigit",
+        "isidentifier",
+        "islower",
+        "isnumeric",
+        "isprintable",
+        "isspace",
+        "istitle",
+        "isupper",
+        "join",
+        "ljust",
+        "lower",
+        "lstrip",
+        "maketrans",
+        "partition",
+        "removeprefix",
+        "removesuffix",
+        "replace",
+        "rfind",
+        "rindex",
+        "rjust",
+        "rpartition",
+        "rsplit",
+        "rstrip",
+        "split",
+        "splitlines",
+        "startswith",
+        "strip",
+        "swapcase",
+        "title",
+        "translate",
+        "upper",
+        "zfill"
+      ],
+      "signature": "(values:VAR_POSITIONAL)"
+    },
+    "local_step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, apply:KEYWORD_ONLY|LocalFn, compensate:KEYWORD_ONLY|LocalFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, deadline:KEYWORD_ONLY|timedelta | None=None) -> LocalStep"
+    },
+    "operation_key": {
+      "kind": "function",
+      "signature": "(parts:VAR_POSITIONAL|object) -> str"
+    },
+    "saga_contract_requirements": {
+      "kind": "function",
+      "signature": "(saga:POSITIONAL_OR_KEYWORD|Saga[Any]) -> list[ContractRequirement]"
+    },
+    "saga_step_key": {
+      "kind": "function",
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, step:POSITIONAL_OR_KEYWORD|str, direction:POSITIONAL_OR_KEYWORD|Direction) -> str"
+    },
+    "step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:KEYWORD_ONLY|str, args:KEYWORD_ONLY|ArgsFn, compensate:KEYWORD_ONLY|str | None=None, compensate_args:KEYWORD_ONLY|ArgsFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, refuse_on:KEYWORD_ONLY|Iterable[int]=tuple(), check_args:KEYWORD_ONLY|bool=True, deadline:KEYWORD_ONLY|timedelta | None=None) -> CommandStep"
+    },
+    "synthetic_instance": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[T]) -> T"
+    }
+  },
+  "sandloom.core.di": {
+    "AuditUnavailableError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "BlockUnavailableError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "detail",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Capability": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, contract:POSITIONAL_OR_KEYWORD|type | None=None, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
+    },
+    "ClaimsUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "CoreRuntime": {
+      "kind": "class",
+      "members": [
+        "cache",
+        "capability",
+        "collect_claims",
+        "database",
+        "get_access_fact",
+        "get_metric",
+        "get_service",
+        "increment_metric",
+        "logger",
+        "logger_factory",
+        "notifier",
+        "objectstore",
+        "remote_access_fact_cache",
+        "remote_fact_owners",
+        "require_capability",
+        "settings",
+        "span",
+        "taskqueue"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade) -> None"
+    },
+    "Database": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "DbSession": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "EventEnvelope": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "MissingTenantError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Notification": {
+      "kind": "class",
+      "members": [
+        "dedupe_key"
+      ],
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "PlannedReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "PoisonEventError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ReadOnlyDbSession": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "RemoteServiceUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(service_name:POSITIONAL_OR_KEYWORD|str, reason:KEYWORD_ONLY|str, code:KEYWORD_ONLY|str='remote_service_unavailable') -> None"
+    },
+    "ResolvedAccount": {
+      "kind": "class",
+      "members": [],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|Literal['user', 'org'], id:POSITIONAL_OR_KEYWORD|UUID) -> None"
+    },
+    "SERVICE_PRINCIPAL_ID": {
+      "kind": "value"
+    },
+    "SagaHandle": {
+      "kind": "class",
+      "members": [
+        "created",
+        "instance_id",
+        "park_reason",
+        "saga_id",
+        "saga_type",
+        "status",
+        "step",
+        "version"
+      ],
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, instance_id:POSITIONAL_OR_KEYWORD|uuid.UUID, status:POSITIONAL_OR_KEYWORD|str, created:POSITIONAL_OR_KEYWORD|bool=False, step:POSITIONAL_OR_KEYWORD|str | None=None, park_reason:POSITIONAL_OR_KEYWORD|str | None=None, version:POSITIONAL_OR_KEYWORD|int=0) -> None"
+    },
+    "SagaInputConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ServiceNotFound": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ServiceUnavailableInDeployment": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(service_name:POSITIONAL_OR_KEYWORD|str, reason:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "SnapshotReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TaskEnqueueConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "() -> None"
+    },
+    "TaskEnqueueUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "() -> None"
+    },
+    "TaskEnqueueUncertain": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(task_id:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "TenantMismatchError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "TenantScope": {
+      "kind": "function",
+      "signature": "(header:KEYWORD_ONLY|str='X-Tenant-Id', claim_keys:KEYWORD_ONLY|tuple[str, ...]=tuple('tenant_id','org_id'), required:KEYWORD_ONLY|bool=True) -> Any"
+    },
+    "UnitOfWorkRequiredError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "UnsafeTenantOperationError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "UowReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "allow_multi_db_write": {
+      "kind": "function",
+      "signature": "(secondaries:KEYWORD_ONLY|tuple[str, ...], reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "apply_pending_revocation": {
+      "kind": "function",
+      "signature": "(payload:POSITIONAL_OR_KEYWORD|dict[str, Any]) -> None"
+    },
+    "at_commit": {
+      "kind": "function",
+      "signature": "() -> params.Depends"
+    },
+    "authenticates": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|_F | None=None, kind:KEYWORD_ONLY|AuthenticatorKind='user') -> _F | Callable[[_F], _F]"
+    },
+    "authorizes": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|_F) -> _F"
+    },
+    "before_commit": {
+      "kind": "function",
+      "signature": "(callback:POSITIONAL_OR_KEYWORD|OnCommitCallback, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "bind_contract_session": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> Iterator[Any]"
+    },
+    "bind_tenant": {
+      "kind": "function",
+      "signature": "(tenant_id:POSITIONAL_OR_KEYWORD|uuid.UUID) -> Iterator[uuid.UUID]"
+    },
+    "block_user": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, actor_id:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "cache": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> CacheProvider"
+    },
+    "capability": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', contract:POSITIONAL_OR_KEYWORD|type | None=None) -> Any"
+    },
+    "contract_session": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "core_from_request": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> CoreRuntime"
+    },
+    "create_access_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
+    },
+    "current_tenant_id": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID"
+    },
+    "current_tenant_id_optional": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID | None"
+    },
+    "db": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "db_session": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> AsyncGenerator[AsyncSession, None]"
+    },
+    "decode_token": {
+      "kind": "function",
+      "signature": "(token:POSITIONAL_OR_KEYWORD|str) -> dict[str, Any] | None"
+    },
+    "decode_token_cached": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, token:POSITIONAL_OR_KEYWORD|str) -> dict[str, Any] | None"
+    },
+    "durable_inbox": {
+      "kind": "function",
+      "signature": "(consumer:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "ensure_token_not_revoked": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, claims:POSITIONAL_OR_KEYWORD|dict[str, Any]) -> None"
+    },
+    "ensure_user_not_blocked": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "external_call": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> AsyncIterator[None]"
+    },
+    "get_client_ip": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, config:KEYWORD_ONLY|Any | None=None) -> str"
+    },
+    "get_core": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> CoreRuntime"
+    },
+    "get_db": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
+    },
+    "get_planned_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[Any, None]"
+    },
+    "get_read_only_db": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
+    },
+    "get_service": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, optional:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "get_snapshot_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[Any, None]"
+    },
+    "get_uow_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request, db:POSITIONAL_OR_KEYWORD|DbSession) -> Any"
+    },
+    "has_internal_access": {
+      "kind": "function",
+      "signature": "(x_internal_token:POSITIONAL_OR_KEYWORD|str | None) -> bool"
+    },
+    "idempotency_guard": {
+      "kind": "function",
+      "signature": "(scope:KEYWORD_ONLY|str, ttl_seconds:KEYWORD_ONLY|int=86400, required:KEYWORD_ONLY|bool=True, fail_closed:KEYWORD_ONLY|bool=False, store_response:KEYWORD_ONLY|bool=True, durable:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "is_user_blocked": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
+    "make_db_dependency": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]"
+    },
+    "mark_reauthenticated": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "no_idempotency": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "notifier": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    },
+    "objectstore": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    },
+    "on_commit": {
+      "kind": "function",
+      "signature": "(callback:POSITIONAL_OR_KEYWORD|OnCommitCallback, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "operation_intent": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "operation_key": {
+      "kind": "function",
+      "signature": "(parts:VAR_POSITIONAL|object) -> str"
+    },
+    "password_hasher": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "public": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str, issues_tokens:KEYWORD_ONLY|bool=False) -> params.Depends"
+    },
+    "publish_event": {
+      "kind": "function",
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|str, payload:POSITIONAL_OR_KEYWORD|dict[str, Any], schema_version:POSITIONAL_OR_KEYWORD|str='v1', database:KEYWORD_ONLY|str | None=None, required:KEYWORD_ONLY|bool | None=None) -> None"
+    },
+    "publish_event_versions": {
+      "kind": "function",
+      "signature": "(payloads:POSITIONAL_OR_KEYWORD|Mapping[str, dict[str, Any]], database:KEYWORD_ONLY|str | None=None, bus:KEYWORD_ONLY|Any=None, required:KEYWORD_ONLY|bool | None=None) -> None"
+    },
+    "rate_limiter": {
+      "kind": "function",
+      "signature": "(requests:KEYWORD_ONLY|int, period:KEYWORD_ONLY|int, fail_closed:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "record_audit": {
+      "kind": "function",
+      "signature": "(action:POSITIONAL_OR_KEYWORD|str, actor_id:KEYWORD_ONLY|_uuid.UUID | str | None=None, actor_type:KEYWORD_ONLY|str='user', resource_type:KEYWORD_ONLY|str | None=None, resource_id:KEYWORD_ONLY|str | None=None, data:KEYWORD_ONLY|dict[str, Any] | None=None, required:KEYWORD_ONLY|bool | None=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "register_event_consumer": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|CoreFacade, channel:POSITIONAL_OR_KEYWORD|str, handler:POSITIONAL_OR_KEYWORD|Any, name:KEYWORD_ONLY|str, durable:KEYWORD_ONLY|bool=True, database:KEYWORD_ONLY|str='default', required:KEYWORD_ONLY|bool=True, group:KEYWORD_ONLY|str | None=None, start_from:KEYWORD_ONLY|str='earliest', bind_tenant_from:KEYWORD_ONLY|str | None=None, dead_letter:KEYWORD_ONLY|bool=True) -> None"
+    },
+    "rehash_password_if_needed": {
+      "kind": "function",
+      "signature": "(plain_password:POSITIONAL_OR_KEYWORD|str, stored_hash:POSITIONAL_OR_KEYWORD|str, hasher:KEYWORD_ONLY|Any=None) -> str | None"
+    },
+    "release_check": {
+      "kind": "function",
+      "signature": "(account:POSITIONAL_OR_KEYWORD|ResolvedAccount, authority:KEYWORD_ONLY|Callable[[], Awaitable[None]] | None=None) -> None"
+    },
+    "replay_safe": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "request_operation_key": {
+      "kind": "function",
+      "signature": "() -> str | None"
+    },
+    "revoke_user_tokens": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, valid_after:KEYWORD_ONLY|int | None=None) -> bool"
+    },
+    "revoke_user_tokens_on_commit": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, valid_after:KEYWORD_ONLY|int | None=None, database:KEYWORD_ONLY|str | None=None, require_immediate:KEYWORD_ONLY|bool=False) -> int"
+    },
+    "run_async": {
+      "kind": "function",
+      "signature": "(coro:POSITIONAL_OR_KEYWORD|Coroutine[Any, Any, T]) -> T"
+    },
+    "run_password_hashing": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[..., _T], args:VAR_POSITIONAL|Any) -> _T"
+    },
+    "saga_status": {
+      "kind": "function",
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:POSITIONAL_OR_KEYWORD|object) -> SagaHandle | None"
+    },
+    "scoped": {
+      "kind": "function",
+      "signature": "(stmt:POSITIONAL_OR_KEYWORD|Any, model:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "sensitive": {
+      "kind": "function",
+      "signature": "(risk:POSITIONAL_OR_KEYWORD|Risk) -> params.Depends"
+    },
+    "sensitive_effect": {
+      "kind": "function",
+      "signature": "(risk:POSITIONAL_OR_KEYWORD|Risk, step_up:KEYWORD_ONLY|int | None=None) -> Callable[[F], F]"
+    },
+    "settings": {
+      "kind": "value"
+    },
+    "start_saga": {
+      "kind": "function",
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:KEYWORD_ONLY|object, input:KEYWORD_ONLY|BaseModel | Mapping[str, Any]) -> SagaHandle"
+    },
+    "subject_commit_check": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> Callable[[], Awaitable[None]]"
+    },
+    "taskqueue": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    },
+    "tenant_filter": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "unblock_user": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, actor_id:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "unscoped": {
+      "kind": "function",
+      "signature": "() -> Iterator[None]"
+    },
+    "writes": {
+      "kind": "function",
+      "signature": "(database:POSITIONAL_OR_KEYWORD|str) -> params.Depends"
+    }
+  },
+  "sandloom.core.facade": {
+    "CLAIMS_CONTRACT_SUFFIX": {
+      "kind": "value"
+    },
+    "ClaimsContributorContract": {
+      "kind": "class",
+      "members": [
+        "contribute"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade, owner:POSITIONAL_OR_KEYWORD|str | None) -> None"
+    },
+    "ClaimsUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "CoreFacade": {
+      "kind": "class",
+      "members": [
+        "add_claims_contributor",
+        "add_shutdown_task",
+        "add_startup_task",
+        "cache",
+        "capability",
+        "claims_contributors",
+        "collect_claims",
+        "contract_database",
+        "contract_dto_problems",
+        "contract_owner",
+        "database",
+        "ensure_tracer",
+        "event_bus",
+        "event_consumers",
+        "eventbus_provider",
+        "get_access_fact",
+        "get_contract_uow_factory",
+        "get_event_schema",
+        "get_metric",
+        "get_schema_registry",
+        "get_service",
+        "get_uow_factory",
+        "health_checks",
+        "increment_metric",
+        "infra",
+        "is_critical_startup_task",
+        "list_access_facts",
+        "list_event_schemas",
+        "list_metrics",
+        "local_contract",
+        "logger_factory",
+        "module_descriptors",
+        "module_registration",
+        "notifier",
+        "objectstore",
+        "projection_registry",
+        "register_access_fact",
+        "register_event_consumer",
+        "register_event_schema",
+        "register_event_schema_obj",
+        "register_health_check",
+        "register_metric",
+        "register_projection_consumer",
+        "register_projection_rebuilder",
+        "register_query_projection",
+        "register_saga",
+        "register_schema_registry",
+        "register_service",
+        "register_uow_factory",
+        "remote_access_fact_cache",
+        "remote_claims_contributors",
+        "remote_fact_owners",
+        "require_capability",
+        "restore_registrations",
+        "runtime_view",
+        "sagas",
+        "set_event_bus",
+        "set_infra",
+        "set_service_resolver",
+        "shutdown_tasks",
+        "snapshot_registrations",
+        "span",
+        "startup_task_phased_specs",
+        "startup_task_specs",
+        "startup_tasks",
+        "taskqueue"
+      ],
+      "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
+    },
+    "CoreRuntime": {
+      "kind": "class",
+      "members": [
+        "cache",
+        "capability",
+        "collect_claims",
+        "database",
+        "get_access_fact",
+        "get_metric",
+        "get_service",
+        "increment_metric",
+        "logger",
+        "logger_factory",
+        "notifier",
+        "objectstore",
+        "remote_access_fact_cache",
+        "remote_fact_owners",
+        "require_capability",
+        "settings",
+        "span",
+        "taskqueue"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade) -> None"
+    },
+    "FACTS_CONTRACT_SUFFIX": {
+      "kind": "value"
+    },
+    "ShutdownTask": {
+      "kind": "value"
+    },
+    "StartupTask": {
+      "kind": "value"
+    },
+    "claims_contract_name": {
+      "kind": "function",
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> str"
+    },
+    "facts_contract_name": {
+      "kind": "function",
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> str"
+    }
+  },
+  "sandloom.core.module_api": {
+    "AUTO": {
+      "kind": "value"
+    },
+    "BACKWARD": {
+      "kind": "value"
+    },
+    "ContractArgumentError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractCallError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractCallInProgress": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyKeyMissing": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractMethodRuntime": {
+      "kind": "class",
+      "members": [
+        "bind",
+        "decode_result",
+        "describe",
+        "idempotency_key",
+        "idempotency_scope",
+        "local_result",
+        "param_plans",
+        "params_typed",
+        "result_plan",
+        "risk"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ContractMethodSpec": {
+      "kind": "class",
+      "members": [
+        "database",
+        "idempotency_key",
+        "idempotency_scope",
+        "kind",
+        "planned",
+        "readonly",
+        "risk"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command']='read', idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, database:POSITIONAL_OR_KEYWORD|str | None=None, planned:POSITIONAL_OR_KEYWORD|bool=False, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ContractProvider": {
+      "kind": "class",
+      "members": [
+        "call_local",
+        "contract_impl",
+        "contract_name",
+        "contract_schema",
+        "encode_result",
+        "encode_result_as",
+        "invoke"
+      ],
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any, core:KEYWORD_ONLY|Any, database:KEYWORD_ONLY|str, name:KEYWORD_ONLY|str) -> None"
+    },
+    "ContractReadScope": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "invalidate",
+        "memo_enabled",
+        "memo_generation",
+        "memo_get",
+        "memo_set",
+        "release_connections",
+        "run",
+        "stats"
+      ],
+      "signature": "(memo:KEYWORD_ONLY|bool=True, idle_seconds:KEYWORD_ONLY|float | None=0.0) -> None"
+    },
+    "ContractReadScopeMiddleware": {
+      "kind": "class",
+      "members": [],
+      "signature": "(app:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "ContractResultNotReplayable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractSchema": {
+      "kind": "class",
+      "members": [
+        "describe"
+      ],
+      "signature": "(methods:POSITIONAL_OR_KEYWORD|dict[str, ContractMethodRuntime], hash:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "DEFAULT_CONTRACT_DTO_PACKAGES": {
+      "kind": "value"
+    },
+    "FORWARD": {
+      "kind": "value"
+    },
+    "ModuleAPI": {
+      "kind": "class",
+      "members": [
+        "add_claims_contributor",
+        "add_shutdown_task",
+        "add_startup_task",
+        "get_schema_registry",
+        "get_service",
+        "include_router",
+        "logger",
+        "logger_factory",
+        "register_access_fact",
+        "register_event_consumer",
+        "register_event_schema",
+        "register_event_schema_obj",
+        "register_health_check",
+        "register_operations",
+        "register_projection_consumer",
+        "register_projection_rebuilder",
+        "register_query_projection",
+        "register_saga",
+        "register_service",
+        "settings"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade, draft:KEYWORD_ONLY|ModuleRegistrationDraft | None=None) -> None"
+    },
+    "ModuleRegistrationConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ModuleRegistrationDraft": {
+      "kind": "class",
+      "members": [
+        "apply",
+        "commit",
+        "preflight"
+      ],
+      "signature": "() -> None"
+    },
+    "ReadContractWriteError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Saga": {
+      "kind": "class",
+      "members": [
+        "bind",
+        "describe",
+        "index_of",
+        "registered",
+        "saga_type",
+        "step_named"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:KEYWORD_ONLY|int, input:KEYWORD_ONLY|type[InputT], deadline:KEYWORD_ONLY|timedelta, steps:KEYWORD_ONLY|Sequence[SagaStep], compensation_deadline:KEYWORD_ONLY|timedelta | None=None) -> None"
+    },
+    "SagaContext": {
+      "kind": "class",
+      "members": [
+        "input",
+        "key",
+        "result",
+        "results",
+        "saga_id",
+        "saga_type",
+        "synthetic"
+      ],
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, input:POSITIONAL_OR_KEYWORD|InputT, results:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, synthetic:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "SagaDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "fatal_at_startup",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "StepKind": {
+      "kind": "class",
+      "members": [
+        "COMPENSATABLE",
+        "PIVOT",
+        "RETRIABLE",
+        "capitalize",
+        "casefold",
+        "center",
+        "count",
+        "encode",
+        "endswith",
+        "expandtabs",
+        "find",
+        "format",
+        "format_map",
+        "index",
+        "isalnum",
+        "isalpha",
+        "isascii",
+        "isdecimal",
+        "isdigit",
+        "isidentifier",
+        "islower",
+        "isnumeric",
+        "isprintable",
+        "isspace",
+        "istitle",
+        "isupper",
+        "join",
+        "ljust",
+        "lower",
+        "lstrip",
+        "maketrans",
+        "partition",
+        "removeprefix",
+        "removesuffix",
+        "replace",
+        "rfind",
+        "rindex",
+        "rjust",
+        "rpartition",
+        "rsplit",
+        "rstrip",
+        "split",
+        "splitlines",
+        "startswith",
+        "strip",
+        "swapcase",
+        "title",
+        "translate",
+        "upper",
+        "zfill"
+      ],
+      "signature": "(values:VAR_POSITIONAL)"
+    },
+    "bind_contract": {
+      "kind": "function",
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any, core:KEYWORD_ONLY|Any, database:KEYWORD_ONLY|str, name:KEYWORD_ONLY|str) -> Any"
+    },
+    "bind_contract_session": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> Iterator[Any]"
+    },
+    "contract_dto_problems": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, impl:POSITIONAL_OR_KEYWORD|Any, provider_module:KEYWORD_ONLY|str | None, module_packages:KEYWORD_ONLY|Iterable[str]=tuple(), shared_packages:KEYWORD_ONLY|Iterable[str]=tuple()) -> list[str]"
+    },
+    "contract_error": {
+      "kind": "function",
+      "signature": "(status_code:KEYWORD_ONLY|int, detail:KEYWORD_ONLY|Any, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> ContractCallError"
+    },
+    "contract_kind": {
+      "kind": "function",
+      "signature": "(method:POSITIONAL_OR_KEYWORD|Any) -> Literal['read', 'command'] | None"
+    },
+    "contract_method": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|_F | None=None, command:KEYWORD_ONLY|bool=False, idempotency_key:KEYWORD_ONLY|str | None=None, idempotency_scope:KEYWORD_ONLY|tuple[str, ...]=tuple(), database:KEYWORD_ONLY|str | None=None, planned:KEYWORD_ONLY|bool=False, risk:KEYWORD_ONLY|Literal['admin', 'money', 'security'] | None=None) -> _F | Callable[[_F], _F]"
+    },
+    "contract_read_scope": {
+      "kind": "function",
+      "signature": "(memo:KEYWORD_ONLY|bool | None=None, idle_ms:KEYWORD_ONLY|int | None=None) -> AsyncIterator[ContractReadScope]"
+    },
+    "contract_reads": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "contract_schema": {
+      "kind": "function",
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any) -> ContractSchema"
+    },
+    "contract_session": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "contract_session_bound": {
+      "kind": "function",
+      "signature": "() -> bool"
+    },
+    "contract_spec": {
+      "kind": "function",
+      "signature": "(method:POSITIONAL_OR_KEYWORD|Any) -> ContractMethodSpec | None"
+    },
+    "current_contract_read_scope": {
+      "kind": "function",
+      "signature": "() -> ContractReadScope | None"
+    },
+    "define_module": {
+      "kind": "function",
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+    },
+    "invalidate_contract_read_memo": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "local_step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, apply:KEYWORD_ONLY|LocalFn, compensate:KEYWORD_ONLY|LocalFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, deadline:KEYWORD_ONLY|timedelta | None=None) -> LocalStep"
+    },
+    "normalize_contract_error": {
+      "kind": "function",
+      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> ContractCallError | None"
+    },
+    "operation_key": {
+      "kind": "function",
+      "signature": "(parts:VAR_POSITIONAL|object) -> str"
+    },
+    "run_contract_call": {
+      "kind": "function",
+      "signature": "(func:POSITIONAL_OR_KEYWORD|Callable[..., Awaitable[Any]], args:POSITIONAL_OR_KEYWORD|tuple[Any, ...], kwargs:POSITIONAL_OR_KEYWORD|dict[str, Any], spec:KEYWORD_ONLY|ContractMethodSpec, core:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str='default', contract:KEYWORD_ONLY|str | None=None) -> Any"
+    },
+    "step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:KEYWORD_ONLY|str, args:KEYWORD_ONLY|ArgsFn, compensate:KEYWORD_ONLY|str | None=None, compensate_args:KEYWORD_ONLY|ArgsFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, refuse_on:KEYWORD_ONLY|Iterable[int]=tuple(), check_args:KEYWORD_ONLY|bool=True, deadline:KEYWORD_ONLY|timedelta | None=None) -> CommandStep"
+    }
+  },
+  "sandloom.core.orm": {
+    "Base": {
+      "kind": "class",
+      "members": [
+        "metadata",
+        "registry"
+      ],
+      "signature": "(kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "CreatedAt": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "InvalidCursor": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|str='invalid pagination cursor') -> None"
+    },
+    "JoinRead": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "join",
+        "keys",
+        "keyset",
+        "lock",
+        "name",
+        "tenant_scoped",
+        "via"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "ListOperation": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "descending",
+        "join",
+        "keys",
+        "keyset",
+        "lock",
+        "max_limit",
+        "n_required",
+        "name",
+        "order_by",
+        "page_cap",
+        "prefix_ignore_case",
+        "require_index",
+        "tenant_scoped",
+        "via"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, order_by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), descending:POSITIONAL_OR_KEYWORD|bool=False, max_limit:POSITIONAL_OR_KEYWORD|int | None=None, require_index:POSITIONAL_OR_KEYWORD|bool=True, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, optional:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, prefix:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, prefix_ignore_case:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "MoneyLedger": {
+      "kind": "class",
+      "members": [],
+      "signature": "()"
+    },
+    "Page": {
+      "kind": "class",
+      "members": [],
+      "signature": "(items:POSITIONAL_OR_KEYWORD|list[R], next_cursor:POSITIONAL_OR_KEYWORD|str | None) -> None"
+    },
+    "PageLimitError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "ReadOperation": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "keys",
+        "keyset",
+        "lock",
+        "name",
+        "tenant_scoped"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "Reads": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "in_unit_of_work",
+        "one",
+        "page"
+      ],
+      "signature": "(core:POSITIONAL_OR_KEYWORD|CoreRuntime | None, unit:POSITIONAL_OR_KEYWORD|Any=None, adapter:KEYWORD_ONLY|ExecutionAdapter | None=None, shared:KEYWORD_ONLY|bool=False, contract:KEYWORD_ONLY|bool=False, isolation:KEYWORD_ONLY|Isolation='read_committed') -> None"
+    },
+    "TenantScoped": {
+      "kind": "class",
+      "members": [
+        "tenant_id"
+      ],
+      "signature": "()"
+    },
+    "UpdatedAt": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "disable_tenant_rls": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, schema:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "enable_tenant_rls": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
+    },
+    "make_cursor": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
+    },
+    "new_id": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID"
+    },
+    "session_reads": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
+    }
+  },
+  "sandloom.core.projections": {
+    "EventEnvelope": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ProjectionConsumerDescriptor": {
+      "kind": "class",
+      "members": [
+        "bind_tenant_from",
+        "durable",
+        "group",
+        "group_name",
+        "handler",
+        "module",
+        "name",
+        "projection",
+        "required",
+        "source_channel",
+        "start_from"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, source_channel:POSITIONAL_OR_KEYWORD|str, projection:POSITIONAL_OR_KEYWORD|str, handler:POSITIONAL_OR_KEYWORD|ProjectionHandler, durable:POSITIONAL_OR_KEYWORD|bool=True, required:POSITIONAL_OR_KEYWORD|bool=True, module:POSITIONAL_OR_KEYWORD|str | None=None, group:POSITIONAL_OR_KEYWORD|str | None=None, start_from:POSITIONAL_OR_KEYWORD|str='earliest', bind_tenant_from:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ProjectionHandler": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ProjectionRebuildResult": {
+      "kind": "class",
+      "members": [
+        "cleared",
+        "details",
+        "projection",
+        "rows"
+      ],
+      "signature": "(projection:POSITIONAL_OR_KEYWORD|str, rows:POSITIONAL_OR_KEYWORD|int=0, cleared:POSITIONAL_OR_KEYWORD|bool=False, details:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "ProjectionRebuilder": {
+      "kind": "class",
+      "members": [
+        "rebuild_all",
+        "rebuild_entity",
+        "rebuild_tenant"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ProjectionRegistryError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "QueryProjectionDescriptor": {
+      "kind": "class",
+      "members": [
+        "consistency",
+        "name",
+        "owner_module",
+        "purge",
+        "rebuildable",
+        "source_events",
+        "storage",
+        "token_entries",
+        "version"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str='v1', source_events:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), storage:POSITIONAL_OR_KEYWORD|str='default', consistency:POSITIONAL_OR_KEYWORD|Literal['eventual']='eventual', rebuildable:POSITIONAL_OR_KEYWORD|bool=True, purge:POSITIONAL_OR_KEYWORD|TombstonePurger | None=None, token_entries:POSITIONAL_OR_KEYWORD|TokenEntries | None=None) -> None"
+    },
+    "QueryProjectionRegistry": {
+      "kind": "class",
+      "members": [
+        "consumers_for",
+        "get_consumer",
+        "get_projection",
+        "get_rebuilder",
+        "list_consumers",
+        "list_projections",
+        "register_consumer",
+        "register_projection",
+        "register_rebuilder",
+        "restore",
+        "snapshot",
+        "token_sources"
+      ],
+      "signature": "() -> None"
+    },
+    "make_consumer_callback": {
+      "kind": "function",
+      "signature": "(descriptor:POSITIONAL_OR_KEYWORD|ProjectionConsumerDescriptor, storage:POSITIONAL_OR_KEYWORD|str, opener:POSITIONAL_OR_KEYWORD|SessionOpener) -> Any"
+    },
+    "monotonic_delete": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, values:KEYWORD_ONLY|dict[str, Any] | None=None, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', deleted_at:KEYWORD_ONLY|datetime | None=None) -> bool"
+    },
+    "monotonic_update": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, match:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int) -> int"
+    },
+    "monotonic_upsert": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None) -> bool"
+    },
+    "start_projection_consumers": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|CoreFacade, session_opener:KEYWORD_ONLY|SessionOpener | None=None) -> int"
+    }
+  },
+  "sandloom.core.testing": {
+    "BootOutcome": {
+      "kind": "class",
+      "members": [],
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, started:POSITIONAL_OR_KEYWORD|bool, missing_contracts:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Captured": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "FakeClock": {
+      "kind": "class",
+      "members": [
+        "advance",
+        "advance_to"
+      ],
+      "signature": "(start:POSITIONAL_OR_KEYWORD|datetime | None=None) -> None"
+    },
+    "Headers": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "InMemoryCache": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "add",
+        "aopen",
+        "capability",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "driver",
+        "features",
+        "get",
+        "get_many",
+        "health",
+        "incr",
+        "incr_many",
+        "incr_window",
+        "raw_client",
+        "set",
+        "set_many",
+        "set_max",
+        "set_nx_get",
+        "set_subject_state"
+      ],
+      "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
+    },
+    "MigrationChain": {
+      "kind": "class",
+      "members": [
+        "versions"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str | None, script_location:POSITIONAL_OR_KEYWORD|Path, version_table:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "ModuleBootError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "RecordingSession": {
+      "kind": "class",
+      "members": [
+        "audit_actions"
+      ],
+      "signature": "(info:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, audits:POSITIONAL_OR_KEYWORD|list[dict[str, Any]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, events:POSITIONAL_OR_KEYWORD|list[tuple[str, dict[str, Any], str]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "RegistrationSurface": {
+      "kind": "class",
+      "members": [
+        "of"
+      ],
+      "signature": "(descriptor:POSITIONAL_OR_KEYWORD|Any, calls:POSITIONAL_OR_KEYWORD|list[Call]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "RoutePolicy": {
+      "kind": "class",
+      "members": [
+        "auth",
+        "effect",
+        "public_reason",
+        "risk"
+      ],
+      "signature": "(always_strict:POSITIONAL_OR_KEYWORD|bool, declares_budget:POSITIONAL_OR_KEYWORD|bool, staleness_budget:POSITIONAL_OR_KEYWORD|float, auth:POSITIONAL_OR_KEYWORD|str='user', public_reason:POSITIONAL_OR_KEYWORD|str | None=None, effect:POSITIONAL_OR_KEYWORD|str='read', risk:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple()) -> None"
+    },
+    "SagaHarness": {
+      "kind": "class",
+      "members": [
+        "assert_compensations_idempotent",
+        "assert_resolves_before_compensating",
+        "close",
+        "crash_after",
+        "crash_before",
+        "deliver",
+        "deliver_twice",
+        "drive",
+        "fail_step",
+        "fake_contract",
+        "instance",
+        "register",
+        "run",
+        "start"
+      ],
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "SagaRun": {
+      "kind": "class",
+      "members": [
+        "assert_keys_derived",
+        "calls",
+        "crashes",
+        "definition",
+        "instance",
+        "keys",
+        "park_reason",
+        "results",
+        "saga_id",
+        "status",
+        "step_row",
+        "steps",
+        "transitions"
+      ],
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], instance:POSITIONAL_OR_KEYWORD|InstanceRow, calls:POSITIONAL_OR_KEYWORD|list[str], keys:POSITIONAL_OR_KEYWORD|list[str], steps:POSITIONAL_OR_KEYWORD|list[dict[str, Any]], transitions:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, crashes:POSITIONAL_OR_KEYWORD|int=0) -> None"
+    },
+    "SimulatedCrash": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "TestResourceOwnershipError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "apply_worker_env": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|MutableMapping[str, str] | None=None, create_database:KEYWORD_ONLY|bool=True) -> dict[str, str]"
+    },
+    "assert_route_snapshot": {
+      "kind": "function",
+      "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
+    },
+    "bind_test_uow": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any, database:KEYWORD_ONLY|str='default', outbox:KEYWORD_ONLY|OutboxStore | None=None, audit:KEYWORD_ONLY|AuditStore | None=None) -> Iterator[Any]"
+    },
+    "block_mark_key": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> str"
+    },
+    "boot_module_alone": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, lifespan:KEYWORD_ONLY|bool=True) -> BootOutcome"
+    },
+    "capture_effects": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|ModuleType) -> Captured"
+    },
+    "chain_coverage_problems": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[str]"
+    },
+    "committing_uow": {
+      "kind": "function",
+      "signature": "(session_factory:POSITIONAL_OR_KEYWORD|Any, database:KEYWORD_ONLY|str='default') -> AsyncIterator[Any]"
+    },
+    "deliver_event": {
+      "kind": "function",
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|str, payload:POSITIONAL_OR_KEYWORD|dict[str, Any], times:KEYWORD_ONLY|int=1, event_id:KEYWORD_ONLY|str | None=None, session:KEYWORD_ONLY|Any=None, core:KEYWORD_ONLY|Any=None) -> int"
+    },
+    "email_of": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|uuid.UUID) -> str"
+    },
+    "fake_access_fact": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+    },
+    "flush_owned_redis": {
+      "kind": "function",
+      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "make_user_headers": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, tenant_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, email:KEYWORD_ONLY|str | None='', email_verified:KEYWORD_ONLY|bool | None=True, tenant:KEYWORD_ONLY|bool=True, claims:VAR_KEYWORD|Any) -> tuple[uuid.UUID, Headers]"
+    },
+    "migrate_module": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str, package:POSITIONAL_OR_KEYWORD|str, revision:POSITIONAL_OR_KEYWORD|str='head', downgrade:KEYWORD_ONLY|bool=False, chain:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "migration_chains": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "model_tables": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> dict[str, MigrationChain]"
+    },
+    "open_saga_harness": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[SagaHarness]"
+    },
+    "override_instance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', driver:KEYWORD_ONLY|str, options:VAR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "record_revocation_checks": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch) -> list[str]"
+    },
+    "recording_uow": {
+      "kind": "function",
+      "signature": "(database:KEYWORD_ONLY|str='default') -> Iterator[RecordingSession]"
+    },
+    "register_event_schemas": {
+      "kind": "function",
+      "signature": "(channels:POSITIONAL_OR_KEYWORD|Mapping[str, dict[str, Any] | None] | Iterable[str], target:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "registration_surface": {
+      "kind": "function",
+      "signature": "(register:POSITIONAL_OR_KEYWORD|Callable[[Any], Any], api:KEYWORD_ONLY|Any | None=None) -> RegistrationSurface"
+    },
+    "reload_test_env": {
+      "kind": "function",
+      "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
+    },
+    "revocation_mark_key": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> str"
+    },
+    "route_policy": {
+      "kind": "function",
+      "signature": "(route:POSITIONAL_OR_KEYWORD|Any) -> RoutePolicy"
+    },
+    "run_on_commit": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "run_sql": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
+    },
+    "set_environment": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
+    },
+    "stop_revocation_listener": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "tables_created_by": {
+      "kind": "function",
+      "signature": "(chain:POSITIONAL_OR_KEYWORD|MigrationChain) -> set[str]"
+    },
+    "temporary_database": {
+      "kind": "function",
+      "signature": "(base_url:POSITIONAL_OR_KEYWORD|str | None=None) -> Iterator[str]"
+    },
+    "upgrade_core_chain": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "use_security_cache": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+    },
+    "wait_revocation_listener_subscribed": {
+      "kind": "function",
+      "signature": "(timeout:POSITIONAL_OR_KEYWORD|float=5.0) -> None"
+    },
+    "worker_env_values": {
+      "kind": "function",
+      "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> dict[str, str]"
+    }
+  },
+  "sandloom.sdk": {
+    "Base": {
+      "kind": "class",
+      "members": [
+        "metadata",
+        "registry"
+      ],
+      "signature": "(kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "Contract": {
+      "kind": "function",
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P], optional:KEYWORD_ONLY|bool=False) -> P | OptionalContract[P]"
+    },
+    "CreatedAt": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Credits": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "CurrentUser": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Event": {
+      "kind": "class",
+      "members": [
+        "construct",
+        "copy",
+        "dict",
+        "from_orm",
+        "json",
+        "meta",
+        "model_computed_fields",
+        "model_config",
+        "model_construct",
+        "model_copy",
+        "model_dump",
+        "model_dump_json",
+        "model_extra",
+        "model_fields",
+        "model_fields_set",
+        "model_json_schema",
+        "model_parametrized_name",
+        "model_post_init",
+        "model_rebuild",
+        "model_validate",
+        "model_validate_json",
+        "model_validate_strings",
+        "parse_file",
+        "parse_obj",
+        "parse_raw",
+        "publish",
+        "schema",
+        "schema_json",
+        "update_forward_refs",
+        "validate",
+        "wire_schema"
+      ],
+      "signature": "() -> None"
+    },
+    "OrgRole": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "Owner": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
+    },
+    "Subscribed": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
+    },
+    "SubscriptionActive": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "TenantScoped": {
+      "kind": "class",
+      "members": [
+        "tenant_id"
+      ],
+      "signature": "()"
+    },
+    "authorize_resource": {
+      "kind": "function",
+      "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "command": {
+      "kind": "function",
+      "signature": "(idempotency_key:KEYWORD_ONLY|str, idempotency_scope:KEYWORD_ONLY|tuple[str, ...]=tuple(), database:KEYWORD_ONLY|str | None=None, risk:KEYWORD_ONLY|Literal['money'] | None=None) -> Callable[[Callable[PS, R]], Callable[PS, R]]"
+    },
+    "contract": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, database:KEYWORD_ONLY|str | None=None) -> Callable[[C], C]"
+    },
+    "db": {
+      "kind": "function",
+      "signature": "() -> AsyncSession"
+    },
+    "define_module": {
+      "kind": "function",
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+    },
+    "module_router": {
+      "kind": "function",
+      "signature": "(prefix:KEYWORD_ONLY|str | None=None, tags:KEYWORD_ONLY|Sequence[str] | None=None, tenant:KEYWORD_ONLY|TenantBinding='derive', dependencies:KEYWORD_ONLY|Sequence[params.Depends]=tuple()) -> ModuleRouter"
+    },
+    "new_id": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID"
+    },
+    "on": {
+      "kind": "function",
+      "signature": "(event:POSITIONAL_OR_KEYWORD|type[E], name:KEYWORD_ONLY|str | None=None, durable:KEYWORD_ONLY|bool=True, required:KEYWORD_ONLY|bool=True, dead_letter:KEYWORD_ONLY|bool=True, start_from:KEYWORD_ONLY|Literal['earliest', 'latest'] | datetime='earliest', group:KEYWORD_ONLY|str | None=None, database:KEYWORD_ONLY|str='default', tenant:KEYWORD_ONLY|str | None='derive') -> Callable[[Callable[[E], Awaitable[None]]], Callable[[E], Awaitable[None]]]"
+    },
+    "on_commit": {
+      "kind": "function",
+      "signature": "(callback:POSITIONAL_OR_KEYWORD|OnCommitCallback, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "public": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str, issues_tokens:KEYWORD_ONLY|bool=False) -> params.Depends"
+    },
+    "record_audit": {
+      "kind": "function",
+      "signature": "(action:POSITIONAL_OR_KEYWORD|str, actor_id:KEYWORD_ONLY|_uuid.UUID | str | None=None, actor_type:KEYWORD_ONLY|str='user', resource_type:KEYWORD_ONLY|str | None=None, resource_id:KEYWORD_ONLY|str | None=None, data:KEYWORD_ONLY|dict[str, Any] | None=None, required:KEYWORD_ONLY|bool | None=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "require": {
+      "kind": "function",
+      "signature": "(policy:POSITIONAL_OR_KEYWORD|Requirement, status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[UserContext]]"
+    }
+  },
+  "sandloom.sdk.app": {
+    "app_modules": {
+      "kind": "function",
+      "signature": "(package:POSITIONAL_OR_KEYWORD|str) -> list[str]"
+    },
+    "create_app": {
+      "kind": "function",
+      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework') -> fastapi.applications.FastAPI"
+    }
+  },
+  "sandloom.sdk.authz": {
+    "ACTIVE_SUBSCRIPTION_STATUSES": {
+      "kind": "value"
+    },
+    "AccessDecision": {
+      "kind": "class",
+      "members": [
+        "allow",
+        "allowed",
+        "audit_fields",
+        "category",
+        "code",
+        "deny",
+        "error",
+        "failed_requirement",
+        "http_status",
+        "indeterminate",
+        "metadata",
+        "policy_code",
+        "reason",
+        "with_policy_code"
+      ],
+      "signature": "(allowed:POSITIONAL_OR_KEYWORD|bool, code:POSITIONAL_OR_KEYWORD|str='ok', category:POSITIONAL_OR_KEYWORD|str | None=None, reason:POSITIONAL_OR_KEYWORD|str='', http_status:POSITIONAL_OR_KEYWORD|int=200, failed_requirement:POSITIONAL_OR_KEYWORD|str | None=None, policy_code:POSITIONAL_OR_KEYWORD|str | None=None, metadata:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, indeterminate:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "AccessDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(decision:POSITIONAL_OR_KEYWORD|AccessDecision, status_code:KEYWORD_ONLY|int | None=None) -> None"
+    },
+    "AccessFact": {
+      "kind": "class",
+      "members": [
+        "build_facts_contract",
+        "claim_key",
+        "claim_rule",
+        "current_claim_rule",
+        "default_mode",
+        "deny_category",
+        "interpret_claim",
+        "live_resolver",
+        "live_service",
+        "min_freshness",
+        "projection_reader",
+        "to_wire"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+    },
+    "Account": {
+      "kind": "class",
+      "members": [
+        "bound_tenant",
+        "describe",
+        "kind",
+        "org",
+        "param",
+        "reason",
+        "user"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|AccountKind, param:POSITIONAL_OR_KEYWORD|str | None=None, reason:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "And": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
+    },
+    "AuthzContext": {
+      "kind": "class",
+      "members": [
+        "core",
+        "get_resource",
+        "has_resource"
+      ],
+      "signature": "(subject:POSITIONAL_OR_KEYWORD|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, resource:KEYWORD_ONLY|Any=<builtins.object>, loader:KEYWORD_ONLY|Callable[[AuthzContext], Awaitable[Any]] | None=None, source:KEYWORD_ONLY|str='http', core:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "Category": {
+      "kind": "class",
+      "members": [
+        "FORBIDDEN",
+        "PAYMENT_REQUIRED",
+        "POLICY_MISCONFIGURED",
+        "QUOTA_EXCEEDED",
+        "RESOURCE_FORBIDDEN",
+        "TENANT_INACTIVE",
+        "UNAUTHENTICATED"
+      ],
+      "signature": "()"
+    },
+    "ClaimRule": {
+      "kind": "class",
+      "members": [
+        "from_wire",
+        "interpret",
+        "kind",
+        "one_of",
+        "to_wire",
+        "truthy",
+        "values"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
+    },
+    "Credits": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "ENTITLEMENTS": {
+      "kind": "value"
+    },
+    "Entitled": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "EntitlementsAdapter": {
+      "kind": "class",
+      "members": [
+        "credit_balance",
+        "subscription_active"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "FactDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(reason:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str='forbidden', code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "FactOwnerUnreachable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "FactUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Feature": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_fact",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
+    },
+    "MEMBERSHIP": {
+      "kind": "value"
+    },
+    "MODE_AUTO": {
+      "kind": "value"
+    },
+    "MODE_CLAIM": {
+      "kind": "value"
+    },
+    "MODE_LIVE": {
+      "kind": "value"
+    },
+    "MODE_PROJECTION": {
+      "kind": "value"
+    },
+    "MembershipAdapter": {
+      "kind": "class",
+      "members": [
+        "has_role_at_least"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Not": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(inner:POSITIONAL_OR_KEYWORD|Requirement) -> None"
+    },
+    "Or": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
+    },
+    "OrgRole": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "Owner": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
+    },
+    "Perm": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "Permissions": {
+      "kind": "class",
+      "members": [
+        "PERMISSIONS_READ",
+        "PERMISSIONS_WRITE",
+        "ROLES_DELETE",
+        "ROLES_READ",
+        "ROLES_WRITE",
+        "SYSTEM_ADMIN",
+        "USERS_DELETE",
+        "USERS_READ",
+        "USERS_WRITE"
+      ],
+      "signature": "()"
+    },
+    "PolicyIndeterminate": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(decision:POSITIONAL_OR_KEYWORD|AccessDecision) -> None"
+    },
+    "Requirement": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "()"
+    },
+    "Role": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "Roles": {
+      "kind": "class",
+      "members": [
+        "ADMIN",
+        "OPS",
+        "SUPPORT"
+      ],
+      "signature": "()"
+    },
+    "SOURCE_HTTP": {
+      "kind": "value"
+    },
+    "SOURCE_INTERNAL": {
+      "kind": "value"
+    },
+    "SOURCE_SYSTEM": {
+      "kind": "value"
+    },
+    "SOURCE_TASK": {
+      "kind": "value"
+    },
+    "Subscribed": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
+    },
+    "SubscriptionActive": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "TIER_CLAIM": {
+      "kind": "value"
+    },
+    "TIER_LIVE": {
+      "kind": "value"
+    },
+    "TIER_RESOURCE": {
+      "kind": "value"
+    },
+    "WithinLimit": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_fact",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
+    },
+    "authorize": {
+      "kind": "function",
+      "signature": "(resource:POSITIONAL_OR_KEYWORD|Any, policy:POSITIONAL_OR_KEYWORD|Requirement, ctx:KEYWORD_ONLY|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, status_code:KEYWORD_ONLY|int | None=None) -> None"
+    },
+    "authorize_resource": {
+      "kind": "function",
+      "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "current_context": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request, credentials:POSITIONAL_OR_KEYWORD|HTTPAuthorizationCredentials | None=<fastapi.params.Depends>) -> UserContext"
+    },
+    "enforce": {
+      "kind": "function",
+      "signature": "(policy:POSITIONAL_OR_KEYWORD|Requirement, subject:KEYWORD_ONLY|UserContext, db:KEYWORD_ONLY|AsyncSession | None=None, request:KEYWORD_ONLY|Request | None=None, resource:KEYWORD_ONLY|Any=<builtins.object>, loader:KEYWORD_ONLY|Callable[[AuthzContext], Awaitable[Any]] | None=None, source:KEYWORD_ONLY|str='internal', core:KEYWORD_ONLY|Any=None, policy_code:KEYWORD_ONLY|str | None=None) -> AccessDecision"
+    },
+    "lookup_access_fact": {
+      "kind": "function",
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+    },
+    "make_rebuild_gate": {
+      "kind": "function",
+      "signature": "(rebuilder:POSITIONAL_OR_KEYWORD|Any, name:KEYWORD_ONLY|str='') -> StartupTask"
+    },
+    "register_authz_projection": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
+    },
+    "register_live_adapter": {
+      "kind": "function",
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "require": {
+      "kind": "function",
+      "signature": "(policy:POSITIONAL_OR_KEYWORD|Requirement, status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[UserContext]]"
+    },
+    "resolve_fact": {
+      "kind": "function",
+      "signature": "(fact:POSITIONAL_OR_KEYWORD|AccessFact, ctx:POSITIONAL_OR_KEYWORD|AuthzContext, mode:KEYWORD_ONLY|str | None=None) -> bool"
+    },
+    "service_subject": {
+      "kind": "function",
+      "signature": "(roles:KEYWORD_ONLY|frozenset[str]=frozenset('service')) -> UserContext"
+    },
+    "system_subject": {
+      "kind": "function",
+      "signature": "(roles:KEYWORD_ONLY|frozenset[str]=frozenset('system')) -> UserContext"
+    }
+  },
+  "sandloom.sdk.contracts": {
+    "BACKWARD": {
+      "kind": "value"
+    },
+    "Contract": {
+      "kind": "function",
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P], optional:KEYWORD_ONLY|bool=False) -> P | OptionalContract[P]"
+    },
+    "ContractMethodRuntime": {
+      "kind": "class",
+      "members": [
+        "bind",
+        "decode_result",
+        "describe",
+        "idempotency_key",
+        "idempotency_scope",
+        "local_result",
+        "param_plans",
+        "params_typed",
+        "result_plan",
+        "risk"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ContractMethodSpec": {
+      "kind": "class",
+      "members": [
+        "database",
+        "idempotency_key",
+        "idempotency_scope",
+        "kind",
+        "planned",
+        "readonly",
+        "risk"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command']='read', idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, database:POSITIONAL_OR_KEYWORD|str | None=None, planned:POSITIONAL_OR_KEYWORD|bool=False, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ContractProvider": {
+      "kind": "class",
+      "members": [
+        "call_local",
+        "contract_impl",
+        "contract_name",
+        "contract_schema",
+        "encode_result",
+        "encode_result_as",
+        "invoke"
+      ],
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any, core:KEYWORD_ONLY|Any, database:KEYWORD_ONLY|str, name:KEYWORD_ONLY|str) -> None"
+    },
+    "ContractReadScope": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "invalidate",
+        "memo_enabled",
+        "memo_generation",
+        "memo_get",
+        "memo_set",
+        "release_connections",
+        "run",
+        "stats"
+      ],
+      "signature": "(memo:KEYWORD_ONLY|bool=True, idle_seconds:KEYWORD_ONLY|float | None=0.0) -> None"
+    },
+    "ContractReadScopeMiddleware": {
+      "kind": "class",
+      "members": [],
+      "signature": "(app:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "ContractRef": {
+      "kind": "class",
+      "members": [
+        "name",
+        "protocol"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, protocol:POSITIONAL_OR_KEYWORD|type[P] | None=None) -> None"
+    },
+    "ContractSchema": {
+      "kind": "class",
+      "members": [
+        "describe"
+      ],
+      "signature": "(methods:POSITIONAL_OR_KEYWORD|dict[str, ContractMethodRuntime], hash:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "DEFAULT_CONTRACT_DTO_PACKAGES": {
+      "kind": "value"
+    },
+    "FORWARD": {
+      "kind": "value"
+    },
+    "OptionalContract": {
+      "kind": "class",
+      "members": [
+        "client",
+        "contract_name",
+        "required"
+      ],
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P]) -> None"
+    },
+    "bind_contract": {
+      "kind": "function",
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any, core:KEYWORD_ONLY|Any, database:KEYWORD_ONLY|str, name:KEYWORD_ONLY|str) -> Any"
+    },
+    "caller_user_id": {
+      "kind": "function",
+      "signature": "() -> UUID | None"
+    },
+    "command": {
+      "kind": "function",
+      "signature": "(idempotency_key:KEYWORD_ONLY|str, idempotency_scope:KEYWORD_ONLY|tuple[str, ...]=tuple(), database:KEYWORD_ONLY|str | None=None, risk:KEYWORD_ONLY|Literal['money'] | None=None) -> Callable[[Callable[PS, R]], Callable[PS, R]]"
+    },
+    "contract": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, database:KEYWORD_ONLY|str | None=None) -> Callable[[C], C]"
+    },
+    "contract_dto_problems": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, impl:POSITIONAL_OR_KEYWORD|Any, provider_module:KEYWORD_ONLY|str | None, module_packages:KEYWORD_ONLY|Iterable[str]=tuple(), shared_packages:KEYWORD_ONLY|Iterable[str]=tuple()) -> list[str]"
+    },
+    "contract_error": {
+      "kind": "function",
+      "signature": "(status_code:KEYWORD_ONLY|int, detail:KEYWORD_ONLY|Any, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> ContractCallError"
+    },
+    "contract_kind": {
+      "kind": "function",
+      "signature": "(method:POSITIONAL_OR_KEYWORD|Any) -> Literal['read', 'command'] | None"
+    },
+    "contract_method": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|_F | None=None, command:KEYWORD_ONLY|bool=False, idempotency_key:KEYWORD_ONLY|str | None=None, idempotency_scope:KEYWORD_ONLY|tuple[str, ...]=tuple(), database:KEYWORD_ONLY|str | None=None, planned:KEYWORD_ONLY|bool=False, risk:KEYWORD_ONLY|Literal['admin', 'money', 'security'] | None=None) -> _F | Callable[[_F], _F]"
+    },
+    "contract_read_scope": {
+      "kind": "function",
+      "signature": "(memo:KEYWORD_ONLY|bool | None=None, idle_ms:KEYWORD_ONLY|int | None=None) -> AsyncIterator[ContractReadScope]"
+    },
+    "contract_reads": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "contract_schema": {
+      "kind": "function",
+      "signature": "(impl:POSITIONAL_OR_KEYWORD|Any) -> ContractSchema"
+    },
+    "contract_session_bound": {
+      "kind": "function",
+      "signature": "() -> bool"
+    },
+    "contract_spec": {
+      "kind": "function",
+      "signature": "(method:POSITIONAL_OR_KEYWORD|Any) -> ContractMethodSpec | None"
+    },
+    "current_contract_read_scope": {
+      "kind": "function",
+      "signature": "() -> ContractReadScope | None"
+    },
+    "invalidate_contract_read_memo": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "normalize_contract_error": {
+      "kind": "function",
+      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> ContractCallError | None"
+    },
+    "run_contract_call": {
+      "kind": "function",
+      "signature": "(func:POSITIONAL_OR_KEYWORD|Callable[..., Awaitable[Any]], args:POSITIONAL_OR_KEYWORD|tuple[Any, ...], kwargs:POSITIONAL_OR_KEYWORD|dict[str, Any], spec:KEYWORD_ONLY|ContractMethodSpec, core:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str='default', contract:KEYWORD_ONLY|str | None=None) -> Any"
+    },
+    "service": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, optional:KEYWORD_ONLY|bool=False) -> Any"
+    }
+  },
+  "sandloom.sdk.data": {
+    "Base": {
+      "kind": "class",
+      "members": [
+        "metadata",
+        "registry"
+      ],
+      "signature": "(kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "CreatedAt": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "InvalidCursor": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|str='invalid pagination cursor') -> None"
+    },
+    "JoinRead": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "join",
+        "keys",
+        "keyset",
+        "lock",
+        "name",
+        "tenant_scoped",
+        "via"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "ListOperation": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "descending",
+        "join",
+        "keys",
+        "keyset",
+        "lock",
+        "max_limit",
+        "n_required",
+        "name",
+        "order_by",
+        "page_cap",
+        "prefix_ignore_case",
+        "require_index",
+        "tenant_scoped",
+        "via"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, order_by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), descending:POSITIONAL_OR_KEYWORD|bool=False, max_limit:POSITIONAL_OR_KEYWORD|int | None=None, require_index:POSITIONAL_OR_KEYWORD|bool=True, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, optional:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, prefix:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, prefix_ignore_case:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "MoneyLedger": {
+      "kind": "class",
+      "members": [],
+      "signature": "()"
+    },
+    "Page": {
+      "kind": "class",
+      "members": [],
+      "signature": "(items:POSITIONAL_OR_KEYWORD|list[R], next_cursor:POSITIONAL_OR_KEYWORD|str | None) -> None"
+    },
+    "PageLimitError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "PlannedReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ReadOperation": {
+      "kind": "class",
+      "members": [
+        "by",
+        "database",
+        "keys",
+        "keyset",
+        "lock",
+        "name",
+        "tenant_scoped"
+      ],
+      "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "Reads": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "in_unit_of_work",
+        "one",
+        "page"
+      ],
+      "signature": "(core:POSITIONAL_OR_KEYWORD|CoreRuntime | None, unit:POSITIONAL_OR_KEYWORD|Any=None, adapter:KEYWORD_ONLY|ExecutionAdapter | None=None, shared:KEYWORD_ONLY|bool=False, contract:KEYWORD_ONLY|bool=False, isolation:KEYWORD_ONLY|Isolation='read_committed') -> None"
+    },
+    "SnapshotReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TenantScoped": {
+      "kind": "class",
+      "members": [
+        "tenant_id"
+      ],
+      "signature": "()"
+    },
+    "UowReads": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "UpdatedAt": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "db": {
+      "kind": "function",
+      "signature": "() -> AsyncSession"
+    },
+    "disable_tenant_rls": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, schema:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "enable_tenant_rls": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
+    },
+    "get_planned_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[Any, None]"
+    },
+    "get_read_only_db": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
+    },
+    "get_snapshot_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[Any, None]"
+    },
+    "get_uow_reads": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request, db:POSITIONAL_OR_KEYWORD|DbSession) -> Any"
+    },
+    "make_cursor": {
+      "kind": "function",
+      "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
+    },
+    "make_db_dependency": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]"
+    },
+    "new_id": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID"
+    },
+    "open_uow": {
+      "kind": "function",
+      "signature": "(database:POSITIONAL_OR_KEYWORD|str | None=None) -> AbstractAsyncContextManager[AsyncSession]"
+    },
+    "session_reads": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
+    }
+  },
+  "sandloom.sdk.effects": {
+    "before_commit": {
+      "kind": "function",
+      "signature": "(callback:POSITIONAL_OR_KEYWORD|OnCommitCallback, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "durable_inbox": {
+      "kind": "function",
+      "signature": "(consumer:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "mark_reauthenticated": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "on_commit": {
+      "kind": "function",
+      "signature": "(callback:POSITIONAL_OR_KEYWORD|OnCommitCallback, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "operation_key": {
+      "kind": "function",
+      "signature": "(parts:VAR_POSITIONAL|object) -> str"
+    },
+    "record_audit": {
+      "kind": "function",
+      "signature": "(action:POSITIONAL_OR_KEYWORD|str, actor_id:KEYWORD_ONLY|_uuid.UUID | str | None=None, actor_type:KEYWORD_ONLY|str='user', resource_type:KEYWORD_ONLY|str | None=None, resource_id:KEYWORD_ONLY|str | None=None, data:KEYWORD_ONLY|dict[str, Any] | None=None, required:KEYWORD_ONLY|bool | None=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "run_async": {
+      "kind": "function",
+      "signature": "(coro:POSITIONAL_OR_KEYWORD|Coroutine[Any, Any, T]) -> T"
+    },
+    "sensitive_effect": {
+      "kind": "function",
+      "signature": "(risk:POSITIONAL_OR_KEYWORD|Risk, step_up:KEYWORD_ONLY|int | None=None) -> Callable[[F], F]"
+    }
+  },
+  "sandloom.sdk.errors": {
+    "AuditUnavailableError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "BlockUnavailableError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "detail",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ConsumerDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractArgumentError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractCallError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractCallInProgress": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyKeyMissing": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractIdempotencyUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ContractResultNotReplayable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "DeclarationError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "EventDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "EventMetaUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "name",
+        "obj",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "MissingTenantError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ModuleDiscoveryError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ModuleRegistrationConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ProjectionDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ReadContractWriteError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "RemoteServiceUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(service_name:POSITIONAL_OR_KEYWORD|str, reason:KEYWORD_ONLY|str, code:KEYWORD_ONLY|str='remote_service_unavailable') -> None"
+    },
+    "RoutePolicyError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, fix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "SagaDefinitionError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "fatal_at_startup",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ServiceNotFound": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ServiceUnavailableInDeployment": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "sandloom_code",
+        "with_traceback"
+      ],
+      "signature": "(service_name:POSITIONAL_OR_KEYWORD|str, reason:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "TaskEnqueueConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "() -> None"
+    },
+    "TaskEnqueueUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "() -> None"
+    },
+    "TaskEnqueueUncertain": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(task_id:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "TenantMismatchError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "UnitOfWorkRequiredError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "UnsafeTenantOperationError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    }
+  },
+  "sandloom.sdk.events": {
+    "Event": {
+      "kind": "class",
+      "members": [
+        "construct",
+        "copy",
+        "dict",
+        "from_orm",
+        "json",
+        "meta",
+        "model_computed_fields",
+        "model_config",
+        "model_construct",
+        "model_copy",
+        "model_dump",
+        "model_dump_json",
+        "model_extra",
+        "model_fields",
+        "model_fields_set",
+        "model_json_schema",
+        "model_parametrized_name",
+        "model_post_init",
+        "model_rebuild",
+        "model_validate",
+        "model_validate_json",
+        "model_validate_strings",
+        "parse_file",
+        "parse_obj",
+        "parse_raw",
+        "publish",
+        "schema",
+        "schema_json",
+        "update_forward_refs",
+        "validate",
+        "wire_schema"
+      ],
+      "signature": "() -> None"
+    },
+    "EventEnvelope": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "EventMeta": {
+      "kind": "class",
+      "members": [],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, channel:POSITIONAL_OR_KEYWORD|str, schema_version:POSITIONAL_OR_KEYWORD|str, trace_id:POSITIONAL_OR_KEYWORD|str | None, emitted_at:POSITIONAL_OR_KEYWORD|str, tenant_id:POSITIONAL_OR_KEYWORD|UUID | None) -> None"
+    },
+    "PoisonEventError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "on": {
+      "kind": "function",
+      "signature": "(event:POSITIONAL_OR_KEYWORD|type[E], name:KEYWORD_ONLY|str | None=None, durable:KEYWORD_ONLY|bool=True, required:KEYWORD_ONLY|bool=True, dead_letter:KEYWORD_ONLY|bool=True, start_from:KEYWORD_ONLY|Literal['earliest', 'latest'] | datetime='earliest', group:KEYWORD_ONLY|str | None=None, database:KEYWORD_ONLY|str='default', tenant:KEYWORD_ONLY|str | None='derive') -> Callable[[Callable[[E], Awaitable[None]]], Callable[[E], Awaitable[None]]]"
+    },
+    "publish_event": {
+      "kind": "function",
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|str, payload:POSITIONAL_OR_KEYWORD|dict[str, Any], schema_version:POSITIONAL_OR_KEYWORD|str='v1', database:KEYWORD_ONLY|str | None=None, required:KEYWORD_ONLY|bool | None=None) -> None"
+    },
+    "publish_event_versions": {
+      "kind": "function",
+      "signature": "(payloads:POSITIONAL_OR_KEYWORD|Mapping[str, dict[str, Any]], database:KEYWORD_ONLY|str | None=None, bus:KEYWORD_ONLY|Any=None, required:KEYWORD_ONLY|bool | None=None) -> None"
+    }
+  },
+  "sandloom.sdk.infra": {
+    "CLAIMS_CONTRACT_SUFFIX": {
+      "kind": "value"
+    },
+    "ClaimsContributorContract": {
+      "kind": "class",
+      "members": [
+        "contribute"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade, owner:POSITIONAL_OR_KEYWORD|str | None) -> None"
+    },
+    "CoreFacade": {
+      "kind": "class",
+      "members": [
+        "add_claims_contributor",
+        "add_shutdown_task",
+        "add_startup_task",
+        "cache",
+        "capability",
+        "claims_contributors",
+        "collect_claims",
+        "contract_database",
+        "contract_dto_problems",
+        "contract_owner",
+        "database",
+        "ensure_tracer",
+        "event_bus",
+        "event_consumers",
+        "eventbus_provider",
+        "get_access_fact",
+        "get_contract_uow_factory",
+        "get_event_schema",
+        "get_metric",
+        "get_schema_registry",
+        "get_service",
+        "get_uow_factory",
+        "health_checks",
+        "increment_metric",
+        "infra",
+        "is_critical_startup_task",
+        "list_access_facts",
+        "list_event_schemas",
+        "list_metrics",
+        "local_contract",
+        "logger_factory",
+        "module_descriptors",
+        "module_registration",
+        "notifier",
+        "objectstore",
+        "projection_registry",
+        "register_access_fact",
+        "register_event_consumer",
+        "register_event_schema",
+        "register_event_schema_obj",
+        "register_health_check",
+        "register_metric",
+        "register_projection_consumer",
+        "register_projection_rebuilder",
+        "register_query_projection",
+        "register_saga",
+        "register_schema_registry",
+        "register_service",
+        "register_uow_factory",
+        "remote_access_fact_cache",
+        "remote_claims_contributors",
+        "remote_fact_owners",
+        "require_capability",
+        "restore_registrations",
+        "runtime_view",
+        "sagas",
+        "set_event_bus",
+        "set_infra",
+        "set_service_resolver",
+        "shutdown_tasks",
+        "snapshot_registrations",
+        "span",
+        "startup_task_phased_specs",
+        "startup_task_specs",
+        "startup_tasks",
+        "taskqueue"
+      ],
+      "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
+    },
+    "CoreRuntime": {
+      "kind": "class",
+      "members": [
+        "cache",
+        "capability",
+        "collect_claims",
+        "database",
+        "get_access_fact",
+        "get_metric",
+        "get_service",
+        "increment_metric",
+        "logger",
+        "logger_factory",
+        "notifier",
+        "objectstore",
+        "remote_access_fact_cache",
+        "remote_fact_owners",
+        "require_capability",
+        "settings",
+        "span",
+        "taskqueue"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade) -> None"
+    },
+    "FACTS_CONTRACT_SUFFIX": {
+      "kind": "value"
+    },
+    "Notification": {
+      "kind": "class",
+      "members": [
+        "dedupe_key"
+      ],
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ShutdownTask": {
+      "kind": "value"
+    },
+    "StartupTask": {
+      "kind": "value"
+    },
+    "cache": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> CacheProvider"
+    },
+    "capability": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', contract:POSITIONAL_OR_KEYWORD|type | None=None) -> Any"
+    },
+    "claims_contract_name": {
+      "kind": "function",
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> str"
+    },
+    "core_from_request": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> CoreRuntime"
+    },
+    "facts_contract_name": {
+      "kind": "function",
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> str"
+    },
+    "get_core": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> CoreRuntime"
+    },
+    "notifier": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    },
+    "objectstore": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    },
+    "settings": {
+      "kind": "value"
+    },
+    "taskqueue": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+    }
+  },
+  "sandloom.sdk.migrations": {
+    "run_migrations": {
+      "kind": "function",
+      "signature": "(table_names:POSITIONAL_OR_KEYWORD|Iterable[str]=tuple(), model_modules:POSITIONAL_OR_KEYWORD|Sequence[str]=tuple(), table_prefix:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "run_module_migrations": {
+      "kind": "function",
+      "signature": "(env_file:POSITIONAL_OR_KEYWORD|str | os.PathLike[str], package:KEYWORD_ONLY|str | None=None, model_modules:KEYWORD_ONLY|Sequence[str] | None=None, table_prefix:KEYWORD_ONLY|str | None=None, table_names:KEYWORD_ONLY|Iterable[str]=tuple()) -> None"
+    }
+  },
+  "sandloom.sdk.module": {
+    "AUTO": {
+      "kind": "value"
+    },
+    "CapabilityRequirement": {
+      "kind": "class",
+      "members": [
+        "instance",
+        "required",
+        "version"
+      ],
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str='default', version:POSITIONAL_OR_KEYWORD|str='v1', features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, required:POSITIONAL_OR_KEYWORD|bool=True) -> None"
+    },
+    "ContractRequirement": {
+      "kind": "class",
+      "members": [
+        "methods",
+        "reason",
+        "required"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool=True, reason:POSITIONAL_OR_KEYWORD|str='', methods:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple()) -> None"
+    },
+    "FailedModule": {
+      "kind": "class",
+      "members": [
+        "error",
+        "name",
+        "required"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, error:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool) -> None"
+    },
+    "HealthCheck": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "HealthResult": {
+      "kind": "class",
+      "members": [
+        "details",
+        "status"
+      ],
+      "signature": "(status:POSITIONAL_OR_KEYWORD|HealthStatus, details:POSITIONAL_OR_KEYWORD|dict[str, object] | None=None) -> None"
+    },
+    "HealthStatus": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "MigrationTargetError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ModuleAPI": {
+      "kind": "class",
+      "members": [
+        "add_claims_contributor",
+        "add_shutdown_task",
+        "add_startup_task",
+        "get_schema_registry",
+        "get_service",
+        "include_router",
+        "logger",
+        "logger_factory",
+        "register_access_fact",
+        "register_event_consumer",
+        "register_event_schema",
+        "register_event_schema_obj",
+        "register_health_check",
+        "register_operations",
+        "register_projection_consumer",
+        "register_projection_rebuilder",
+        "register_query_projection",
+        "register_saga",
+        "register_service",
+        "settings"
+      ],
+      "signature": "(facade:POSITIONAL_OR_KEYWORD|CoreFacade, draft:KEYWORD_ONLY|ModuleRegistrationDraft | None=None) -> None"
+    },
+    "ModuleDescriptor": {
+      "kind": "class",
+      "members": [
+        "capabilities",
+        "consumes",
+        "database_instances",
+        "depends_on",
+        "effective_capabilities",
+        "health_check",
+        "issues_tokens",
+        "migration_chain_key",
+        "migrations_chain",
+        "migrations_database",
+        "migrations_path",
+        "name",
+        "optional",
+        "routes",
+        "version"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "ModuleLoadSummary": {
+      "kind": "class",
+      "members": [
+        "consumes",
+        "duplicates",
+        "explicit",
+        "failed",
+        "loaded",
+        "manifests",
+        "skipped",
+        "success",
+        "to_dict"
+      ],
+      "signature": "(loaded:POSITIONAL_OR_KEYWORD|list[ModuleDescriptor]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, skipped:POSITIONAL_OR_KEYWORD|list[SkippedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, failed:POSITIONAL_OR_KEYWORD|list[FailedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, duplicates:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, explicit:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, consumes:POSITIONAL_OR_KEYWORD|dict[str, list[dict[str, Any]]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, manifests:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "SkippedModule": {
+      "kind": "class",
+      "members": [
+        "name",
+        "reason"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, reason:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "define_module": {
+      "kind": "function",
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+    }
+  },
+  "sandloom.sdk.projections": {
+    "BoundContractMethod": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ConditionalWriteStore": {
+      "kind": "class",
+      "members": [
+        "put_if_newer",
+        "tombstone_if_newer"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ConsistencyToken": {
+      "kind": "class",
+      "members": [
+        "digest",
+        "keys",
+        "versions",
+        "wait_for"
+      ],
+      "signature": "(kid:POSITIONAL_OR_KEYWORD|str, issued_at:POSITIONAL_OR_KEYWORD|int, tenant_id:POSITIONAL_OR_KEYWORD|UUID, entries:POSITIONAL_OR_KEYWORD|tuple[TokenEntry, ...]) -> None"
+    },
+    "Mapper": {
+      "kind": "class",
+      "members": [],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Projection": {
+      "kind": "class",
+      "members": [
+        "apply",
+        "channels",
+        "consumers",
+        "descriptor",
+        "rebuilder",
+        "target",
+        "token_entries"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, key:KEYWORD_ONLY|tuple[str, ...], groups:KEYWORD_ONLY|Sequence[SourceGroup], model:KEYWORD_ONLY|type[TenantScoped] | None=None, store:KEYWORD_ONLY|tuple[str, str] | None=None, insert_only:KEYWORD_ONLY|Mapping[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', rebuild_from:KEYWORD_ONLY|BoundContractMethod | tuple[str, str] | None=None, lag_slo_s:KEYWORD_ONLY|float=5.0, at_least_once:KEYWORD_ONLY|bool=False) -> None"
+    },
+    "ProjectionConsumerDescriptor": {
+      "kind": "class",
+      "members": [
+        "bind_tenant_from",
+        "durable",
+        "group",
+        "group_name",
+        "handler",
+        "module",
+        "name",
+        "projection",
+        "required",
+        "source_channel",
+        "start_from"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, source_channel:POSITIONAL_OR_KEYWORD|str, projection:POSITIONAL_OR_KEYWORD|str, handler:POSITIONAL_OR_KEYWORD|ProjectionHandler, durable:POSITIONAL_OR_KEYWORD|bool=True, required:POSITIONAL_OR_KEYWORD|bool=True, module:POSITIONAL_OR_KEYWORD|str | None=None, group:POSITIONAL_OR_KEYWORD|str | None=None, start_from:POSITIONAL_OR_KEYWORD|str='earliest', bind_tenant_from:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "ProjectionHandler": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ProjectionRebuildResult": {
+      "kind": "class",
+      "members": [
+        "cleared",
+        "details",
+        "projection",
+        "rows"
+      ],
+      "signature": "(projection:POSITIONAL_OR_KEYWORD|str, rows:POSITIONAL_OR_KEYWORD|int=0, cleared:POSITIONAL_OR_KEYWORD|bool=False, details:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "ProjectionRebuilder": {
+      "kind": "class",
+      "members": [
+        "rebuild_all",
+        "rebuild_entity",
+        "rebuild_tenant"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ProjectionRegistryError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ProjectionView": {
+      "kind": "class",
+      "members": [
+        "get",
+        "query",
+        "search"
+      ],
+      "signature": "(projection:POSITIONAL_OR_KEYWORD|Projection, row:POSITIONAL_OR_KEYWORD|type[R], session:POSITIONAL_OR_KEYWORD|Any, on_stale:KEYWORD_ONLY|Literal['serve', 'source']='serve', wait_ms:KEYWORD_ONLY|int | None=None, token:KEYWORD_ONLY|ConsistencyToken | None=None, response:KEYWORD_ONLY|Response | None=None) -> None"
+    },
+    "QueryProjectionDescriptor": {
+      "kind": "class",
+      "members": [
+        "consistency",
+        "name",
+        "owner_module",
+        "purge",
+        "rebuildable",
+        "source_events",
+        "storage",
+        "token_entries",
+        "version"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str='v1', source_events:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), storage:POSITIONAL_OR_KEYWORD|str='default', consistency:POSITIONAL_OR_KEYWORD|Literal['eventual']='eventual', rebuildable:POSITIONAL_OR_KEYWORD|bool=True, purge:POSITIONAL_OR_KEYWORD|TombstonePurger | None=None, token_entries:POSITIONAL_OR_KEYWORD|TokenEntries | None=None) -> None"
+    },
+    "QueryProjectionRegistry": {
+      "kind": "class",
+      "members": [
+        "consumers_for",
+        "get_consumer",
+        "get_projection",
+        "get_rebuilder",
+        "list_consumers",
+        "list_projections",
+        "register_consumer",
+        "register_projection",
+        "register_rebuilder",
+        "restore",
+        "snapshot",
+        "token_sources"
+      ],
+      "signature": "() -> None"
+    },
+    "SourceGroup": {
+      "kind": "class",
+      "members": [
+        "tenant_from"
+      ],
+      "signature": "(events:POSITIONAL_OR_KEYWORD|Mapping[type[Event], Mapper[Any]], aggregate_key:POSITIONAL_OR_KEYWORD|str, version_field:POSITIONAL_OR_KEYWORD|str, version_column:POSITIONAL_OR_KEYWORD|str, owns:POSITIONAL_OR_KEYWORD|tuple[str, ...], tenant_from:POSITIONAL_OR_KEYWORD|str='tenant_id') -> None"
+    },
+    "View": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, row:POSITIONAL_OR_KEYWORD|type[R], on_stale:KEYWORD_ONLY|Literal['serve', 'source']='serve', wait_ms:KEYWORD_ONLY|int | None=None) -> params.Depends"
+    },
+    "delta": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[[E], Mapping[str, Any]]) -> Mapper[E]"
+    },
+    "full_state": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[[E], Mapping[str, Any]]) -> Mapper[E]"
+    },
+    "make_consumer_callback": {
+      "kind": "function",
+      "signature": "(descriptor:POSITIONAL_OR_KEYWORD|ProjectionConsumerDescriptor, storage:POSITIONAL_OR_KEYWORD|str, opener:POSITIONAL_OR_KEYWORD|SessionOpener) -> Any"
+    },
+    "monotonic_delete": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, values:KEYWORD_ONLY|dict[str, Any] | None=None, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None, deleted_column:KEYWORD_ONLY|str='deleted_at', deleted_at:KEYWORD_ONLY|datetime | None=None) -> bool"
+    },
+    "monotonic_update": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, match:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int) -> int"
+    },
+    "monotonic_upsert": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|AsyncSession, target:POSITIONAL_OR_KEYWORD|Any, key:KEYWORD_ONLY|dict[str, Any], values:KEYWORD_ONLY|dict[str, Any], version_column:KEYWORD_ONLY|str, incoming_version:KEYWORD_ONLY|int, insert_only:KEYWORD_ONLY|dict[str, Any] | None=None) -> bool"
+    },
+    "purge_tombstones": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, older_than:KEYWORD_ONLY|timedelta) -> int"
+    },
+    "read_token": {
+      "kind": "function",
+      "signature": "(header:POSITIONAL_OR_KEYWORD|str | None) -> ConsistencyToken | None"
+    },
+    "rebuild": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, tenant_id:KEYWORD_ONLY|UUID | None=None, blue_green:KEYWORD_ONLY|bool=True) -> ProjectionRebuildResult"
+    },
+    "start_projection_consumers": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|CoreFacade, session_opener:KEYWORD_ONLY|SessionOpener | None=None) -> int"
+    },
+    "tombstone": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[[E], Mapping[str, Any]]) -> Mapper[E]"
+    }
+  },
+  "sandloom.sdk.sagas": {
+    "CommandStep": {
+      "kind": "class",
+      "members": [
+        "args",
+        "call",
+        "check_args",
+        "compensate",
+        "compensate_args",
+        "compensate_contract",
+        "compensate_method",
+        "contract",
+        "deadline",
+        "has_compensation",
+        "kind",
+        "local",
+        "method",
+        "name",
+        "refuse_on",
+        "undo_args"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:POSITIONAL_OR_KEYWORD|str, args:POSITIONAL_OR_KEYWORD|ArgsFn, compensate:POSITIONAL_OR_KEYWORD|str | None=None, compensate_args:POSITIONAL_OR_KEYWORD|ArgsFn | None=None, kind:POSITIONAL_OR_KEYWORD|StepKind | None=None, refuse_on:POSITIONAL_OR_KEYWORD|frozenset[int]=frozenset(), check_args:POSITIONAL_OR_KEYWORD|bool=True, deadline:POSITIONAL_OR_KEYWORD|timedelta | None=None) -> None"
+    },
+    "Direction": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "LocalStep": {
+      "kind": "class",
+      "members": [
+        "apply",
+        "compensate",
+        "deadline",
+        "has_compensation",
+        "kind",
+        "local",
+        "name"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, apply:POSITIONAL_OR_KEYWORD|LocalFn, compensate:POSITIONAL_OR_KEYWORD|LocalFn | None=None, kind:POSITIONAL_OR_KEYWORD|StepKind | None=None, deadline:POSITIONAL_OR_KEYWORD|timedelta | None=None) -> None"
+    },
+    "Saga": {
+      "kind": "class",
+      "members": [
+        "bind",
+        "describe",
+        "index_of",
+        "registered",
+        "saga_type",
+        "step_named"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:KEYWORD_ONLY|int, input:KEYWORD_ONLY|type[InputT], deadline:KEYWORD_ONLY|timedelta, steps:KEYWORD_ONLY|Sequence[SagaStep], compensation_deadline:KEYWORD_ONLY|timedelta | None=None) -> None"
+    },
+    "SagaContext": {
+      "kind": "class",
+      "members": [
+        "input",
+        "key",
+        "result",
+        "results",
+        "saga_id",
+        "saga_type",
+        "synthetic"
+      ],
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, input:POSITIONAL_OR_KEYWORD|InputT, results:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, synthetic:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "SagaHandle": {
+      "kind": "class",
+      "members": [
+        "created",
+        "instance_id",
+        "park_reason",
+        "saga_id",
+        "saga_type",
+        "status",
+        "step",
+        "version"
+      ],
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, instance_id:POSITIONAL_OR_KEYWORD|uuid.UUID, status:POSITIONAL_OR_KEYWORD|str, created:POSITIONAL_OR_KEYWORD|bool=False, step:POSITIONAL_OR_KEYWORD|str | None=None, park_reason:POSITIONAL_OR_KEYWORD|str | None=None, version:POSITIONAL_OR_KEYWORD|int=0) -> None"
+    },
+    "SagaInputConflict": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "SagaStep": {
+      "kind": "value"
+    },
+    "StepKind": {
+      "kind": "class",
+      "members": [
+        "COMPENSATABLE",
+        "PIVOT",
+        "RETRIABLE",
+        "capitalize",
+        "casefold",
+        "center",
+        "count",
+        "encode",
+        "endswith",
+        "expandtabs",
+        "find",
+        "format",
+        "format_map",
+        "index",
+        "isalnum",
+        "isalpha",
+        "isascii",
+        "isdecimal",
+        "isdigit",
+        "isidentifier",
+        "islower",
+        "isnumeric",
+        "isprintable",
+        "isspace",
+        "istitle",
+        "isupper",
+        "join",
+        "ljust",
+        "lower",
+        "lstrip",
+        "maketrans",
+        "partition",
+        "removeprefix",
+        "removesuffix",
+        "replace",
+        "rfind",
+        "rindex",
+        "rjust",
+        "rpartition",
+        "rsplit",
+        "rstrip",
+        "split",
+        "splitlines",
+        "startswith",
+        "strip",
+        "swapcase",
+        "title",
+        "translate",
+        "upper",
+        "zfill"
+      ],
+      "signature": "(values:VAR_POSITIONAL)"
+    },
+    "local_step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, apply:KEYWORD_ONLY|LocalFn, compensate:KEYWORD_ONLY|LocalFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, deadline:KEYWORD_ONLY|timedelta | None=None) -> LocalStep"
+    },
+    "saga_contract_requirements": {
+      "kind": "function",
+      "signature": "(saga:POSITIONAL_OR_KEYWORD|Saga[Any]) -> list[ContractRequirement]"
+    },
+    "saga_status": {
+      "kind": "function",
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:POSITIONAL_OR_KEYWORD|object) -> SagaHandle | None"
+    },
+    "saga_step_key": {
+      "kind": "function",
+      "signature": "(saga_type:POSITIONAL_OR_KEYWORD|str, saga_id:POSITIONAL_OR_KEYWORD|str, step:POSITIONAL_OR_KEYWORD|str, direction:POSITIONAL_OR_KEYWORD|Direction) -> str"
+    },
+    "start_saga": {
+      "kind": "function",
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], saga_id:KEYWORD_ONLY|object, input:KEYWORD_ONLY|BaseModel | Mapping[str, Any]) -> SagaHandle"
+    },
+    "step": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:KEYWORD_ONLY|CommandRef, args:KEYWORD_ONLY|ArgsFn, compensate:KEYWORD_ONLY|CommandRef | None=None, compensate_args:KEYWORD_ONLY|ArgsFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, refuse_on:KEYWORD_ONLY|Iterable[int]=tuple(), check_args:KEYWORD_ONLY|bool=True, deadline:KEYWORD_ONLY|timedelta | None=None) -> CommandStep"
+    },
+    "synthetic_instance": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[T]) -> T"
+    }
+  },
+  "sandloom.sdk.security": {
+    "ClaimsUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "SERVICE_PRINCIPAL_ID": {
+      "kind": "value"
+    },
+    "apply_pending_revocation": {
+      "kind": "function",
+      "signature": "(payload:POSITIONAL_OR_KEYWORD|dict[str, Any]) -> None"
+    },
+    "block_user": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, actor_id:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "create_access_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
+    },
+    "decode_token": {
+      "kind": "function",
+      "signature": "(token:POSITIONAL_OR_KEYWORD|str) -> dict[str, Any] | None"
+    },
+    "decode_token_cached": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, token:POSITIONAL_OR_KEYWORD|str) -> dict[str, Any] | None"
+    },
+    "ensure_token_not_revoked": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, claims:POSITIONAL_OR_KEYWORD|dict[str, Any]) -> None"
+    },
+    "ensure_user_not_blocked": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "generate_private_key": {
+      "kind": "function",
+      "signature": "(algorithm:POSITIONAL_OR_KEYWORD|str) -> PrivateKey"
+    },
+    "generate_x25519_key": {
+      "kind": "function",
+      "signature": "() -> x25519.X25519PrivateKey"
+    },
+    "has_internal_access": {
+      "kind": "function",
+      "signature": "(x_internal_token:POSITIONAL_OR_KEYWORD|str | None) -> bool"
+    },
+    "is_user_blocked": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
+    "password_hasher": {
+      "kind": "function",
+      "signature": "() -> Any"
+    },
+    "private_pem": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|PrivateKey) -> str"
+    },
+    "public_pem": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|PrivateKey | PublicKey) -> str"
+    },
+    "rehash_password_if_needed": {
+      "kind": "function",
+      "signature": "(plain_password:POSITIONAL_OR_KEYWORD|str, stored_hash:POSITIONAL_OR_KEYWORD|str, hasher:KEYWORD_ONLY|Any=None) -> str | None"
+    },
+    "revoke_user_tokens": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, valid_after:KEYWORD_ONLY|int | None=None) -> bool"
+    },
+    "revoke_user_tokens_on_commit": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, valid_after:KEYWORD_ONLY|int | None=None, database:KEYWORD_ONLY|str | None=None, require_immediate:KEYWORD_ONLY|bool=False) -> int"
+    },
+    "run_password_hashing": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[..., _T], args:VAR_POSITIONAL|Any) -> _T"
+    },
+    "subject_commit_check": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> Callable[[], Awaitable[None]]"
+    },
+    "unblock_user": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any, reason:KEYWORD_ONLY|str, actor_id:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "x25519_private_pem": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|x25519.X25519PrivateKey) -> str"
+    },
+    "x25519_public_pem": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|x25519.X25519PrivateKey | x25519.X25519PublicKey) -> str"
+    }
+  },
+  "sandloom.sdk.tenant": {
+    "TenantKind": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "bind_tenant": {
+      "kind": "function",
+      "signature": "(tenant_id:POSITIONAL_OR_KEYWORD|uuid.UUID) -> Iterator[uuid.UUID]"
+    },
+    "current_tenant_id": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID"
+    },
+    "current_tenant_id_optional": {
+      "kind": "function",
+      "signature": "() -> uuid.UUID | None"
+    },
+    "scoped": {
+      "kind": "function",
+      "signature": "(stmt:POSITIONAL_OR_KEYWORD|Any, model:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "tenant_filter": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "tenant_kind": {
+      "kind": "function",
+      "signature": "(tenant_id:POSITIONAL_OR_KEYWORD|UUID, ctx:KEYWORD_ONLY|AuthzContext | None=None) -> TenantKind"
+    },
+    "unscoped": {
+      "kind": "function",
+      "signature": "() -> Iterator[None]"
+    }
+  },
+  "sandloom.sdk.testing": {
+    "BootOutcome": {
+      "kind": "class",
+      "members": [],
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, started:POSITIONAL_OR_KEYWORD|bool, missing_contracts:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Captured": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ContractCase": {
+      "kind": "class",
+      "members": [
+        "args",
+        "describe",
+        "label",
+        "tenant"
+      ],
+      "signature": "(method:POSITIONAL_OR_KEYWORD|str, args:POSITIONAL_OR_KEYWORD|tuple[Any, ...]=tuple(), kwargs:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, tenant:POSITIONAL_OR_KEYWORD|UUID | None=None, label:POSITIONAL_OR_KEYWORD|str='') -> None"
+    },
+    "ContractConformanceError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "FakeClock": {
+      "kind": "class",
+      "members": [
+        "advance",
+        "advance_to"
+      ],
+      "signature": "(start:POSITIONAL_OR_KEYWORD|datetime | None=None) -> None"
+    },
+    "Headers": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "InMemoryCache": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "add",
+        "aopen",
+        "capability",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "driver",
+        "features",
+        "get",
+        "get_many",
+        "health",
+        "incr",
+        "incr_many",
+        "incr_window",
+        "raw_client",
+        "set",
+        "set_many",
+        "set_max",
+        "set_nx_get",
+        "set_subject_state"
+      ],
+      "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
+    },
+    "MigrationChain": {
+      "kind": "class",
+      "members": [
+        "versions"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str | None, script_location:POSITIONAL_OR_KEYWORD|Path, version_table:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "ModuleBootError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "ModuleRegistrationDraft": {
+      "kind": "class",
+      "members": [
+        "apply",
+        "commit",
+        "preflight"
+      ],
+      "signature": "() -> None"
+    },
+    "Outcome": {
+      "kind": "class",
+      "members": [
+        "error",
+        "value"
+      ],
+      "signature": "(ok:POSITIONAL_OR_KEYWORD|bool, value:POSITIONAL_OR_KEYWORD|Any=None, error:POSITIONAL_OR_KEYWORD|tuple[Any, ...] | None=None) -> None"
+    },
+    "RecordingSession": {
+      "kind": "class",
+      "members": [
+        "audit_actions"
+      ],
+      "signature": "(info:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, audits:POSITIONAL_OR_KEYWORD|list[dict[str, Any]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, events:POSITIONAL_OR_KEYWORD|list[tuple[str, dict[str, Any], str]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "RegistrationSurface": {
+      "kind": "class",
+      "members": [
+        "of"
+      ],
+      "signature": "(descriptor:POSITIONAL_OR_KEYWORD|Any, calls:POSITIONAL_OR_KEYWORD|list[Call]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "ReservedPort": {
+      "kind": "class",
+      "members": [
+        "close",
+        "closed",
+        "fileno",
+        "reopen",
+        "url"
+      ],
+      "signature": "(host:POSITIONAL_OR_KEYWORD|str='127.0.0.1', backlog:POSITIONAL_OR_KEYWORD|int=128) -> None"
+    },
+    "RoutePolicy": {
+      "kind": "class",
+      "members": [
+        "auth",
+        "effect",
+        "public_reason",
+        "risk"
+      ],
+      "signature": "(always_strict:POSITIONAL_OR_KEYWORD|bool, declares_budget:POSITIONAL_OR_KEYWORD|bool, staleness_budget:POSITIONAL_OR_KEYWORD|float, auth:POSITIONAL_OR_KEYWORD|str='user', public_reason:POSITIONAL_OR_KEYWORD|str | None=None, effect:POSITIONAL_OR_KEYWORD|str='read', risk:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple()) -> None"
+    },
+    "RpcKeys": {
+      "kind": "class",
+      "members": [],
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, kid:POSITIONAL_OR_KEYWORD|str, private_key:POSITIONAL_OR_KEYWORD|str, public_key:POSITIONAL_OR_KEYWORD|str, dh_private_key:POSITIONAL_OR_KEYWORD|str, dh_public_key:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "SagaHarness": {
+      "kind": "class",
+      "members": [
+        "assert_compensations_idempotent",
+        "assert_resolves_before_compensating",
+        "close",
+        "crash_after",
+        "crash_before",
+        "deliver",
+        "deliver_twice",
+        "drive",
+        "fail_step",
+        "fake_contract",
+        "instance",
+        "register",
+        "run",
+        "start"
+      ],
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "SagaRun": {
+      "kind": "class",
+      "members": [
+        "assert_keys_derived",
+        "calls",
+        "crashes",
+        "definition",
+        "instance",
+        "keys",
+        "park_reason",
+        "results",
+        "saga_id",
+        "status",
+        "step_row",
+        "steps",
+        "transitions"
+      ],
+      "signature": "(definition:POSITIONAL_OR_KEYWORD|Saga[Any], instance:POSITIONAL_OR_KEYWORD|InstanceRow, calls:POSITIONAL_OR_KEYWORD|list[str], keys:POSITIONAL_OR_KEYWORD|list[str], steps:POSITIONAL_OR_KEYWORD|list[dict[str, Any]], transitions:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, crashes:POSITIONAL_OR_KEYWORD|int=0) -> None"
+    },
+    "SimulatedCrash": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "SpawnedServer": {
+      "kind": "class",
+      "members": [
+        "label",
+        "stop"
+      ],
+      "signature": "(proc:POSITIONAL_OR_KEYWORD|subprocess.Popen[bytes], url:POSITIONAL_OR_KEYWORD|str, nonce:POSITIONAL_OR_KEYWORD|str, label:POSITIONAL_OR_KEYWORD|str='') -> None"
+    },
+    "SpawnedServerError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "TestResourceOwnershipError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "UNIQUE": {
+      "kind": "value"
+    },
+    "apply_worker_env": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|MutableMapping[str, str] | None=None, create_database:KEYWORD_ONLY|bool=True) -> dict[str, str]"
+    },
+    "as_user": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|UUID | None=None, tenant_id:POSITIONAL_OR_KEYWORD|UUID | None=None, email:KEYWORD_ONLY|str | None='', email_verified:KEYWORD_ONLY|bool | None=True, tenant:KEYWORD_ONLY|bool=True, claims:VAR_KEYWORD|Any) -> tuple[UUID, dict[str, str]]"
+    },
+    "assert_contract_conformance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> None"
+    },
+    "assert_route_snapshot": {
+      "kind": "function",
+      "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
+    },
+    "bind_contract_session": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> Iterator[Any]"
+    },
+    "bind_test_uow": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any, database:KEYWORD_ONLY|str='default', outbox:KEYWORD_ONLY|OutboxStore | None=None, audit:KEYWORD_ONLY|AuditStore | None=None) -> Iterator[Any]"
+    },
+    "block_mark_key": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> str"
+    },
+    "boot_module_alone": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, lifespan:KEYWORD_ONLY|bool=True) -> BootOutcome"
+    },
+    "capture_effects": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|ModuleType) -> Captured"
+    },
+    "chain_coverage_problems": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[str]"
+    },
+    "check_contract_conformance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> list[tuple[ContractCase, Outcome, Outcome]]"
+    },
+    "committing_uow": {
+      "kind": "function",
+      "signature": "(session_factory:POSITIONAL_OR_KEYWORD|Any, database:KEYWORD_ONLY|str='default') -> AsyncIterator[Any]"
+    },
+    "deliver": {
+      "kind": "function",
+      "signature": "(event:POSITIONAL_OR_KEYWORD|str | Event, payload:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None, times:KEYWORD_ONLY|int=1, event_id:KEYWORD_ONLY|str | None=None, session:KEYWORD_ONLY|Any=None, core:KEYWORD_ONLY|Any=None) -> int"
+    },
+    "email_of": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|uuid.UUID) -> str"
+    },
+    "fake_access_fact": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+    },
+    "fake_contract": {
+      "kind": "function",
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P] | str, impl:POSITIONAL_OR_KEYWORD|object) -> AbstractContextManager[None]"
+    },
+    "flush_owned_redis": {
+      "kind": "function",
+      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "get_db": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
+    },
+    "in_process_rpc_client": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, settings:POSITIONAL_OR_KEYWORD|Any=None) -> httpx.AsyncClient"
+    },
+    "keyed_rpc_settings": {
+      "kind": "function",
+      "signature": "(cfg:POSITIONAL_OR_KEYWORD|Any, contracts:POSITIONAL_OR_KEYWORD|Iterable[str], service_id:POSITIONAL_OR_KEYWORD|str='sandloom-conformance') -> Any"
+    },
+    "migrate_module": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str, package:POSITIONAL_OR_KEYWORD|str, revision:POSITIONAL_OR_KEYWORD|str='head', downgrade:KEYWORD_ONLY|bool=False, chain:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "migration_chains": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "model_tables": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> dict[str, MigrationChain]"
+    },
+    "open_saga_harness": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[SagaHarness]"
+    },
+    "override_instance": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', driver:KEYWORD_ONLY|str, options:VAR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "probe": {
+      "kind": "function",
+      "signature": "(server:POSITIONAL_OR_KEYWORD|SpawnedServer, timeout:POSITIONAL_OR_KEYWORD|float=1.0) -> bool"
+    },
+    "published": {
+      "kind": "function",
+      "signature": "(event:POSITIONAL_OR_KEYWORD|type[E] | str) -> list[E]"
+    },
+    "record_revocation_checks": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch) -> list[str]"
+    },
+    "recording_uow": {
+      "kind": "function",
+      "signature": "(database:KEYWORD_ONLY|str='default') -> Iterator[RecordingSession]"
+    },
+    "register_event_schemas": {
+      "kind": "function",
+      "signature": "(channels:POSITIONAL_OR_KEYWORD|Mapping[str, dict[str, Any] | None] | Iterable[str], target:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "registration_surface": {
+      "kind": "function",
+      "signature": "(register:POSITIONAL_OR_KEYWORD|Callable[[Any], Any], api:KEYWORD_ONLY|Any | None=None) -> RegistrationSurface"
+    },
+    "reload_test_env": {
+      "kind": "function",
+      "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
+    },
+    "revocation_mark_key": {
+      "kind": "function",
+      "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> str"
+    },
+    "route_policy": {
+      "kind": "function",
+      "signature": "(route:POSITIONAL_OR_KEYWORD|Any) -> RoutePolicy"
+    },
+    "rpc_client_for": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, transport:POSITIONAL_OR_KEYWORD|str, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[tuple[Any, str]]"
+    },
+    "rpc_env": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, peers:KEYWORD_ONLY|Iterable[str]=tuple(), allowed_calls:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> dict[str, str]"
+    },
+    "rpc_keys": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str) -> RpcKeys"
+    },
+    "rpc_proxy_for": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, client:POSITIONAL_OR_KEYWORD|Any, base_url:POSITIONAL_OR_KEYWORD|str='http://sandloom-conformance', settings:KEYWORD_ONLY|Any=None) -> Any"
+    },
+    "rpc_request_headers": {
+      "kind": "function",
+      "signature": "(settings:POSITIONAL_OR_KEYWORD|Any, target:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|bytes=b'', http_method:KEYWORD_ONLY|str='POST', provider:KEYWORD_ONLY|str | None=None, sign:KEYWORD_ONLY|bool=False) -> dict[str, str]"
+    },
+    "rpc_response_headers": {
+      "kind": "function",
+      "signature": "(settings:POSITIONAL_OR_KEYWORD|Any, request_headers:POSITIONAL_OR_KEYWORD|Mapping[str, str], status_code:POSITIONAL_OR_KEYWORD|int, body:POSITIONAL_OR_KEYWORD|bytes) -> dict[str, str]"
+    },
+    "rpc_settings": {
+      "kind": "function",
+      "signature": "(service_id:POSITIONAL_OR_KEYWORD|str, peers:KEYWORD_ONLY|Iterable[str]=tuple(), allowed_calls:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> dict[str, Any]"
+    },
+    "run_on_commit": {
+      "kind": "function",
+      "signature": "(session:POSITIONAL_OR_KEYWORD|Any=None, database:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "run_sql": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
+    },
+    "served_rpc": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, app:POSITIONAL_OR_KEYWORD|Any=None, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[str]"
+    },
+    "set_environment": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
+    },
+    "spawn_served": {
+      "kind": "function",
+      "signature": "(port:POSITIONAL_OR_KEYWORD|ReservedPort, app:POSITIONAL_OR_KEYWORD|str, env:KEYWORD_ONLY|dict[str, str], log_level:KEYWORD_ONLY|str='warning', label:KEYWORD_ONLY|str='', popen_kwargs:VAR_KEYWORD|Any) -> SpawnedServer"
+    },
+    "stop_revocation_listener": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "tables_created_by": {
+      "kind": "function",
+      "signature": "(chain:POSITIONAL_OR_KEYWORD|MigrationChain) -> set[str]"
+    },
+    "temporary_database": {
+      "kind": "function",
+      "signature": "(base_url:POSITIONAL_OR_KEYWORD|str | None=None) -> Iterator[str]"
+    },
+    "upgrade_core_chain": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "use_security_cache": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+    },
+    "wait_revocation_listener_subscribed": {
+      "kind": "function",
+      "signature": "(timeout:POSITIONAL_OR_KEYWORD|float=5.0) -> None"
+    },
+    "worker_env_values": {
+      "kind": "function",
+      "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> dict[str, str]"
+    }
+  },
+  "sandloom.sdk.testing.fixtures": {
+    "COMPOSITION_ROOT_INI": {
+      "kind": "value"
+    },
+    "ENV_FILE": {
+      "kind": "value"
+    },
+    "RevokedTokens": {
+      "kind": "class",
+      "members": [
+        "append",
+        "available",
+        "clear",
+        "copy",
+        "count",
+        "extend",
+        "index",
+        "insert",
+        "pop",
+        "remove",
+        "reverse",
+        "sort"
+      ],
+      "signature": "(iterable:POSITIONAL_ONLY=tuple())"
+    },
+    "ambient_uow": {
+      "kind": "function",
+      "signature": "() -> AsyncIterator[Any]"
+    },
+    "async_client": {
+      "kind": "function",
+      "signature": "(client:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "client": {
+      "kind": "function",
+      "signature": "(sandloom_app:POSITIONAL_OR_KEYWORD|Any, db:POSITIONAL_OR_KEYWORD|Any, request:POSITIONAL_OR_KEYWORD|pytest.FixtureRequest) -> AsyncIterator[Any]"
+    },
+    "db": {
+      "kind": "function",
+      "signature": "(db_engine:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "db_engine": {
+      "kind": "function",
+      "signature": "(sandloom_app:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "db_uow": {
+      "kind": "function",
+      "signature": "(db:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "env_starts": {
+      "kind": "function",
+      "signature": "(config:POSITIONAL_OR_KEYWORD|pytest.Config) -> list[Path]"
+    },
+    "find_env_file": {
+      "kind": "function",
+      "signature": "(starts:POSITIONAL_OR_KEYWORD|Iterable[Path]) -> Path | None"
+    },
+    "load_test_env": {
+      "kind": "function",
+      "signature": "(starts:POSITIONAL_OR_KEYWORD|Iterable[Path], warn_if_late:KEYWORD_ONLY|bool=False) -> Path"
+    },
+    "make_headers": {
+      "kind": "function",
+      "signature": "(sandloom_test_env:POSITIONAL_OR_KEYWORD|Path) -> Callable[..., tuple[Any, dict[str, str]]]"
+    },
+    "real_uow_client": {
+      "kind": "function",
+      "signature": "(sandloom_app:POSITIONAL_OR_KEYWORD|Any, sandloom_core:POSITIONAL_OR_KEYWORD|Any, db_engine:POSITIONAL_OR_KEYWORD|Any, request:POSITIONAL_OR_KEYWORD|pytest.FixtureRequest) -> AsyncIterator[Any]"
+    },
+    "revoked_tokens": {
+      "kind": "function",
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch) -> RevokedTokens"
+    },
+    "saga_harness": {
+      "kind": "function",
+      "signature": "(sandloom_core:POSITIONAL_OR_KEYWORD|Any, db_engine:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "sandloom_app": {
+      "kind": "function",
+      "signature": "(pytestconfig:POSITIONAL_OR_KEYWORD|pytest.Config, sandloom_test_env:POSITIONAL_OR_KEYWORD|Path) -> Any"
+    },
+    "sandloom_cache": {
+      "kind": "function",
+      "signature": "(sandloom_core:POSITIONAL_OR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "sandloom_core": {
+      "kind": "function",
+      "signature": "(sandloom_app:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "sandloom_test_env": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|pytest.FixtureRequest) -> Path"
+    },
+    "scratch_database": {
+      "kind": "function",
+      "signature": "(sandloom_test_env:POSITIONAL_OR_KEYWORD|Path) -> Iterator[str]"
+    },
+    "test_db": {
+      "kind": "function",
+      "signature": "(db:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "test_engine": {
+      "kind": "function",
+      "signature": "(db_engine:POSITIONAL_OR_KEYWORD|Any) -> Any"
+    },
+    "user_headers": {
+      "kind": "function",
+      "signature": "(make_headers:POSITIONAL_OR_KEYWORD|Callable[..., tuple[Any, dict[str, str]]]) -> dict[str, str]"
+    }
+  },
+  "sandloom.sdk.tooling": {
+    "docs_main": {
+      "kind": "function",
+      "signature": "(argv:POSITIONAL_OR_KEYWORD|list[str] | None=None) -> int"
+    },
+    "main": {
+      "kind": "function",
+      "signature": "(argv:POSITIONAL_OR_KEYWORD|list[str] | None=None) -> int"
+    }
+  },
+  "sandloom.sdk.web": {
+    "Capability": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, contract:POSITIONAL_OR_KEYWORD|type | None=None, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
+    },
+    "CurrentService": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "CurrentUser": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Database": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "DbSession": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ModuleRouter": {
+      "kind": "class",
+      "members": [
+        "add_api_route",
+        "add_api_websocket_route",
+        "add_event_handler",
+        "add_route",
+        "add_websocket_route",
+        "api_route",
+        "app",
+        "delete",
+        "get",
+        "head",
+        "host",
+        "include_router",
+        "lifespan",
+        "mount",
+        "not_found",
+        "on_event",
+        "options",
+        "patch",
+        "post",
+        "put",
+        "route",
+        "route_policy",
+        "trace",
+        "url_path_for",
+        "websocket",
+        "websocket_route"
+      ],
+      "signature": "(sandloom_owner:KEYWORD_ONLY|str, sandloom_tenant:KEYWORD_ONLY|TenantBinding='derive', prefix:KEYWORD_ONLY|str='', tags:KEYWORD_ONLY|list[str | Enum] | None=None, dependencies:KEYWORD_ONLY|Sequence[params.Depends] | None=None, kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "ReadOnlyDbSession": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ResolvedAccount": {
+      "kind": "class",
+      "members": [],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|Literal['user', 'org'], id:POSITIONAL_OR_KEYWORD|UUID) -> None"
+    },
+    "TenantId": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TenantScope": {
+      "kind": "function",
+      "signature": "(header:KEYWORD_ONLY|str='X-Tenant-Id', claim_keys:KEYWORD_ONLY|tuple[str, ...]=tuple('tenant_id','org_id'), required:KEYWORD_ONLY|bool=True) -> Any"
+    },
+    "allow_multi_db_write": {
+      "kind": "function",
+      "signature": "(secondaries:KEYWORD_ONLY|tuple[str, ...], reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "at_commit": {
+      "kind": "function",
+      "signature": "() -> params.Depends"
+    },
+    "authenticates": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|F | None=None, kind:KEYWORD_ONLY|Literal['user', 'service']='user') -> F | Callable[[F], F]"
+    },
+    "authorizes": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_OR_KEYWORD|_F) -> _F"
+    },
+    "current_service": {
+      "kind": "function",
+      "signature": "(x_internal_token:POSITIONAL_OR_KEYWORD|str | None=<fastapi.params.Header>) -> UserContext"
+    },
+    "current_user_id": {
+      "kind": "function",
+      "signature": "(subject:POSITIONAL_OR_KEYWORD|sandloom.shared.subject.UserContext=<fastapi.params.Depends>) -> uuid.UUID"
+    },
+    "external_call": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> AsyncIterator[None]"
+    },
+    "get_client_ip": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Any, config:KEYWORD_ONLY|Any | None=None) -> str"
+    },
+    "idempotency_guard": {
+      "kind": "function",
+      "signature": "(scope:KEYWORD_ONLY|str, ttl_seconds:KEYWORD_ONLY|int=86400, required:KEYWORD_ONLY|bool=True, fail_closed:KEYWORD_ONLY|bool=False, store_response:KEYWORD_ONLY|bool=True, durable:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "module_router": {
+      "kind": "function",
+      "signature": "(prefix:KEYWORD_ONLY|str | None=None, tags:KEYWORD_ONLY|Sequence[str] | None=None, tenant:KEYWORD_ONLY|TenantBinding='derive', dependencies:KEYWORD_ONLY|Sequence[params.Depends]=tuple()) -> ModuleRouter"
+    },
+    "no_idempotency": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "operation_intent": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "public": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str, issues_tokens:KEYWORD_ONLY|bool=False) -> params.Depends"
+    },
+    "rate_limiter": {
+      "kind": "function",
+      "signature": "(requests:KEYWORD_ONLY|int, period:KEYWORD_ONLY|int, fail_closed:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "release_check": {
+      "kind": "function",
+      "signature": "(account:POSITIONAL_OR_KEYWORD|ResolvedAccount, authority:KEYWORD_ONLY|Callable[[], Awaitable[None]] | None=None) -> None"
+    },
+    "replay_safe": {
+      "kind": "function",
+      "signature": "(reason:KEYWORD_ONLY|str) -> params.Depends"
+    },
+    "request_operation_key": {
+      "kind": "function",
+      "signature": "() -> str | None"
+    },
+    "require_platform_admin": {
+      "kind": "function",
+      "signature": "(subject:POSITIONAL_OR_KEYWORD|sandloom.shared.subject.UserContext=<fastapi.params.Depends>) -> None"
+    },
+    "sensitive": {
+      "kind": "function",
+      "signature": "(risk:POSITIONAL_OR_KEYWORD|Risk) -> params.Depends"
+    },
+    "writes": {
+      "kind": "function",
+      "signature": "(database:POSITIONAL_OR_KEYWORD|str) -> params.Depends"
+    }
+  },
+  "sandloom.shared": {},
+  "sandloom.shared.authz": {
+    "ACTIVE_SUBSCRIPTION_STATUSES": {
+      "kind": "value"
+    },
+    "AccessDecision": {
+      "kind": "class",
+      "members": [
+        "allow",
+        "allowed",
+        "audit_fields",
+        "category",
+        "code",
+        "deny",
+        "error",
+        "failed_requirement",
+        "http_status",
+        "indeterminate",
+        "metadata",
+        "policy_code",
+        "reason",
+        "with_policy_code"
+      ],
+      "signature": "(allowed:POSITIONAL_OR_KEYWORD|bool, code:POSITIONAL_OR_KEYWORD|str='ok', category:POSITIONAL_OR_KEYWORD|str | None=None, reason:POSITIONAL_OR_KEYWORD|str='', http_status:POSITIONAL_OR_KEYWORD|int=200, failed_requirement:POSITIONAL_OR_KEYWORD|str | None=None, policy_code:POSITIONAL_OR_KEYWORD|str | None=None, metadata:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, indeterminate:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "AccessDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(decision:POSITIONAL_OR_KEYWORD|AccessDecision, status_code:KEYWORD_ONLY|int | None=None) -> None"
+    },
+    "AccessFact": {
+      "kind": "class",
+      "members": [
+        "build_facts_contract",
+        "claim_key",
+        "claim_rule",
+        "current_claim_rule",
+        "default_mode",
+        "deny_category",
+        "interpret_claim",
+        "live_resolver",
+        "live_service",
+        "min_freshness",
+        "projection_reader",
+        "to_wire"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+    },
+    "Account": {
+      "kind": "class",
+      "members": [
+        "bound_tenant",
+        "describe",
+        "kind",
+        "org",
+        "param",
+        "reason",
+        "user"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|AccountKind, param:POSITIONAL_OR_KEYWORD|str | None=None, reason:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "And": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
+    },
+    "AuthzContext": {
+      "kind": "class",
+      "members": [
+        "core",
+        "get_resource",
+        "has_resource"
+      ],
+      "signature": "(subject:POSITIONAL_OR_KEYWORD|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, resource:KEYWORD_ONLY|Any=<builtins.object>, loader:KEYWORD_ONLY|Callable[[AuthzContext], Awaitable[Any]] | None=None, source:KEYWORD_ONLY|str='http', core:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "Category": {
+      "kind": "class",
+      "members": [
+        "FORBIDDEN",
+        "PAYMENT_REQUIRED",
+        "POLICY_MISCONFIGURED",
+        "QUOTA_EXCEEDED",
+        "RESOURCE_FORBIDDEN",
+        "TENANT_INACTIVE",
+        "UNAUTHENTICATED"
+      ],
+      "signature": "()"
+    },
+    "ClaimRule": {
+      "kind": "class",
+      "members": [
+        "from_wire",
+        "interpret",
+        "kind",
+        "one_of",
+        "to_wire",
+        "truthy",
+        "values"
+      ],
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
+    },
+    "Credits": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "ENTITLEMENTS": {
+      "kind": "value"
+    },
+    "Entitled": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "EntitlementsAdapter": {
+      "kind": "class",
+      "members": [
+        "credit_balance",
+        "subscription_active"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "FactDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(reason:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str='forbidden', code:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "FactOwnerUnreachable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "FactUnavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "Feature": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_fact",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
+    },
+    "MEMBERSHIP": {
+      "kind": "value"
+    },
+    "MembershipAdapter": {
+      "kind": "class",
+      "members": [
+        "has_role_at_least"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Not": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(inner:POSITIONAL_OR_KEYWORD|Requirement) -> None"
+    },
+    "Or": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
+    },
+    "OrgRole": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "Owner": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
+    },
+    "Perm": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "Permissions": {
+      "kind": "class",
+      "members": [
+        "PERMISSIONS_READ",
+        "PERMISSIONS_WRITE",
+        "ROLES_DELETE",
+        "ROLES_READ",
+        "ROLES_WRITE",
+        "SYSTEM_ADMIN",
+        "USERS_DELETE",
+        "USERS_READ",
+        "USERS_WRITE"
+      ],
+      "signature": "()"
+    },
+    "PolicyIndeterminate": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": "(decision:POSITIONAL_OR_KEYWORD|AccessDecision) -> None"
+    },
+    "Requirement": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "()"
+    },
+    "Role": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "Roles": {
+      "kind": "class",
+      "members": [
+        "ADMIN",
+        "OPS",
+        "SUPPORT"
+      ],
+      "signature": "()"
+    },
+    "SOURCE_HTTP": {
+      "kind": "value"
+    },
+    "SOURCE_INTERNAL": {
+      "kind": "value"
+    },
+    "SOURCE_SYSTEM": {
+      "kind": "value"
+    },
+    "SOURCE_TASK": {
+      "kind": "value"
+    },
+    "Subscribed": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
+    },
+    "SubscriptionActive": {
+      "kind": "class",
+      "members": [
+        "adapter",
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tenant_type",
+        "tier"
+      ],
+      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
+    },
+    "TIER_CLAIM": {
+      "kind": "value"
+    },
+    "TIER_LIVE": {
+      "kind": "value"
+    },
+    "TIER_RESOURCE": {
+      "kind": "value"
+    },
+    "WithinLimit": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_fact",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
+    },
+    "authorize": {
+      "kind": "function",
+      "signature": "(resource:POSITIONAL_OR_KEYWORD|Any, policy:POSITIONAL_OR_KEYWORD|Requirement, ctx:KEYWORD_ONLY|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, status_code:KEYWORD_ONLY|int | None=None) -> None"
+    },
+    "authorize_resource": {
+      "kind": "function",
+      "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "current_context": {
+      "kind": "function",
+      "signature": "(request:POSITIONAL_OR_KEYWORD|Request, credentials:POSITIONAL_OR_KEYWORD|HTTPAuthorizationCredentials | None=<fastapi.params.Depends>) -> UserContext"
+    },
+    "enforce": {
+      "kind": "function",
+      "signature": "(policy:POSITIONAL_OR_KEYWORD|Requirement, subject:KEYWORD_ONLY|UserContext, db:KEYWORD_ONLY|AsyncSession | None=None, request:KEYWORD_ONLY|Request | None=None, resource:KEYWORD_ONLY|Any=<builtins.object>, loader:KEYWORD_ONLY|Callable[[AuthzContext], Awaitable[Any]] | None=None, source:KEYWORD_ONLY|str='internal', core:KEYWORD_ONLY|Any=None, policy_code:KEYWORD_ONLY|str | None=None) -> AccessDecision"
+    },
+    "lookup_access_fact": {
+      "kind": "function",
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+    },
+    "make_rebuild_gate": {
+      "kind": "function",
+      "signature": "(rebuilder:POSITIONAL_OR_KEYWORD|Any, name:KEYWORD_ONLY|str='') -> StartupTask"
+    },
+    "register_authz_projection": {
+      "kind": "function",
+      "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
+    },
+    "register_live_adapter": {
+      "kind": "function",
+      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
+    },
+    "require": {
+      "kind": "function",
+      "signature": "(policy:POSITIONAL_OR_KEYWORD|Requirement, status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[UserContext]]"
+    },
+    "resolve_fact": {
+      "kind": "function",
+      "signature": "(fact:POSITIONAL_OR_KEYWORD|AccessFact, ctx:POSITIONAL_OR_KEYWORD|AuthzContext, mode:KEYWORD_ONLY|str | None=None) -> bool"
+    },
+    "service_subject": {
+      "kind": "function",
+      "signature": "(roles:KEYWORD_ONLY|frozenset[str]=frozenset('service')) -> UserContext"
+    },
+    "system_subject": {
+      "kind": "function",
+      "signature": "(roles:KEYWORD_ONLY|frozenset[str]=frozenset('system')) -> UserContext"
+    }
+  },
+  "sandloom.shared.guards.auth": {
+    "get_current_user_id": {
+      "kind": "function",
+      "signature": "(subject:POSITIONAL_OR_KEYWORD|sandloom.shared.subject.UserContext=<fastapi.params.Depends>) -> uuid.UUID"
+    }
+  }
+}

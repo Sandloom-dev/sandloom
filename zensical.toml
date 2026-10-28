@@ -1,0 +1,377 @@
+# Unified public site: https://sandloom.dev/ with documentation at /docs/.
+# docs_site.py keeps local preview metadata on loopback unless --site-url is supplied.
+[project]
+site_name = "Sandloom"
+site_description = "Build SaaS with AI in isolated Python modules. Sandloom supplies identity, tenancy, billing and transaction mechanisms, from monolith to services."
+site_author = "Vasyl Cherniavskyi"
+repo_url = "https://github.com/Sandloom-dev/sandloom"
+repo_name = "Sandloom-dev/sandloom"
+copyright = "Copyright &copy; Vasyl Cherniavskyi"
+docs_dir = "docs"
+exclude_docs = "snippets/\n"
+site_url = "https://sandloom.dev/docs/"
+extra_css = [
+    "/assets/brand.css",
+    "assets/sandloom.css",
+]
+site_dir = "build/site/docs"
+
+[project.validation]
+anchors = "warn"
+
+[project.theme]
+custom_dir = "website/theme"
+name = "zensical"
+language = "en"
+features = [
+    "navigation.instant",
+    "navigation.tracking",
+    "navigation.top",
+    "navigation.indexes",
+    "navigation.footer",
+    "toc.follow",
+    "search.suggest",
+    "search.highlight",
+    "content.code.copy",
+    "content.code.annotate",
+    "content.tabs.link",
+]
+variant = "modern"
+logo = "assets/sandloom-mark.svg"
+favicon = "/assets/favicon.svg"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "custom"
+accent = "custom"
+
+[project.theme.palette.toggle]
+icon = "material/weather-night"
+name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "custom"
+accent = "custom"
+
+[project.theme.palette.toggle]
+icon = "material/weather-sunny"
+name = "Switch to light mode"
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[project.theme.font]
+text = "Manrope"
+code = "Hack Nerd Font Mono"
+
+[project.plugins.search]
+
+[project.plugins.section-index]
+
+[project.plugins.llmstxt]
+markdown_description = "Sandloom is a modular Python framework for SaaS. Public API: `sandloom.sdk`. Start with Learn; Project decisions and contributor guidance are optional context."
+full_output = "llms-full.txt"
+
+[project.plugins.llmstxt.sections]
+Home = [
+    "index.md",
+]
+Learn = [
+    "getting-started/index.md",
+    "getting-started/tutorial.md",
+    "getting-started/installation.md",
+    "getting-started/building-a-product.md",
+]
+Build = [
+    "guides/index.md",
+    "guides/add-module.md",
+    "guides/write-migration.md",
+    "guides/migrations.md",
+    "guides/add-event.md",
+    "guides/add-consumer.md",
+    "guides/event-versioning.md",
+    "guides/add-contract.md",
+    "guides/add-saga.md",
+    "guides/add-projection.md",
+    "guides/idempotent-write.md",
+    "guides/testing.md",
+    "guides/deployment.md",
+    "guides/split-into-services.md",
+    "guides/service-rpc.md",
+    "guides/sso-setup.md",
+    "guides/loader-configuration.md",
+    "guides/publishing.md",
+    "guides/admin-operations.md",
+    "guides/admin.md",
+    "operations/index.md",
+    "operations/runbook.md",
+    "guides/upgrading-1.0.md",
+]
+Reference = [
+    "reference/index.md",
+    "reference/sdk/index.md",
+    "reference/sdk/module.md",
+    "reference/sdk/web.md",
+    "reference/sdk/data.md",
+    "reference/sdk/tenant.md",
+    "reference/sdk/events.md",
+    "reference/sdk/effects.md",
+    "reference/sdk/tasks.md",
+    "reference/sdk/contracts.md",
+    "reference/sdk/authz.md",
+    "reference/sdk/sagas.md",
+    "reference/sdk/projections.md",
+    "reference/sdk/infra.md",
+    "reference/sdk/security.md",
+    "reference/sdk/errors.md",
+    "reference/sdk/app.md",
+    "reference/sdk/migrations.md",
+    "reference/sdk/tooling.md",
+    "reference/sdk/testing.md",
+    "reference/sdk/testing/fixtures.md",
+    "reference/sdk/testing/plugin.md",
+    "reference/error-codes.md",
+    "reference/testing.md",
+    "reference/cli.md",
+    "reference/configuration.md",
+    "reference/configuration-tiers.md",
+    "reference/routes.md",
+    "reference/event-contracts.md",
+    "reference/security-model.md",
+    "reference/guarantees.md",
+    "reference/execution-planner.md",
+    "reference/slo.md",
+    "reference/dependencies.md",
+    "modules/index.md",
+    "modules/identity.md",
+    "modules/tenancy.md",
+    "modules/billing.md",
+    "changelog.md",
+]
+Concepts = [
+    "concepts/index.md",
+    "concepts/modules.md",
+    "concepts/units.md",
+    "concepts/route-policy.md",
+    "concepts/events.md",
+    "concepts/contracts.md",
+    "concepts/write-admission.md",
+    "concepts/lifecycle.md",
+    "concepts/guarantees.md",
+    "concepts/multi-tenancy.md",
+    "concepts/authorization.md",
+    "concepts/projections.md",
+    "concepts/audit.md",
+    "concepts/sagas.md",
+    "concepts/background-tasks.md",
+    "concepts/capabilities-and-infrastructure.md",
+    "concepts/migrations.md",
+    "concepts/deployment.md",
+]
+Optional = [
+    "contributing/index.md",
+    "contributing/repository.md",
+    "contributing/source-export.md",
+    "contributing/versioning.md",
+    "contributing/local-ci.md",
+    "contributing/supply-chain.md",
+    "contributing/lint-policy.md",
+    "adr/index.md",
+    "adr/0001-framework-distribution.md",
+    "adr/0002-framework-absorbs-module-boilerplate.md",
+    "adr/0003-fewer-sync-rpc-membership-reads.md",
+    "adr/0004-rpc-pair-mac-request-authentication.md",
+    "adr/0005-effect-model.md",
+    "adr/0006-accepted-risks.md",
+    "adr/0007-kernel-layers.md",
+    "adr/0008-sagas.md",
+    "adr/0009-route-policy-and-session-freshness.md",
+    "adr/0010-public-api-1.0.md",
+]
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.attr_list]
+
+[project.markdown_extensions.def_list]
+
+[project.markdown_extensions.footnotes]
+
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions.tables]
+
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions."pymdownx.details"]
+
+[project.markdown_extensions."pymdownx.superfences"]
+custom_fences = [
+    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+[project.markdown_extensions."pymdownx.tabbed"]
+alternate_style = true
+
+[project.markdown_extensions."pymdownx.highlight"]
+anchor_linenums = true
+
+[project.markdown_extensions."pymdownx.inlinehilite"]
+
+[project.markdown_extensions."pymdownx.snippets"]
+base_path = [
+    ".",
+]
+check_paths = true
+
+[project.markdown_extensions."pymdownx.emoji"]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+
+[project.extra]
+homepage = "/"
+
+[[project.nav]]
+Overview = "index.md"
+
+[[project.nav]]
+Learn = [
+    "getting-started/index.md",
+    { "Tutorial: Your First Feature" = "getting-started/tutorial.md" },
+    { Installation = "getting-started/installation.md" },
+    { "Building a Product" = "getting-started/building-a-product.md" },
+]
+
+[[project.nav]]
+Build = [
+    "guides/index.md",
+    { "Modules and data" = [
+    { "Add a Module" = "guides/add-module.md" },
+    { "Write a Migration" = "guides/write-migration.md" },
+    { "Run Migrations" = "guides/migrations.md" },
+] },
+    { "Events and contracts" = [
+    { "Add an Event" = "guides/add-event.md" },
+    { "Consume an Event" = "guides/add-consumer.md" },
+    { "Change an Event Payload (v1 → v2)" = "guides/event-versioning.md" },
+    { "Provide and Call a Contract" = "guides/add-contract.md" },
+    { "Add a Saga" = "guides/add-saga.md" },
+    { "Build a Projection" = "guides/add-projection.md" },
+] },
+    { HTTP = [
+    { "Make a Write Idempotent" = "guides/idempotent-write.md" },
+] },
+    { "Testing Modules" = "guides/testing.md" },
+    { Deployment = "guides/deployment.md" },
+    { "Split an App into Services" = "guides/split-into-services.md" },
+    { "Service RPC" = "guides/service-rpc.md" },
+    { "SSO Setup" = "guides/sso-setup.md" },
+    { "Loader Configuration" = "guides/loader-configuration.md" },
+    { "Publishing Packages" = "guides/publishing.md" },
+    { "Admin UI — Operator Guide" = "guides/admin-operations.md" },
+    { "Admin UI — Developer Guide" = "guides/admin.md" },
+    { Operations = [
+    "operations/index.md",
+    { Runbook = "operations/runbook.md" },
+] },
+    { Upgrading = [
+    { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
+] },
+]
+
+[[project.nav]]
+Reference = [
+    "reference/index.md",
+    { "Python API (sandloom.sdk)" = [
+    "reference/sdk/index.md",
+    { "sandloom.sdk.module" = "reference/sdk/module.md" },
+    { "sandloom.sdk.web" = "reference/sdk/web.md" },
+    { "sandloom.sdk.data" = "reference/sdk/data.md" },
+    { "sandloom.sdk.tenant" = "reference/sdk/tenant.md" },
+    { "sandloom.sdk.events" = "reference/sdk/events.md" },
+    { "sandloom.sdk.effects" = "reference/sdk/effects.md" },
+    { "sandloom.sdk.tasks" = "reference/sdk/tasks.md" },
+    { "sandloom.sdk.contracts" = "reference/sdk/contracts.md" },
+    { "sandloom.sdk.authz" = "reference/sdk/authz.md" },
+    { "sandloom.sdk.sagas" = "reference/sdk/sagas.md" },
+    { "sandloom.sdk.projections" = "reference/sdk/projections.md" },
+    { "sandloom.sdk.infra" = "reference/sdk/infra.md" },
+    { "sandloom.sdk.security" = "reference/sdk/security.md" },
+    { "sandloom.sdk.errors" = "reference/sdk/errors.md" },
+    { "sandloom.sdk.app" = "reference/sdk/app.md" },
+    { "sandloom.sdk.migrations" = "reference/sdk/migrations.md" },
+    { "sandloom.sdk.tooling" = "reference/sdk/tooling.md" },
+    { "sandloom.sdk.testing" = "reference/sdk/testing.md" },
+    { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
+    { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
+] },
+    { "Error Catalogue" = "reference/error-codes.md" },
+    { "Testing (copy-paste)" = "reference/testing.md" },
+    { CLI = "reference/cli.md" },
+    { Configuration = "reference/configuration.md" },
+    { "Configuration Tiers" = "reference/configuration-tiers.md" },
+    { Routes = "reference/routes.md" },
+    { "Event Contracts" = "reference/event-contracts.md" },
+    { "Security Model" = "reference/security-model.md" },
+    { "Guarantees & Capabilities" = "reference/guarantees.md" },
+    { "Execution Planner" = "reference/execution-planner.md" },
+    { SLOs = "reference/slo.md" },
+    { "Dependency Stack" = "reference/dependencies.md" },
+    { "Bundled Modules" = [
+    "modules/index.md",
+    { Identity = "modules/identity.md" },
+    { Tenancy = "modules/tenancy.md" },
+    { Billing = "modules/billing.md" },
+] },
+    { Changelog = "changelog.md" },
+]
+
+[[project.nav]]
+Concepts = [
+    "concepts/index.md",
+    { "Modules, Levels and Discovery" = "concepts/modules.md" },
+    { "Units of Work and db()" = "concepts/units.md" },
+    { "Route Policy and Sessions" = "concepts/route-policy.md" },
+    { Events = "concepts/events.md" },
+    { Contracts = "concepts/contracts.md" },
+    { "Write Admission" = "concepts/write-admission.md" },
+    { "Transaction and Replay Lifecycle" = "concepts/lifecycle.md" },
+    { "Guarantees and Labels" = "concepts/guarantees.md" },
+    { Multi-Tenancy = "concepts/multi-tenancy.md" },
+    { "Authorization and Billing Subjects" = "concepts/authorization.md" },
+    { Projections = "concepts/projections.md" },
+    { Audit = "concepts/audit.md" },
+    { Sagas = "concepts/sagas.md" },
+    { "Background Tasks" = "concepts/background-tasks.md" },
+    { "Capabilities & Infrastructure" = "concepts/capabilities-and-infrastructure.md" },
+    { "Migrations Model" = "concepts/migrations.md" },
+    { "Deployment Topologies" = "concepts/deployment.md" },
+]
+
+[[project.nav]]
+Project = [
+    "contributing/index.md",
+    { "Repository Map & Agent Tooling" = "contributing/repository.md" },
+    { "Source snapshot policy" = "contributing/source-export.md" },
+    { "Versioning Policy" = "contributing/versioning.md" },
+    { "Local CI Runner" = "contributing/local-ci.md" },
+    { "Supply-chain gates" = "contributing/supply-chain.md" },
+    { "Lint Policy" = "contributing/lint-policy.md" },
+    { "Decisions (ADRs)" = [
+    "adr/index.md",
+    { "ADR-0001: Framework Distribution" = "adr/0001-framework-distribution.md" },
+    { "ADR-0002: Framework Absorbs Module Boilerplate" = "adr/0002-framework-absorbs-module-boilerplate.md" },
+    { "ADR-0003: Fewer Sync RPC Calls (Membership)" = "adr/0003-fewer-sync-rpc-membership-reads.md" },
+    { "ADR-0004: Pair-MAC RPC" = "adr/0004-rpc-pair-mac-request-authentication.md" },
+    { "ADR-0005: Effect Model" = "adr/0005-effect-model.md" },
+    { "ADR-0006: Accepted Risks" = "adr/0006-accepted-risks.md" },
+    { "ADR-0007: Kernel Layers" = "adr/0007-kernel-layers.md" },
+    { "ADR-0008: Sagas" = "adr/0008-sagas.md" },
+    { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
+    { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
+] },
+]

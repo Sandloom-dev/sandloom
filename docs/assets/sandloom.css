@@ -1,0 +1,70 @@
+/* Zensical uses the same design tokens as the rest of the Sandloom site. */
+:root, [data-md-color-scheme="default"], [data-md-color-scheme="slate"] {
+  --md-primary-fg-color: var(--sl-header-bg);
+  --md-primary-bg-color: var(--sl-ink);
+  --md-primary-bg-color--light: var(--sl-muted);
+  --md-accent-fg-color: var(--sl-accent);
+  --md-default-bg-color: var(--sl-bg);
+  --md-default-fg-color: var(--sl-ink);
+  --md-default-fg-color--light: var(--sl-muted);
+  --md-code-bg-color: var(--sl-code-bg);
+  --md-code-fg-color: var(--sl-ink);
+  --md-typeset-a-color: var(--sl-accent);
+  --md-footer-bg-color: var(--sl-bg);
+  --md-footer-bg-color--dark: var(--sl-bg);
+  --md-footer-fg-color: var(--sl-ink);
+  --md-footer-fg-color--light: var(--sl-muted);
+  --md-footer-fg-color--lighter: var(--sl-muted);
+}
+.md-typeset h1, .md-typeset h2, .md-typeset h3 {
+  color: var(--sl-ink);
+  font-weight: 700;
+  letter-spacing: -.035em;
+}
+.md-typeset h1 { font-size: 2.3em; }
+.md-typeset pre > code { border: 1px solid var(--sl-line); border-radius: 8px; }
+.md-footer { border-top: 1px solid var(--sl-line); }
+/* Only the desktop sidebar persists beside the reading column. */
+.md-grid { max-width: 1440px; }
+.md-main__inner { padding: 0 24px; }
+.sl-sidebar { display: none; }
+@media (min-width: 1220px) {
+  .sl-sidebar { display: block; position: sticky; top: 96px; align-self: flex-start; flex: 0 0 260px; max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain; padding-right: 20px; margin-right: 24px; scrollbar-width: thin; }
+  .sl-sidebar-label { margin: 0 12px 18px; color: var(--sl-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+}
+@media (max-width: 760px) {
+  .md-main__inner { padding: 0 12px; }
+  .md-header { height: auto; }
+  .md-typeset h1 { font-size: 2em; }
+}
+/* Mermaid diagrams use the site palette instead of the theme's default accent. */
+:root, [data-md-color-scheme="default"], [data-md-color-scheme="slate"] {
+  --md-mermaid-font-family: var(--md-text-font-family, inherit);
+  --md-mermaid-edge-color: var(--sl-muted);
+  --md-mermaid-node-bg-color: var(--sl-surface);
+  --md-mermaid-node-fg-color: var(--sl-ink);
+  --md-mermaid-label-bg-color: var(--sl-bg);
+  --md-mermaid-label-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-actor-bg-color: var(--sl-surface);
+  --md-mermaid-sequence-actor-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-actor-border-color: var(--sl-line);
+  --md-mermaid-sequence-actor-line-color: var(--sl-muted);
+  --md-mermaid-sequence-actorman-bg-color: var(--sl-surface);
+  --md-mermaid-sequence-actorman-line-color: var(--sl-muted);
+  --md-mermaid-sequence-box-bg-color: var(--sl-surface);
+  --md-mermaid-sequence-box-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-label-bg-color: var(--sl-surface);
+  --md-mermaid-sequence-label-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-loop-bg-color: var(--sl-surface);
+  --md-mermaid-sequence-loop-border-color: var(--sl-line);
+  --md-mermaid-sequence-loop-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-message-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-message-line-color: var(--sl-muted);
+  --md-mermaid-sequence-note-bg-color: var(--sl-code-bg);
+  --md-mermaid-sequence-note-border-color: var(--sl-line);
+  --md-mermaid-sequence-note-fg-color: var(--sl-ink);
+  --md-mermaid-sequence-number-bg-color: var(--sl-accent);
+  --md-mermaid-sequence-number-fg-color: var(--sl-bg);
+}
+/* Identifiers in reference tables (G-TENANT-01, SANDLOOM-B008) never break at their hyphens. */
+.md-typeset .sl-id { white-space: nowrap; }

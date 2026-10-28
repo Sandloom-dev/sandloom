@@ -1,0 +1,16 @@
+{
+  "format": 3,
+  "module": "tasklist.modules.stats",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/stats/count",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

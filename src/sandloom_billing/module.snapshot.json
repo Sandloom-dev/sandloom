@@ -1,0 +1,392 @@
+{
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [],
+      "name": "tenancy.membership.v1",
+      "required": false
+    }
+  ],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "check_subscription_active",
+        "get_credit_balance",
+        "subscription_claims"
+      ],
+      "name": "billing.entitlements.v1"
+    },
+    {
+      "database": null,
+      "methods": [
+        "get_balance",
+        "spend"
+      ],
+      "name": "billing.credits.v1"
+    }
+  ],
+  "events": {
+    "billing.credits.added.v1": {
+      "description": "Credits were granted (``data``: amount, balance, reason).",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "CreditsAdded",
+      "type": "object"
+    },
+    "billing.credits.restored.v1": {
+      "description": "Reversed credits were given back (a won dispute).",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "CreditsRestored",
+      "type": "object"
+    },
+    "billing.credits.reversed.v1": {
+      "description": "Credits were taken back after a refund or dispute.",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "CreditsReversed",
+      "type": "object"
+    },
+    "billing.credits.spent.v1": {
+      "description": "Credits were spent (``data``: amount, balance, reason).",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "CreditsSpent",
+      "type": "object"
+    },
+    "billing.subscription.canceled.v1": {
+      "description": "A subscription ended.",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "SubscriptionCanceled",
+      "type": "object"
+    },
+    "billing.subscription.created.v1": {
+      "description": "A subscription started (``data``: status, PSP id, grants_access...).",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "SubscriptionCreated",
+      "type": "object"
+    },
+    "billing.subscription.updated.v1": {
+      "description": "A subscription changed status or terms.",
+      "properties": {
+        "customer_id": {
+          "format": "uuid",
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object",
+          "x-sandloom-default": true
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string",
+          "x-sandloom-default": true
+        },
+        "tenant_id": {
+          "format": "uuid",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "tenant_type": {
+          "enum": [
+            "user",
+            "organization"
+          ],
+          "title": "Tenant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "customer_id",
+        "tenant_type",
+        "tenant_id",
+        "data"
+      ],
+      "title": "SubscriptionUpdated",
+      "type": "object"
+    }
+  },
+  "format": 1,
+  "module": "sandloom_billing",
+  "projections": [],
+  "sagas": []
+}

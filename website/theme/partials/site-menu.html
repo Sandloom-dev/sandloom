@@ -1,0 +1,16 @@
+<dialog class="sl-site-menu" id="sl-site-menu" aria-labelledby="sl-menu-title">
+  <div class="sl-menu-heading">
+    <a class="sl-brand" href="/" aria-label="Sandloom home"><img src="/docs/assets/sandloom-mark.svg" alt="" width="30" height="30"><span>sandloom</span></a>
+    <span class="sl-menu-title" id="sl-menu-title">Menu</span>
+    <button type="button" class="sl-icon-button" data-sandloom-menu-close aria-label="Close navigation"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+  </div>
+  <div class="sl-menu-body">
+    <button class="sl-menu-search" type="button" data-sandloom-menu-search><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>Search documentation<kbd>/</kbd></button>
+    <nav class="sl-menu-site" aria-label="Site">
+      <a href="/" data-sandloom-section="home"{% if page_section == "home" %} aria-current="page"{% endif %}>Home</a>
+      {% include "partials/site-links.html" %}
+    </nav>
+    <p class="sl-menu-label">Documentation</p>
+    {% if is_docs %}{% include "partials/site-tree.html" %}{% else %}{{ navigation_tree | safe }}{% endif %}
+  </div>
+</dialog>

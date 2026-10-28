@@ -1,0 +1,30 @@
+"""DELIBERATELY BROKEN: framework imports an application module may not make.
+
+Read by test_archcheck_library (``framework-imports``, ``infra-imports``,
+``module-boundaries``): ``from sandloom import <pkg>`` must resolve to
+``sandloom.<pkg>`` (not the bare namespace), an installed module package
+(``sandloom_identity``) is another module, and dynamic imports count under every
+``importlib`` alias and for any statically known module name.
+"""
+
+import importlib as il
+from importlib import import_module
+from importlib import import_module as load
+
+from sandloom import core  # VIOLATION framework-imports: sandloom.core (the kernel)
+from sandloom.core import di  # allowed: public API
+from sandloom.core.config import settings  # VIOLATION framework-imports: sandloom.core.config.settings
+from sandloom.shared import membership  # allowed: shared API
+import sandloom_identity as identity  # VIOLATION module-boundaries: an installed module
+
+
+def later() -> None:
+    il.import_module("sandloom.core.config.settings")  # VIOLATION framework-imports
+    import_module("sandloom_tenancy.services")  # VIOLATION module-boundaries
+    load("sandloom_" + "billing")  # VIOLATION module-boundaries (constant concat)
+    loader = il.import_module
+    loader("sandloom.core.drivers.redis_cache")  # VIOLATION + infra-imports
+    __import__("sandloom.core._internal.db_provider")  # VIOLATION + infra-imports
+    load("acme.modules.billing_lite")  # VIOLATION module-boundaries
+    il.import_module(".services", "acme.modules.billing_lite")  # boundaries
+    return core, identity, di, settings, membership

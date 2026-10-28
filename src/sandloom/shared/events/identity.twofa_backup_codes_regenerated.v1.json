@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "EventActor": {
+      "description": "Event actor information.",
+      "properties": {
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id",
+          "x-sandloom-default": true
+        }
+      },
+      "title": "EventActor",
+      "type": "object"
+    }
+  },
+  "description": "2FA backup codes regenerated event (security-sensitive).",
+  "properties": {
+    "actor": {
+      "$ref": "#/$defs/EventActor"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string",
+      "x-sandloom-default": true
+    },
+    "event_type": {
+      "default": "identity.twofa_backup_codes_regenerated.v1",
+      "title": "Event Type",
+      "type": "string",
+      "x-sandloom-default": true
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string",
+      "x-sandloom-default": true
+    },
+    "payload": {
+      "additionalProperties": true,
+      "description": "Contains user_id and count",
+      "title": "Payload",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer",
+      "x-sandloom-default": true
+    },
+    "trace_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Id",
+      "x-sandloom-default": true
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "actor",
+    "payload",
+    "trace_id"
+  ],
+  "title": "TwoFABackupCodesRegeneratedEvent",
+  "type": "object"
+}

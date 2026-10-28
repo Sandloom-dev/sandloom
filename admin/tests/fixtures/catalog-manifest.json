@@ -1,0 +1,269 @@
+{
+  "modules": [
+    "catalog"
+  ],
+  "resources": [
+    {
+      "access": {
+        "authenticated": false,
+        "roles": [
+          "admin"
+        ]
+      },
+      "actions": [
+        {
+          "access": null,
+          "confirm": "Change this record's state?",
+          "fields": [
+            "state"
+          ],
+          "has_body": true,
+          "idempotency_field": null,
+          "inputs": [
+            {
+              "enum": [
+                "draft",
+                "active"
+              ],
+              "label": "State",
+              "name": "state",
+              "nullable": false,
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "label": "Change state",
+          "method": "POST",
+          "name": "set_state",
+          "path": "/api/v1/catalog/{item_id}/state",
+          "placement": "toolbar",
+          "tone": "danger",
+          "typed_confirmation": "name"
+        }
+      ],
+      "audit": null,
+      "columns": [
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "draft",
+            "active"
+          ],
+          "label": "State",
+          "name": "state",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Quantity",
+          "name": "quantity",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Enabled",
+          "name": "enabled",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "create": {
+        "fields": [
+          "name",
+          "state",
+          "quantity",
+          "enabled"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Name",
+            "maxLength": 80,
+            "minLength": 2,
+            "name": "name",
+            "nullable": false,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "label": "State",
+            "name": "state",
+            "nullable": false,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "default": 0,
+            "label": "Quantity",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "name": "quantity",
+            "nullable": false,
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "default": false,
+            "label": "Enabled",
+            "name": "enabled",
+            "nullable": false,
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "method": "POST",
+        "path": "/api/v1/catalog"
+      },
+      "delete": null,
+      "detail": {
+        "method": "GET",
+        "path": "/api/v1/catalog/{item_id}"
+      },
+      "edit": {
+        "fields": [
+          "name",
+          "state",
+          "quantity",
+          "enabled"
+        ],
+        "has_body": true,
+        "inputs": [
+          {
+            "label": "Name",
+            "maxLength": 80,
+            "minLength": 2,
+            "name": "name",
+            "nullable": false,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "label": "State",
+            "name": "state",
+            "nullable": false,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "default": 0,
+            "label": "Quantity",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "name": "quantity",
+            "nullable": false,
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "default": false,
+            "label": "Enabled",
+            "name": "enabled",
+            "nullable": false,
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "method": "PUT",
+        "path": "/api/v1/catalog/{item_id}"
+      },
+      "edit_widgets": [],
+      "filters": [
+        {
+          "enum": [
+            "draft",
+            "active"
+          ],
+          "label": "State",
+          "name": "state",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "group": "Inventory",
+      "icon": "package",
+      "items_field": null,
+      "label": "Catalog",
+      "labels": {
+        "enabled": "Enabled",
+        "name": "Name",
+        "quantity": "Quantity",
+        "state": "State"
+      },
+      "list": {
+        "method": "GET",
+        "path": "/api/v1/catalog"
+      },
+      "module": "catalog",
+      "name": "catalog",
+      "pagination": {
+        "cursor": "cursor",
+        "limit": "limit",
+        "max_page_size": 100,
+        "mode": "offset",
+        "next_header": "X-Next-Cursor",
+        "offset": "skip"
+      },
+      "scope": null,
+      "show": [
+        {
+          "label": "Name",
+          "name": "name",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "draft",
+            "active"
+          ],
+          "label": "State",
+          "name": "state",
+          "nullable": false,
+          "required": true,
+          "type": "string"
+        },
+        {
+          "label": "Quantity",
+          "name": "quantity",
+          "nullable": false,
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "label": "Enabled",
+          "name": "enabled",
+          "nullable": false,
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "show_widgets": [],
+      "sort_fields": [
+        "name"
+      ],
+      "sort_parameter": "sort"
+    }
+  ],
+  "version": 1
+}

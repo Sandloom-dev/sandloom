@@ -1,0 +1,47 @@
+[project]
+name = "sandloom-tenancy"
+version = "0.7.0a1"
+classifiers = ["Development Status :: 3 - Alpha"]
+description = "Sandloom tenancy module: organizations, membership, invitations."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Vasyl Cherniavskyi" }]
+requires-python = ">=3.11"
+# An ecosystem module like any third party's: a compatible framework range,
+# never an exact pin. Contract calls to other modules are bound at runtime
+# and use the consumer's own generated stubs: no module depends on another.
+dependencies = [
+    "sandloom>=0.7.0a1,<0.8",
+    "email-validator>=2.3.0,<3",
+]
+
+[project.urls]
+Homepage = "https://sandloom.dev/"
+Documentation = "https://sandloom.dev/docs/"
+Repository = "https://github.com/Sandloom-dev/sandloom"
+Issues = "https://github.com/Sandloom-dev/sandloom/issues"
+Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-tenancy/CHANGELOG.md"
+
+# The module name (`tenancy`: tables, migration chain, channels, contracts) and
+# its import path; SANDLOOM_MODULES may name it by either.
+[project.entry-points."sandloom.modules"]
+tenancy = "sandloom_tenancy"
+
+[build-system]
+requires = [
+    "hatchling>=1.27",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [
+    "../editable/sandloom-tenancy",
+]
+bypass-selection = true
+
+[tool.hatch.build.hooks.custom]
+path = "../../tools/packaging/package_build.py"
+
+[tool.sandloom.sources]
+"../../src/sandloom_tenancy" = "sandloom_tenancy"

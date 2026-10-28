@@ -1,0 +1,302 @@
+# Sandloom — monolith profile.
+# One process serves every module (SANDLOOM_MODULES lists them all); a Celery worker
+# and a single beat run the modules' background tasks.
+#
+#   JWT_SECRET=$(openssl rand -hex 32) TWOFA_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+#   BILLING_PROVIDER=stripe \
+#   STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... \
+#     docker compose -f deploy/compose/monolith.yml up --build
+#
+# (demo stack without Stripe: BILLING_PROVIDER=fake
+# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod)
+#
+# Same code, same image as the microservices profile — only configuration differs.
+
+x-build: &build
+  context: ../..
+  dockerfile: deploy/docker/Dockerfile
+  target: production
+
+# ONE image for every process: built once, tagged, reused.
+x-image: &image ${SANDLOOM_IMAGE:-sandloom:local}
+
+x-service-runtime: &service-runtime
+  stop_grace_period: 60s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+# Settings shared by EVERY process (app, migrate, worker, beat): each one boots
+# the same composition root with the same module set, so billing's PSP check,
+# the module list and the databases must agree everywhere.
+x-app-env: &app-env
+  ENVIRONMENT: prod
+  SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
+  EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
+  EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}
+  EVENT_STREAM_MAXLEN: ${EVENT_STREAM_MAXLEN:-0}
+  EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
+  # The weaker guarantees this stack accepts (sandloom.core.config.accepted_risks; logged
+  # at every start): demo single-host local storage, shared by every process
+  # (not multi-host HA). A demo without Stripe adds fake_psp_in_prod:
+  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod
+  SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+  SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
+  # Labels consumer ids, the subscription inventory and diagnostics.
+  SANDLOOM_SERVICE_NAME: sandloom
+  DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/sandloom
+  CACHE_URL: redis://redis:6379/0
+  BROKER_URL: redis://redis:6379/1
+  # Opt-in (off by default): idempotency records (idempotency_guard, task
+  # enqueue dedupe) on their own Redis instead of the security cache, so their
+  # fsyncs never queue the hot revocation-mark reads (deploy/README.md ->
+  # "Separate idempotency Redis"). Enable together with the idempotency-redis
+  # service below, identically in EVERY process; merge the "idempotency" entry
+  # into an existing INFRA instead of replacing it:
+  # INFRA: '{"cache": {"idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
+  # IDEMPOTENCY_CACHE_INSTANCE: idempotency
+  # Every listed module is REQUIRED (MODULE_REQUIRED empty + explicit
+  # SANDLOOM_MODULES): one that fails to import aborts startup.
+  # Auth / notifier / past-due settings: same names and defaults as the
+  # microservices profile's common env (config parity, test_deploy_profiles).
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+  JWT_PREVIOUS_SECRETS: ${JWT_PREVIOUS_SECRETS:-[]}
+  JWT_KID: ${JWT_KID:-}
+  JWT_ISSUER: ${JWT_ISSUER:-}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+  BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}
+  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-25}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+  # Dedicated contract pool per process (in-process contract calls / claims
+  # contributors), on top of DB_POOL_SIZE + DB_MAX_OVERFLOW (README "Sizing").
+  # In the monolith EVERY cross-module call is in-process: a request holding a
+  # request connection may need a contract connection at the same time, so
+  # this pool tracks request concurrency (3 + 3), not the RPC-era minimum.
+  CONTRACT_DB_POOL_SIZE: ${CONTRACT_DB_POOL_SIZE:-3}
+  CONTRACT_DB_MAX_OVERFLOW: ${CONTRACT_DB_MAX_OVERFLOW:-3}
+  # identity encrypts TOTP secrets with a DEDICATED key (no JWT_SECRET fallback
+  # in prod); comma-separated, newest first, for rotation.
+  TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32) - required when identity is loaded}
+  # Billing refuses the fake PSP in prod — the operator must choose.
+  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  # Internal endpoints (/_sandloom/rpc, /diagnostics, /metrics, /health details)
+  # stay closed (404) unless a token is set (>= 32 chars). METRICS_TOKEN is a
+  # scrape-only credential for /metrics (must differ from INTERNAL_API_TOKEN).
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+
+services:
+  # One-shot schema migration: runs to completion before anything else starts.
+  migrate:
+    image: *image
+    build: *build
+    # Applies the core (outbox/audit/inbox) chain to every hosting database and
+    # each module's own chain to the database it declares.
+    command: ["sandloom", "migrate", "upgrade-all", "--apply"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *service-runtime
+    image: *image
+    build: *build
+    volumes:
+      - appdata:/app/data
+    ports:
+      - "${APP_PORT:-2222}:2222"
+    environment:
+      <<: *app-env
+      # Clients connect directly (no gateway in this profile): never trust
+      # X-Forwarded-For, or any client could pick its own rate-limit bucket.
+      TRUST_PROXY_HEADERS: "false"
+      # Explicit sizing (sandloom.core.cli.gunicorn_conf). Postgres connections ~=
+      # WEB_CONCURRENCY x (DB_POOL_SIZE + DB_MAX_OVERFLOW + CONTRACT_DB_POOL_SIZE
+      # + CONTRACT_DB_MAX_OVERFLOW) = 3 x 26 = 78; + worker 2 x (4 + 3) = 14,
+      # + beat 2 = 94 (< max_connections 150; migrate runs before them).
+      # The image default is min(2*cpus+1, 4) from the container CPU quota.
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-3}
+      # Idle keep-alive (s) of the gunicorn/uvicorn workers. Keep it ABOVE the
+      # idle timeout of any balancer in front (ALB 60 s), or it reuses
+      # connections the app is closing -> sporadic 502s. Default 75.
+      GUNICORN_KEEPALIVE: ${GUNICORN_KEEPALIVE:-75}
+      GUNICORN_GRACEFUL_TIMEOUT: ${GUNICORN_GRACEFUL_TIMEOUT:-45}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      # The outbox relay runs in exactly ONE gunicorn worker per container
+      # (sandloom.core.cli.gunicorn_conf elects a leader); auto = on in prod.
+      OUTBOX_RELAY_ENABLED: auto
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:2222/health/simple')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+        reservations:
+          memory: 256m
+
+  # Framework Celery worker (sandloom.core.worker): boots the composition root with
+  # the same SANDLOOM_MODULES and registers every loaded module's tasks.py on the
+  # taskqueue capability's Celery app.
+  worker:
+    <<: *service-runtime
+    image: *image
+    build: *build
+    volumes:
+      - appdata:/app/data
+    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    environment:
+      <<: *app-env
+      SANDLOOM_SERVICE_NAME: sandloom-worker
+      # Prefork children: default = container CPU quota capped at 2 (Celery's
+      # own default is the HOST core count — an OOM loop in a small box).
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-}
+      WORKER_MAX_MEMORY_PER_CHILD: ${WORKER_MAX_MEMORY_PER_CHILD:-200000}
+      # Each prefork child opens its own pools and runs ONE task at a time:
+      # keep both small.
+      DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
+      CONTRACT_DB_POOL_SIZE: "1"
+      CONTRACT_DB_MAX_OVERFLOW: "2"
+    # Liveness: heartbeat file touched by the worker's own timer.
+    healthcheck:
+      test: ["CMD", "python", "-m", "sandloom.core.worker", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+  # Exactly ONE beat per deployment: it schedules the periodic tasks the loaded
+  # modules declare (setup_periodic_tasks hooks).
+  beat:
+    <<: *service-runtime
+    image: *image
+    build: *build
+    volumes:
+      - appdata:/app/data
+    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+              "--schedule=/tmp/celerybeat-schedule"]
+    environment:
+      <<: *app-env
+      SANDLOOM_SERVICE_NAME: sandloom-beat
+      # Beat only schedules: the smallest pools.
+      DB_POOL_SIZE: "1"
+      DB_MAX_OVERFLOW: "0"
+      CONTRACT_DB_POOL_SIZE: "1"
+      CONTRACT_DB_MAX_OVERFLOW: "0"
+    healthcheck:
+      disable: true
+    depends_on:
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m
+
+  db:
+    <<: *service-runtime
+    image: postgres:16
+    # Explicit: the connection budget (README "Sizing") is checked against it.
+    command: ["postgres", "-c", "max_connections=150"]
+    environment:
+      POSTGRES_DB: sandloom
+      POSTGRES_USER: sandloom
+      POSTGRES_PASSWORD: sandloom
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U sandloom"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+
+  redis:
+    <<: *service-runtime
+    image: redis:7
+    # In prod the event bus is Redis Streams on this instance (cache and bus
+    # share it): persist it (AOF + volume) so a Redis restart does not lose
+    # pending events, and never evict bus keys under memory pressure — the
+    # same durability as the microservices profile. (A separate cache Redis
+    # is optional; see deploy/README.md.)
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+  # Opt-in idempotency Redis (see the IDEMPOTENCY_CACHE_INSTANCE note in the
+  # shared env above). Same persistence as a security Redis — fsync every
+  # write, never evict: a lost reservation re-runs a mutation. Never relax it
+  # to appendfsync everysec.
+  # idempotency-redis:
+  #   <<: *service-runtime
+  #   image: redis:7
+  #   command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+  #   volumes:
+  #     - idempotencyredisdata:/data
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1.0"
+  #         memory: 384m
+
+volumes:
+  appdata:
+  pgdata:
+  redisdata:
+  # idempotencyredisdata:   # with the opt-in idempotency-redis service

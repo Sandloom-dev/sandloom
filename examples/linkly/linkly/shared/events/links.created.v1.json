@@ -1,0 +1,20 @@
+{
+  "description": "A short code was created.",
+  "properties": {
+    "code": {
+      "title": "Code",
+      "type": "string"
+    },
+    "link_id": {
+      "format": "uuid",
+      "title": "Link Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "link_id",
+    "code"
+  ],
+  "title": "LinkCreated",
+  "type": "object"
+}

@@ -1,0 +1,10 @@
+"""Deliberately broken: a business module reaching kernel handles."""
+
+
+async def leak(core, request):
+    await core.event_bus.publish("broken.thing.v1", {})
+    registry = core.infra
+    svc = core.service_registry.get("tenancy.membership.v1")
+    full = request.app.state.core
+    ok = core.get_service("tenancy.membership.v1")  # sanctioned: not flagged
+    return registry, svc, full, ok

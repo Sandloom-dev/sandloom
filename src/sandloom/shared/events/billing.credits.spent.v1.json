@@ -1,0 +1,51 @@
+{
+  "description": "Credits were spent (``data``: amount, balance, reason).",
+  "properties": {
+    "customer_id": {
+      "format": "uuid",
+      "title": "Customer Id",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object",
+      "x-sandloom-default": true
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string",
+      "x-sandloom-default": true
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string",
+      "x-sandloom-default": true
+    },
+    "tenant_id": {
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "tenant_type": {
+      "enum": [
+        "user",
+        "organization"
+      ],
+      "title": "Tenant Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "customer_id",
+    "tenant_type",
+    "tenant_id",
+    "data"
+  ],
+  "title": "CreditsSpent",
+  "type": "object"
+}

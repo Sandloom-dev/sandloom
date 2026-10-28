@@ -1,0 +1,48 @@
+{
+  "format": 3,
+  "module": "helpdesk.modules.tickets",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{organization_id}/tickets",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/orgs/{organization_id}/tickets",
+      "policy": {
+        "effect": "write",
+        "idempotency": "explicit cache",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/orgs/{organization_id}/tickets/export",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/orgs/{organization_id}/tickets/{ticket_id}/status",
+      "policy": {
+        "effect": "write",
+        "idempotency": "automatic S",
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    }
+  ]
+}

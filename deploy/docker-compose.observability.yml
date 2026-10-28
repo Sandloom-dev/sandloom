@@ -1,0 +1,81 @@
+# Sandloom — observability overlay: Prometheus (+ Sandloom alert/SLO rules) and Grafana
+# (+ provisioned Sandloom dashboards) scraping the monolith profile's app.
+# Optional: both services sit behind the `observability` profile, so a plain
+# `up` never starts them.
+#
+#   METRICS_TOKEN=$(openssl rand -hex 32) JWT_SECRET=... TWOFA_ENCRYPTION_KEY=... \
+#   BILLING_PROVIDER=... \
+#     docker compose -f deploy/compose/monolith.yml \
+#       -f deploy/docker-compose.observability.yml --profile observability up -d
+#
+# Grafana: http://127.0.0.1:3000 (admin / $GRAFANA_ADMIN_PASSWORD, default
+# admin — changed at first login), folder "Sandloom". Both UIs bind to localhost.
+# Prometheus: http://127.0.0.1:9090 (alerts: /alerts). No Alertmanager ships:
+# point `alerting:` in prometheus/prometheus.yml at yours.
+# Contents and conventions: deploy/observability/README.md.
+
+secrets:
+  # The app's scrape-only /metrics credential, handed to Prometheus as a file.
+  metrics_token:
+    environment: METRICS_TOKEN
+
+services:
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    secrets:
+      - source: metrics_token
+        target: metrics_token
+        mode: 0444
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # Unset: admin/admin, and Grafana demands a new password at first login.
+      # Interpolation runs even without the profile, so nothing here is `:?`.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/sandloom/sandloom-http-red.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards/sandloom:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+volumes:
+  promdata:
+  grafanadata:

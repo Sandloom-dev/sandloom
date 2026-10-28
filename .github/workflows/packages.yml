@@ -1,0 +1,54 @@
+name: Packages (ADR-0001)
+
+# Builds every Sandloom distribution (sandloom, sandloom-identity,
+# sandloom-tenancy, sandloom-billing) from the monorepo tree and proves each
+# works as installed: sdist round trip and license metadata, import layering
+# across distributions (no module imports a distribution its own does not
+# depend on, lazy imports included), `pip install sandloom` alone runs every
+# CLI subcommand, `sandloom docs` and `sandloom new`, and `sandloom[standard]`
+# composes the module packages by entry point. One script, the same one
+# contributors run locally: tools/packaging/check_package_distributions.py.
+
+on:
+  workflow_call:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "packages/**"
+      - "migrations/core/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "tools/packaging/**"
+      - ".github/workflows/packages.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "packages/**"
+      - "migrations/core/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "tools/packaging/**"
+      - ".github/workflows/packages.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  distributions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build, layer-check and install every distribution
+        run: uv run --locked python tools/packaging/check_package_distributions.py

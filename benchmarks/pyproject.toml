@@ -1,0 +1,81 @@
+[project]
+name = "sandloom-benchmarks"
+version = "0.1.0"
+description = "Reproducible comparative HTTP benchmarks for the Sandloom framework"
+requires-python = ">=3.12"
+dependencies = [
+    "sandloom[fast,standard]",
+    "fastapi==0.136.3",
+    "starlette==1.6.0",
+    "uvicorn[standard]==0.54.0",
+    "uvloop==0.23.0",
+    "httptools==0.9.0",
+    "sqlalchemy[asyncio]==2.1.5",
+    "asyncpg==0.32.0",
+    "pydantic==2.14.1",
+    "pydantic-core==2.50.1",
+    "redis[hiredis]==5.2.1",
+    "hiredis==3.5.0",
+    "pyjwt==2.15.1",
+    "orjson==3.13.0",
+    "greenlet==3.5.6",
+    "h11==0.16.0",
+    "granian[uvloop,rloop]==2.8.4",
+    "litestar==2.24.0",
+    "msgspec==0.22.0",
+    "psutil==7.2.2",
+    "sandloom-tenancy",
+    "sandloom-billing",
+    "sandloom-identity",
+]
+
+[tool.uv.sources.sandloom]
+path = "../packages/sandloom"
+editable = true
+
+[tool.uv.sources.sandloom-tenancy]
+path = "../packages/sandloom-tenancy"
+editable = true
+
+[tool.uv.sources.sandloom-billing]
+path = "../packages/sandloom-billing"
+editable = true
+
+[tool.uv.sources.sandloom-identity]
+path = "../packages/sandloom-identity"
+editable = true
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "benchsuite",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
+ignore = [
+    "B008",
+    "E501",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "sandloom",
+    "benchsuite",
+]
+
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"

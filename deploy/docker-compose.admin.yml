@@ -1,0 +1,27 @@
+# Optional overlay; same image in both topologies. See admin/README.md.
+services:
+  admin:
+    profiles: [admin]
+    build:
+      context: ../admin
+    environment:
+      SANDLOOM_ADMIN_PUBLIC_SCHEME: ${SANDLOOM_ADMIN_PUBLIC_SCHEME:-http}
+      SANDLOOM_ADMIN_API_UPSTREAM: ${SANDLOOM_ADMIN_API_UPSTREAM:-http://app:2222}
+    ports:
+      - "127.0.0.1:${SANDLOOM_ADMIN_PORT:-8081}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,mode=1777
+      - /etc/nginx/conf.d:rw,noexec,nosuid,uid=101,gid=101,mode=0755
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/config.json]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128m
