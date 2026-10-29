@@ -357,6 +357,7 @@ Project = [
     "contributing/index.md",
     { "Repository Map & Agent Tooling" = "contributing/repository.md" },
     { "Source snapshot policy" = "contributing/source-export.md" },
+    { "Branches and owner review" = "contributing/branches.md" },
     { "Versioning Policy" = "contributing/versioning.md" },
     { "Local CI Runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },
