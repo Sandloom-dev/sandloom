@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Brand assets — Sandloom</title>
+<meta name="author" content="Vasyl Cherniavskyi">
+<meta name="description" content="Download the Sandloom caracal logo, outlined wordmark, avatars and icons in SVG, PNG and ICO, with colour and spacing guidance.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Manrope:400,500,600,700&amp;display=fallback">
+<link rel="stylesheet" href="/assets/brand.css"><link rel="stylesheet" href="/assets/site.css"><link rel="stylesheet" href="/assets/brand-page.css">
+<script src="/assets/theme.js"></script><script>{{ search_bootstrap | safe }}</script>
+</head><body data-md-color-scheme="default">
+<script>document.body.dataset.mdColorScheme = document.documentElement.dataset.sandloomTheme === "dark" ? "slate" : "default";</script>
+<input type="checkbox" id="__drawer" data-md-toggle="drawer" hidden><input type="checkbox" id="__search" data-md-toggle="search" hidden>
+<a class="skip-link" href="#main">Skip to content</a>
+{% include "partials/site-header.html" %}
+<main id="main" class="brand-page" data-md-component="main">
+  <section class="brand-intro"><p class="eyebrow">Sandloom identity</p><h1>Brand assets.</h1><p class="intro">The caracal, the wordmark and the files that keep them consistent. Use the kit for articles, presentations and integrations featuring Sandloom.</p><div class="actions"><a class="button" href="/assets/brand/sandloom-brand-kit.zip" download>Download the brand kit <span aria-hidden="true">↓</span></a><span class="brand-format">SVG · transparent PNG · ICO</span></div></section>
+  <section class="brand-previews" aria-label="Sandloom logo downloads">
+    <article class="brand-card"><div class="brand-art brand-art-dark"><img src="/assets/brand/sandloom-mark-sand.svg" width="200" height="200" alt="Sandloom caracal mark"></div><div class="brand-caption"><h2>The caracal</h2><p>The primary mark. One colour, with a separate optical drawing for small icons.</p><div class="brand-downloads"><a href="/assets/brand/sandloom-mark.svg" download>SVG ↓</a><a href="/assets/brand/sandloom-mark-sand.png" download>PNG ↓</a></div></div></article>
+    <article class="brand-card"><div class="brand-art brand-art-light"><img class="brand-lockup" src="/assets/brand/sandloom-lockup-ink.svg" width="390" height="80" alt="Sandloom caracal and wordmark"></div><div class="brand-caption"><h2>The full logo</h2><p>The mark and outlined wordmark, with their intended spacing and proportions.</p><div class="brand-downloads"><a href="/assets/brand/sandloom-lockup-ink.svg" download>SVG ↓</a><a href="/assets/brand/sandloom-lockup-ink.png" download>PNG ↓</a></div></div></article>
+  </section>
+  <section class="brand-details" aria-label="Using the assets"><div><p class="eyebrow">At every size</p><h2>Small icon. Same character.</h2><div class="brand-icon-row">{% for size in [16, 20, 24, 32, 48, 64] %}<div><img src="/assets/brand/favicon-{{ size }}.png" width="{{ size }}" height="{{ size }}" alt="Caracal at {{ size }} pixels"><span>{{ size }} px</span></div>{% endfor %}</div><p>The 16 and 20 px files use a simpler optical drawing. Use the primary mark from 24 px.</p><a class="brand-text-link" href="/assets/brand/favicon.ico" download>Download favicon ICO ↓</a></div><div><p class="eyebrow">Profile and app</p><h2>A ready-to-use avatar.</h2><div class="brand-avatar"><img src="/assets/brand/sandloom-avatar.png" width="96" height="96" alt="Sandloom avatar"><p>1024 × 1024 PNG.<br>Graphite background, sand mark.</p></div><a class="brand-text-link" href="/assets/brand/sandloom-avatar.png" download>Download avatar PNG ↓</a></div></section>
+  <section class="brand-guidance"><div><p class="eyebrow">Keep it consistent</p><h2>Space. Proportion. Contrast.</h2><p>Leave at least one eighth of the mark’s nominal width around the visible logo. Keep the supplied proportions, use the optical file at small sizes, and choose the monochrome version that contrasts with your background.</p><a class="brand-text-link" href="/assets/brand/README.md">Read the asset guide →</a></div><div class="brand-swatches"><div><span style="background:#111213"></span><strong>Graphite</strong><code>#111213</code></div><div><span style="background:#d8b892"></span><strong>Sand</strong><code>#d8b892</code></div><div><span style="background:#262825"></span><strong>Ink</strong><code>#262825</code></div></div></section>
+</main><footer><a class="sl-brand" href="/" aria-label="Sandloom home">{% include "partials/site-logo.html" %}</a><p>Python backend framework for AI-driven development.</p><a href="/docs/">Documentation</a><a href="https://github.com/Sandloom-dev/sandloom">GitHub</a></footer>
+<script id="__config" type="application/json">{{ search_config | tojson }}</script><script src="{{ search_bundle }}"></script>
+</body></html>

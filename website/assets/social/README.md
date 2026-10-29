@@ -1,62 +1,22 @@
-# Sharing artwork
+# Brand and sharing artwork
 
-`sandloom-{home,docs,examples}.png` are the 1200 × 630 sharing images. They reuse
-the Sandloom mark, graphite/sand palette and Manrope type. The SVG sources have
-outlined lettering; the PNGs require no browser, web font or JavaScript to render.
-`tools/docs/brand_assets.py` owns the copy and vector composition. The existing
-mark in `docs/assets/sandloom-mark.svg` remains the source of the symbol's paths.
+The canonical caracal geometry is `docs/assets/sandloom-mark.svg`, with a separate optical drawing in `docs/assets/sandloom-mark-micro.svg`. The main drawing works from 24 CSS pixels; the optical drawing is for 16–23px.
 
-`Manrope-OFL.txt` retains the upstream copyright and SIL Open Font License;
-`SOURCE.json` records its source URL and checksum.
+`tools/docs/brand_assets.py` regenerates the outlined brand exports, shared logo/mark template partials, adaptive SVG favicon and the three 1200 × 630 social SVG cards. It preserves the negative-space fill rule. It uses the existing Manrope TTF recorded in `SOURCE.json`, verifies its SHA-256 and outlines the wordmark at weight 600 with optical spacing.
 
-These are prepared source assets. A normal website build simply copies them;
-it does not download fonts, install packages or generate graphics.
+`tools/docs/render_brand_assets.cjs` prepares transparent PNGs, native raster favicons, ICO, the 180px touch icon, the square avatar, sharing PNGs, a 1280 × 640 GitHub preview and a deterministic ZIP. The normal site build only copies prepared assets; it needs no graphics tools and downloads no fonts.
 
-## Regeneration (maintenance only)
+## Regeneration
 
-1. Download the official Manrope variable TTF using the source recorded in
-   `SOURCE.json`. Verify its SHA-256 before using it. The Git blob URL in that
-   file identifies the exact original bytes if the upstream branch changes.
-2. Generate the outlined SVGs and favicon with FontTools 4.68.0:
+Use the existing upstream Manrope TTF identified by `SOURCE.json`. Verify its checksum before running the vector step.
 
-   ```sh
-   uv run --no-project --with fonttools==4.68.0 python tools/docs/brand_assets.py --font /tmp/Manrope.ttf
-   ```
+```sh
+uv run --no-project --with fonttools==4.68.0 python tools/docs/brand_assets.py --font /tmp/Manrope.ttf
+NODE_PATH=/path/to/node_modules node tools/docs/render_brand_assets.cjs
+```
 
-3. In a maintenance Node environment with Sharp 0.35.5 available, rasterize:
+The raster step requires Sharp 0.35.5 and Python 3 for the standard-library ZIP writer. Inspect the mark, full lockup, 16px favicon and social cards before rebuilding the unified site.
 
-   ```js
-   const sharp = require("sharp");
-   (async () => {
-     for (const kind of ["home", "docs", "examples"]) {
-       const base = `website/assets/social/sandloom-${kind}`;
-       await sharp(`${base}.svg`).png().toFile(`${base}.png`);
-     }
-     for (const [name, size] of [
-       ["website/assets/favicon-96.png", 96],
-       ["website/apple-touch-icon.png", 180],
-       ["/tmp/sandloom-icon.png", 256],
-     ]) {
-       await sharp("website/assets/favicon.svg", { density: 384 })
-         .resize(size, size).png().toFile(name);
-     }
-   })();
-   ```
+`website/assets/brand/` is the downloadable brand kit and its usage guide; `/brand/` presents it on the unified site. Its ZIP includes the asset files, Apache license/NOTICE and Manrope's SIL Open Font License. The outlined lettering needs no web font to display.
 
-4. Write the ICO fallback with Pillow:
-
-   ```python
-   from PIL import Image
-   Image.open("/tmp/sandloom-icon.png").save(
-       "website/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)]
-   )
-   ```
-
-Inspect all three PNGs and the small icon before rebuilding. Keep important
-content inside the inset area so modest crops retain the mark and headlines.
-The metadata builder versions image URLs from their PNG content hashes.
-
-Metadata follows the [Open Graph protocol](https://ogp.me/). The site emits
-`summary_large_image` for X and uses PNG rather than SVG for sharing images.
-Favicons include SVG, a 96px PNG, ICO fallbacks and a 180px Apple touch icon;
-see [Google's favicon guidance](https://developers.google.com/search/docs/appearance/favicon-in-search).
+Metadata follows the [Open Graph protocol](https://ogp.me/), using PNG cards and `summary_large_image`. SVG/PNG/ICO/touch icons share the same identity. Normal builds version the sharing images and stylesheet URLs from file content hashes.

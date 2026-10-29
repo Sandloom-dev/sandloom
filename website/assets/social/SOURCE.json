@@ -4,11 +4,13 @@
   "sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
   "fonttools": "4.68.0",
   "sharp": "0.35.5",
-  "font_weight": 500,
+  "font_weight": 600,
   "font_license": "SIL Open Font License 1.1; https://github.com/google/fonts/blob/main/ofl/manrope/OFL.txt",
   "git_blob_url": "https://api.github.com/repos/google/fonts/git/blobs/75274da58537d6123b14f2cd0c355ad4681fc2b3",
   "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/OFL.txt",
   "license_sha256": "d6a309fcfb963d329a93baf9df66fa5f3c23a4be2b5f67edf24d6cafecde12ac",
   "license_upstream_sha256": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
-  "license_normalization": "Trailing whitespace removed by the repository formatter; license text unchanged."
+  "license_normalization": "Trailing whitespace removed by the repository formatter; license text unchanged.",
+  "mark_source": "docs/assets/sandloom-mark.svg",
+  "micro_mark_source": "docs/assets/sandloom-mark-micro.svg"
 }
