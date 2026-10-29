@@ -118,7 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_rules:
         for rule, why in RULES.items():
             entry = error_codes.lookup(rule)
-            print(f"{entry.code if entry else '':9} {rule:24} {why}")
+            link = f" ({error_codes.documentation_url(entry.code)})" if entry else ""
+            print(f"{entry.code if entry else '':9} {rule:24} {why}{link}")
         return 0
 
     only = [r.strip() for r in args.only.split(",") if r.strip()] or None
@@ -148,6 +149,9 @@ def _report(
         print(f"sandloom check: {len(notes)} warning(s) / note(s)\n")
         for v in notes:
             print(f"  {v.format(rules.root)}")
+            if v.code:
+                print(f"      docs: {error_codes.documentation_url(v.code)}")
+                print(f"      help: sandloom explain {v.code}")
         print()
     if not errors and not boot:
         print(
@@ -174,7 +178,8 @@ def _report(
             print(f"  {rule}: {known[rule]}")
             continue
         print(f"  {entry.code} {rule}: {known[rule]}")
-        print(f"      docs: sandloom explain {entry.code}")
+        print(f"      docs: {error_codes.documentation_url(entry.code)}")
+        print(f"      help: sandloom explain {entry.code}")
     _print_boot(boot)
     return 1
 

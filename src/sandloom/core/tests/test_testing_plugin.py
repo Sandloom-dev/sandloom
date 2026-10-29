@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+# Every case runs its own pytest process; the full matrix covers these probes.
+pytestmark = pytest.mark.subprocess_probe
+
 _PYPROJECT = """\
 [tool.pytest.ini_options]
 pythonpath = ["."]

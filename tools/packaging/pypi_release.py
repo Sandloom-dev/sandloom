@@ -1,4 +1,4 @@
-"""Plan, select and verify reviewed PyPI artifacts; never handle upload credentials."""
+"""Reviewed PyPI artifacts and GitHub Releases; PyPI uploads stay in the OIDC action."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 import tomllib
 from pathlib import Path
@@ -55,6 +56,8 @@ def plan_release(
         )
     if publish and not on_main:
         raise ValueError("Publication requires a commit reachable from origin/main")
+    if len(selected) > 1 and len({versions[name] for name in selected}) != 1:
+        raise ValueError("A coordinated release requires matching package versions")
     return {"packages": selected, "versions": versions, "publish": publish}
 
 
@@ -112,6 +115,15 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
             )
     manifest = {"source_sha": os.environ.get("GITHUB_SHA", ""), "files": rows}
     (output / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (output / "SHA256SUMS").write_text(checksum_text(rows))
+    project = plan["packages"][0] if len(plan["packages"]) == 1 else None
+    changelog = (
+        Path.cwd() / "packages" / project / "CHANGELOG.md"
+        if project
+        else Path.cwd() / "CHANGELOG.md"
+    )
+    version = versions[plan["packages"][0]]
+    (output / "release-notes.md").write_text(changelog_section(changelog, version))
     shutil.copyfile(Path(__file__), output / "pypi_release.py")
     return manifest
 
@@ -184,6 +196,15 @@ def missing_files(manifest: dict, fetch=fetch_release) -> list[dict]:
 def prepare_upload(
     manifest: dict, dist: Path, upload: Path, fetch=fetch_release
 ) -> bool:
+    rows = validate_local_artifacts(manifest, dist)
+    missing = missing_files(manifest, fetch)
+    upload.mkdir(parents=True, exist_ok=False)
+    for row in missing:
+        shutil.copyfile(dist / row["filename"], upload / row["filename"])
+    return bool(missing)
+
+
+def validate_local_artifacts(manifest: dict, dist: Path) -> list[dict]:
     rows = validate_manifest(manifest)
     if {p.name for p in dist.iterdir()} != {row["filename"] for row in rows}:
         raise ValueError("Distribution directory does not match the reviewed manifest")
@@ -194,11 +215,202 @@ def prepare_upload(
             or hashlib.sha256(file.read_bytes()).hexdigest() != row["sha256"]
         ):
             raise ValueError(f"Local artifact changed: {row['filename']}")
-    missing = missing_files(manifest, fetch)
-    upload.mkdir(parents=True, exist_ok=False)
-    for row in missing:
-        shutil.copyfile(dist / row["filename"], upload / row["filename"])
-    return bool(missing)
+    return rows
+
+
+def checksum_text(rows: list[dict]) -> str:
+    return "".join(
+        f"{row['sha256']}  {row['filename']}\n"
+        for row in sorted(rows, key=lambda row: row["filename"])
+    )
+
+
+def changelog_section(path: Path, version: str) -> str:
+    match = re.search(
+        rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |\Z)",
+        path.read_text(),
+        re.M | re.S,
+    )
+    if match is None or not match[1].strip():
+        raise ValueError(f"Missing changelog notes for {version}: {path.name}")
+    return match[1].strip() + "\n"
+
+
+def github_release_spec(manifest: dict) -> dict:
+    rows = validate_manifest(manifest)
+    versions = {row["version"] for row in rows}
+    projects = {row["project"] for row in rows}
+    if len(versions) != 1 or not (projects == set(PACKAGES) or len(projects) == 1):
+        raise ValueError("A GitHub release needs one package or a coordinated version")
+    version = next(iter(versions))
+    name = "Sandloom" if projects == set(PACKAGES) else next(iter(projects))
+    prefix = "" if projects == set(PACKAGES) else f"{name}-"
+    return {
+        "tag": f"{prefix}v{version}",
+        "title": f"{name} {version}",
+        "prerelease": bool(re.search(r"(?:a|b|rc)\d+$", version)),
+    }
+
+
+def github_command(args: list[str]) -> str:
+    return subprocess.run(
+        ["gh", *args], check=True, text=True, capture_output=True
+    ).stdout
+
+
+def github_api(path: str) -> Any:
+    result = subprocess.run(
+        ["gh", "api", "--hostname", "github.com", path],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("GitHub API returned no valid JSON response") from exc
+    if result.returncode:
+        if data.get("status") == "404":
+            return None
+        raise RuntimeError(f"GitHub API request failed: {path}")
+    return data
+
+
+def find_github_release(api, base: str, tag: str) -> dict | None:
+    published = api(f"{base}/releases/tags/{tag}")
+    if published is not None:
+        return published
+    # A draft's pending tag may not exist yet, so REST lookup by tag returns
+    # 404. Authenticated release listings include drafts; inspect their exact
+    # pending tag rather than mistaking an existing draft for an absent release.
+    page = 1
+    while True:
+        releases = api(f"{base}/releases?per_page=100&page={page}")
+        matches = [r for r in releases if r["draft"] and r["tag_name"] == tag]
+        if len(matches) > 1:
+            raise ValueError("Multiple drafts have the same pending release tag")
+        if matches:
+            return matches[0]
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
+def github_tag_source(api, base: str, tag: str) -> str | None:
+    ref = api(f"{base}/git/ref/tags/{tag}")
+    if ref is None:
+        return None
+    target = ref["object"]
+    for _ in range(5):
+        if target["type"] != "tag":
+            break
+        annotation = api(f"{base}/git/tags/{target['sha']}")
+        if annotation is None:
+            raise ValueError("Release tag annotation is missing")
+        target = annotation["object"]
+    if target.get("type") != "commit":
+        raise ValueError("Release tag does not resolve to a commit")
+    return target["sha"]
+
+
+def publish_github_release(
+    manifest_path: Path,
+    dist: Path,
+    *,
+    repository: str,
+    source_sha: str,
+    api=github_api,
+    command=github_command,
+    fetch=fetch_release,
+) -> None:
+    """Publish a draft only after PyPI and every GitHub asset hash are verified.
+
+    Reruns fill missing assets; an existing tag or asset is never overwritten.
+    No checkout, build, package installation or PyPI credentials are needed.
+    """
+    manifest = json.loads(manifest_path.read_text())
+    rows = validate_local_artifacts(manifest, dist)
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or not re.fullmatch(
+        r"[a-f0-9]{40}", source_sha
+    ):
+        raise ValueError("Invalid GitHub repository/source")
+    if manifest.get("source_sha") != source_sha:
+        raise ValueError("Release source does not match the reviewed manifest")
+    spec = github_release_spec(manifest)
+    folder = manifest_path.parent
+    checksums = folder / "SHA256SUMS"
+    if checksums.read_text() != checksum_text(rows):
+        raise ValueError("Release checksum file differs from the reviewed manifest")
+    notes = folder / "release-notes.md"
+    if not notes.read_text().strip():
+        raise ValueError("Release notes are empty")
+    verify_published(manifest, fetch=fetch)
+    base = f"repos/{repository}"
+    tag = spec["tag"]
+    tag_source = github_tag_source(api, base, tag)
+    if tag_source is not None and tag_source != source_sha:
+        raise ValueError("Existing release tag points to another source commit")
+    existing = find_github_release(api, base, tag)
+    if (
+        existing is not None
+        and tag_source is None
+        and (not existing["draft"] or existing.get("target_commitish") != source_sha)
+    ):
+        raise ValueError("Existing draft does not target the reviewed source commit")
+    if existing is None:
+        command(
+            [
+                "release",
+                "create",
+                tag,
+                "--repo",
+                repository,
+                "--target",
+                source_sha,
+                "--title",
+                spec["title"],
+                "--notes-file",
+                str(notes),
+                "--draft",
+                "--latest=false",
+                f"--prerelease={str(spec['prerelease']).lower()}",
+            ]
+        )
+    elif bool(existing["prerelease"]) != spec["prerelease"]:
+        raise ValueError("Existing release has a different prerelease status")
+    assets = [dist / row["filename"] for row in rows] + [checksums, manifest_path]
+    wanted = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in assets}
+
+    def check_assets() -> set[str]:
+        current = find_github_release(api, base, tag)
+        if current is None:
+            raise RuntimeError("GitHub release was not created")
+        found = set()
+        for asset in current["assets"]:
+            name = asset["name"]
+            if name not in wanted or asset.get("digest") != f"sha256:{wanted[name]}":
+                raise ValueError(f"Existing GitHub release asset differs: {name}")
+            found.add(name)
+        return found
+
+    present = check_assets()
+    missing = [str(p) for p in assets if p.name not in present]
+    if missing:
+        command(["release", "upload", tag, *missing, "--repo", repository])
+    if check_assets() != set(wanted):
+        raise RuntimeError("GitHub release assets are incomplete")
+    if existing is None or existing["draft"]:
+        command(["release", "edit", tag, "--repo", repository, "--draft=false"])
+    final = find_github_release(api, base, tag)
+    if (
+        final is None
+        or final["draft"]
+        or github_tag_source(api, base, tag) != source_sha
+    ):
+        raise RuntimeError("GitHub release is not published at the reviewed source")
+    print(
+        f"Verified GitHub release: https://github.com/{repository}/releases/tag/{tag}"
+    )
 
 
 def verify_published(
@@ -229,7 +441,9 @@ def boolean_env(name: str, default: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["plan", "select", "preflight", "verify"])
+    parser.add_argument(
+        "action", choices=["plan", "select", "preflight", "verify", "github-release"]
+    )
     parser.add_argument("--artifacts", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--manifest", type=Path)
@@ -259,14 +473,28 @@ def main() -> int:
                 json.loads(args.manifest.read_text()), args.dist, args.upload
             ),
         )
-    else:
+    elif args.action == "verify":
         verify_published(json.loads(args.manifest.read_text()))
+    else:
+        publish_github_release(
+            args.manifest,
+            args.dist,
+            repository=os.environ["GITHUB_REPOSITORY"],
+            source_sha=os.environ["GITHUB_SHA"],
+        )
     return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
+    except (
+        ValueError,
+        RuntimeError,
+        OSError,
+        KeyError,
+        TypeError,
+        subprocess.CalledProcessError,
+    ) as exc:
         print(f"Release verification failed: {exc}")
         raise SystemExit(1) from exc

@@ -1338,7 +1338,9 @@ class Matrix:
         )
 
 
-@pytest.fixture(scope="session")
+# Only this file uses the matrix. Stop its servers and release their database
+# connections before another test module starts, including in the serial gate.
+@pytest.fixture(scope="module")
 def matrix(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Matrix]:
     base = _test_env()
     db_url = base.get("DATABASE_URL", "")

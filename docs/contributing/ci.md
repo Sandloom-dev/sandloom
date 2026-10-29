@@ -44,7 +44,7 @@ source selection. CI configuration changes have dedicated regression tests and e
 regular PR suites. Manual full-validation jobs remain opt-in.
 
 Normal PR backend tests use Python 3.12, without coverage or `slow` tests.
-The Python 3.11/3.13/3.14 compatibility runs, coverage, serial isolation suite,
+The Python 3.11/3.13/3.14 compatibility runs, coverage, serial in-process isolation suite,
 generated-app quickstart/recipes/split checks and live microservices smoke run
 in full validation. Those omissions from the PR profile are intentional; its
 green result is not evidence that full release validation passed.
@@ -53,6 +53,36 @@ Checks run on PRs rather than repeating the same work after a merge to `main`.
 New commits cancel older runs of the same PR. Closing or merging a PR also
 cancels its older Monorepo CI run without starting new test jobs. Short-lived
 workflow artifacts expire after three days (the SBOM after seven).
+
+## Actions and dependency caches
+
+JavaScript actions use Node.js 24 releases, pinned to reviewed commit SHAs
+with their release versions in comments. Python and application Node.js
+versions are selected separately by the setup actions.
+
+Root dependency caches use `uv.lock` and setup-uv's Python/platform key.
+Only `backend-tests` saves them, once per Python version in its matrix;
+other jobs restore the same cache with `save-cache: false`. Cache misses
+still install the locked dependencies normally. Concurrent full runs on the
+same ref can still race to create a new key, but parallel readers within a
+run do not compete to upload it. Comparative benchmarks use their separate
+lock and Python selection and do not use this shared uv cache.
+
+## Serial isolation performance
+
+The serial pass retains every in-process test and its shuffled file order.
+`subprocess_probe` marks only checks whose tested runtime is entirely in a
+fresh child interpreter (package build/install and CLI/plugin isolation probes).
+They remain in the unfiltered full matrix on Python 3.11 and 3.12; repeating
+them in the parent-process isolation pass cannot expose parent runtime leaks.
+The serial job prints its 25 slowest phases so later regressions are visible.
+The split-conformance matrix is module-scoped: its child servers and database
+connections are closed before the next test file, rather than running through
+the rest of the session.
+
+Readiness polls use a direct loopback HTTP connection rather than constructing
+an HTTPX/TLS context for every poll. Child identity/nonce, early-exit, timeout
+and foreign-server checks remain enforced; no production transport is changed.
 
 ## Full release validation
 
@@ -106,3 +136,12 @@ policy and security behavior are unchanged.
 The focused Redis/billing regressions and full data-extraction scenario are
 verified locally. Full validation must still pass on the exact selected commit
 before a release; an economical PR result does not replace that gate.
+
+## Generated application profiles
+
+Full validation creates applications through a standalone kernel-only CLI,
+then executes its printed instructions: dependency installation, generation,
+fresh-app CI, module addition, gates, migrations and an authenticated HTTP round trip.
+Bare, identity, tenancy, billing and all-battery profiles run as five parallel
+jobs, each with its own PostgreSQL and Redis services. This covers the
+`uvx --from sandloom` dependency handoff without serializing the five applications.

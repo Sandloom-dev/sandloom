@@ -10,6 +10,7 @@ script when ``SANDLOOM_QUICKSTART_POSTGRES_URL`` is set.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+import sandloom.core.cli.project as project_cli
 from sandloom.core.cli import run_tests
 from sandloom.core.cli.project import (
     DEV_TOOL_PINS,
@@ -55,7 +57,8 @@ def test_the_quickstart_covers_the_inner_loop() -> None:
     assert "uv run sandloom test" in commands
     assert commands[-1].startswith("uv run uvicorn {app}.asgi:app")
     assert not any("pytest" in command for command in commands)
-    assert quickstart("shop", "notes")[3].startswith("uv run sandloom add module tasks")
+    assert commands[2] == "uv run sandloom generate"
+    assert quickstart("shop", "notes")[4].startswith("uv run sandloom add module tasks")
     assert quickstart("shop", path="/w/shop")[0] == "cd /w/shop"
 
 
@@ -200,6 +203,32 @@ def test_sandloom_new_writes_the_generated_files(tmp_path: Path) -> None:
     assert (module / "module.snapshot.json").is_file()
     assert (module / "routes.snapshot.json").is_file()
     assert list((root / "fresh" / "shared" / "events").glob("example.*.json"))
+
+
+@pytest.mark.parametrize(
+    "batteries",
+    [["identity"], ["tenancy"], ["billing"], ["identity", "tenancy", "billing"]],
+)
+def test_missing_batteries_defer_generation_without_a_failed_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, batteries: list[str]
+) -> None:
+    generate_project(
+        "fresh", tmp_path, with_batteries=batteries, framework_source="pypi"
+    )
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    def unexpected_boot(root: Path) -> tuple[int, str]:
+        pytest.fail(
+            "the bare CLI must not try booting an app with missing dependencies"
+        )
+
+    monkeypatch.setattr(project_cli._add, "run_generate", unexpected_boot)
+    problem = write_generated_files(tmp_path / "fresh")
+    assert problem is not None
+    assert "uv sync" in problem
+    assert "ModuleLoadError" not in problem
+    for name in batteries:
+        assert f"sandloom-{name}" in problem
 
 
 @pytest.mark.slow

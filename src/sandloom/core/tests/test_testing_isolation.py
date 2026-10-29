@@ -22,6 +22,8 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from sandloom.core.testing import isolation
 
 _ENV_TEST = (
@@ -65,6 +67,7 @@ def _run_project(root: Path, files: dict[str, str]) -> subprocess.CompletedProce
     )
 
 
+@pytest.mark.subprocess_probe
 def test_step_1_a_test_builds_its_own_app(tmp_path: Path) -> None:
     """``create_app`` in a test really rebinds the process (what used to leak),
     and the harness hands the next test its runtime back."""
@@ -100,6 +103,7 @@ def test_step_1_a_test_builds_its_own_app(tmp_path: Path) -> None:
     assert "2 passed" in proc.stdout
 
 
+@pytest.mark.subprocess_probe
 def test_step_2_the_next_test_gets_the_previous_runtime_back(tmp_path: Path) -> None:
     """Every module starts from the harness app's runtime: alone, first, or
     after a module whose own module-scoped app was bound."""
@@ -142,6 +146,7 @@ def test_step_2_the_next_test_gets_the_previous_runtime_back(tmp_path: Path) -> 
     assert "3 passed" in proc.stdout
 
 
+@pytest.mark.subprocess_probe
 def test_a_registered_channel_is_gone_after_the_test(tmp_path: Path) -> None:
     """A probe channel one test registers on the harness app's schema
     registry is not there for the next test."""

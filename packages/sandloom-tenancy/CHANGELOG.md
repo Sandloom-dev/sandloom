@@ -7,6 +7,10 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- Create the `citext` extension in tenancy's initial migration so a standalone
+  tenancy installation does not depend on identity's migration chain. Existing
+  databases need no schema change; the extension is retained on downgrade.
+
 ## [0.7.0a2]
 
 - Refresh the package description and project links on PyPI.

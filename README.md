@@ -2,7 +2,7 @@
 
 **Python backend framework for AI-driven development.**
 
-[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a1-d7bd91)](https://pypi.org/project/sandloom/0.7.0a1/)
+[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a2-d7bd91)](https://pypi.org/project/sandloom/0.7.0a2/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -24,7 +24,7 @@ services with the same modules. Add identity, organizations or billing as needed
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
 
-> **Alpha:** `0.7.0a1` is available on PyPI.
+> **Alpha:** `0.7.0a2` is available on PyPI.
 > [Compatibility and stability](docs/contributing/versioning.md).
 
 ## Why Sandloom
@@ -55,9 +55,10 @@ the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->
 ```bash
-uvx --from "sandloom==0.7.0a1" sandloom new myapp --no-batteries --module notes
+uvx --from "sandloom==0.7.0a2" sandloom new myapp --no-batteries --module notes
 cd myapp
 uv sync
+uv run sandloom generate
 docker compose -f deploy/docker-compose.dev.yml up -d --wait
 uv run sandloom migrate upgrade-all --apply
 uv run uvicorn myapp.asgi:app --reload
@@ -68,7 +69,9 @@ Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health);
 with the services healthy, it returns HTTP 200. Generated module routes require
 a bearer token by default. For signup and login, use `--with identity` instead
 of `--no-batteries` when generating the app; add `tenancy` and `billing` when
-needed. See the
+needed. After `uv sync`, run `uv run sandloom generate` to create snapshots,
+contract stubs and DTOs from the installed modules before testing or starting
+the app. See the
 [installation guide](docs/getting-started/installation.md) and
 [application options](docs/getting-started/building-a-product.md).
 
@@ -107,7 +110,7 @@ from myapp.modules.notes.services import create_item
 ```
 <!-- readme:boundary-import:end -->
 
-Run `uv run sandloom check`. Output excerpt from the published `0.7.0a1`:
+Run `uv run sandloom check`. Output excerpt from the published `0.7.0a2`:
 
 <!-- readme:boundary-output:start -->
 ```text

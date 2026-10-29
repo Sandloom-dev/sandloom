@@ -573,13 +573,15 @@ def render_errors() -> str:
         "# Error catalogue",
         "",
         "Every framework diagnostic carries a stable code. A message at the "
-        "failure site is short and ends with `docs: sandloom explain <code>`:",
+        "failure site links directly to its section on the website and gives "
+        "an offline help command:",
         "",
         "```text",
         "error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor public()",
         "  --> notes/api.py:12 (create_note)",
         "  fix: ...",
-        "  docs: sandloom explain SANDLOOM-B008",
+        "  docs: https://sandloom.dev/docs/reference/error-codes/#sandloom-b008",
+        "  help: sandloom explain SANDLOOM-B008",
         "```",
         "",
         "`sandloom explain <code>` (or the slug, e.g. `sandloom explain route-policy`) "

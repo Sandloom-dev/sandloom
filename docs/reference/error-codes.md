@@ -7,13 +7,14 @@ description: Every Sandloom error code — its slug, what happened, the fix and 
 
 # Error catalogue
 
-Every framework diagnostic carries a stable code. A message at the failure site is short and ends with `docs: sandloom explain <code>`:
+Every framework diagnostic carries a stable code. A message at the failure site links directly to its section on the website and gives an offline help command:
 
 ```text
 error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor public()
   --> notes/api.py:12 (create_note)
   fix: ...
-  docs: sandloom explain SANDLOOM-B008
+  docs: https://sandloom.dev/docs/reference/error-codes/#sandloom-b008
+  help: sandloom explain SANDLOOM-B008
 ```
 
 `sandloom explain <code>` (or the slug, e.g. `sandloom explain route-policy`) prints the long form below; `sandloom explain --list` lists every code. Families: `SANDLOOM-C` static `sandloom check` rules, `SANDLOOM-B` startup refusals, `SANDLOOM-R` runtime errors, `SANDLOOM-T` test-harness and snapshot gates. Codes are never reused or renumbered; a retired code stays listed.

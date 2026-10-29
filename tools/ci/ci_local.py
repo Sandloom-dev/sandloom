@@ -109,7 +109,7 @@ TIMEOUT_SCALE_ENV = "SANDLOOM_CI_LOCAL_TIMEOUT_SCALE"
 ACT_IMAGE = "catthehacker/ubuntu:act-latest"  # native arm64 on Apple Silicon
 ACT_CACHE_DIR = Path.home() / ".cache" / "sandloom-ci-local" / "act-cache"
 # act has no usable artifact backend locally: its built-in server binds a
-# fixed port (two at once collide) and actions/upload-artifact@v4 talks to
+# fixed port (two at once collide) and actions/upload-artifact talks to
 # GitHub's results API, which act does not serve (CreateArtifact times out and
 # fails the step). An act job that uses an artifact action therefore runs a
 # private workflow copy (act_workflow_copy) in which every such step is a local
@@ -165,7 +165,7 @@ _WORKFLOW_NAME_RE = re.compile(r"^name:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 
 _ARTIFACT_USES_RE = re.compile(
     r"^(?P<lead>[ \t]*(?:- )?)uses:[ \t]*"
-    r"(?P<action>actions/(?:upload|download)-artifact)@\S+[ \t]*$"
+    r"(?P<action>actions/(?:upload|download)-artifact)@[^\s#]+[ \t]*(?:#.*)?$"
 )
 
 
@@ -422,29 +422,29 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:ci-required": "d83f94095adb9bf2",
+    "ci.yml:ci-required": "7b3550dbf6899f8f",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:docs": "2bfd2034c9234a2a",
-    "ci.yml:workflow-policy": "12711bf70a36c68d",
-    "ci.yml:changes": "940e6ef92a0e06df",
-    "ci.yml:backend-static": "ef236822f379e265",
-    "ci.yml:supply-chain": "ae051a922b6aa224",
-    "ci.yml:backend-tests": "91c8cced7f9871c9",
-    "ci.yml:backend-tests-isolation": "4bc16e55c612bf69",
-    "ci.yml:benchmarks-security": "bc20692c1ac4eb2a",
-    "ci.yml:examples": "836ccb6afd335cf3",
-    "ci.yml:quickstart": "bb3f90bf20a2e68a",
-    "ci.yml:app-split": "eb60965370bda31c",
-    "ci.yml:app-recipes": "8307f37bc87db7e5",
-    "ci.yml:deploy-profiles": "b6d7f2a0b5cd387c",
-    "ci.yml:microservices-smoke": "aca6445fe1ded121",
-    "ci.yml:docker-build": "695935b6b32c454b",
-    "ci.yml:admin-contracts": "23d61838958ed728",
-    "docs.yml:build": "26ee46d8a6ea8e98",
-    "architecture-check.yml:check": "df59ec9b601b14e0",
+    "ci.yml:workflow-policy": "63763ee16e8fd08d",
+    "ci.yml:changes": "975facec0dc74da5",
+    "ci.yml:backend-static": "0a113b038dd0245d",
+    "ci.yml:supply-chain": "e461aa1b6fdeadca",
+    "ci.yml:backend-tests": "a24ea0500fc4bcb1",
+    "ci.yml:backend-tests-isolation": "396af7768a771758",
+    "ci.yml:benchmarks-security": "d8af95a6a0e38048",
+    "ci.yml:examples": "4e398b40e0cebe0c",
+    "ci.yml:quickstart": "0f6563faeb3c2d10",
+    "ci.yml:app-split": "40ce521d833336e8",
+    "ci.yml:app-recipes": "3708a6d3b9426a26",
+    "ci.yml:deploy-profiles": "f0c3c51f23604a21",
+    "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
+    "ci.yml:docker-build": "6d9cbd4057d87e24",
+    "ci.yml:admin-contracts": "52c8b6998210436f",
+    "docs.yml:build": "27a1b2fda90627c1",
+    "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
 
 # `uses:` actions and how they map locally (action name without @version).

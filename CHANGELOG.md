@@ -13,6 +13,29 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Developer experience
+
+- Make tenancy's initial migration install its own `citext` prerequisite on a
+  fresh database, including deployments without identity.
+- Fix the standalone CLI handoff for all standard batteries: defer generation
+  when app dependencies are missing, print a clear installation note, and run
+  generation immediately after `uv sync` in every quickstart. Validate bare,
+  identity, tenancy, billing and combined applications in parallel CI jobs.
+
+- Link framework error diagnostics, warnings and offline explanations to their
+  exact sections at `sandloom.dev/docs/reference/error-codes/`.
+- Update installation instructions, README badges and examples to the current
+  published alpha, `0.7.0a2`.
+
+### CI and publishing
+
+- Use reviewed Node.js 24 Actions, with a single uv cache writer per Python key.
+- Speed up child-server readiness probes and close the conformance matrix at
+  the end of its test module. Avoid repeating child-process-only probes in the
+  serial isolation pass; the full compatibility matrix still runs them.
+- Create GitHub Releases after successful PyPI verification, using the exact
+  reviewed archives, changelog notes, source commit and SHA-256 manifest.
+
 ## [0.7.0a2]
 
 ### Publishing

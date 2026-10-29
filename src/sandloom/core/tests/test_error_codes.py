@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from sandloom.core import error_codes
 from sandloom.core.archcheck.runner import RULES, Violation
+from sandloom.core.cli import check as check_cli
 from sandloom.core.cli import explain
 
 
@@ -90,8 +92,43 @@ def test_render_uses_the_standard_format() -> None:
         "error[SANDLOOM-B002]: route POST /x resolves the guard first",
         "  --> src/x.py:42",
         f"  fix: {error_codes.get('SANDLOOM-B002').fix}",
-        "  docs: sandloom explain SANDLOOM-B002",
+        "  docs: https://sandloom.dev/docs/reference/error-codes/#sandloom-b002",
+        "  help: sandloom explain SANDLOOM-B002",
     ]
+
+
+def test_every_code_has_a_canonical_web_link_and_offline_help() -> None:
+    for entry in error_codes.CATALOGUE:
+        url = f"https://sandloom.dev/docs/reference/error-codes/#{entry.code.lower()}"
+        assert error_codes.documentation_url(entry.slug) == url
+        assert (
+            error_codes.documentation_url(entry.code.removeprefix("SANDLOOM-")) == url
+        )
+        assert url in error_codes.render(entry.code, "probe")
+        assert url in error_codes.fix_line(entry.code)
+        assert f"Docs: {url}" in error_codes.explain_text(entry)
+        assert f"sandloom explain {entry.code}" in error_codes.render(
+            entry.code, "probe"
+        )
+
+
+def test_documentation_url_refuses_unknown_codes() -> None:
+    with pytest.raises(KeyError):
+        error_codes.documentation_url("https://untrusted.example")
+
+
+def test_a_warning_only_check_report_links_to_its_error_page(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rules = SimpleNamespace(
+        root=tmp_path, modules_package="notes", business_modules=lambda: ["notes"]
+    )
+    entry = error_codes.get("C022")
+    note = Violation(entry.slug, tmp_path / "notes.py", "probe", severity="warning")
+    assert check_cli._report(rules, [note], [], boot_requested=False) == 0
+    output = capsys.readouterr().out
+    assert error_codes.documentation_url(entry.code) in output
+    assert f"sandloom explain {entry.code}" in output
 
 
 def test_violation_location_is_clickable(tmp_path: Path) -> None:

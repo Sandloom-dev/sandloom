@@ -205,6 +205,7 @@ addopts = [
     "sandloom.core.testing.shuffle",
 ]
 markers = [
+    "subprocess_probe: the tested runtime is wholly in a child process; covered by the full matrix, not repeated in the parent-process isolation pass",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
