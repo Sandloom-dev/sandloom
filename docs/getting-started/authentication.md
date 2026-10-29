@@ -54,23 +54,25 @@ Start the API and open its interactive API documentation at
 
 1. Execute **POST `/auth/register`** with a new address:
 
-   ```json
-   {"email": "alice@example.com", "full_name": "Alice", "password": "Example-Passw0rd!"}
-   ```
+    ```json
+    {"email": "alice@example.com", "full_name": "Alice", "password": "Example-Passw0rd!"}
+    ```
 
-   The response is `202`; registration deliberately returns the same response
-   for an existing address. Login before verification returns `403`.
+    The response is `202`; registration deliberately returns the same response
+    for an existing address. Login before verification returns `403`.
+
 2. Open the message in the local inbox. Copy the value after `token=` from its
-   verification URL.
+    verification URL.
+
 3. Execute **POST `/auth/verify-email`**:
 
-   ```json
-   {"token": "paste-the-verification-token-here"}
-   ```
+    ```json
+    {"token": "paste-the-verification-token-here"}
+    ```
 
-   Success is `204`. Sandloom provides the verification API; the URL in the
-   email points to your frontend's verification page. A backend-only application
-   can use this API request directly without implementing that page yet.
+    Success is `204`. Sandloom provides the verification API; the URL in the
+    email points to your frontend's verification page. A backend-only application
+    can use this API request directly without implementing that page yet.
 
 If registration happened before SMTP was configured, execute
 **POST `/auth/resend-verification`** with `{"email": "alice@example.com"}` after
