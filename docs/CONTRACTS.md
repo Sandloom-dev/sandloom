@@ -7,9 +7,11 @@ legacy `sandloom.core` or `sandloom.shared.authz` imports.
 ## Sync service contracts
 
 A provider declares a stateless async `@contract` class with wire-portable
-arguments and results. Consumers use `Contract(REF)` through generated stubs;
-DTOs live in the shared schema package. Provider runtime owns the unit and
-transaction. See [contracts](concepts/contracts.md) and the
+arguments and results. Consumers use `Contract(REF)` through generated stubs.
+Providers author DTOs in their own `schemas` module; `sandloom generate`
+writes wire-shape copies beside the consumer stubs in the shared contracts
+package. Provider runtime owns the unit and transaction. See
+[contracts](concepts/contracts.md) and the
 [SDK reference](reference/sdk/contracts.md).
 
 ## 5. Overwrite & Evolution (Current Rules)

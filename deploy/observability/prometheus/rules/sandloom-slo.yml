@@ -204,7 +204,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: API reads burn the 99.9 % availability budget 14x too fast"
           description: "5xx ratio over 1h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~2 days."
-          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/reference/slo.md#burn-rate-alerts
       - alert: SandloomApiReadAvailabilityBurnSlow
         expr: >-
           sandloom:sli_read_errors:ratio_rate6h > (6 * 0.001)
@@ -215,7 +215,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: API reads burn the 99.9 % availability budget 6x too fast"
           description: "5xx ratio over 6h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~5 days."
-          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/reference/slo.md#burn-rate-alerts
       - alert: SandloomApiWriteAvailabilityBurnFast
         expr: >-
           sandloom:sli_write_errors:ratio_rate1h > (14.4 * 0.001)
@@ -226,7 +226,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: API writes burn the 99.9 % availability budget 14x too fast"
           description: "5xx ratio over 1h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~2 days."
-          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/reference/slo.md#burn-rate-alerts
       - alert: SandloomApiWriteAvailabilityBurnSlow
         expr: >-
           sandloom:sli_write_errors:ratio_rate6h > (6 * 0.001)
@@ -237,4 +237,4 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: API writes burn the 99.9 % availability budget 6x too fast"
           description: "5xx ratio over 6h: {{ $value | humanizePercentage }}. At this rate the 30-day budget is gone in ~5 days."
-          runbook_url: https://github.com/Maryarty/auto_job_applyer/blob/main/docs/reference/slo.md#burn-rate-alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/reference/slo.md#burn-rate-alerts
