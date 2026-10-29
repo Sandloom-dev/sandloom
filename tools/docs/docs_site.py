@@ -29,7 +29,8 @@ REPO = Path(__file__).resolve().parents[2]
 SITE = REPO / "build/site"
 SITE_DESCRIPTION = (
     "Python backend framework for AI-driven development. Enforced module boundaries, "
-    "pluggable infrastructure and monolith-to-services deployment."
+    "pluggable infrastructure, and monolith-to-services deployment without rewriting "
+    "business modules."
 )
 
 
