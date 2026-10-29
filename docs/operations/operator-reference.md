@@ -1,3 +1,8 @@
+---
+title: Operator command reference
+description: Authentication, keys, incidents, backups, migrations, streams and operational command flags with dry-run and production safeguards.
+---
+
 # Sandloom — Operations & Production Runbook
 
 Operational guidance for running Sandloom in production. Pairs with `AGENTS.md`

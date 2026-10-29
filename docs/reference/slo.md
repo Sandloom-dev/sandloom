@@ -164,3 +164,8 @@ Agree on it before the budget runs out; adapt the thresholds.
 Record for each SLO: the owner, the target and window, the dashboard link,
 the alerts that protect it, and the date it was last reviewed (quarterly, or
 after any capacity change).
+
+## Related reading
+
+- [Operations runbook](../operations/runbook.md)
+- [Security model](security-model.md)

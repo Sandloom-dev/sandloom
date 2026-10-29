@@ -110,3 +110,8 @@ deprecation period of Decision 2 is dropped:
   setting is *semantic* or *ops*. The RPC auth settings kept semantic above
   are removed too (`RPC_AUTH_MODE`, `RPC_RESPONSE_BINDING`; ADR-0004
   amendment). The semantic tier holds 16 settings; the ratchet ceiling is 16.
+
+## Related reading
+
+- [Configuration tiers](../reference/configuration-tiers.md)
+- [Security model](../reference/security-model.md)

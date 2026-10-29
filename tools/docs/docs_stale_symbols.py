@@ -35,7 +35,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 # (name, regex, replacement). Word boundaries treat "_" as a word character,
 # so contract_session never matches contract_session_bound and

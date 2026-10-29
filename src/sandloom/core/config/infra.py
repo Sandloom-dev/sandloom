@@ -16,5 +16,10 @@ class InfraConfig(BaseModel):
     # When empty, one "default" instance per capability is synthesized from the
     # flat settings below. See sandloom.core.infra.config.
     infra: dict[str, dict[str, dict[str, object]]] = Field(
-        default_factory=dict, alias="INFRA"
+        default_factory=dict,
+        alias="INFRA",
+        description=(
+            "JSON map of capabilities to named driver instances and options; "
+            "merges with default instances synthesized from flat settings."
+        ),
     )

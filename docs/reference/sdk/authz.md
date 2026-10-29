@@ -1653,3 +1653,8 @@ def describe(self) -> str
 ```
 
 Human-readable label used in 403 detail messages.
+
+## Examples and related guides
+
+- [Authorization policies](../../concepts/authorization.md)
+- [Python API overview](index.md)

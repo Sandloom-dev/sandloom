@@ -570,3 +570,8 @@ migration path above is removed and the target state is the only state:
   unkeyed error answer — the provider could not authenticate the request —
   surfaces at the caller as `503 RemoteServiceUnavailable` carrying the
   provider's error code.
+
+## Related reading
+
+- [Service RPC guide](../guides/service-rpc.md)
+- [Security model](../reference/security-model.md)

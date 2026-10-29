@@ -1,8 +1,8 @@
 ---
-title: Building a Product
+title: Building a product
 ---
 
-# Building a Product on Sandloom
+# Building a product on Sandloom
 
 You build a product **on top of** the framework rather than forking it. The
 framework ships as the `sandloom` distribution and the standard modules as their
@@ -16,7 +16,7 @@ in its own namespace.
 | --- | --- |
 | `sandloom.sdk` — the public API your modules and tests import | your own namespace, e.g. `myapp/` |
 | `sandloom.core` — the kernel behind it: UoW, event bus + outbox, infra plugin layer, contracts, CLIs (never imported by modules) | `myapp/modules/*` — your business modules |
-| `sandloom.shared` — framework DTOs (`UserContext`, `UserContact`, `MemberState`), guards, authz | `myapp/shared/` — your generated contract stubs, event schemas and DTOs |
+| `sandloom.shared` — generated standard-module contract stubs and DTO copies; authentication and authorization are exposed through `sandloom.sdk` | `myapp/shared/` — your generated contract stubs, event schemas and DTOs |
 | `sandloom_identity`, `sandloom_tenancy`, `sandloom_billing` — opt-in module packages (`sandloom-identity`, ...) | `myapp/asgi.py` — `create_app()` from `sandloom.sdk.app` |
 | `sandloom.main` — composes every installed module package | `.env`, `deploy/`, tests, CI + pre-commit (`sandloom check`) |
 
@@ -28,39 +28,14 @@ and never inside `sandloom.*`. The generated `asgi.py` loads every module of
 package: they call it through the contract stubs `sandloom generate` writes in
 `myapp/shared/`.
 
-## Build distribution artifacts
-
-For normal local app development, the [quickstart](index.md#quickstart) uses
-editable packages from the checkout; no manual wheel build is needed. The root
-`sandloom-dev` project is a contributor environment, not a release package.
-To build one distribution from the repository root:
-
-```bash
-uv build --wheel packages/sandloom
-```
-
-Build the module packages you use (`packages/sandloom-identity`, ...) too
-before installing wheels in a clean environment. See the
-[package layout and full validation](https://github.com/Sandloom-dev/sandloom/tree/main/packages).
-The initial alpha is also available from PyPI:
-`pip install "sandloom[standard]==0.7.0a2"`.
-
-The `sandloom` wheel ships `sandloom.core` (including the core migration
-chain, packaged as `sandloom/core/migrations/core_chain`), `sandloom.sdk`,
-`sandloom.shared` and `sandloom.main`; the standard modules ship as their own
-wheels with their own chains and a `sandloom.modules` entry point (see
-[Publishing](../guides/publishing.md)). The framework provides the `sandloom` console script (`sandloom new`, `sandloom add`,
-`sandloom migrate`, `sandloom test`, `sandloom check` and the operations commands; see the
-[CLI reference](../reference/cli.md)).
-
 ## `sandloom new` — start a project
 
 `sandloom new <app>` is the `django-admin startproject` of Sandloom — it generates a
-runnable, testable standalone project. Run these from the framework checkout root:
+runnable, testable standalone project. From an empty directory, use the published alpha:
 
 ```bash
-uv run sandloom new helpdesk --with identity,tenancy,billing --module tickets --framework-source path --framework-path .
-uv run sandloom new linkly --no-batteries --module links --framework-source path --framework-path .
+uvx --from "sandloom[standard]==0.7.0a2" sandloom new helpdesk --with identity,tenancy,billing --module tickets
+uvx --from "sandloom==0.7.0a2" sandloom new linkly --no-batteries --module links
 ```
 
 | Flag | Meaning |
@@ -75,9 +50,11 @@ The generated tree boots immediately: `sandloom new` prints the next steps, the
 [quickstart](index.md#quickstart) (`uv sync`, `uv run sandloom generate`, the dev services,
 `uv run sandloom add module <name>`, `uv run sandloom test`, the migrations,
 `uv run uvicorn <app>.asgi:app --reload`), and the generated `README.md`
-repeats them. It also runs `sandloom generate` (module and route snapshots,
-event schemas), so a fresh app passes its own CI gate, `sandloom test --ci`,
-which only checks them.
+repeats them. After dependencies are installed, `uv run sandloom generate`
+writes module/route snapshots, stubs, DTO copies and event schemas. A standalone
+CLI may defer that work until the selected batteries are installed. The app's
+own CI gate, `sandloom test --ci`, only checks those files. For email verification
+and tokens, follow [authentication and email](authentication.md).
 
 The generated project also carries a `Dockerfile`, a monolith compose profile
 (`deploy/docker-compose.yml`: migrate, app, Celery worker and beat via
@@ -108,9 +85,9 @@ is a separate offline extraction step. See [Deployment](../guides/deployment.md)
 ## Add more modules
 
 ```bash
-sandloom add module notifications                       # helpdesk/modules/notifications
-sandloom add event notifications <event>                # more generators: sandloom add --help
-sandloom test notifications
+uv run sandloom add module notifications
+uv run sandloom add event notifications NotificationQueued --field message:str
+uv run sandloom test notifications
 ```
 
 Nothing else to edit: the module is discovered. Generated modules use
@@ -128,9 +105,22 @@ boots the composition root named by `SANDLOOM_COMPOSITION_ROOT` — default
 to `<app>.asgi`):
 
 ```bash
-export DATABASE_URL=postgresql+asyncpg://...
 uv run sandloom migrate upgrade-all --apply
 ```
 
 See [Migrations & Upgrades](../guides/migrations.md) for the full per-module,
 per-database model.
+
+## Develop against framework source
+
+Application development normally uses published distributions. Contributors
+can consume a local checkout with
+`--framework-source path --framework-path <repository-root>`; these are editable
+uv sources, so the app runs the current checkout. The root `sandloom-dev` project
+is a contributor environment and is not a release package.
+
+To build wheels yourself, use `uv build --wheel packages/sandloom` and build
+the selected `packages/sandloom-*` distributions too. The kernel wheel ships
+its core migration chain; each battery owns its package and migration chain.
+See [package layout](https://github.com/Sandloom-dev/sandloom/tree/main/packages)
+and [publishing](../guides/publishing.md).

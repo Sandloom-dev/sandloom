@@ -44,7 +44,9 @@ GENERATED = (
     "Regenerate: uv run python tools/docs/docs_reference.py -->"
 )
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
-_REF_BLOCK = re.compile(r"\.\. sandloom-reference.*?\.\. end sandloom-reference\n?", re.S)
+_REF_BLOCK = re.compile(
+    r"\.\. sandloom-reference.*?\.\. end sandloom-reference\n?", re.S
+)
 _SECTION = re.compile(
     r"^(Args|Arguments|Parameters|Returns|Return|Yields|Raises|Attributes|"
     r"Example|Examples|Note|Notes|Guarantees|Warning|Warnings):\s*$"
@@ -52,7 +54,6 @@ _SECTION = re.compile(
 _LIST_SECTIONS = {"Args", "Arguments", "Parameters", "Raises", "Attributes"}
 _CODE_SECTIONS = {"Example", "Examples"}
 _WIDTH = 88
-
 
 
 # --------------------------------------------------------------------------- #
@@ -109,7 +110,9 @@ def _docstring_markdown(doc: str) -> str:
                 for item in items:
                     head, sep, rest = item.partition(":")
                     if sep and " " not in head.split("(")[0].strip():
-                        out.append(f"- `{head.strip()}`: {_escape_inline(rest.strip())}")
+                        out.append(
+                            f"- `{head.strip()}`: {_escape_inline(rest.strip())}"
+                        )
                     else:
                         out.append(f"- {_escape_inline(item)}")
             else:
@@ -180,7 +183,8 @@ def _signature(obj: Any) -> str | None:
     except (TypeError, ValueError):
         return None
     params = [
-        p.replace(annotation=_annotation_text(p.annotation)) for p in sig.parameters.values()
+        p.replace(annotation=_annotation_text(p.annotation))
+        for p in sig.parameters.values()
     ]
     sig = sig.replace(
         parameters=params, return_annotation=_annotation_text(sig.return_annotation)
@@ -225,8 +229,12 @@ def _matching_paren(sig: str) -> int:
 
 
 def _is_fixture(obj: Any) -> bool:
-    return type(obj).__name__ in {"FixtureFunctionDefinition", "FixtureFunctionMarker"} or (
-        hasattr(obj, "_pytestfixturefunction") or hasattr(obj, "_fixture_function_marker")
+    return type(obj).__name__ in {
+        "FixtureFunctionDefinition",
+        "FixtureFunctionMarker",
+    } or (
+        hasattr(obj, "_pytestfixturefunction")
+        or hasattr(obj, "_fixture_function_marker")
     )
 
 
@@ -250,7 +258,9 @@ def _kind(obj: Any) -> str:
         return "function"
     if type(obj).__name__ in {"_AnnotatedAlias", "Annotated"}:
         return "annotated type"
-    if callable(obj) and not isinstance(obj, (str, bytes, int, float, tuple, dict, list)):
+    if callable(obj) and not isinstance(
+        obj, (str, bytes, int, float, tuple, dict, list)
+    ):
         return "callable"
     return "constant"
 
@@ -262,7 +272,9 @@ def _definition(name: str, obj: Any) -> str:
     if kind == "annotated type":
         return f"{name} = {_strip_address(repr(obj)).replace('typing.', '')}"
     if kind == "constant":
-        if not isinstance(obj, (str, int, float, bool, tuple, frozenset, list, dict, type(None))):
+        if not isinstance(
+            obj, (str, int, float, bool, tuple, frozenset, list, dict, type(None))
+        ):
             # Never repr an arbitrary object: a lazy proxy (``settings``) would
             # validate the environment, and a repr is not an API.
             return f"{name}: {type(obj).__name__}"
@@ -312,7 +324,9 @@ def _methods(obj: Any) -> list[tuple[str, str, str]]:
             prefix = "@staticmethod\n" + prefix
         elif isinstance(value, classmethod):
             prefix = "@classmethod\n" + prefix
-        found.append((attr, _wrap_signature(f"{prefix}{attr}", sig), inspect.getdoc(func) or ""))
+        found.append(
+            (attr, _wrap_signature(f"{prefix}{attr}", sig), inspect.getdoc(func) or "")
+        )
     return found
 
 
@@ -334,7 +348,9 @@ def _summary(obj: Any) -> str:
 
 
 def _public_modules() -> list[ModuleType]:
-    from sandloom.sdk._prim.docs import public_modules  # the one list `sandloom docs` uses
+    from sandloom.sdk._prim.docs import (
+        public_modules,
+    )  # the one list `sandloom docs` uses
 
     return public_modules()
 
@@ -375,7 +391,9 @@ def _home_of(name: str, modules: list[ModuleType]) -> ModuleType | None:
     """The themed module that exports ``name`` (not the root), preferring the
     one whose beginner tier holds it."""
     for module in modules:
-        if module.__name__ != "sandloom.sdk" and name in getattr(module, "__beginner__", ()):
+        if module.__name__ != "sandloom.sdk" and name in getattr(
+            module, "__beginner__", ()
+        ):
             return module
     for module in modules:
         if module.__name__ != "sandloom.sdk" and name in getattr(module, "__all__", ()):
@@ -418,7 +436,8 @@ def render_module(module: ModuleType) -> str:
     out = [
         "---",
         f"title: {module.__name__}",
-        "description: " + json.dumps(
+        "description: "
+        + json.dumps(
             f"Reference of {module.__name__}: every public name with its "
             "signature, beginner names first."
         ),
@@ -448,6 +467,39 @@ def render_module(module: ModuleType) -> str:
         out += ["## Advanced names", ""]
         for name in advanced:
             out += _entry(name, getattr(module, name))
+    guides = {
+        "app": ("Application quickstart", "getting-started/index.md"),
+        "module": ("Add a module", "guides/add-module.md"),
+        "web": ("Route policy", "concepts/route-policy.md"),
+        "data": ("Units and transactions", "concepts/units.md"),
+        "tenant": ("Tenant isolation", "concepts/multi-tenancy.md"),
+        "events": ("Publish and consume events", "guides/add-event.md"),
+        "effects": ("Deduplicate effects", "guides/effect-deduplication.md"),
+        "tasks": ("Background tasks", "concepts/background-tasks.md"),
+        "contracts": ("Provide and call a contract", "guides/add-contract.md"),
+        "authz": ("Authorization policies", "concepts/authorization.md"),
+        "sagas": ("Add a saga", "guides/add-saga.md"),
+        "projections": ("Build a projection", "guides/add-projection.md"),
+        "infra": (
+            "Infrastructure capabilities",
+            "concepts/capabilities-and-infrastructure.md",
+        ),
+        "security": ("Revoke sessions", "guides/session-revocation.md"),
+        "errors": ("Error catalogue", "reference/error-codes.md"),
+        "migrations": ("Run migrations", "guides/migrations.md"),
+        "tooling": ("Generate contracts and snapshots", "guides/generate.md"),
+    }
+    key = module.__name__.removeprefix("sandloom.sdk.")
+    if key.startswith("testing"):
+        example = ("Testing examples and fixtures", "reference/testing.md")
+    else:
+        example = guides.get(key, ("How-to guides", "guides/index.md"))
+    out += ["## Examples and related guides", ""]
+    for label, target in [example, ("Python API overview", "reference/sdk/index.md")]:
+        link = Path(
+            _relpath(DOCS / target, _page_path(module.__name__).parent)
+        ).as_posix()
+        out.append(f"- [{label}]({link})")
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -488,7 +540,9 @@ def render_index(modules: list[ModuleType]) -> str:
         where = f"`{home.__name__}`" if home else "`sandloom.sdk`"
         out.append(f"| {link} | {where} | {_kind(obj)} | {_summary(obj)} |")
     testing = next((m for m in modules if m.__name__ == "sandloom.sdk.testing"), None)
-    plugin = next((m for m in modules if m.__name__ == "sandloom.sdk.testing.plugin"), None)
+    plugin = next(
+        (m for m in modules if m.__name__ == "sandloom.sdk.testing.plugin"), None
+    )
     for mod in (testing, plugin):
         if mod is None:
             continue
@@ -623,6 +677,12 @@ def render_errors() -> str:
             ]
             if e.docs:
                 out += [f"**More:** `{e.docs}`", ""]
+    out += [
+        "## Related reading", "",
+        "- [CLI reference](cli.md)",
+        "- [Getting help](../getting-started/help.md)",
+        "",
+    ]
     return "\n".join(out).rstrip() + "\n"
 
 

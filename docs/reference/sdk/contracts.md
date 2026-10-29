@@ -780,3 +780,8 @@ The proxy of contract `name` (spec §2.3, §5.3).
 `optional=True` returns `None` only when the provider is neither local
 nor bound in this deployment; a deployed provider that is down still
 raises when called.
+
+## Examples and related guides
+
+- [Provide and call a contract](../../guides/add-contract.md)
+- [Python API overview](index.md)

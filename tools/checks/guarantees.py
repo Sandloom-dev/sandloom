@@ -562,7 +562,13 @@ def render(ledger: Ledger | None = None) -> str:
     lines += ["| Id | Source |", "| --- | --- |"]
     for entry in entries:
         lines.append(f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |")
-    return "\n".join(lines) + "\n"
+    lines += [
+        "", "## Related reading", "",
+        "- [Guarantee boundaries](../concepts/guarantees.md)",
+        "- [Error catalogue](error-codes.md)",
+        "",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _short(nodeid: str) -> str:

@@ -84,7 +84,7 @@ answer `422` on both local and RPC paths.
 from sandloom.sdk.contracts import service
 
 credits = service("billing.credits.v1")
-balance = await credits.spend("user", user.id, 10, f"report:{report_id}", reason="report export")
+balance = await credits.spend("user", user.user_id, 10, f"report:{report_id}", reason="report export")
 ```
 
 Billing **consumes** `tenancy.membership.v1` (via `services/tenant_resolver.py`

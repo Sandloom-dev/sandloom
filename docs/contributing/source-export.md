@@ -53,3 +53,8 @@ After an export, install and validate in the fresh checkout before distributing
 the snapshot. Source selection checks do not establish that its tests or builds pass.
 The generated `SOURCE_EXPORT.json` receipt is explicitly excluded from later
 source selections, so a prepared snapshot can check its own policy.
+
+## Related reading
+
+- [Repository map](repository.md)
+- [Contributor workflow](index.md)

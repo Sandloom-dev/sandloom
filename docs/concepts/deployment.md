@@ -85,7 +85,7 @@ repository. The steps are in the [deployment guide](../guides/deployment.md).
   in the shared environment anchor and is identical in every process.
 - **One cache.** `CACHE_URL` is shared by all services: revocation state,
   rate limits, idempotency records and the bus live there.
-- **Probes.** Peers never feed `/health` (liveness); a down peer fails
+- **Probes.** Peers never feed `/health` (operational health); a down peer fails
   `/ready` only for a binding marked `"required": true`, probed concurrently
   with a cap. `/health` and `/ready` answer 503 when degraded (the
   Kubernetes probe contract).

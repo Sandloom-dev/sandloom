@@ -99,3 +99,8 @@ def unscoped() -> Iterator[None]
 ```
 
 Disable tenant enforcement for deliberate admin/system work.
+
+## Examples and related guides
+
+- [Tenant isolation](../../concepts/multi-tenancy.md)
+- [Python API overview](index.md)

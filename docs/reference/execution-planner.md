@@ -136,3 +136,8 @@ the reproducible fixtures are in
 Historical result reports remain in the original private repository and are
 not bundled as public release evidence. Run the fixtures against the release
 revision before making throughput claims.
+
+## Related reading
+
+- [Data SDK](sdk/data.md)
+- [Transaction units](../concepts/units.md)

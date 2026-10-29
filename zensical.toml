@@ -2,7 +2,7 @@
 # docs_site.py keeps local preview metadata on loopback unless --site-url is supplied.
 [project]
 site_name = "Sandloom"
-site_description = "Build SaaS with AI in isolated Python modules. Sandloom supplies identity, tenancy, billing and transaction mechanisms, from monolith to services."
+site_description = "Python backend framework for AI-driven development. Enforced module boundaries, pluggable infrastructure, and monolith-to-services deployment without rewriting business modules."
 site_author = "Vasyl Cherniavskyi"
 repo_url = "https://github.com/Sandloom-dev/sandloom"
 repo_name = "Sandloom-dev/sandloom"
@@ -72,7 +72,7 @@ code = "Hack Nerd Font Mono"
 [project.plugins.section-index]
 
 [project.plugins.llmstxt]
-markdown_description = "Sandloom is a modular Python framework for SaaS. Public API: `sandloom.sdk`. Start with Learn; Project decisions and contributor guidance are optional context."
+markdown_description = "Sandloom is a Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure. Public API: `sandloom.sdk`. Start with Learn; contributor guidance is optional context."
 full_output = "llms-full.txt"
 
 [project.plugins.llmstxt.sections]
@@ -84,9 +84,16 @@ Learn = [
     "getting-started/tutorial.md",
     "getting-started/installation.md",
     "getting-started/building-a-product.md",
+    "getting-started/authentication.md",
+    "getting-started/is-sandloom-for-me.md",
+    "getting-started/help.md",
 ]
 Build = [
     "guides/index.md",
+    "guides/generate.md",
+    "guides/effect-deduplication.md",
+    "guides/session-revocation.md",
+    "guides/upgrading.md",
     "guides/add-module.md",
     "guides/write-migration.md",
     "guides/migrations.md",
@@ -108,6 +115,7 @@ Build = [
     "guides/admin.md",
     "operations/index.md",
     "operations/runbook.md",
+    "operations/operator-reference.md",
     "guides/upgrading-1.0.md",
 ]
 Reference = [
@@ -173,6 +181,7 @@ Concepts = [
 ]
 Optional = [
     "contributing/index.md",
+    "contributing/website.md",
     "contributing/repository.md",
     "contributing/source-export.md",
     "contributing/versioning.md",
@@ -241,44 +250,52 @@ Overview = "index.md"
 [[project.nav]]
 Learn = [
     "getting-started/index.md",
-    { "Tutorial: Your First Feature" = "getting-started/tutorial.md" },
+    { "Tutorial: your first feature" = "getting-started/tutorial.md" },
     { Installation = "getting-started/installation.md" },
-    { "Building a Product" = "getting-started/building-a-product.md" },
+    { "Building a product" = "getting-started/building-a-product.md" },
+    { "Authentication and email" = "getting-started/authentication.md" },
+    { "Is Sandloom for me?" = "getting-started/is-sandloom-for-me.md" },
+    { "Getting help" = "getting-started/help.md" },
 ]
 
 [[project.nav]]
 Build = [
     "guides/index.md",
+    { "Generate contracts and snapshots" = "guides/generate.md" },
     { "Modules and data" = [
-    { "Add a Module" = "guides/add-module.md" },
-    { "Write a Migration" = "guides/write-migration.md" },
-    { "Run Migrations" = "guides/migrations.md" },
+    { "Add a module" = "guides/add-module.md" },
+    { "Write a migration" = "guides/write-migration.md" },
+    { "Run migrations" = "guides/migrations.md" },
 ] },
     { "Events and contracts" = [
-    { "Add an Event" = "guides/add-event.md" },
-    { "Consume an Event" = "guides/add-consumer.md" },
-    { "Change an Event Payload (v1 → v2)" = "guides/event-versioning.md" },
-    { "Provide and Call a Contract" = "guides/add-contract.md" },
-    { "Add a Saga" = "guides/add-saga.md" },
-    { "Build a Projection" = "guides/add-projection.md" },
+    { "Add an event" = "guides/add-event.md" },
+    { "Consume an event" = "guides/add-consumer.md" },
+    { "Change an event payload (v1 → v2)" = "guides/event-versioning.md" },
+    { "Provide and call a contract" = "guides/add-contract.md" },
+    { "Add a saga" = "guides/add-saga.md" },
+    { "Build a projection" = "guides/add-projection.md" },
 ] },
     { HTTP = [
-    { "Make a Write Idempotent" = "guides/idempotent-write.md" },
+    { "Make a write idempotent" = "guides/idempotent-write.md" },
+    { "Deduplicate effects" = "guides/effect-deduplication.md" },
+    { "Revoke sessions" = "guides/session-revocation.md" },
 ] },
-    { "Testing Modules" = "guides/testing.md" },
+    { "Testing modules" = "guides/testing.md" },
     { Deployment = "guides/deployment.md" },
-    { "Split an App into Services" = "guides/split-into-services.md" },
+    { "Split an app into services" = "guides/split-into-services.md" },
     { "Service RPC" = "guides/service-rpc.md" },
-    { "SSO Setup" = "guides/sso-setup.md" },
-    { "Loader Configuration" = "guides/loader-configuration.md" },
-    { "Publishing Packages" = "guides/publishing.md" },
-    { "Admin UI — Operator Guide" = "guides/admin-operations.md" },
-    { "Admin UI — Developer Guide" = "guides/admin.md" },
+    { "SSO setup" = "guides/sso-setup.md" },
+    { "Loader configuration" = "guides/loader-configuration.md" },
+    { "Publishing packages" = "guides/publishing.md" },
+    { "Admin UI — operator guide" = "guides/admin-operations.md" },
+    { "Admin UI — developer guide" = "guides/admin.md" },
     { Operations = [
     "operations/index.md",
     { Runbook = "operations/runbook.md" },
+    { "Operator command reference" = "operations/operator-reference.md" },
 ] },
     { Upgrading = [
+    { "Upgrade an application" = "guides/upgrading.md" },
     { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
 ] },
 ]
@@ -309,19 +326,19 @@ Reference = [
     { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
     { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
 ] },
-    { "Error Catalogue" = "reference/error-codes.md" },
+    { "Error catalogue" = "reference/error-codes.md" },
     { "Testing (copy-paste)" = "reference/testing.md" },
     { CLI = "reference/cli.md" },
     { Configuration = "reference/configuration.md" },
-    { "Configuration Tiers" = "reference/configuration-tiers.md" },
+    { "Configuration tiers" = "reference/configuration-tiers.md" },
     { Routes = "reference/routes.md" },
-    { "Event Contracts" = "reference/event-contracts.md" },
-    { "Security Model" = "reference/security-model.md" },
-    { "Guarantees & Capabilities" = "reference/guarantees.md" },
-    { "Execution Planner" = "reference/execution-planner.md" },
+    { "Event contracts" = "reference/event-contracts.md" },
+    { "Security model" = "reference/security-model.md" },
+    { "Guarantees and capabilities" = "reference/guarantees.md" },
+    { "Execution planner" = "reference/execution-planner.md" },
     { SLOs = "reference/slo.md" },
-    { "Dependency Stack" = "reference/dependencies.md" },
-    { "Bundled Modules" = [
+    { "Dependency stack" = "reference/dependencies.md" },
+    { "Bundled modules" = [
     "modules/index.md",
     { Identity = "modules/identity.md" },
     { Tenancy = "modules/tenancy.md" },
@@ -333,36 +350,37 @@ Reference = [
 [[project.nav]]
 Concepts = [
     "concepts/index.md",
-    { "Modules, Levels and Discovery" = "concepts/modules.md" },
-    { "Units of Work and db()" = "concepts/units.md" },
-    { "Route Policy and Sessions" = "concepts/route-policy.md" },
+    { "Modules, levels and discovery" = "concepts/modules.md" },
+    { "Units of work and db()" = "concepts/units.md" },
+    { "Route policy and sessions" = "concepts/route-policy.md" },
     { Events = "concepts/events.md" },
     { Contracts = "concepts/contracts.md" },
-    { "Write Admission" = "concepts/write-admission.md" },
-    { "Transaction and Replay Lifecycle" = "concepts/lifecycle.md" },
-    { "Guarantees and Labels" = "concepts/guarantees.md" },
+    { "Write admission" = "concepts/write-admission.md" },
+    { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
+    { "Guarantees and labels" = "concepts/guarantees.md" },
     { Multi-Tenancy = "concepts/multi-tenancy.md" },
-    { "Authorization and Billing Subjects" = "concepts/authorization.md" },
+    { "Authorization and billing subjects" = "concepts/authorization.md" },
     { Projections = "concepts/projections.md" },
     { Audit = "concepts/audit.md" },
     { Sagas = "concepts/sagas.md" },
-    { "Background Tasks" = "concepts/background-tasks.md" },
-    { "Capabilities & Infrastructure" = "concepts/capabilities-and-infrastructure.md" },
-    { "Migrations Model" = "concepts/migrations.md" },
-    { "Deployment Topologies" = "concepts/deployment.md" },
+    { "Background tasks" = "concepts/background-tasks.md" },
+    { "Capabilities and infrastructure" = "concepts/capabilities-and-infrastructure.md" },
+    { "Migrations model" = "concepts/migrations.md" },
+    { "Deployment topologies" = "concepts/deployment.md" },
 ]
 
 [[project.nav]]
 Project = [
     "contributing/index.md",
-    { "Repository Map & Agent Tooling" = "contributing/repository.md" },
+    { "Repository map and agent tooling" = "contributing/repository.md" },
     { "Source snapshot policy" = "contributing/source-export.md" },
     { "Branches and owner review" = "contributing/branches.md" },
-    { "Versioning Policy" = "contributing/versioning.md" },
-    { "CI Profiles and Minute Budget" = "contributing/ci.md" },
-    { "Local CI Runner" = "contributing/local-ci.md" },
+    { "Website publishing" = "contributing/website.md" },
+    { "Versioning policy" = "contributing/versioning.md" },
+    { "CI profiles and minute budget" = "contributing/ci.md" },
+    { "Local CI runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },
-    { "Lint Policy" = "contributing/lint-policy.md" },
+    { "Lint policy" = "contributing/lint-policy.md" },
     { "Decisions (ADRs)" = [
     "adr/index.md",
     { "ADR-0001: Framework Distribution" = "adr/0001-framework-distribution.md" },

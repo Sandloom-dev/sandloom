@@ -259,7 +259,8 @@ sandloom-event-version-roll, sandloom-split-deploy. Refresh: `sandloom add skill
 _README = Template(
     """# $app
 
-An application built on the **Sandloom framework** (configurable monolith for SaaS).
+An application built on **Sandloom**, the Python backend framework for
+AI-driven development.
 
 The framework is supplied by the `$framework_distribution` dependencies.
 This project owns only
@@ -280,6 +281,10 @@ $quickstart
 mypy, pytest, pytest-xdist); `pre-commit install` adds the commit hooks. The
 API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 `.env.example` if you delete it), the tests read `.env.test`.
+
+If you selected `--with identity`, follow the
+[authentication and email guide](https://sandloom.dev/docs/getting-started/authentication/)
+to receive verification mail locally and obtain access/refresh tokens.
 
 ### Ports of the dev services
 

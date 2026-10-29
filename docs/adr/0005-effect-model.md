@@ -347,3 +347,8 @@ deterministic and structural, never a pattern lint:
   GET` before and one CAS after the response. That is the price of a
   record that commits with the effect; non-F routes keep the cheaper cache
   form.
+
+## Related reading
+
+- [Deduplicate effects](../guides/effect-deduplication.md)
+- [Transaction units](../concepts/units.md)

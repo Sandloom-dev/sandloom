@@ -4,11 +4,16 @@ title: Identity
 
 # Identity Module (`sandloom_identity`)
 
-Identity is the **required** core module providing authentication and
+Identity is an optional standard module providing authentication and
 authorization: user accounts, password and JWT-based login (access/refresh
 tokens), email verification and password reset, RBAC (roles, permissions, and
 their assignments), two-factor auth (TOTP + backup codes), and SSO / external
 identity linking.
+
+Install it with `sandloom new myapp --with identity`. Once selected, its
+required capabilities and startup checks must pass. For your first working
+registration, verification and login flow, see
+[Get your first access token](../getting-started/authentication.md).
 
 It mints access tokens and contributes role and permission claims into them.
 The claims contributor is registered `critical=True` (exposed as
@@ -207,12 +212,20 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
 
 ## How other modules use identity
 
-Identity registers no business service contract. Other modules consume identity
-only through:
+Identity exposes these service contracts:
+
+| Contract | Purpose |
+| --- | --- |
+| `identity.contact.v1` | `get_contact(user_id)` and `get_contacts(user_ids)` return contact DTOs at send time; unknown users are omitted or return `None`. Batches are capped at 1000 IDs. |
+| `identity.security.v1` | Operator commands for session revocation and forced password resets, with durable command deduplication and required audit records. See the [operator reference](../operations/operator-reference.md). |
+| `identity.claims.v1` | The critical claims contributor, automatically exposed by the framework for token issuance across services. |
+
+Business modules use the generated typed contract stubs and DTOs, not identity's
+models or services. They can also consume:
 
 - the **JWT claims** it mints (roles, permissions, `email` / `email_verified`) —
   read via the [authorization algebra](../concepts/authorization.md);
-- the authenticated principal, `CurrentUser` from `sandloom.sdk` (its `.id` is the
+- the authenticated principal, `CurrentUser` from `sandloom.sdk` (its `.user_id` is the
   user id; `sandloom.sdk.web.current_user_id` is the plain dependency): it
   verifies the JWT and reads the subject's session record live, so it
   honours token revocation;

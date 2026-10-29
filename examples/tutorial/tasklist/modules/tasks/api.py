@@ -3,9 +3,10 @@
 ``module_router()`` authenticates every route and binds the tenant.
 """
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 
 from sandloom.sdk import Contract, CurrentUser, module_router
 from tasklist.shared.contracts.stats_quota_v1 import STATS_QUOTA_V1
@@ -26,6 +27,14 @@ async def create_item(body: ItemIn, user: CurrentUser) -> ItemOut:
     if not await quota.may_create_item():
         raise HTTPException(status_code=402, detail="item quota reached")
     return await services.create_item(body, owner_id=user.user_id)
+
+
+@router.get("/items")
+async def list_items(
+    user: CurrentUser, limit: Annotated[int, Query(ge=1, le=100)] = 20
+) -> list[ItemOut]:
+    """A page of the tenant's items; the limit caps each request."""
+    return await services.list_items(limit=limit)
 
 
 @router.get("/items/{item_id}")

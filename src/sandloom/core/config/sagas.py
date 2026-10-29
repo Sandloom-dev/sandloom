@@ -15,26 +15,60 @@ class SagasConfig(BaseModel):
     # The lease-guarded timer sweep (one holder per database) re-drives due
     # instances (backoff elapsed, deadline passed) at most once per interval.
     saga_sweep_interval_seconds: float = Field(
-        default=5.0, gt=0, le=3600, alias="SAGA_SWEEP_INTERVAL_SECONDS"
+        default=5.0,
+        gt=0,
+        le=3600,
+        alias="SAGA_SWEEP_INTERVAL_SECONDS",
+        description=(
+            "Interval in seconds between lease-guarded sweeps that nudge due saga "
+            "instances on each database."
+        ),
     )
     # Instances one sweep tick nudges per database (FOR UPDATE SKIP LOCKED).
     saga_sweep_batch: int = Field(
-        default=200, ge=1, le=10_000, alias="SAGA_SWEEP_BATCH"
+        default=200,
+        ge=1,
+        le=10_000,
+        alias="SAGA_SWEEP_BATCH",
+        description=("Maximum due saga instances nudged per database sweep tick."),
     )
     # Default window for a compensation to finish (transient failures retried
     # with capped backoff until then, then parked); a definition overrides it.
     saga_compensation_deadline_seconds: int = Field(
-        default=3600, ge=1, alias="SAGA_COMPENSATION_DEADLINE_SECONDS"
+        default=3600,
+        ge=1,
+        alias="SAGA_COMPENSATION_DEADLINE_SECONDS",
+        description=(
+            "Default window in seconds for compensation retries before a saga is "
+            "parked; a saga definition can override it."
+        ),
     )
     # Exponential backoff with full jitter for transient step failures:
     # uniform(0, min(max, base * 2**(attempt-1))).
     saga_retry_base_seconds: float = Field(
-        default=1.0, gt=0, alias="SAGA_RETRY_BASE_SECONDS"
+        default=1.0,
+        gt=0,
+        alias="SAGA_RETRY_BASE_SECONDS",
+        description=(
+            "Base delay in seconds for exponential saga-step retry backoff with "
+            "full jitter."
+        ),
     )
     saga_retry_max_seconds: float = Field(
-        default=300.0, gt=0, alias="SAGA_RETRY_MAX_SECONDS"
+        default=300.0,
+        gt=0,
+        alias="SAGA_RETRY_MAX_SECONDS",
+        description=("Maximum saga-step retry backoff in seconds."),
     )
     # Terminal instances (completed / compensated) older than this are purged
     # by the sweep holder (hourly); parked instances are never purged.
     # 0 keeps them forever.
-    saga_retention_days: int = Field(default=30, ge=0, alias="SAGA_RETENTION_DAYS")
+    saga_retention_days: int = Field(
+        default=30,
+        ge=0,
+        alias="SAGA_RETENTION_DAYS",
+        description=(
+            "Retention in days for completed or compensated saga instances; zero "
+            "keeps them forever and parked instances are never purged."
+        ),
+    )

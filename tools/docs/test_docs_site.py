@@ -12,13 +12,83 @@ import re
 import tomllib
 import unittest
 from pathlib import Path
+from html.parser import HTMLParser
 from urllib.parse import unquote, urlsplit
 
 SITE = Path(os.environ.get("SANDLOOM_DOCS_SITE", "build/site/docs"))
 REPO = Path(__file__).resolve().parents[2]
 
 
+class ArticleLinks(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_article = False
+        self.links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "article":
+            self.in_article = True
+        target = dict(attrs).get("href")
+        if (
+            self.in_article
+            and tag == "a"
+            and target
+            and not target.startswith(
+                ("#", "http:", "https:", "mailto:", "javascript:")
+            )
+        ):
+            self.links.append(target)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "article":
+            self.in_article = False
+
+
 class DocumentationSiteTests(unittest.TestCase):
+    def test_documentation_articles_offer_a_next_internal_page(self) -> None:
+        for page in SITE.rglob("index.html"):
+            links = ArticleLinks()
+            links.feed(page.read_text())
+            with self.subTest(page=page):
+                self.assertTrue(links.links, "article has no internal onward link")
+
+    def test_stale_symbol_lint_scans_the_repository_docs(self) -> None:
+        from tools.docs import docs_stale_symbols
+
+        self.assertEqual(docs_stale_symbols.ROOT, REPO)
+        selected = docs_stale_symbols.select(REPO, [])
+        self.assertIn("AGENTS.md", selected)
+        self.assertIn("docs/getting-started/tutorial.md", selected)
+
+    def test_every_setting_has_a_source_description(self) -> None:
+        from sandloom.core.config.settings import Settings
+
+        missing = [
+            field.alias or name
+            for name, field in Settings.model_fields.items()
+            if not (field.description or "").strip()
+        ]
+        self.assertEqual(missing, [])
+
+    def test_published_content_excludes_private_repository_links(self) -> None:
+        for pattern in ("*.html", "*.md", "llms*.txt"):
+            for page in SITE.parent.rglob(pattern):
+                with self.subTest(page=page):
+                    self.assertNotIn(
+                        "github.com/Maryarty/auto_job_applyer", page.read_text()
+                    )
+
+    def test_publication_metadata_matches_the_selected_build(self) -> None:
+        page = (SITE.parent / "index.html").read_text()
+        if os.environ.get("SANDLOOM_DOCS_SITE_PUBLIC") == "1":
+            self.assertIn('rel="canonical" href="https://sandloom.dev/"', page)
+            self.assertIn(
+                'name="robots" content="index, follow, max-image-preview:large"', page
+            )
+        else:
+            self.assertIn('name="robots" content="noindex, follow"', page)
+        self.assertIn("Python backend framework for AI-driven development", page)
+
     def test_every_error_permalink_resolves_to_a_built_anchor(self) -> None:
         from sandloom.core.error_codes import CATALOGUE, documentation_url
 

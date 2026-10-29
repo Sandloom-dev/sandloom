@@ -1301,3 +1301,8 @@ distinct prefixes).
 **Fix:** `sandloom add deploy --refresh` re-derives the generated blocks (services, bindings, RPC_ALLOWED_CALLS, databases, gateway routes) from what the modules provide and consume; a problem outside them (a shared setting set per service, an issuer-only key elsewhere) is fixed by hand in x-common-env / the service's anchor
 
 **More:** `docs/guides/split-into-services.md`
+
+## Related reading
+
+- [CLI reference](cli.md)
+- [Getting help](../getting-started/help.md)

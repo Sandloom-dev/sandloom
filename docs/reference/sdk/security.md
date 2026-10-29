@@ -364,3 +364,8 @@ def x25519_public_pem(key: x25519.X25519PrivateKey | x25519.X25519PublicKey) -> 
 ```
 
 *(no docstring)*
+
+## Examples and related guides
+
+- [Revoke sessions](../../guides/session-revocation.md)
+- [Python API overview](index.md)

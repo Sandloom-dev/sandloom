@@ -216,3 +216,8 @@ reads the running loop instead.
 `uv sync --frozen --python 3.14` installs the whole locked set from wheels
 (no source builds) and the full suite passes on Python 3.14.8 (`-n 4`).
 `requires-python` stays `>=3.11`.
+
+## Related reading
+
+- [Configuration reference](configuration.md)
+- [Versioning policy](../contributing/versioning.md)

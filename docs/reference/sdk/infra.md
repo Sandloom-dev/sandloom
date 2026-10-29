@@ -560,3 +560,8 @@ def taskqueue(name: str = 'default') -> Any
 
 Return the `TaskQueueProvider` for a named instance (the module-level
 twin of `CoreRuntime.taskqueue`; spec §2.2).
+
+## Examples and related guides
+
+- [Infrastructure capabilities](../../concepts/capabilities-and-infrastructure.md)
+- [Python API overview](index.md)

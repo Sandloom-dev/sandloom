@@ -340,3 +340,8 @@ type (`1`, `"x"`, `UUID(int=1)`, the first enum member, a nested
 synthetic model, an empty collection). Used to run a step's `args`
 function once at startup (`check_args`); a function that cannot run on
 such input opts out per step with `check_args=False`.
+
+## Examples and related guides
+
+- [Add a saga](../../guides/add-saga.md)
+- [Python API overview](index.md)

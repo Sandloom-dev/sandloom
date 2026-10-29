@@ -95,3 +95,8 @@ def apply_async(
     **options: Any,
 ) -> Any
 ```
+
+## Examples and related guides
+
+- [Background tasks](../../concepts/background-tasks.md)
+- [Python API overview](index.md)

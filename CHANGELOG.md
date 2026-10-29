@@ -878,7 +878,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
 
 Security, billing-correctness and split-deployment release with **breaking
 changes** (pre-1.0: a minor may break; `docs/contributing/versioning.md`). It
-contains everything merged after 0.6.0 ([Maryarty/auto_job_applyer#39](https://github.com/Maryarty/auto_job_applyer/pull/39) and [Maryarty/auto_job_applyer#41](https://github.com/Maryarty/auto_job_applyer/pull/41)–[Maryarty/auto_job_applyer#87](https://github.com/Maryarty/auto_job_applyer/pull/87); #80 is an open issue, #82 is this release). Every
+contains everything merged after 0.6.0 (internal change #39 and internal change #41–internal change #87; #80 is an open issue, #82 is this release). Every
 distribution (`sandloom-framework`, `sandloom-shared`, `sandloom-identity`, `sandloom-tenancy`,
 `sandloom-billing`, `sandloom-infra-redis`, `sandloom-infra-celery`, `sandloom-platform`) is
 versioned at 0.7.0 as an internal baseline (not published to PyPI), and `sandloom new` now pins
@@ -906,15 +906,15 @@ In short:
    `CONTRACT_DTO_PACKAGES`); commit `contracts.snapshot.json` per module.
 5. Billing: a Celery worker + exactly one beat must run wherever billing is
    loaded (intent reconciler); the microservices profile now ships
-   `billing-worker` / `billing-beat` ([Maryarty/auto_job_applyer#83](https://github.com/Maryarty/auto_job_applyer/pull/83)). Custom PSP adapters implement
+   `billing-worker` / `billing-beat` (internal change #83). Custom PSP adapters implement
    the extended `StripeClientPort`; custom cache drivers backing the security
-   cache need `set_max` or `cas` ([Maryarty/auto_job_applyer#85](https://github.com/Maryarty/auto_job_applyer/pull/85)).
+   cache need `set_max` or `cas` (internal change #85).
 6. Apps: add `operation_class(...)` to every route and the
    `assert_operation_classes(app)` test.
 
 ### Breaking changes
 
-- **`publish_event` / `record_audit` are guaranteed by default** ([Maryarty/auto_job_applyer#52](https://github.com/Maryarty/auto_job_applyer/pull/52)).
+- **`publish_event` / `record_audit` are guaranteed by default** (internal change #52).
   `publish_event` (and `publish_event_versions`) outside a Unit of Work raises
   `UnitOfWorkRequiredError` (new, `sandloom.core.di`) instead of publishing straight
   to the bus; `record_audit` defaults to `required=True` and raises
@@ -926,19 +926,19 @@ In short:
   restores the 0.6 defaults for calls without an explicit `required=`, with a
   logged warning and a `DeprecationWarning` per call. New test fixture
   `db_uow`.
-- **Production split processes refuse a shared HS secret** ([Maryarty/auto_job_applyer#51](https://github.com/Maryarty/auto_job_applyer/pull/51)). A prod
+- **Production split processes refuse a shared HS secret** (internal change #51). A prod
   process that loads no token issuer (no module declared
   `issues_tokens=True`) or binds remote services (`SERVICE_BINDINGS`) does
   not start with an HS* `JWT_ALGORITHM` unless
   `JWT_ALLOW_SHARED_SECRET_SPLIT=true`; under
   `PRODUCTION_PROFILE=multi_tenant_strict` asymmetric JWT is required. A
   monolith (issuer loaded, no bindings) is unaffected.
-- **Contract DTOs must be importable by every caller** ([Maryarty/auto_job_applyer#54](https://github.com/Maryarty/auto_job_applyer/pull/54)). A contract
+- **Contract DTOs must be importable by every caller** (internal change #54). A contract
   registered by a module may not name a pydantic model / Enum defined inside
   a (loaded) module package or a function: `ContractTypeError` at
   registration, `sandloom check` rule `contract-dtos`. Allowed: `sandloom.shared.*` and
   the packages in the new `CONTRACT_DTO_PACKAGES`.
-- **Billing grants fail closed** ([Maryarty/auto_job_applyer#73](https://github.com/Maryarty/auto_job_applyer/pull/73), [Maryarty/auto_job_applyer#77](https://github.com/Maryarty/auto_job_applyer/pull/77)). A subscription whose price is
+- **Billing grants fail closed** (internal change #73, internal change #77). A subscription whose price is
   not in the catalog grants nothing (`price_id` NULL; a change to an unknown
   price withdraws the previous entitlements); a subscription created without
   an operation intent (`origin='psp'`) grants only with
@@ -948,34 +948,34 @@ In short:
   grants nothing (audited `billing.credits.grant_refused`). Credit balances
   may become negative after a refund / dispute (the `amount >= 0` CHECK is
   dropped). Details under "Billing".
-- **PSP port (`sandloom.billing.psp.StripeClientPort`)** ([Maryarty/auto_job_applyer#69](https://github.com/Maryarty/auto_job_applyer/pull/69), [Maryarty/auto_job_applyer#76](https://github.com/Maryarty/auto_job_applyer/pull/76)):
+- **PSP port (`sandloom.billing.psp.StripeClientPort`)** (internal change #69, internal change #76):
   `create_checkout_session` returns `PspSession(id, url, expires_at)` (was the
   URL string) and takes `subscription_metadata`; new required methods
   `expire_checkout_session(session_id)` and
   `list_checkout_sessions(customer_id=, created_gte=)`. Custom PSP adapters
   must implement them.
-- **Tenancy revokes on every role change, fail closed** ([Maryarty/auto_job_applyer#47](https://github.com/Maryarty/auto_job_applyer/pull/47)). `change_role`
+- **Tenancy revokes on every role change, fail closed** (internal change #47). `change_role`
   and `transfer_ownership` revoke the affected members' access tokens (the
   client gets `401 "Token has been revoked"` and refreshes); every tenancy
   revocation (removal, leave, role change, transfer, org deletion) is
   `require_immediate=True` — with the revocation store down the change is
   refused with `503` instead of committing without its mark.
-- **`RPC_RESPONSE_BINDING=strict` means keyed** ([Maryarty/auto_job_applyer#67](https://github.com/Maryarty/auto_job_applyer/pull/67)): v1 (unkeyed) replies
+- **`RPC_RESPONSE_BINDING=strict` means keyed** (internal change #67): v1 (unkeyed) replies
   are rejected, an `x25519` reply must come from the binding's
   `"service_id"`, and strict with a service identity refuses to start with an
   unpinned binding or without the service's X25519 key.
-- **Route markers are pruned from the executed dependencies** ([Maryarty/auto_job_applyer#74](https://github.com/Maryarty/auto_job_applyer/pull/74)).
+- **Route markers are pruned from the executed dependencies** (internal change #74).
   `operation_class(...)`, `strict_revocation()` and `revocation_freshness(...)`
   stay in `route.dependencies` but no longer appear in `route.dependant`;
   read them with `sandloom.core.route_markers.route_marker_calls(route)`. Only
   factory-registered markers are pruned (a `functools.wraps` copy of a
   marker around a real guard is kept and runs).
-- **Dependencies** ([Maryarty/auto_job_applyer#48](https://github.com/Maryarty/auto_job_applyer/pull/48), [Maryarty/auto_job_applyer#62](https://github.com/Maryarty/auto_job_applyer/pull/62), [Maryarty/auto_job_applyer#64](https://github.com/Maryarty/auto_job_applyer/pull/64)): `sandloom-framework` now requires
+- **Dependencies** (internal change #48, internal change #62, internal change #64): `sandloom-framework` now requires
   `aiohttp>=3.14.5,<3.15` (default internal-RPC transport) and pins
   `asyncpg>=0.32.0,<0.33` and `sqlalchemy[asyncio]>=2.1.4,<2.2` to the ranges
   whose driver internals the fast paths are verified against.
 
-- **Revocation marks need `set_max` or `cas` on the security cache** ([Maryarty/auto_job_applyer#85](https://github.com/Maryarty/auto_job_applyer/pull/85)).
+- **Revocation marks need `set_max` or `cas` on the security cache** (internal change #85).
   `CacheProvider` gains `set_max(key, value, *, ttl_seconds=None) -> str`
   (feature `set_max`; the base class supplies a portable read / `add` /
   `compare_and_set` default). A custom cache driver serving
@@ -987,7 +987,7 @@ In short:
 
 ### Security
 
-- **Asymmetric access tokens** ([Maryarty/auto_job_applyer#51](https://github.com/Maryarty/auto_job_applyer/pull/51)). `JWT_ALGORITHM=EdDSA|RS256|ES256`:
+- **Asymmetric access tokens** (internal change #51). `JWT_ALGORITHM=EdDSA|RS256|ES256`:
   the issuer (identity) holds `JWT_PRIVATE_KEY` + `JWT_KID`, every service
   verifies with `JWT_PUBLIC_KEYS` (`{"<kid>": "<PEM>"}`, several during a
   rotation) and cannot mint (`TokenIssuanceUnavailable`). Each algorithm is
@@ -999,7 +999,7 @@ In short:
   `docs/reference/security-model.md`. `PLANNER_CURSOR_SECRET` keys planner
   cursors where neither `INTERNAL_API_TOKEN` nor `JWT_SECRET` exists. The
   microservices profile signs with EdDSA.
-- **Service identity for internal RPC** ([Maryarty/auto_job_applyer#57](https://github.com/Maryarty/auto_job_applyer/pull/57)). `RPC_AUTH_MODE=service_identity`:
+- **Service identity for internal RPC** (internal change #57). `RPC_AUTH_MODE=service_identity`:
   each service signs as `RPC_SERVICE_ID` with its own Ed25519
   `RPC_PRIVATE_KEY` + `RPC_KEY_ID`; providers verify with `RPC_SERVICE_KEYS`
   and authorize per contract / method against `RPC_ALLOWED_CALLS` (deny by
@@ -1009,7 +1009,7 @@ In short:
   --service <id>` makes a key. `dual` = migration mode; `shared_token` stays
   the default and logs a DEPRECATED line on every production start. The
   microservices profile uses `service_identity`.
-- **RPC responses bound to their request** ([Maryarty/auto_job_applyer#64](https://github.com/Maryarty/auto_job_applyer/pull/64), [Maryarty/auto_job_applyer#67](https://github.com/Maryarty/auto_job_applyer/pull/67)). Every RPC request
+- **RPC responses bound to their request** (internal change #64, internal change #67). Every RPC request
   carries a nonce (`X-SANDLOOM-RPC-Nonce`); the provider answers with
   `X-SANDLOOM-RPC-Response-MAC`; a response bound to another call is never
   returned (retryable transport error, pool discarded). v2 binds with a
@@ -1023,7 +1023,7 @@ In short:
   ["service_id"]` pins the provider. Rejections:
   `sandloom_rpc_response_binding_rejected_total{reason}`. Not a substitute for
   TLS / mTLS.
-- **Configurable argon2id work factor + rehash on login** ([Maryarty/auto_job_applyer#61](https://github.com/Maryarty/auto_job_applyer/pull/61)).
+- **Configurable argon2id work factor + rehash on login** (internal change #61).
   `PASSWORD_HASH_PROFILE` (`strong` default = unchanged m=65536/t=3/p=4;
   `owasp_min` = m=19456/t=2/p=1; `custom`) with `PASSWORD_HASH_TIME_COST` /
   `_MEMORY_KIB` / `_PARALLELISM` overrides. Production refuses parameters
@@ -1032,7 +1032,7 @@ In short:
   other parameters after a successful login, in the same UoW (failures never
   block the login; `sandloom_password_rehash_total{outcome}`).
   `sandloom.core.di.password_hasher()` / `rehash_password_if_needed(...)`.
-- **Revocation windows closed** ([Maryarty/auto_job_applyer#45](https://github.com/Maryarty/auto_job_applyer/pull/45), [Maryarty/auto_job_applyer#47](https://github.com/Maryarty/auto_job_applyer/pull/47)). Tokens carry `iat_us`
+- **Revocation windows closed** (internal change #45, internal change #47). Tokens carry `iat_us`
   (microseconds); a token is revoked iff its issue instant is `<=` the mark
   (legacy whole-second tokens in the mark's second are revoked too). The mark
   is written at `now + AUTH_REVOCATION_CLOCK_SKEW_SECONDS` (default 2 s) and
@@ -1049,7 +1049,7 @@ In short:
   with capped backoff); while one is stuck `/ready` answers 503
   `revocations_pending` (`auth_revocation_pending_seconds`), `/health` is
   unaffected.
-- **Authority at commit — ADR-0003 TOCTOU gaps G1–G3** ([Maryarty/auto_job_applyer#69](https://github.com/Maryarty/auto_job_applyer/pull/69)). Tenancy's
+- **Authority at commit — ADR-0003 TOCTOU gaps G1–G3** (internal change #69). Tenancy's
   class-A writes lock the acting member's row `FOR SHARE` (target + actor in
   user-id order, no deadlock between admins acting on each other); identity's
   admin mutations re-check the admin role inside the write transaction under
@@ -1059,7 +1059,7 @@ In short:
   COMMIT (tenancy `POST /invitations/accept` uses it); billing's class-F
   routes run operation intents (see "Billing"). Guarantees stated precisely
   in ADR-0003 ("Guarantees, precisely").
-- **Route operation classes, machine-checked** ([Maryarty/auto_job_applyer#68](https://github.com/Maryarty/auto_job_applyer/pull/68)).
+- **Route operation classes, machine-checked** (internal change #68).
   `operation_class("P"|"R"|"RS"|"W"|"F"|"A")` (`sandloom.core.di`, a marker on a
   route or router). `create_app` refuses a declared class that contradicts
   its route (two classes, a staleness budget outside class R, an RS/W/F/A
@@ -1070,23 +1070,23 @@ In short:
   route map). Billing routes split into `billing_read_router` (GET `/plans`,
   `/subscription`, `/credits`) and the always-strict `billing_router`
   (checkout, portal) — same paths, responses and OpenAPI.
-- **`idempotency_guard(store_response=False)`** ([Maryarty/auto_job_applyer#69](https://github.com/Maryarty/auto_job_applyer/pull/69)): in-flight dedupe only
+- **`idempotency_guard(store_response=False)`** (internal change #69): in-flight dedupe only
   (409 / 422), nothing stored or replayed. Billing's checkout / portal routes
   use it with renamed scopes (`billing.checkout_intent`,
   `billing.customer_portal_intent`): a checkout / portal URL is never replayed
   from the cache.
-- **`PRODUCTION_PROFILE=multi_tenant_strict`** ([Maryarty/auto_job_applyer#54](https://github.com/Maryarty/auto_job_applyer/pull/54)): in prod refuses to
+- **`PRODUCTION_PROFILE=multi_tenant_strict`** (internal change #54): in prod refuses to
   start unless `TENANCY_MODE=multi`, `tenant_rls` + role verification on every
   database, fail-closed revocation, `SECURITY_CACHE_INSTANCE` on a different
   Redis server than the default cache, contract compat check on when split and
-  (since [Maryarty/auto_job_applyer#51](https://github.com/Maryarty/auto_job_applyer/pull/51)) asymmetric JWT when split. A critical startup task checks that
+  (since internal change #51) asymmetric JWT when split. A critical startup task checks that
   every `TenantScoped` table has RLS enabled + FORCEd with its policy.
   `SECURITY_CACHE_INSTANCE` (default `default`) carries revocation marks,
   blocks and idempotency records.
 
 ### Billing
 
-- **Operation intents for checkout / customer portal** ([Maryarty/auto_job_applyer#69](https://github.com/Maryarty/auto_job_applyer/pull/69); ADR-0003 G1).
+- **Operation intents for checkout / customer portal** (internal change #69; ADR-0003 G1).
   Authorize (live role + membership version) → a billing-owned intent
   (`billing_operation_intents`, migration `0004_billing`) committed before the
   PSP call → PSP call keyed by the intent (a timeout leaves it pending, `503`;
@@ -1102,7 +1102,7 @@ In short:
   intent flagged `followup_at`. `invoice.paid` must come from the
   subscription's customer; unknown Stripe statuses are not applied;
   `incomplete_expired` is terminal.
-- **Fail-closed entitlements** ([Maryarty/auto_job_applyer#73](https://github.com/Maryarty/auto_job_applyer/pull/73); ADR-0003 items 9, 11).
+- **Fail-closed entitlements** (internal change #73; ADR-0003 items 9, 11).
   `billing_subscriptions.origin` (`0005_billing`: `intent` | `psp` | `legacy`;
   existing rows backfilled `legacy`, later inserts default to `psp`). A
   subscription event with items sets the price from them (unknown → NULL,
@@ -1112,11 +1112,11 @@ In short:
   refuses while `psp` rows exist unless `SANDLOOM_BILLING_DROP_ORIGIN=1`.
   `billing.subscription.created/updated/canceled.v1` carry
   `data.grants_access` (additive).
-- **One subscription per checkout intent, at its price** ([Maryarty/auto_job_applyer#76](https://github.com/Maryarty/auto_job_applyer/pull/76); item 16):
+- **One subscription per checkout intent, at its price** (internal change #76; item 16):
   exactly one item at the intent's catalog price, quantity 1
   (`billing_subscriptions.intent_id`, partial UNIQUE, `0006_billing`); a
   credit-pack completion must name the intent's price.
-- **Intent reconciliation** ([Maryarty/auto_job_applyer#76](https://github.com/Maryarty/auto_job_applyer/pull/76); items 7, 13, 15). Beat task
+- **Intent reconciliation** (internal change #76; items 7, 13, 15). Beat task
   `sandloom.billing.tasks.reconcile_operation_intents` (every 5 min, `acks_late`)
   closes `pending` intents older than `BILLING_INTENT_RECONCILE_AFTER_MINUTES`
   (default 30) by finding their PSP session through the intent marker
@@ -1126,7 +1126,7 @@ In short:
   never touched. A retry of an issued checkout whose session expired answers
   `410` (`psp_session_expires_at`; legacy rows: created + 24 h). Migration
   `0007_billing`.
-- **Refunds and disputes reverse credits** ([Maryarty/auto_job_applyer#77](https://github.com/Maryarty/auto_job_applyer/pull/77); item 12).
+- **Refunds and disputes reverse credits** (internal change #77; item 12).
   `charge.refunded`, `charge.dispute.created` / `.updated` / `.closed` reverse
   (a won dispute restores) a credit-pack purchase's credits through the
   append-only ledger, deduped per PSP event; partial refunds / disputes
@@ -1139,7 +1139,7 @@ In short:
   `billing.charge.disputed`. A balance may be negative (spends are refused
   while short); `GET /credits` adds `debt` and `in_debt`. Subscription access
   is not changed by a dispute (temporary policy, ADR-0003 item 17).
-- **Portal change attribution** ([Maryarty/auto_job_applyer#77](https://github.com/Maryarty/auto_job_applyer/pull/77); item 10): a plan /
+- **Portal change attribution** (internal change #77; item 10): a plan /
   `cancel_at_period_end` change with no portal intent of the customer issued
   within `BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES` (default 60) is audited
   `billing.subscription.unattributed_change` — never blocked
@@ -1147,7 +1147,7 @@ In short:
 
 ### Contracts, events and data
 
-- **Durable command idempotency** ([Maryarty/auto_job_applyer#50](https://github.com/Maryarty/auto_job_applyer/pull/50)). The dedupe record of a command
+- **Durable command idempotency** (internal change #50). The dedupe record of a command
   contract lives in the PROVIDER's database (`contract_command_log`, core
   chain `0006`), claimed in the command's own UoW and committed iff the effect
   commits: a crash after the commit replays, never re-runs; same key + other
@@ -1157,7 +1157,7 @@ In short:
   `CONTRACT_COMMAND_DEDUPE_TTL_SECONDS` and are purged by the relay
   housekeeping / `sandloom outbox purge`. The cache is no longer involved (a driver
   without `command_idempotency` falls back to the fail-closed cache dedupe).
-- **Rolling-upgrade contract compatibility** ([Maryarty/auto_job_applyer#54](https://github.com/Maryarty/auto_job_applyer/pull/54)). Per-module
+- **Rolling-upgrade contract compatibility** (internal change #54). Per-module
   `contracts.snapshot.json` (`sandloom contracts snapshot [--write|--check]`; a
   stale snapshot fails the suite), `sandloom contracts check --against
   <snapshot|dir|url> [--as provider|consumer]`, runtime comparison of every
@@ -1166,12 +1166,12 @@ In short:
   startup; `off`; `CONTRACT_SNAPSHOT_PATHS`); a startup warning for remote
   bindings without a snapshot. `ContractRequirement(methods=...)` narrows the
   check.
-- **`sandloom-migrate extract-module`** ([Maryarty/auto_job_applyer#53](https://github.com/Maryarty/auto_job_applyer/pull/53)): moves a module's existing data out
+- **`sandloom-migrate extract-module`** (internal change #53): moves a module's existing data out
   of a shared database (offline: fence, copy with manifest + checksums,
   sequences, outbox / inbox / audit / command-log hand-off, Streams
   group-owner transfer; `--verify`, `--drop-source`, `--unfence`; dry-run by
   default). Runbook: `deploy/README.md`.
-- **`ListOperation` and planned read contracts** ([Maryarty/auto_job_applyer#39](https://github.com/Maryarty/auto_job_applyer/pull/39)). Declared
+- **`ListOperation` and planned read contracts** (internal change #39). Declared
   tenant-scoped keyset list reads with an opaque HMAC cursor
   (`PLANNER_LIST_MAX_LIMIT`, default 500; `InvalidCursor` / `PageLimitError`
   → 400); `@contract_method(planned=True)` + `contract_reads()` (no UoW,
@@ -1179,18 +1179,18 @@ In short:
   `GET /orgs`, `/orgs/{id}`, `/orgs/{id}/members` are planned routes (API
   unchanged, plus `cursor` / `X-Next-Cursor`); tenancy migration `0004`
   adds the keyset indexes.
-- **Versioned member events** ([Maryarty/auto_job_applyer#45](https://github.com/Maryarty/auto_job_applyer/pull/45), [Maryarty/auto_job_applyer#47](https://github.com/Maryarty/auto_job_applyer/pull/47)). `tenancy.member_*.v1` carry an
+- **Versioned member events** (internal change #45, internal change #47). `tenancy.member_*.v1` carry an
   optional per-(org, user) `version` (`tenancy_member_versions`, `0005_tenancy`);
   accepting an invitation / creating an org publishes
   `tenancy.member_added.v1`. Rolling-upgrade rule
   `sandloom.shared.schemas.membership.member_event_action`: a version-less event
   refreshes from the new `tenancy.membership.v1.get_member_state`.
-- **Event consumers** ([Maryarty/auto_job_applyer#47](https://github.com/Maryarty/auto_job_applyer/pull/47)): `register_event_consumer(...,
+- **Event consumers** (internal change #47): `register_event_consumer(...,
   dead_letter=False)` retries a failing delivery forever with capped backoff
   instead of dead-lettering it; a handler raises `PoisonEventError`
   (`sandloom.core.di`) for an event that can never apply (dead-lettered at once,
   CRITICAL).
-- **Contract-read cache shadow** ([Maryarty/auto_job_applyer#68](https://github.com/Maryarty/auto_job_applyer/pull/68); off by default): `CONTRACT_CACHE_SHADOW`
+- **Contract-read cache shadow** (internal change #68; off by default): `CONTRACT_CACHE_SHADOW`
   measures what a caller-side TTL cache of a read contract would have done
   (`sandloom_contract_cache_shadow_total`, per-request share, time avoided, stale
   hits by kind) without serving from it; `CONTRACT_CACHE_SHADOW_REPORT_DIR`
@@ -1198,7 +1198,7 @@ In short:
 
 ### Performance
 
-- **Internal RPC client is aiohttp** ([Maryarty/auto_job_applyer#62](https://github.com/Maryarty/auto_job_applyer/pull/62), [Maryarty/auto_job_applyer#64](https://github.com/Maryarty/auto_job_applyer/pull/64)): `RPC_TRANSPORT=aiohttp`
+- **Internal RPC client is aiohttp** (internal change #62, internal change #64): `RPC_TRANSPORT=aiohttp`
   (default) or `httpx` (keep it behind an egress proxy — aiohttp ignores
   `HTTP(S)_PROXY`). One RPC ~1.25 → ~0.36 ms CPU at concurrency 64; the
   mixed-profile split premium +21.6 % → +16.9 % at saturation. Bounded
@@ -1207,32 +1207,32 @@ In short:
   internals are probed (`sandloom.core.rpc_transport_compat`,
   `VERIFIED_AIOHTTP_RANGE`); a failed probe falls back to httpx
   (`sandloom_rpc_transport_fallback_total`).
-- **Fewer PostgreSQL round trips on the write path** ([Maryarty/auto_job_applyer#46](https://github.com/Maryarty/auto_job_applyer/pull/46)): outbox
+- **Fewer PostgreSQL round trips on the write path** (internal change #46): outbox
   mark-delivered is ONE autocommit statement (4 → 1 RT per flush; an
   event-publishing RLS request 9 → 6 RT); `non_tenant_statements()` skips the
   tenant setting for allowlisted system statements (relay tick 12 → 9 RT);
   **`DB_RLS_MERGED_BEGIN` is on by default** (`BEGIN …; set_config` in one
   message on `tenant_rls` + asyncpg; kill switch `false`).
-- **Zero per-request cost of route markers** ([Maryarty/auto_job_applyer#74](https://github.com/Maryarty/auto_job_applyer/pull/74)): ~35–40k instructions per
+- **Zero per-request cost of route markers** (internal change #74): ~35–40k instructions per
   marker per request removed (strict + class route 314k → 241k instr/request).
-- **Non-blocking pool checkout at max overflow** ([Maryarty/auto_job_applyer#66](https://github.com/Maryarty/auto_job_applyer/pull/66)): −47 % instructions
+- **Non-blocking pool checkout at max overflow** (internal change #66): −47 % instructions
   per checkout+return cycle at max overflow (guarded by the
   `pool_fast_checkout` driver probe).
 
 ### Fixes
 
-- **Never a 500 from a pooled connection that died while idle** ([Maryarty/auto_job_applyer#55](https://github.com/Maryarty/auto_job_applyer/pull/55)): a
+- **Never a 500 from a pooled connection that died while idle** (internal change #55): a
   closed / broken asyncpg connection is replaced at checkout or, when provably
   nothing was sent, reconnected in place for the transaction's first message
   (kill switch `DB_DEAD_CONNECTION_RETRY=false`); otherwise
   `DatabaseUnavailable` (503, `Retry-After`) instead of a masked 500. The idle
   ping is really one round trip.
-- **Driver-internals guard for the DB fast paths** ([Maryarty/auto_job_applyer#48](https://github.com/Maryarty/auto_job_applyer/pull/48)):
+- **Driver-internals guard for the DB fast paths** (internal change #48):
   `sandloom.core.sql_alchemy.driver_compat` probes asyncpg / SQLAlchemy private
   state once per process; on a mismatch the plain path is used
   (`sandloom_db_driver_fast_path_disabled_total{probe}`). `non_tenant_statements()`
   checks every statement it covers (`NonTenantStatementError` outside prod).
-- **Revocation marks no longer fail under contention** ([Maryarty/auto_job_applyer#85](https://github.com/Maryarty/auto_job_applyer/pull/85)). The mark was
+- **Revocation marks no longer fail under contention** (internal change #85). The mark was
   written with a read / `add` / `compare_and_set` loop bounded at 8 attempts;
   a writer that lost 8 races in a row gave up (`revoke_user_tokens` returned
   `False`, the mark could stay below its value until the durable applier ran,
@@ -1250,7 +1250,7 @@ In short:
   `overwrite_without_cas=False`, which the revocation mark does. The Redis
   driver falls back to that loop only for a client without Lua scripting
   (logged once); errors inside the script path propagate.
-- **Gateway's static IP kept out of the dynamic address pool** ([Maryarty/auto_job_applyer#87](https://github.com/Maryarty/auto_job_applyer/pull/87)): the
+- **Gateway's static IP kept out of the dynamic address pool** (internal change #87): the
   microservices network gets `ip_range: ${SANDLOOM_IP_RANGE:-172.28.0.128/25}`, so
   no container started before the gateway can take its static
   `SANDLOOM_GATEWAY_IP` (.10) — with #83's two extra containers one did, and the
@@ -1258,7 +1258,7 @@ In short:
   `SANDLOOM_GATEWAY_IP` and `SANDLOOM_IP_RANGE` must change together (the gateway IP
   inside the subnet, outside the range); `test_deploy_profiles` pins it and
   `tools/ci/ci_local.sh` exports a matching range.
-- **Microservices profile runs billing's worker + beat** ([Maryarty/auto_job_applyer#83](https://github.com/Maryarty/auto_job_applyer/pull/83)): billing's
+- **Microservices profile runs billing's worker + beat** (internal change #83): billing's
   periodic tasks (intent reconciler, orphan payment-state purge) never ran in
   `deploy/compose/microservices.yml`. New `billing-worker`
   (`BILLING_WORKER_CONCURRENCY`, default 1) and `billing-beat`, each on
@@ -1266,7 +1266,7 @@ In short:
   `max_connections` 150. `test_deploy_profiles` now asserts that every module
   with `setup_periodic_tasks` has exactly one beat (and a worker on its
   broker) in every profile that serves it.
-- **Revocation copies** ([Maryarty/auto_job_applyer#79](https://github.com/Maryarty/auto_job_applyer/pull/79), [Maryarty/auto_job_applyer#81](https://github.com/Maryarty/auto_job_applyer/pull/81)): on a `revocation_freshness` route the
+- **Revocation copies** (internal change #79, internal change #81): on a `revocation_freshness` route the
   staleness budget now holds at decision time (a copy that expired or was
   invalidated during the live block-mark read is replaced by a live read);
   only a drop of the SAME subject (or a wholesale clear) discards an in-flight
@@ -1275,42 +1275,42 @@ In short:
 
 ### Testing & tooling
 
-- **Test resource ownership** ([Maryarty/auto_job_applyer#75](https://github.com/Maryarty/auto_job_applyer/pull/75)): a test database (comment) and Redis
+- **Test resource ownership** (internal change #75): a test database (comment) and Redis
   index (`sandloom:test:owner`) carry an owner (`SANDLOOM_TEST_OWNER`, else the
   checkout root); another owner's resource aborts the session before anything
   is reset (exit 4) unless `SANDLOOM_TEST_TAKE_OWNERSHIP=1`.
-- **Connection budget** ([Maryarty/auto_job_applyer#75](https://github.com/Maryarty/auto_job_applyer/pull/75)): small test pools by default (explicit
+- **Connection budget** (internal change #75): small test pools by default (explicit
   environment wins), a fail-fast headroom check
   (`SANDLOOM_TEST_SKIP_CONNECTION_CHECK=1` disables it), `-n auto` capped to what
   fits, the split conformance matrix boots in waves of <= 40 connections.
-- **Process-global state restored after every test** ([Maryarty/auto_job_applyer#75](https://github.com/Maryarty/auto_job_applyer/pull/75))
+- **Process-global state restored after every test** (internal change #75)
   (`sandloom.core.testing.isolation`); `run_on_commit` runs `before_commit` checks
-  first ([Maryarty/auto_job_applyer#69](https://github.com/Maryarty/auto_job_applyer/pull/69)).
+  first (internal change #69).
 - **`SANDLOOM_TEST_DATABASE_URL` / `_CACHE_URL` / `_BROKER_URL` win over
-  `.env.test`** and the reset guard refuses any other database ([Maryarty/auto_job_applyer#43](https://github.com/Maryarty/auto_job_applyer/pull/43)); the
+  `.env.test`** and the reset guard refuses any other database (internal change #43); the
   repository's pre-push full run requires an explicit `SANDLOOM_TEST_DATABASE_URL`
-  (`tools/checks/prepush_full_tests.sh`, [Maryarty/auto_job_applyer#75](https://github.com/Maryarty/auto_job_applyer/pull/75)).
-- **Race-free subprocess servers** ([Maryarty/auto_job_applyer#78](https://github.com/Maryarty/auto_job_applyer/pull/78)): `sandloom.core.testing.served`
+  (`tools/checks/prepush_full_tests.sh`, internal change #75).
+- **Race-free subprocess servers** (internal change #78): `sandloom.core.testing.served`
   (`ReservedPort`, `spawn_served`, a per-spawn identity probe) for split
   conformance and the extraction / split e2e suites.
-- **`sandloom.core.testing.wait_revocation_listener_subscribed()`** ([Maryarty/auto_job_applyer#79](https://github.com/Maryarty/auto_job_applyer/pull/79))
+- **`sandloom.core.testing.wait_revocation_listener_subscribed()`** (internal change #79)
   replaces `PUBSUB NUMSUB` waits (flaky under xdist).
 - `assert_contract_conformance(..., transport=)` runs the RPC side over a
-  real socket (`aiohttp` / `httpx`); `served_rpc(core)` ([Maryarty/auto_job_applyer#62](https://github.com/Maryarty/auto_job_applyer/pull/62)).
+  real socket (`aiohttp` / `httpx`); `served_rpc(core)` (internal change #62).
 - `tools/ci/ci_local.sh`: race-free microservices gateway port (Docker
   allocates it) and opt-in `SANDLOOM_CI_LOCAL_TIMEOUT_SCALE` for overloaded hosts
-  ([Maryarty/auto_job_applyer#84](https://github.com/Maryarty/auto_job_applyer/pull/84)).
-- Release measurement ([Maryarty/auto_job_applyer#86](https://github.com/Maryarty/auto_job_applyer/pull/86)): cachegrind, login-free SaaS mixes, this
+  (internal change #84).
+- Release measurement (internal change #86): cachegrind, login-free SaaS mixes, this
   release vs 276fe84 — no regression in instructions per request (monolith
   −0.5..−0.7 %, split ±0.2 %; split premium +5.3..+6.0 % in instructions);
   wall-clock (CPU µs, rps, latency percentiles) deferred to a dedicated Linux
   machine.
 - Local Docker CI runner `tools/ci/ci_local.sh` (act + fallback) while GitHub
-  Actions is unavailable ([Maryarty/auto_job_applyer#58](https://github.com/Maryarty/auto_job_applyer/pull/58), [Maryarty/auto_job_applyer#59](https://github.com/Maryarty/auto_job_applyer/pull/59)); installed-wheel RPC transport smoke
-  `tools/packaging/check_wheel_rpc_transport.py` ([Maryarty/auto_job_applyer#67](https://github.com/Maryarty/auto_job_applyer/pull/67)).
-- Benchmarks: ladder harness fixes ([Maryarty/auto_job_applyer#41](https://github.com/Maryarty/auto_job_applyer/pull/41)), RPC / write-path diagnostic stands
-  ([Maryarty/auto_job_applyer#42](https://github.com/Maryarty/auto_job_applyer/pull/42), [Maryarty/auto_job_applyer#60](https://github.com/Maryarty/auto_job_applyer/pull/60)), merged-BEGIN soak ([Maryarty/auto_job_applyer#49](https://github.com/Maryarty/auto_job_applyer/pull/49)), integration run ([Maryarty/auto_job_applyer#40](https://github.com/Maryarty/auto_job_applyer/pull/40)), argon2
-  presets and split premium ([Maryarty/auto_job_applyer#65](https://github.com/Maryarty/auto_job_applyer/pull/65)), full SaaS-mix stand ([Maryarty/auto_job_applyer#39](https://github.com/Maryarty/auto_job_applyer/pull/39)).
+  Actions is unavailable (internal change #58, internal change #59); installed-wheel RPC transport smoke
+  `tools/packaging/check_wheel_rpc_transport.py` (internal change #67).
+- Benchmarks: ladder harness fixes (internal change #41), RPC / write-path diagnostic stands
+  (internal change #42, internal change #60), merged-BEGIN soak (internal change #49), integration run (internal change #40), argon2
+  presets and split premium (internal change #65), full SaaS-mix stand (internal change #39).
 
 ### Migrations in this release
 

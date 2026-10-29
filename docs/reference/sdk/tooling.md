@@ -37,3 +37,8 @@ def main(argv: list[str] | None = None) -> int
 ```
 
 *(no docstring)*
+
+## Examples and related guides
+
+- [Generate contracts and snapshots](../../guides/generate.md)
+- [Python API overview](index.md)

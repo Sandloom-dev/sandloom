@@ -502,3 +502,8 @@ class SkippedModule(name: str, reason: str) -> None
 ```
 
 A module the loader skipped, with the reason why.
+
+## Examples and related guides
+
+- [Add a module](../../guides/add-module.md)
+- [Python API overview](index.md)

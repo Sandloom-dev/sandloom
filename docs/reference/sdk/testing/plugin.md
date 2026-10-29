@@ -286,3 +286,8 @@ def user_headers(
 ```
 
 Headers of a default user (random user id and tenant).
+
+## Examples and related guides
+
+- [Testing examples and fixtures](../../testing.md)
+- [Python API overview](../index.md)

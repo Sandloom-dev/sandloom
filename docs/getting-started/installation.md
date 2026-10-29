@@ -24,7 +24,9 @@ Continue with the [application quickstart](index.md#quickstart): `cd myapp`,
 A standalone CLI may not have the selected batteries installed; this is expected.
 `uv sync` installs them into the application, and `generate` writes its contract
 stubs, DTOs and snapshots using those installed versions.
-The remaining sections describe running the framework source checkout as a contributor.
+For identity signup, email verification and obtaining a token, continue with
+[authentication and email](authentication.md). The remaining sections describe
+running the framework source checkout as a contributor.
 
 ## Get the source checkout
 

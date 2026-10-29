@@ -96,7 +96,7 @@ public.
 - `FakeStripeClient` — the default PSP (`BILLING_PROVIDER=fake`) outside prod;
   it always rejects unsigned webhooks (tests sign with `sign_stripe_payload`).
   Production uses `BILLING_PROVIDER=stripe` + keys.
-- `/health` and `/ready` return 503 when degraded — that is the k8s probe
+- `/health/simple` is process liveness. `/health` and `/ready` return 503 when degraded — the readiness
   contract, not a bug. Public callers see check statuses only; check details
   and `/ready`'s module/consumer topology require `X-Internal-Token`. Results
   are cached for `HEALTH_CACHE_TTL_SECONDS`.

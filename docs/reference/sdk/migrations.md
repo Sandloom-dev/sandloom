@@ -68,3 +68,8 @@ def run_module_migrations(
 Run a module's own migration chain by convention (from its env.py).
 
 See `sandloom.core.migrations.alembic_support.run_module_migrations`.
+
+## Examples and related guides
+
+- [Run migrations](../../guides/migrations.md)
+- [Python API overview](index.md)

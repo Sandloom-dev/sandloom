@@ -1624,3 +1624,8 @@ def worker_env_values(path: str | os.PathLike[str]) -> dict[str, str]
 
 `dotenv_values(path)` (`None` dropped), the `SANDLOOM_TEST_<VAR>`
 overrides applied, rewritten for this worker. Missing file -> `{}` base.
+
+## Examples and related guides
+
+- [Testing examples and fixtures](../testing.md)
+- [Python API overview](index.md)

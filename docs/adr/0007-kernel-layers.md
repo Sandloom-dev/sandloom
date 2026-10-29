@@ -238,3 +238,8 @@ layering change before the auth/config merge:
 | WLlf (login) | 13.690 M | 13.515 M | −1.3 % |
 | R2.srv | 1.0713 M | 1.0511 M | −1.9 % |
 | `import sandloom.main` | 1.83 s | 1.70 s | −7 % (wall clock, noisy) |
+
+## Related reading
+
+- [Contributor map](../contributing/repository.md)
+- [Module boundaries](../concepts/modules.md)
