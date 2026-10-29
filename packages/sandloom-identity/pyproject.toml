@@ -14,7 +14,7 @@ requires-python = ">=3.11"
 dependencies = [
     "sandloom>=0.7.0a2,<0.8",
     "pyotp>=2.10.0,<3",
-    "authlib>=1.8.0,<2",
+    "authlib>=1.9.1,<2",
     "qrcode>=8.2,<9",
     "pillow>=13.0.0,<14",
     "itsdangerous>=2.2.0,<3",

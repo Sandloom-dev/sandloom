@@ -7,6 +7,11 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+### Security
+
+- Require `authlib>=1.9.1,<2` so fresh dependency resolutions cannot select
+  versions affected by the reviewed JOSE/OAuth validation advisories.
+
 ## [0.7.0a2]
 
 - Refresh the package description and project links on PyPI.

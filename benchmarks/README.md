@@ -24,6 +24,23 @@ granian, litestar, msgspec and psutil never enter the framework's dependencies.
 The framework distributions are editable path dependencies under `../packages/`,
 so a run measures the checked-out framework code.
 
+### Dependency updates
+
+After changing package requirements, resolve `benchmarks/uv.lock` with the uv
+version pinned in CI, then refresh the Cachegrind image's locked export from
+the repository root:
+
+```bash
+uv lock --project benchmarks
+python tools/checks/check_benchmark_dependencies.py --write
+python tools/checks/check_benchmark_dependencies.py
+```
+
+CI checks the lock and export together. Rebuild the Cachegrind image after an
+update. Historical measurements retain their original environments; rerun both
+sides of a comparison with the same updated dependencies before claiming a new
+performance result.
+
 ## Scenarios (identical semantics in every implementation)
 
 | | request | work | response |
