@@ -25,10 +25,9 @@ The remaining sections describe running the framework source checkout as a contr
 ## Get the source checkout
 
 The canonical repository is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-It is currently private and awaiting transfer of the prepared source snapshot;
-the website at `sandloom.dev` is not deployed yet.
-During preparation, use the existing checkout. After the source transfer, an
-account with access can clone it:
+The reviewed source snapshot is in this repository. It remains private during
+launch preparation; the website at `sandloom.dev` is not deployed yet.
+An account with repository access can clone it:
 
 ```bash
 git clone https://github.com/Sandloom-dev/sandloom.git
