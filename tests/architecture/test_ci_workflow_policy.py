@@ -78,23 +78,42 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("docs/concepts/contracts.md", set()),
-        ("tools/docs/docs_site.py", set()),
-        ("website/index.html", set()),
+        ("docs/concepts/contracts.md", {"docs"}),
+        ("tools/docs/docs_site.py", {"docs"}),
+        ("website/index.html", {"docs"}),
         (".github/branch-protection.json", set()),
         ("tools/packaging/public-source.json", set()),
         ("tools/ci/ci_local.py", set()),
-        ("src/sandloom/core/unit_of_work/runtime.py", {"backend", "admin"}),
-        ("src/sandloom_billing/api.py", {"backend", "admin"}),
-        ("tests/architecture/test_api_no_orm_leakage.py", {"backend"}),
-        ("tools/packaging/package_build.py", {"backend"}),
-        ("tools/checks/check_secrets.py", {"backend"}),
-        ("migrations/core/0001_init.py", {"backend"}),
-        ("pyproject.toml", {"backend", "admin"}),
+        (
+            "src/sandloom/core/unit_of_work/runtime.py",
+            {"backend", "admin", "docs", "packages", "architecture"},
+        ),
+        (
+            "src/sandloom_billing/api.py",
+            {"backend", "admin", "docs", "packages", "architecture"},
+        ),
+        ("tests/architecture/test_api_no_orm_leakage.py", {"backend", "architecture"}),
+        ("tools/packaging/package_build.py", {"backend", "packages", "architecture"}),
+        ("tools/checks/check_secrets.py", {"backend", "architecture"}),
+        ("migrations/core/0001_init.py", {"backend", "packages"}),
+        (
+            "pyproject.toml",
+            {
+                "backend",
+                "admin",
+                "docs",
+                "packages",
+                "architecture",
+                "dependency_review",
+            },
+        ),
         ("conftest.py", {"backend"}),
         ("admin/src/app/router.tsx", {"admin"}),
-        ("examples/academy/academy/modules/catalog/api.py", {"examples"}),
-        ("deploy/docker/Dockerfile", {"deploy"}),
+        (
+            "examples/academy/academy/modules/catalog/api.py",
+            {"examples", "docs", "dependency_review"},
+        ),
+        ("deploy/docker/Dockerfile", {"deploy", "docs"}),
         ("benchmarks/tests/test_s5_security.py", {"benchmarks"}),
     ],
 )
@@ -120,6 +139,7 @@ def test_automatic_checks_do_not_repeat_on_main_push_or_schedule():
         "packages.yml",
         "admin.yml",
         "architecture-check.yml",
+        "dependency-review.yml",
         "extraction-e2e.yml",
         "benchmarks.yml",
     ):
@@ -257,3 +277,63 @@ print(json.dumps({{key: os.environ.get(key) for key in keys}}))
         or dotenv_values(ROOT / ".env.test")["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"]
     )
     assert actual["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] == expected
+
+
+@pytest.mark.parametrize(
+    ("areas", "full", "pr"),
+    [
+        (set(), False, True),
+        ({"docs"}, False, True),
+        ({"backend"}, False, True),
+        ({"admin"}, False, True),
+        ({"examples", "dependency_review"}, False, True),
+        ({"deploy"}, False, True),
+        ({"benchmarks"}, False, True),
+        ({"packages", "architecture"}, False, True),
+        (set(), True, False),
+    ],
+)
+def test_gate_agrees_with_actual_github_job_conditions(runner, areas, full, pr):
+    spec = importlib.util.spec_from_file_location(
+        "required_ci_policy", ROOT / "tools/ci/required_ci.py"
+    )
+    assert spec and spec.loader
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    jobs = workflow("ci.yml")["jobs"]
+    outputs = {
+        area: "true" if full or area in areas else "false" for area in gate.AREAS
+    }
+    context = {
+        "github": {
+            "event_name": "pull_request" if pr else "workflow_dispatch",
+            "event": {"action": "opened" if pr else ""},
+        },
+        "inputs": {"full_validation": full},
+        "needs": {"changes": {"outputs": outputs}},
+    }
+    needs = {
+        name: {
+            "result": "success"
+            if runner.eval_if(jobs[name].get("if"), context, "success")
+            else "skipped"
+        }
+        for name in jobs["ci-required"]["needs"]
+    }
+    needs["changes"]["outputs"] = outputs
+    assert gate.check(needs, full_validation=full, pull_request=pr) == []
+
+
+def test_reusable_suites_have_one_pr_entry_point_and_no_failure_bypass():
+    ci = workflow("ci.yml")
+    for job in ci["jobs"].values():
+        assert job.get("continue-on-error") is not True
+        if "uses" not in job:
+            continue
+        name = job["uses"].rsplit("/", 1)[-1]
+        called = workflow(name)
+        assert set(triggers(called)) == {"workflow_call"}
+        assert all(
+            body.get("continue-on-error") is not True
+            for body in called["jobs"].values()
+        )

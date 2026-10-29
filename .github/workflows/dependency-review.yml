@@ -4,14 +4,7 @@ name: Dependency review
 # disallowed licence (python: uv.lock; npm: admin/package-lock.json). Needs the
 # GitHub dependency graph, so it cannot run in tools/ci/ci_local.sh.
 on:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - "uv.lock"
-      - "pyproject.toml"
-      - "admin/package-lock.json"
-      - "admin/package.json"
-      - "examples/**"
+  workflow_call:
 
 permissions:
   contents: read

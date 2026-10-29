@@ -6,7 +6,25 @@ title: CI profiles and minute budget
 
 Automatic PR validation uses checks selected by changed area. Every
 change still needs the [owner's final review and manual merge](branches.md).
-No automatic merge or new server-side required checks are introduced here.
+The required `CI required` check blocks merging until the selected suites pass.
+The final merge remains manual and restricted to the owner.
+
+## Required merge check
+
+`ci.yml` is the single PR entry point. It selects suites by changed paths and
+calls the documentation, package, architecture, admin and dependency-review
+workflows as reusable jobs, so those suites do not run twice.
+
+The final **CI required** job runs even when an earlier job fails or is skipped.
+It requires the classifier and policy checks to succeed, then verifies that every
+selected suite succeeded. A failure, cancellation, missing result or unexpected
+skip blocks the merge. Unrelated suites can be skipped. Heavy full-validation
+jobs remain opt-in; selecting this check in branch protection does not launch
+extra test runs. The result is accepted only from the GitHub Actions app.
+
+`main` does not require a fresh rebuild merely because another PR merged first
+(`strict: false`). It still requires a successful check for the PR's current
+commit, and the owner reviews compatibility with the current `main`.
 
 ## Automatic PR checks
 
@@ -22,7 +40,8 @@ No automatic merge or new server-side required checks are introduced here.
 
 An update to `tools/packaging/public-source.json` alone does not run the full
 backend or rebuild packages. The always-running workflow-policy job checks the
-source selection. CI configuration changes have dedicated regression tests.
+source selection. CI configuration changes have dedicated regression tests and exercise the
+regular PR suites. Manual full-validation jobs remain opt-in.
 
 Normal PR backend tests use Python 3.12, without coverage or `slow` tests.
 The Python 3.11/3.13/3.14 compatibility runs, coverage, serial isolation suite,

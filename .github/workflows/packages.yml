@@ -11,19 +11,6 @@ name: Packages (ADR-0001)
 
 on:
   workflow_call:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - "src/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "packages/**"
-      - "migrations/core/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "tools/packaging/**"
-      - "!tools/packaging/public-source.json"
-      - ".github/workflows/packages.yml"
 
 permissions:
   contents: read

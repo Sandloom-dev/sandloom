@@ -2,19 +2,6 @@ name: Architecture Check
 
 on:
   workflow_call:
-  pull_request:
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "packages/**"
-      - "tools/checks/**"
-      - "tools/packaging/**"
-      - "!tools/packaging/public-source.json"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "docs/adr/**"
-      - "docs/reference/guarantees.md"
-      - ".github/workflows/architecture-check.yml"
 
 concurrency:
   group: architecture-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

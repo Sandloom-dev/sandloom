@@ -15,15 +15,17 @@ the owner explicitly instructs them to do so for that PR.
 `main` is the only permanent development branch. Use a short-lived, descriptive
 branch for each change (`codex/<topic>` for agent work). Open the PR against
 `main`. There is no permanent `develop`, staging or release branch.
-Existing CI runs on PRs; the owner checks its results before merging. Required
-checks are configured separately from the owner-review policy.
+Every PR must pass **CI required** before the owner can merge it. The check
+validates the suites selected for that PR; see [CI profiles](ci.md).
 
 ## Server protection
 
 The [branch-protection configuration](https://github.com/Sandloom-dev/sandloom/blob/main/.github/branch-protection.json)
 requires a PR, restricts updates and PR merges to `Maryarty`, applies to admins,
 and disallows force pushes and branch deletion. It grants no PR bypass to users,
-teams or apps. `CODEOWNERS` assigns every file to `@Maryarty` for review routing.
+teams or apps. The required `CI required` status accepts results only from
+GitHub Actions and applies to the owner too. `CODEOWNERS` assigns every file to
+`@Maryarty` for review routing.
 
 These files define the policy; committing them does not enable protection on
 GitHub. Verify the live repository settings using the procedure below. Protection
@@ -61,7 +63,9 @@ gh api repos/Sandloom-dev/sandloom/branches/main/protection
 
 Check that PR requirements are present, `restrictions.users` contains only
 `Maryarty`, `enforce_admins.enabled` is true, PR bypass lists are empty, and
-force pushes/deletions are disabled. Check inherited rulesets too:
+force pushes/deletions are disabled. Verify `required_status_checks.checks`
+contains `CI required` bound to GitHub Actions (app ID `15368`), with
+`required_status_checks.strict` false. Check inherited rulesets too:
 
 ```bash
 gh api repos/Sandloom-dev/sandloom/rulesets

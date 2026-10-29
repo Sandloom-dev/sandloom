@@ -13,6 +13,13 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### CI
+
+- Add one required merge check covering the suites selected for each PR. Run
+  documentation, packages, architecture, admin and dependency review through
+  the main workflow without duplicate PR triggers. Failed, cancelled or
+  unexpectedly skipped checks block merging; manual full validation stays opt-in.
+
 ### Documentation
 
 - Update contributor instructions, installation, package descriptions and
