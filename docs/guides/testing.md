@@ -304,10 +304,16 @@ file's module fixtures are still set up once):
   the report header and the summary.
 - **CI** runs the parallel suites (`backend-tests`, `examples`) with
   `--sandloom-shuffle=random`, and the job `backend-tests-isolation` runs the
-  whole framework suite **serially in one process** in a fresh order: the
+  in-process framework tests **serially in one process** in a fresh order: the
   check a fixed xdist distribution cannot make. Locally:
-  `tools/ci/ci_local.sh <ref> --jobs backend-tests-isolation` (about 20
-  minutes; 18 on an idle laptop).
+  `tools/ci/ci_local.sh <ref> --jobs backend-tests-isolation`.
+
+The serial job excludes `subprocess_probe`: package build/install checks and
+CLI/plugin probes whose tested runtime lives entirely in a child process.
+They cannot leak that runtime into the parent's next test and remain in both
+unfiltered full suites (Python 3.11 and 3.12). Tests of the parent's globals,
+registrations, caches and database state stay in the shuffled serial pass.
+`--durations=25` reports the slowest setup/call/teardown phases in CI.
 
 Replay a failure of the serial job in one process:
 

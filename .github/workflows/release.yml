@@ -121,3 +121,24 @@ jobs:
           skip-existing: false
       - name: Verify published artifacts
         run: python3 reviewed/pypi_release.py verify --manifest reviewed/release-manifest.json
+
+  github-release:
+    needs: [plan, publish]
+    if: ${{ needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # Owner approval and successful PyPI verification precede this job.
+      # Use the exact reviewed archives, notes and source SHA; never rebuild.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pypi-release-${{ github.run_id }}
+          path: reviewed
+      - name: Publish verified GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 reviewed/pypi_release.py github-release
+          --manifest reviewed/release-manifest.json --dist reviewed/dist

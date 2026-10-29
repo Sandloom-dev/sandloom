@@ -43,7 +43,7 @@ Build the module packages you use (`packages/sandloom-identity`, ...) too
 before installing wheels in a clean environment. See the
 [package layout and full validation](https://github.com/Sandloom-dev/sandloom/tree/main/packages).
 The initial alpha is also available from PyPI:
-`pip install "sandloom[standard]==0.7.0a1"`.
+`pip install "sandloom[standard]==0.7.0a2"`.
 
 The `sandloom` wheel ships `sandloom.core` (including the core migration
 chain, packaged as `sandloom/core/migrations/core_chain`), `sandloom.sdk`,
@@ -65,14 +65,14 @@ uv run sandloom new linkly --no-batteries --module links --framework-source path
 
 | Flag | Meaning |
 | --- | --- |
-| `--with a,b,c` | standard modules to install and load (`identity`, `tenancy`, `billing`): the app depends on `sandloom[redis,celery]>=0.7.0a1,<0.8` plus `sandloom-<module>>=0.7.0a1,<0.8` for each |
+| `--with a,b,c` | standard modules to install and load (`identity`, `tenancy`, `billing`): the app depends on `sandloom[redis,celery]>=0.7.0a2,<0.8` plus `sandloom-<module>>=0.7.0a2,<0.8` for each |
 | `--no-batteries` | install no standard module (minimal app: depends on `sandloom[redis,celery]` only) |
 | `--module <name>` | name of the initial sample module |
 | `--dir <path>` | parent directory (default: cwd) |
 | `--framework-source path --framework-path <repo>` | depend on a local framework checkout (the repository root containing `packages/`): editable uv sources for exactly the distributions the app uses |
 
 The generated tree boots immediately: `sandloom new` prints the next steps, the
-[quickstart](index.md#quickstart) (`uv sync`, the dev services,
+[quickstart](index.md#quickstart) (`uv sync`, `uv run sandloom generate`, the dev services,
 `uv run sandloom add module <name>`, `uv run sandloom test`, the migrations,
 `uv run uvicorn <app>.asgi:app --reload`), and the generated `README.md`
 repeats them. It also runs `sandloom generate` (module and route snapshots,

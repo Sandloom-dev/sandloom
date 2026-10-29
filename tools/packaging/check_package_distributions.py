@@ -314,6 +314,28 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     pyproject = (work / "probe" / "pyproject.toml").read_text()
     if '"sandloom' not in pyproject:
         raise RuntimeError("the generated app does not depend on sandloom")
+    for batteries in ("identity", "tenancy", "billing", "identity,tenancy,billing"):
+        app = "probe_" + batteries.replace(",", "_")
+        created = _run(
+            str(sandloom),
+            "new",
+            app,
+            "--with",
+            batteries,
+            "--dir",
+            str(work),
+            env=env,
+            cwd=work,
+            capture_output=True,
+        )
+        if "ModuleLoadError" in created.stdout or "run `uv sync`" not in created.stdout:
+            raise RuntimeError(
+                f"bare CLI with {batteries}: unclear dependency handoff:\n{created.stdout}"
+            )
+        if created.stdout.index("uv run sandloom generate") > created.stdout.index(
+            "uv run sandloom test"
+        ):
+            raise RuntimeError("initial generation must precede the app's CI gate")
     _run(
         str(_python(venv)),
         "-c",

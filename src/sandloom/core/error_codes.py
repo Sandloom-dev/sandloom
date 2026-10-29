@@ -8,7 +8,8 @@ fix it); the message at the failure site stays short::
     error[SANDLOOM-B002]: route POST /api/v1/notes resolves the guard before auth
       --> src/sandloom/notes/api/notes.py:42 (create_note)
       fix: move Depends(get_current_user_id) before the guard
-      docs: sandloom explain SANDLOOM-B002
+      docs: https://sandloom.dev/docs/reference/error-codes/#sandloom-b002
+      help: sandloom explain SANDLOOM-B002
 
 Code families: ``SANDLOOM-C`` static ``sandloom check`` rules (also addressable by the
 rule id, e.g. ``sandloom explain tenant-scoped-models``), ``SANDLOOM-B`` startup
@@ -1236,6 +1237,15 @@ def code_for_exception(exc: BaseException) -> str | None:
     return None
 
 
+def documentation_url(code: str) -> str:
+    """Canonical catalogue permalink; accepts the same aliases as ``get``.
+
+    Pure formatting: error reporting stays usable without network access.
+    Retired codes keep their anchors, just as they keep their catalogue entries.
+    """
+    return f"https://sandloom.dev/docs/reference/error-codes/#{get(code).code.lower()}"
+
+
 def render(
     code: str,
     what: str,
@@ -1254,7 +1264,8 @@ def render(
     if where:
         lines.append(f"  --> {where}")
     lines.append(f"  fix: {fix or entry.fix}")
-    lines.append(f"  docs: sandloom explain {entry.code}")
+    lines.append(f"  docs: {documentation_url(entry.code)}")
+    lines.append(f"  help: sandloom explain {entry.code}")
     return "\n".join(lines)
 
 
@@ -1263,7 +1274,10 @@ def fix_line(code: str) -> str:
     messages.
     """
     entry = get(code)
-    return f"fix: {entry.fix} (sandloom explain {entry.code})"
+    return (
+        f"fix: {entry.fix} (sandloom explain {entry.code}; "
+        f"{documentation_url(entry.code)})"
+    )
 
 
 def explain_text(entry: ErrorCode) -> str:
@@ -1276,9 +1290,10 @@ def explain_text(entry: ErrorCode) -> str:
         entry.explain,
         "",
         f"Fix: {entry.fix}",
+        f"Docs: {documentation_url(entry.code)}",
     ]
     if entry.docs:
-        lines.append(f"Docs: {entry.docs}")
+        lines.append(f"Source reference: {entry.docs}")
     if entry.planned:
         lines.append(
             f"Status: planned, nothing raises it yet; the check lands at "
@@ -1308,7 +1323,10 @@ def render_catalogue_markdown(entries: Iterable[ErrorCode] = CATALOGUE) -> str:
         fix = e.fix.replace("|", "\\|")
         title = e.title.replace("|", "\\|")
         kind = f"{e.kind} (planned: {e.planned})" if e.planned else e.kind
-        out.append(f"| `{e.code}` | `{e.slug}` | {kind} | {title} | {fix} |")
+        out.append(
+            f"| [`{e.code}`]({documentation_url(e.code)}) | `{e.slug}` | "
+            f"{kind} | {title} | {fix} |"
+        )
     return "\n".join(out) + "\n"
 
 
@@ -1340,6 +1358,7 @@ __all__ = [
     "EXCEPTION_CODES",
     "ErrorCode",
     "code_for_exception",
+    "documentation_url",
     "explain_text",
     "fix_line",
     "get",

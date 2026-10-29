@@ -5,6 +5,7 @@ Sandloom publishes four distributions through
 `sandloom`, `sandloom-identity`, `sandloom-tenancy` and `sandloom-billing`.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
+The current published alpha is `0.7.0a2` for all four packages.
 
 ## Authentication and approval
 
@@ -52,6 +53,23 @@ the workflow never replaces an immutable PyPI file or silently accepts a hash
 mismatch. After an interrupted upload, a rerun reuses identical published files
 and uploads only the missing ones. A publication/verification failure must be
 investigated before choosing a new version.
+
+## GitHub Releases
+
+After PyPI publication and hash verification succeed, a separate job creates
+an initially private draft GitHub Release, uploads the same reviewed archives,
+`SHA256SUMS` and the source manifest, verifies their hashes, then publishes it.
+Release notes come from the selected version's changelog section, captured
+before owner approval. Only this job receives `contents: write`; it has no
+PyPI token or OIDC permission and does no checkout, build or installation.
+
+A coordinated `all` release requires matching package versions and creates
+`v<version>` (for example `v0.7.0a2`). A single-package release creates
+`<package>-v<version>`. Alpha, beta and release candidates are marked as
+GitHub prereleases. The tag must point to the manifest's exact source commit.
+Reruns can fill missing assets in a draft but never overwrite a tag or a
+conflicting asset. A matching published release is verified without changes.
+A dry run never creates a tag, draft, GitHub Release or PyPI upload.
 
 ## Manual release
 

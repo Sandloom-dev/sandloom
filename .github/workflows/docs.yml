@@ -32,9 +32,13 @@ jobs:
           python3 tools/docs/docs_stale_symbols.py
 
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Add uv to PATH
-        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
 
       # dev: the reference pages import sandloom.sdk.testing, which needs pytest.
       - name: Install backend + docs dependencies

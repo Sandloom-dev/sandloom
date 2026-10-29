@@ -8,16 +8,16 @@ type: tutorial
 
 ## Quickstart
 
-!!! note "Initial alpha: 0.7.0a1"
+!!! note "Current alpha: 0.7.0a2"
     All four alpha packages are available on
-    [PyPI](https://pypi.org/project/sandloom/0.7.0a1/). The source is maintained in
+    [PyPI](https://pypi.org/project/sandloom/0.7.0a2/). The source is maintained in
     [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 
 You need Python 3.11+, [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker.
 In an empty directory, generate an application from the published alpha:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a1" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a2" sandloom new myapp --with identity,tenancy,billing
 ```
 
 `sandloom new` prints the next steps; run them as printed:
@@ -26,9 +26,9 @@ uvx --from "sandloom[standard]==0.7.0a1" sandloom new myapp --with identity,tena
 ```bash
 cd myapp
 uv sync                                                       # the app, the framework, the pinned dev tools
+uv run sandloom generate                                      # snapshots, stubs and DTOs from installed dependencies
 docker compose -f deploy/docker-compose.dev.yml up -d --wait  # Postgres + Redis
 uv run sandloom add module notes                              # a module: discovered, nothing to wire
-uv run sandloom generate                                      # after each edit: snapshots, stubs, DTO copies
 uv run sandloom test                                          # tests + every gate (never writes)
 uv run sandloom migrate upgrade-all --apply                   # core + module chains
 uv run uvicorn myapp.asgi:app --reload                        # http://localhost:8000/health

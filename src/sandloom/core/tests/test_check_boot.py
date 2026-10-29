@@ -53,7 +53,11 @@ def test_a_startup_refusal_is_rendered_with_its_code(probe_root: str) -> None:
     assert problem.startswith(
         "error[SANDLOOM-B002]: GuardOrderError: POST /api/v1/bootcheck/x"
     )
-    assert "docs: sandloom explain SANDLOOM-B002" in problem
+    assert (
+        "docs: https://sandloom.dev/docs/reference/error-codes/#sandloom-b002"
+        in problem
+    )
+    assert "help: sandloom explain SANDLOOM-B002" in problem
 
 
 def test_the_framework_app_boots_clean() -> None:

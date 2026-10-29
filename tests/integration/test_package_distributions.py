@@ -22,6 +22,7 @@ CHECK = REPO / "tools" / "packaging" / "check_package_distributions.py"
 
 pytestmark = [
     pytest.mark.slow,
+    pytest.mark.subprocess_probe,
     pytest.mark.skipif(
         not (REPO / "packages").is_dir() or shutil.which("uv") is None,
         reason="needs the source tree's packages/ and uv",

@@ -37,6 +37,7 @@ The child entrypoint is ``python -m sandloom.core.testing.served <app> --fd N``.
 from __future__ import annotations
 
 import argparse
+import http.client
 import os
 import secrets
 import socket
@@ -44,8 +45,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
-import httpx
 import uvicorn
 from uvicorn.importer import import_from_string
 
@@ -193,15 +194,33 @@ def probe(server: SpawnedServer, timeout: float = 1.0) -> bool:
             f"{server.label} ({server.url}) exited with code {code} before it "
             "was ready (startup failure; see its log)"
         )
+    address = urlsplit(server.url)
+    if address.scheme != "http" or address.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise SpawnedServerError("readiness probes require a loopback HTTP server")
+    # This is always plain HTTP to the socket reserved by the harness. A fresh
+    # HTTPX client loaded the CA bundle on every poll, even for plain HTTP.
+    # A direct connection also ignores user proxy settings and never redirects.
+    connection = http.client.HTTPConnection(
+        address.hostname, address.port, timeout=timeout
+    )
     try:
-        resp = httpx.get(f"{server.url}{IDENTITY_PATH}", timeout=timeout)
-    except httpx.HTTPError:
+        connection.request("GET", IDENTITY_PATH)
+        response = connection.getresponse()
+        status = response.status
+        body = response.read(1024).decode("utf-8", errors="replace")
+    except (OSError, http.client.HTTPException):
         return False
-    if resp.status_code == 200 and resp.text == server.nonce:
+    finally:
+        connection.close()
+    if status == 200 and body == server.nonce:
         return True
     raise SpawnedServerError(
         f"{server.label}: {server.url} is answered by a different process "
-        f"(GET {IDENTITY_PATH} -> {resp.status_code} {resp.text[:200]!r}); "
+        f"(GET {IDENTITY_PATH} -> {status} {body[:200]!r}); "
         "refusing to talk to it"
     )
 

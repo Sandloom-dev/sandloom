@@ -50,6 +50,24 @@ def test_uv_cache_has_one_writer_per_python_and_explicit_readers(runner):
     assert writers == [("ci.yml", "backend-tests")]
 
 
+def test_serial_gate_only_omits_probes_still_covered_by_the_full_matrix(runner):
+    jobs = workflow("ci.yml")["jobs"]
+    serial = jobs["backend-tests-isolation"]
+    command = next(
+        s["run"] for s in serial["steps"] if "--sandloom-shuffle" in s.get("run", "")
+    )
+    assert '-m "not subprocess_probe"' in command
+    assert "no:xdist" in command and "--durations=25" in command
+    parallel = next(
+        s["run"]
+        for s in jobs["backend-tests"]["steps"]
+        if "--sandloom-shuffle" in s.get("run", "")
+    )
+    assert "subprocess_probe" not in parallel
+    full = runner._expand_matrix(jobs["backend-tests"], full_validation=True)
+    assert {r["python"] for r in full if r["slow"]} == {"3.11", "3.12"}
+
+
 @pytest.fixture(scope="module")
 def runner() -> ModuleType:
     spec = importlib.util.spec_from_file_location(

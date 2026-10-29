@@ -11,7 +11,7 @@ the CLI, never something to add here. The steps:
 2. every line ``sandloom new`` prints under "Next steps", verbatim and in order
    (``sandloom.core.cli.project.QUICKSTART`` is their one source, and the docs
    are tested against it):
-   ``cd``, ``uv sync``, the dev services, ``uv run sandloom add module <m>``,
+   ``cd``, ``uv sync``, ``uv run sandloom generate``, the dev services, ``uv run sandloom add module <m>``,
    ``uv run sandloom test`` (every step must PASS), ``uv run sandloom migrate
    upgrade-all --apply`` and ``uv run uvicorn <app>.asgi:app --reload``;
    right after ``uv sync``, the app's ``sandloom`` must be this checkout (the
@@ -21,8 +21,9 @@ the CLI, never something to add here. The steps:
    with the testing kit (``sandloom.sdk.testing.as_user``, the app's own
    ``JWT_SECRET``) creates and reads an item of the added module;
 4. ``uv run sandloom test --ci`` (the generated app's CI gate) — also once on the
-   fresh app, right after the dev services line (``sandloom new`` writes the
-   generated files, so a just-generated app passes its own CI).
+   fresh app, after installing dependencies, generating files and starting
+   the dev services. ``--cli`` can select a kernel-only CLI to exercise the
+   isolated uvx path; ``--profile`` selects each standard battery or all three.
 
 Services. Without ``--postgres-url`` the dev-services line runs as printed
 (``docker compose ... up -d --wait``, the generated compose file). With it
@@ -297,12 +298,23 @@ class Runner:
             raise QuickstartError(f"{work} is not empty")
         self.cwd = work.resolve()
         self.configure_services()
+        cli = (
+            shlex.quote(str(a.cli.resolve()))
+            if a.cli
+            else f"uv run --project {shlex.quote(str(self.repo))} sandloom"
+        )
+        batteries = "identity,tenancy,billing" if a.profile == "all" else a.profile
+        selection = "--no-batteries" if a.profile == "bare" else f"--with {batteries}"
         new = (
-            f"uv run --project {shlex.quote(str(self.repo))} sandloom new "
+            f"{cli} new "
             f"{a.app} --framework-source path "
-            f"--framework-path {shlex.quote(str(self.repo))}"
+            f"--framework-path {shlex.quote(str(self.repo))} {selection}"
         )
         out = self.step("sandloom new", self.sh, new, capture=True)
+        if "ModuleLoadError" in out:
+            raise QuickstartError(
+                "sandloom new tried loading uninstalled app dependencies"
+            )
         if "Next steps:" not in out:
             raise QuickstartError("sandloom new printed no 'Next steps:'")
         lines = [
@@ -369,6 +381,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo", type=Path, default=REPO, help="framework repository")
     p.add_argument("--workdir", type=Path, help="an empty directory (default: temp)")
     p.add_argument("--app", default="demo", help="application name (default: demo)")
+    p.add_argument(
+        "--cli", type=Path, help="standalone CLI executable without batteries"
+    )
+    p.add_argument(
+        "--profile",
+        choices=("bare", "identity", "tenancy", "billing", "all"),
+        default="bare",
+    )
     p.add_argument("--postgres-url", help="server URL without a database (CI)")
     p.add_argument("--admin-db", default="postgres", help="database to connect to")
     p.add_argument("--redis-url", default="redis://localhost:6380")

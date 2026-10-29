@@ -33,10 +33,12 @@ Usage:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import keyword
 import re
 import secrets
+import tomllib
 from pathlib import Path
 from string import Template
 
@@ -78,11 +80,14 @@ QUICKSTART: tuple[tuple[str, str], ...] = (
     ("cd {path}", ""),
     ("uv sync", "the app, the framework, the pinned dev tools"),
     (
+        "uv run sandloom generate",
+        "snapshots, stubs and DTOs from installed dependencies",
+    ),
+    (
         "docker compose -f deploy/docker-compose.dev.yml up -d --wait",
         "Postgres + Redis",
     ),
     ("uv run sandloom add module {module}", "a module: discovered, nothing to wire"),
-    ("uv run sandloom generate", "after each edit: snapshots, stubs, DTO copies"),
     ("uv run sandloom test", "tests + every gate (never writes)"),
     ("uv run sandloom migrate upgrade-all --apply", "core + module chains"),
     ("uv run uvicorn {app}.asgi:app --reload", "http://localhost:8000/health"),
@@ -1156,6 +1161,22 @@ def write_generated_files(root: Path) -> str | None:
     interpreter, the app's ``.env.test``; nothing connects to a database);
     returns ``None``, or why it could not (e.g. this ``sandloom`` lacks the
     bundled modules the app loads: then run ``sandloom generate``)."""
+    # `uvx --from sandloom` isolates the CLI from the app's optional packages.
+    # Do not boot that incomplete composition: generation runs after `uv sync`
+    # in the app environment, using the dependency versions it actually installed.
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = {
+        re.split(r"[\[<>=!~ ;]", dependency, maxsplit=1)[0]
+        for dependency in metadata["project"]["dependencies"]
+    }
+    missing = [
+        f"sandloom-{name}"
+        for name in _BUNDLED
+        if f"sandloom-{name}" in dependencies
+        and importlib.util.find_spec(f"sandloom_{name}") is None
+    ]
+    if missing:
+        return f"run `uv sync` to install the app dependencies: {', '.join(missing)}"
     code, output = _add.run_generate(root)
     if code == 0:
         return None

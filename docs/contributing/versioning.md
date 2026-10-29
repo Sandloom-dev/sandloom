@@ -59,7 +59,7 @@ per breaking release (e.g. [Upgrading to 1.0](../guides/upgrading-1.0.md)).
 The module packages `sandloom-identity`, `sandloom-tenancy` and
 `sandloom-billing` (see [Publishing](../guides/publishing.md)) **version
 independently**, like any third-party module: each has its own version and
-changelog, starting at `0.7.0`, and depends on a compatible framework range,
+changelog. The current published alpha is `0.7.0a2`; each module depends on a compatible framework range,
 `sandloom>=0.7.0a2,<0.8` (for a `0.x` framework the next minor is the next breaking
 release). No module package depends on another. A module release that needs a
 newer framework widens or moves its range; a framework minor release requires

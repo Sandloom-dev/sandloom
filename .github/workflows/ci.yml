@@ -350,7 +350,7 @@ jobs:
         # --sandloom-shuffle: a fresh seeded order per run (printed in the header
         # and the summary; replay with --sandloom-shuffle=<seed>).
         run: >-
-          uv run pytest -q -n auto --dist loadfile --sandloom-shuffle=random
+          uv run pytest -q -n auto --dist loadfile --sandloom-shuffle=random --durations=25
           ${{ matrix.coverage && '--cov --cov-report=term-missing --cov-report=html' || '' }}
           ${{ !matrix.slow && '-m "not slow"' || '' }}
         env:
@@ -386,7 +386,7 @@ jobs:
           retention-days: 3
 
   backend-tests-isolation:
-    # Test isolation gate: the full suite SERIALLY in one process, in a
+    # Test isolation gate: in-process tests SERIALLY in one process, in a
     # seeded random order (sandloom.core.testing.shuffle: the files, then the tests
     # inside each file). The parallel jobs give each worker a fixed slice of
     # files, which hides a test that passes only because an earlier one left
@@ -439,8 +439,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      - name: Full suite, serial, shuffled
-        run: uv run pytest -q -p no:xdist -p no:cacheprovider --sandloom-shuffle=random
+      - name: In-process suite, serial, shuffled
+        # Child-process-only probes cannot leak runtime globals into this
+        # process; the unfiltered full matrix above already exercises them.
+        run: >-
+          uv run pytest -q -p no:xdist -p no:cacheprovider
+          --sandloom-shuffle=random -m "not subprocess_probe" --durations=25
         env:
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
           CACHE_URL: redis://127.0.0.1:6380/0
@@ -640,6 +644,11 @@ jobs:
 
   quickstart:
     if: ${{ inputs.full_validation }}
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [bare, identity, tenancy, billing, all]
+    name: quickstart (${{ matrix.profile }})
     # The documented quickstart, end to end, in an empty directory, with no
     # manual step: `sandloom new` against the framework from this commit, then the
     # "Next steps" it prints, verbatim (uv sync, sandloom add module, sandloom test with
@@ -681,9 +690,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
           save-cache: false
+      - name: Install standalone CLI without batteries
+        run: |
+          uv venv "$RUNNER_TEMP/quickstart-cli"
+          uv pip install --python "$RUNNER_TEMP/quickstart-cli/bin/python" ./packages/sandloom
       - name: Quickstart (sandloom new -> next steps -> app round trip -> sandloom test --ci)
+        env:
+          QUICKSTART_PROFILE: ${{ matrix.profile }}
         run: >-
           python3 tools/smoke/quickstart_check.py
+          --cli "$RUNNER_TEMP/quickstart-cli/bin/sandloom"
+          --profile "$QUICKSTART_PROFILE"
           --postgres-url postgresql://test_user:test_password@127.0.0.1:5433
           --redis-url redis://127.0.0.1:6380 --redis-db-base 0
 

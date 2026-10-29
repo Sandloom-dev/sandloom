@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -200,6 +201,39 @@ def test_probe_rejects_a_stranger_while_the_child_is_alive(
             probe(server)
     finally:
         server.stop()
+
+
+def test_plain_http_probe_does_not_build_tls_contexts_or_use_proxy_env(
+    stranger: HTTPServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A frequent localhost readiness poll must not load a CA bundle each time."""
+    from unittest.mock import Mock
+
+    proc = Mock()
+    proc.poll.return_value = None
+    server = SpawnedServer(
+        proc, f"http://127.0.0.1:{stranger.server_address[1]}", "nonce", "probe"
+    )
+
+    def unexpected_tls(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("plain HTTP readiness probe constructed a TLS context")
+
+    monkeypatch.setattr(ssl, "create_default_context", unexpected_tls)
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("NO_PROXY", "")
+    # Reaching the real stranger proves that a proxy was not consulted.
+    with pytest.raises(SpawnedServerError, match="different process"):
+        probe(server)
+
+
+@pytest.mark.parametrize("url", ["https://127.0.0.1:1", "http://example.com:80"])
+def test_readiness_probe_only_accepts_loopback_http(url: str) -> None:
+    from unittest.mock import Mock
+
+    proc = Mock()
+    proc.poll.return_value = None
+    with pytest.raises(SpawnedServerError, match="loopback HTTP"):
+        probe(SpawnedServer(proc, url, "nonce", "probe"))
 
 
 def test_reopen_after_release_refuses_a_port_taken_meanwhile() -> None:

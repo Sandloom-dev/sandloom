@@ -19,6 +19,17 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class DocumentationSiteTests(unittest.TestCase):
+    def test_every_error_permalink_resolves_to_a_built_anchor(self) -> None:
+        from sandloom.core.error_codes import CATALOGUE, documentation_url
+
+        page = (SITE / "reference/error-codes/index.html").read_text()
+        for entry in CATALOGUE:
+            with self.subTest(code=entry.code):
+                link = urlsplit(documentation_url(entry.code))
+                self.assertEqual(link.netloc, "sandloom.dev")
+                self.assertEqual(link.path, "/docs/reference/error-codes/")
+                self.assertIn(f'id="{link.fragment}"', page)
+
     def test_tutorial_markdown_contains_the_real_code(self) -> None:
         tutorial = (SITE / "getting-started/tutorial/index.md").read_text()
         self.assertIn("class TasksItem(TenantScoped, Base):", tutorial)

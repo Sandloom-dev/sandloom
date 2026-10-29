@@ -12,14 +12,18 @@ title: Installation
 
 ## Install the alpha from PyPI
 
-The four `0.7.0a1` distributions are available on PyPI. Create an application
+The four `0.7.0a2` distributions are available on PyPI. Create an application
 directly from the published packages:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a1" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a2" sandloom new myapp --with identity,tenancy,billing
 ```
 
-Continue with the [application quickstart](index.md#quickstart).
+Continue with the [application quickstart](index.md#quickstart): `cd myapp`,
+`uv sync`, then `uv run sandloom generate` before testing or migrating.
+A standalone CLI may not have the selected batteries installed; this is expected.
+`uv sync` installs them into the application, and `generate` writes its contract
+stubs, DTOs and snapshots using those installed versions.
 The remaining sections describe running the framework source checkout as a contributor.
 
 ## Get the source checkout

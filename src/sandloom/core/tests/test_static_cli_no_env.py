@@ -38,6 +38,7 @@ def _run_empty_env(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[st
     ],
     ids=lambda a: " ".join(a),
 )
+@pytest.mark.subprocess_probe
 def test_static_cli_runs_with_empty_environment(
     argv: list[str], tmp_path: Path
 ) -> None:
@@ -50,6 +51,7 @@ def test_static_cli_runs_with_empty_environment(
 
 
 @pytest.mark.slow
+@pytest.mark.subprocess_probe
 def test_sandloom_check_runs_against_a_manifest_with_empty_environment(
     tmp_path: Path,
 ) -> None:
@@ -67,6 +69,7 @@ def test_sandloom_check_runs_against_a_manifest_with_empty_environment(
     assert "sandloom check: OK" in proc.stdout
 
 
+@pytest.mark.subprocess_probe
 def test_importing_static_submodules_does_not_build_settings(tmp_path: Path) -> None:
     code = (
         "import sys\n"
