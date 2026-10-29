@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.mark.subprocess_probe
 def test_metrics_scrape_aggregates_other_workers(tmp_path: Path) -> None:
     env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}
     for amount in (2, 3):

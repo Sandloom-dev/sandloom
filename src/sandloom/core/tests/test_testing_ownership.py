@@ -258,6 +258,7 @@ def test_a_run_on_a_foreign_database_aborts_before_any_test(
     conn.close()
 
 
+@pytest.mark.subprocess_probe
 def test_prepush_hook_refuses_the_shared_default_database() -> None:
     env = {k: v for k, v in os.environ.items() if k != "SANDLOOM_TEST_DATABASE_URL"}
     result = subprocess.run(

@@ -144,6 +144,7 @@ def test_every_sourced_distribution_is_a_direct_dependency(tmp_path: Path) -> No
     assert sourced <= deps, f"{sourced - deps} sourced but not direct dependencies"
 
 
+@pytest.mark.subprocess_probe
 @pytest.mark.slow
 def test_an_editable_framework_install_is_the_live_tree(tmp_path: Path) -> None:
     """The editable install a ``--framework-source path`` app gets copies no
@@ -231,6 +232,7 @@ def test_missing_batteries_defer_generation_without_a_failed_boot(
         assert f"sandloom-{name}" in problem
 
 
+@pytest.mark.subprocess_probe
 @pytest.mark.slow
 def test_quickstart_end_to_end(tmp_path: Path) -> None:
     """The CI job's script; opt-in (it needs uv, network and servers)."""

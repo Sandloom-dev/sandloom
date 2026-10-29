@@ -515,6 +515,7 @@
         "docs/concepts/units.md",
         "docs/concepts/write-admission.md",
         "docs/contributing/branches.md",
+        "docs/contributing/ci-performance-research.md",
         "docs/contributing/ci.md",
         "docs/contributing/index.md",
         "docs/contributing/lint-policy.md",

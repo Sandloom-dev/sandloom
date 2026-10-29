@@ -281,6 +281,7 @@ async def test_fetch_pending_takes_no_row_locks(factory: Any) -> None:
         )
 
 
+@pytest.mark.subprocess_probe
 def test_start_relay_background_never_uses_deprecated_get_event_loop() -> None:
     """GLM review #12: asyncio.get_event_loop() outside a running loop is
     deprecated (a DeprecationWarning — an error in apps' test suites — and a

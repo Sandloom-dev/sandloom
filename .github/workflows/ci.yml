@@ -394,7 +394,8 @@ jobs:
     # in a fresh order finds it. The seed is printed in the header and the
     # summary: replay with `uv run pytest -p no:xdist --sandloom-shuffle=<seed>`.
     # docs/guides/testing.md#test-isolation.
-    needs: changes
+    # This input is known immediately; no classifier output is consumed.
+    # Start the critical serial gate alongside classification, not behind it.
     if: ${{ inputs.full_validation }}
     runs-on: ubuntu-latest
     timeout-minutes: 45

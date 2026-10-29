@@ -193,6 +193,7 @@ _WORKER_SCRIPT = textwrap.dedent(
 )
 
 
+@pytest.mark.subprocess_probe
 def test_worker_applies_gc_config_after_lifespan_startup() -> None:
     """A real child interpreter through the gunicorn hook: frozen at
     ``lifespan.startup.complete`` (before the server would accept traffic),
@@ -225,6 +226,7 @@ def test_worker_applies_gc_config_after_lifespan_startup() -> None:
     assert f"sandloom_gc_frozen_objects {float(frozen)}" in doc["metrics"]
 
 
+@pytest.mark.subprocess_probe
 def test_worker_gc_tuning_can_be_switched_off() -> None:
     env = {
         **os.environ,
@@ -248,6 +250,7 @@ def test_worker_gc_tuning_can_be_switched_off() -> None:
     assert 'sandloom_gc_pause_seconds_count{generation="2"}' not in doc["metrics"]
 
 
+@pytest.mark.subprocess_probe
 def test_celery_worker_init_freezes_in_the_parent() -> None:
     script = textwrap.dedent(
         """

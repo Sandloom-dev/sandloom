@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from sandloom.core.config.settings import (
     Settings,
     load_settings,
@@ -40,6 +42,7 @@ def test_loaded_settings_are_a_plain_settings_instance() -> None:
     assert load_settings() is settings
 
 
+@pytest.mark.subprocess_probe
 def test_import_does_not_validate_and_first_use_does(tmp_path: Path) -> None:
     code = (
         "import sandloom.core.config.settings as s\n"
@@ -59,6 +62,7 @@ def test_import_does_not_validate_and_first_use_does(tmp_path: Path) -> None:
     assert result.stdout.strip() == "dev"
 
 
+@pytest.mark.subprocess_probe
 def test_an_invalid_environment_still_fails_at_the_entry_point(tmp_path: Path) -> None:
     code = (
         "import sandloom.core.app_factory as f\n"  # importing is fine

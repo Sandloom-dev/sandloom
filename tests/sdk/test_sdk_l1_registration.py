@@ -197,6 +197,7 @@ def _example_apps() -> list[tuple[str, str]]:
     return apps
 
 
+@pytest.mark.subprocess_probe
 @pytest.mark.parametrize(("app", "modules_package"), _example_apps())
 def test_example_modules_register_identically_through_l1(
     app: str, modules_package: str
