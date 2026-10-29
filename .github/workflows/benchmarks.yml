@@ -1,340 +1,236 @@
-# Comparative HTTP benchmarks: Sandloom vs bare FastAPI vs bare Litestar across
-# servers / event loops / Python versions / load generators. MANUAL ONLY
-# (workflow_dispatch), or on a PR when the `benchmark` label is added (with
-# the dispatch defaults) — never on plain push/PR. See benchmarks/README.md for the
-# methodology and fairness rules.
-#
-#   gh workflow run benchmarks.yml --ref <branch> -f python=3.12,3.13 -f loadgen=oha,wrk
-#
-# Results are published to the job step summaries (Markdown) and printed to the
-# logs as BENCHJSON lines — NOT uploaded as artifacts (the account's artifact
-# storage quota is exhausted). The `report` job collects every job's
-# BENCHJSON from the run's logs and renders one combined table. Only the
-# wrk/wrk2 binaries are cached (actions/cache, keyed by their pinned commits).
-#
-# Jobs: plan -> bench (python x server, closed loop) -> pick (best 2 servers)
-#       -> scaling (4 workers) + latency (wrk2 open loop) -> report
-name: benchmarks
+name: Controlled serial-isolation comparison
 
+# Temporary diagnostic branch only: compare two reviewed commits sequentially
+# on one standard GitHub VM. No publishing, deployment, secrets or write token.
 on:
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
-    inputs:
-      scenarios:
-        description: "Scenarios (comma list of s1,s2,s3,s4)"
-        default: "s1,s2,s3,s4"
-        type: string
-      python:
-        description: "Python versions (comma list; 3.14t = free-threaded)"
-        default: "3.12,3.13,3.14,3.14t"
-        type: string
-      servers:
-        description: "Servers (comma list)"
-        default: "uvicorn-h11,uvicorn-httptools,uvicorn-uvloop,granian-asyncio,granian-uvloop,granian-rloop"
-        type: string
-      impls:
-        description: "Implementations (comma list)"
-        default: "sandloom,fastapi,litestar,litestar-asyncpg"
-        type: string
-      loadgen:
-        description: "Load generators of the bench jobs: oha,wrk,wrk2 or all (wrk2 also runs in the latency job)"
-        default: "oha,wrk"
-        type: string
-      duration:
-        description: "Seconds per measured repetition"
-        default: "10"
-        type: string
-      warmup:
-        description: "Warm-up seconds per scenario (discarded)"
-        default: "3"
-        type: string
-      reps:
-        description: "Repetitions (interleaved across implementations)"
-        default: "3"
-        type: string
-      connections:
-        description: "Concurrent connections of the load generator"
-        default: "64"
-        type: string
-      scaling_servers:
-        description: "4-worker run: 'auto' (best two for Sandloom), a comma list, or 'none'"
-        default: "auto"
-        type: string
-      latency_servers:
-        description: "wrk2 fixed-rate run: 'auto' (best two for Sandloom), a comma list, or 'none'"
-        default: "auto"
-        type: string
-      latency_impls:
-        description: "Implementations of the wrk2 run"
-        default: "sandloom,fastapi,litestar"
-        type: string
-      wrk2_scenarios:
-        description: "Scenarios of the wrk2 run"
-        default: "s2,s3,s4"
-        type: string
-      rate:
-        description: "Fixed wrk2 rate in req/s (empty: rate_fraction x the closed-loop max measured in the same job)"
-        default: ""
-        type: string
-      rate_fraction:
-        description: "wrk2 rate as a fraction of the closed-loop max"
-        default: "0.7"
-        type: string
-      rate_basis:
-        description: "per-impl (each impl at a fraction of its own max) or common (all at a fraction of the slowest)"
-        default: "per-impl"
-        type: choice
-        options: [per-impl, common]
 
 permissions:
   contents: read
-  actions: read # the pick/report jobs read this run's job logs
 
 concurrency:
-  group: benchmarks-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  OHA_VERSION: "1.16.0"
-  OHA_SHA256: "620bb9e16fb53eabc9a3fc45f88bdb41fefa3fee5c05e75892011ce320391716"
-  # wrk 4.2.0 and wrk2 master, built from source at these commits.
-  WRK_SHA: "a211dd5a7050b1f9e8a9870b95513060e72ac4a0"
-  WRK2_SHA: "44a94c17d8e6a0bac8559b53da76848e430cb7a7"
-  UV_VERSION: "0.13.4"
-  DATABASE_URL: postgresql+asyncpg://bench:bench@127.0.0.1:5432/bench
-  CACHE_URL: redis://127.0.0.1:6379/0
-  BROKER_URL: redis://127.0.0.1:6379/1
-  PYTHONUNBUFFERED: "1"
-  BENCH_SCENARIOS: ${{ (inputs.scenarios || 's1,s2,s3,s4') }}
-  BENCH_DURATION: ${{ (inputs.duration || '10') }}
-  BENCH_WARMUP: ${{ (inputs.warmup || '3') }}
-  BENCH_REPS: ${{ (inputs.reps || '3') }}
-  BENCH_CONNECTIONS: ${{ (inputs.connections || '64') }}
+  group: isolation-control-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  plan:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'benchmark'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      scaling_python: ${{ steps.plan.outputs.scaling_python }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: plan
-        run: python3 benchmarks/ci/plan.py --python "${{ (inputs.python || '3.12,3.13,3.14,3.14t') }}" --servers "${{ (inputs.servers || 'uvicorn-h11,uvicorn-httptools,uvicorn-uvloop,granian-asyncio,granian-uvloop,granian-rloop') }}"
-      # Build (or restore) wrk/wrk2 once so the matrix jobs all hit the cache.
-      - uses: ./.github/actions/bench-tools
-
-  bench:
-    name: bench (${{ matrix.label }})
-    needs: plan
-    runs-on: ${{ vars.BENCH_RUNNER || 'ubuntu-24.04' }}
+  compare:
+    runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      max-parallel: 20
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    services: &services
+    services:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: bench
-          POSTGRES_PASSWORD: bench
-          POSTGRES_DB: bench
-        ports: ["5432:5432"]
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports: ["5433:5432"]
         options: >-
-          --health-cmd "pg_isready -U bench" --health-interval 2s
-          --health-timeout 5s --health-retries 30
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
         image: redis:7
-        ports: ["6379:6379"]
+        ports: ["6380:6379"]
         options: >-
-          --health-cmd "redis-cli ping" --health-interval 2s
-          --health-timeout 5s --health-retries 30
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version: "0.13.4"
+          python-version: "3.12"
           enable-cache: false
-          save-cache: false
-      - uses: ./.github/actions/bench-tools
-        with:
-          postgres-container: ${{ job.services.postgres.id }}
-      - name: Install environment (Python ${{ matrix.python }})
-        id: install
-        working-directory: benchmarks
-        run: |
-          set +e
-          uv sync --frozen --python "${{ matrix.python }}" > "$RUNNER_TEMP/install.log" 2>&1
-          rc=$?
-          tail -40 "$RUNNER_TEMP/install.log"
-          if [ "$rc" -ne 0 ]; then
-            python3 ci/blocked.py "${{ matrix.label }}" "${{ matrix.python }}" \
-              "$RUNNER_TEMP/install.log" "${{ matrix.missing }}"
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Check shared versions match the framework lock
-        if: steps.install.outputs.ok == 'true'
-        working-directory: benchmarks
-        run: .venv/bin/python -m benchsuite.check_versions
-      - name: Prepare database
-        if: steps.install.outputs.ok == 'true'
-        working-directory: benchmarks
-        run: .venv/bin/python -m benchsuite.setup_db
-      - name: Run benchmarks
-        if: steps.install.outputs.ok == 'true'
-        working-directory: benchmarks
+      - name: Record hardware, prepare both commits and compare serial suites
         env:
-          BENCH_SERVICE_CONTAINERS: ${{ job.services.postgres.id }} ${{ job.services.redis.id }}
+          PROFILE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          PROFILE_REDIS_CONTAINER: ${{ job.services.redis.id }}
+          PYTHONHASHSEED: "1234"
+          PYTHONUNBUFFERED: "1"
         run: |
-          ci/run_bench.sh yes "${{ matrix.label }}" \
-            --servers "${{ matrix.server }}" \
-            --impls "${{ (inputs.impls || 'sandloom,fastapi,litestar,litestar-asyncpg') }}" \
-            --loadgen "${{ (inputs.loadgen || 'oha,wrk') }}" \
-            --wrk2-scenarios "${{ (inputs.wrk2_scenarios || 's2,s3,s4') }}" \
-            --rate-fraction "${{ (inputs.rate_fraction || '0.7') }}" \
-            --rate-basis "${{ (inputs.rate_basis || 'per-impl') }}" \
-            ${{ inputs.rate && format('--rate {0}', inputs.rate) || '' }}
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          import sys
+          import time
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
 
-  pick:
-    needs: [plan, bench]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.scaling_python != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      GH_TOKEN: ${{ github.token }}
-    outputs:
-      scaling: ${{ steps.pick.outputs.scaling }}
-      latency: ${{ steps.pick.outputs.latency }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Pick the servers for the scaling / latency jobs
-        id: pick
-        working-directory: benchmarks
-        env:
-          SCALING: ${{ (inputs.scaling_servers || 'auto') }}
-          LATENCY: ${{ (inputs.latency_servers || 'auto') }}
-        run: |
-          best=""
-          if [ "$SCALING" = "auto" ] || [ "$LATENCY" = "auto" ]; then
-            ci/fetch_job_logs.sh "$RUNNER_TEMP/logs" "bench ("
-            # render.py is stdlib-only: no environment install needed.
-            best=$(python3 -m benchsuite.render --best-servers 2 "$RUNNER_TEMP"/logs/*.log || true)
-            [ -n "$best" ] || best="uvicorn-uvloop,granian-uvloop"
-          fi
-          as_json() {
-            case "$1" in
-              none) echo "[]" ;;
-              auto) python3 -c 'import json,sys;print(json.dumps(sys.argv[1].split(",")))' "$best" ;;
-              *) python3 -c 'import json,sys;print(json.dumps([s.strip() for s in sys.argv[1].split(",") if s.strip()]))' "$1" ;;
-            esac
+          root = Path.cwd()
+          temporary = Path(os.environ['RUNNER_TEMP'])
+          output = temporary / 'isolation-control-results'
+          output.mkdir()
+          baseline = 'e9bb04483e6342c569fd9f1366139ed458a7ecc1'
+          candidate = 'd10fc23547dc1ab9b0a6cf4241695baca6bbb993'
+          owner = 'sandloom-isolation-control-' + os.environ['GITHUB_RUN_ID']
+          common = dict(os.environ)
+          for key in ('VIRTUAL_ENV', 'UV_PROJECT_ENVIRONMENT', 'UV_PROJECT',
+                      'PYTEST_ADDOPTS', 'SANDLOOM_TEST_CACHE_URL',
+                      'SANDLOOM_TEST_BROKER_URL', 'PYTHONPATH'):
+              common.pop(key, None)
+          common.update({
+              'CACHE_URL': 'redis://127.0.0.1:6380/0',
+              'BROKER_URL': 'redis://127.0.0.1:6380/14',
+              'JWT_SECRET': 'ci-isolation-suite-not-a-real-secret',
+              'GOOGLE_CLIENT_ID': 'ci-dummy-google-client-id',
+              'GOOGLE_CLIENT_SECRET': 'ci-dummy-google-client-secret',
+              'SANDLOOM_TEST_OWNER': owner,
+              'SANDLOOM_E2E_REQUIRED': '1',
+          })
+
+          def run(args, *, cwd=root, env=common, capture=False):
+              print('$ ' + ' '.join(map(str, args)), flush=True)
+              return subprocess.run(list(map(str, args)), cwd=cwd, env=env,
+                                    check=True, text=True, capture_output=capture)
+
+          def database(name):
+              assert name.isidentifier() and name.startswith('isolation_control_')
+              sql = f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE);'
+              run(['docker', 'exec', os.environ['PROFILE_POSTGRES_CONTAINER'],
+                   'psql', '-U', 'test_user', '-d', 'postgres', '-v',
+                   'ON_ERROR_STOP=1', '-c', sql])
+              run(['docker', 'exec', os.environ['PROFILE_POSTGRES_CONTAINER'],
+                   'psql', '-U', 'test_user', '-d', 'postgres', '-v',
+                   'ON_ERROR_STOP=1', '-c', f'CREATE DATABASE "{name}";'])
+
+          def redis_reset():
+              run(['docker', 'exec', os.environ['PROFILE_REDIS_CONTAINER'],
+                   'redis-cli', 'FLUSHALL'])
+
+          hardware = {
+              'python': sys.version,
+              'platform': platform.platform(),
+              'cpu_count': os.cpu_count(),
+              'image_os': os.environ.get('ImageOS'),
+              'image_version': os.environ.get('ImageVersion'),
+              'runner_arch': os.environ.get('RUNNER_ARCH'),
+              'lscpu': run(['lscpu'], capture=True).stdout,
+              'meminfo': Path('/proc/meminfo').read_text(),
+              'uv': run(['uv', '--version'], capture=True).stdout.strip(),
+              'baseline': baseline,
+              'candidate': candidate,
+              'shuffle_seed': 1234,
+              'hypothesis_seed': 1234,
+              'pythonhashseed': 1234,
           }
-          echo "scaling=$(as_json "$SCALING")" | tee -a "$GITHUB_OUTPUT"
-          echo "latency=$(as_json "$LATENCY")" | tee -a "$GITHUB_OUTPUT"
+          (output / 'hardware.json').write_text(json.dumps(hardware, indent=2))
+          print(json.dumps({k: v for k, v in hardware.items()
+                            if k not in ('lscpu', 'meminfo')}, indent=2))
 
-  scaling:
-    name: scaling (py${{ needs.plan.outputs.scaling_python }}/${{ matrix.server }}, 4 workers)
-    needs: [plan, pick]
-    if: always() && needs.pick.result == 'success' && needs.pick.outputs.scaling != '[]'
-    runs-on: ${{ vars.BENCH_RUNNER || 'ubuntu-24.04' }}
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        server: ${{ fromJSON(needs.pick.outputs.scaling) }}
-    services: *services
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: false
-          save-cache: false
-      - uses: ./.github/actions/bench-tools
-        with:
-          postgres-container: ${{ job.services.postgres.id }}
-      - name: Install environment
-        working-directory: benchmarks
-        run: uv sync --frozen --python "${{ needs.plan.outputs.scaling_python }}"
-      - name: Prepare database
-        working-directory: benchmarks
-        run: .venv/bin/python -m benchsuite.setup_db
-      - name: Run 4-worker benchmarks (unpinned)
-        working-directory: benchmarks
-        env:
-          LOADGEN: ${{ (inputs.loadgen || 'oha,wrk') }}
-        run: |
-          # Closed-loop generators only (wrk2 belongs to the latency job).
-          lg=$(echo "$LOADGEN" | sed -e 's/all/oha,wrk/' -e 's/wrk2//g' -e 's/,,*/,/g' -e 's/^,//' -e 's/,$//')
-          [ -n "$lg" ] || lg="oha,wrk"
-          ci/run_bench.sh no "py${{ needs.plan.outputs.scaling_python }}/scaling-w4-${{ matrix.server }}" \
-            --servers "${{ matrix.server }}" --impls sandloom,fastapi --workers 4 --loadgen "$lg"
+          # Collection warms each checkout's bytecode/import paths and records
+          # both the complete case set and the actual serial selection. It does
+          # not reuse any application process or test fixture across runs.
+          collector = temporary / 'collect_isolation_control.py'
+          collector.write_text('''import json, sys\nfrom pathlib import Path\nimport pytest\nclass Proof:\n    @pytest.hookimpl(wrapper=True, tryfirst=True)\n    def pytest_collection_modifyitems(self, items):\n        complete = list(items)\n        result = yield\n        self.complete = {i.nodeid: bool(i.get_closest_marker("subprocess_probe")) for i in complete}\n        self.selected = [i.nodeid for i in items]\n        return result\n    def pytest_sessionfinish(self, session, exitstatus):\n        Path(sys.argv[1]).write_text(json.dumps({"exit": exitstatus, "all": self.complete, "selected": self.selected}, indent=2))\nraise SystemExit(pytest.main(sys.argv[2:], plugins=[Proof()]))\n''')
+          selection = ['-q', '-p', 'no:xdist', '-p', 'no:cacheprovider',
+                       '--sandloom-shuffle=1234', '--hypothesis-seed=1234',
+                       '-m', 'not subprocess_probe']
+          prepared = []
+          for label, revision in [('baseline', baseline), ('candidate', candidate)]:
+              checkout = temporary / ('isolation-control-' + label)
+              run(['git', 'worktree', 'add', '--detach', checkout, revision])
+              actual = run(['git', 'rev-parse', 'HEAD'], cwd=checkout,
+                           capture=True).stdout.strip()
+              assert actual == revision
+              db = 'isolation_control_' + label + '_test'
+              database(db)
+              redis_reset()
+              env = dict(common)
+              url = 'postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/' + db
+              env.update(DATABASE_URL=url, SANDLOOM_TEST_DATABASE_URL=url,
+                         HYPOTHESIS_STORAGE_DIRECTORY=str(temporary / ('hypothesis-' + label)))
+              run(['uv', 'sync', '--frozen'], cwd=checkout, env=env)
+              python = checkout / '.venv' / 'bin' / 'python'
+              run([python, '--version'], cwd=checkout, env=env)
+              freeze = run(['uv', 'pip', 'freeze', '--python', python],
+                           cwd=checkout, env=env, capture=True).stdout
+              (output / (label + '-dependencies.txt')).write_text(freeze)
+              collection = output / (label + '-collection.json')
+              with (output / (label + '-collection.log')).open('w') as log:
+                  argv = [str(python), str(collector), str(collection),
+                          '--collect-only', *selection]
+                  collected = subprocess.run(argv, cwd=checkout, env=env,
+                                             stdout=log, stderr=subprocess.STDOUT,
+                                             text=True, timeout=300)
+              assert collected.returncode == 0, label + ' collection failed'
+              prepared.append((label, revision, checkout, python, db, env))
 
-  latency:
-    name: latency (py${{ needs.plan.outputs.scaling_python }}/${{ matrix.server }}, wrk2)
-    needs: [plan, pick]
-    if: always() && needs.pick.result == 'success' && needs.pick.outputs.latency != '[]'
-    runs-on: ${{ vars.BENCH_RUNNER || 'ubuntu-24.04' }}
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        server: ${{ fromJSON(needs.pick.outputs.latency) }}
-    services: *services
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: false
-          save-cache: false
-      - uses: ./.github/actions/bench-tools
-        with:
-          postgres-container: ${{ job.services.postgres.id }}
-      - name: Install environment
-        working-directory: benchmarks
-        run: uv sync --frozen --python "${{ needs.plan.outputs.scaling_python }}"
-      - name: Prepare database
-        working-directory: benchmarks
-        run: .venv/bin/python -m benchsuite.setup_db
-      # Without a fixed `rate`, the runner first measures the closed-loop max
-      # with wrk (1 rep) IN THIS JOB, then drives wrk2 at rate_fraction of it.
-      - name: Run wrk2 fixed-rate benchmarks
-        working-directory: benchmarks
-        env:
-          BENCH_SERVICE_CONTAINERS: ${{ job.services.postgres.id }} ${{ job.services.redis.id }}
-        run: |
-          ci/run_bench.sh yes "py${{ needs.plan.outputs.scaling_python }}/latency-${{ matrix.server }}" \
-            --servers "${{ matrix.server }}" \
-            --impls "${{ (inputs.latency_impls || 'sandloom,fastapi,litestar') }}" \
-            --loadgen wrk2 \
-            --wrk2-scenarios "${{ (inputs.wrk2_scenarios || 's2,s3,s4') }}" \
-            --rate-fraction "${{ (inputs.rate_fraction || '0.7') }}" \
-            --rate-basis "${{ (inputs.rate_basis || 'per-impl') }}" \
-            ${{ inputs.rate && format('--rate {0}', inputs.rate) || '' }}
+          locks = [hashlib.sha256((row[2] / 'uv.lock').read_bytes()).hexdigest()
+                   for row in prepared]
+          assert locks[0] == locks[1], 'dependency locks differ'
+          hardware['uv_lock_sha256'] = locks[0]
+          (output / 'hardware.json').write_text(json.dumps(hardware, indent=2))
+          before = json.loads((output / 'baseline-collection.json').read_text())
+          after = json.loads((output / 'candidate-collection.json').read_text())
+          assert set(before['all']) <= set(after['all']), 'candidate removed full-suite cases'
+          removed = sorted(set(before['selected']) - set(after['selected']))
+          assert all(after['all'].get(node) is True for node in removed), (
+              'a retained test was removed for something other than subprocess_probe')
+          proof = {
+              'baseline_all': len(before['all']),
+              'candidate_all': len(after['all']),
+              'baseline_serial': len(before['selected']),
+              'candidate_serial': len(after['selected']),
+              'new_child_only_exclusions': removed,
+              'new_retained_cases': sorted(set(after['selected']) - set(before['selected'])),
+          }
+          (output / 'selection-proof.json').write_text(json.dumps(proof, indent=2))
+          print('Serial selection proof:', json.dumps(proof), flush=True)
 
-  report:
-    needs: [plan, bench, pick, scaling, latency]
-    if: always() && needs.plan.result == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Collect BENCHJSON from this run's job logs
-        run: benchmarks/ci/fetch_job_logs.sh "$RUNNER_TEMP/logs" "bench (" "scaling (" "latency ("
-      - name: Render combined report
-        working-directory: benchmarks
-        run: |
-          # benchsuite.render is stdlib-only: no environment install needed.
-          python3 -m benchsuite.render "$RUNNER_TEMP"/logs/*.log \
-            --json-out "$RUNNER_TEMP/benchmarks.json" >> "$GITHUB_STEP_SUMMARY"
-          echo "::group::merged benchmark JSON"
-          cat "$RUNNER_TEMP/benchmarks.json"
-          echo "::endgroup::"
+          results = []
+          try:
+              for label, revision, checkout, python, db, env in prepared:
+                  # Reset only this job's services before each timed trial.
+                  database(db)
+                  redis_reset()
+                  report = output / (label + '.xml')
+                  argv = ['/usr/bin/time', '-v', str(python), '-m', 'pytest',
+                          *selection, '--durations=25', '--junitxml=' + str(report)]
+                  print('TIMED START', label, revision, ' '.join(argv), flush=True)
+                  start = time.monotonic()
+                  with (output / (label + '.log')).open('w') as log:
+                      trial = subprocess.run(argv, cwd=checkout, env=env,
+                                             stdout=log, stderr=subprocess.STDOUT,
+                                             text=True, timeout=1200)
+                  seconds = time.monotonic() - start
+                  suites = list(ET.parse(report).getroot().iter('testsuite'))
+                  counts = {key: sum(int(s.attrib.get(key, 0)) for s in suites)
+                            for key in ('tests', 'failures', 'errors', 'skipped')}
+                  counts['passed'] = counts['tests'] - counts['failures'] - counts['errors'] - counts['skipped']
+                  result = {'label': label, 'revision': revision,
+                            'seconds': seconds, 'exit': trial.returncode, **counts,
+                            'command': argv}
+                  results.append(result)
+                  (output / 'summary.json').write_text(json.dumps(results, indent=2))
+                  print('TIMED RESULT', json.dumps(result), flush=True)
+                  print((output / (label + '.log')).read_text()[-14000:], flush=True)
+          finally:
+              if len(results) == 2 and all(r['exit'] == 0 for r in results):
+                  ratio = results[1]['seconds'] / results[0]['seconds']
+                  delta = results[0]['seconds'] - results[1]['seconds']
+                  print(f'PAIR RESULT: candidate/baseline={ratio:.4f}; saved={delta:.2f}s; improvement={(1-ratio)*100:.2f}%')
+                  with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                      summary.write('# Controlled serial-isolation comparison\n\n')
+                      summary.write('| Commit | Seconds | Passed | Skipped/xfail |\n|---|---:|---:|---:|\n')
+                      for row in results:
+                          summary.write(f"| {row['label']} `{row['revision'][:12]}` | {row['seconds']:.2f} | {row['passed']} | {row['skipped']} |\n")
+                      summary.write(f'\nCandidate improvement: {(1-ratio)*100:.2f}% ({delta:.2f}s). One sequential pair on one VM; not a statistical guarantee.\n')
+          if len(results) != 2 or any(r['exit'] != 0 for r in results):
+              raise SystemExit('A controlled trial did not pass; inspect uploaded logs')
+          PY
+      - name: Retain controlled comparison evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: isolation-control-${{ github.run_id }}
+          path: ${{ runner.temp }}/isolation-control-results/
+          if-no-files-found: error
+          retention-days: 7
