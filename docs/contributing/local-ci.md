@@ -5,7 +5,7 @@ title: Local CI runner
 # Local CI runner (`tools/ci/ci_local.sh`)
 
 When GitHub Actions is unavailable (billing block, outage), verify a branch or
-PR **before merge** with the local Docker CI runner. It reproduces the PR gates
+PR **before merge** with the local Docker CI runner. It reproduces the full backend validation jobs
 of `.github/workflows/ci.yml`, `docs.yml` and `architecture-check.yml` against
 an exported git ref — your working tree is never used or modified.
 
@@ -34,6 +34,10 @@ the built-in runner.
 Exit code `0` = every selected job passed. Logs, `summary.md` and
 `summary.json` stay in `.ci-local/runs/<run-id>/` (git-ignored).
 `--report-pr <N>` posts `summary.md` as a PR comment via `gh` (off by default).
+
+The local runner keeps the full matrix and heavy jobs even though automatic
+PR CI uses an economical profile. See [CI profiles](ci.md) for the difference
+and the manual umbrella that also runs admin, packaging and extraction checks.
 
 ## Parallel jobs (the default)
 

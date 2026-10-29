@@ -243,6 +243,8 @@ def _emulate_artifact_steps(text: str) -> str:
 def act_workflow_copy(text: str, job_name: str, *, rename: bool = True) -> str:
     """The workflow act runs for ``job_name``: artifact steps emulated
     locally and, with ``rename``, its top-level `name:` made unique."""
+    # The local runner is the full validation path, including under act.
+    text = text.replace("inputs.full_validation", "true")
     text = _emulate_artifact_steps(text)
     if not rename:
         return text
@@ -327,7 +329,9 @@ _SMOKE_WHY = (
     "subnet and image tag"
 )
 
+# Local runs deliberately select full validation; PR cost reduction is remote-only.
 CI_JOBS: tuple[CiJob, ...] = (
+    CiJob("ci.yml", "workflow-policy", "workflow-policy", "container", "act"),
     CiJob("ci.yml", "backend-static", "backend-static", "container", "act"),
     CiJob("ci.yml", "supply-chain", "supply-chain", "container", "act"),
     CiJob(
@@ -384,8 +388,9 @@ IGNORED_JOBS: dict[tuple[str, str], str] = {
         "changes",
     ): "runs under act as the `needs` of every act job; fallback jobs always run",
 }
-# Other workflow files (release/packages/benchmarks/extraction-e2e) are
-# tag/schedule/manual pipelines, not PR gates; they are out of scope.
+# Other workflows (packages/admin/dependency-review/benchmarks/extraction-e2e/
+# full-validation/release) are outside this runner; run their documented
+# checks separately.
 CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 
 # sha256(json(job body))[:16] per mapped/ignored job when the mapping was last
@@ -393,22 +398,23 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:changes": "2177655c7ac5c585",
-    "ci.yml:backend-static": "d769de9f9a961a68",
-    "ci.yml:supply-chain": "0879d10a685cab6e",
-    "ci.yml:backend-tests": "99e565ce66467e47",
-    "ci.yml:backend-tests-isolation": "55fd80a132c07bd0",
-    "ci.yml:benchmarks-security": "856913ecca11e109",
-    "ci.yml:examples": "8b7fbd4dea9e9746",
-    "ci.yml:quickstart": "24b8c8095c42dfd4",
-    "ci.yml:app-split": "4d2dc1a3497856fc",
-    "ci.yml:app-recipes": "d5ab293792aee1d9",
-    "ci.yml:deploy-profiles": "aa7c03c0a92b4c54",
-    "ci.yml:microservices-smoke": "bc74f13900a8fb9d",
-    "ci.yml:docker-build": "e42844bfe61be615",
-    "ci.yml:admin-contracts": "386d15bc794d1ddd",
-    "docs.yml:build": "868fcc35117569d1",
-    "architecture-check.yml:check": "d9fd15a91a844aa1",
+    "ci.yml:workflow-policy": "d7e57e84cb46c937",
+    "ci.yml:changes": "01662f7aff5c7a81",
+    "ci.yml:backend-static": "ef236822f379e265",
+    "ci.yml:supply-chain": "ae051a922b6aa224",
+    "ci.yml:backend-tests": "91c8cced7f9871c9",
+    "ci.yml:backend-tests-isolation": "4bc16e55c612bf69",
+    "ci.yml:benchmarks-security": "bc20692c1ac4eb2a",
+    "ci.yml:examples": "836ccb6afd335cf3",
+    "ci.yml:quickstart": "bb3f90bf20a2e68a",
+    "ci.yml:app-split": "eb60965370bda31c",
+    "ci.yml:app-recipes": "8307f37bc87db7e5",
+    "ci.yml:deploy-profiles": "b6d7f2a0b5cd387c",
+    "ci.yml:microservices-smoke": "aca6445fe1ded121",
+    "ci.yml:docker-build": "695935b6b32c454b",
+    "ci.yml:admin-contracts": "23d61838958ed728",
+    "docs.yml:build": "26ee46d8a6ea8e98",
+    "architecture-check.yml:check": "df59ec9b601b14e0",
 }
 
 # `uses:` actions and how they map locally (action name without @version).
@@ -614,6 +620,8 @@ class Expr:
             return self.status == "failure"
         if name == "cancelled":
             return False
+        if name == "fromJSON":
+            return json.loads(args[0])
         if name == "hashFiles":
             return "local"
         raise DriftError(f"unknown expression function {name}() in {self.src!r}")
@@ -700,13 +708,14 @@ class LocalJob:
 
     def ctx(self, workspace: str = WORKSPACE, sha: str = "0" * 40) -> dict[str, Any]:
         return {
-            "inputs": {"full_validation": False},
+            "inputs": {"full_validation": True},
             "matrix": self.matrix,
             "github": {
                 "workspace": workspace,
                 "sha": sha,
                 "ref": "refs/heads/ci-local",
                 "event_name": "pull_request",
+                "event": {"action": "synchronize"},
                 "repository": "local/ci-local",
             },
             "runner": {"os": "Linux", "temp": "/tmp"},
@@ -731,10 +740,19 @@ def load_workflows(root: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _expand_matrix(body: dict[str, Any]) -> list[dict[str, Any]]:
+def _expand_matrix(
+    body: dict[str, Any], *, full_validation: bool = True
+) -> list[dict[str, Any]]:
     matrix = (body.get("strategy") or {}).get("matrix")
     if not matrix:
         return [{}]
+    if isinstance(matrix, str):
+        expression = _EXPR.fullmatch(matrix.strip())
+        if expression is None:
+            raise DriftError(f"invalid matrix expression: {matrix!r}")
+        matrix = Expr(
+            expression.group(1), {"inputs": {"full_validation": full_validation}}
+        ).eval()
     include = matrix.get("include") or []
     axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
     combos: list[dict[str, Any]] = [{}]
@@ -1889,7 +1907,11 @@ class ActJob:
         cache_dir.mkdir(parents=True, exist_ok=True)
         workflow = f".github/workflows/{job.spec.workflow}"
         needs = bool(job.body.get("needs"))
-        if needs or uses_artifacts(job.body):
+        if (
+            needs
+            or uses_artifacts(job.body)
+            or "inputs.full_validation" in str(job.body.get("if", ""))
+        ):
             # untracked: the paths filter diffs commits, never sees this file
             private = f".github/workflows/.ci-local-{job.name}.yml"
             src = (run.act_repo / workflow).read_text()

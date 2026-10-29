@@ -233,3 +233,29 @@ def test_bundled_public_routes_are_exactly_the_reviewed_set() -> None:
     )
     # a public route that reads a subject would be a contradiction
     assert all(p.authenticators == () for p in found.values())
+
+
+def test_extraction_probe_declares_its_test_only_public_routes(
+    monkeypatch: Any,
+) -> None:
+    """Exercise the actual probe fixture with the real startup policy gate."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[4]
+    spec = importlib.util.spec_from_file_location(
+        "_extraction_probe_policy_test",
+        root / "tests/extraction/extract_probe/__init__.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    routes = module.router.routes
+    assert {route.path for route in routes} == {
+        "/_x/spend",
+        "/_x/balance/{tenant_type}/{tenant_id}",
+    }
+    validate_route_policy(routes)
+    assert all(resolve_route_policy(route).auth == "public" for route in routes)

@@ -1,30 +1,12 @@
 name: Docs
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "docs/**"
-      - "website/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "tools/docs/**"
-      - "zensical.toml"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "src/**"
-      - ".github/workflows/docs.yml"
-      # the stale-symbol lint also covers the agent docs and READMEs
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/README.md"
-      - ".claude/**"
-      - "deploy/**"
-      - "benchmarks/dx/**"
+  workflow_call:
   pull_request:
     branches: ["main"]
     paths:
       - "docs/**"
+      - "examples/**"
       - "website/**"
       - "LICENSE"
       - "NOTICE"
@@ -47,8 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -93,3 +75,4 @@ jobs:
         with:
           name: sandloom-docs
           path: build/site
+          retention-days: 3

@@ -32,9 +32,9 @@ def _seed_test_env() -> None:
     ``SANDLOOM_TEST_CACHE_URL``
     / ``SANDLOOM_TEST_BROKER_URL`` still win, and ``ENVIRONMENT`` stays the dev
     default. A shell that exports ``DATABASE_URL`` itself (CI) is left alone.
+    Missing test defaults are seeded even when CI supplies DATABASE_URL;
+    setdefault below preserves every explicit shell value.
     """
-    if os.environ.get("DATABASE_URL"):
-        return
     env_test = Path(__file__).resolve().parents[0] / ".env.test"
     if not env_test.is_file():
         return

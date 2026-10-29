@@ -11,29 +11,26 @@ name: Packages (ADR-0001)
 
 on:
   workflow_call:
-  push:
-    branches: ["main"]
-    paths:
-      - "src/**"
-      - "packages/**"
-      - "migrations/core/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "tools/packaging/**"
-      - ".github/workflows/packages.yml"
   pull_request:
     branches: ["main"]
     paths:
       - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "packages/**"
       - "migrations/core/**"
       - "LICENSE"
       - "NOTICE"
       - "tools/packaging/**"
+      - "!tools/packaging/public-source.json"
       - ".github/workflows/packages.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: packages-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   distributions:

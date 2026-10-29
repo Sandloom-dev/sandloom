@@ -1,15 +1,18 @@
 name: Optional admin UI
 on:
+  workflow_call:
   pull_request:
-    paths: ['admin/**', 'src/sandloom/**', 'tools/smoke/admin_live_acceptance.py', '.github/workflows/admin.yml']
-  push:
-    branches: [main]
-    paths: ['admin/**', 'src/sandloom/**', 'tools/smoke/admin_live_acceptance.py', '.github/workflows/admin.yml']
+    paths: ['admin/**', 'src/**', 'pyproject.toml', 'uv.lock', 'tools/smoke/admin_live_acceptance.py', '.github/workflows/admin.yml']
 permissions:
   contents: read
+concurrency:
+  group: admin-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   admin:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -69,6 +72,7 @@ jobs:
         if: failure()
         with:
           name: admin-browser-results
+          retention-days: 3
           path: |
             admin/test-results
             admin/playwright-report
