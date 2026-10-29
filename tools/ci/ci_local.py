@@ -422,14 +422,14 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:ci-required": "aa8df371c448dd07",
+    "ci.yml:ci-required": "d83f94095adb9bf2",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:docs": "2bfd2034c9234a2a",
-    "ci.yml:workflow-policy": "3a8f06e395eb9ce1",
-    "ci.yml:changes": "6b709d9ac3bba216",
+    "ci.yml:workflow-policy": "12711bf70a36c68d",
+    "ci.yml:changes": "940e6ef92a0e06df",
     "ci.yml:backend-static": "ef236822f379e265",
     "ci.yml:supply-chain": "ae051a922b6aa224",
     "ci.yml:backend-tests": "91c8cced7f9871c9",

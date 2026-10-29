@@ -155,7 +155,7 @@ def _cmd_new(argv: list[str]) -> int:
         default=None,
         help=(
             "override the framework dependency requirement string "
-            "(default: sandloom[redis,celery]>=0.7.0a1,<0.8; each --with module "
+            "(default: sandloom[redis,celery]>=0.7.0a2,<0.8; each --with module "
             "adds its sandloom-<module> package)"
         ),
     )

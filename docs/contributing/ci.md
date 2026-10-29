@@ -73,8 +73,9 @@ interpret skips or an older green PR run as a completed release gate.
 The full workflow remains opt-in. Data extraction has no nightly schedule;
 it can also be requested manually or with the `extraction-e2e` PR label.
 Comparative load benchmarks retain their explicit manual/label opt-in.
-The disabled PyPI workflow still requests full backend validation if run for
-its build-only rehearsal.
+The PyPI release workflow requests full backend validation. Dry runs retain
+validated artifacts without uploading; real uploads additionally require owner
+approval in the `pypi` environment.
 
 The [local CI runner](local-ci.md) retains the full four-version matrix and
 heavy backend jobs by default. It deliberately overrides `full_validation` in

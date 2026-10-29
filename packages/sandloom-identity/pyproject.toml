@@ -1,6 +1,6 @@
 [project]
 name = "sandloom-identity"
-version = "0.7.0a1"
+version = "0.7.0a2"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "Identity and authentication for Sandloom: users, JWT, RBAC, two-factor authentication and SSO."
 readme = "README.md"
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # never an exact pin. Contract calls to other modules are bound at runtime
 # and use the consumer's own generated stubs: no module depends on another.
 dependencies = [
-    "sandloom>=0.7.0a1,<0.8",
+    "sandloom>=0.7.0a2,<0.8",
     "pyotp>=2.10.0,<3",
     "authlib>=1.8.0,<2",
     "qrcode>=8.2,<9",

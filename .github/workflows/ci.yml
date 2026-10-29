@@ -42,7 +42,8 @@ jobs:
           uv run pytest --noconftest -p no:cacheprovider -c /dev/null -o addopts=''
           tests/architecture/test_ci_local_runner.py
           tests/architecture/test_ci_workflow_policy.py
-          tests/architecture/test_required_ci.py -q
+          tests/architecture/test_required_ci.py
+          tests/architecture/test_pypi_release.py -q
       - name: Reviewed source and credential patterns
         run: |
           python3 tools/packaging/export_repository.py --check
@@ -132,6 +133,7 @@ jobs:
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
               - '.github/workflows/packages.yml'
+              - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
             architecture:
               - 'src/**'
@@ -153,6 +155,7 @@ jobs:
               - 'admin/package.json'
               - 'examples/**'
               - '.github/workflows/dependency-review.yml'
+              - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
 
   backend-static:
@@ -944,7 +947,9 @@ jobs:
     uses: ./.github/workflows/dependency-review.yml
 
   ci-required:
-    name: CI required
+    # A close event cancels old runs; its skipped job must not satisfy the
+    # required context for an untested commit that is reopened elsewhere.
+    name: ${{ github.event.action == 'closed' && 'CI cancellation' || 'CI required' }}
     if: ${{ always() && github.event.action != 'closed' }}
     needs:
       - workflow-policy

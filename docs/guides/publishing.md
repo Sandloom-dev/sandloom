@@ -1,135 +1,106 @@
 # Publishing packages to PyPI
 
-Sandloom ships as four distributions: the framework and three module packages.
-The `0.7.0a1` alpha was published manually on 2026-10-28. This guide covers
-package validation and the configuration for PyPI Trusted Publishing.
+Sandloom publishes four distributions through
+[Release (PyPI)](https://github.com/Sandloom-dev/sandloom/actions/workflows/release.yml):
+`sandloom`, `sandloom-identity`, `sandloom-tenancy` and `sandloom-billing`.
+Versions are independent. A manual run can select one package or `all` for a
+coordinated release. A per-package tag selects only that package.
 
-!!! note "Build-only workflow"
-    [`.github/workflows/release.yml`](https://github.com/Sandloom-dev/sandloom/blob/main/.github/workflows/release.yml)
-    runs by manual dispatch and builds distributions without uploading them.
-    Its tag trigger is commented out and its publish step is gated with
-    `if: ${{ false }}`. Enabling uploads requires verified Trusted Publishers
-    and an explicit workflow change. Repository visibility does not enable uploads.
+## Authentication and approval
 
-Trusted Publishing uses PyPI's OIDC integration: GitHub Actions authenticates
-with a short-lived token, without storing a long-lived PyPI API token in the
-repository.
+The publish job uses PyPI Trusted Publishing with GitHub OIDC. No permanent
+PyPI API token, username or password is stored in GitHub. Configure each existing
+PyPI project's Trusted Publisher with these exact public values:
 
-## Packages
+| Field | Value |
+| --- | --- |
+| Owner | `Sandloom-dev` |
+| Repository | `sandloom` |
+| Workflow filename | `release.yml` |
+| Environment | `pypi` |
 
-| Distribution | Owns | Tag |
-| --- | --- | --- |
-| `sandloom` | the kernel, the public `sandloom.sdk` API, `sandloom.shared` (framework DTOs, guards, authz), the CLI and the composition root `sandloom.main`; extras `redis`, `celery`, `standard`, `fast`, `check`, `testing`, `sentry` | `sandloom-vX.Y.Z` |
-| `sandloom-identity` | `sandloom_identity`: users, JWT, RBAC, 2FA, SSO | `sandloom-identity-vX.Y.Z` |
-| `sandloom-tenancy` | `sandloom_tenancy`: organizations, membership, invitations | `sandloom-tenancy-vX.Y.Z` |
-| `sandloom-billing` | `sandloom_billing`: plans, subscriptions, credits ledger, Stripe | `sandloom-billing-vX.Y.Z` |
+The GitHub `pypi` environment requires approval by `Maryarty`, including runs
+started by the owner. Administrator bypass is disabled. The owner may approve
+their own run because there is only one maintainer. Allowed deployment refs are
+`main` and the four tag patterns `sandloom-v*`, `sandloom-identity-v*`,
+`sandloom-tenancy-v*` and `sandloom-billing-v*`.
 
-Each module package registers one `sandloom.modules` entry point and depends
-on `sandloom>=0.7.0a1,<0.8`; versions are independent
-([Versioning](../contributing/versioning.md)). `sandloom[standard]` installs
-the three module packages with Redis and Celery. The kernel ships the standard
-modules' generated DTOs, contract stubs and event schemas; applications generate
-their own modules' copies and stubs. The layout, extras and entry
-points are listed in `packages/README.md`.
+The plan step also refuses publication from a feature branch or a tag whose
+commit is not reachable from `origin/main`. A tag must exactly match the selected
+package's version in its `pyproject.toml`. Merging a PR never publishes packages.
 
-Each package keeps its own `packages/<name>/CHANGELOG.md`; the aggregate
-lives in [docs/changelog.md](../changelog.md).
+## Build and validation
 
-## License metadata and files
+1. The plan validates the event, ref, package selection and versions.
+2. Full framework CI runs, including the compatibility matrix and heavy scenarios.
+3. The package workflow builds every wheel and standalone source archive, checks
+   licenses, compares direct and rebuilt wheels, enforces import layering and
+   tests clean framework-only and standard installations.
+4. It preserves those exact validated archives and their SHA-256 digests, then
+   runs strict Twine metadata/description checks. The preparation job selects
+   the requested packages without rebuilding them.
+5. After owner approval, a separate publish job downloads the reviewed files,
+   verifies local hashes and checks for matching files already on PyPI. Only
+   missing files are uploaded. This job performs no source checkout, build or
+   dependency installation and is the only job with `id-token: write`.
+6. PyPI publication uses signed attestations. The final verification waits for
+   the release to become visible and compares every filename and SHA-256 digest
+   against the reviewed manifest.
+
+Artifacts are retained for seven days. A differing existing file fails closed;
+the workflow never replaces an immutable PyPI file or silently accepts a hash
+mismatch. After an interrupted upload, a rerun reuses identical published files
+and uploads only the missing ones. A publication/verification failure must be
+investigated before choosing a new version.
+
+## Manual release
+
+Update the selected package versions and changelogs in a reviewed PR. When the
+framework's generated applications need the new baseline, update `FRAMEWORK_RANGE`,
+CLI help, generator expectations and compatibility documentation too. Re-lock
+workspace packages without upgrading unrelated dependencies.
+
+After the owner merges the PR, open **Actions → Release (PyPI) → Run workflow**:
+
+- Select `main` and one package, or `all` for the coordinated `0.7.0a2` release.
+- Leave **dry_run** checked for validation and artifacts without an upload.
+- For publication, uncheck **dry_run**. The workflow still validates first and
+  stops at the `pypi` environment for owner approval before obtaining credentials.
+- Review the commit, validation results and artifact manifest before approving.
+
+A dry run can validate a feature branch and never enters the publishing
+environment. A real publication from a feature branch is refused.
+
+## Tag release
+
+A per-package tag on a reviewed `main` commit requests that package's release:
+
+```bash
+git tag sandloom-v0.7.0a2
+git push origin sandloom-v0.7.0a2
+```
+
+The other package prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
+`sandloom-billing-v`. Release a framework version before module versions that
+require it, or use one coordinated manual run. Each tag-triggered upload still
+requires the owner's environment approval.
+
+## Package metadata and licenses
+
+Short descriptions come from `description` and long descriptions from `readme`
+in each package's `pyproject.toml`. PyPI release metadata is immutable: changing
+an already-published description requires a new release. Validate the rendered
+metadata with `twine check --strict` before uploading.
 
 Each package declares `license = "Apache-2.0"` and
-`license-files = ["LICENSE", "NOTICE"]`, with local copies of the root files.
-Hatchling includes these files in the standalone source archive and under
-`.dist-info/licenses/` in the wheel. The package build hook rejects local copies
-that differ from the root copies. Third-party licenses remain in effect.
-
-Before release, inspect both archive formats and the wheel rebuilt from the
-source archive: `License-Expression` must be `Apache-2.0`, both `License-File`
-entries must be present, and the files must match the reviewed source.
-`tools/packaging/check_package_distributions.py` checks these conditions for all
-four packages, together with import layering across them, a clean install of
-`sandloom` alone (every CLI subcommand) and the `sandloom[standard]`
-composition. Run it for each release revision and include the results in the
-release PR.
-
-## One-time setup (operator, on pypi.org)
-
-Do this **once per package**, before enabling automatic releases. It is the only step
-that cannot be automated from this repository — it requires signing in to PyPI
-under the project owner's account.
-
-### 1. Add a Trusted Publisher to each existing project
-
-All four projects exist after the initial alpha upload. Follow
-[PyPI's existing-project setup](https://docs.pypi.org/trusted-publishers/adding-a-publisher/):
-
-1. Sign in to <https://pypi.org> → **Your projects** → **Manage** on the
-   distribution → **Publishing** in that project's sidebar.
-2. In the GitHub publisher form, fill in:
-    - **Owner**: `Sandloom-dev`
-    - **Repository name**: `sandloom`
-    - **Workflow name**: `release.yml`
-    - **Environment name**: `pypi`
-3. Repeat for every package in the table above.
-
-### 2. Create the `pypi` GitHub environment (optional but recommended)
-
-In the GitHub repo: **Settings → Environments → New environment → `pypi`**. Add
-required reviewers / a deployment branch rule (e.g. tags only) so a human
-approves each publish. The workflow already targets `environment: pypi`.
-
-Until a matching Trusted Publisher exists on PyPI, an OIDC upload fails closed
-(no credentials). The workflow also remains disabled until deliberately enabled.
-
-## Release procedure
-
-The tag-driven upload flow below requires the build-only controls to be changed
-after publisher configuration and release validation. In the checked-in workflow,
-pushing these tags does not start a release or upload files.
-
-1. Bump the package `version` in `packages/<name>/pyproject.toml` and add
-   a `## [X.Y.Z]` entry to its `CHANGELOG.md` (and the aggregate changelog).
-2. Merge to `main`.
-3. Tag the release with the **per-package tag**: `sandloom-vX.Y.Z` for the
-   framework, `sandloom-<module>-vX.Y.Z` for a module package:
-
-    ```bash
-    git tag sandloom-v0.7.0
-    git tag sandloom-identity-v0.7.0
-    git push origin sandloom-v0.7.0 sandloom-identity-v0.7.0
-    ```
-
-    Release a module package after the `sandloom` release its range needs.
-
-4. With tag-triggered uploads enabled, the `Release (PyPI)` workflow first runs
-   the complete framework CI and package composition checks on that exact ref, verifies the tag matches the package
-   version, then builds a standalone sdist and its wheel and publishes them via
-   Trusted Publishing. Dependency audit failures block validation.
-
-Package builds use `tools/packaging/package_build.py` only while exporting the monorepo:
-each source archive includes its own Python sources and core migrations where
-applicable. The archived pyproject uses ordinary local Hatch package selection;
-building a wheel from it needs neither the repository nor the export hook.
-`tools/packaging/check_package_distributions.py` also compares direct-wheel
-contents with the wheel rebuilt from the sdist before testing clean installs.
-
-### Manual / dry run
-
-Use **Actions → Release (PyPI) → Run workflow**, choose the package, and leave
-**dry_run** checked to build-and-inspect without publishing. While the publish
-step is gated with `if: ${{ false }}`, unchecking this input does not enable
-publication. Enable the publishing trigger and condition only after validation
-and publisher configuration.
+`license-files = ["LICENSE", "NOTICE"]`. The build hook rejects package copies
+that differ from the canonical root files. Standalone sdists and wheels retain
+those files and third-party notices. See `packages/README.md` for build details.
 
 ## Testing source changes in an application
 
 Use `sandloom new --framework-source path --framework-path <checkout>` and
 `uv sync` to test local source changes. The path must name the repository root
-containing `packages/`. These editable paths work locally and are not portable
-Docker or CI dependencies.
-
-`--framework-source git` is disabled in the generator. Use
-`--framework-source pypi` for published packages. A portable deployment can
-install `sandloom[standard]==0.7.0a1` from PyPI, or the complete, version-matched
-wheel set built from `packages/`. The canonical source is
-[Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
+containing `packages/`. These editable paths are local dependencies, not portable
+Docker or CI inputs. `--framework-source git` is disabled; use published packages
+or a complete matching wheel set for portable deployments.

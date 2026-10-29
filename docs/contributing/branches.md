@@ -76,6 +76,7 @@ file alone is not evidence that GitHub enforces the rule.
 
 ## Publication
 
-Merging a PR does not publish packages or deploy the website. The package workflow
-is build-only, and documentation builds produce CI artifacts. See
+Merging a PR does not publish packages or deploy the website. PyPI publication
+requires a release tag or an explicit manual run and owner approval in the
+`pypi` environment. Documentation builds produce CI artifacts. See
 [Publishing](../guides/publishing.md) for the release configuration and upload controls.

@@ -11,6 +11,11 @@ name: Packages (ADR-0001)
 
 on:
   workflow_call:
+    inputs:
+      artifact_name:
+        description: "Retain the exact fully validated distributions for a release"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -35,4 +40,25 @@ jobs:
           python-version: "3.12"
 
       - name: Build, layer-check and install every distribution
-        run: uv run --locked python tools/packaging/check_package_distributions.py
+        env:
+          DIST_ARTIFACT: ${{ inputs.artifact_name }}
+          DIST_DIR: ${{ runner.temp }}/validated-distributions
+        run: |
+          args=()
+          if [ -n "$DIST_ARTIFACT" ]; then args=(--dist-dir "$DIST_DIR"); fi
+          uv run --locked python tools/packaging/check_package_distributions.py "${args[@]}"
+      - name: Validate PyPI descriptions
+        if: ${{ inputs.artifact_name != '' }}
+        env:
+          DIST_DIR: ${{ runner.temp }}/validated-distributions
+        run: >-
+          uvx --from twine==7.0.0 --with 'certifi>=2026.10.19'
+          twine check --strict "$DIST_DIR"/*.whl "$DIST_DIR"/*.tar.gz
+      - name: Retain reviewed release files
+        if: ${{ inputs.artifact_name != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/validated-distributions/
+          if-no-files-found: error
+          retention-days: 7

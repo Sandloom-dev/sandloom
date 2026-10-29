@@ -13,6 +13,15 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a2]
+
+### Publishing
+
+- Prepare all four `0.7.0a2` packages and update the generated-application baseline.
+- Publish through GitHub OIDC after full validation and explicit owner approval.
+  Reuse the exact validated archives, retain their hashes, resume matching partial
+  uploads and verify the final PyPI files. Manual runs default to dry-run mode.
+
 ### Package metadata
 
 - Refresh PyPI descriptions for the framework and its identity, tenancy and billing

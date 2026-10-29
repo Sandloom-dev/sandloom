@@ -196,12 +196,18 @@ def test_full_validation_calls_all_suites_without_concurrency_collisions():
     # The release path still requests full backend validation and cannot upload.
     release = workflow("release.yml")
     assert release["jobs"]["validate"]["with"]["full_validation"] is True
-    publish = next(
-        s
-        for s in release["jobs"]["release"]["steps"]
-        if s.get("name", "").startswith("Publish to PyPI")
+    publish = release["jobs"]["publish"]
+    assert publish["environment"]["name"] == "pypi"
+    assert publish["permissions"]["id-token"] == "write"
+    assert set(publish["needs"]) == {"plan", "validate", "distributions", "prepare"}
+    assert publish["if"] == "${{ needs.plan.outputs.publish == 'true' }}"
+    assert "id-token" not in release["permissions"]
+    assert (
+        triggers(release)["workflow_dispatch"]["inputs"]["dry_run"]["default"] is True
     )
-    assert publish["if"] == "${{ false }}"
+    assert not any(
+        step.get("uses", "").startswith("actions/checkout") for step in publish["steps"]
+    )
 
 
 def test_hosted_ci_service_connections_do_not_depend_on_dns():
@@ -337,3 +343,13 @@ def test_reusable_suites_have_one_pr_entry_point_and_no_failure_bypass():
             body.get("continue-on-error") is not True
             for body in called["jobs"].values()
         )
+
+
+@pytest.mark.parametrize("action", ["opened", "synchronize", "reopened", "closed"])
+def test_close_event_cannot_emit_skipped_success_under_the_required_name(
+    runner, action
+):
+    job = workflow("ci.yml")["jobs"]["ci-required"]
+    expression = job["name"].removeprefix("${{").removesuffix("}}").strip()
+    actual = runner.Expr(expression, {"github": {"event": {"action": action}}}).eval()
+    assert actual == ("CI cancellation" if action == "closed" else "CI required")

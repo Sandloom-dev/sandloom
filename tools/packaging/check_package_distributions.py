@@ -20,9 +20,11 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -365,14 +367,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-install", action="store_true", help="build and layering only"
     )
+    parser.add_argument(
+        "--dist-dir", type=Path, help="preserve the exact fully validated archives"
+    )
     args = parser.parse_args(argv)
+    if args.dist_dir is not None and args.skip_install:
+        parser.error("--dist-dir requires the installed-package checks")
     with tempfile.TemporaryDirectory(prefix="sandloom-package-check-") as raw:
         temp = Path(raw)
         wheels = build(temp)
+        archives = sorted(
+            [*(temp / "wheels").glob("*.whl"), *(temp / "wheels").glob("*.tar.gz")]
+        )
+        checksums = {
+            file.name: hashlib.sha256(file.read_bytes()).hexdigest()
+            for file in archives
+        }
         check_layering(wheels)
         if not args.skip_install:
             check_lean_install(temp, wheels["sandloom"])
             check_standard_install(temp, wheels)
+        if args.dist_dir is not None:
+            if any(
+                hashlib.sha256(file.read_bytes()).hexdigest() != checksums[file.name]
+                for file in archives
+            ):
+                raise RuntimeError("Package archives changed during validation")
+            args.dist_dir.mkdir(parents=True, exist_ok=False)
+            for file in archives:
+                shutil.copyfile(file, args.dist_dir / file.name)
+            (args.dist_dir / "sha256.json").write_text(
+                json.dumps(checksums, indent=2) + "\n"
+            )
     print("All package distribution checks passed.")
     return 0
 

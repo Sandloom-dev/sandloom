@@ -105,7 +105,7 @@ def test_every_workflow_job_reaches_the_final_gate():
     required = jobs["ci-required"]
     expected = set(jobs) - {"ci-required"}
     assert set(required["needs"]) == expected == gate.ALL_JOBS
-    assert required["name"] == "CI required"
+    assert "CI required" in required["name"]
     assert "always()" in required["if"]
     assert "closed" in required["if"]
     assert required["timeout-minutes"] <= 5
