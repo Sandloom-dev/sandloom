@@ -515,6 +515,7 @@ def test_every_gauge_declares_a_live_multiprocess_mode() -> None:
     assert not bad, f"gauges without a live* multiprocess_mode: {bad}"
 
 
+@pytest.mark.subprocess_probe
 def test_new_gauges_render_from_the_multiprocess_directory(tmp_path: Path) -> None:
     env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}
     code = (

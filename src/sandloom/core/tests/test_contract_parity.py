@@ -540,6 +540,7 @@ def test_rpc_in_progress_maps_to_a_clear_unavailable() -> None:
     assert "still running" in str(exc_info.value.detail)
 
 
+@pytest.mark.subprocess_probe
 def test_set_digest_is_stable_across_hash_seeds() -> None:
     code = (
         "from sandloom.core.contract_wire import digest;"

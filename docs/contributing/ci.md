@@ -145,3 +145,35 @@ fresh-app CI, module addition, gates, migrations and an authenticated HTTP round
 Bare, identity, tenancy, billing and all-battery profiles run as five parallel
 jobs, each with its own PostgreSQL and Redis services. This covers the
 `uvx --from sandloom` dependency handoff without serializing the five applications.
+
+## Performance evidence
+
+[CI performance research](ci-performance-research.md) compares measured public
+workflow runs, their selected suites and their execution cost. A workflow
+limit is not a timing result, and a docs-only skip is not a framework test run.
+
+The serial isolation job depends only on the full-validation input, so it can
+start alongside change classification. Its result remains mandatory in the
+full-validation gate; publication still waits for all required checks.
+
+A fixture profile on the PR #6 source (pytest shuffle seed 1234, Python 3.12) measured 429.54s:
+978 database-engine preparations consumed 43.68s, subprocess calls 64.39s,
+conformance setup 37.54s and full GC 19.35s. Runtime snapshot/restore overhead
+was below a second. Rewriting the reset probe in raw SQL improved a small
+100-reset sample only from 3.925s to 3.575s median; that experiment was not
+retained because the suite-level gain did not justify extra SQL handling.
+
+The child-only audit extends `subprocess_probe` to boot-entry-point checks,
+child GC/shuffle/import tests, L1 example registration and isolated metric
+probes. Mixed parent/child generator, database, networking and runtime tests
+remain serial. Every marked case still runs in the unfiltered full matrix.
+
+The repeated local serial pass completed in 393.18s (5004 passed, six skipped,
+52 child-only cases deselected and one expected failure), against 429.54s
+before (5037 passed, seven skipped, 18 deselected and one expected failure).
+The 34-case difference is exactly the audited child-only set; all remain
+in the unfiltered full matrix. Recorded subprocess calls fell from 127 to 84
+and their aggregate wall time from 64.39s to 44.29s. Both runs used the same
+fixture profiler and pytest shuffle seed; Hypothesis inputs and OS scheduling
+were not fixed, so the whole-suite difference is an observation rather than
+a guaranteed 8.5% saving on every run.

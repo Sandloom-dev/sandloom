@@ -89,6 +89,7 @@ def _env(values: dict[str, Any]) -> dict[str, str]:
     return env
 
 
+@pytest.mark.subprocess_probe
 @pytest.mark.parametrize("entry", sorted(ENTRY_POINTS))
 @pytest.mark.parametrize("case", sorted(CASES))
 def test_moved_validator_refuses_every_entry_point(

@@ -94,6 +94,18 @@ def test_pr_matrix_is_one_fast_312_and_full_matrix_retains_compatibility(runner)
     assert [row["python"] for row in full if row["coverage"]] == ["3.12"]
 
 
+def test_full_serial_gate_can_start_before_change_classification(runner):
+    job = workflow("ci.yml")["jobs"]["backend-tests-isolation"]
+    assert not job.get("needs")
+    assert runner.eval_if(job["if"], {"inputs": {"full_validation": True}}, "success")
+    assert not runner.eval_if(
+        job["if"], {"inputs": {"full_validation": False}}, "success"
+    )
+    assert (
+        "backend-tests-isolation" in workflow("ci.yml")["jobs"]["ci-required"]["needs"]
+    )
+
+
 @pytest.mark.parametrize(
     "name",
     [

@@ -29,6 +29,11 @@ website renders this same changelog.
 
 ### CI and publishing
 
+- Start full serial isolation without a change-classification barrier, and
+  avoid repeating additional audited child-only probes in that pass. Keep
+  every in-process isolation case and all full-matrix tests. Record fixture
+  measurements and primary-source comparisons of mature projects' CI.
+
 - Use reviewed Node.js 24 Actions, with a single uv cache writer per Python key.
 - Speed up child-server readiness probes and close the conformance matrix at
   the end of its test module. Avoid repeating child-process-only probes in the

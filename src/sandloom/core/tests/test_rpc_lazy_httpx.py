@@ -6,9 +6,12 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 from sandloom.core.rpc import client as rpc_client
 
 
+@pytest.mark.subprocess_probe
 def test_importing_the_di_surface_does_not_load_httpx() -> None:
     code = (
         "import sys, sandloom.core.di, sandloom.core.rpc\n"

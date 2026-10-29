@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _FILES = {
     f"test_{name}.py": "".join(f"def test_{name}_{i}(): pass\n" for i in range(6))
     for name in ("a", "b", "c", "d")
@@ -55,6 +57,7 @@ def _collect(root: Path, *args: str) -> tuple[list[str], str]:
     return ids, proc.stdout
 
 
+@pytest.mark.subprocess_probe
 def test_without_the_option_the_order_is_unchanged(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
     ids, out = _collect(root)
@@ -62,6 +65,7 @@ def test_without_the_option_the_order_is_unchanged(tmp_path: Path) -> None:
     assert "sandloom-shuffle" not in out
 
 
+@pytest.mark.subprocess_probe
 def test_a_seed_fixes_the_order_and_is_printed_for_replay(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
     first, out = _collect(root, "--sandloom-shuffle=1234")
@@ -73,6 +77,7 @@ def test_a_seed_fixes_the_order_and_is_printed_for_replay(tmp_path: Path) -> Non
     assert "sandloom-shuffle: seed 1234 (replay: --sandloom-shuffle=1234)" in out
 
 
+@pytest.mark.subprocess_probe
 def test_files_stay_contiguous_and_their_tests_are_shuffled(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
     ids, _ = _collect(root, "--sandloom-shuffle=7")
@@ -84,6 +89,7 @@ def test_files_stay_contiguous_and_their_tests_are_shuffled(tmp_path: Path) -> N
     assert ids != sorted(ids, key=lambda i: (blocks.index(i.split("::")[0]), i))
 
 
+@pytest.mark.subprocess_probe
 def test_random_picks_a_fresh_seed_and_prints_it(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
     ids, out = _collect(root, "--sandloom-shuffle=random")
