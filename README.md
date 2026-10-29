@@ -6,18 +6,20 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
-## Keep shipping as your backend grows
+## Keep shipping features. Keep architecture under control.
 
-AI agents can generate a feature quickly. As a backend grows, each change needs
-to respect module boundaries, interfaces and data ownership.
+AI coding agents make implementing features faster. The harder part comes later:
+changing one module without introducing hidden dependencies, breaking contracts
+or losing control of data ownership.
 
-Sandloom makes those rules executable. Developers and coding agents work through
-a public Python SDK and generators; architecture checks catch the violations
-they cover. The framework provides transaction and messaging primitives so
-application code can focus on the feature.
+Sandloom makes architectural boundaries executable. Developers and coding agents
+build through a public Python SDK and generators, while automated checks detect
+violations of the rules the framework enforces.
 
-Start as a monolith. Split into services while keeping your business modules.
-Add identity, organizations or billing when your backend needs them.
+**Infrastructure-agnostic business modules** use capability interfaces instead
+of vendor clients. Change infrastructure through configuration and compatible
+drivers while keeping business logic. Start as a monolith and split into
+services with the same modules. Add identity, organizations or billing as needed.
 
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
@@ -33,43 +35,15 @@ Add identity, organizations or billing when your backend needs them.
 | Check compatibility when changing module interfaces | Checking typed, versioned contracts and event schemas |
 | Give coding agents explicit architectural rules | Providing a public SDK, generated context and executable checks |
 | Avoid rebuilding critical infrastructure for each feature | Providing transactions, outbox delivery, tenant isolation and deduplication |
+| Change infrastructure without rewriting business modules | Separating capabilities from backend drivers and selecting providers through configuration |
 | Split deployment as requirements change | Running the same business modules locally or across services through contracts |
 
-## See architecture checks in action
+### Who is Sandloom for?
 
-After the quickstart creates `notes` and `reports`, create
-`myapp/modules/reports/bad_import.py` with this deliberately invalid import:
-
-<!-- readme:boundary-import:start -->
-```python
-from myapp.modules.notes.services import create_item
-```
-<!-- readme:boundary-import:end -->
-
-Run `uv run sandloom check`. Output excerpt from the published `0.7.0a1`:
-
-<!-- readme:boundary-output:start -->
-```text
-sandloom check: 1 architecture violation(s)
-
-  myapp/modules/reports/bad_import.py:1: error[SANDLOOM-C001 module-boundaries]: from myapp.modules.notes.services import ...
-```
-<!-- readme:boundary-output:end -->
-
-The command exits with code 1. Cross-module work goes through
-[contracts](docs/concepts/contracts.md) or [events](docs/concepts/events.md).
-Remove the temporary file and check again:
-
-<!-- readme:boundary-cleanup:start -->
-```bash
-rm myapp/modules/reports/bad_import.py
-uv run sandloom check
-```
-<!-- readme:boundary-cleanup:end -->
-
-```text
-sandloom check: OK (2 module(s) under myapp.modules: notes, reports)
-```
+Python backends with multiple business domains, evolving requirements and a long
+development lifecycle—especially when coding agents regularly change features,
+infrastructure may change, or modules may need independent deployment.
+For a tiny API or one-off script, a lighter framework may be a better fit.
 
 ## Quickstart
 
@@ -118,8 +92,45 @@ uv run sandloom migrate upgrade-all --apply
 
 The test command finishes with `sandloom test: OK`. You have added an isolated
 module, checked it and applied its migration without editing the first module.
-Try the [forbidden-import example](#see-architecture-checks-in-action) above to
+Try the [forbidden-import example](#see-architecture-checks-in-action) below to
 see a boundary violation caught before it becomes a dependency in your app.
+
+## See architecture checks in action
+
+From the generated project root (`myapp/`, containing `pyproject.toml`), create
+`myapp/modules/reports/bad_import.py` with this deliberately invalid import.
+The inner `myapp/` is the Python package; `notes` and `reports` were created above:
+
+<!-- readme:boundary-import:start -->
+```python
+from myapp.modules.notes.services import create_item
+```
+<!-- readme:boundary-import:end -->
+
+Run `uv run sandloom check`. Output excerpt from the published `0.7.0a1`:
+
+<!-- readme:boundary-output:start -->
+```text
+sandloom check: 1 architecture violation(s)
+
+  myapp/modules/reports/bad_import.py:1: error[SANDLOOM-C001 module-boundaries]: from myapp.modules.notes.services import ...
+```
+<!-- readme:boundary-output:end -->
+
+The command exits with code 1. Cross-module work goes through
+[contracts](docs/concepts/contracts.md) or [events](docs/concepts/events.md).
+Remove the temporary file and check again:
+
+<!-- readme:boundary-cleanup:start -->
+```bash
+rm myapp/modules/reports/bad_import.py
+uv run sandloom check
+```
+<!-- readme:boundary-cleanup:end -->
+
+```text
+sandloom check: OK (2 module(s) under myapp.modules: notes, reports)
+```
 
 ## What application code looks like
 
@@ -169,6 +180,23 @@ signature and example; `sandloom explain <code>` explains a failed check.
 See the [SDK reference](docs/reference/sdk/index.md),
 [testing guide](docs/reference/testing.md) and [module model](docs/concepts/modules.md).
 
+## Change infrastructure without rewriting modules
+
+Modules request capabilities such as a database, cache, object store or notifier.
+Drivers implement those operations; configuration selects their instances.
+Architecture checks reject backend SDKs and raw clients in business modules.
+
+For example, move PostgreSQL and Redis from local containers to managed services
+by changing connection settings. Select a notification driver with
+`NOTIFIER_BACKEND`. Additional compatible drivers can be installed as plugins
+and selected through `INFRA`; startup checks validate module requirements
+against the configured capabilities and features.
+
+The current production stack is **PostgreSQL + Redis**, with SMTP and local or
+shared-volume files. Switching backend technology requires an implemented driver
+with the required features; PostgreSQL is currently the only supported relational
+backend. See the [capability model and driver support matrix](docs/concepts/capabilities-and-infrastructure.md).
+
 ## From one process to services
 
 `SANDLOOM_MODULES` selects the modules a process hosts. `SERVICE_BINDINGS` tells
@@ -179,11 +207,6 @@ Moving a module's existing data into its own database is a separate **offline
 migration** with `sandloom migrate extract-module`. Deployment still requires
 configuration, credentials and operations. See the
 [deployment model](docs/concepts/deployment.md) and [deployment profiles](deploy/README.md).
-
-Production infrastructure currently targets **PostgreSQL and Redis**, with
-local file storage and SMTP. Infrastructure capability interfaces support
-extensions; individual adapters have their own implementation and support status.
-See [capabilities and infrastructure](docs/concepts/capabilities-and-infrastructure.md).
 
 ## Explore
 
