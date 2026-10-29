@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" color="#173A31" role="img" aria-label="Sandloom woven S">
-  <path d="M18 12h32c12.15 0 22 9.85 22 22v12H58V34a8 8 0 0 0-8-8H18V12Z" fill="currentColor"/>
-  <path d="M62 68H30C17.85 68 8 58.15 8 46V34h14v12a8 8 0 0 0 8 8h32v14Z" fill="currentColor"/>
-  <path d="M30 33h20v14H30z" fill="currentColor"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="currentColor" role="img" aria-label="Sandloom caracal"><path fill-rule="evenodd" d="M17 3 22.5 7.5 27 28Q40 22 53 28L57.5 7.5 63 3 64 29 70 42.5 64 59 52 69 40 74 28 69 16 59 10 42.5 16 29ZM19.5 17 23.5 31.5 18 34ZM60.5 17 56.5 31.5 62 34ZM20.5 41.8C25.8 40.3 31.3 41.4 34 45.6C32.4 48.4 29.5 49 26.6 47.7C23.4 46.3 21.4 44.4 20.5 41.8ZM59.5 41.8C54.2 40.3 48.7 41.4 46 45.6C47.6 48.4 50.5 49 53.4 47.7C56.6 46.3 58.6 44.4 59.5 41.8ZM34.5 54.5Q40 52.5 45.5 54.5L42 58.5 41 59V61.5L45.5 63.2 44.9 64.6 40 62.8 35.1 64.6 34.5 63.2 39 61.5V59L38 58.5Z"/></svg>

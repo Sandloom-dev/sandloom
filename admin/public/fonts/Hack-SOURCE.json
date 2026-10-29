@@ -1,0 +1,26 @@
+{
+  "upstream": "https://github.com/ryanoasis/nerd-fonts",
+  "release": "v3.5.1",
+  "files": {
+    "Regular": {
+      "url": "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/v3.5.1/patched-fonts/Hack/HackNerdFontMono-Regular.ttf",
+      "source_sha256": "e5aeb58577a8acf2b42083e4a07ce48bd53116fdd868636403cadb5b547351be",
+      "web_sha256": "c98b225f3785013b90bba3f85845135c8f05d7a4aa2b0e1c3eba6d71e4641844"
+    },
+    "Bold": {
+      "url": "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/v3.5.1/patched-fonts/Hack/HackNerdFontMono-Bold.ttf",
+      "source_sha256": "7c2c76c26ff80fb546798b204ae519335573417c969eb3142d202298722d3832",
+      "web_sha256": "4594d89bc83bc63410ec4174a6914851d7ec0cc3282524b9c820ed9495bc3674"
+    }
+  },
+  "fonttools_version": "4.68.0",
+  "unicode_ranges": [
+    "U+0000-052F",
+    "U+1E00-1EFF",
+    "U+2000-206F",
+    "U+2190-22FF",
+    "U+2500-259F",
+    "U+FFFD-FFFD"
+  ],
+  "subset": "Text web subset; unused private-use icon glyphs are omitted. Site icons use SVG."
+}

@@ -13,6 +13,8 @@ const COLORS = [
   ['fg', 'bg-fg'],
   ['fg-muted', 'bg-fg-muted'],
   ['fg-subtle', 'bg-fg-subtle'],
+  ['primary', 'bg-primary'],
+  ['primary-fg', 'bg-primary-fg'],
   ['accent', 'bg-accent'],
   ['accent-muted', 'bg-accent-muted'],
   ['success', 'bg-success'],

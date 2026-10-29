@@ -7,19 +7,21 @@
 :root {
   color-scheme: light dark;
 
-  /* Sandloom — sand surfaces, forest text and clay accents. */
-  --sandloom-bg: light-dark(#f4f0e7, #101f1a);
-  --sandloom-surface: light-dark(#fffdf8, #162b24);
-  --sandloom-surface-muted: light-dark(#eae4d8, #1c342b);
-  --sandloom-surface-hover: light-dark(#ebe3d6, #233e34);
-  --sandloom-border: light-dark(#d6d5c8, #314d41);
-  --sandloom-border-strong: light-dark(#b7bca9, #526a5c);
-  --sandloom-fg: light-dark(#173a31, #f4f0e7);
-  --sandloom-fg-muted: light-dark(#526256, #bdc9b9);
-  --sandloom-fg-subtle: light-dark(#59675d, #a7b69f);
-  --sandloom-accent: light-dark(#a0472f, #e7aa87);
-  --sandloom-accent-fg: light-dark(#fffdf8, #173a31);
-  --sandloom-accent-muted: light-dark(#f9e9e1, #452d23);
+  /* Sandloom — graphite surfaces, sand accents and accessible light-theme bronze. */
+  --sandloom-bg: light-dark(#f7f6f2, #111213);
+  --sandloom-surface: light-dark(#ffffff, #191b1d);
+  --sandloom-surface-muted: light-dark(#eeede8, #222528);
+  --sandloom-surface-hover: light-dark(#ebeae5, #2b2d30);
+  --sandloom-border: light-dark(#dedfda, #303337);
+  --sandloom-border-strong: light-dark(#babcb6, #53565a);
+  --sandloom-fg: light-dark(#24272a, #edeee9);
+  --sandloom-fg-muted: light-dark(#626769, #adb1ae);
+  --sandloom-fg-subtle: light-dark(#646a65, #a0a6a2);
+  --sandloom-accent: light-dark(#80613d, #d8b892);
+  --sandloom-accent-fg: light-dark(#ffffff, #1a1815);
+  --sandloom-accent-muted: light-dark(#f1eadf, #332b22);
+  --sandloom-primary: light-dark(#282a2d, #d8b892);
+  --sandloom-primary-fg: light-dark(#faf9f5, #1a1815);
   --sandloom-success: light-dark(#237145, #86d9a0);
   --sandloom-success-muted: light-dark(#e0eddf, #193c29);
   --sandloom-warning: light-dark(#8b610b, #efd07f);
@@ -28,7 +30,7 @@
   --sandloom-danger-muted: light-dark(#fee2e2, #3b0d0d);
   --sandloom-danger-solid: light-dark(#b91c1c, #dc2626);
   --sandloom-danger-solid-fg: #ffffff;
-  --sandloom-overlay: rgb(16 31 26 / 0.5);
+  --sandloom-overlay: rgb(17 18 19 / 0.5);
   --sandloom-ring: var(--sandloom-accent);
 
   /* Elevation. */
@@ -67,6 +69,8 @@
   --color-fg: var(--sandloom-fg);
   --color-fg-muted: var(--sandloom-fg-muted);
   --color-fg-subtle: var(--sandloom-fg-subtle);
+  --color-primary: var(--sandloom-primary);
+  --color-primary-fg: var(--sandloom-primary-fg);
   --color-accent: var(--sandloom-accent);
   --color-accent-fg: var(--sandloom-accent-fg);
   --color-accent-muted: var(--sandloom-accent-muted);
@@ -90,7 +94,7 @@
 @theme {
   --font-*: initial;
   --font-sans: 'Manrope Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-mono: 'Hack Nerd Font Mono', ui-monospace, 'SFMono-Regular', monospace;
 
   --text-*: initial;
   --text-xs: 0.75rem;

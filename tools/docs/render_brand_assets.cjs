@@ -26,6 +26,14 @@ function tile(size) {
   fs.copyFileSync(path.join(assets, 'favicon.svg'), path.join(brand, 'favicon.svg'));
   fs.copyFileSync(path.join(brand, 'favicon-96.png'), path.join(assets, 'favicon-96.png'));
   fs.copyFileSync(path.join(brand, 'apple-touch-icon.png'), path.join(repo, 'website/apple-touch-icon.png'));
+  const admin = path.join(repo, 'admin/public');
+  fs.copyFileSync(path.join(assets, 'favicon.svg'), path.join(admin, 'favicon.svg'));
+  fs.copyFileSync(path.join(brand, 'favicon-96.png'), path.join(admin, 'favicon-96.png'));
+  fs.copyFileSync(path.join(brand, 'apple-touch-icon.png'), path.join(admin, 'apple-touch-icon.png'));
+  fs.mkdirSync(path.join(admin, 'fonts'), {recursive:true});
+  for (const name of ['hack-nerd-mono-regular.woff2', 'hack-nerd-mono-bold.woff2', 'Hack-LICENSE.md', 'Hack-SOURCE.json']) {
+    fs.copyFileSync(path.join(assets, 'fonts', name), path.join(admin, 'fonts', name));
+  }
   const sizes = [16,32,48];
   const frames = await Promise.all(sizes.map(size => sharp(tile(size)).png().toBuffer()));
   const header = Buffer.alloc(6 + sizes.length * 16);
@@ -41,6 +49,7 @@ function tile(size) {
   const ico = Buffer.concat([header, ...frames]);
   fs.writeFileSync(path.join(repo, 'website/favicon.ico'), ico);
   fs.writeFileSync(path.join(brand, 'favicon.ico'), ico);
+  fs.writeFileSync(path.join(admin, 'favicon.ico'), ico);
   for (const kind of ['home', 'docs', 'examples']) {
     const stem = path.join(assets, `social/sandloom-${kind}`);
     await sharp(`${stem}.svg`).png().toFile(`${stem}.png`);

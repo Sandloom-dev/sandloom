@@ -74,6 +74,20 @@ class DocumentationSiteTests(unittest.TestCase):
         ).getroot()
         self.assertEqual([n.attrib for n in canonical], [n.attrib for n in exported])
         self.assertEqual(canonical[0].attrib["fill-rule"], "evenodd")
+        self.assertEqual(
+            (REPO / "admin/public/sandloom-mark.svg").read_bytes(),
+            (REPO / "docs/assets/sandloom-mark.svg").read_bytes(),
+        )
+        for name in [
+            "favicon.svg",
+            "favicon-96.png",
+            "favicon.ico",
+            "apple-touch-icon.png",
+        ]:
+            self.assertEqual(
+                (REPO / "admin/public" / name).read_bytes(),
+                (brand / name).read_bytes(),
+            )
         for page in [
             "index.html",
             "docs/index.html",
