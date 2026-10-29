@@ -26,6 +26,12 @@ way they do, see the [concepts](../concepts/index.md).
 | [Change an event's payload](event-versioning.md) | Add an optional field, or roll a channel from `.v1` to `.v2`. |
 | [Testing modules](testing.md) | Write module tests with the fixtures of the testing plugin. |
 
+## Generated files and effects
+
+- [Generate contracts and snapshots](generate.md): write and check generated declarations.
+- [Deduplicate effects](effect-deduplication.md): HTTP, consumers, commands, tasks and providers.
+- [Revoke sessions](session-revocation.md): transactional changes and operator action.
+
 ## Data and migrations
 
 | Guide | What you do |
@@ -52,4 +58,5 @@ way they do, see the [concepts](../concepts/index.md).
 
 | Guide | What you do |
 | --- | --- |
+| [Upgrade an application](upgrading.md) | Review package versions, generated contracts, migrations and rollback. |
 | [Upgrading to 1.0](upgrading-1.0.md) | Move a module to the `sandloom.sdk` names: every old name and its new home. |

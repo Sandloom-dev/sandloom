@@ -16,6 +16,7 @@ understand why, read the [concepts](../concepts/index.md).
 | [Error catalogue](error-codes.md) | every `SANDLOOM-*` code: what happened, the fix, its status (generated; also `sandloom explain <code>`) |
 | [Testing](testing.md) | the `sandloom.sdk.testing` kit, the fixtures and the harness rules (copy-paste) |
 | [CLI](cli.md) | every `sandloom` command |
+| [Operator commands](../operations/operator-reference.md) | incident tools, flags, dry runs and production confirmation |
 | [Configuration](configuration.md) | every environment variable, generated from the settings model |
 | [Configuration tiers](configuration-tiers.md) | which settings change a guarantee, per profile (generated) |
 | [Routes](routes.md) | every platform route and its resolved policy (generated) |

@@ -1588,3 +1588,8 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-MIGRATE-09</span> | docs/guides/write-migration.md |
 | <span class="sl-id">C-PROJ-09</span> | docs/concepts/projections.md |
 | <span class="sl-id">C-EVENT-04</span> | docs/modules/tenancy.md<br>docs/modules/billing.md |
+
+## Related reading
+
+- [Guarantee boundaries](../concepts/guarantees.md)
+- [Error catalogue](error-codes.md)

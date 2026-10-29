@@ -64,6 +64,15 @@ the required role gets `403`.
 
 ### Rules API clients must know
 
+- **New memberships need a fresh access token.** After creating an organization
+  or accepting an invitation, call `POST /auth/refresh` with your current refresh
+  token and replace **both** stored tokens with the returned pair. Existing
+  access tokens retain their earlier `tenant_ids` claim; selecting the new
+  organization with `X-Tenant-Id` on a tenant-scoped application route returns
+  `403` even though the membership exists. Tenancy's own membership endpoints
+  check membership live and do not all require refreshed claims. Logging in
+  again also mints current claims. See the
+  [first access-token walkthrough](../getting-started/authentication.md#refresh-after-creating-an-organization).
 - **`PATCH /api/v1/orgs/{org_id}`** accepts only `name`; any other field
   (including `is_active`) is rejected with `422`. Deactivation is the owner-only
   `DELETE`, which soft-deletes the org, publishes

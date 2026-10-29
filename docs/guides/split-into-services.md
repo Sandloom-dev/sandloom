@@ -174,3 +174,8 @@ With `--smoke` (the slow test `tests/e2e/test_app_split.py`), it starts
 the stack and calls through the gateway. Login collects `tenancy`'s claims
 over RPC, `orders` calls `catalog` over RPC, and `orders` consumes
 `catalog`'s event.
+
+## Related reading
+
+- [Deployment guide](deployment.md)
+- [Move existing data](migrations.md)

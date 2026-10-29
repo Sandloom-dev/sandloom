@@ -152,6 +152,9 @@ audit (`pip-audit`, blocking CI gate).
 - Behind a proxy, set `TRUST_PROXY_HEADERS=true` **and** `TRUSTED_PROXY_IPS`
   (CIDRs of the proxies) — see [Security Model](../reference/security-model.md#transport-request-hardening).
 - Terminate TLS at the gateway or an upstream load balancer.
+- Use `/health/simple` for process liveness (including Kubernetes liveness probes)
+  and `/ready` for readiness. `/health` includes dependency health and may return
+  `503` during a database outage; using it as liveness can cause restart loops.
 - `/metrics` (Prometheus; `METRICS_TOKEN` or `INTERNAL_API_TOKEN`), `/health`,
   and `/ready` are exposed by every service. `/health` and `/ready` return `503`
   when degraded — that is the k8s probe contract. Public callers see check

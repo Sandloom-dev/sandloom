@@ -88,7 +88,11 @@ def site_origin(value: str) -> str:
 def finalize_metadata(origin: str, *, public: bool) -> None:
     """Give every page one shared icon set and server-rendered sharing metadata."""
     origin = site_origin(origin)
-    defaults = {SITE_DESCRIPTION, "A configurable-monolith framework for building SaaS — one codebase, monolith or microservices by configuration."}
+    defaults = {
+        SITE_DESCRIPTION,
+        "A configurable-monolith framework for building SaaS — one codebase, monolith or microservices by configuration.",
+        "Build SaaS with AI in isolated Python modules. Sandloom supplies identity, tenancy, billing and transaction mechanisms, from monolith to services.",
+    }
     urls: list[str] = []
     for page in sorted(SITE.rglob("*.html")):
         source = page.read_text()
@@ -342,7 +346,7 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
     finalize_metadata(origin, public=public_url is not None)
     # Root discovery for agents points to the native docs exports.
     (SITE / "llms.txt").write_text(
-        "# Sandloom\n\nDocumentation: /docs/\n\n"
+        "# Sandloom\n\n" + SITE_DESCRIPTION + "\n\nDocumentation: /docs/\n\n"
         "- [Example applications](/examples/)\n"
         "- [Documentation index](/docs/llms.txt)\n"
         "- [Full documentation](/docs/llms-full.txt)\n"

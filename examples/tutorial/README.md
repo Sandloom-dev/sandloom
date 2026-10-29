@@ -1,6 +1,6 @@
 # tasklist
 
-An application built on the **Sandloom framework** (configurable monolith for SaaS).
+An application built with **Sandloom**, the Python backend framework for AI-driven development.
 
 The framework is supplied by the `sandloom` dependency.
 This project owns only
@@ -15,6 +15,7 @@ select a subset).
 # 1. Install (framework comes in as a dependency; `uv sync` also works and
 #    keeps the pinned dev tools)
 uv sync
+uv run sandloom generate
 cp .env.example .env                 # set a fresh JWT_SECRET with openssl rand -hex 32
 uv run pre-commit install                  # runs `sandloom check` + ruff on every commit
 
@@ -56,7 +57,8 @@ every loaded module.
 
 ```bash
 sandloom add module <name>     # a new package under tasklist/modules; nothing else to edit
-sandloom test                  # writes the generated files, runs every gate
+sandloom generate              # writes snapshots, stubs and DTO copies
+sandloom test                  # checks generated files and runs every gate
 ```
 
 ## Migrations

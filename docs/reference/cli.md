@@ -1,8 +1,8 @@
 ---
-title: CLI, Settings & Local CI
+title: CLI reference
 ---
 
-# CLI, settings and local CI
+# CLI reference
 
 Every `sandloom` command, the configuration tiers, accepted risks, the key settings
 and the local CI runner. Run the commands from the application root (or
@@ -20,13 +20,16 @@ has `--help`.
 | `sandloom add contract <module> <name>` | A `@contract` class and its DTO in the module's `schemas.py`; the stub and the DTO copy are generated. |
 | `sandloom add saga <module> <name>` | A saga with a typed command step, plus tests. |
 | `sandloom add projection <module> <name>` | A projection skeleton. |
+| `sandloom add task <module> <name> [--periodic CRON]` | An idempotent task skeleton; `--periodic` adds its five-field cron beat schedule. |
+| `sandloom add skills [--force]` | Refresh the application's agent skills; preserve edited files unless `--force` is given. |
 | `sandloom add deploy <module>... [--service S] [--force]` / `--refresh` / `--check [--env-file F]` | Split into services: create (first run) or update the microservices profile and its gateway, derived from what the modules provide and consume; `--check` runs the split invariants (SANDLOOM-T014) and boots every service alone. [Split an app into services](../guides/split-into-services.md). |
 | `sandloom docs [<name>] [--write \| --check]` | Print a public `sandloom.sdk` name's exact signature, tier and docstring; `--write` / `--check` refresh or verify the generated reference blocks. |
 | `sandloom explain <code> [--list \| --markdown]` | Explain an `SANDLOOM-xxxx` error code or a check rule: why, and the fix. |
 | `sandloom version` | Print the framework version. |
 
-Every generator but `deploy` runs `sandloom generate` last, so the generated
-files are current after scaffolding.
+Code generators run `sandloom generate` last, so snapshots and stubs are current
+after scaffolding. `add deploy` validates deployment configuration; `add skills`
+refreshes agent instructions and does not run application generation.
 `sandloom add --root <path>` runs a generator against another project root. Each
 generator has a how-to: [Add a module](../guides/add-module.md),
 [Add an event](../guides/add-event.md),
@@ -39,7 +42,7 @@ generator has a how-to: [Add a module](../guides/add-module.md),
 
 | Command | What it does |
 | --- | --- |
-| `sandloom generate [<module> ...]` | Writes every generated file: each module's `module.snapshot.json`, `routes.snapshot.json` and `contracts.snapshot.json`, the contract stubs and the DTO copies (`<shared>/contracts/<module>_dto.py`, a wire-shape copy of each provider DTO a contract signature names) and the exported event schemas. Every file is compared with the committed one first: an incompatible change (SANDLOOM-T001, T004, T005, T007, C012) fails and nothing is written. A weaker route policy is written only by `sandloom routes snapshot --write`. Module names keep those modules' files only. Loads the project's `.env.test` like `sandloom test`; connects to no database. Every `sandloom add` generator runs it last, and `sandloom new` runs it once. |
+| `sandloom generate [<module> ...] [--check] [--root ROOT]` | Writes every generated file: each module's `module.snapshot.json`, `routes.snapshot.json` and `contracts.snapshot.json`, the contract stubs and the DTO copies (`<shared>/contracts/<module>_dto.py`, a wire-shape copy of each provider DTO a contract signature names) and the exported event schemas. Every file is compared with the committed one first: an incompatible change (SANDLOOM-T001, T004, T005, T007, C012) fails and nothing is written. A weaker route policy is written only by `sandloom routes snapshot --write`. Module names keep those modules' files only. Loads the project's `.env.test` like `sandloom test`; generation does not apply migrations. Code generators run it last. `sandloom new` attempts it when dependencies are available; after `uv sync`, run it in the app environment. `--check` compares without writing; `--root` selects the application root. |
 | `sandloom test [<module>] [--full] [--no-gates] [-n N] [--plan] [--ci] [--seed N \| --no-shuffle]` | The gate: the module's tests first, then the fast suite in parallel (`-m "not slow" -n auto --dist loadfile`, `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`; `--full` includes slow tests), then ruff, ruff format, mypy, `sandloom check`, the architecture tests, `lint-imports` and the contract and route snapshots. A failing step names its code. It never writes a generated file: a stale one fails with "generated files are stale: run `sandloom generate`" and the list. `--ci` also runs `ruff check --no-fix`. The test steps run in a seeded random order (printed; `--seed N` replays it, `--no-shuffle` keeps file order): [Test isolation](../guides/testing.md#test-isolation). |
 | `sandloom check [--rules FILE] [--only rule,...] [--list-rules] [--boot]` | Static architecture analyzers against `./architecture_rules.yml` (exit `0` ok, `1` violations, `2` usage). `--boot` also builds the app through `create_app` and reports startup refusals and stale route snapshots. Outside this repository it needs `pip install "sandloom[check]"`. |
 | `sandloom routes snapshot [--write \| --check] [--module M]` | Each module's route snapshot (`routes.snapshot.json`: method, path, authentication, resolved policy). `--check` fails on a stale file (SANDLOOM-T001); after a route change run `--write` and review the diff. `sandloom generate` never writes a weaker policy (spec §5.8): `--write` is its explicit approval and names each weakening it approves. |
@@ -109,7 +112,8 @@ infrastructure tables. See [Migrations](../concepts/migrations.md) and
 | `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 
-Runbooks: [Operations](../operations/runbook.md), `docs/operations/operator-reference.md`.
+Runbooks: [Operations](../operations/runbook.md) and the
+[operator command reference](../operations/operator-reference.md).
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
@@ -157,6 +161,18 @@ exactly in `pyproject.toml` and locked in `uv.lock`); CI runs
 `uv sync --frozen` and the hooks `uv run --locked`, so a stale `uv.lock` fails
 instead of re-resolving. Bump a tool by editing its pin, `uv lock`, and fixing
 its new findings in the same change.
+
+## Check database drift
+
+`uv run sandloom migrate drift` builds a scratch database from the loaded
+module migration chains and compares it with the models. It reports missing
+or extra schema operations and does not repair the application database.
+`sandloom test` includes this check. See [migrations](../guides/migrations.md).
+
+For incident tools (`security`, `backup`, `streams`, `outbox`, `sagas`, keys and
+projections), including scope, dry-run, JSON, batching and production-confirmation
+flags, use the [operator command reference](../operations/operator-reference.md).
+Publishing the website is a separate [manual workflow](../contributing/website.md).
 
 ## Configuration tiers and accepted risks
 

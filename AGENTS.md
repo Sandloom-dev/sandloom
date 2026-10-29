@@ -1,6 +1,6 @@
 # Sandloom Framework — agent map
 
-Sandloom is a configurable-monolith framework for SaaS. One codebase deploys as a monolith or as
+Sandloom is a Python backend framework for AI-driven development. One codebase deploys as a monolith or as
 microservices by configuration alone (`SANDLOOM_MODULES`, `SERVICE_BINDINGS`); moving a module's
 live data to its own database is a separate offline step (`sandloom migrate extract-module`).
 Production backends: PostgreSQL + Redis (+ local files, SMTP).
@@ -144,7 +144,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 - `ORM_LEAKAGE_BASELINE` in `test_api_no_orm_leakage.py` — a ratchet: remove entries only.
 - `FakeStripeClient` is the default PSP outside prod and rejects unsigned webhooks (sign
   test payloads with `sandloom_billing.psp.sign_stripe_payload`).
-- `/health` and `/ready` answer 503 when degraded — the k8s probe contract.
+- `/health/simple` is process liveness; `/health` and `/ready` answer 503 when degraded.
 - Error handling is app-wide (`sandloom.core.http.error_handlers`); modules register none.
 - Duplicate event deliveries happen (at-least-once by design); `@on(durable=True)`, the
   default, claims each envelope id once.

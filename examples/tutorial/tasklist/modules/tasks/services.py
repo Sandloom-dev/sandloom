@@ -2,6 +2,8 @@
 
 from uuid import UUID
 
+from sqlalchemy import select
+
 from sandloom.sdk import db
 
 from .events import ItemCreated
@@ -20,3 +22,11 @@ async def create_item(body: ItemIn, *, owner_id: UUID) -> ItemOut:
 async def get_item(item_id: UUID) -> ItemOut | None:
     item = await db().get(TasksItem, item_id)
     return None if item is None else ItemOut.model_validate(item)
+
+
+async def list_items(*, limit: int) -> list[ItemOut]:
+    newest = TasksItem.created_at.desc()
+    tie = TasksItem.id.desc()
+    query = select(TasksItem).order_by(newest, tie).limit(limit)
+    rows = await db().scalars(query)
+    return [ItemOut.model_validate(row) for row in rows]

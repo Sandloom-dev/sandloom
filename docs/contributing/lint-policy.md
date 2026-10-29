@@ -99,3 +99,8 @@ only conflict on marker lines.
 
 `ruff --add-noqa` merges new codes into an existing marker and replaces its
 reason with the new one: check the diff for lost reasons before committing.
+
+## Related reading
+
+- [Contributor workflow](index.md)
+- [Quality gates](../guides/testing.md)

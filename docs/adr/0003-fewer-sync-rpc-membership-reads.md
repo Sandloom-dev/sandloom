@@ -224,8 +224,7 @@ contract by `RPC_ALLOWED_CALLS`) are outside the route check.
 
 ### Gaps the classification exposed — resolved
 
-All three were addressed by
-[#69](https://github.com/Maryarty/auto_job_applyer/pull/69) (one commit each, failing-first
+All three were addressed during internal development (one commit each, failing-first
 tests with two real transactions; split conformance green), and then
 strengthened in the same PR on review: G1 became an explicit
 operation-authorization model, G2 got its cross-service counterpart.
@@ -1268,3 +1267,8 @@ from a successful identity claims contributor; tenant membership grants nothing.
 Both attach the before-commit revocation check. The adjustment's unique ledger
 operation key, balance effect and required audit share one UoW; payload-mismatched
 replays conflict. Provider money/subscription operations are not local row edits.
+
+## Related reading
+
+- [Current route policy](../concepts/route-policy.md)
+- [Contracts](../concepts/contracts.md)

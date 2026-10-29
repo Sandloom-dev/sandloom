@@ -207,3 +207,8 @@ items 7-8). Stack it UNDER `@classmethod` / `@staticmethod`.
 
 `step_up` (seconds) defaults to 300 for `security` and to none for
 `admin` / `money`. See the module docstring for what the risk triggers.
+
+## Examples and related guides
+
+- [Deduplicate effects](../../guides/effect-deduplication.md)
+- [Python API overview](index.md)

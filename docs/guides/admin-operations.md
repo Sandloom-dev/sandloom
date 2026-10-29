@@ -186,3 +186,8 @@ without a configured identity says so rather than guessing from an integer ID.
 Use its filtered audit-explorer links for the full history beyond the first 50
 entries. Bulk commands show individual refusals and retain only failed records
 for correction; confirmed successes are not sent again during recovery.
+
+## Related reading
+
+- [Operator command reference](../operations/operator-reference.md)
+- [Extend the console](admin.md)

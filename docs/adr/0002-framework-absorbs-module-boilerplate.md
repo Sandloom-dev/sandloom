@@ -83,3 +83,8 @@ The framework owns this plumbing; modules declare, conventions derive.
 - **Frame-inspection-only `define_module()`:** works, but the explicit
   `define_module(__name__)` is greppable and robust; inference stays as a
   fallback.
+
+## Related reading
+
+- [Module model](../concepts/modules.md)
+- [Testing harness](../guides/testing.md)

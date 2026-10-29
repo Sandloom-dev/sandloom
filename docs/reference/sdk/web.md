@@ -765,3 +765,8 @@ def writes(database: str) -> params.Depends
 
 Name the route's write store when it injects several writable sessions
 (spec §6.1, SANDLOOM-B009).
+
+## Examples and related guides
+
+- [Route policy](../../concepts/route-policy.md)
+- [Python API overview](index.md)

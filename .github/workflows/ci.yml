@@ -97,6 +97,8 @@ jobs:
               - '.github/workflows/ci.yml'
             examples:
               - 'examples/**'
+              - 'docs/getting-started/tutorial.md'
+              - 'tools/smoke/tutorial_check.py'
               - '.github/workflows/ci.yml'
             deploy:
               - 'deploy/**'
@@ -118,6 +120,7 @@ jobs:
               - 'uv.lock'
               - 'src/**'
               - '.github/workflows/docs.yml'
+              - '.github/workflows/pages.yml'
               - '.github/workflows/ci.yml'
               - '**/AGENTS.md'
               - '**/CLAUDE.md'
@@ -600,6 +603,9 @@ jobs:
         working-directory: ./${{ matrix.path }}
     env:
       BIN: ${{ github.workspace }}/.venv/bin
+      # The checked-in app and tutorial replay run sequentially in one job.
+      # Share its owner so the second app can reuse the job's Redis indexes.
+      SANDLOOM_TEST_OWNER: ci-example-${{ matrix.app }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python
@@ -621,6 +627,14 @@ jobs:
         # .env.test points at the services; a fresh seeded test order per run
         # (printed; replay: sandloom test --seed <seed>). --ci writes nothing.
         run: $BIN/sandloom test --ci --full
+      - name: Replay the tutorial from an empty application
+        if: ${{ matrix.app == 'tasklist' }}
+        working-directory: .
+        run: >-
+          python3 tools/smoke/tutorial_check.py --cli "$BIN/sandloom"
+          --postgres-url postgresql://test_user:test_password@127.0.0.1:5433
+          --redis-url redis://127.0.0.1:6380 --redis-db-base 4
+          --db-prefix sandloom_tutorial_ci_test
       - name: Migrate a fresh database (core chain + module chains)
         env:
           PGPASSWORD: test_password

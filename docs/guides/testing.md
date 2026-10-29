@@ -1,8 +1,8 @@
 ---
-title: Testing Modules
+title: Testing modules
 ---
 
-# Testing Modules
+# Testing modules
 
 Each module owns a `tests/` directory. Tests run against a real PostgreSQL
 (from `.env.test`) through the real application. They are not mocked. The
@@ -14,6 +14,10 @@ This page explains how to run the tests and how the harness behaves. Every
 fixture and helper, with copy-paste examples, is in the
 [testing reference](../reference/testing.md); exact signatures are in
 [`sandloom.sdk.testing`](../reference/sdk/testing.md) or `sandloom docs <name>`.
+
+For the general test workflow, use this guide; for copy-paste fixtures, use
+[Testing reference](../reference/testing.md); for exact public helper signatures,
+use [`sandloom.sdk.testing`](../reference/sdk/testing.md).
 
 ## First run on a fresh checkout
 

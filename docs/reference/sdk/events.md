@@ -226,3 +226,8 @@ version order. `bus` (scripts/tests) publishes straight to that bus.
 Outside a Unit of Work (and without `bus`) it raises like
 `publish_event`; `required=False` opts into the best-effort direct
 publish (same semantics and `sandloom check` marker as `publish_event`).
+
+## Examples and related guides
+
+- [Publish and consume events](../../guides/add-event.md)
+- [Python API overview](index.md)

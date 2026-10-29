@@ -20,6 +20,9 @@ Automatic PR checks use Python 3.12 and select checks by changed area. The full
 compatibility matrix and heavy scenarios run explicitly before release. See
 [CI profiles and minute budget](ci.md) for the exact split and commands.
 
+The [website publishing guide](website.md) covers the unified site, GitHub Pages
+and DNS setup separately from [package publishing](../guides/publishing.md).
+
 ## Quality gates
 
 Run from the repository root:

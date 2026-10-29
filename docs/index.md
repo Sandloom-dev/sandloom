@@ -1,13 +1,13 @@
 ---
 title: Documentation
-description: Learn Sandloom, the AI-first Python framework for SaaS. Start with your first module, then explore tenancy, billing, events and deployment as services.
+description: Learn Sandloom, the Python backend framework for AI-driven development. Start with your first module, then explore tenancy, billing, events and deployment as services.
 ---
 
 # Sandloom Framework
 
-**A configurable monolith for building SaaS.** One codebase, one image — deploy
+**Python backend framework for AI-driven development.** One codebase, one image — deploy
 it as a monolith today and split it into microservices later by changing an
-environment variable. No rewrites.
+deployment configuration. Business modules keep the same code.
 
 !!! note "Code and topology by configuration — data by migration"
     The split is a configuration change for the code and the topology (which
@@ -20,7 +20,7 @@ environment variable. No rewrites.
     infrastructure backends are production-ready vs contract-only is listed in
     [What ships today](concepts/capabilities-and-infrastructure.md#what-ships-today).
 
-Sandloom is a *golden path* for rapid SaaS development with AI coding agents: every
+Sandloom provides a structured backend development path for people and AI coding agents: every
 business module is **atomic and isolated**, so a developer (or an agent) can
 build or modify one module without understanding — or breaking — the rest of the
 system. AST-based architecture tests enforce that isolation in CI.
@@ -60,6 +60,11 @@ machine-readable index of this site is <a href="llms.txt"><code>llms.txt</code><
 also served as Markdown: append `index.md` to its HTML directory URL, e.g.
 `concepts/route-policy/index.md`. On any `error[SANDLOOM-...]`, run
 `sandloom explain <code>` or read the [error catalogue](reference/error-codes.md).
+
+Before adopting Sandloom, read [Is Sandloom for me?](getting-started/is-sandloom-for-me.md).
+For signup, verification and tokens, follow [authentication and email](getting-started/authentication.md).
+For questions or an upgrade, see [getting help](getting-started/help.md) and
+[upgrade an application](guides/upgrading.md).
 
 ## Why Sandloom
 

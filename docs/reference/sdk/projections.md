@@ -749,3 +749,8 @@ The dependency resolving a `ProjectionView` of projection `name`:
 ```python
 tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
 ```
+
+## Examples and related guides
+
+- [Build a projection](../../guides/add-projection.md)
+- [Python API overview](index.md)

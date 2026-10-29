@@ -489,3 +489,8 @@ class UnsafeTenantOperationError(RuntimeError)
 ```
 
 An ORM operation could bypass or mutate tenant ownership.
+
+## Examples and related guides
+
+- [Error catalogue](../error-codes.md)
+- [Python API overview](index.md)

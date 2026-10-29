@@ -22,7 +22,14 @@ class TrustConfig(BaseModel):
     # fact's min_freshness floor (the subsystem clamps it). Shape:
     #   {"subscription.active": "live", "org.admin": "projection"}
     # See sandloom.shared.authz.facts.
-    access: dict[str, str] = Field(default_factory=dict, alias="ACCESS")
+    access: dict[str, str] = Field(
+        default_factory=dict,
+        alias="ACCESS",
+        description=(
+            "JSON map overriding access-fact resolution modes (claim, projection, "
+            "live or auto); each fact freshness floor is still enforced."
+        ),
+    )
 
     # Production profile: the trust model a production deployment promises
     # (sandloom.core.production_profile; docs/reference/security-model.md).
@@ -33,7 +40,13 @@ class TrustConfig(BaseModel):
     # fail-closed revocation, a separate SECURITY_CACHE_INSTANCE on its own
     # Redis, and — when split — the contract compatibility check.
     production_profile: Literal["standard", "multi_tenant_strict"] = Field(
-        default="standard", alias="PRODUCTION_PROFILE"
+        default="standard",
+        alias="PRODUCTION_PROFILE",
+        description=(
+            "Production trust profile: standard or multi_tenant_strict. The "
+            "strict profile enforces tenant RLS, isolated security infrastructure "
+            "and other startup guarantees."
+        ),
     )
     # The ONE list of weaker guarantees this deployment accepts in prod
     # (sandloom.core.config.accepted_risks; JSON list or comma-separated ids, e.g.
@@ -41,7 +54,13 @@ class TrustConfig(BaseModel):
     # logged at every start, exported as sandloom_accepted_risk_active{risk} and
     # listed by /diagnostics/core and `sandloom doctor`.
     sandloom_accepted_risks: Annotated[list[str], NoDecode] = Field(
-        default_factory=list, alias="SANDLOOM_ACCEPTED_RISKS"
+        default_factory=list,
+        alias="SANDLOOM_ACCEPTED_RISKS",
+        description=(
+            "Explicit production guarantee exceptions as a JSON list or "
+            "comma-separated risk IDs; unknown IDs fail startup and accepted "
+            "risks are reported."
+        ),
     )
     # Named cache instance holding security-critical state: revocation marks,
     # emergency user blocks and — unless IDEMPOTENCY_CACHE_INSTANCE moves them —
@@ -52,7 +71,13 @@ class TrustConfig(BaseModel):
     # non-evicting, replicated Redis (Sentinel / managed HA) declared in
     # INFRA["cache"] so cache pressure can never evict a revocation mark.
     security_cache_instance: str = Field(
-        default="default", alias="SECURITY_CACHE_INSTANCE"
+        default="default",
+        alias="SECURITY_CACHE_INSTANCE",
+        description=(
+            "Named cache instance for security-critical revocation and block "
+            "state, and by default idempotency records; use durable non-evicting "
+            "Redis in production."
+        ),
     )
     # Opt-in: a separate named cache instance for idempotency records
     # (idempotency_guard reservations / replays, task-enqueue dedupe, the
@@ -64,13 +89,29 @@ class TrustConfig(BaseModel):
     # (docs/design/write-login-profile-2026-10-22.md). multi_tenant_strict
     # requires it to be declared in INFRA["cache"] on its own Redis server.
     idempotency_cache_instance: str = Field(
-        default="", alias="IDEMPOTENCY_CACHE_INSTANCE"
+        default="",
+        alias="IDEMPOTENCY_CACHE_INSTANCE",
+        description=(
+            "Separate named cache for idempotency and task-enqueue records; empty "
+            "uses SECURITY_CACHE_INSTANCE. Revocation and block state stays in "
+            "the security cache."
+        ),
     )
 
     # Tenant isolation. Single-tenant is the degenerate multi-tenant case: the
     # configured canonical tenant is still bound and enforced on every
     # TenantScoped operation rather than disabling tenant filters.
     tenancy_mode: Literal["multi", "single"] = Field(
-        default="multi", alias="TENANCY_MODE"
+        default="multi",
+        alias="TENANCY_MODE",
+        description=(
+            "Tenant-binding mode: multi derives the current tenant; single "
+            "consistently binds the canonical SINGLE_TENANT_ID without disabling "
+            "tenant filters."
+        ),
     )
-    single_tenant_id: UUID | None = Field(default=None, alias="SINGLE_TENANT_ID")
+    single_tenant_id: UUID | None = Field(
+        default=None,
+        alias="SINGLE_TENANT_ID",
+        description=("Canonical tenant UUID required when TENANCY_MODE is single."),
+    )

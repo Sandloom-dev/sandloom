@@ -816,3 +816,8 @@ real flow needs them.
    Phase 0 and the phase-1 MVP ship together; the worked example is the
    course-enrollment flow the Tutor product needs (payment → course access →
    notifications).
+
+## Related reading
+
+- [Add a saga](../guides/add-saga.md)
+- [Saga concepts](../concepts/sagas.md)

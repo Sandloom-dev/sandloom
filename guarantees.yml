@@ -7231,6 +7231,7 @@ issued:
 
 adr_sections:
   0005-effect-model.md:
+    Related reading: informational
     Context: informational
     Decision: informational
     1. Vocabulary:
@@ -7300,6 +7301,7 @@ adr_sections:
     - G-EFFECT-04
     - G-IDEM-12
   0003-fewer-sync-rpc-membership-reads.md:
+    Related reading: informational
     Context: informational
     Cost today (main `1898eaa`): informational
     'Facts every option depends on (verified in code after #47–#67)': informational
@@ -7383,6 +7385,7 @@ adr_sections:
     Platform owner console routes:
     - G-OPCLASS-07
   0004-rpc-pair-mac-request-authentication.md:
+    Related reading: informational
     Context: informational
     Decision:
     - G-RPC-01
@@ -7500,6 +7503,7 @@ adr_sections:
     - C-MODULE-13
     Alternatives considered: informational
   0002-framework-absorbs-module-boilerplate.md:
+    Related reading: informational
     Context: informational
     Decision:
     - C-MODULE-08
@@ -7515,6 +7519,7 @@ adr_sections:
     - C-MODULE-08
     Alternatives rejected: informational
   0007-kernel-layers.md:
+    Related reading: informational
     Context: informational
     Principles:
     - G-KERNEL-02
@@ -7542,6 +7547,7 @@ adr_sections:
     - G-KERNEL-05
     Numbers (main `3e659852` → this change, after merging the auth/config split): informational
   0006-accepted-risks.md:
+    Related reading: informational
     Context: informational
     Decision:
     - G-RISK-01
@@ -7568,6 +7574,7 @@ adr_sections:
     - G-RISK-03
     - C-RISK-01
   0008-sagas.md:
+    Related reading: informational
     Context: informational
     Decision drivers: informational
     Considered options: informational

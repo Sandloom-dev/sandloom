@@ -122,3 +122,8 @@ Use `sandloom new --framework-source path --framework-path <checkout>` and
 containing `packages/`. These editable paths are local dependencies, not portable
 Docker or CI inputs. `--framework-source git` is disabled; use published packages
 or a complete matching wheel set for portable deployments.
+
+## Related reading
+
+- [Package versioning policy](../contributing/versioning.md)
+- [Website publishing](../contributing/website.md)

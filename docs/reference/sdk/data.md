@@ -542,3 +542,8 @@ UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn
 ```
 
 *(no docstring)*
+
+## Examples and related guides
+
+- [Units and transactions](../../concepts/units.md)
+- [Python API overview](index.md)

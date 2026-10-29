@@ -143,9 +143,12 @@ See [Audit](../concepts/audit.md).
   error-budget arithmetic: [SLOs](../reference/slo.md).
 - **Traces:** set `TRACING_URL` to your OTLP endpoint (TLS auto for `https`).
 - **Errors:** set `SENTRY_DSN` to enable Sentry reporting.
-- **Health:** `/health` (liveness, `503` when degraded), `/ready` (readiness:
+- **Probes:** use `/health/simple` for process liveness: a database or cache
+  outage must not trigger a restart loop. Use `/ready` for readiness and routing
+  (`503` when degraded); `/health` reports operational health and can also
+  return `503` when a dependency is unavailable. Readiness includes
   health + required modules + every required event consumer actively
-  subscribed). Probe results are cached for `HEALTH_CACHE_TTL_SECONDS`
+  subscribed. Probe results are cached for `HEALTH_CACHE_TTL_SECONDS`
   (default 3; `0` disables). Without `X-Internal-Token` callers see statuses
   only — no check details, module or consumer names.
 - **Diagnostics** (token-gated): `/diagnostics/infra` (capabilities, drivers,

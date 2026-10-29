@@ -43,3 +43,8 @@ on PRs touching lockfiles/manifests: fails on a newly introduced dependency
 with a `high`+ advisory or an AGPL/GPL-3.0 licence. It needs the GitHub
 dependency graph, so it is **not** reproducible in `tools/ci/ci_local.sh`.
 Existing dependencies are covered by `pip-audit` in `backend-static`.
+
+## Related reading
+
+- [Contributor workflow](index.md)
+- [Package publishing](../guides/publishing.md)

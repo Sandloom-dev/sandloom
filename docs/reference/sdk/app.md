@@ -57,3 +57,8 @@ the kernel defaults (empty) the module set comes from configuration
 alone. Every module is required unless named in
 `default_optional_modules` (defaulted lists only) or declared
 `optional=True`.
+
+## Examples and related guides
+
+- [Application quickstart](../../getting-started/index.md)
+- [Python API overview](index.md)
