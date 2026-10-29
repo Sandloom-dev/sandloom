@@ -76,7 +76,11 @@ Resolving `localhost` runs through the event loop's thread executor and can
 exhaust the bounded Redis connect deadline when that executor is busy, even
 with a healthy Redis server. This reproduced the CI connection timeout;
 changing only the address to `127.0.0.1` passed with the executor still blocked.
-A regression checks the service addresses. Production cache deadlines, retry
+A regression checks the service addresses. The root test bootstrap also seeds
+missing `.env.test` settings when CI exports `DATABASE_URL`; previously its
+early return silently omitted the test cache-connect profile. Explicit shell
+values retain priority, verified by importing the real bootstrap in fresh
+processes. Production cache deadlines, retry
 policy and security behavior are unchanged.
 
 The focused Redis/billing regressions and full data-extraction scenario are

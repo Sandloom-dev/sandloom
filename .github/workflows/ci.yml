@@ -73,6 +73,7 @@ jobs:
               - 'tools/packaging/**/*.py'
               - 'pyproject.toml'
               - 'uv.lock'
+              - 'conftest.py'
               - 'architecture_rules.yml'
               - 'guarantees.yml'
               - '.env.test'

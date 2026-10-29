@@ -91,6 +91,7 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ("tools/checks/check_secrets.py", {"backend"}),
         ("migrations/core/0001_init.py", {"backend"}),
         ("pyproject.toml", {"backend", "admin"}),
+        ("conftest.py", {"backend"}),
         ("admin/src/app/router.tsx", {"admin"}),
         ("examples/academy/academy/modules/catalog/api.py", {"examples"}),
         ("deploy/docker/Dockerfile", {"deploy"}),
@@ -209,3 +210,50 @@ def test_hosted_ci_service_connections_do_not_depend_on_dns():
             assert address.is_loopback, (source.name, host)
             checked += 1
     assert checked >= 10
+
+
+@pytest.mark.parametrize("explicit_timeout", [None, "0.125"])
+def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_timeout):
+    """Import the actual bootstrap in a fresh process, as a CI worker does.
+    Shell overrides must survive, but supplying DATABASE_URL must not disable
+    every unrelated test-profile default.
+    """
+    import json
+    import os
+    import subprocess
+
+    from dotenv import dotenv_values
+
+    supplied = {
+        "DATABASE_URL": "postgresql+asyncpg://ci:ci@127.0.0.1:5433/seed_regression",
+        "CACHE_URL": "redis://127.0.0.1:6380/3",
+        "BROKER_URL": "redis://127.0.0.1:6380/4",
+    }
+    env = {"PATH": os.environ.get("PATH", ""), **supplied}
+    if explicit_timeout is not None:
+        env["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] = explicit_timeout
+    code = f"""
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location('_seed_profile_test', {str(ROOT / "conftest.py")!r})
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+keys = ('DATABASE_URL', 'CACHE_URL', 'BROKER_URL', 'CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS')
+print(json.dumps({{key: os.environ.get(key) for key in keys}}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=True,
+    )
+    actual = json.loads(result.stdout.splitlines()[-1])
+    assert {key: actual[key] for key in supplied} == supplied
+    expected = (
+        explicit_timeout
+        or dotenv_values(ROOT / ".env.test")["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"]
+    )
+    assert actual["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] == expected

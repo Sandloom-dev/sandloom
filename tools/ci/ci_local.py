@@ -399,7 +399,7 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
     "ci.yml:workflow-policy": "d7e57e84cb46c937",
-    "ci.yml:changes": "e759f62d25a27590",
+    "ci.yml:changes": "01662f7aff5c7a81",
     "ci.yml:backend-static": "ef236822f379e265",
     "ci.yml:supply-chain": "ae051a922b6aa224",
     "ci.yml:backend-tests": "91c8cced7f9871c9",
