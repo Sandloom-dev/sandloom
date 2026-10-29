@@ -171,6 +171,17 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ),
         ("deploy/docker/Dockerfile", {"deploy", "docs"}),
         ("benchmarks/tests/test_s5_security.py", {"benchmarks"}),
+        ("benchmarks/uv.lock", {"benchmarks", "dependency_review"}),
+        ("benchmarks/pyproject.toml", {"benchmarks", "dependency_review"}),
+        ("benchmarks/ladder/cg/requirements.txt", {"benchmarks", "dependency_review"}),
+        (
+            "packages/sandloom-identity/pyproject.toml",
+            {"backend", "packages", "architecture", "dependency_review"},
+        ),
+        (
+            "tools/checks/check_benchmark_dependencies.py",
+            {"backend", "architecture", "benchmarks"},
+        ),
     ],
 )
 def test_change_filters_do_not_expand_docs_or_policy_into_backend(path, expected):

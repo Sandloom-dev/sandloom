@@ -13,6 +13,13 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Security
+
+- Require Authlib 1.9.1 or newer in identity, update the dev virtualenv to
+  21.14.13, and refresh the benchmark lock and Cachegrind export with patched
+  Authlib, Pillow, certifi and joserfc. Check the export against the benchmark
+  lock in CI and include all maintained dependency manifests in PR review.
+
 ### Developer experience
 
 - Make tenancy's initial migration install its own `citext` prerequisite on a

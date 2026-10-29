@@ -204,7 +204,8 @@ orjson 3.13.0, msgpack 1.2.3 (GHSA-6v7p-g79w-8964), cryptography 50.0.2
 and the 2.14/2.15 batch; decode is slower — taken for the fixes), argon2-cffi
 25.1.0, authlib 1.9.1 (JOSE/OAuth validation hardening; Sandloom declares it but
 imports nothing from it) with joserfc 1.7.7 (JWE AAD / compact-size limits,
-non-string `jti` rejected), pillow 12.3.0, requests 2.34.2, python-dotenv 1.2.4,
+non-string `jti` rejected), pillow 13.0.0 (image-decoder and encoder security fixes),
+requests 2.34.2, python-dotenv 1.2.4,
 anyio 4.15.1, urllib3 2.8.0, idna 3.20.
 
 uvicorn ≥ 0.36 no longer installs an event-loop policy (it passes a loop
@@ -219,5 +220,6 @@ reads the running loop instead.
 
 ## Related reading
 
+- [Dependency security audit (2026-10-29)](../contributing/dependency-security-audit.md)
 - [Configuration reference](configuration.md)
 - [Versioning policy](../contributing/versioning.md)

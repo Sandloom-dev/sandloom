@@ -106,6 +106,7 @@ jobs:
               - '.github/workflows/ci.yml'
             benchmarks:
               - 'benchmarks/**'
+              - 'tools/checks/check_benchmark_dependencies.py'
               - '.github/workflows/ci.yml'
 
             docs:
@@ -157,6 +158,10 @@ jobs:
             dependency_review:
               - 'uv.lock'
               - 'pyproject.toml'
+              - 'packages/**/pyproject.toml'
+              - 'benchmarks/pyproject.toml'
+              - 'benchmarks/uv.lock'
+              - 'benchmarks/ladder/cg/requirements.txt'
               - 'admin/package-lock.json'
               - 'admin/package.json'
               - 'examples/**'
@@ -517,6 +522,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen
+
+      - name: Benchmark lock and Cachegrind export
+        run: uv run --frozen python tools/checks/check_benchmark_dependencies.py
 
       - name: Load-harness negative controls
         # benchmarks/tests/test_harness_*.py: the ladder load client against a

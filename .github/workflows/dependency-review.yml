@@ -1,7 +1,7 @@
 name: Dependency review
 
 # Blocks a PR that introduces a dependency with a known vulnerability or a
-# disallowed licence (python: uv.lock; npm: admin/package-lock.json). Needs the
+# disallowed licence (Python locks and the Cachegrind export; npm: admin/package-lock.json). Needs the
 # GitHub dependency graph, so it cannot run in tools/ci/ci_local.sh.
 on:
   workflow_call:
