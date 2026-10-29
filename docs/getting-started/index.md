@@ -10,7 +10,7 @@ type: tutorial
 
 !!! note "Initial alpha: 0.7.0a1"
     The canonical source is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom),
-    currently private and awaiting the source transfer. All four alpha packages
+    currently private during launch preparation. All four alpha packages
     are available on [PyPI](https://pypi.org/project/sandloom/0.7.0a1/);
     `sandloom.dev` is the planned website, not a deployed service.
 
@@ -38,8 +38,8 @@ uv run uvicorn myapp.asgi:app --reload                        # http://localhost
 
 `uv run sandloom test` ends with `sandloom test: OK`; the API answers on
 `http://localhost:8000` (`/health`, and `/api/v1/notes/items` with a bearer
-token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs exactly
-these lines on every change, so they stay true.
+token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these lines during full validation. See
+[CI profiles](../contributing/ci.md) for the automatic and full checks.
 
 !!! note "Ports"
     `deploy/docker-compose.dev.yml` publishes Postgres on 5432 and Redis on

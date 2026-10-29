@@ -59,9 +59,38 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertNotIn("NotImplementedError", overview)
         self.assertIn("sandloom docs", overview)
 
-    def test_readme_starts_with_an_app_and_its_doc_links_resolve(self) -> None:
+    def test_readme_code_stays_in_sync_with_the_executable_tutorial(self) -> None:
+        import ast
+
         readme = (REPO / "README.md").read_text()
-        self.assertLess(readme.index("## Quickstart"), readme.index("## Why Sandloom"))
+        example = re.search(
+            r"<!-- readme:example:start -->\s*```python\n(.*?)```",
+            readme,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(example)
+        shown = ast.parse(example.group(1)).body
+        tutorial = ast.parse(
+            (REPO / "examples/tutorial/tasklist/modules/tasks/services.py").read_text()
+        ).body
+        self.assertTrue(any(isinstance(node, ast.AsyncFunctionDef) for node in shown))
+        actual_nodes = {ast.dump(node) for node in tutorial}
+        for node in shown:
+            with self.subTest(node=ast.dump(node)):
+                self.assertIn(ast.dump(node), actual_nodes)
+
+    def test_readme_uses_a_published_app_and_its_doc_links_resolve(self) -> None:
+        readme = (REPO / "README.md").read_text()
+        quickstart = re.search(
+            r"<!-- readme:quickstart:start -->\s*```bash\n(.*?)```",
+            readme,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(quickstart)
+        commands = quickstart.group(1)
+        self.assertRegex(commands, r'uvx --from "sandloom==[^"]+" sandloom new')
+        self.assertNotIn("--framework-source path", commands)
+        self.assertNotIn("git clone", commands)
         self.assertIn("uv run sandloom test", readme)
         links = re.findall(r"\]\(([^)]+)\)", readme)
         for link in links:
@@ -98,5 +127,8 @@ class BrokenLinkCheckTests(unittest.TestCase):
             )
             self.assertEqual(
                 broken_links(site),
-                [("index.html", "../docs/missing/"), ("index.html", "/assets/gone.png")],
+                [
+                    ("index.html", "../docs/missing/"),
+                    ("index.html", "/assets/gone.png"),
+                ],
             )
