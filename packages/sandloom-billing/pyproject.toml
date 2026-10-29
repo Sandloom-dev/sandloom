@@ -2,7 +2,7 @@
 name = "sandloom-billing"
 version = "0.7.0a1"
 classifiers = ["Development Status :: 3 - Alpha"]
-description = "Sandloom billing module: plans, subscriptions, credits ledger, Stripe."
+description = "Plans, subscriptions, credits and Stripe integration for Sandloom applications."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

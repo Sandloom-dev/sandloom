@@ -1,34 +1,55 @@
 # sandloom-billing
 
-The Sandloom billing module: plans, subscriptions, the credits ledger and the
-Stripe integration (with a `fake` PSP default). Import package
-`sandloom_billing`; it registers the `sandloom.modules` entry point
-`billing = "sandloom_billing"`, so its module name is `billing` (tables
-`billing_*`, migration chain `alembic_version_billing`, channels and contracts
-`billing.*`). Depends on `sandloom>=0.7.0a1,<0.8`; on no other module.
+**Subscriptions and billing for Sandloom.**
+
+Plans, subscriptions, a credits ledger and Stripe integration for Sandloom
+applications, with a fake payment provider for development and tests.
+
+Part of [Sandloom](https://github.com/Sandloom-dev/sandloom), the Python backend framework for AI-driven
+development. This module is a separate distribution and does not depend on
+sibling business modules.
+
+## Included
+
+- Products, prices, plans and subscriptions.
+- Credits, balances and ledger operations.
+- Stripe payment integration and webhook handling.
+- Typed contracts for cross-module billing access.
+
+## Install
 
 ```bash
-pip install "sandloom[redis,celery]==0.7.0a1" sandloom-billing==0.7.0a1
+python -m pip install --pre sandloom-billing
 ```
 
-`sandloom.main:app` composes it once installed; an app selects it with
-`SANDLOOM_MODULES=billing` (or `sandloom new <app> --with billing`). Other
-modules call it through its contracts; their DTOs, stubs and event schemas
-live in `sandloom.shared` and ship with `sandloom`.
+This installs the module and its framework dependency. To create an application
+with the module, use the Sandloom CLI:
 
-Source of truth lives in the monorepo at `src/sandloom_billing`; this package
-builds the wheel and source archive.
+```bash
+sandloom new myapp --with billing
+```
 
-## Project links
+The import package is `sandloom_billing`. Installation registers the
+`sandloom.modules` entry point `billing`; `sandloom.main:app` discovers installed
+module entry points, and applications select their deployed modules with
+`SANDLOOM_MODULES`. Other modules interact through typed contracts and events.
+The framework ships the standard modules' generated contract DTOs, stubs and
+event schemas in `sandloom.shared`.
 
-[Source](https://github.com/Sandloom-dev/sandloom) ·
-[Documentation](https://sandloom.dev/docs/) ·
-[Changelog](https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-billing/CHANGELOG.md)
+The same module code runs in a monolith or a separate service. Infrastructure
+configuration and service bindings belong to the application; moving existing
+module data to its own database requires a separate extraction step.
 
-This is the `0.7.0a1` alpha distribution. See the
-[stability policy](https://sandloom.dev/docs/contributing/versioning/) for
-compatibility expectations.
+This is alpha software. Review the compatibility policy before upgrading.
+
+## Links
+
+- [Source and issue tracker](https://github.com/Sandloom-dev/sandloom)
+- [Documentation](https://github.com/Sandloom-dev/sandloom/tree/main/docs)
+- [Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)
+- [Compatibility policy](https://github.com/Sandloom-dev/sandloom/blob/main/docs/contributing/versioning.md)
 
 ## License
 
-Apache-2.0. Copyright 2026 Vasyl Cherniavskyi. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. Copyright 2026 Vasyl Cherniavskyi.
+See [LICENSE](https://github.com/Sandloom-dev/sandloom/blob/main/LICENSE) and [NOTICE](https://github.com/Sandloom-dev/sandloom/blob/main/NOTICE).

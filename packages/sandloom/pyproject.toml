@@ -2,7 +2,7 @@
 name = "sandloom"
 version = "0.7.0a1"
 classifiers = ["Development Status :: 3 - Alpha"]
-description = "Sandloom: configurable-monolith framework for SaaS (kernel, public SDK sandloom.sdk, CLI)."
+description = "Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

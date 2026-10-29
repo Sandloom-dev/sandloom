@@ -2,7 +2,7 @@
 name = "sandloom-tenancy"
 version = "0.7.0a1"
 classifiers = ["Development Status :: 3 - Alpha"]
-description = "Sandloom tenancy module: organizations, membership, invitations."
+description = "Organizations, membership roles and invitations for Sandloom applications."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

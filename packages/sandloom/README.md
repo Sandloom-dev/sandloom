@@ -1,37 +1,63 @@
-# sandloom
+# Sandloom
 
-The Sandloom framework: the kernel (`sandloom.core`: dependency injection, the
-core facade, the ORM base, eventing with the transactional outbox, the
-infrastructure capability registry, the migrations runner), the public SDK
-(`sandloom.sdk`; `sandloom docs <name>`), the framework DTOs, guards and authz
-algebra (`sandloom.shared`), the `sandloom` CLI (`sandloom new`, `sandloom add`,
-`sandloom migrate`, `sandloom test`, ...) and the composition root
-`sandloom.main:app`, which composes every installed module package.
+**Python backend framework for AI-driven development.**
+
+Build with people and AI agents while the framework enforces module boundaries,
+owns transactions and provides shared mechanisms for authorization, tenancy,
+event delivery and idempotency.
+
+## Why Sandloom
+
+- **AI-driven development:** a consistent module structure, typed contracts,
+  CLI scaffolding, agent instructions and executable quality gates keep changes
+  scoped as the application grows.
+- **Enforced module boundaries:** business modules communicate through typed
+  events and contracts. Architecture checks reject cross-module imports.
+- **Pluggable infrastructure:** application modules use capability contracts
+  instead of raw backend clients. Configure compatible registered drivers or
+  implement adapters without spreading infrastructure SDKs through business code.
+  PostgreSQL and Redis are the documented production backends.
+- **Monolith to services:** deploy the same business modules together or in
+  separate services using module selection and service bindings. Moving existing
+  data to a module's own database is a separate offline extraction step.
+- **Built-in mechanisms:** transaction ownership, one writer per request,
+  authorization rechecks before commit, tenant isolation, a transactional outbox,
+  durable consumers and idempotent commands.
+
+## Install and create an application
+
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/) and Docker for local
+PostgreSQL and Redis services. Sandloom is an alpha; `--pre` allows pip to select
+its prerelease packages.
 
 ```bash
-pip install "sandloom[standard]==0.7.0a1"   # + Redis, Celery, identity, tenancy, billing
+python -m pip install --pre "sandloom[standard]"
+sandloom new myapp --with identity,tenancy,billing
 ```
 
-Extras: `redis`, `celery`, `standard` (Redis + Celery + `sandloom-identity`,
-`sandloom-tenancy`, `sandloom-billing`), `fast` (hiredis, jsonschema-rs),
-`check` (PyYAML for `sandloom check`), `testing` (pytest, pytest-asyncio,
-pytest-xdist for the test kit) and `sentry` (imported only when `SENTRY_DSN`
-is set). The kernel names no module: modules are separate distributions that
-register a `sandloom.modules` entry point.
+Follow the printed next steps to install application dependencies, start local
+services, run checks and migrations, and launch the API.
 
-Source of truth lives in the monorepo at `src/sandloom`; this package builds
-the wheel and source archive through the shared build hook.
+The `standard` extra includes Redis, Celery and the separate `sandloom-identity`,
+`sandloom-tenancy` and `sandloom-billing` packages. Install `sandloom` alone for
+the kernel, public `sandloom.sdk`, shared contracts, CLI and composition root.
+Other extras: `redis`, `celery`, `fast`, `check`, `testing` and `sentry`.
 
-## Project links
+## Alpha status
 
-[Source](https://github.com/Sandloom-dev/sandloom) ·
-[Documentation](https://sandloom.dev/docs/) ·
-[Changelog](https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom/CHANGELOG.md)
+Sandloom is under active development. Review the compatibility policy and release
+notes before upgrading; a minor version in the `0.x` series may introduce
+breaking changes. The framework's documented guarantees have specific scopes;
+consult the guarantee reference for their mechanisms and limits.
 
-This is the `0.7.0a1` alpha distribution. See the
-[stability policy](https://sandloom.dev/docs/contributing/versioning/) for
-compatibility expectations.
+## Links
+
+- [Source and issue tracker](https://github.com/Sandloom-dev/sandloom)
+- [Documentation](https://github.com/Sandloom-dev/sandloom/tree/main/docs)
+- [Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)
+- [Compatibility policy](https://github.com/Sandloom-dev/sandloom/blob/main/docs/contributing/versioning.md)
 
 ## License
 
-Apache-2.0. Copyright 2026 Vasyl Cherniavskyi. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. Copyright 2026 Vasyl Cherniavskyi.
+See [LICENSE](https://github.com/Sandloom-dev/sandloom/blob/main/LICENSE) and [NOTICE](https://github.com/Sandloom-dev/sandloom/blob/main/NOTICE).

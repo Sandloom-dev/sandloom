@@ -13,6 +13,12 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Package metadata
+
+- Refresh PyPI descriptions for the framework and its identity, tenancy and billing
+  modules, including the AI-driven positioning, pluggable infrastructure and
+  deployment model. Description changes take effect with a new PyPI release.
+
 ### CI
 
 - Add one required merge check covering the suites selected for each PR. Run

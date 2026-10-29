@@ -2,7 +2,7 @@
 name = "sandloom-identity"
 version = "0.7.0a1"
 classifiers = ["Development Status :: 3 - Alpha"]
-description = "Sandloom identity module: users, JWT auth, RBAC, 2FA, SSO."
+description = "Identity and authentication for Sandloom: users, JWT, RBAC, two-factor authentication and SSO."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
