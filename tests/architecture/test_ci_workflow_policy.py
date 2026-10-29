@@ -181,3 +181,31 @@ def test_full_validation_calls_all_suites_without_concurrency_collisions():
         if s.get("name", "").startswith("Publish to PyPI")
     )
     assert publish["if"] == "${{ false }}"
+
+
+def test_hosted_ci_service_connections_do_not_depend_on_dns():
+    """DNS uses the loop's thread executor and can exceed a cache deadline
+    under suite load even while Redis is healthy. Service-container ports
+    bind to loopback; numeric addresses bypass the resolver entirely.
+    """
+    import ipaddress
+    import re
+    from urllib.parse import urlsplit
+
+    sources = [ROOT / ".env.test", *WORKFLOWS.glob("*.yml")]
+    checked = 0
+    for source in sources:
+        for raw in re.findall(
+            r"(?:postgresql(?:\+asyncpg)?|rediss?)://[^\s\"']+", source.read_text()
+        ):
+            host = urlsplit(raw).hostname
+            assert host is not None
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError:
+                pytest.fail(
+                    f"{source.name}: local test service {host!r} still depends on DNS"
+                )
+            assert address.is_loopback, (source.name, host)
+            checked += 1
+    assert checked >= 10

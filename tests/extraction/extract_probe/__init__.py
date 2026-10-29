@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
 from sandloom.core.di import get_core
+from sandloom.sdk import public
 
 Core = Annotated[Any, Depends(get_core)]
 
@@ -26,7 +27,13 @@ class SpendIn(BaseModel):
     key: str
 
 
-router = APIRouter(prefix="/_x", tags=["extraction-probe"])
+router = APIRouter(
+    prefix="/_x",
+    tags=["extraction-probe"],
+    dependencies=[
+        public(reason="Test-only synthetic credit workload on loopback servers")
+    ],
+)
 
 
 @router.post("/spend")

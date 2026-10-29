@@ -64,14 +64,21 @@ selection (`--jobs`, `--python`) is still available. The local runner does not
 cover every workflow in the manual umbrella (notably the full admin workflow
 and extraction scenario); validate those separately or use the umbrella.
 
-## Known validation debt
+## Reliability regressions
 
-The initial source snapshot's extraction-e2e failed because its probe routes
-lack a declared authentication policy. One initial Python 3.11 run also hit
-a Redis connection timeout in the concurrent subject-state test; that test
-passed in the next PR run. The post-merge Python 3.12 coverage run also hit
-a Redis connection timeout during billing webhook-test setup. These service
-timeouts are not confined to one Python version. This CI cost change does not
-fix those problems.
-The extraction failure must be resolved and the full selected commit verified
-before release. Moving a check to explicit full validation does not close a bug.
+The extraction probe explicitly declares its synthetic, loopback-only test
+routes as public with a reason. A fast regression runs the real route-policy
+startup check against the actual probe router; the full extraction scenario
+also exercises it in running monolith and split services.
+
+Hosted test-service URLs and `.env.test` use numeric loopback addresses.
+Resolving `localhost` runs through the event loop's thread executor and can
+exhaust the bounded Redis connect deadline when that executor is busy, even
+with a healthy Redis server. This reproduced the CI connection timeout;
+changing only the address to `127.0.0.1` passed with the executor still blocked.
+A regression checks the service addresses. Production cache deadlines, retry
+policy and security behavior are unchanged.
+
+The focused Redis/billing regressions and full data-extraction scenario are
+verified locally. Full validation must still pass on the exact selected commit
+before a release; an economical PR result does not replace that gate.
