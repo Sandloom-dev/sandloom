@@ -30,8 +30,11 @@
     {
       "reason": "CI, release gates and contributor guidance; publishing remains disabled until configured.",
       "paths": [
+        ".github/CODEOWNERS",
         ".github/actions/bench-tools/action.yml",
+        ".github/branch-protection.json",
         ".github/copilot-instructions.md",
+        ".github/pull_request_template.md",
         ".github/workflows/admin.yml",
         ".github/workflows/architecture-check.yml",
         ".github/workflows/benchmarks.yml",
@@ -500,6 +503,7 @@
         "docs/concepts/sagas.md",
         "docs/concepts/units.md",
         "docs/concepts/write-admission.md",
+        "docs/contributing/branches.md",
         "docs/contributing/index.md",
         "docs/contributing/lint-policy.md",
         "docs/contributing/local-ci.md",

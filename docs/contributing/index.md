@@ -7,6 +7,13 @@ title: Contributing
 Sandloom enforces its conventions in CI. The quality gates must be green before
 any commit; pre-commit hooks run the fast ones automatically.
 
+## Branches and owner review
+
+Use a short-lived branch and open a PR against `main`. Final review and manual
+merge belong to [@Maryarty](https://github.com/Maryarty). See
+[branches and owner review](branches.md) for the workflow and the current limit
+on server enforcement in the private repository.
+
 ## Quality gates
 
 Run from the repository root:

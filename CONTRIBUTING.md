@@ -1,12 +1,20 @@
 # Contributing to Sandloom
 
 Development takes place in [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-The target is private and awaiting source transfer during release preparation.
+The repository is private during release preparation.
 Use GitHub issues for ordinary bugs and feature requests once the repository is
 public; use [private security reporting](SECURITY.md) for vulnerabilities.
 
 Read [AGENTS.md](AGENTS.md) and the area-specific contract before changing code.
 Business modules and their tests use the public SDK and their own package.
+
+## Branches and owner review
+
+All changes to `main` go through a PR. Final review and manual merge belong to
+[@Maryarty](https://github.com/Maryarty). Agents and contributors leave PRs open
+for the owner; do not merge or enable auto-merge without an explicit instruction
+for that PR. See [branches and owner review](docs/contributing/branches.md) for
+the prepared protection settings and the current GitHub Free limitation.
 
 ## Licensing contributions
 
