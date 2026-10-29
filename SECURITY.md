@@ -1,9 +1,9 @@
 # Security reports
 
 Use [GitHub private vulnerability reporting](https://github.com/Sandloom-dev/sandloom/security/advisories/new)
-when it is enabled on the canonical repository. During private release preparation,
-this channel is not yet confirmed; a monitored reporting channel must be enabled
-before public release. No email address is advertised until it is monitored.
+to submit a confidential report. If the form is unavailable, contact
+[@Maryarty](https://github.com/Maryarty) to arrange a private reporting channel
+before sending sensitive details.
 Do not publish credentials, customer data or a working exploit in a public
 issue. A report should include the affected commit/version, deployment mode,
 minimal reproduction and expected security boundary.

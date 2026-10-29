@@ -67,9 +67,10 @@ for advanced APIs and the import annotation required when using one.
 ## Running them
 
 Use an existing framework checkout. The canonical source is
-[Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom), currently private
-and awaiting source transfer. PyPI packages are not published yet. Keep the
+[Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom). Keep the
 examples beside `packages/`: their editable uv sources use relative paths.
+To start an application from PyPI instead, follow the
+[quickstart](../docs/getting-started/index.md).
 
 From the repository root, start the **test** services once:
 

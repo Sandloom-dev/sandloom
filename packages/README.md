@@ -115,13 +115,14 @@ The script:
 `tests/integration/test_package_distributions.py` wraps it as a slow test.
 
 The canonical source is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-Until its source transfer and first PyPI release, use an existing checkout and
-local editable sources, as shown in the [quickstart](../docs/getting-started/index.md).
+Install published packages from PyPI as shown in the
+[quickstart](../docs/getting-started/index.md), or use a source checkout for
+editable development installs.
 
 ## History
 
 Until 2026-10-28 the framework shipped as eight distributions
 (`sandloom-framework`, `sandloom-shared`, three module packages,
 `sandloom-infra-redis`, `sandloom-infra-celery` and the `sandloom-platform`
-composition root). They became the four above; [REMAINING.md](REMAINING.md)
-keeps the notes of the earlier phases.
+composition root). They became the four distributions listed above; see
+[ADR-0001](../docs/adr/0001-framework-distribution.md) for the original design.

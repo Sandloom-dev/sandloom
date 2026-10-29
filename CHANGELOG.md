@@ -1,6 +1,6 @@
 # Changelog — Sandloom (framework + bundled modules)
 
-> Entries before Sandloom's public launch describe internal development of the
+> Entries before Sandloom's first public alpha describe internal development of the
 > predecessor project. They are implementation history, not evidence of a
 > published Sandloom release. Current installation and license information is
 > in README.md and LICENSE.
@@ -12,6 +12,12 @@ All notable changes to Sandloom are documented here. The format is based on
 website renders this same changelog.
 
 ## [Unreleased]
+
+### Documentation
+
+- Update contributor instructions, installation, package descriptions and
+  generated application READMEs to reflect the published alpha. Clarify the
+  build-only release workflow and branch-protection verification procedure.
 
 ## [0.7.0a1] — 2026-10-28
 
@@ -114,7 +120,7 @@ explicitly admit the alpha release. Earlier headings describe internal versions.
   on `sandloom>=0.7,<0.8`. Release tags: `sandloom-vX.Y.Z` and
   `sandloom-<module>-vX.Y.Z`.
 
-### Breaking — Sandloom pre-release rename
+### Breaking — Sandloom rename
 
 - The framework is now **Sandloom**. Python imports use `sandloom`, the CLI is
   `sandloom`, and distributions use the `sandloom-*` prefix (including
@@ -122,15 +128,14 @@ explicitly admit the alpha release. Earlier headings describe internal versions.
   in applications and reinstall their environment from the updated dependencies.
 - Environment variables, diagnostic codes, metrics, RPC headers, Redis keys,
   PostgreSQL tenant settings and internal endpoints use the new Sandloom prefix.
-  This unreleased rename includes RPC wire tags and cryptographic domain labels;
+  The rename includes RPC wire tags and cryptographic domain labels;
   rebuild all services together and recreate development databases/caches. Do not
   mix builds from before and after the rename. No compatibility aliases ship.
 - The deployment model, module boundaries, transaction ownership, tenancy and
   public API behavior are unchanged.
 - Documentation uses **Zensical** with `zensical.toml`, native search and native
   `llms.txt` / Markdown exports. Build or preview with `tools/docs/docs_site.py`.
-  CI builds a documentation artifact; a public hosting destination is configured
-  separately when the project launches.
+  CI builds a documentation artifact; deployment is a separate operator action.
 - The owner console uses the Sandloom mark, Manrope / IBM Plex Mono typography
   and a sand, forest and clay palette in both light and dark themes.
 
@@ -229,7 +234,8 @@ explicitly admit the alpha release. Earlier headings describe internal versions.
 
 ### Breaking — every compatibility path removed (no deprecation period)
 
-Sandloom is unreleased; old behaviour is removed instead of kept behind modes,
+During this internal development milestone, old behaviour was removed instead
+of kept behind modes,
 aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
 "Removed without a deprecation period (0.8)".
 
@@ -664,7 +670,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
   `backend/README.md` was removed; the distributions carry no `LICENSE` file
   or `license` metadata (all rights reserved).
 - Apply additive core migration `0008` before deployment. Review
-  the historical hardening upgrade notes in the preparation archive for
+  the archived hardening upgrade notes for
   intentional security compatibility changes; current requirements are in the
   [security model](https://sandloom.dev/docs/reference/security-model/). Historical benchmarks do not
   qualify this new artifact; external credential rotation remains separate.
@@ -825,12 +831,12 @@ changes** (pre-1.0: a minor may break; `docs/contributing/versioning.md`). It
 contains everything merged after 0.6.0 ([Maryarty/auto_job_applyer#39](https://github.com/Maryarty/auto_job_applyer/pull/39) and [Maryarty/auto_job_applyer#41](https://github.com/Maryarty/auto_job_applyer/pull/41)–[Maryarty/auto_job_applyer#87](https://github.com/Maryarty/auto_job_applyer/pull/87); #80 is an open issue, #82 is this release). Every
 distribution (`sandloom-framework`, `sandloom-shared`, `sandloom-identity`, `sandloom-tenancy`,
 `sandloom-billing`, `sandloom-infra-redis`, `sandloom-infra-celery`, `sandloom-platform`) is
-versioned at 0.7.0 as an internal baseline (public publication is pending), and `sandloom new` now pins
+versioned at 0.7.0 as an internal baseline (not published to PyPI), and `sandloom new` now pins
 `>=0.7.0`.
 
 ### Upgrade notes (0.6.0 → 0.7.0)
 
-The historical 0.7 step-by-step guide remains in the preparation archive.
+The historical 0.7 step-by-step guide is archived.
 For the current source API, use [Upgrading to Public API 1.0](https://sandloom.dev/docs/guides/upgrading-1.0/).
 In short:
 

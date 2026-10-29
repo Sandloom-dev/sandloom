@@ -10,10 +10,10 @@ name: Release (PyPI)
 # until that exists on PyPI the publish step fails closed (no credentials), so
 # nothing can be published by accident. See docs/guides/publishing.md.
 
-# DISABLED: Apache-2.0 was selected on 2026-10-28; publication remains deferred
-# while source preparation and release validation are pending. The tag trigger
-# is commented out and the publish step is gated off. A manual dispatch still
-# builds the distributions (dry run). Re-enable only when publication proceeds.
+# BUILD-ONLY: the tag trigger is commented out and the publish step is gated
+# off. Manual dispatch builds distributions without uploading them. Enabling
+# uploads requires verified Trusted Publishers and an explicit workflow change;
+# see docs/guides/publishing.md.
 on:
   # push:
   #   tags:

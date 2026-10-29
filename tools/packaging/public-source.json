@@ -28,7 +28,7 @@
       ]
     },
     {
-      "reason": "CI, release gates and contributor guidance; publishing remains disabled until configured.",
+      "reason": "CI, release gates and contributor guidance; package uploads require explicit publisher configuration.",
       "paths": [
         ".github/CODEOWNERS",
         ".github/actions/bench-tools/action.yml",
@@ -2396,7 +2396,7 @@
   ],
   "exclude_files": {
     "src/sandloom_identity/examples.py.bak": "Obsolete backup of legacy module code; keep only in the preparation repository.",
-    "RELEASE_READINESS.md": "Owner-specific preparation status, operational evidence and transfer checklist; keep private.",
+    "RELEASE_READINESS.md": "Internal maintainer checklist and operational evidence; excluded from source distributions.",
     "packages/REMAINING.md": "Completed historical packaging follow-up; current package tiers/builds are in packages/README.md.",
     "docs/ACCESS.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
     "docs/CORE_FACADE_REFERENCE.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
@@ -2408,7 +2408,7 @@
   "exclude_trees": {
     "benchmarks/native": "Throwaway native/Rust/compiler experiments; not used by runtime, tests or public CI.",
     "benchmarks/deps_cg": "Obsolete dependency comparison stand depends on a removed private fixture and backend layout.",
-    "private": "Original history, research, raw runs, competitor snapshots, local state and release preparation.",
+    "private": "Archived project history, research, raw runs, competitor snapshots, local state and internal release planning.",
     "landing": "Obsolete local landing-page preparation; the canonical site is website/.",
     "scripts": "Legacy local helpers outside the supported tools/ tree."
   },

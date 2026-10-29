@@ -4,7 +4,7 @@ title: CI profiles and minute budget
 
 # CI profiles and minute budget
 
-Private-repository development uses a smaller automatic PR profile. Every
+Automatic PR validation uses checks selected by changed area. Every
 change still needs the [owner's final review and manual merge](branches.md).
 No automatic merge or new server-side required checks are introduced here.
 
@@ -28,14 +28,14 @@ Normal PR backend tests use Python 3.12, without coverage or `slow` tests.
 The Python 3.11/3.13/3.14 compatibility runs, coverage, serial isolation suite,
 generated-app quickstart/recipes/split checks and live microservices smoke run
 in full validation. Those omissions from the PR profile are intentional; its
-green result is not evidence that full pre-release validation passed.
+green result is not evidence that full release validation passed.
 
 Checks run on PRs rather than repeating the same work after a merge to `main`.
 New commits cancel older runs of the same PR. Closing or merging a PR also
 cancels its older Monorepo CI run without starting new test jobs. Short-lived
 workflow artifacts expire after three days (the SBOM after seven).
 
-## Full pre-release validation
+## Full release validation
 
 From GitHub Actions, choose **Full validation (manual)**, select the exact branch
 or tag, and click **Run workflow**. From an authenticated terminal:

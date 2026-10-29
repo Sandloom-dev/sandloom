@@ -83,11 +83,10 @@ Use `--framework-source path --framework-path /path/to/sandloom`, where the
 path is the repository root containing `packages/`. These editable dependencies
 use the live checkout; host paths are unavailable in Docker or remote CI.
 The canonical source is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-During release preparation it is private and awaiting the source transfer;
-the PyPI packages have not been published. `--framework-source git` is currently
-disabled. Use `--framework-source pypi` only after the required distributions
-have been released, or build and install the complete matching wheel set for a
-portable deployment. Commit `uv.lock` after resolving dependencies and use
+`--framework-source pypi` uses the published distributions.
+`--framework-source git` is disabled; use local editable paths for source
+development, or a complete matching wheel set for a portable deployment.
+Commit `uv.lock` after resolving dependencies and use
 `uv sync --locked` in subsequent CI runs.
 
 ## Loaded modules

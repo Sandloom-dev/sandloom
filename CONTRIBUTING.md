@@ -1,9 +1,8 @@
 # Contributing to Sandloom
 
 Development takes place in [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-The repository is private during release preparation.
-Use GitHub issues for ordinary bugs and feature requests once the repository is
-public; use [private security reporting](SECURITY.md) for vulnerabilities.
+Use GitHub issues for ordinary bugs and feature requests; use
+[private security reporting](SECURITY.md) for vulnerabilities.
 
 Read [AGENTS.md](AGENTS.md) and the area-specific contract before changing code.
 Business modules and their tests use the public SDK and their own package.
@@ -14,7 +13,7 @@ All changes to `main` go through a PR. Final review and manual merge belong to
 [@Maryarty](https://github.com/Maryarty). Agents and contributors leave PRs open
 for the owner; do not merge or enable auto-merge without an explicit instruction
 for that PR. See [branches and owner review](docs/contributing/branches.md) for
-the prepared protection settings and the current GitHub Free limitation.
+the protection configuration and verification procedure.
 
 ## Licensing contributions
 
@@ -38,8 +37,8 @@ uv run sandloom test --full
 Use your own `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
 `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` on shared machines.
 
-The root `sandloom-dev` project is not published. Release distributions are
-built from `packages/sandloom-*` using the shared packaging hook. Preserve one
+The root `sandloom-dev` project is the contributor environment. Release
+distributions are built from `packages/sandloom-*` using the shared packaging hook. Preserve one
 `src/sandloom` source tree and the module-local tests. The public testing kit is
 runtime product code; repository test suites do not belong in runtime wheels.
 
@@ -64,5 +63,5 @@ Explain the behavior, the reason and validation for a change. Preserve existing
 architecture checks, guarantee IDs, migration revisions and public API baselines.
 Agent-context, generators and API changes require a DX evaluation before release.
 See the [source snapshot policy](docs/contributing/source-export.md) for source
-selection and the limits of its checks. Transfer and publication are separate
-operator actions.
+selection and the limits of its checks. Package releases and website deployments
+are separate operator actions.
