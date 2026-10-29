@@ -14,6 +14,12 @@ merge belong to [@Maryarty](https://github.com/Maryarty). See
 [branches and owner review](branches.md) for the workflow and the current limit
 on server enforcement in the private repository.
 
+## CI profiles
+
+Automatic PR checks use Python 3.12 and select checks by changed area. The full
+compatibility matrix and heavy scenarios run explicitly before release. See
+[CI profiles and minute budget](ci.md) for the exact split and commands.
+
 ## Quality gates
 
 Run from the repository root:

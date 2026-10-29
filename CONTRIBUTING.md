@@ -50,6 +50,14 @@ Edit prose in `docs/`, the homepage in `website/`, and tutorial code in
 copy. Generated references and snapshots are refreshed by their owning tools,
 not hand-edited. The combined site build places documentation at `/docs/`.
 
+## CI profiles
+
+PRs run checks for their changed areas and the fast backend suite on Python
+3.12. Before release, run **Full validation (manual)** on the selected commit
+for the complete matrix and heavy scenarios. See
+[CI profiles and minute budget](docs/contributing/ci.md). The local runner
+retains full backend validation by default.
+
 ## Review and validation
 
 Explain the behavior, the reason and validation for a change. Preserve existing

@@ -1,0 +1,27 @@
+name: Full validation (manual)
+
+# Explicit pre-release validation; never publishes or deploys anything.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: full-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    uses: ./.github/workflows/ci.yml
+    with:
+      full_validation: true
+  packages:
+    uses: ./.github/workflows/packages.yml
+  docs:
+    uses: ./.github/workflows/docs.yml
+  admin:
+    uses: ./.github/workflows/admin.yml
+  extraction:
+    uses: ./.github/workflows/extraction-e2e.yml

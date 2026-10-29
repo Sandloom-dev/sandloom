@@ -6,10 +6,10 @@ on:
       full_validation:
         type: boolean
         default: false
-  push:
-    branches: ["main"]
   pull_request:
     branches: ["main"]
+    # A close event cancels the older PR run without starting its test jobs.
+    types: [opened, synchronize, reopened, ready_for_review, closed]
 
 # dorny/paths-filter calls the PR "list files" API on pull_request events; the
 # default GITHUB_TOKEN is read-restricted here, so grant the reads it needs.
@@ -17,8 +17,38 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  workflow-policy:
+    if: ${{ github.event.action != 'closed' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+      - name: Install locked test tools
+        run: uv sync --frozen
+      - name: Workflow selection and local-runner regression tests
+        run: >-
+          uv run pytest --noconftest -p no:cacheprovider -c /dev/null -o addopts=''
+          tests/architecture/test_ci_local_runner.py
+          tests/architecture/test_ci_workflow_policy.py -q
+      - name: Reviewed source and credential patterns
+        run: |
+          python3 tools/packaging/export_repository.py --check
+          python3 tools/checks/check_secrets.py
+
   changes:
+    if: ${{ github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ inputs.full_validation && 'true' || steps.filter.outputs.backend }}
@@ -36,32 +66,28 @@ jobs:
             backend:
               - 'src/**'
               - 'tests/**'
+              - 'migrations/**'
               - 'packages/**'
-              - 'tools/**'
+              - 'tools/checks/**'
+              - 'tools/packaging/*.py'
+              - 'tools/packaging/**/*.py'
               - 'pyproject.toml'
               - 'uv.lock'
+              - 'architecture_rules.yml'
+              - 'guarantees.yml'
+              - '.env.test'
             admin:
               - 'admin/**'
-              - 'src/sandloom/**'
+              - 'src/**'
+              - 'pyproject.toml'
               - 'uv.lock'
             examples:
               - 'examples/**'
-              - 'docs/tutorial-app/**'
-              - 'src/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
             deploy:
               - 'deploy/**'
-              - 'deploy/docker/Dockerfile'
+              - '.dockerignore'
             benchmarks:
-              - 'src/**'
-              - 'tests/**'
-              - 'packages/**'
-              - 'tools/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
               - 'benchmarks/**'
-              - '.github/workflows/ci.yml'
 
   backend-static:
     # Lint / format / types / architecture: no services, runs in parallel with
@@ -69,6 +95,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: .
@@ -152,6 +179,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -177,37 +205,19 @@ jobs:
         with:
           name: backend-sbom
           path: sbom-out/sandloom-backend.cdx.json
-          retention-days: 90
+          retention-days: 7
 
   backend-tests:
-    # Full suite in parallel (pytest-xdist, one test FILE per worker at a
-    # time; each worker gets its own database `<db>_gw<N>` and its own Redis
-    # DB indexes — sandloom.core.testing.workers). Supported floor (3.11) and the
-    # 3.13 and 3.14 run without coverage; the coverage run is on
-    # 3.12 with the low-overhead sys.monitoring tracer (COVERAGE_CORE=sysmon).
-    # The `slow` multi-process suites (split conformance, module extraction,
-    # the generated project, boot configuration checks — `-m slow`, ~45 % of
-    # a job) run on 3.11 and 3.12 only; 3.13 and 3.14 run `-m "not slow"`
-    # (owner decision, 2026-10-25: ~12 % of a full CI run).
+    # PRs use Python 3.12 without slow multi-process suites or coverage.
+    # Full validation retains all four versions, coverage and the slow suites.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - python: "3.11"
-            coverage: false
-            slow: true
-          - python: "3.13"
-            coverage: false
-            slow: false
-          - python: "3.14"
-            coverage: false
-            slow: false
-          - python: "3.12"
-            coverage: true
-            slow: true
+      matrix: >-
+        ${{ fromJSON(inputs.full_validation && '{"include":[{"python":"3.11","coverage":false,"slow":true},{"python":"3.13","coverage":false,"slow":false},{"python":"3.14","coverage":false,"slow":false},{"python":"3.12","coverage":true,"slow":true}]}' || '{"include":[{"python":"3.12","coverage":false,"slow":false}]}') }}
     name: backend-tests (py${{ matrix.python }}${{ matrix.coverage && ', coverage' || '' }}${{ !matrix.slow && ', not slow' || '' }})
     defaults:
       run:
@@ -295,7 +305,7 @@ jobs:
         with:
           name: backend-coverage-html
           path: htmlcov
-          retention-days: 14
+          retention-days: 3
 
   backend-tests-isolation:
     # Test isolation gate: the full suite SERIALLY in one process, in a
@@ -307,7 +317,7 @@ jobs:
     # summary: replay with `uv run pytest -p no:xdist --sandloom-shuffle=<seed>`.
     # docs/guides/testing.md#test-isolation.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ inputs.full_validation }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -468,6 +478,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.examples == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -547,13 +558,14 @@ jobs:
           $BIN/sandloom migrate upgrade-all --apply   # idempotent second run
 
   quickstart:
+    if: ${{ inputs.full_validation }}
     # The documented quickstart, end to end, in an empty directory, with no
     # manual step: `sandloom new` against the framework from this commit, then the
     # "Next steps" it prints, verbatim (uv sync, sandloom add module, sandloom test with
     # every step PASS, migrations on a fresh database, the app under uvicorn:
     # /health 200 and an authenticated round trip), then `sandloom test --ci`.
     # One script, the same locally (tools/ci/ci_local.sh <ref> --jobs
-    # quickstart). Mandatory: it always runs, whatever changed.
+    # quickstart). Runs in explicit full validation.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -594,6 +606,7 @@ jobs:
           --redis-url redis://localhost:6380 --redis-db-base 0
 
   app-split:
+    if: ${{ inputs.full_validation }}
     # An `sandloom new` app moves to microservices by configuration only, in an
     # empty directory with no manual step: `sandloom new hub --with
     # identity,tenancy,billing` (the framework from this commit), two modules
@@ -605,8 +618,7 @@ jobs:
     # connects to a database. One script, the same locally
     # (tools/ci/ci_local.sh <ref> --jobs app-split); `--smoke` (run by hand, or
     # SANDLOOM_SPLIT_E2E=1 SANDLOOM_SPLIT_SMOKE=1 tests/e2e/test_app_split.py) also
-    # starts the stack and calls through the gateway. Mandatory: it always
-    # runs, whatever changed.
+    # starts the stack and calls through the gateway. Runs in explicit full validation.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -626,13 +638,14 @@ jobs:
         run: python3 tools/smoke/split_check.py --require-docker
 
   app-recipes:
+    if: ${{ inputs.full_validation }}
     # The `sandloom docs` recipes run as written in a fresh `sandloom new hub --with
     # identity,tenancy,billing` app (the framework from this commit): each
     # recipe's `uv run sandloom add|migrate new` lines and `# file:` blocks, then
     # `sandloom test` on the whole app (every recipe's tests and gates), then
     # `sandloom docs` for contracts, events and recipes from the installed
     # packages. One script, the same locally (tools/ci/ci_local.sh <ref>
-    # --jobs app-recipes). Mandatory: it always runs, whatever changed.
+    # --jobs app-recipes). Runs in explicit full validation.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -679,6 +692,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.deploy == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       JWT_SECRET: ci-deploy-not-a-real-secret
       JWT_PRIVATE_KEY: ci-deploy-not-a-real-key
@@ -723,7 +737,7 @@ jobs:
     # stopped: the others stay live + ready, the gateway fails fast and then
     # follows the recreated container without a restart).
     needs: changes
-    if: ${{ needs.changes.outputs.deploy == 'true' || needs.changes.outputs.backend == 'true' }}
+    if: ${{ inputs.full_validation }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -776,8 +790,9 @@ jobs:
   docker-build:
     # Build the production image so a broken Dockerfile fails CI, not deploy.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.deploy == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -804,6 +819,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.admin == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: ./admin

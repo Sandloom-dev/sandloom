@@ -359,6 +359,7 @@ Project = [
     { "Source snapshot policy" = "contributing/source-export.md" },
     { "Branches and owner review" = "contributing/branches.md" },
     { "Versioning Policy" = "contributing/versioning.md" },
+    { "CI Profiles and Minute Budget" = "contributing/ci.md" },
     { "Local CI Runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },
     { "Lint Policy" = "contributing/lint-policy.md" },

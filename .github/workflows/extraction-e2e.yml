@@ -4,7 +4,7 @@
 # services; answers, tables, in-flight events and a credit workload across a
 # SIGKILL of billing are verified. ~2 minutes.
 #
-# Runs manually (workflow_dispatch), nightly, or on a PR when the
+# Runs manually, from full validation, or on a PR when the
 # `extraction-e2e` label is added — never on plain push/PR.
 #
 #   gh workflow run extraction-e2e.yml --ref <branch>
@@ -12,13 +12,16 @@ name: extraction-e2e
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"
+  workflow_call:
   pull_request:
     types: [labeled]
 
 permissions:
   contents: read
+
+concurrency:
+  group: extraction-e2e-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   extraction-e2e:

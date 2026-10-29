@@ -42,6 +42,7 @@
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs.yml",
         ".github/workflows/extraction-e2e.yml",
+        ".github/workflows/full-validation.yml",
         ".github/workflows/packages.yml",
         ".github/workflows/release.yml"
       ]
@@ -504,6 +505,7 @@
         "docs/concepts/units.md",
         "docs/concepts/write-admission.md",
         "docs/contributing/branches.md",
+        "docs/contributing/ci.md",
         "docs/contributing/index.md",
         "docs/contributing/lint-policy.md",
         "docs/contributing/local-ci.md",
@@ -2074,6 +2076,7 @@
         "tests/architecture/test_best_effort_effects_rule.py",
         "tests/architecture/test_ci_local_lock.py",
         "tests/architecture/test_ci_local_runner.py",
+        "tests/architecture/test_ci_workflow_policy.py",
         "tests/architecture/test_commit_pipeline.py",
         "tests/architecture/test_contract_methods_no_session.py",
         "tests/architecture/test_core_kernel_layering.py",

@@ -281,11 +281,11 @@ def test_act_emulates_artifact_actions_without_a_server(
     """act has no artifact backend locally (upload-artifact@v4 timed out on
     CreateArtifact and failed the docs job). An act job's private workflow
     copy runs each artifact step as a local `run:` step; its `with:` becomes
-    the step's `env:` and nothing else in the workflow changes."""
+    the step's `env:`; only the explicit full-validation override also changes."""
     import yaml
 
     text = (REPO / ".github" / "workflows" / workflow).read_text()
-    orig = yaml.safe_load(text)
+    orig = yaml.safe_load(text.replace("inputs.full_validation", "true"))
     copy = yaml.safe_load(ci_local.act_workflow_copy(text, "job", rename=False))
     assert copy["name"] == orig["name"]
     replaced = _artifact_steps(orig)

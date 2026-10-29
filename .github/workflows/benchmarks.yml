@@ -93,7 +93,7 @@ permissions:
 
 concurrency:
   group: benchmarks-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   OHA_VERSION: "1.16.0"
