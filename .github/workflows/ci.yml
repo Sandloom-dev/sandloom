@@ -41,7 +41,9 @@ jobs:
         run: >-
           uv run pytest --noconftest -p no:cacheprovider -c /dev/null -o addopts=''
           tests/architecture/test_ci_local_runner.py
-          tests/architecture/test_ci_workflow_policy.py -q
+          tests/architecture/test_ci_workflow_policy.py
+          tests/architecture/test_required_ci.py
+          tests/architecture/test_pypi_release.py -q
       - name: Reviewed source and credential patterns
         run: |
           python3 tools/packaging/export_repository.py --check
@@ -56,6 +58,10 @@ jobs:
       examples: ${{ inputs.full_validation && 'true' || steps.filter.outputs.examples }}
       deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
       benchmarks: ${{ inputs.full_validation && 'true' || steps.filter.outputs.benchmarks }}
+      docs: ${{ inputs.full_validation && 'true' || steps.filter.outputs.docs }}
+      packages: ${{ inputs.full_validation && 'true' || steps.filter.outputs.packages }}
+      architecture: ${{ inputs.full_validation && 'true' || steps.filter.outputs.architecture }}
+      dependency_review: ${{ inputs.full_validation && 'true' || steps.filter.outputs.dependency_review }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -77,18 +83,80 @@ jobs:
               - 'architecture_rules.yml'
               - 'guarantees.yml'
               - '.env.test'
+              - '.github/workflows/ci.yml'
             admin:
               - 'admin/**'
               - 'src/**'
               - 'pyproject.toml'
               - 'uv.lock'
+              - 'tools/smoke/admin_live_acceptance.py'
+              - '.github/workflows/admin.yml'
+              - '.github/workflows/ci.yml'
             examples:
               - 'examples/**'
+              - '.github/workflows/ci.yml'
             deploy:
               - 'deploy/**'
               - '.dockerignore'
+              - '.github/workflows/ci.yml'
             benchmarks:
               - 'benchmarks/**'
+              - '.github/workflows/ci.yml'
+
+            docs:
+              - 'docs/**'
+              - 'examples/**'
+              - 'website/**'
+              - 'LICENSE'
+              - 'NOTICE'
+              - 'tools/docs/**'
+              - 'zensical.toml'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'src/**'
+              - '.github/workflows/docs.yml'
+              - '.github/workflows/ci.yml'
+              - '**/AGENTS.md'
+              - '**/CLAUDE.md'
+              - '**/README.md'
+              - '.claude/**'
+              - 'deploy/**'
+              - 'benchmarks/dx/**'
+            packages:
+              - 'src/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'packages/**'
+              - 'migrations/core/**'
+              - 'LICENSE'
+              - 'NOTICE'
+              - 'tools/packaging/*.py'
+              - 'tools/packaging/**/*.py'
+              - '.github/workflows/packages.yml'
+              - '.github/workflows/release.yml'
+              - '.github/workflows/ci.yml'
+            architecture:
+              - 'src/**'
+              - 'tests/**'
+              - 'packages/**'
+              - 'tools/checks/**'
+              - 'tools/packaging/*.py'
+              - 'tools/packaging/**/*.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'docs/adr/**'
+              - 'docs/reference/guarantees.md'
+              - '.github/workflows/architecture-check.yml'
+              - '.github/workflows/ci.yml'
+            dependency_review:
+              - 'uv.lock'
+              - 'pyproject.toml'
+              - 'admin/package-lock.json'
+              - 'admin/package.json'
+              - 'examples/**'
+              - '.github/workflows/dependency-review.yml'
+              - '.github/workflows/release.yml'
+              - '.github/workflows/ci.yml'
 
   backend-static:
     # Lint / format / types / architecture: no services, runs in parallel with
@@ -852,3 +920,65 @@ jobs:
 
       - name: Generated contracts are current
         run: npm run contracts:check
+
+  docs:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.docs == 'true' }}
+    uses: ./.github/workflows/docs.yml
+
+  packages:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.packages == 'true' }}
+    uses: ./.github/workflows/packages.yml
+
+  architecture:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.architecture == 'true' }}
+    uses: ./.github/workflows/architecture-check.yml
+
+  admin-ui:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.admin == 'true' }}
+    uses: ./.github/workflows/admin.yml
+
+  dependency-review:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.dependency_review == 'true' }}
+    uses: ./.github/workflows/dependency-review.yml
+
+  ci-required:
+    # A close event cancels old runs; its skipped job must not satisfy the
+    # required context for an untested commit that is reopened elsewhere.
+    name: ${{ github.event.action == 'closed' && 'CI cancellation' || 'CI required' }}
+    if: ${{ always() && github.event.action != 'closed' }}
+    needs:
+      - workflow-policy
+      - changes
+      - backend-static
+      - supply-chain
+      - backend-tests
+      - backend-tests-isolation
+      - benchmarks-security
+      - examples
+      - quickstart
+      - app-split
+      - app-recipes
+      - deploy-profiles
+      - microservices-smoke
+      - docker-build
+      - admin-contracts
+      - docs
+      - packages
+      - architecture
+      - admin-ui
+      - dependency-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate required job results
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_FULL_VALIDATION: ${{ inputs.full_validation || false }}
+          CI_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: python3 tools/ci/required_ci.py

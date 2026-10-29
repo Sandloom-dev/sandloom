@@ -8,6 +8,11 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a2]
+
+- Refresh the package description and project links on PyPI.
+- Generate applications with the `0.7.0a2` alpha dependency floor.
+
 ## [0.7.0a1] — 2026-10-28
 
 Initial public alpha release; earlier version headings describe internal development.

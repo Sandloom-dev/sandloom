@@ -1,34 +1,54 @@
 # sandloom-tenancy
 
-The Sandloom tenancy module: organizations, membership (owner/admin/member) and
-invitations. Import package `sandloom_tenancy`; it registers the
-`sandloom.modules` entry point `tenancy = "sandloom_tenancy"`, so its module
-name is `tenancy` (tables `tenancy_*`, migration chain
-`alembic_version_tenancy`, channels and contracts `tenancy.*`). Depends on
-`sandloom>=0.7.0a1,<0.8` and email-validator; on no other module.
+**Organizations and multi-tenancy for Sandloom.**
+
+Organizations, membership roles and invitations for Sandloom applications.
+The framework supplies tenant-scoped data access and isolation mechanisms.
+
+Part of [Sandloom](https://github.com/Sandloom-dev/sandloom), the Python backend framework for AI-driven
+development. This module is a separate distribution and does not depend on
+sibling business modules.
+
+## Included
+
+- Organization lifecycle and membership.
+- Owner, administrator and member roles.
+- Invitations and organization access contracts.
+
+## Install
 
 ```bash
-pip install "sandloom[redis,celery]==0.7.0a1" sandloom-tenancy==0.7.0a1
+python -m pip install --pre sandloom-tenancy
 ```
 
-`sandloom.main:app` composes it once installed; an app selects it with
-`SANDLOOM_MODULES=tenancy` (or `sandloom new <app> --with tenancy`). Other
-modules call it through its contracts; their DTOs, stubs and event schemas
-live in `sandloom.shared` and ship with `sandloom`.
+This installs the module and its framework dependency. To create an application
+with the module, use the Sandloom CLI:
 
-Source of truth lives in the monorepo at `src/sandloom_tenancy`; this package
-builds the wheel and source archive.
+```bash
+sandloom new myapp --with tenancy
+```
 
-## Project links
+The import package is `sandloom_tenancy`. Installation registers the
+`sandloom.modules` entry point `tenancy`; `sandloom.main:app` discovers installed
+module entry points, and applications select their deployed modules with
+`SANDLOOM_MODULES`. Other modules interact through typed contracts and events.
+The framework ships the standard modules' generated contract DTOs, stubs and
+event schemas in `sandloom.shared`.
 
-[Source](https://github.com/Sandloom-dev/sandloom) ·
-[Documentation](https://sandloom.dev/docs/) ·
-[Changelog](https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-tenancy/CHANGELOG.md)
+The same module code runs in a monolith or a separate service. Infrastructure
+configuration and service bindings belong to the application; moving existing
+module data to its own database requires a separate extraction step.
 
-This is the `0.7.0a1` alpha distribution. See the
-[stability policy](https://sandloom.dev/docs/contributing/versioning/) for
-compatibility expectations.
+This is alpha software. Review the compatibility policy before upgrading.
+
+## Links
+
+- [Source and issue tracker](https://github.com/Sandloom-dev/sandloom)
+- [Documentation](https://github.com/Sandloom-dev/sandloom/tree/main/docs)
+- [Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)
+- [Compatibility policy](https://github.com/Sandloom-dev/sandloom/blob/main/docs/contributing/versioning.md)
 
 ## License
 
-Apache-2.0. Copyright 2026 Vasyl Cherniavskyi. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. Copyright 2026 Vasyl Cherniavskyi.
+See [LICENSE](https://github.com/Sandloom-dev/sandloom/blob/main/LICENSE) and [NOTICE](https://github.com/Sandloom-dev/sandloom/blob/main/NOTICE).

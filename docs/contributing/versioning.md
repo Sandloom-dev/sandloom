@@ -60,14 +60,14 @@ The module packages `sandloom-identity`, `sandloom-tenancy` and
 `sandloom-billing` (see [Publishing](../guides/publishing.md)) **version
 independently**, like any third-party module: each has its own version and
 changelog, starting at `0.7.0`, and depends on a compatible framework range,
-`sandloom>=0.7.0a1,<0.8` (for a `0.x` framework the next minor is the next breaking
+`sandloom>=0.7.0a2,<0.8` (for a `0.x` framework the next minor is the next breaking
 release). No module package depends on another. A module release that needs a
 newer framework widens or moves its range; a framework minor release requires
 each module package to release a version whose range admits it.
 
 Third-party dependencies are ranges too (`>=tested,<next breaking release`);
 exact versions live only in `uv.lock`. The `sandloom new` generator depends on
-`sandloom[redis,celery]>=0.7.0a1,<0.8` plus `sandloom-<module>>=0.7.0a1,<0.8` for each
+`sandloom[redis,celery]>=0.7.0a2,<0.8` plus `sandloom-<module>>=0.7.0a2,<0.8` for each
 `--with` module, since the code it generates uses that release's API.
 
 ## Event schema evolution

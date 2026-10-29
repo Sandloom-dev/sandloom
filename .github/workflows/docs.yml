@@ -2,29 +2,8 @@ name: Docs
 
 on:
   workflow_call:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - "docs/**"
-      - "examples/**"
-      - "website/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "tools/docs/**"
-      - "zensical.toml"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "src/**"
-      - ".github/workflows/docs.yml"
-      # the stale-symbol lint also covers the agent docs and READMEs
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/README.md"
-      - ".claude/**"
-      - "deploy/**"
-      - "benchmarks/dx/**"
 
-# Documentation builds remain private CI artifacts until the public launch.
+# Documentation builds produce CI artifacts; deployment is a separate operation.
 permissions:
   contents: read
 

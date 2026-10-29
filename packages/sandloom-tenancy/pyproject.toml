@@ -1,8 +1,8 @@
 [project]
 name = "sandloom-tenancy"
-version = "0.7.0a1"
+version = "0.7.0a2"
 classifiers = ["Development Status :: 3 - Alpha"]
-description = "Sandloom tenancy module: organizations, membership, invitations."
+description = "Organizations, membership roles and invitations for Sandloom applications."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # never an exact pin. Contract calls to other modules are bound at runtime
 # and use the consumer's own generated stubs: no module depends on another.
 dependencies = [
-    "sandloom>=0.7.0a1,<0.8",
+    "sandloom>=0.7.0a2,<0.8",
     "email-validator>=2.3.0,<3",
 ]
 

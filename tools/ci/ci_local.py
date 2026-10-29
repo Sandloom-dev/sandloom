@@ -388,6 +388,30 @@ IGNORED_JOBS: dict[tuple[str, str], str] = {
         "changes",
     ): "runs under act as the `needs` of every act job; fallback jobs always run",
 }
+# Reusable suites keep their direct mappings above where supported. The GitHub
+# aggregator consumes hosted job results, not a subset selected by this runner.
+IGNORED_JOBS.update(
+    {
+        ("ci.yml", "docs"): "reusable suite: mapped directly as docs.yml:build",
+        (
+            "ci.yml",
+            "architecture",
+        ): "reusable suite: mapped directly as architecture-check.yml:check",
+        (
+            "ci.yml",
+            "packages",
+        ): "reusable package suite; validate with the documented package checker",
+        (
+            "ci.yml",
+            "admin-ui",
+        ): "reusable admin suite; validate separately with the admin workflow",
+        ("ci.yml", "dependency-review"): "requires the hosted GitHub dependency graph",
+        (
+            "ci.yml",
+            "ci-required",
+        ): "hosted result aggregator; its fail-closed behavior is unit-tested",
+    }
+)
 # Other workflows (packages/admin/dependency-review/benchmarks/extraction-e2e/
 # full-validation/release) are outside this runner; run their documented
 # checks separately.
@@ -398,8 +422,14 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:workflow-policy": "d7e57e84cb46c937",
-    "ci.yml:changes": "01662f7aff5c7a81",
+    "ci.yml:ci-required": "d83f94095adb9bf2",
+    "ci.yml:dependency-review": "2b19360e2aa6b603",
+    "ci.yml:admin-ui": "2381440aadc9830d",
+    "ci.yml:packages": "d7ee97312d5b4b87",
+    "ci.yml:architecture": "7fa82238721b3d55",
+    "ci.yml:docs": "2bfd2034c9234a2a",
+    "ci.yml:workflow-policy": "12711bf70a36c68d",
+    "ci.yml:changes": "940e6ef92a0e06df",
     "ci.yml:backend-static": "ef236822f379e265",
     "ci.yml:supply-chain": "ae051a922b6aa224",
     "ci.yml:backend-tests": "91c8cced7f9871c9",
