@@ -21,7 +21,9 @@ import os
 import subprocess
 import sys
 from collections.abc import Coroutine, Iterator
+from itertools import count
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -106,8 +108,42 @@ def _sub_ms(lat: list[float]) -> bool:
     """Latencies carry sub-millisecond information (not 1 ms-quantised)."""
     frac = [(x * 1e3) % 1.0 for x in lat]
     off_grid = sum(1 for f in frac if 1e-6 < f < 1 - 1e-6)
-    distinct = len({round(x * 1e6) for x in lat})
-    return off_grid >= 0.9 * len(lat) and distinct >= min(100, len(lat) // 2)
+    # A fast, stable server can stay within one rounded microsecond. Clock
+    # resolution is independent of the latency distribution's width.
+    return bool(lat) and off_grid >= 0.9 * len(lat)
+
+
+@pytest.mark.parametrize(
+    "latencies",
+    [
+        [25.125e-6] * 1000,
+        [25.125e-6 + (i % 50) * 1e-9 for i in range(1000)],
+    ],
+    ids=["constant", "narrow-band"],
+)
+def test_sub_ms_resolution_does_not_require_latency_variance(
+    latencies: list[float],
+) -> None:
+    assert _sub_ms(latencies)
+    assert not _sub_ms([round(x, 3) for x in latencies])
+    assert not _sub_ms([])
+
+
+def test_closed_loop_measures_with_perf_counter(
+    server_port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticks = count()
+
+    def now() -> float:
+        return next(ticks) / 8000  # exactly 125 microseconds per clock read
+
+    monkeypatch.setattr(lc, "time", SimpleNamespace(perf_counter=now))
+    workload = lc.Workload.from_mix(_mix(CLEAN))
+    stats = _run(
+        lc.closed_loop([("127.0.0.1", server_port)], workload, 0, 8, 1, timeout=5)
+    )
+    assert stats.ok == 8 and stats.errors == 0
+    assert stats.latencies == pytest.approx([0.000125] * 8, abs=1e-12)
 
 
 def test_schedule_is_per_request_and_exact() -> None:

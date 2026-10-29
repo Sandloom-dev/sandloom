@@ -36,6 +36,10 @@ website renders this same changelog.
 
 ### CI and publishing
 
+- Make the load-client precision check independent of response-time variance;
+  keep coarse-clock negative controls and verify the client with a controlled
+  high-resolution clock.
+
 - Start full serial isolation without a change-classification barrier, and
   avoid repeating additional audited child-only probes in that pass. Keep
   every in-process isolation case and all full-matrix tests. Record fixture

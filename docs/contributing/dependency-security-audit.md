@@ -156,7 +156,7 @@ version ranges, export parity and a negative control using the stale export.
 environment (136 packages) or benchmark environment (94 packages).
 
 Validation passed: 5055 backend tests, 1229 architecture tests, three typing
-tests, 560 benchmark security/correctness tests and eight load-harness negative
+tests, 560 benchmark security/correctness tests and 11 load-harness negative
 controls, with the suites' documented skips and expected failure. All four
 distributions built and installed in clean environments; the identity wheel
 enforces `authlib>=1.9.1,<2`. A rebuilt Linux/Python 3.13 Cachegrind image imports
@@ -167,6 +167,13 @@ temporary marker on `21.14.12` and stays inert on `21.14.13`.
 The complete backend run uses Python 3.12; interpreter eligibility above is not
 a claim that this change reran the entire Python-version matrix. Normal
 isolation and release gates remain intact.
+
+Hosted verification exposed a false rejection in the load-client precision
+test: its requirement for 100 distinct rounded-microsecond values confused
+latency variance with clock resolution. The test now checks fractional
+milliseconds independently of that variance, keeps coarse-clock negative
+controls, and verifies the actual closed-loop client with a controlled
+`perf_counter`. Runtime latency measurement is unchanged.
 A passing version-range check covers this snapshot; it does not establish the
 absence of every future advisory or every application configuration risk.
 
