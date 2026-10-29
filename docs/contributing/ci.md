@@ -54,6 +54,20 @@ New commits cancel older runs of the same PR. Closing or merging a PR also
 cancels its older Monorepo CI run without starting new test jobs. Short-lived
 workflow artifacts expire after three days (the SBOM after seven).
 
+## Actions and dependency caches
+
+JavaScript actions use Node.js 24 releases, pinned to reviewed commit SHAs
+with their release versions in comments. Python and application Node.js
+versions are selected separately by the setup actions.
+
+Root dependency caches use `uv.lock` and setup-uv's Python/platform key.
+Only `backend-tests` saves them, once per Python version in its matrix;
+other jobs restore the same cache with `save-cache: false`. Cache misses
+still install the locked dependencies normally. Concurrent full runs on the
+same ref can still race to create a new key, but parallel readers within a
+run do not compete to upload it. Comparative benchmarks use their separate
+lock and Python selection and do not use this shared uv cache.
+
 ## Full release validation
 
 From GitHub Actions, choose **Full validation (manual)**, select the exact branch

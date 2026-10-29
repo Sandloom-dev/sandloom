@@ -85,7 +85,7 @@ runs the jobs one by one in workflow order.
 ## Artifact steps
 
 No artifact storage exists locally. act's own artifact server binds a fixed
-port and does not serve the results API that `actions/upload-artifact@v4`
+port and does not serve the results API that `actions/upload-artifact`
 calls, so the step timed out on `CreateArtifact` and failed the `docs` job.
 The runner therefore emulates artifact actions instead of running them:
 

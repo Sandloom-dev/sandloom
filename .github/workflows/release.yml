@@ -40,7 +40,7 @@ jobs:
       manifest: ${{ steps.plan.outputs.manifest }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Verify source and package selection
@@ -73,8 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: pypi-validated-${{ github.run_id }}
           path: validated
@@ -82,7 +82,7 @@ jobs:
         env:
           RELEASE_PLAN: ${{ needs.plan.outputs.manifest }}
         run: python3 tools/packaging/pypi_release.py select --artifacts validated --out reviewed
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pypi-release-${{ github.run_id }}
           path: reviewed/
@@ -102,7 +102,7 @@ jobs:
       id-token: write
     steps:
       # No checkout, build or dependency installation in the privileged job.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: pypi-release-${{ github.run_id }}
           path: reviewed

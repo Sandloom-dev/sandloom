@@ -274,11 +274,11 @@ def _artifact_steps(doc: dict) -> list[tuple[str, int, dict]]:
     ]
 
 
-@pytest.mark.parametrize("workflow", ["docs.yml", "ci.yml"])
+@pytest.mark.parametrize("workflow", ["docs.yml", "ci.yml", "release.yml"])
 def test_act_emulates_artifact_actions_without_a_server(
     ci_local: ModuleType, workflow: str
 ) -> None:
-    """act has no artifact backend locally (upload-artifact@v4 timed out on
+    """act has no artifact backend locally (upload-artifact timed out on
     CreateArtifact and failed the docs job). An act job's private workflow
     copy runs each artifact step as a local `run:` step; its `with:` becomes
     the step's `env:`; only the explicit full-validation override also changes."""

@@ -24,6 +24,32 @@ def triggers(document: dict) -> dict:
     return document.get("on", document.get(True, {}))
 
 
+def test_uv_cache_has_one_writer_per_python_and_explicit_readers(runner):
+    writers = []
+    for path in WORKFLOWS.glob("*.yml"):
+        for name, job in workflow(path.name).get("jobs", {}).items():
+            for step in job.get("steps", []):
+                if not step.get("uses", "").startswith("astral-sh/setup-uv@"):
+                    continue
+                inputs = step["with"]
+                assert isinstance(inputs["save-cache"], bool), (path.name, name)
+                if not inputs["enable-cache"]:
+                    assert inputs["save-cache"] is False
+                    continue
+                assert inputs["cache-dependency-glob"] == "uv.lock"
+                assert "python-version" in inputs
+                if inputs["save-cache"]:
+                    writers.append((path.name, name))
+                    assert inputs["python-version"] == "${{ matrix.python }}"
+                    for full in (False, True):
+                        versions = [
+                            row["python"]
+                            for row in runner._expand_matrix(job, full_validation=full)
+                        ]
+                        assert len(versions) == len(set(versions))
+    assert writers == [("ci.yml", "backend-tests")]
+
+
 @pytest.fixture(scope="module")
 def runner() -> ModuleType:
     spec = importlib.util.spec_from_file_location(

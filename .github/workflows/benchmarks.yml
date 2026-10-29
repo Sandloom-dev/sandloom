@@ -121,7 +121,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       scaling_python: ${{ steps.plan.outputs.scaling_python }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: plan
         run: python3 benchmarks/ci/plan.py --python "${{ (inputs.python || '3.12,3.13,3.14,3.14t') }}" --servers "${{ (inputs.servers || 'uvicorn-h11,uvicorn-httptools,uvicorn-uvloop,granian-asyncio,granian-uvloop,granian-rloop') }}"
       # Build (or restore) wrk/wrk2 once so the matrix jobs all hit the cache.
@@ -154,10 +154,12 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 2s
           --health-timeout 5s --health-retries 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: false
+          save-cache: false
       - uses: ./.github/actions/bench-tools
         with:
           postgres-container: ${{ job.services.postgres.id }}
@@ -210,7 +212,7 @@ jobs:
       scaling: ${{ steps.pick.outputs.scaling }}
       latency: ${{ steps.pick.outputs.latency }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pick the servers for the scaling / latency jobs
         id: pick
         working-directory: benchmarks
@@ -247,10 +249,12 @@ jobs:
         server: ${{ fromJSON(needs.pick.outputs.scaling) }}
     services: *services
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: false
+          save-cache: false
       - uses: ./.github/actions/bench-tools
         with:
           postgres-container: ${{ job.services.postgres.id }}
@@ -283,10 +287,12 @@ jobs:
         server: ${{ fromJSON(needs.pick.outputs.latency) }}
     services: *services
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: false
+          save-cache: false
       - uses: ./.github/actions/bench-tools
         with:
           postgres-container: ${{ job.services.postgres.id }}
@@ -320,7 +326,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Collect BENCHJSON from this run's job logs
         run: benchmarks/ci/fetch_job_logs.sh "$RUNNER_TEMP/logs" "bench (" "scaling (" "latency ("
       - name: Render combined report
