@@ -340,7 +340,7 @@ from testing: `sandloom test` never writes a generated file).
 | Complete evaluation under `Not` | adds live calls a short-circuit skips today (G-AUTHZ-02) |
 | Once-per-request commit re-check | lets a later commit escape a revocation that landed after an earlier commit |
 | Two-phase commit across stores | coordinator, in-doubt locks, coupled availability |
-| A compatibility layer | the framework is unreleased |
+| A compatibility layer | this decision replaces the internal API that preceded the initial public alpha |
 
 ## Ledger mapping
 

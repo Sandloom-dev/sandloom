@@ -9,7 +9,7 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [0.7.0a1] — 2026-10-28
 
-Initial public alpha preparation; earlier version headings describe internal development.
+Initial public alpha release; earlier version headings describe internal development.
 
 - Breaking (packaging): an ecosystem module distribution. The import package
   is `sandloom_billing` (formerly `sandloom.billing`); it registers the
@@ -20,13 +20,11 @@ Initial public alpha preparation; earlier version headings describe internal dev
 
 ## [0.7.0] — 2026-10-13
 
-First prepared release version; public publication is pending. While the framework is `0.x`, every Sandloom
-distribution is released in lockstep with the framework release line
-(see [Versioning & Stability](../../docs/contributing/versioning.md));
-the change list since 0.6.0 is in [CHANGELOG.md](../../CHANGELOG.md)
+Internal development milestone; this version was not published to PyPI.
+Distributions now follow the [Versioning & Stability](../../docs/contributing/versioning.md)
+policy. The change list since 0.6.0 is in [CHANGELOG.md](../../CHANGELOG.md)
 and the current source API upgrade steps are in
 [Upgrading to Public API 1.0](../../docs/guides/upgrading-1.0.md).
-The historical 0.7 migration guide remains in the preparation archive.
 
 ### Fixed
 - Source distributions include the package sources and build independently of the monorepo.

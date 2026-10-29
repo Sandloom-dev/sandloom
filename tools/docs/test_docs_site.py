@@ -59,6 +59,71 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertNotIn("NotImplementedError", overview)
         self.assertIn("sandloom docs", overview)
 
+    def test_brand_kit_matches_the_rendered_site(self) -> None:
+        import struct
+        import zipfile
+        from xml.etree import ElementTree
+
+        site = SITE.parent
+        brand = site / "assets/brand"
+        canonical = ElementTree.parse(  # noqa: S314 - trusted built repository SVG
+            SITE / "assets/sandloom-mark.svg"
+        ).getroot()
+        exported = ElementTree.parse(  # noqa: S314 - trusted built repository SVG
+            brand / "sandloom-mark.svg"
+        ).getroot()
+        self.assertEqual([n.attrib for n in canonical], [n.attrib for n in exported])
+        self.assertEqual(canonical[0].attrib["fill-rule"], "evenodd")
+        self.assertEqual(
+            (REPO / "admin/public/sandloom-mark.svg").read_bytes(),
+            (REPO / "docs/assets/sandloom-mark.svg").read_bytes(),
+        )
+        for name in [
+            "favicon.svg",
+            "favicon-96.png",
+            "favicon.ico",
+            "apple-touch-icon.png",
+        ]:
+            self.assertEqual(
+                (REPO / "admin/public" / name).read_bytes(),
+                (brand / name).read_bytes(),
+            )
+        for page in [
+            "index.html",
+            "docs/index.html",
+            "examples/index.html",
+            "brand/index.html",
+        ]:
+            html = (site / page).read_text()
+            self.assertIn('class="sl-brand-logo"', html)
+            self.assertNotIn("woven S", html)
+        self.assertFalse((site / "prototypes").exists())
+        for size in [16, 20, 24, 32, 48, 64, 96]:
+            png = (brand / f"favicon-{size}.png").read_bytes()
+            self.assertEqual(struct.unpack(">II", png[16:24]), (size, size))
+        preview = (brand / "github-social-preview.png").read_bytes()
+        self.assertEqual(struct.unpack(">II", preview[16:24]), (1280, 640))
+        self.assertLess(len(preview), 1_000_000)
+        with zipfile.ZipFile(brand / "sandloom-brand-kit.zip") as archive:
+            self.assertIsNone(archive.testzip())
+            for name in [
+                "sandloom-mark.svg",
+                "sandloom-mark-micro.svg",
+                "sandloom-lockup.svg",
+                "sandloom-avatar.png",
+                "favicon.ico",
+                "LICENSE",
+                "NOTICE",
+                "Manrope-OFL.txt",
+            ]:
+                self.assertEqual(
+                    archive.read("Sandloom/" + name), (brand / name).read_bytes()
+                )
+            self.assertEqual(
+                archive.read("Sandloom/favicon.ico"),
+                (site / "favicon.ico").read_bytes(),
+            )
+
     def test_readme_code_stays_in_sync_with_the_executable_tutorial(self) -> None:
         import ast
 

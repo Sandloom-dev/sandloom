@@ -37,7 +37,7 @@ private plans, experimental native builds and old project material stay outside
 the public selection. See the reasoned exclusions in the policy and
 [third-party material](https://github.com/Sandloom-dev/sandloom/blob/main/THIRD_PARTY.md).
 
-A later, separately authorized snapshot can be prepared with `--destination`
+Create a reviewed source snapshot with `--destination`
 pointing to a new directory outside the source checkout. Preflight checks run
 before that directory is created; a failed attempt removes only its own new
 directory. Every output file is hashed and recorded in `SOURCE_EXPORT.json`. The exported
@@ -49,7 +49,7 @@ and later build artifacts remain untracked. Git-local variables
 inherited from a hook cannot redirect initialization into the source repository.
 The tool never installs dependencies, builds, commits, pushes or publishes.
 
-After an export, install and validate in the fresh checkout before transferring
-it. Source selection checks do not establish that its tests or builds pass.
+After an export, install and validate in the fresh checkout before distributing
+the snapshot. Source selection checks do not establish that its tests or builds pass.
 The generated `SOURCE_EXPORT.json` receipt is explicitly excluded from later
 source selections, so a prepared snapshot can check its own policy.

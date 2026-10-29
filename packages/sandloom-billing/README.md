@@ -25,9 +25,9 @@ builds the wheel and source archive.
 [Documentation](https://sandloom.dev/docs/) ·
 [Changelog](https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-billing/CHANGELOG.md)
 
-This is the initial `0.7.0a1` alpha distribution. The canonical source
-repository is private and awaiting transfer; the documentation website is
-not deployed yet. The project links above are the planned public locations.
+This is the `0.7.0a1` alpha distribution. See the
+[stability policy](https://sandloom.dev/docs/contributing/versioning/) for
+compatibility expectations.
 
 ## License
 

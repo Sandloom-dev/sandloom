@@ -23,5 +23,6 @@ See [typed events and evolution](concepts/events.md),
 [event SDK reference](reference/sdk/events.md).
 
 The old hand-written module registration, direct bus access, `CoreFacade` DI
-examples and draft schema-registry plans are retained in the preparation
-repository. They are not the current module-author contract.
+examples and schema-registry design drafts are historical material, outside the
+maintained source distribution. Use the SDK references above for the current
+module-author contract.

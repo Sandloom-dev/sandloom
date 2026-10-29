@@ -12,8 +12,8 @@ title: Installation
 
 ## Install the alpha from PyPI
 
-The four `0.7.0a1` distributions are published. Create an application without
-access to the private source repository:
+The four `0.7.0a1` distributions are available on PyPI. Create an application
+directly from the published packages:
 
 ```bash
 uvx --from "sandloom[standard]==0.7.0a1" sandloom new myapp --with identity,tenancy,billing
@@ -25,9 +25,7 @@ The remaining sections describe running the framework source checkout as a contr
 ## Get the source checkout
 
 The canonical repository is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
-The reviewed source snapshot is in this repository. It remains private during
-launch preparation; the website at `sandloom.dev` is not deployed yet.
-An account with repository access can clone it:
+Clone it to contribute to the framework:
 
 ```bash
 git clone https://github.com/Sandloom-dev/sandloom.git

@@ -56,8 +56,8 @@ flows will each invent their own:
    contracts and events, referenced by string.
 5. **Fits ADR-0007.** The saga runtime has a place in the layer map, and it
    adds no `ignore_imports`.
-6. **Pragmatic.** No new infrastructure, nothing on the request hot path, and
-   no compatibility baggage, because Sandloom is unreleased.
+6. **Pragmatic.** Reuse the existing infrastructure and keep orchestration off
+   the request hot path. This decision preceded the initial public alpha.
 
 ## Considered options
 

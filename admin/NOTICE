@@ -6,3 +6,8 @@ under the Apache License, Version 2.0. See LICENSE for the full terms.
 
 Third-party components and assets retain their own copyright notices and
 licenses. This notice does not replace or modify those terms.
+
+Technical text uses the Hack Nerd Font Mono web subset. Its copyright and
+licenses are preserved in fonts/Hack-LICENSE.md; provenance is recorded in
+fonts/Hack-SOURCE.json. The outlined Manrope wordmark retains its upstream
+SIL Open Font License in Manrope-OFL.txt.

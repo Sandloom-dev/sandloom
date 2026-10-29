@@ -1,4 +1,4 @@
-import { BrandMark } from '@/components/brand-mark';
+import { BrandLockup, BrandMark } from '@/components/brand-mark';
 import { useMemo, useState, type ReactNode } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -28,12 +28,9 @@ import { useSession } from './session';
 
 function Brand() {
   return (
-    <div className="flex items-center gap-2.5 px-2 py-1.5">
-      <BrandMark className="size-7 shrink-0 text-fg" />
-      <span className="flex flex-col leading-tight">
-        <span className="font-semibold">sandloom</span>
-        <span className="text-xs text-fg-subtle">Owner console</span>
-      </span>
+    <div className="flex flex-col gap-1 px-2 py-1.5">
+      <BrandLockup className="h-8 w-36 shrink-0 text-fg" />
+      <span className="text-xs text-fg-subtle">Owner console</span>
     </div>
   );
 }
@@ -226,6 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </DialogPrimitive.Content>
             </DialogPrimitive.Portal>
           </DialogPrimitive.Root>
+          <BrandMark className="size-6 shrink-0 text-fg lg:hidden" />
           <nav aria-label="Breadcrumb" className="min-w-0">
             <ol className="flex items-center gap-1.5 truncate">
               {current?.group && (

@@ -6,6 +6,16 @@ TanStack Query for all server state and TanStack Table for data grids. It is
 independent of the Python kernel and talks only to module-owned public APIs —
 no ORM connections, internal RPC credentials or security bypasses in the browser.
 
+## Brand identity
+
+The console shares the website’s approved caracal mark and outlined Sandloom wordmark,
+graphite and sand palette, Manrope interface text and Hack Nerd Font Mono technical text.
+Light, dark and system themes are available from **Appearance**, including before sign-in.
+Brand vectors and icons are generated from `docs/assets/sandloom-mark.svg` through
+`tools/docs/brand_assets.py` and `tools/docs/render_brand_assets.cjs`; regenerate them
+together with the website assets rather than redrawing the console logo. Font licenses
+and source records ship in `public/`.
+
 ## Documentation
 
 - **Operators:** [operator guide](../docs/guides/admin-operations.md) — audience, permissions, common

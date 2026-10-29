@@ -10,7 +10,7 @@ This module holds the mechanics; ``run_eval.py`` wires them into ``run``,
   installed, and a ``bin/`` holding only the ``sandloom`` entry point (it goes on
   the agent's PATH; ``UV_FIND_LINKS`` points ``uv`` at the wheels, so an
   ``sandloom new`` app's ``uv sync`` resolves the framework from them, not PyPI —
-  the Sandloom distributions are not published);
+  each benchmark must use its ref-specific builds);
 * :func:`app_agent_env` — the agent's environment: PATH without the framework
   repository or any venv, the wheels as find-links;
 * :func:`find_app` / :func:`make_pristine` / :func:`app_changes` — locate the

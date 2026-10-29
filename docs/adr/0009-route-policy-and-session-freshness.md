@@ -226,7 +226,7 @@ observed by tests are informational only (item 14).
     own tests saw on that route) is **informational only**: it is written by
     `--write`, ignored by `--check`, and never gates a build or a request.
 
-### Removed outright (unreleased, so no deprecation period)
+### Removed from the internal API before the initial public alpha
 
 The following are removed, and `AUTH_REVOCATION_STRICT_PATH_PREFIXES` moves
 to `config_tiers.REMOVED` with inert value `[]`:

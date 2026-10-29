@@ -1,4 +1,4 @@
-import { BrandMark } from '@/components/brand-mark';
+import { BrandLockup } from '@/components/brand-mark';
 import { useId, useState, type SubmitEvent } from 'react';
 import { CircleAlert } from 'lucide-react';
 import { api } from '@/api/client';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ThemeMenu } from '@/components/theme-menu';
 
 /** Password (+ optional 2FA) sign-in; only the platform admin role is admitted. */
 export function LoginPage() {
@@ -40,9 +41,12 @@ export function LoginPage() {
   return (
     <main className="grid min-h-dvh place-items-center bg-bg p-4">
       <div className="flex w-full max-w-field flex-col gap-6">
-        <div className="flex items-center gap-2.5">
-          <BrandMark className="size-8 shrink-0 text-fg" />
-          <span className="font-semibold">Sandloom owner console</span>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <BrandLockup className="h-9 w-44 text-fg" />
+            <span className="text-xs text-fg-subtle">Owner console</span>
+          </div>
+          <ThemeMenu />
         </div>
         <Card className="p-6">
           <h1 className="text-xl font-semibold">Sign in</h1>

@@ -3,7 +3,7 @@
 > **Public source scope.** The maintained HTTP harness, security/correctness
 > tests, ladder diagnostics and agent DX tasks are included. Native compiler /
 > Rust prototypes, the old dependency-pinning stand, raw runs and competitor
-> apps stay in the preparation repository. Historical measurements mentioned
+> apps are archived outside the maintained source distribution. Historical measurements mentioned
 > below are context, not new performance claims or shipped result artifacts.
 > See `docs/contributing/source-export.md` for the reviewed source selection.
 

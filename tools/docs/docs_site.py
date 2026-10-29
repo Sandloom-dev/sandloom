@@ -28,8 +28,9 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 REPO = Path(__file__).resolve().parents[2]
 SITE = REPO / "build/site"
 SITE_DESCRIPTION = (
-    "Build SaaS with AI in isolated Python modules. Sandloom supplies identity, tenancy, "
-    "billing and transaction mechanisms, from monolith to services."
+    "Python backend framework for AI-driven development. Enforced module boundaries, "
+    "pluggable infrastructure, and monolith-to-services deployment without rewriting "
+    "business modules."
 )
 
 
@@ -107,9 +108,9 @@ def finalize_metadata(origin: str, *, public: bool) -> None:
         image_version = hashlib.sha256((SITE / image_path.lstrip("/")).read_bytes()).hexdigest()[:12]
         image = f"{origin}{image_path}?v={image_version}"
         alt = {
-            "home": "Sandloom. Build SaaS with AI. Stay fast as you grow. A sand-colored woven S on a graphite module.",
-            "docs": "Sandloom documentation. From your first module to services. A sand-colored woven S on a graphite module.",
-            "examples": "Sandloom examples. Real apps. Clear starting points. A sand-colored woven S on a graphite module.",
+            "home": "Sandloom. Build with AI. Keep control. A sand-colored caracal on graphite.",
+            "docs": "Sandloom documentation. From your first module to services. A sand-colored caracal on graphite.",
+            "examples": "Sandloom examples. Real apps. Clear starting points. A sand-colored caracal on graphite.",
         }[card]
         tags = []
 
@@ -323,7 +324,7 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
                 relative = source.relative_to(website)
                 target.write_text(templates.get_template(relative.as_posix()).render(
                     is_docs=False,
-                    page_section="examples" if relative.parts[0] == "examples" else "home",
+                    page_section=relative.parts[0] if len(relative.parts) > 1 else "home",
                     **context,
                 ))
             else:

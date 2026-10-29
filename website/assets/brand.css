@@ -136,3 +136,6 @@ html.sl-menu-open { overflow: hidden; }
   .sl-menu-body { padding-left: 16px; padding-right: 16px; }
 }
 .sl-menu-site a[aria-current] { background: var(--sl-code-bg); color: var(--sl-ink); border-color: var(--sl-accent); font-weight: 700; }
+
+/* Approved caracal lockup: outlined letters follow the shared theme colour. */
+.sl-brand-logo { display: block; width: 144px; height: 30px; flex-shrink: 0; }

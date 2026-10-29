@@ -38,7 +38,7 @@ runs of different modes (`--force-compare` turns that into a warning).
    agent's PATH starts with that `bin/` and has no path into the framework
    repository and no venv; `UV_FIND_LINKS` points `uv` at the wheels, so the
    app's `uv sync` resolves `sandloom`, `sandloom-identity`, … from them (the
-   Sandloom distributions are not on PyPI). The framework source is nowhere in the
+   benchmark-specific builds must take priority over PyPI releases). The framework source is nowhere in the
    agent's tree, only the installed package in the app's `.venv`.
 3. **The agent runs `sandloom new <app>` itself** (the footer, `footer.app.md`,
    names the app, `teamhub` for the tasks and `academy` for the product, and

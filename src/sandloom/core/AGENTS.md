@@ -36,7 +36,7 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
     name L1 uses is public (`test_l1_uses_only_public_l2`).
   - **Importing `sandloom.sdk` reads no environment and does no I/O**
     (`test_sdk_import_is_side_effect_free`): settings stay lazy.
-  - The framework is unreleased: remove a name outright, no compat aliases.
+  - Public API changes follow `docs/contributing/versioning.md`; include upgrade steps.
 
 ## Guarantees and effects (ADR-0005)
 

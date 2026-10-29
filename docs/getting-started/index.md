@@ -9,10 +9,9 @@ type: tutorial
 ## Quickstart
 
 !!! note "Initial alpha: 0.7.0a1"
-    The canonical source is [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom),
-    currently private during launch preparation. All four alpha packages
-    are available on [PyPI](https://pypi.org/project/sandloom/0.7.0a1/);
-    `sandloom.dev` is the planned website, not a deployed service.
+    All four alpha packages are available on
+    [PyPI](https://pypi.org/project/sandloom/0.7.0a1/). The source is maintained in
+    [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 
 You need Python 3.11+, [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker.
 In an empty directory, generate an application from the published alpha:
@@ -56,7 +55,7 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
 sources it writes are editable: the app runs the checkout's live tree, so a
 framework change shows up without a reinstall.
 Without `--framework-source path`, `sandloom new` uses local editable sources
-when run from an unpublished checkout. An installed release resolves the
+when run from a source checkout. An installed release resolves the
 framework from published packages.
 
 ## Next

@@ -2232,7 +2232,7 @@ guarantees:
   sources:
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   - docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix)
-  - docs/adr/0009-route-policy-and-session-freshness.md#Removed outright (unreleased, so no deprecation period)
+  - docs/adr/0009-route-policy-and-session-freshness.md#Removed from the internal API before the initial public alpha
   tests:
   - src/sandloom/core/tests/test_route_policy_auth.py::test_an_unauthenticated_untagged_route_is_refused_with_the_fix
   - src/sandloom/core/tests/test_route_policy_auth.py::test_public_and_an_authenticator_together_are_refused
@@ -4165,7 +4165,7 @@ guarantees:
   - docs/reference/cli.md
   - docs/adr/0006-accepted-risks.md#Decision
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
-  - docs/adr/0009-route-policy-and-session-freshness.md#Removed outright (unreleased, so no deprecation period)
+  - docs/adr/0009-route-policy-and-session-freshness.md#Removed from the internal API before the initial public alpha
   tests:
   - src/sandloom/core/tests/test_config_tiers.py::test_removed_setting_fails_unless_inert
   - src/sandloom/core/tests/test_revocation_freshness.py::test_the_freshness_knobs_are_gone
@@ -7652,7 +7652,7 @@ adr_sections:
     - G-ROUTE-04
     - G-ROUTE-05
     - C-TEST-07
-    Removed outright (unreleased, so no deprecation period):
+    Removed from the internal API before the initial public alpha:
     - G-CONFIG-03
     - G-ROUTE-01
     - G-ROUTE-04

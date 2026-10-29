@@ -116,16 +116,17 @@ uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (n
 uv run celery -A sandloom.core.worker worker|beat --loglevel=INFO   # background tasks
 ```
 
-## Framework dependency sources before release
+## Framework dependency sources
 
 Generate apps from an existing checkout with
 `uv run sandloom new myapp --framework-source path --framework-path .`.
 The path is the repository root containing `packages/`. Editable host paths
 work locally; they are not portable Docker or CI dependencies.
-`--framework-source git` is currently disabled, and `--framework-source pypi`
-requires the first actual package release. The canonical repository is
-[Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom), currently
-private and awaiting the source transfer. See [getting started](../getting-started/index.md).
+`--framework-source pypi` installs published distributions and is the default
+for the installed CLI. `--framework-source git` is disabled; use a local
+checkout for source development. The canonical repository is
+[Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom). See
+[getting started](../getting-started/index.md).
 
 ## Local CI (GitHub Actions stand-in)
 

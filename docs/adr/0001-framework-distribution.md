@@ -5,13 +5,19 @@
 - **Deciders:** Sandloom maintainers
 - **Supersedes:** —
 
+!!! note "Historical design"
+    This ADR records the original distribution design. The current four-package
+    layout is documented in [Packages](https://github.com/Sandloom-dev/sandloom/blob/main/packages/README.md), and the release
+    procedure in [Publishing](../guides/publishing.md). Package names and layout
+    examples below describe the design at the time of this decision.
+
 ## Context
 
-Sandloom today is a single repository (`backend/`) that builds **one** wheel
+At the time of this decision, Sandloom used a single repository (`backend/`)
+that built **one** wheel
 (`sandloom-framework`) containing the kernel **and** the bundled business modules
 (`identity`, `tenancy`, `billing`) **and** all infrastructure drivers
-(SQLAlchemy, Redis, Celery, SMTP, filesystem). The repository will become public
-*later*; until then names on PyPI are unclaimed and squattable.
+(SQLAlchemy, Redis, Celery, SMTP, filesystem).
 
 We need a distribution model that answers, coherently:
 
@@ -126,16 +132,14 @@ move **out of the kernel** into `sandloom-platform`. Consumers either depend on
 ### 6. Distribution channels
 
 - **Canonical channel: public PyPI wheels**, namespace `sandloom-*`.
-- **Claim names on PyPI now** with `0.0.0` placeholder releases (`sandloom`,
-  `sandloom-framework`, `sandloom-shared`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing`,
-  `sandloom-platform`, `sandloom-infra-redis|celery|smtp|s3`) while the repo is private —
-  this is the only irreversibly-painful item if missed.
-- **Dogfooding before the repo is public:** no private index (overkill for one
-  consumer) — use `uv` git dependencies (`#subdirectory=packages/...`) or wheels
-  attached to GitHub Releases (works for private repos).
-- **Trusted Publishing (PyPI OIDC)** is configured in CI ahead of time, gated on
-  per-package tags, so publishing "just works" when the repo goes public — no
-  secrets in CI.
+- **Publish functional distributions**, with matching metadata and source archives;
+  an empty placeholder release is not a distribution strategy.
+- **Source development:** use editable local dependencies. Portable deployments
+  install published packages or a complete matching wheel set.
+- **Trusted Publishing (PyPI OIDC)** authenticates package uploads without
+  long-lived API tokens in CI. The checked-in workflow is build-only; enabling
+  uploads requires the publisher configuration and explicit workflow changes
+  described in the current publishing guide.
 - **Docker → GHCR** is a secondary track for the reference `sandloom-platform` app
   only (quickstart / self-host), **not** a framework consumption channel. There
   is no `FROM sandloom` base image; the scaffold emits a consumer-owned Dockerfile
@@ -204,7 +208,7 @@ distributable wheel via hatchling `force-include`):
   `sandloom-platform`), #5 (test deps → `[dev]`), and #9 (packages CI build/compose +
   lean-import gate) — done in PRs #17 and earlier.
 - See `packages/README.md` for the current tiers and build hook. The original
-  implementation follow-up notes remain in the preparation repository.
+  implementation follow-up notes are archived separately from the maintained source.
 
 **Distribution & release machinery** (this ADR's §3/§5/§6/§7):
 
@@ -235,7 +239,7 @@ party ships one. The text above records the earlier layout.
   Celery + the three modules, the former `sandloom-platform`), `fast`,
   `check`, `testing` and `sentry`. `sandloom-framework`, `sandloom-shared`,
   `sandloom-platform`, `sandloom-infra-redis` and `sandloom-infra-celery` are
-  removed outright (unreleased; no shims).
+  removed outright before the initial public alpha (no shims).
 - `sandloom-identity`, `sandloom-tenancy` and `sandloom-billing` ship the
   top-level import packages `sandloom_identity`, `sandloom_tenancy` and
   `sandloom_billing` (source in `src/sandloom_<module>/`), each with one

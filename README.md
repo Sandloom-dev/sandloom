@@ -219,6 +219,7 @@ configuration, credentials and operations. See the
   organizations and billing.
 - [Module packages](packages/README.md): installable identity, tenancy and billing.
 - [Admin console](admin/README.md): the optional owner console.
+- [Brand assets](website/assets/brand/README.md): the caracal, wordmark, avatars and icons.
 
 ## Project status
 
