@@ -344,7 +344,8 @@ Measured complete default stdout, including header and freshness; no byte trunca
 
 - `sandloom test --full --ci`: every gate passed. Full suite: 5,203 passed,
   7 skipped, 1 expected failure (164.37s pytest / 165.7s runner step).
-  Architecture: 1,283 passed; typing: 3 passed. Existing skips/expected failure
+  Architecture: 1,281 passed, 6 skipped; typing: 3 passed. Existing skips/expected
+  failure
   and 14 test warnings remain visible. No tests were disabled: focus-only cases
   were removed with that feature and replacement behavior has regression cases.
 - Targeted inspection suite: 146 passed. A subprocess with blocked app/settings/SDK
@@ -362,3 +363,9 @@ Measured complete default stdout, including header and freshness; no byte trunca
   installed RPC transport/fallback smoke also passes.
 
 Paid agent DX, PyPI release and website deployment remain deferred.
+
+Local Linux CI at code commit `28f82e5` also passed all three selected jobs:
+`backend-tests-3.12` (2m57s), `backend-static` (1m36s) and `docs` (19s),
+2m58s total. Linux full tests: 5,202 passed, 8 skipped, 1 expected failure;
+platform-dependent skips and dependency warnings remain visible. Static CI also
+passed installed RPC smoke and its dependency vulnerability audit.
