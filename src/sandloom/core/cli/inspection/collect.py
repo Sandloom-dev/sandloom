@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib.metadata
+import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 from sandloom.core.archcheck.api10_rules import event_classes
-from sandloom.core.cli.inspection import files
+from sandloom.core.cli.inspection import files, processes
 from sandloom.core.cli.inspection.model import Doc, digest, encode, sha
 from sandloom.core.descriptors.module_names import module_name
 
@@ -95,6 +96,8 @@ def _wires(entry: Any, shared: str, planned: dict[str, str]) -> list[str]:
     result = [
         f"{shared}/contracts/{name.replace('.', '_').replace('-', '_')}.py"
         for name in sorted(names)
+        if f"{shared}/contracts/{name.replace('.', '_').replace('-', '_')}.py"
+        in planned
     ]
     result += [
         f"{shared}/events/{e.channel}.json"
@@ -216,6 +219,12 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
         for p in generated
         if p.path.resolve().is_relative_to(root)
     }
+    route_documents = {
+        value["module"]: value["routes"]
+        for path, text in planned.items()
+        if path.endswith("/routes.snapshot.json")
+        for value in [json.loads(text)]
+    }
     descriptors = {d.name: d for d in app.state.core.module_descriptors}
     distributions = {
         ep.value: {ep.dist.metadata["Name"]: ep.dist.version}
@@ -251,6 +260,12 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
             "wire_paths": _wires(entry, config["shared_dir"], planned),
             "event_views": [],
         }
+        policies = {
+            (r["method"], r["path"]): r for r in route_documents.get(entry.name, [])
+        }
+        card["routes"] = [
+            {**r, **policies.get((r["method"], r["path"]), {})} for r in card["routes"]
+        ]
         card["event_views"] = _views(root, directory, card["name"])
         modules.append(card)
         descriptor = descriptors.get(entry.name)
@@ -295,6 +310,13 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
             e.channel: e.schema for e in app.state.core.list_event_schemas() if e.schema
         },
         "unresolved": unresolved,
+        "processes": processes.collect(app.state.core, root, modules),
+        "contract_descriptions": {
+            name: value
+            for path, text in sorted(planned.items())
+            if path.endswith("/contracts.snapshot.json")
+            for name, value in json.loads(text).get("contracts", {}).items()
+        },
     }
 
 

@@ -590,3 +590,437 @@ def test_output_canonical_alias_still_protects_rules(
         == 1
     )
     assert (project.root / "AGENTS.md").read_bytes() == prior
+
+
+def _publish(project: SimpleNamespace, document: dict[str, object]) -> Reader:
+    (project.root / INDEX).write_text(encode(document))
+    reader = Reader(project.root)
+    (project.root / RECEIPT).write_text(reader.receipt())
+    return reader
+
+
+def test_process_collector_reads_real_saga_without_executing_callbacks(
+    project: SimpleNamespace,
+) -> None:
+    from datetime import timedelta
+
+    from pydantic import BaseModel
+
+    from sandloom.core.descriptors import Saga, local_step, step
+
+    class Input(BaseModel):
+        order: str
+
+    async def forbidden(*_args: object) -> None:
+        raise AssertionError("collector must not call business logic")
+
+    def forbidden_args(_ctx: object) -> dict[str, object]:
+        raise AssertionError("collector must not evaluate step args")
+
+    definition = Saga(
+        "checkout",
+        version=1,
+        input=Input,
+        deadline=timedelta(minutes=5),
+        steps=[
+            local_step("reserve", apply=forbidden, compensate=forbidden),
+            step(
+                "charge",
+                call="stats.quota.v1.charge",
+                args=forbidden_args,
+                kind="pivot",
+                check_args=False,
+            ),
+            step(
+                "confirm",
+                call="stats.quota.v1.confirm",
+                args=forbidden_args,
+                check_args=False,
+            ),
+        ],
+    )
+    definition.bind("app.modules.notes")
+    project.app.state.core.sagas = [(definition, "app.modules.notes")]
+    document = collect.collect(project.app, project.rules, project.planned)
+    process = document["processes"][0]
+    assert process["id"] == "saga:notes.checkout%401"
+    assert [s["kind"] for s in process["steps"]] == [
+        "compensatable",
+        "pivot",
+        "retriable",
+    ]
+    assert process["steps"][0]["compensation_available"]
+    assert (
+        process["steps"][1]["transaction"] == "provider command unit; separate commit"
+    )
+    reader = _publish(project, document)
+    from sandloom.core.cli.inspection import sequences
+
+    result = sequences.build(reader, selector=process["id"], module=None, require=True)
+    sequence = result["data"]["process"]
+    assert [s["label"] for s in sequence["steps"]] == ["reserve", "charge", "confirm"]
+    assert [s["label"] for s in sequence["alternatives"]] == ["Undo reserve"]
+    mermaid = sequences.mermaid(result)
+    assert "alt Forward path" in mermaid
+    assert "else Compensation before pivot" in mermaid
+    state = sequences.build(
+        reader, selector=process["id"], module=None, require=True, state=True
+    )
+    assert "stateDiagram-v2" in sequences.mermaid(state)
+    assert "parked" in sequences.mermaid(state)
+    document["processes"][0]["steps"][0]["kind"] = "changed"
+    assert (
+        Reader(project.root, document).freshness([reader.module("notes")])["state"]
+        != "verified"
+    )
+
+    from copy import copy
+
+    from sandloom.core.cli.inspection.model import InspectionError
+
+    second = copy(definition)
+    second.version = 2
+    project.app.state.core.sagas.append((second, "app.modules.notes"))
+    reader = _publish(
+        project, collect.collect(project.app, project.rules, project.planned)
+    )
+    assert {p["id"] for p in reader.doc["processes"]} == {
+        "saga:notes.checkout%401",
+        "saga:notes.checkout%402",
+    }
+    with pytest.raises(InspectionError, match="stable process ID"):
+        sequences.select(reader, "notes.checkout")
+
+
+def test_route_process_uses_resolved_snapshot_not_empty_manifest(
+    project: SimpleNamespace,
+) -> None:
+    from dataclasses import replace
+
+    from sandloom.core.cli.inspection import sequences
+    from sandloom.core.loader.manifest import RouteEntry
+
+    original = project.app.state.app_manifest
+    notes = replace(
+        original.modules[0],
+        routes=(RouteEntry("app.modules.notes", "POST", "/notes", "create"),),
+    )
+    project.app.state.app_manifest = AppManifest((notes, *original.modules[1:]))
+    path = project.root / "app/modules/notes/routes.snapshot.json"
+    policy = {
+        "effect": "write",
+        "session": "none",
+        "idempotency": "none",
+        "public_reason": "webhook",
+    }
+    project.planned.append(
+        Generated(
+            path,
+            encode(
+                {
+                    "module": notes.name,
+                    "routes": [
+                        {
+                            "method": "POST",
+                            "path": "/notes",
+                            "auth": "public",
+                            "policy": policy,
+                        }
+                    ],
+                }
+            ),
+            "SANDLOOM-T001",
+        )
+    )
+    document = collect.collect(project.app, project.rules, project.planned)
+    process = document["processes"][0]
+    assert process["policy"] == policy
+    result = sequences.project(process)
+    assert not any(s["label"] == "Commit-time re-check" for s in result["steps"])
+    assert not any(s["label"].startswith("Idempotency:") for s in result["steps"])
+    assert any("opaque" in s["label"] for s in result["steps"])
+    process["policy"] = {**policy, "operation_intent": "checkout"}
+    result = sequences.project(process)
+    assert not any(s["label"] == "before_commit → COMMIT" for s in result["steps"])
+    assert any(s["label"] == "Validate intent release rule" for s in result["steps"])
+
+
+def test_focused_context_keeps_dto_closure_and_explicit_owned_helpers(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    helper = project.root / "app/modules/notes/unrelated.py"
+    helper.write_text("def helper(): return 1\n")
+    rc, text, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "contract:stats.quota.v1",
+        "--format",
+        "json",
+    )
+    assert rc == 0
+    data = json.loads(text)["data"]
+    paths = {s["path"] for s in data["sections"]}
+    assert "app/shared/contracts/stats_dto.py" in paths
+    assert "app/shared/events/stats.changed.v1.json" not in paths
+    assert data["event_schemas"] == {}
+    assert not any("modules/stats/" in p for p in paths)
+    assert {
+        "path": "app/modules/notes/unrelated.py",
+        "reason": "outside_focus",
+    } in data["omissions"]
+    rc, text, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "contract:stats.quota.v1",
+        "--file",
+        "unrelated.py",
+        "--format",
+        "json",
+    )
+    assert rc == 0
+    assert "app/modules/notes/unrelated.py" in {
+        s["path"] for s in json.loads(text)["data"]["sections"]
+    }
+    assert (
+        run(
+            project, capsys, "context", "archive", "--focus", "contract:stats.quota.v1"
+        )[0]
+        == 1
+    )
+
+
+def test_declared_impact_preserves_direct_interface_witnesses(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc, text, _ = run(
+        project,
+        capsys,
+        "graph",
+        "--view",
+        "impact",
+        "--item",
+        "contract:stats.quota.v1",
+    )
+    assert rc == 0
+    affected = json.loads(text)["data"]["affected"]
+    assert {m["module_id"] for m in affected} == {"module:notes", "module:stats"}
+    assert all(m["seed_witnesses"] for m in affected)
+    assert all(m["test_argv"][0:2] == ["sandloom", "test"] for m in affected)
+
+
+def test_semantic_diff_ignores_bodies_and_checks_event_compatibility(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = (project.root / INDEX).read_text()
+    (project.root / "before.json").write_text(original)
+    (project.root / "app/modules/notes/services.py").write_text("# body-only edit\n")
+    rc, text, _ = run(
+        project, capsys, "graph", "--view", "diff", "--before", "before.json"
+    )
+    assert rc == 0
+    assert json.loads(text)["data"]["counts"] == {
+        "added": 0,
+        "removed": 0,
+        "changed": 0,
+    }
+    document = json.loads(original)
+    schema = document["event_schemas"]["stats.changed.v1"]
+    schema["properties"]["required_now"] = {"type": "string"}
+    schema["required"] = ["required_now"]
+    (project.root / INDEX).write_text(encode(document))
+    rc, text, _ = run(
+        project, capsys, "graph", "--view", "diff", "--before", "before.json"
+    )
+    assert rc == 0
+    changes = json.loads(text)["data"]["changes"]
+    assert len(changes) == 1 and changes[0]["id"] == "event:stats.changed.v1"
+    assert changes[0]["compatibility"]["state"] == "breaking"
+    assert changes[0]["compatibility"]["reasons"]
+
+
+def test_contract_diff_uses_existing_shared_compatibility_rules(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    document = json.loads((project.root / INDEX).read_text())
+    document["contract_descriptions"] = {
+        "stats.quota.v1": {"methods": {"read": {"params": [], "return": {"k": "none"}}}}
+    }
+    (project.root / "before.json").write_text(encode(document))
+    document["contract_descriptions"]["stats.quota.v1"]["methods"] = {}
+    (project.root / INDEX).write_text(encode(document))
+    rc, text, _ = run(
+        project, capsys, "graph", "--view", "diff", "--before", "before.json"
+    )
+    assert rc == 0
+    change = json.loads(text)["data"]["changes"][0]
+    assert change["compatibility"]["state"] == "breaking"
+    assert any("read" in reason for reason in change["compatibility"]["reasons"])
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--view", "state"],
+        ["--view", "impact"],
+        ["--view", "diff"],
+        ["--process", "fake"],
+        ["--view", "impact", "--item", "module:notes", "--format", "mermaid"],
+        ["--view", "sequence", "--hops", "1"],
+    ],
+)
+def test_new_views_reject_incompatible_or_missing_arguments(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], args: list[str]
+) -> None:
+    rc, text, _ = (
+        run(project, capsys, "graph", *args, "--format", "json")
+        if "--format" not in args
+        else run(project, capsys, "graph", *args)
+    )
+    assert rc == 2
+    if text:
+        assert json.loads(text)["diagnostics"][0]["kind"] == "usage"
+
+
+def test_ignore_policy_cannot_be_overwritten_through_alias(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = project.root / ".sandloomignore"
+    path.write_text("# keep\n")
+    assert (
+        run(project, capsys, "graph", "--output", "./.sandloomignore", "--force")[0]
+        == 1
+    )
+    assert path.read_text() == "# keep\n"
+
+
+def test_generation_fingerprint_is_not_a_source_export_filter(
+    project: SimpleNamespace,
+) -> None:
+    from sandloom.core.cli.inspection import files
+
+    path = project.root / "app/modules/notes/data.py"
+    path.write_bytes(b"\xff\x00" + b"x" * (files.MAX_FILE + 1))
+    assert collect.capture(project.rules)
+    project.planned[0].content += "# written despite unavailable inspection metadata\n"
+    assert (
+        generation.finish(
+            rules=project.rules,
+            app=project.app,
+            selected=list(project.planned),
+            modules=[],
+            check=False,
+            before=collect.capture(project.rules),
+            plan_all=lambda: project.planned,
+            make_file=Generated,
+            apply_files=apply,
+        )
+        == 0
+    )
+    assert "written despite" in project.planned[0].path.read_text()
+    assert not (project.root / RECEIPT).exists()
+
+
+def test_inspection_failure_keeps_generate_check_read_only(
+    project: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli.inspection.model import InspectionError
+
+    before = {p: (project.root / p).read_bytes() for p in (INDEX, RECEIPT)}
+
+    def unavailable(*_args: object) -> None:
+        raise InspectionError("unsafe_path", "unavailable")
+
+    monkeypatch.setattr(collect, "collect", unavailable)
+    assert (
+        generation.finish(
+            rules=project.rules,
+            app=project.app,
+            selected=list(project.planned),
+            modules=[],
+            check=True,
+            before=collect.capture(project.rules),
+            plan_all=lambda: project.planned,
+            make_file=Generated,
+            apply_files=apply,
+        )
+        == 0
+    )
+    assert before == {p: (project.root / p).read_bytes() for p in before}
+
+
+def test_source_race_aborts_before_any_generated_file_is_written(
+    project: SimpleNamespace,
+) -> None:
+    before = collect.capture(project.rules)
+    project.planned[0].content += "# must not write\n"
+    (project.root / "app/modules/notes/services.py").write_text(
+        "# changed after capture\n"
+    )
+    assert (
+        generation.finish(
+            rules=project.rules,
+            app=project.app,
+            selected=list(project.planned),
+            modules=[],
+            check=False,
+            before=before,
+            plan_all=lambda: project.planned,
+            make_file=Generated,
+            apply_files=apply,
+        )
+        == 1
+    )
+    assert "must not write" not in project.planned[0].path.read_text()
+
+
+def test_absent_optional_provider_is_reported_without_imaginary_wire(
+    project: SimpleNamespace,
+) -> None:
+    from dataclasses import replace
+
+    original = project.app.state.app_manifest
+    notes = replace(
+        original.modules[0],
+        contracts_consumed=(
+            *original.modules[0].contracts_consumed,
+            ContractUse("app.modules.notes", "absent.optional.v1", required=False),
+        ),
+    )
+    project.app.state.app_manifest = AppManifest((notes, *original.modules[1:]))
+    reader = _publish(
+        project, collect.collect(project.app, project.rules, project.planned)
+    )
+    assert not any(
+        "absent_optional" in p for p in reader.wire_paths(reader.module("notes"))
+    )
+    assert reader.doc["unresolved"][0]["related_id"] == "contract:absent.optional.v1"
+    assert not reader.doc["unresolved"][0]["required"]
+
+
+def test_viewer_assets_and_placeholder_data_are_embedded_safely(
+    project: SimpleNamespace,
+) -> None:
+    reader = Reader(project.root)
+    reader.doc["nodes"][0]["name"] = "</script>__SANDLOOM_VIEWER_JS__"
+    envelope = graph.build(
+        reader,
+        selector="notes",
+        hops=0,
+        discovery=False,
+        detail="compact",
+        require=False,
+    )
+    rendered = graph.viewer(envelope, reader)
+    assert "\\u003c/script>__SANDLOOM_VIEWER_JS__" in rendered
+    assert "Condense strongly connected components" in rendered
+    assert "Save SVG" in rendered
+    assert "__SANDLOOM_VIEWER_CSS__" not in rendered
+    assert "<script src=" not in rendered
+    assert "<link rel=" not in rendered

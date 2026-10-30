@@ -6,6 +6,7 @@ import html
 from collections import defaultdict
 from pathlib import Path
 
+from sandloom.core.cli.inspection import sequences
 from sandloom.core.cli.inspection.model import Doc, digest, encode, response
 from sandloom.core.cli.inspection.read import Reader
 
@@ -100,6 +101,7 @@ def build(
     discovery: bool,
     detail: str,
     require: bool,
+    direction: str = "both",
 ) -> Doc:
     links = relations(reader.doc)
     selected = (
@@ -111,7 +113,8 @@ def build(
         selected |= {
             end
             for link in links
-            if link["source"] in selected or link["target"] in selected
+            if (direction in {"both", "outgoing"} and link["source"] in selected)
+            or (direction in {"both", "incoming"} and link["target"] in selected)
             for end in (link["source"], link["target"])
         }
     modules = [m for m in reader.modules if m["id"] in selected]
@@ -155,7 +158,11 @@ def build(
             for k, v in reader.doc.get("source_locators", {}).items()
             if k in selected
         },
-        "projection": "incoming_and_outgoing_contracts_and_events",
+        "projection": direction + "_contracts_and_events",
+        "modules": modules,
+        "processes": [
+            p for p in reader.doc.get("processes", []) if p["owner"] in selected
+        ],
         "nodes": nodes,
         "edges": edges,
         "module_relations": projected,
@@ -198,13 +205,45 @@ def mermaid(envelope: Doc) -> str:
     return "\n".join(out) + "\n"
 
 
-def viewer(envelope: Doc) -> str:
+def viewer(envelope: Doc, reader: Reader | None = None) -> str:
+    workspace = envelope
+    if reader is not None:
+        topology = (
+            envelope
+            if envelope["kind"] == "graph"
+            else build(
+                reader,
+                selector=None,
+                hops=1,
+                discovery=False,
+                detail="full",
+                require=False,
+            )
+        )
+        workspace = {
+            **envelope,
+            "workspace": topology["data"],
+            "saga_states": sequences.states(),
+            "sequences": [
+                sequences.project(p) for p in reader.doc.get("processes", [])
+            ],
+        }
     payload = (
-        encode(envelope)
+        encode(workspace)
         .replace("<", "\\u003c")
         .replace("&", "\\u0026")
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
     )
     template = Path(__file__).with_name("viewer.html").read_text(encoding="utf-8")
-    return template.replace("__SANDLOOM_GRAPH_JSON__", payload)
+    return (
+        template.replace(
+            "__SANDLOOM_VIEWER_CSS__",
+            Path(__file__).with_name("viewer.css").read_text(encoding="utf-8"),
+        )
+        .replace(
+            "__SANDLOOM_VIEWER_JS__",
+            Path(__file__).with_name("viewer.js").read_text(encoding="utf-8"),
+        )
+        .replace("__SANDLOOM_GRAPH_JSON__", payload)
+    )

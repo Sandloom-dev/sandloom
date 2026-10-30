@@ -88,9 +88,24 @@ class Reader:
                 raise InspectionError(
                     "invalid_artifact", "Graph edge references an absent node"
                 )
+        self._validate_processes()
         self._validate_graph()
         self._validate_sources()
         self.catalog = parse(CATALOG.read_text(encoding="utf-8"))
+
+    def _validate_processes(self) -> None:
+        processes = self.doc.get("processes", [])
+        ids = [p["id"] for p in processes]
+        owners = {m["id"] for m in self.modules}
+        if len(ids) != len(set(ids)) or any(
+            p["owner"] not in owners
+            or not p["id"].startswith(("saga:", "route:"))
+            or not isinstance(p["name"], str)
+            for p in processes
+        ):
+            raise InspectionError(
+                "invalid_artifact", "Invalid process ownership/identity"
+            )
 
     def _validate_graph(self) -> None:
         node_kinds = {
@@ -365,6 +380,14 @@ class Reader:
             "module": module,
             "edges": [e for e in self.doc["edges"] if e["owner"] == module["id"]],
             "layout": self.layout,
+            "processes": [
+                p for p in self.doc.get("processes", []) if p["owner"] == module["id"]
+            ],
+            "contract_descriptions": {
+                k: v
+                for k, v in self.doc.get("contract_descriptions", {}).items()
+                if "contract:" + k in related
+            },
             "catalog": digest(self.catalog),
             "providers": [
                 e

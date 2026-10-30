@@ -2455,6 +2455,22 @@
         "tools/docs/sdk_catalog.py",
         "tools/packaging/inspection_smoke.py"
       ]
+    },
+    {
+      "reason": "Declared process exploration, focused context, shared compatibility rules, and recorded UX research/validation.",
+      "paths": [
+        "design/context-and-graph/evolution-research.md",
+        "design/context-and-graph/evolution.md",
+        "design/context-and-graph/ux-research.md",
+        "src/sandloom/core/cli/inspection/focus.py",
+        "src/sandloom/core/cli/inspection/processes.py",
+        "src/sandloom/core/cli/inspection/queries.py",
+        "src/sandloom/core/cli/inspection/sequences.py",
+        "src/sandloom/core/cli/inspection/viewer.css",
+        "src/sandloom/core/cli/inspection/viewer.js",
+        "src/sandloom/core/contracts/compatibility.py",
+        "src/sandloom/core/contracts/schema_compatibility.py"
+      ]
     }
   ],
   "exclude_files": {

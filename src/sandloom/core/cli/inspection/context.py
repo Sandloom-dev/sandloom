@@ -7,7 +7,7 @@ import re
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from sandloom.core.cli.inspection import files
+from sandloom.core.cli.inspection import files, focus
 from sandloom.core.cli.inspection.model import Doc, InspectionError, encode, response
 from sandloom.core.cli.inspection.read import Reader
 
@@ -87,6 +87,10 @@ def _fence(content: str) -> str:
     return "`" * max(3, longest + 1)
 
 
+def _focus_markdown(data: Doc) -> list[str]:
+    return ["## Focus and limits", encode(data["focus"])] if data.get("focus") else []
+
+
 def markdown(envelope: Doc) -> str:
     data = envelope["data"]
     fresh = envelope["freshness"]
@@ -106,6 +110,7 @@ def markdown(envelope: Doc) -> str:
             "sandloom generate can refresh it."
         )
     out += [f"Bytes: {data['bytes']} | Budget: {data['budget']}", ""]
+    out += _focus_markdown(data)
     out += ["## Module declarations", encode(data["module"])]
     for section in data["sections"]:
         content = section["content"]
@@ -218,6 +223,7 @@ def build(
     fmt: str,
     detail: str,
     require: bool,
+    focus_selector: str | None = None,
 ) -> tuple[Doc, str]:
     module = reader.module(selector)
     if any(v.get("unresolved_bases") for v in module["event_views"]):
@@ -230,8 +236,18 @@ def build(
     before = reader.basis(module)
     ignored = [p for p in all_candidates if files.ignored(reader.root, p)]
     candidates = [p for p in all_candidates if p not in ignored]
+    focused = (
+        focus.scope(reader, module, focus_selector, candidates)
+        if focus_selector
+        else None
+    )
+    outside = set(candidates) - set(focused["candidates"]) if focused else set()
     mandatory = dict.fromkeys(reader.rules(module), "scoped_rules")
-    mandatory.update(dict.fromkeys(reader.wire_paths(module), "wire_interface"))
+    mandatory.update(
+        dict.fromkeys(
+            focused["wires"] if focused else reader.wire_paths(module), "wire_interface"
+        )
+    )
     mandatory.update(_explicit(reader, module, candidates, requested))
     # Inspect all candidate imports so omissions cannot hide an advanced dependency.
     sdk = _sdk(reader, candidates)
@@ -239,7 +255,7 @@ def build(
         _section(reader, path, kind) for path, kind in sorted(mandatory.items())
     ]
     optional = sorted(
-        set(candidates) - set(mandatory),
+        set(candidates) - set(mandatory) - outside,
         key=lambda p: ("tests" in Path(p).parts, len(Path(p).parts), p),
     )
     try:
@@ -256,6 +272,7 @@ def build(
         channel: schema
         for channel, schema in reader.doc.get("event_schemas", {}).items()
         if "event:" + channel in channels
+        and (not focused or focused["all_interfaces"] or channel in focused["channels"])
     }
     data: Doc = {
         "module": {
@@ -274,11 +291,18 @@ def build(
             )
             if k in module
         },
+        "focus": {k: focused[k] for k in ("item", "limits")} if focused else None,
         "framework_version": framework_version,
         "catalog_version": reader.catalog["schema_version"],
         "sections": [_compact(s) for s in all_sections],
         "sdk": sdk,
-        "event_views": module["event_views"],
+        "event_views": [
+            v
+            for v in module["event_views"]
+            if not focused
+            or focused["all_interfaces"]
+            or v["channel"] in focused["channels"]
+        ],
         "event_schemas": schemas,
         "unresolved": [
             u for u in reader.doc["unresolved"] if u["module_id"] == module["id"]
@@ -286,13 +310,20 @@ def build(
         "budget": budget,
         "bytes": 0,
         "omissions": [{"path": p, "reason": "byte_budget"} for p in optional]
-        + [{"path": p, "reason": "context_ignore"} for p in ignored],
+        + [{"path": p, "reason": "context_ignore"} for p in ignored]
+        + [
+            {"path": p, "reason": "outside_focus"}
+            for p in sorted(outside - set(mandatory))
+        ],
     }
     envelope = response(
         "context",
         "context",
         data,
-        selection={"module_id": module["id"]},
+        selection={
+            "module_id": module["id"],
+            "focus_id": focused["item"]["id"] if focused else None,
+        },
         freshness=reader.freshness([module], require=require),
     )
     text = _account(envelope, fmt)

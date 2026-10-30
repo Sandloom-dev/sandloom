@@ -30,6 +30,7 @@ public interfaces, never their implementation bodies.
 uv run sandloom context module:notes --format json
 uv run sandloom context notes --file services.py --max-bytes 131072
 uv run sandloom context notes --format json --detail full
+uv run sandloom context notes --focus contract:stats.quota.v1
 ```
 
 `--file` is repeatable and relative to the selected module; choose files that
@@ -37,6 +38,14 @@ exist. JSON exposes typed sections, source locators and diagnostics for programs
 Full detail adds file hashes, inclusion reasons and verification evidence. It
 keeps the same business selection as compact mode; if the additional metadata
 exceeds the budget it fails instead of silently evicting source.
+
+`--focus` selects a declared contract, event, saga, route or module used/owned by
+that module. Whole selected wire files and their transitive DTO closure remain
+mandatory. Saga focus includes its declared command interfaces; route internals
+are opaque, so route focus retains every declared interface. Rules and the public
+SDK remain available. Owned source matches are navigation hints, not a complete
+call graph: add helpers/tests explicitly with `--file`. `outside_focus` omissions
+make that limit visible. Focus never authorizes editing another module.
 
 The default limit is **131072 UTF-8 bytes**, counting the complete serialized
 output, not a token count. Rules, explicitly requested files and transitive DTO

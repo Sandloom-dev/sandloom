@@ -20,12 +20,19 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | `sandloom graph [--module ID --hops N]` | Typed declared graph; compact JSON by default. One hop means a module relation, retaining its contract/event witnesses. |
 | `sandloom graph --format html --output architecture.html` | Standalone offline viewer with filters, source evidence and text tables. |
 | `sandloom graph --format mermaid` | Escaped interchange diagram. |
+| `sandloom context <module> --focus ID` | Focus an interface/process; preserve rules and whole DTO closure. Source matching is a navigation hint. |
+| `sandloom graph --view sequence [--process ID] [--module ID]` | List processes or inspect a declared saga / framework route lifecycle. |
+| `sandloom graph --view state --process ID` | Conditional saga state transitions; JSON, Mermaid or HTML. |
+| `sandloom graph --view impact --item ID` | Direct witnesses and potential transitive module impact; JSON or HTML. |
+| `sandloom graph --view diff --before PATH` | Compare a saved inspection index; JSON or HTML. |
 
 Both commands accept `--root PATH`, `--output PATH`, `--force`,
 `--require-verified`; context and graph JSON also accept `--detail compact|full`
 and `--max-bytes N` (default: 131072 UTF-8 bytes). Context formats: `markdown|json`;
 graph formats: `json|mermaid|html`. Explicit files are module-relative and repeatable.
-`--hops` requires `--module`, defaults to 1 and accepts 0.
+`--hops` requires `--module`, defaults to 1 and accepts 0. Topology views also
+accept `--direction incoming|outgoing|both` (default both). Process selectors are
+limited to sequence/state; impact/diff use their own item/historical scope.
 
 Exit codes: 0 usable (check uncertainty/omissions), 1 invalid/missing/unsafe inputs
 or budget/I/O failure, 2 usage, 3 strict verification unavailable. JSON emits one

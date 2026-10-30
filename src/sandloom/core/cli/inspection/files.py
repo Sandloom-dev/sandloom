@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 import re
 import tempfile
@@ -110,8 +111,29 @@ def instructions(root: Path, directory: str, role: str | None = None) -> list[st
     return sorted(paths)
 
 
+def fingerprint(root: Path, locator: str) -> str:
+    """Stable raw-byte identity, independent of export/content policies."""
+    path = safe(root, locator)
+    for _ in range(2):
+        before = path.stat()
+        hashed = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(131072), b""):
+                hashed.update(chunk)
+        after = path.stat()
+        if (before.st_ino, before.st_mtime_ns, before.st_size) == (
+            after.st_ino,
+            after.st_mtime_ns,
+            after.st_size,
+        ):
+            return hashed.hexdigest()
+    raise InspectionError(
+        "source_changing", f"Source changed during capture: {locator}"
+    )
+
+
 def fingerprints(root: Path, paths: list[str]) -> dict[str, str]:
-    return {p: sha(read(root, p).encode()) for p in sorted(set(paths))}
+    return {p: fingerprint(root, p) for p in sorted(set(paths))}
 
 
 def atomic(

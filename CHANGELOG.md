@@ -13,6 +13,16 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Developer experience
+
+- Add offline module context bundles and a declared architecture explorer, with
+  stable IDs, scoped rules/DTO closure and verification evidence. Agents can query
+  JSON; people can navigate a standalone HTML diagram with equivalent text lists.
+- Add saga forward/compensation sequences and state transitions, framework route
+  lifecycle views, potential interface impact and saved-index semantic comparisons.
+  Keep declared behavior distinct from observed traffic and opaque handler code.
+
+
 ## [0.7.0a3]
 
 ### Security

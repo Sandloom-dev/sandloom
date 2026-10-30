@@ -19,7 +19,8 @@ uv run sandloom graph --format html --output architecture.html
 
 Discovery lists stable module IDs without dumping relationships. The graph
 returns compact JSON by default; the HTML file is an offline viewer with module
-search, relation filters, focus/hops, evidence, keyboard controls and text tables.
+search across entities, semantic layers, directed neighborhoods, zoom/pan/fit,
+a persistent inspector and equivalent entity/relationship lists.
 Open it yourself; the command never opens a browser or starts an app server.
 
 ## What an arrow means
@@ -36,7 +37,7 @@ Open it yourself; the command never opens a browser or starts an app server.
 
 The overview derives caller → provider and producer → consumer-owner relations,
 retaining the raw contract/channel witness edges. A hop crosses one such module
-relation, including incoming and outgoing neighbors. Shared capabilities or DTO
+relation. `--direction incoming|outgoing|both` controls expansion (default: both). Shared capabilities or DTO
 imports do not invent cross-module calls. Missing providers and optional contracts
 remain explicit. Available authoring metadata is not evidence of deployed services.
 
@@ -44,6 +45,61 @@ Required contracts, optional contracts, ordering and event-impact cycles are
 reported separately. An event feedback loop may be intentional; a declared cycle
 is not proof of deadlock. The graph never claims an event causes an RPC merely
 because both touch one module.
+
+## Processes: sequence and state
+
+```bash
+uv run sandloom graph --view sequence
+uv run sandloom graph --view sequence --process SAGA_OR_ROUTE_ID
+uv run sandloom graph --view sequence --process SAGA_OR_ROUTE_ID --format mermaid
+uv run sandloom graph --view state --process SAGA_ID --format html --output states.html
+```
+
+Select an actual stable ID from the process catalog. Saga IDs include their
+registered version so parallel definitions remain distinct. A saga sequence
+shows declared forward steps, the pivot and unit boundaries. Compensation is a
+separate alternative: only completed compensatable steps are undone, in reverse
+order, when the runtime enters compensation before the pivot. The state view
+shows conditional framework transitions, including parking; it is not an attempt
+history. Callbacks and their argument functions are never executed by inspection.
+
+Route sequences use resolved generated route policy, not a guessed call graph.
+They show session checks, idempotency, conditional unit/commit phases or the
+operation-intent release rule. Handler internals stay opaque. A declaration does
+not establish that an event was published, a request succeeded, a consumer ran,
+or multiple module commits were atomic. Kernel routes without a module policy
+snapshot are not added as invented business-process declarations.
+
+The HTML **Processes** tab offers forward sequence, compensation alternative and
+saga states, each with an equivalent step/transition list. The inspector explains
+the selected step and source when known. A saved URL fragment restores filters,
+representation and selection; the same local export must be available to its
+recipient. The mobile details button leads to the same inspector.
+
+## Potential impact and architecture changes
+
+```bash
+uv run sandloom graph --view impact --item contract:stats.quota.v1
+cp .sandloom/inspection.json architecture-before.json
+# Change declarations, then explicitly regenerate.
+uv run sandloom generate
+uv run sandloom graph --view diff --before architecture-before.json
+uv run sandloom graph --view diff --before architecture-before.json --format html --output changes.html
+```
+
+Replace the item ID with one from your graph. Impact preserves the direct
+interface/owner witnesses, then follows potential module reachability. Transitive
+results can involve other interfaces: this is an overapproximation of declared
+impact, not complete call-site or test coverage. Optional dependencies remain
+optional. Suggested module test commands never replace normal quality gates.
+
+Diff reads a project-relative historical index as JSON data. It does not check
+out Git revisions, import old code or resolve old source paths. It lists additions,
+removals and changes to declarations/interfaces; implementation bodies are not
+compared. Contract compatibility uses the framework's rolling-upgrade rules;
+event changes use its same-version schema rules. Missing interface evidence is
+`unknown`, never automatically compatible. Other changes remain `not_assessed`.
+The comparison basis and counts are included in JSON and the HTML Changes tab.
 
 ## Exports and limits
 
@@ -62,7 +118,8 @@ counts. `--hops` requires a module and accepts non-negative integers.
 
 `--detail` and `--max-bytes` are JSON options; presentation formats reject them.
 Mermaid is interchange output; third-party layout can vary. HTML embeds its data
-and renderer locally, with no CDN, telemetry or external fonts. Its JSON download
+and renderer locally, with no CDN, telemetry or external fonts. Save SVG exports
+the current overview; Save JSON retains the original export and its evidence. Its JSON download
 retains the exported scope; viewer filtering does not pretend to change the
 underlying export inventory.
 

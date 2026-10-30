@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from sandloom.core.cli.inspection import context, files, graph
+from sandloom.core.cli.inspection import context, files, graph, queries, sequences
 from sandloom.core.cli.inspection.model import (
     INDEX,
     LIMIT,
@@ -57,7 +57,8 @@ def parser_for(command: str) -> Parser:
         "--max-bytes",
         type=int,
         default=LIMIT,
-        help=f"complete UTF-8 byte budget (default {LIMIT}); JSON graphs only",
+        help=f"complete UTF-8 byte budget (default {LIMIT})"
+        + ("; JSON graphs only" if command == "graph" else ""),
     )
     parser.add_argument(
         "--require-verified",
@@ -80,6 +81,7 @@ def parser_for(command: str) -> Parser:
         parser.add_argument(
             "module", help="logical name, import path or stable module:name ID"
         )
+        parser.add_argument("--focus", help="stable contract, event, saga or route ID")
         parser.add_argument(
             "--file",
             action="append",
@@ -87,9 +89,23 @@ def parser_for(command: str) -> Parser:
             help="mandatory module-relative file; repeatable",
         )
     else:
-        parser.add_argument("--view", choices=("graph", "modules"), default="graph")
+        parser.add_argument(
+            "--view",
+            choices=("graph", "modules", "sequence", "state", "impact", "diff"),
+            default="graph",
+        )
         parser.add_argument(
             "--module", help="focus by logical name, import path or stable ID"
+        )
+        parser.add_argument(
+            "--process", help="saga or route stable ID; sequence/state view"
+        )
+        parser.add_argument("--item", help="stable entity ID; impact view")
+        parser.add_argument(
+            "--before", help="project-relative historical inspection index; diff view"
+        )
+        parser.add_argument(
+            "--direction", choices=("both", "incoming", "outgoing"), default="both"
         )
         parser.add_argument(
             "--hops", type=int, help="module-neighbor distance; default 1 with a focus"
@@ -102,6 +118,37 @@ def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
     if args.max_bytes <= 0:
         raise InspectionError("usage", "--max-bytes must be positive", code=2)
     if command == "graph":
+        if (
+            (args.process and args.view not in {"sequence", "state"})
+            or (args.item and args.view != "impact")
+            or (args.before and args.view != "diff")
+        ):
+            raise InspectionError(
+                "usage",
+                (
+                    "--process needs sequence/state; --item needs impact; --before "
+                    "needs diff"
+                ),
+                code=2,
+            )
+        if args.view in {"impact", "diff"} and not getattr(
+            args, "item" if args.view == "impact" else "before"
+        ):
+            raise InspectionError(
+                "usage", "Impact needs --item; diff needs --before", code=2
+            )
+        if args.view not in {"graph", "modules"} and (
+            args.hops is not None or args.direction != "both"
+        ):
+            raise InspectionError(
+                "usage", "--hops and --direction scope topology views only", code=2
+            )
+        if args.view in {"impact", "diff"} and args.format == "mermaid":
+            raise InspectionError("usage", "Impact/diff support JSON or HTML", code=2)
+        if args.module and args.view in {"impact", "diff"}:
+            raise InspectionError(
+                "usage", "Impact/diff have their own explicit scope", code=2
+            )
         if args.hops is not None and (not args.module or args.hops < 0):
             raise InspectionError(
                 "usage", "--hops needs --module and a non-negative distance", code=2
@@ -136,16 +183,31 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
             fmt=args.format,
             detail=args.detail,
             require=args.require_verified,
+            focus_selector=args.focus,
         )
     else:
-        envelope = graph.build(
-            reader,
-            selector=args.module,
-            hops=args.hops if args.hops is not None else 1,
-            discovery=args.view == "modules",
-            detail=args.detail,
-            require=args.require_verified,
-        )
+        if args.view in {"sequence", "state"}:
+            envelope = sequences.build(
+                reader,
+                selector=args.process,
+                module=args.module,
+                require=args.require_verified,
+                state=args.view == "state",
+            )
+        elif args.view == "impact":
+            envelope = queries.impact(reader, args.item, args.require_verified)
+        elif args.view == "diff":
+            envelope = queries.compare(reader, args.before, args.require_verified)
+        else:
+            envelope = graph.build(
+                reader,
+                selector=args.module,
+                hops=args.hops if args.hops is not None else 1,
+                discovery=args.view == "modules",
+                detail=args.detail,
+                require=args.require_verified,
+                direction=args.direction,
+            )
         text = encode(envelope)
         if args.format == "json" and len(text.encode()) > args.max_bytes:
             raise InspectionError(
@@ -154,9 +216,13 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
                 "focus with --module/--hops or raise --max-bytes",
             )
         if args.format == "mermaid":
-            text = graph.mermaid(envelope)
+            text = (
+                sequences.mermaid(envelope)
+                if args.view in {"sequence", "state"}
+                else graph.mermaid(envelope)
+            )
         elif args.format == "html":
-            text = graph.viewer(envelope)
+            text = graph.viewer(envelope, reader)
     if args.output:
         if Path(args.output).suffix.lower() in {
             ".py",
@@ -179,6 +245,7 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
             "uv.lock",
             "AGENTS.md",
             "CLAUDE.md",
+            ".sandloomignore",
             reader.layout["source_root"],
             *[m["source"] for m in reader.modules if m["source"]],
         ]

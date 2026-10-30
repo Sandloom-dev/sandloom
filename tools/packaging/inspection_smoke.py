@@ -48,6 +48,16 @@ def check(python: Path, work: Path) -> None:
         "wire_documents": {},
         "event_schemas": {},
         "unresolved": [],
+        "processes": [
+            {
+                "id": "route:notes%3AGET%20%2Fnotes",
+                "owner": "module:notes",
+                "name": "GET /notes",
+                "evidence_kind": "resolved_route_policy",
+                "handler": "list_notes",
+                "policy": {"effect": "read", "session": "live", "idempotency": "none"},
+            }
+        ],
         "modules": [
             {
                 **node,
@@ -63,6 +73,7 @@ def check(python: Path, work: Path) -> None:
     }
     (root / ".sandloom").mkdir()
     (root / ".sandloom/inspection.json").write_text(json.dumps(doc))
+    (root / "before.json").write_text(json.dumps(doc))
     code = """
 import sys, socket, json
 class Deny:
@@ -79,6 +90,11 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
     for command, args in (
         ("context", ["notes", "--format", "json"]),
         ("graph", ["--view", "modules"]),
+        ("graph", ["--view", "sequence"]),
+        ("graph", ["--view", "sequence", "--process", "route:notes%3AGET%20%2Fnotes"]),
+        ("graph", ["--view", "diff", "--before", "before.json"]),
+        ("graph", ["--view", "impact", "--item", "module:notes"]),
+        ("context", ["notes", "--focus", "module:notes", "--format", "json"]),
         ("graph", ["--format", "html", "--output", "map.html"]),
     ):
         done = subprocess.run(  # noqa: S603 - static argv; interpreter belongs to the isolated wheel venv
@@ -93,7 +109,7 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
             raise RuntimeError(
                 f"Installed inspection {command}: {done.stderr} {done.stdout}"
             )
-    if "Declared architecture" not in (root / "map.html").read_text():
+    if "Architecture explorer" not in (root / "map.html").read_text():
         raise RuntimeError("Offline viewer asset missing from installed wheel")
     print(
         "Installed inspection OK: cold context, catalog, graph and offline viewer",

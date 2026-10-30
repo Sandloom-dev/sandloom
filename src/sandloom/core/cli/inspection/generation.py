@@ -15,6 +15,22 @@ def publish_index(path: Path, text: str) -> None:
     files.atomic(path.parent.parent, INDEX, text, force=True, protected=[])
 
 
+def capture(rules: Any) -> dict[str, str] | None:
+    try:
+        return collect.capture(rules)
+    except (InspectionError, OSError, UnicodeError):
+        print("warning[SANDLOOM-T015]: inspection input basis unavailable")
+        return None
+
+
+def _document(app: Any, rules: Any, complete: list[Any]) -> Any:
+    try:
+        return collect.collect(app, rules, complete)
+    except (InspectionError, OSError, UnicodeError, SyntaxError):
+        print("warning[SANDLOOM-T015]: inspection metadata unavailable")
+        return None
+
+
 def finish(
     *,
     rules: Any,
@@ -22,7 +38,7 @@ def finish(
     selected: list[Any],
     modules: list[str],
     check: bool,
-    before: dict[str, str],
+    before: dict[str, str] | None,
     plan_all: Callable[[], list[Any]],
     make_file: Callable[..., Any],
     apply_files: Callable[..., int],
@@ -34,8 +50,10 @@ def finish(
         for item in complete
         if item.path not in selected_paths
     )
-    document = collect.collect(app, rules, complete) if not deferred else None
-    if before != collect.capture(rules):
+    document = (
+        _document(app, rules, complete) if not deferred and before is not None else None
+    )
+    if before is not None and before != capture(rules):
         print(
             "error[SANDLOOM-T015]: source changed during generation; "
             "retry; nothing written"
@@ -52,6 +70,10 @@ def finish(
         return code
     if deferred:
         print("warning[SANDLOOM-T015]: index retained; run full sandloom generate")
+    elif document is None:
+        if not check:
+            (rules.root / RECEIPT).unlink(missing_ok=True)
+        print("warning[SANDLOOM-T015]: index retained without new verification")
     elif not check:
         try:
             receipt = Reader(rules.root).receipt()

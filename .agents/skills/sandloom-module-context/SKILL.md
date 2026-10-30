@@ -1,6 +1,6 @@
 ---
 name: sandloom-module-context
-description: Gather bounded context and declared dependencies before changing a Sandloom business module, or inspect contract/event impact across modules.
+description: Gather scoped context before changing a Sandloom module; inspect declared process order, interface impact or architecture changes.
 ---
 
 # Inspect a Sandloom module
@@ -34,6 +34,18 @@ description: Gather bounded context and declared dependencies before changing a 
 
 ## Expand only what the task needs
 
+- For one interface/process, choose its stable ID from graph JSON or
+  `sandloom graph --view sequence`, then use `context MODULE --focus ID`.
+  Inspect `outside_focus` omissions; source matching is a navigation hint.
+  Add required helpers/tests explicitly rather than assuming full call coverage.
+- For process order, query `graph --view sequence --process ID`; state view
+  requires a saga ID. Forward steps, compensation alternatives and framework
+  route phases are declarations, never observed attempts or handler call traces.
+- Before changing an interface, query `graph --view impact --item ID`.
+  Keep its direct witnesses distinct from transitive module overapproximation.
+  Compare an explicitly saved historical index with
+  `graph --view diff --before PATH`; missing compatibility evidence is unknown.
+  These read-only queries do not justify skipping normal quality gates.
 - Include a missing implementation/test file with repeatable module-relative
   `--file` selections; use the byte budget to bound the result:
 
