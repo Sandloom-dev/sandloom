@@ -159,10 +159,27 @@ def build(
             if k in selected
         },
         "projection": direction + "_contracts_and_events",
-        "modules": modules,
-        "processes": [
-            p for p in reader.doc.get("processes", []) if p["owner"] in selected
+        "modules": modules
+        if detail == "full"
+        else [
+            {
+                **{
+                    k: m[k]
+                    for k in ("id", "name", "import_path", "source", "version", "chain")
+                    if k in m
+                },
+                "model_count": len(m.get("models", [])),
+                "route_count": len(m.get("routes", [])),
+            }
+            for m in modules
         ],
+        "process_counts": {
+            kind: sum(
+                p["owner"] in selected and p["id"].startswith(kind + ":")
+                for p in reader.doc.get("processes", [])
+            )
+            for kind in ("saga", "route")
+        },
         "nodes": nodes,
         "edges": edges,
         "module_relations": projected,
@@ -175,6 +192,10 @@ def build(
             "edges": len(reader.doc["edges"]) - len(edges),
         },
     }
+    if detail == "full":
+        data["processes"] = [
+            p for p in reader.doc.get("processes", []) if p["owner"] in selected
+        ]
     return response(
         "graph",
         "graph",

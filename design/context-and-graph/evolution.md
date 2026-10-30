@@ -99,3 +99,11 @@ Validation completed locally:
 
 No real participant study, screen-reader audit, 200% text-zoom audit or observed
 runtime tracing was conducted. No measured human/AI productivity claim is made.
+
+Compact-output checkpoint: the three-battery authoring graph dropped from
+85,799 to 18,640 UTF-8 bytes (78% smaller) by deferring full module/route/process
+bodies to explicit detail and process queries. Nodes, raw edges, module relations,
+cycles and unresolved facts were compared and remain identical. Focused regression
+coverage is now 46 passing cases; this measures serialized bytes, not LLM tokens
+or productivity. Linux fallback CI on 08801b9 passed backend-static, docs and all
+five examples in 2m15s.

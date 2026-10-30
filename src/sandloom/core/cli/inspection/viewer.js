@@ -72,7 +72,7 @@ function inspection(item, kind='entity') {
   if(item.required !== undefined) fact(list,'Required',item.required ? 'Yes' : 'Optional; caller must handle absence');
   if(item.owner) fact(list,'Owner',name(item.owner));
   for(const [key,label] of [['condition','Condition'],['call','Call'],['transaction','Unit boundary'],['durable','Durable consumer'],['group','Consumer group'],['reason','Declaration reason']]) fact(list,label,item[key]);
-  const module=cards.get(item.id); if(module) { fact(list,'Package',module.import_path); fact(list,'Database chain',module.chain); fact(list,'Models',module.models?.length); fact(list,'Routes',module.routes?.length); }
+  const module=cards.get(item.id); if(module) { fact(list,'Package',module.import_path); fact(list,'Database chain',module.chain); fact(list,'Models',module.models?.length??module.model_count); fact(list,'Routes',module.routes?.length??module.route_count); }
   const ownerIds=owners(item); for(const owner of ownerIds) {
     const evidence=data.evidence?.[owner]; fact(list,'Source · '+name(owner),evidence?.source_root || 'Installed distribution; local implementation unavailable');
     if(evidence?.distributions && Object.keys(evidence.distributions).length) fact(list,'Installed distributions',evidence.distributions);

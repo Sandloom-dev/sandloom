@@ -1024,3 +1024,33 @@ def test_viewer_assets_and_placeholder_data_are_embedded_safely(
     assert "__SANDLOOM_VIEWER_CSS__" not in rendered
     assert "<script src=" not in rendered
     assert "<link rel=" not in rendered
+
+
+def test_compact_topology_defers_route_policy_to_explicit_detail(
+    project: SimpleNamespace,
+) -> None:
+    reader = Reader(project.root)
+    reader.doc["processes"] = [
+        {
+            "id": "route:notes",
+            "owner": "module:notes",
+            "name": "GET /notes",
+            "policy": {"session": "live"},
+        }
+    ]
+    compact = graph.build(
+        reader,
+        selector="notes",
+        hops=0,
+        discovery=False,
+        detail="compact",
+        require=False,
+    )["data"]
+    full = graph.build(
+        reader, selector="notes", hops=0, discovery=False, detail="full", require=False
+    )["data"]
+    assert compact["process_counts"] == {"route": 1, "saga": 0}
+    assert "processes" not in compact
+    assert "routes" not in compact["modules"][0]
+    assert compact["modules"][0]["route_count"] == 0
+    assert full["processes"][0]["policy"] == {"session": "live"}

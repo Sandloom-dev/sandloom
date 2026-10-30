@@ -111,7 +111,9 @@ uv run sandloom graph --require-verified
 ```
 
 Compact JSON preserves relation types, endpoints, requiredness and witness IDs.
-Full detail adds provenance. `--max-bytes` limits complete JSON output (default
+Full detail adds provenance, module declarations and process policy; compact
+topology includes process counts and defers their bodies to the sequence query.
+`--max-bytes` limits complete JSON output (default
 131072 UTF-8 bytes); overflow fails with a remedy to focus the graph or raise the
 budget. Nodes/edges are never silently truncated. Scoped exports report hidden
 counts. `--hops` requires a module and accepts non-negative integers.
