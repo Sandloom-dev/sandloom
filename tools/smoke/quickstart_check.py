@@ -79,8 +79,9 @@ class Runner:
             # the caller's virtualenv / project must not leak into the app's uv
             if k not in {"VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT"}
         }
-        if args.dist_dir:
-            self.env["UV_FIND_LINKS"] = str(args.dist_dir.resolve())
+        self.dist_dir: Path | None = getattr(args, "dist_dir", None)
+        if self.dist_dir:
+            self.env["UV_FIND_LINKS"] = str(self.dist_dir.resolve())
             self.env["UV_NO_SOURCES"] = "true"
         self.cwd = Path.cwd()
         self.server: subprocess.Popen[bytes] | None = None
@@ -208,7 +209,7 @@ class Runner:
             ):
                 stale.append(rel)
         is_live = Path(installed["init"]) == live.resolve()
-        if self.args.dist_dir and is_live:
+        if self.dist_dir and is_live:
             raise QuickstartError(
                 "wheel quickstart imported editable framework sources"
             )
@@ -228,7 +229,7 @@ class Runner:
             else f"{len(installed['files'])} installed files"
         )
         print(f"framework: {how} matches {backend}")
-        if self.args.dist_dir:
+        if self.dist_dir:
             expected = {
                 name: tomllib.loads(
                     (backend / "packages" / name / "pyproject.toml").read_text()
@@ -343,7 +344,7 @@ class Runner:
         selection = "--no-batteries" if a.profile == "bare" else f"--with {batteries}"
         source = (
             "--framework-source pypi"
-            if a.dist_dir
+            if self.dist_dir
             else "--framework-source path --framework-path "
             + shlex.quote(str(self.repo))
         )

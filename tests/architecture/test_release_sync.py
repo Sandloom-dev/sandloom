@@ -139,3 +139,33 @@ def test_wheel_quickstart_rejects_wrong_artifacts_before_running_app(tmp_path, f
             runner.check_framework()
     else:
         runner.check_framework()
+
+
+def test_tutorial_keeps_working_without_optional_wheel_arguments(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+
+    false = shutil.which("false")
+    assert false is not None
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/smoke/tutorial_check.py"),
+            "--workdir",
+            str(tmp_path / "tutorial"),
+            "--cli",
+            false,
+            "--postgres-url",
+            "postgresql://test_user:test_password@127.0.0.1:1",
+            "--redis-url",
+            "redis://127.0.0.1:1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "tutorial:" in result.stderr
+    assert "failed (exit 1)" in result.stderr
+    assert "Traceback" not in result.stderr
