@@ -2308,6 +2308,7 @@
       "paths": [
         "website/apple-touch-icon.png",
         "website/assets/brand.css",
+        "website/assets/docs-architecture.css",
         "website/assets/favicon-96.png",
         "website/assets/favicon.svg",
         "website/assets/fonts/Hack-LICENSE.md",

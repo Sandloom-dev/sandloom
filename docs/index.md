@@ -6,7 +6,7 @@ description: Learn Sandloom, the Python backend framework for AI-driven developm
 # Sandloom Framework
 
 **Python backend framework for AI-driven development.** One codebase, one image — deploy
-it as a monolith today and split it into microservices later by changing an
+it as a monolith today and split it into microservices later by changing the
 deployment configuration. Business modules keep the same code.
 
 !!! note "Code and topology by configuration — data by migration"
@@ -85,24 +85,57 @@ For questions or an upgrade, see [getting help](getting-started/help.md) and
 
 ## Architecture at a glance
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
-flowchart TB
-    core["kernel, reached through sandloom.sdk<br/>DI · event bus · plugin loader · outbox<br/>contracts · health · metrics · tracing"]
-    identity["sandloom_identity<br/>auth · RBAC · 2FA · SSO"]
-    tenancy["sandloom_tenancy<br/>orgs · members · invitations"]
-    billing["sandloom_billing<br/>plans · subs · credits · PSP"]
-    yours["… your modules"]
-    core -- "define_module discovery at startup" --> identity
-    core --> tenancy
-    core --> billing
-    core --> yours
-    identity -.->|"events: module.event.v1 · sync: service contracts"| tenancy
-    tenancy -.-> billing
-```
+Your business logic lives in modules. Sandloom runs them, connects them and
+provides their infrastructure through a public SDK.
 
-The core provides uniform access to infrastructure behind a stable facade;
-infrastructure is swappable without touching modules.
+<figure class="sl-architecture" aria-label="Sandloom architecture: business modules, contracts, kernel and infrastructure drivers">
+  <div class="sl-architecture__modules">
+    <div class="sl-architecture__heading"><a href="concepts/modules/">Business modules</a><span>Your application code</span></div>
+    <div class="sl-architecture__peers">
+      <div class="sl-architecture__module"><strong>Orders</strong><span>Order logic &amp; data</span></div>
+      <div class="sl-architecture__connections">
+        <a href="concepts/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
+        <a href="concepts/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
+      </div>
+      <div class="sl-architecture__module"><strong>Catalog</strong><span>Product logic &amp; data</span></div>
+    </div>
+    <div class="sl-architecture__batteries"><span>Optional modules, same boundaries</span><span>Identity · Tenancy · Billing</span></div>
+  </div>
+  <div class="sl-architecture__connector" aria-hidden="true"><span>use the public SDK</span></div>
+  <div class="sl-architecture__kernel">
+    <a class="sl-architecture__sdk" href="reference/sdk/"><span>Public SDK</span><code>sandloom.sdk</code></a>
+    <div class="sl-architecture__runtime">
+      <div class="sl-architecture__heading"><strong>Kernel</strong><span>Provided by Sandloom</span></div>
+      <div class="sl-architecture__guarantees"><span>Transactions</span><span>Access checks</span><span>Outbox &amp; inbox</span><span>Local / RPC routing</span></div>
+      <p>Each application or service runs its own kernel.</p>
+    </div>
+  </div>
+  <div class="sl-architecture__connector" aria-hidden="true"><span>resolve infrastructure capabilities</span></div>
+  <div class="sl-architecture__drivers">
+    <div class="sl-architecture__heading"><a href="concepts/capabilities-and-infrastructure/">Drivers</a><span>Selected by configuration</span></div>
+    <p>Adapters connect the runtime to concrete backends.</p>
+    <div class="sl-architecture__backends">
+      <div><span>Database · sqlalchemy</span><strong>PostgreSQL</strong></div>
+      <div><span>Cache</span><strong>Redis</strong></div>
+      <div><span>Events · streams</span><strong>Redis Streams</strong></div>
+      <div><span>Files · local</span><strong>Disk / volume</strong></div>
+      <div><span>Tasks · celery</span><strong>Celery</strong></div>
+      <div><span>Email</span><strong>SMTP</strong></div>
+    </div>
+  </div>
+  <figcaption>One modular application. The same module code in a monolith or separate services.</figcaption>
+</figure>
+
+**Contracts belong to modules.** A provider exposes a typed, versioned API;
+other modules call its generated stub. The kernel routes the call locally or
+over RPC. [Events](concepts/events.md) are the asynchronous alternative.
+Identity, tenancy and billing are optional business modules, not kernel components.
+
+**Drivers implement infrastructure capabilities.** Modules use the SDK; the
+runtime resolves the configured backend. A replacement driver must provide the
+capabilities and features the module needs. The diagram shows the current
+production backends; see [what ships today](concepts/capabilities-and-infrastructure.md#what-ships-today)
+for their support and deployment requirements.
 
 ## Quick start
 

@@ -12,6 +12,7 @@ exclude_docs = "snippets/\n"
 site_url = "https://sandloom.dev/docs/"
 extra_css = [
     "/assets/brand.css",
+    "/assets/docs-architecture.css",
     "assets/sandloom.css",
 ]
 site_dir = "build/site/docs"
