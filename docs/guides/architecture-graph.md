@@ -13,7 +13,7 @@ This is a declared map, not production traffic or active RPC routing.
 
 ```bash
 uv run sandloom explore                  # generate, save HTML, open the browser
-uv run sandloom graph                    # terminal tree; JSON in a pipe
+uv run sandloom graph                    # compact text project map
 uv run sandloom graph notes              # module and immediate neighbors
 uv run sandloom graph impact stats.quota.v1
 uv run sandloom graph diff main          # compare the committed model on main
@@ -30,21 +30,27 @@ printed; a headless environment can use `--no-open`.
 uv run sandloom explore notes --hops 0
 uv run sandloom explore --no-generate    # inspect the saved model, without app loading
 uv run sandloom explore --no-open        # generate and save only
-uv run sandloom graph --format json      # stable choice for scripts/agents, including a TTY
+uv run sandloom graph --format json      # structured fields and stable IDs
 uv run sandloom graph --format text      # readable output even through a pipe
-uv run sandloom graph modules     # discover stable module IDs
 uv run sandloom graph --format html > architecture.html
 ```
 
 `graph` reads the saved model and never opens a browser or regenerates files.
-Its default depends only on stdout: a TTY gets a plain tree, while a pipe or
-redirect gets compact JSON. `--format` overrides that choice. Every action uses
-one positional grammar: `graph [MODULE]`, `graph modules`, `graph impact ITEM`,
-`graph diff REV_OR_FILE`, `graph sequence [ID]` and `graph state ID`.
-Use `module:NAME` for a module named `modules`, `impact`, `diff`, `sequence` or
-`state`; import-path module selectors also work. No agent identity detection occurs.
+It defaults to text in terminals, pipes and redirects; request JSON explicitly
+with `--format json`. Without a module selector, each module gets its recorded
+package purpose and a compact facts line: routes, tables, provided contracts,
+published event count, called modules and listened-to producer modules. Infrastructure
+requirements remain in detailed module views. `generate` records the first line of
+each module package's docstring, including installed batteries without owned source.
+The cold reader never imports those packages.
 
-Discovery lists stable module IDs without dumping relationships. HTML provides
+Every action uses one positional grammar: `graph [MODULE]`, `graph impact ITEM`,
+`graph diff REV_OR_FILE`, `graph sequence [ID]` and `graph state ID`.
+Use `module:NAME` for a module named `impact`, `diff`, `sequence` or `state`;
+`modules` is an ordinary module name. Import-path module selectors also work.
+JSON includes the module list with stable IDs and recorded summaries.
+
+HTML provides
 module search across entities (with hints for matches hidden by another layer
 or filters), semantic layers, directed neighborhoods, zoom/pan/fit, a persistent
 inspector and equivalent entity/relationship lists.

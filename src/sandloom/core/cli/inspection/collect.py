@@ -250,6 +250,10 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
             "name": module_name(entry.name),
             "import_path": entry.name,
             "version": entry.version,
+            "summary": (getattr(sys.modules.get(entry.name), "__doc__", None) or "")
+            .strip()
+            .split("\n", 1)[0]
+            .strip(),
             "optional": entry.optional,
             "distributions": distributions.get(entry.name, {}),
             "source": directory,

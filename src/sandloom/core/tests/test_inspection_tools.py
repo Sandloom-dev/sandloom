@@ -52,6 +52,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         )
         imported = types.ModuleType(f"app.modules.{name}")
         imported.__file__ = str(directory / "__init__.py")
+        imported.__doc__ = (
+            f"{name.title()} purpose.\nInternal details stay out of the summary."
+        )
         monkeypatch.setitem(sys.modules, imported.__name__, imported)
     (root / "app/modules/notes/AGENTS.md").write_text("Notes-specific scoped rule.\n")
     schema = {
@@ -145,7 +148,9 @@ def run(
     command: str,
     *args: str,
 ) -> tuple[int, str, str]:
-    result = main(command, ["--root", str(project.root), *args])
+    # Most tests inspect the structured protocol explicitly.
+    fmt = ["--format", "json"] if command == "graph" and "--format" not in args else []
+    result = main(command, ["--root", str(project.root), *fmt, *args])
     output = capsys.readouterr()
     return result, output.out, output.err
 
@@ -205,19 +210,18 @@ def test_graph_hops_preserve_contract_and_event_witnesses(
     }
 
 
-def test_discovery_is_catalog_and_never_claims_empty_graph(
+def test_project_json_contains_modules_and_relations(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     rc, text, _ = run(
         project,
         capsys,
         "graph",
-        "modules",
     )
     data = json.loads(text)["data"]
-    assert rc == 0 and data["relations_included"] is False
+    assert rc == 0
     assert len(data["modules"]) == 3
-    assert "edges" not in data
+    assert data["edges"] and data["module_relations"]
 
 
 @pytest.mark.parametrize(
@@ -284,7 +288,6 @@ def test_layout_change_fails_before_scope_resolution(
         project,
         capsys,
         "graph",
-        "modules",
     )
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "layout_changed"
 
@@ -455,13 +458,12 @@ def test_discovery_survives_missing_wire_and_labels_uncertainty(
         project,
         capsys,
         "graph",
-        "modules",
     )
     assert rc == 0
     result = json.loads(text)
     assert result["freshness"]["state"] == "partial"
     assert result["freshness"]["issues"]["module:notes"] == "incomplete_wire"
-    assert run(project, capsys, "graph", "modules", "--require-verified")[0] == 3
+    assert run(project, capsys, "graph", "--require-verified")[0] == 3
     assert run(project, capsys, "context", "notes")[0] == 1
 
 
@@ -500,7 +502,6 @@ def test_unknown_graph_variant_and_owner_escape_fail_closed(
         project,
         capsys,
         "graph",
-        "modules",
     )
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "unsafe_path"
 
@@ -716,41 +717,6 @@ def test_route_process_uses_resolved_snapshot_not_empty_manifest(
     result = sequences.project(process)
     assert not any(s["label"] == "before_commit → COMMIT" for s in result["steps"])
     assert any(s["label"] == "Validate intent release rule" for s in result["steps"])
-
-
-def test_focused_map_keeps_interface_paths_and_bounded_navigation(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    (project.root / "app/modules/notes/unrelated.py").write_text(
-        "def helper(): return 1\n"
-    )
-    rc, text, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "contract:stats.quota.v1",
-        "--format",
-        "json",
-    )
-    assert rc == 0
-    data = json.loads(text)["data"]
-    assert "app/shared/contracts/stats_dto.py" in data["interface_files"]
-    assert "app/shared/events/stats.changed.v1.json" not in data["interface_files"]
-    assert data["event_schemas"] == {}
-    assert not any("modules/stats/" in f["path"] for f in data["files"])
-    assert not any(f["path"].endswith("unrelated.py") for f in data["files"])
-    assert any(
-        o["reason"] == "outside_focus" and o["count"] > 0 for o in data["omissions"]
-    )
-    assert all("path" not in o for o in data["omissions"])
-    assert (
-        run(
-            project, capsys, "context", "archive", "--focus", "contract:stats.quota.v1"
-        )[0]
-        == 1
-    )
 
 
 def test_declared_impact_preserves_direct_interface_witnesses(
@@ -1000,27 +966,6 @@ def test_compact_topology_defers_route_policy_to_explicit_detail(
     assert full["processes"][0]["policy"] == {"session": "live"}
 
 
-def test_consumer_map_focus_keeps_its_incoming_event_interface(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rc, text, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "consumer:notes.changed",
-        "--format",
-        "json",
-    )
-    assert rc == 0
-    data = json.loads(text)["data"]
-    assert "app/shared/events/stats.changed.v1.json" in data["interface_files"]
-    assert "stats.changed.v1" in data["event_schemas"]
-    assert "app/shared/contracts/stats_quota_v1.py" not in data["interface_files"]
-    assert "sections" not in data
-
-
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1224,7 +1169,7 @@ def test_mermaid_sequence_escapes_control_text_without_losing_unit_boundaries() 
     ("tty", "fmt", "expected"),
     [
         (True, None, "text"),
-        (False, None, "json"),
+        (False, None, "text"),
         (True, "json", "json"),
         (False, "text", "text"),
     ],
@@ -1239,7 +1184,8 @@ def test_graph_terminal_and_pipe_formats(
 ) -> None:
     monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
     args = ["notes", *(["--format", fmt] if fmt else [])]
-    rc, text, err = run(project, capsys, "graph", *args)
+    rc = main("graph", ["--root", str(project.root), *args])
+    text, err = capsys.readouterr()
     assert rc == 0 and not err
     if expected == "json":
         assert json.loads(text)["selection"]["module_ids"] == [
@@ -1301,7 +1247,7 @@ def test_terminal_errors_use_stderr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    rc, text, err = run(project, capsys, "graph", "impact")
+    rc, text, err = run(project, capsys, "graph", "impact", "--format", "text")
     assert rc == 2 and text == "" and "graph impact ITEM" in err
 
 
@@ -1579,12 +1525,10 @@ def test_graph_never_starts_a_browser_or_authoring_process(
 
 
 @pytest.mark.parametrize("fmt", ["markdown", "json"])
-@pytest.mark.parametrize("focused", [False, True])
 def test_map_never_contains_implementation_or_rule_bodies(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
     fmt: str,
-    focused: bool,
 ) -> None:
     (project.root / "app/modules/notes/services.py").write_text(
         '"""Business service entry points."""\nclass Worker:\n    def execute(self):\n        return "BODY_CANARY_NEVER_EMBED"\n'
@@ -1595,20 +1539,17 @@ def test_map_never_contains_implementation_or_rule_bodies(
         wire.read_text()
         + '\ndef implementation_helper(): return "WIRE_BODY_CANARY_NEVER_EMBED"\n'
     )
-    extra = ["--focus", "stats.quota.v1"] if focused else []
-    rc, out, err = run(project, capsys, "context", "notes", "--format", fmt, *extra)
+    rc, out, err = run(project, capsys, "context", "notes", "--format", fmt)
     assert rc == 0 and not err
     assert "BODY_CANARY_NEVER_EMBED" not in out
     assert "RULE_BODY_CANARY_NEVER_EMBED" not in out
-    if not focused:
-        assert "Business service entry points." in out and "Worker" in out
+    assert "Business service entry points." in out and "Worker" in out
     assert "AGENTS.md" in out
-    if not focused:
-        assert "services.py" in out
+    assert "services.py" in out
     assert "def execute" not in out and "## Public SDK" not in out
 
 
-def test_contract_map_has_signatures_callers_and_focused_dto_types(
+def test_contract_map_has_signatures_and_callers(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1654,24 +1595,6 @@ def test_contract_map_has_signatures_callers_and_focused_dto_types(
     contract = json.loads(out)["data"]["contracts_provided"][0]
     assert contract["methods"][0]["signature"] == "read(*, limit: int = …) -> QuotaOut"
     assert contract["peers"] == ["module:notes"] and "dtos" not in contract
-    rc, out, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "stats.quota.v1",
-        "--format",
-        "json",
-    )
-    assert rc == 0
-    contract = json.loads(out)["data"]["contracts_used"][0]
-    assert contract["peers"] == ["module:stats"]
-    assert contract["dtos"][0]["fields"] == [
-        {"name": "next", "type": "QuotaOut | None", "required": False},
-        {"name": "remaining", "type": "int", "required": True},
-    ]
-    assert "class QuotaOut" not in out
 
 
 def test_map_inventory_groups_files_and_prefers_public_symbols_without_execution(
@@ -1818,8 +1741,15 @@ def test_installed_provider_descriptions_come_from_registered_contracts(
     assert (
         next(m for m in document["modules"] if m["name"] == "stats")["source"] is None
     )
+    assert (
+        next(m for m in document["modules"] if m["name"] == "stats")["summary"]
+        == "Stats purpose."
+    )
     (project.root / INDEX).write_text(encode(document))
     (project.root / RECEIPT).write_text(Reader(project.root).receipt())
+    rc = main("graph", ["--root", str(project.root)])
+    text, err = capsys.readouterr()
+    assert rc == 0 and not err and "stats: Stats purpose." in text
     rc, text, err = run(
         project, capsys, "context", "notes", "--format", "json", "--require-verified"
     )
@@ -1880,57 +1810,6 @@ def test_metadata_failures_are_local_and_test_bodies_are_not_read(
         )
 
 
-def test_route_focus_selects_one_endpoint_without_claiming_its_dependencies(
-    project: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
-    module = next(m for m in doc["modules"] if m["name"] == "notes")
-    handler = "app/modules/notes/services.py"
-    (project.root / handler).write_text("async def enroll(): pass\n")
-    (project.root / "app/modules/notes/unrelated.py").write_text(
-        "async def enrollments(): pass\n"
-    )
-    module["routes"] = [
-        {
-            "method": method,
-            "path": "/notes",
-            "name": name,
-            "auth": "public",
-            "source": {"path": handler, "line": 1},
-        }
-        for method, name in [("POST", "enroll"), ("GET", "get_notes")]
-    ]
-    doc["processes"] = [
-        {
-            "id": "route:notes.POST",
-            "owner": module["id"],
-            "name": "POST /notes",
-            "handler": "enroll",
-            "source": {"path": handler, "line": 1},
-        }
-    ]
-    (project.root / INDEX).write_text(encode(doc))
-    rc, text, err = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "route:notes.POST",
-        "--format",
-        "json",
-    )
-    assert rc == 0 and not err
-    data = json.loads(text)["data"]
-    assert [r["method"] for g in data["routes"] for r in g["routes"]] == ["POST"]
-    assert [f["path"] for f in data["files"]] == [handler]
-    assert (
-        not data["contracts_used"] and not data["infrastructure"] and not data["tables"]
-    )
-    assert data["routes"][0]["routes"][0]["auth"] == "public"
-
-
 def test_extracted_metadata_still_redacts_secrets_and_private_symbols(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
@@ -1946,98 +1825,6 @@ def test_extracted_metadata_still_redacts_secrets_and_private_symbols(
     rc, text, _ = run(project, capsys, "context", "notes")
     assert rc == 0 and "BEGIN PRIVATE KEY" not in text and "_private" not in text
     assert "public:" in text and "Summary omitted" in text
-
-
-def test_context_maps_dto_origins_to_local_copies_and_renamed_wire_types(
-    project: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    origin = "foreign_package.schemas.internal:Result"
-    descriptor = {
-        "k": "model",
-        "ref": origin,
-        "fields": {
-            "next": {
-                "type": {
-                    "k": "union",
-                    "of": [{"k": "ref", "ref": origin}, {"k": "none"}],
-                },
-                "required": False,
-            }
-        },
-    }
-    doc = json.loads((project.root / INDEX).read_text())
-    doc["contract_descriptions"] = {
-        "stats.quota.v1": {
-            "methods": {"read": {"kind": "read", "params": [], "returns": descriptor}}
-        }
-    }
-    (project.root / INDEX).write_text(encode(doc))
-    target = project.root / "app/shared/contracts/stats_dto.py"
-    target.write_text(
-        "from sandloom.core.descriptors.contract_refs import dto_copy\n"
-        "from pydantic import BaseModel\n"
-        f"@dto_copy({origin!r})\n"
-        'class PublicResult(BaseModel):\n    next: "PublicResult | None" = None\n'
-        "class Out(BaseModel): pass\n"
-        'raise AssertionError("wire file must not be imported")\n'
-    )
-    rc, text, err = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "stats.quota.v1",
-        "--format",
-        "json",
-    )
-    assert rc == 0 and not err and "foreign_package" not in text
-    contract = json.loads(text)["data"]["contracts_used"][0]
-    assert contract["methods"][0]["signature"] == "read() -> PublicResult"
-    dto = contract["dtos"][0]
-    assert dto["ref"] == "app.shared.contracts.stats_dto:PublicResult"
-    assert dto["path"] == "app/shared/contracts/stats_dto.py" and dto["line"] == 4
-    assert dto["fields"][0]["type"] == "PublicResult | None"
-    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
-    assert rc == 0 and "DTO PublicResult · app/shared/contracts/stats_dto.py:4" in text
-    assert "foreign_package" not in text
-
-
-def test_context_does_not_invent_a_local_dto_locator(
-    project: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    doc = json.loads((project.root / INDEX).read_text())
-    doc["contract_descriptions"] = {
-        "stats.quota.v1": {
-            "methods": {
-                "read": {
-                    "kind": "read",
-                    "params": [],
-                    "returns": {
-                        "k": "model",
-                        "ref": "private_provider.schemas:Missing",
-                        "fields": {},
-                    },
-                }
-            }
-        }
-    }
-    (project.root / INDEX).write_text(encode(doc))
-    rc, text, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "stats.quota.v1",
-        "--format",
-        "json",
-    )
-    assert rc == 0 and "private_provider" not in text
-    dto = json.loads(text)["data"]["contracts_used"][0]["dtos"][0]
-    assert dto["path"] is None and dto["ref"] is None
 
 
 def test_map_contains_concrete_facts_without_generic_advice_or_scaffolding(
@@ -2090,20 +1877,9 @@ def test_map_contains_concrete_facts_without_generic_advice_or_scaffolding(
     assert "Global: roles, users" in text and "Tenant scoped: notes" in text
     assert "tests/ · 1 file" in text
     assert "services/__init__.py" in text and "configure:" in text
-    rc, text, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "stats.quota.v1",
-        "--format",
-        "json",
-    )
-    assert rc == 0 and "limits" not in json.loads(text)["data"]["focus"]
 
 
-def test_map_scopes_unresolved_facts_to_selected_interfaces(
+def test_map_reports_its_module_unresolved_facts(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -2125,16 +1901,9 @@ def test_map_scopes_unresolved_facts_to_selected_interfaces(
         }
     ]
     (project.root / INDEX).write_text(encode(doc))
-    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
+    rc, text, _ = run(project, capsys, "context", "notes")
     assert rc == 0 and "stats.quota.v1 — provider not in composition (optional)" in text
     assert '"module_id"' not in text
-    rc, text, _ = run(
-        project, capsys, "context", "notes", "--focus", "route:notes%3APOST%20%2Fnotes"
-    )
-    assert rc == 0 and "Unresolved declarations" not in text
-    assert "Focus: POST /notes" in text and "%3A" not in text
-    assert "Declared interfaces and source landmarks" not in text
-    assert "## Next" not in text
 
 
 def test_single_published_event_uses_its_literal_channel(
@@ -2178,7 +1947,7 @@ def test_context_explains_freshness_without_changing_json_statuses(
     assert rc == 0 and json.loads(text)["freshness"]["state"] == state
 
 
-def test_text_map_only_reports_outside_focus_exclusions(
+def test_text_map_omits_exclusion_accounting(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -2194,13 +1963,9 @@ def test_text_map_only_reports_outside_focus_exclusions(
     assert rc == 0
     counts = {o["reason"]: o["count"] for o in json.loads(text)["data"]["omissions"]}
     assert counts == {"package_scaffolding": 1, "context_ignore": 1}
-    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
-    assert rc == 0 and "outside_focus:" in text
-    assert "context_ignore" not in text and "package_scaffolding" not in text
-    assert "\n\n\n" not in text
 
 
-@pytest.mark.parametrize("name", ["modules", "impact", "diff", "sequence", "state"])
+@pytest.mark.parametrize("name", ["impact", "diff", "sequence", "state"])
 def test_reserved_module_names_use_explicit_module_ids(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
@@ -2355,3 +2120,113 @@ def test_context_returns_a_complete_map_above_the_former_byte_limit(
     rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
     assert rc == 0 and not err and len(text.encode()) > 131072
     assert len(json.loads(text)["data"]["contracts_used"][0]["methods"]) == 4000
+
+
+def test_project_overview_uses_purposes_and_module_connections(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main("graph", ["--root", str(project.root)])
+    text, err = capsys.readouterr()
+    assert rc == 0 and not err
+    assert "notes: Notes purpose." in text and "archive: Archive purpose." in text
+    assert "calls stats" in text and "listens to stats" in text
+    assert "provides stats.quota.v1" in text and "1 events" in text
+    assert "database" not in text and "Internal details" not in text
+    assert len(text.encode()) / 3 <= 300
+    rc, text, _ = run(project, capsys, "graph")
+    assert rc == 0
+    assert {m["id"]: m["summary"] for m in json.loads(text)["data"]["modules"]} == {
+        "module:" + n: n.title() + " purpose." for n in ("notes", "stats", "archive")
+    }
+
+
+def test_graph_piped_to_cat_is_text_without_application_imports(
+    project: SimpleNamespace,
+) -> None:
+    script = """
+import sys, socket
+class Deny:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.startswith(('app', 'yaml', 'sandloom.sdk', 'sandloom.core.config')):
+            raise AssertionError('unexpected import ' + fullname)
+sys.meta_path.insert(0, Deny())
+socket.socket = lambda *a, **kw: (_ for _ in ()).throw(AssertionError('network'))
+from sandloom.core.cli.inspection.cli import main
+raise SystemExit(main('graph', []))
+"""
+    producer = subprocess.Popen(
+        [sys.executable, "-c", script],
+        cwd=project.root,
+        env={},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert producer.stdout is not None
+    copied = subprocess.run(
+        ["/bin/cat"], stdin=producer.stdout, capture_output=True, timeout=30
+    )
+    producer.stdout.close()
+    _, err = producer.communicate(timeout=30)
+    assert producer.returncode == 0 and copied.returncode == 0 and not err
+    assert b"notes: Notes purpose." in copied.stdout
+    assert not copied.stdout.startswith(b"{")
+
+
+@pytest.mark.parametrize(
+    "command,args", [("context", ["notes", "--focus", "X"]), ("graph", ["modules"])]
+)
+def test_removed_inspection_modes_are_usage_errors(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    args: list[str],
+) -> None:
+    rc = main(command, ["--root", str(project.root), *args])
+    text, err = capsys.readouterr()
+    assert rc == 2 and not text and "usage" in err
+
+
+def test_modules_is_an_ordinary_module_name(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = project.root / INDEX
+    path.write_text(path.read_text().replace("archive", "modules"))
+    (project.root / "app/modules/archive").rename(project.root / "app/modules/modules")
+    rc, text, err = run(project, capsys, "graph", "modules", "--hops", "0")
+    assert rc == 0 and not err
+    assert [m["id"] for m in json.loads(text)["data"]["modules"]] == ["module:modules"]
+
+
+def test_default_map_exposes_command_risk_without_duplicate_idempotency(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = project.root / INDEX
+    doc = json.loads(path.read_text())
+    doc["contract_descriptions"] = {
+        "stats.quota.v1": {
+            "methods": {
+                "charge": {
+                    "kind": "command",
+                    "risk": "money",
+                    "idempotency_key": "operation_key",
+                    "params": [
+                        {
+                            "name": "operation_key",
+                            "kind": "positional_or_keyword",
+                            "required": True,
+                            "type": {"k": "scalar", "t": "str"},
+                        }
+                    ],
+                    "returns": {"k": "scalar", "t": "int"},
+                }
+            }
+        }
+    }
+    path.write_text(encode(doc))
+    rc, text, err = run(project, capsys, "context", "stats")
+    assert rc == 0 and not err
+    assert "command charge(operation_key: str) -> int  [money]" in text
+    assert "idempotency_key" not in text
+    rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
+    method = json.loads(text)["data"]["contracts_used"][0]["methods"][0]
+    assert rc == 0 and method["risk"] == "money" and "idempotency_key" not in method

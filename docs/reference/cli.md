@@ -16,9 +16,7 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | Command | What it does |
 | --- | --- |
 | `sandloom context MODULE` | Compact Markdown module map; JSON with `--format json`. |
-| `sandloom context MODULE --focus ID` | Declared DTO types/event schemas and focused file navigation. |
-| `sandloom graph [MODULE]` | Whole graph or a module neighborhood. |
-| `sandloom graph modules` | Module catalog with stable IDs and freshness. |
+| `sandloom graph [MODULE]` | Compact project map or a detailed module neighborhood. |
 | `sandloom graph impact ITEM` | Direct witnesses and potential transitive module impact. |
 | `sandloom graph diff REV_OR_FILE` | Compare the committed or saved inspection index. |
 | `sandloom graph sequence [ID]` | List processes or inspect saga/route phases. |
@@ -27,18 +25,19 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | `sandloom explore [MODULE]` | Generate, save and open the offline viewer. |
 
 Both inspection commands accept `--root PATH`, `--format` and
-`--require-verified`. Context additionally accepts `--focus`; its formats are
-`markdown|json`. Graph formats are `text|json|mermaid|html`; impact/diff exclude
-Mermaid, and module discovery supports text/JSON. Graph defaults to text on stdout
-TTY and JSON in pipes/redirects; explicit `--format` wins. Context defaults to
-Markdown in either case. Results go to stdout; save them with shell redirection.
+`--require-verified`. Context formats are `markdown|json`. Graph formats are
+`text|json|mermaid|html`; impact/diff exclude Mermaid. Graph defaults to text and
+context to Markdown in terminals and pipes. JSON requires `--format json`.
+The project text map includes module purposes and compact connection/count facts;
+JSON includes stable module IDs and summaries. Results go to stdout; save them
+with shell redirection.
 
 Graph JSON accepts `--detail compact|full` and `--max-bytes N` (default 131072).
 Full topology adds provenance/policy; full process queries add verification
 basis evidence. `graph MODULE --hops N --direction incoming|outgoing|both` scopes
 a neighborhood (default one hop, both directions). These flags apply only to
-`graph [MODULE]`. Use `module:NAME` to disambiguate modules named `modules`,
-`impact`, `diff`, `sequence` or `state`.
+`graph [MODULE]`. Use `module:NAME` to disambiguate modules named `impact`, `diff`,
+`sequence` or `state`.
 
 A diff baseline is a project-relative saved file when it exists, ends in `.json`
 or starts with `./`; otherwise it is a local Git revision. Existing files win
@@ -46,7 +45,8 @@ over revision names. Revision comparison reads this project's committed index
 without fetch, checkout or execution of old code. File comparison needs no Git.
 
 Exit codes: 0 usable (check uncertainty), 1 invalid/missing/unsafe input, budget or
-I/O failure, 2 usage, 3 strict verification unavailable. JSON emits one versioned
+I/O failure, 2 usage (including an unknown graph module selector), 3 strict
+verification unavailable. JSON emits one versioned
 success/error envelope. Text errors leave stdout empty and explain on stderr.
 Inspection performs no app imports, prompts, network access, `.env` loading or
 implicit generation. See [module maps](../guides/module-context.md) and

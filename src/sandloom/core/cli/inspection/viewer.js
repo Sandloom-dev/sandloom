@@ -117,7 +117,7 @@ function inspection(item, kind='entity') {
   if(item.id && (nodes.has(item.id)||processMap.has(item.id)||item.parent_id||interfaceId)) {
     target.append(el('h3','Next actions'));
     for(const owner of ownerIds.filter(id=>data.evidence?.[id]?.source_root).slice(0,6)) {
-      const command=['sandloom','context',name(owner),'--focus',interfaceId||item.parent_id||item.id].map(shell).join(' ');
+      const command=['sandloom','context',name(owner)].map(shell).join(' ');
       target.append(button('Copy context command · '+name(owner),()=>copy(command)));
     }
     target.append(button('Inspect potential impact',()=>showImpact(nodes.get(interfaceId)||processMap.get(item.parent_id)?.declaration||item)));

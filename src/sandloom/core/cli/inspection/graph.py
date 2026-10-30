@@ -191,7 +191,15 @@ def build(
             {
                 **{
                     k: m[k]
-                    for k in ("id", "name", "import_path", "source", "version", "chain")
+                    for k in (
+                        "id",
+                        "name",
+                        "summary",
+                        "import_path",
+                        "source",
+                        "version",
+                        "chain",
+                    )
                     if k in m
                 },
                 "model_count": len(m.get("models", [])),

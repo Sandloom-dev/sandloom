@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sandloom.core.cli.inspection import files, focus, interfaces, inventory
+from sandloom.core.cli.inspection import files, interfaces, inventory
 from sandloom.core.cli.inspection.model import Doc, InspectionError, encode, response
 from sandloom.core.cli.inspection.read import Reader
 
@@ -34,15 +34,11 @@ def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
             + entry["name"]
             + (" (optional)" if entry.get("required") is False else "")
         )
-        for method in entry["methods"]:
-            out.append(f"  - {method['kind']} {method['signature']}")
-            semantics = "; ".join(
-                f"{k}={method[k]}"
-                for k in ("idempotency_key", "idempotency_scope", "risk")
-                if method.get(k)
-            )
-            if semantics:
-                out.append("    " + semantics)
+        out.extend(
+            f"  - {method['kind']} {method['signature']}"
+            + (f"  [{method['risk']}]" if method.get("risk") else "")
+            for method in entry["methods"]
+        )
         if not entry["description_available"]:
             out.append("  - Signature metadata unavailable.")
         peers = ", ".join(p.removeprefix("module:") for p in entry["peers"])
@@ -50,18 +46,6 @@ def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
             f"  - {'Callers' if provided else 'Providers'} here: "
             f"{peers or 'none declared'}"
         )
-        for dto in entry.get("dtos", []):
-            location = (
-                f"{dto['path']}:{dto['line']}"
-                if dto["path"]
-                else "local copy unavailable"
-            )
-            out.append(f"  - DTO {dto['name']} · {location}")
-            out += [
-                f"    - {f['name']}: {f['type']}"
-                + (" (optional)" if not f["required"] else "")
-                for f in dto["fields"]
-            ]
     return [*out, ""] if entries else []
 
 
@@ -222,22 +206,21 @@ def _overview(data: Doc) -> list[str]:
             "Sagas: "
             + ", ".join(f"{s['name']} v{s['version']}" for s in data["sagas"]),
         ]
-    if not data["focus"]:
-        empty = [
-            label
-            for label, key in (
-                ("provided contracts", "contracts_provided"),
-                ("used contracts", "contracts_used"),
-                ("published events", "events_published"),
-                ("consumed events", "events_consumed"),
-                ("routes", "routes"),
-                ("tables", "tables"),
-                ("sagas", "sagas"),
-            )
-            if not data[key]
-        ]
-        if empty:
-            out += ["", "None declared: " + ", ".join(empty) + "."]
+    empty = [
+        label
+        for label, key in (
+            ("provided contracts", "contracts_provided"),
+            ("used contracts", "contracts_used"),
+            ("published events", "events_published"),
+            ("consumed events", "events_consumed"),
+            ("routes", "routes"),
+            ("tables", "tables"),
+            ("sagas", "sagas"),
+        )
+        if not data[key]
+    ]
+    if empty:
+        out += ["", "None declared: " + ", ".join(empty) + "."]
     if data["infrastructure"]:
         out += ["", "Infrastructure requirements: " + ", ".join(data["infrastructure"])]
     return [*out, ""]
@@ -250,28 +233,15 @@ def markdown(envelope: Doc) -> str:
         f"# Sandloom context: {module['name']} · {module['source']}",
         "Freshness: " + _FRESHNESS.get(fresh["state"], fresh["state"]),
     ]
-    if data["focus"]:
-        out.append("Focus: " + data["focus"]["name"])
     if data["rules"]:
         out += ["Rules to read: " + ", ".join(data["rules"])]
     out.append("")
-    if data["contracts_provided"] or not data["focus"]:
-        out += _contracts("Contracts provided", data["contracts_provided"], True)
-    if data["contracts_used"] or not data["focus"]:
-        out += _contracts("Contracts used", data["contracts_used"], False)
+    out += _contracts("Contracts provided", data["contracts_provided"], True)
+    out += _contracts("Contracts used", data["contracts_used"], False)
     out += _overview(data)
     out += _files(data)
     out += _interface_paths(data["interface_files"])
     out += _unresolved(data["unresolved"])
-    omissions = [o for o in data["omissions"] if o["reason"] == "outside_focus"]
-    if omissions:
-        out += [
-            "Excluded file metadata: "
-            + "; ".join(o["reason"] + ": " + str(o["count"]) for o in omissions),
-            "",
-        ]
-    if "evidence" in fresh:
-        out += ["", "Verification evidence: " + encode(fresh["evidence"]).strip()]
     return _text(out)
 
 
@@ -285,7 +255,6 @@ def build(
     *,
     fmt: str,
     require: bool,
-    focus_selector: str | None = None,
 ) -> tuple[Doc, str]:
     module = reader.module(selector)
     if any(v.get("unresolved_bases") for v in module["event_views"]):
@@ -297,78 +266,37 @@ def build(
     owned = reader.owned_paths(module)
     ignored = [p for p in owned if files.ignored(reader.root, p)]
     candidates = [p for p in owned if p not in ignored]
-    focused = (
-        focus.scope(reader, module, focus_selector, candidates)
-        if focus_selector
-        else None
-    )
-    selected = focused["candidates"] if focused else candidates
-    whole = not focused or focused["all_interfaces"]
-    wires = focused["wires"] if focused else reader.wire_paths(module)
-    navigation = inventory.build(reader, module, selected)
+    wires = reader.wire_paths(module)
+    navigation = inventory.build(reader, module, candidates)
     data: Doc = {
         "representation": "module_map",
         "module": {
             k: module[k] for k in ("id", "name", "source", "import_path", "version")
         },
-        "focus": {"id": focused["item"]["id"], "name": focused["name"]}
-        if focused
-        else None,
         "rules": reader.rules(module),
-        **interfaces.build(reader, module, focused, wires),
-        "routes": interfaces.routes(
-            [
-                route
-                for route in module.get("routes", [])
-                if whole
-                or (
-                    focused is not None
-                    and focused["item"]["id"].startswith("route:")
-                    and focused["item"]["name"] == f"{route['method']} {route['path']}"
-                )
-            ]
-        ),
-        "tables": module.get("models", []) if whole else [],
+        **interfaces.build(reader, module),
+        "routes": interfaces.routes(module.get("routes", [])),
+        "tables": module.get("models", []),
         "sagas": sorted(
             (
                 {"id": p["id"], "name": p["saga_type"], "version": p["version"]}
                 for p in reader.doc.get("processes", [])
-                if p["owner"] == module["id"]
-                and p["id"].startswith("saga:")
-                and (
-                    whole or (focused is not None and p["id"] == focused["item"]["id"])
-                )
+                if p["owner"] == module["id"] and p["id"].startswith("saga:")
             ),
             key=lambda p: p["id"],
         ),
         "infrastructure": sorted(
             e["target"].removeprefix("capability:")
             for e in reader.doc["edges"]
-            if whole
-            and e["owner"] == module["id"]
-            and e["kind"] == "requires_capability"
+            if e["owner"] == module["id"] and e["kind"] == "requires_capability"
         ),
         **navigation,
         "interface_files": wires,
         "unresolved": [
-            u
-            for u in reader.doc["unresolved"]
-            if u["module_id"] == module["id"]
-            and (
-                whole
-                or (
-                    focused is not None
-                    and u.get("related_id") in focused["interface_ids"]
-                )
-            )
+            u for u in reader.doc["unresolved"] if u["module_id"] == module["id"]
         ],
         "omissions": navigation["omissions"]
-        + ([{"reason": "context_ignore", "count": len(ignored)}] if ignored else [])
-        + (
-            [{"reason": "outside_focus", "count": len(set(candidates) - set(selected))}]
-            if set(candidates) - set(selected)
-            else []
-        ),
+        + ([{"reason": "context_ignore", "count": len(ignored)}] if ignored else []),
     }
     envelope = response(
         "context",
@@ -376,7 +304,6 @@ def build(
         data,
         selection={
             "module_id": module["id"],
-            "focus_id": focused["item"]["id"] if focused else None,
         },
         freshness=reader.freshness([module], require=require),
     )

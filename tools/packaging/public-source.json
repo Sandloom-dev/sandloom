@@ -2454,7 +2454,6 @@
         "design/context-and-graph/evolution-research.md",
         "design/context-and-graph/evolution.md",
         "design/context-and-graph/ux-research.md",
-        "src/sandloom/core/cli/inspection/focus.py",
         "src/sandloom/core/cli/inspection/processes.py",
         "src/sandloom/core/cli/inspection/queries.py",
         "src/sandloom/core/cli/inspection/sequences.py",

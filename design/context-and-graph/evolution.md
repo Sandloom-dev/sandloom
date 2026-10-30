@@ -305,3 +305,60 @@ All seven CLI forms and Mermaid outputs passed against Academy. Four wheel/sdist
 pairs, lean/standard cold tools and the strict site build passed. Browser scenario
 checks cover process selection and copy feedback; clipboard bridge inspection did
 not expose the browser clipboard content, so no clipboard-value claim is made.
+
+
+## Project overview and complete module maps (2026-10-30)
+
+This section supersedes the historical focus/discovery/TTY behavior above.
+`graph` answers a project question with module purposes and compact facts.
+`context MODULE` answers a module question with its complete navigation map.
+No new commands were added. Removed `context --focus`, its DTO/location/scoping
+implementation, outside-focus accounting and the `graph modules` action. The
+word `modules` is an ordinary module name; action names still accept `module:NAME`.
+Graph defaults to text even through a pipe; JSON requires `--format json`.
+
+Explicit generation records each package's first docstring line as module
+`summary`, including installed batteries without checkout-owned source. All six
+indexes were regenerated. Cold reads still reject app/settings/YAML imports and
+network access. The project overview names called/listened-to modules and leaves
+infrastructure to detailed views. JSON retains stable IDs and summaries.
+Default module maps show `[money]` on contract commands, retain operation keys in
+signatures and direct the agent to generated interface files for exact DTOs.
+Viewer copy actions now request the complete owner module map. Other Explorer,
+impact/diff/sequence/state behavior and graph JSON detail/budgets remain unchanged.
+
+### Size acceptance
+
+| Composition | Modules | UTF-8 bytes | Bytes/module |
+| --- | ---: | ---: | ---: |
+| root | 3 | 552 | 184.0 |
+| academy | 3 | 503 | 167.7 |
+| helpdesk | 4 | 663 | 165.8 |
+| linkly | 1 | 126 | 126.0 |
+| projecthub | 4 | 640 | 160.0 |
+| tutorial | 2 | 241 | 120.5 |
+
+Measured complete default stdout, including header and freshness; no byte truncation.
+
+### Verification of the simplified maps
+
+- `sandloom test --full --ci`: every gate passed. Full suite: 5,203 passed,
+  7 skipped, 1 expected failure (164.37s pytest / 165.7s runner step).
+  Architecture: 1,283 passed; typing: 3 passed. Existing skips/expected failure
+  and 14 test warnings remain visible. No tests were disabled: focus-only cases
+  were removed with that feature and replacement behavior has regression cases.
+- Targeted inspection suite: 146 passed. A subprocess with blocked app/settings/SDK
+  imports and network pipes default graph output through `/bin/cat` as text.
+  Removed focus and nonexistent `modules` exit 2; a real `modules` module works.
+- Installed-only package metadata retains its first docstring line in the index
+  and graph. Helpdesk shows billing, identity and tenancy purposes with source
+  unavailable; Academy's charge/refund/topup signatures carry `[money]`.
+- Root and five examples pass `generate --check`. The strict site build, explicit
+  architecture checker, skill validation/three mirror comparison and reviewed
+  public-source check (2,367 files) pass.
+- All four wheel/sdist pairs pass reproducible runtime content, license metadata,
+  import layering and clean lean/standard installation. Installed cold inspection
+  covers text/JSON graphs, module maps and offline HTML with imports/network denied;
+  installed RPC transport/fallback smoke also passes.
+
+Paid agent DX, PyPI release and website deployment remain deferred.

@@ -6,35 +6,32 @@ from sandloom.core.cli.inspection.model import Doc
 from sandloom.core.cli.inspection.read import Reader
 
 
-def type_name(value: Doc, names: dict[str, str] | None = None) -> str:
+def type_name(value: Doc) -> str:
     kind = value.get("k")
     if kind == "scalar":
         return str(value["t"])
     if kind in {"model", "ref", "enum"}:
         reference = str(value.get("ref", "unknown"))
-        return (names or {}).get(reference, reference.rsplit(":", 1)[-1])
+        return reference.rsplit(":", 1)[-1]
     if kind in {"none", "any"}:
         return "None" if kind == "none" else "Any"
     if kind == "union":
-        return " | ".join(type_name(t, names) for t in value["of"])
+        return " | ".join(type_name(t) for t in value["of"])
     if kind in {"list", "set", "frozenset"}:
-        return f"{kind}[{type_name(value['item'], names)}]"
+        return f"{kind}[{type_name(value['item'])}]"
     if kind == "dict":
-        return (
-            f"dict[{type_name(value['key'], names)}, "
-            f"{type_name(value['value'], names)}]"
-        )
+        return f"dict[{type_name(value['key'])}, {type_name(value['value'])}]"
     if kind == "tuple":
         if value.get("variadic"):
-            return f"tuple[{type_name(value['item'], names)}, ...]"
-        members = ", ".join(type_name(t, names) for t in value.get("items", []))
+            return f"tuple[{type_name(value['item'])}, ...]"
+        members = ", ".join(type_name(t) for t in value.get("items", []))
         return "tuple[" + (members or "()") + "]"
     if kind == "literal":
         return "Literal[" + ", ".join(repr(v) for v in value.get("values", [])) + "]"
     return f"<unavailable type: {kind}>"
 
 
-def signature(name: str, method: Doc, names: dict[str, str] | None = None) -> str:
+def signature(name: str, method: Doc) -> str:
     parameters = []
     keyword = False
     for parameter in method.get("params", []):
@@ -42,62 +39,20 @@ def signature(name: str, method: Doc, names: dict[str, str] | None = None) -> st
             parameters.append("*")
             keyword = True
         parameters.append(
-            f"{parameter['name']}: {type_name(parameter['type'], names)}"
+            f"{parameter['name']}: {type_name(parameter['type'])}"
             + (" = …" if not parameter["required"] else "")
         )
-    return f"{name}({', '.join(parameters)}) -> {type_name(method['returns'], names)}"
+    return f"{name}({', '.join(parameters)}) -> {type_name(method['returns'])}"
 
 
-def _models(value: object, found: dict[str, Doc], locations: dict[str, Doc]) -> None:
-    if isinstance(value, dict):
-        if value.get("k") == "model" and "fields" in value:
-            reference = value["ref"]
-            found[reference] = {
-                **locations.get(
-                    reference,
-                    {
-                        "ref": None,
-                        "name": reference.rsplit(":", 1)[-1],
-                        "path": None,
-                        "line": None,
-                    },
-                ),
-                "fields": [
-                    {
-                        "name": name,
-                        "type": type_name(
-                            field["type"], {k: v["name"] for k, v in locations.items()}
-                        ),
-                        "required": field["required"],
-                    }
-                    for name, field in sorted(value["fields"].items())
-                ],
-            }
-        for child in value.values():
-            _models(child, found, locations)
-    elif isinstance(value, list):
-        for child in value:
-            _models(child, found, locations)
-
-
-def _contract(reader: Reader, edge: Doc, focus: bool, locations: dict[str, Doc]) -> Doc:
+def _contract(reader: Reader, edge: Doc) -> Doc:
     channel = edge["target"].removeprefix("contract:")
     description = reader.doc.get("contract_descriptions", {}).get(channel, {})
     methods = [
         {
             "kind": method["kind"],
-            "signature": signature(
-                name, method, {k: v["name"] for k, v in locations.items()}
-            ),
-            **(
-                {
-                    k: method[k]
-                    for k in ("idempotency_key", "idempotency_scope", "risk")
-                    if method.get(k)
-                }
-                if focus
-                else {}
-            ),
+            "signature": signature(name, method),
+            **({"risk": method["risk"]} if method.get("risk") else {}),
         }
         for name, method in sorted(description.get("methods", {}).items())
     ]
@@ -123,33 +78,13 @@ def _contract(reader: Reader, edge: Doc, focus: bool, locations: dict[str, Doc])
     }
     if "required" in edge:
         result["required"] = edge["required"]
-    if focus:
-        models: dict[str, Doc] = {}
-        _models(description, models, locations)
-        result["dtos"] = [models[k] for k in sorted(models)]
     return result
 
 
-def build(reader: Reader, module: Doc, focused: Doc | None, paths: list[str]) -> Doc:
-    locations = reader.dto_locations(paths)
-    selected = focused["item"]["id"] if focused else None
-    whole = not focused or focused["all_interfaces"]
-    interfaces = set(focused["channels"]) if focused else set()
-    if selected and selected.startswith("contract:"):
-        interfaces.add(selected)
-    if focused:
-        for step in focused["item"].get("steps", []):
-            interfaces.update(
-                "contract:" + step[k].rsplit(".", 1)[0]
-                for k in ("call", "compensate")
-                if step.get(k)
-            )
+def build(reader: Reader, module: Doc) -> Doc:
     edges = [e for e in reader.doc["edges"] if e["owner"] == module["id"]]
     contracts = [
-        e
-        for e in edges
-        if e["kind"] in {"provides_contract", "requires_contract"}
-        and (whole or e["target"] in interfaces)
+        e for e in edges if e["kind"] in {"provides_contract", "requires_contract"}
     ]
     produced, consumed = [], []
     nodes = {n["id"]: n for n in reader.doc["nodes"]}
@@ -160,8 +95,6 @@ def build(reader: Reader, module: Doc, focused: Doc | None, paths: list[str]) ->
             edge["target"] if edge["kind"] == "produces_event" else edge["source"]
         )
         channel = event_id.removeprefix("event:")
-        if not whole and channel not in interfaces:
-            continue
         if edge["kind"] == "produces_event":
             produced.append(
                 {
@@ -184,24 +117,14 @@ def build(reader: Reader, module: Doc, focused: Doc | None, paths: list[str]) ->
             )
     result: Doc = {
         "contracts_provided": [
-            _contract(reader, e, bool(focused), locations)
-            for e in contracts
-            if e["kind"] == "provides_contract"
+            _contract(reader, e) for e in contracts if e["kind"] == "provides_contract"
         ],
         "contracts_used": [
-            _contract(reader, e, bool(focused), locations)
-            for e in contracts
-            if e["kind"] == "requires_contract"
+            _contract(reader, e) for e in contracts if e["kind"] == "requires_contract"
         ],
         "events_published": sorted(produced, key=lambda e: e["channel"]),
         "events_consumed": sorted(consumed, key=lambda e: (e["channel"], e["handler"])),
     }
-    if focused:
-        result["event_schemas"] = {
-            channel: schema
-            for channel, schema in reader.doc.get("event_schemas", {}).items()
-            if channel in interfaces
-        }
     return result
 
 

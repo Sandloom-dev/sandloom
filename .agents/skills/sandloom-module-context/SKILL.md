@@ -13,7 +13,7 @@ report the missing capability instead of inventing output or upgrading dependenc
 ## Locate the work
 
 ```bash
-uv run sandloom graph modules --format json
+uv run sandloom graph
 uv run sandloom context MODULE
 uv run sandloom graph MODULE --hops 1 --format json
 ```
@@ -24,25 +24,22 @@ supply implementation code or a bulk SDK reference. Read its freshness, applicab
 rule paths and unresolved facts, then open the relevant owned files using normal
 repository tools. Files include purpose/symbol/line hints; helpers and tests are
 read directly as needed. Read the linked generated interfaces for exact wire types.
-Import contract DTOs from the map's local generated shared package; its DTO paths
-and public references resolve copied/renamed classes in this application.
+Import contract DTOs from the map's local generated shared package; read those
+generated files for the copied DTO definitions in this application.
 
-Graph uses text on stdout TTY and JSON in pipes; request JSON explicitly for
-programmatic inspection regardless of the runner's terminal allocation. Context
-also supports `--format json` for structured fields and stable focus IDs; Markdown
-uses readable focus labels. An unmarked route is authenticated; `[public]` marks
-explicit public access. The map contains facts; select next steps from this skill.
+Graph defaults to a compact text project map in terminals and pipes. Request
+`--format json` explicitly for structured fields and stable IDs. Context defaults
+to Markdown in both environments. An unmarked route is authenticated; `[public]`
+marks explicit public access. Contract commands marked `[money]` carry money risk.
+The map contains facts; select next steps from this skill.
 Check exit codes
 and typed diagnostics; a nonzero exit is not usable partial output.
 
 ## Inspect the interface or process
 
-- Use `context MODULE --focus ID` for a contract, event, consumer, projection or
-  process owned/used by the module. It adds declared DTO types or event schemas
-  and narrows file navigation. Exact defaults, validation and aliases remain in
-  the linked interface files. Route focus locates the selected endpoint, without
-  inferring its internal dependencies; saga focus uses declared steps/callbacks.
-  Source landmarks are hints, not a complete call graph.
+- Open the generated files listed under Interface paths for exact DTO fields,
+  defaults, aliases and validation. Use source paths and ordinary search for
+  implementation details; the map is navigation, not a complete call graph.
 - Use `graph sequence [ID] --format json` to list or inspect
   declared sagas/framework route lifecycles. Use `graph state ID` for a saga's conditional state transitions.
   Forward paths, compensation and framework phases are declarations, not traces.

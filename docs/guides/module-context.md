@@ -13,15 +13,15 @@ files, instruction documents and the SDK reference are not embedded in the map.
     Added after 0.7.0a3. Use the current source checkout until the next package release.
 
 ```bash
-uv run sandloom graph modules --format json
+uv run sandloom graph
 uv run sandloom context notes
-uv run sandloom context notes --focus contract:stats.quota.v1
 ```
 
 ## What the map contains
 
 - Provided and consumed contracts: declared method signatures, read/command kind,
-  optionality, and callers/providers in this authoring composition.
+  optionality, money risk (`[money]`), and callers/providers in this composition.
+  Idempotency key parameters remain visible in method signatures.
 - Published events and their declared listeners; incoming events and handlers.
 - HTTP routes with handlers, tables grouped by tenant scope, sagas and
   infrastructure requirements. Markdown marks public routes with `[public]`;
@@ -38,8 +38,8 @@ uv run sandloom context notes --focus contract:stats.quota.v1
 
 Maps contain module-specific facts, without a next-step checklist. The
 `sandloom-module-context` skill covers follow-up commands and inspection limits.
-Unresolved declarations are limited to the selected interfaces when focused.
-Structured output retains stable IDs; Markdown uses readable focus labels.
+Unresolved declarations belong to the selected module. Structured output retains
+stable IDs.
 
 Descriptions come from source metadata; the tool does not invent explanations
 or infer a complete call graph. Syntax errors, non-UTF-8 text and oversized
@@ -48,29 +48,13 @@ warning. Test bodies are not parsed or decoded for directory counts; raw source
 hashes still track freshness. Source changes invalidate the freshness receipt. Migration heads come from literal revision links,
 not filename sorting. Test summaries count files, not executed test cases.
 
-## Narrow an interface
+## Read the relevant files
 
-```bash
-uv run sandloom context notes --focus contract:stats.quota.v1
-uv run sandloom context notes --focus event:stats.changed.v1
-```
-
-Focus restricts the interface map and file navigation hints. Contract detail adds
-DTO field types and requiredness; event detail adds its declared wire schema.
-DTO names/references and file/line locations resolve the local generated shared
-copies, including renamed classes. Provider-internal provenance stays out of
-the map. When no matching local class is available, its location is explicitly
-unavailable. Exact validation rules, aliases and defaults remain in the linked
-generated interface files. The agent reads those definitions when needed.
-
-Route focus shows exactly the selected route and its recorded handler location.
-Its opaque implementation does not establish which contracts or tables it uses.
-Saga focus includes declared contract steps and local callback locations. Other
-source matches use exact syntax landmarks, not substring search. These are
-navigation hints, not a complete call graph. Open related
-helpers and tests using normal repository tools. `context` has no source export
-flag; `--file` is not supported. A focus must belong to or be used by the selected
-module. A consumer/projection focus retains its incoming event interface.
+The complete module map points to generated public interfaces. Open those files
+for exact DTO fields, validation, aliases and defaults; then use normal repository
+search to inspect owned implementations and tests. The map does not embed source
+bodies or infer dependencies inside opaque handlers. `context` has no source export
+or interface-slicing flag.
 
 ## Formats
 
@@ -80,14 +64,14 @@ uv run sandloom context notes --format json
 
 Markdown is the default in terminals and pipes. JSON returns the same map in a
 versioned response envelope; `data.representation` is `module_map`. The command
-accepts `--focus`, `--format`, `--require-verified` and `--root`. Graph-specific
+accepts `--format`, `--require-verified` and `--root`. Graph-specific
 output budgets and full provenance are outside the module map interface.
 
 `.sandloomignore` contains project-relative glob patterns, one per line. Blank
 lines and `#` comments are ignored; negation is unsupported. It excludes owned
 file metadata, not mandatory rule/interface references. JSON retains counts for
-`context_ignore`, `outside_focus` and `package_scaffolding`. Markdown shows only
-`outside_focus`; routine scaffolding/filter accounting stays out of the text map.
+`context_ignore` and `package_scaffolding`. Routine scaffolding/filter accounting
+stays out of the text map.
 
 ## Freshness and cold reads
 

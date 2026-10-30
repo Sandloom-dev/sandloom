@@ -62,6 +62,7 @@ def check(python: Path, work: Path) -> None:
             {
                 **node,
                 "source": "probe/modules/notes",
+                "summary": "Notes purpose.",
                 "version": "1",
                 "optional": False,
                 "wire_paths": [],
@@ -118,15 +119,16 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
         ("context", ["notes", "--format", "json"]),
         ("graph", ["notes"]),
         ("graph", ["impact", "module:notes"]),
-        ("graph", ["modules",]),
+        ("graph", []),
+        ("graph", ["--format", "text"]),
         ("graph", ["sequence",]),
         ("graph", ["sequence", "route:notes%3AGET%20%2Fnotes"]),
         ("graph", ["diff", "before.json"]),
         ("graph", ["impact", "module:notes"]),
-        ("context", ["notes", "--focus", "module:notes", "--format", "json"]),
-        ("context", ["notes", "--focus", "consumer:notes.changed", "--format", "json"]),
         ("graph", ["--format", "html"]),
     ):
+        if command == "graph" and "--format" not in args:
+            args = [*args, "--format", "json"]
         done = subprocess.run(  # noqa: S603 - static argv; interpreter belongs to the isolated wheel venv
             [str(python), "-c", code, command, *args],
             cwd=root,
@@ -135,12 +137,17 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
             text=True,
             timeout=30,
         )
-        valid = "Architecture explorer" in done.stdout if "html" in args else json.loads(done.stdout)["ok"]
+        if "html" in args:
+            valid = "Architecture explorer" in done.stdout
+        elif "text" in args:
+            valid = "notes: Notes purpose." in done.stdout
+        else:
+            valid = json.loads(done.stdout)["ok"]
         if done.returncode or not valid:
             raise RuntimeError(
                 f"Installed inspection {command}: {done.stderr} {done.stdout}"
             )
     print(
-        "Installed inspection OK: cold context, catalog, graph and offline viewer",
+        "Installed inspection OK: cold context, text/JSON graph and offline viewer",
         flush=True,
     )

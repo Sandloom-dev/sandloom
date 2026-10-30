@@ -24,7 +24,7 @@ from sandloom.core.cli.inspection.model import (
 )
 from sandloom.core.cli.inspection.read import Reader
 
-ACTIONS = {"modules", "impact", "diff", "sequence", "state"}
+ACTIONS = {"impact", "diff", "sequence", "state"}
 
 
 class Parser(argparse.ArgumentParser):
@@ -40,9 +40,9 @@ def parser_for(command: str) -> Parser:
             "application or regenerates files"
         ),
         epilog=(
-            "Actions: graph [MODULE], modules, impact ITEM, diff REV_OR_FILE, "
+            "Actions: graph [MODULE], impact ITEM, diff REV_OR_FILE, "
             "sequence [ID], state ID. Use module:NAME for reserved module names. "
-            "TTY: text; pipe: JSON. Use sandloom explore to open the browser."
+            "Text by default; JSON requires --format json."
         )
         if command == "graph"
         else None,
@@ -59,7 +59,7 @@ def parser_for(command: str) -> Parser:
         choices=("markdown", "json")
         if command == "context"
         else ("text", "json", "mermaid", "html"),
-        default="markdown" if command == "context" else None,
+        default="markdown" if command == "context" else "text",
     )
     parser.add_argument(
         "--require-verified",
@@ -69,9 +69,6 @@ def parser_for(command: str) -> Parser:
     if command == "context":
         parser.add_argument(
             "module", help="logical name, import path or stable module:name ID"
-        )
-        parser.add_argument(
-            "--focus", help="stable entity/process ID related to the selected module"
         )
     else:
         parser.add_argument("selectors", nargs="*", metavar="ACTION_OR_MODULE")
@@ -103,11 +100,9 @@ def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
     args.action = selectors[0] if selectors and selectors[0] in ACTIONS else "graph"
     operands = selectors[1:] if args.action != "graph" else selectors
     required = args.action in {"impact", "diff", "state"}
-    maximum = 0 if args.action == "modules" else 1
-    if len(operands) > maximum or (required and not operands):
+    if len(operands) > 1 or (required and not operands):
         usage = {
             "graph": "[MODULE]",
-            "modules": "",
             "impact": "ITEM",
             "diff": "REV_OR_FILE",
             "sequence": "[ID]",
@@ -118,7 +113,6 @@ def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
             "usage", f"Use sandloom graph {action}{usage}".rstrip(), code=2
         )
     args.target = operands[0] if operands else None
-    args.format = args.format or ("text" if sys.stdout.isatty() else "json")
     if args.max_bytes <= 0:
         raise InspectionError("usage", "--max-bytes must be positive", code=2)
     if (args.hops is not None or args.direction is not None) and args.action != "graph":
@@ -129,8 +123,6 @@ def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
         raise InspectionError(
             "usage", "--hops needs a module and a non-negative distance", code=2
         )
-    if args.action == "modules" and args.format not in {"text", "json"}:
-        raise InspectionError("usage", "Module discovery supports text or JSON", code=2)
     if args.action in {"impact", "diff"} and args.format == "mermaid":
         raise InspectionError("usage", "Impact/diff support text, JSON or HTML", code=2)
     if args.format != "json" and any(
@@ -152,12 +144,14 @@ def _json_requested(command: str, argv: list[str]) -> bool:
             fmt = arg.split("=", 1)[1]
         elif arg == "--format" and i + 1 < len(argv):
             fmt = argv[i + 1]
-    return fmt == "json" if fmt else command == "graph" and not sys.stdout.isatty()
+    return fmt == "json"
 
 
 def _graph_text(envelope: Doc, args: argparse.Namespace, reader: Reader) -> str:
     if args.format == "text":
-        return terminal.render(envelope)
+        return terminal.render(
+            envelope, overview=args.action == "graph" and args.target is None
+        )
     if args.format == "mermaid":
         return (
             sequences.mermaid(envelope)
@@ -187,7 +181,6 @@ def _render(command: str, args: argparse.Namespace, reader: Reader) -> str:
             args.module,
             fmt=args.format,
             require=args.require_verified,
-            focus_selector=args.focus,
         )[1]
     if args.action in {"sequence", "state"}:
         envelope = sequences.build(
@@ -203,15 +196,22 @@ def _render(command: str, args: argparse.Namespace, reader: Reader) -> str:
     elif args.action == "diff":
         envelope = _baseline(reader, args.target, args.require_verified)
     else:
-        envelope = graph.build(
-            reader,
-            selector=args.target,
-            hops=args.hops if args.hops is not None else 1,
-            discovery=args.action == "modules",
-            detail=args.detail,
-            require=args.require_verified,
-            direction=args.direction,
-        )
+        try:
+            envelope = graph.build(
+                reader,
+                selector=args.target,
+                hops=args.hops if args.hops is not None else 1,
+                discovery=False,
+                detail=args.detail,
+                require=args.require_verified,
+                direction=args.direction,
+            )
+        except InspectionError as exc:
+            if exc.kind not in {"unknown_module", "ambiguous_module"}:
+                raise
+            raise InspectionError(
+                "usage", str(exc), code=2, actions=exc.actions
+            ) from exc
     text = _graph_text(envelope, args, reader)
     if args.format == "json" and len(text.encode()) > args.max_bytes:
         raise InspectionError(

@@ -28,7 +28,6 @@ Normal architecture, compatibility and quality gates remain authoritative.
 
 ```bash
 sandloom context MODULE
-sandloom context MODULE --focus CONTRACT_OR_EVENT_ID
 sandloom context MODULE --format json
 sandloom context MODULE --require-verified
 sandloom graph
@@ -43,16 +42,15 @@ Context defaults to Markdown in terminals and pipes. Explicit JSON exposes the
 same map through a versioned envelope. It has no source export, byte-budget or
 full-evidence mode. Graph JSON retains full
 provenance and a configurable byte budget.
-Graph defaults to text in a TTY and JSON in pipes/redirects, with explicit
-`--format` overrides. Modes are positional: `modules`, `impact ITEM`,
-`diff REV_OR_FILE`, `sequence [ID]`, `state ID` or a module selector.
+Graph defaults to text in terminals and pipes; JSON requires `--format json`.
+Modes are positional: `impact ITEM`, `diff REV_OR_FILE`, `sequence [ID]`,
+`state ID` or a module selector. `modules` is an ordinary module name.
 Reserved module names use `module:NAME`. Shell redirection saves stdout;
 Explorer alone writes an internal, fixed cache artifact atomically.
 
 Both commands accept a project root and verification requirement. Graph JSON
 has a default 131072-byte budget; overflow fails without a partial success.
-Context emits its complete map without size accounting. Whole signatures, DTO
-fields and route methods remain intact.
+Context emits its complete map without size accounting. Whole signatures and route methods remain intact.
 
 `explore` explicitly invokes normal authoring generation in a child process,
 saves `.sandloom/cache/explore.html`, prints its local URL and opens the browser.
@@ -88,15 +86,11 @@ invalidate the freshness receipt. Escaping ownership or traversing symlinks fail
 closed. Actual exported metadata remains secret-checked. `.sandloomignore`
 excludes owned file metadata, while rule/public-interface references remain available.
 
-Focus must belong to or be used by the selected module. It narrows interfaces
-and source-location hints, adds declared DTO field types/requiredness or event
-wire schemas, and counts outside-focus metadata rather than listing irrelevant
-files. Route focus selects one endpoint and its recorded handler location, without
-claiming dependencies inside opaque handler code. Saga focus uses declared steps
-and local callbacks. Source matches are exact syntax landmarks, not a complete
-call graph. Exact defaults,
-validation constraints and aliases remain in the linked interface files. Agents
-open those and implementation helpers/tests using their ordinary repository tools.
+Exact DTO fields, defaults, validation constraints and aliases remain in the
+linked generated interface files. Agents open those and implementation helpers/tests
+using their ordinary repository tools. Context returns the complete module map;
+it has no interface-slicing flag. Contract commands expose declared risk as
+`[money]`; idempotency key parameters appear in signatures without duplicate metadata.
 
 A context target requires checkout-owned source. Installed-only dependencies
 supply public interfaces and logical identities rather than editable inventories.
@@ -105,20 +99,27 @@ Cross-module imports/edit authority are not expanded by inspecting a relation.
 The map contains facts about its selected scope. Follow-up commands and general
 limits belong in the module-context skill. Markdown suppresses default auth tags,
 redundant route groups, small-file sizes and inert package initializers, groups
-tables by tenant scope, and shows readable process labels. DTO references and
-file/line locators resolve actual local shared copies through `dto_copy` metadata;
-missing local definitions remain explicitly unavailable. Focused unresolved facts
-are filtered to the selected interfaces; structured output retains stable IDs.
-Markdown explains freshness in words and reports only outside-focus exclusions,
-with single blank lines between sections. JSON retains status enums and all
-exclusion counters for automation.
+tables by tenant scope, and shows readable process labels. Structured output
+retains stable IDs. Markdown explains freshness in words, omits exclusion accounting
+and uses single blank lines between sections. JSON retains status enums and
+`context_ignore`/`package_scaffolding` counters for automation.
+
+The default graph text answers a project-level question: one purpose line and one
+facts line per module. Counts include routes, tables and produced events; provided
+contracts retain names, while calls and listeners name their peer modules.
+Infrastructure stays in detailed module views. Average full stdout size, including
+the header, must not exceed 300 UTF-8 bytes per module in each maintained example
+and the root composition. JSON keeps stable IDs and `summary` for each module.
 
 ## Shared model and freshness
 
 Explicit `sandloom generate` builds `.sandloom/inspection.json` from the existing
 module manifest, descriptors, resolved route policy, contract descriptions, event
 schemas and registered saga definitions. It records normalized project-relative
-layout and source locators. It writes the index after compatibility checks and
+layout and source locators. Each module card includes `summary`, the first line
+of its package docstring, collected from the loaded package even when it is an
+installed battery without checkout-owned source. Cold readers use this recorded
+text without imports. It writes the index after compatibility checks and
 compares a local verification basis before publishing a receipt. Inspection never
 invokes callbacks, argument functions or application imports.
 
@@ -188,8 +189,8 @@ empty and explain on stderr. Exit codes: 0 usable,
 verification. SANDLOOM-T015 routes to the existing explanation machinery.
 
 Tests cross the CLI/model interface: compact map completeness, absence of bodies
-in default/focused Markdown and JSON, graph byte limits, interface/type
-and peer evidence, file navigation without execution, focus/ignore counts,
+in Markdown and JSON, graph byte limits, interface/type
+and peer evidence, file navigation without execution, ignore counts,
 route preservation, stale/cold reads, source races, managed atomic writes and
 HTML scope/selection. Packaging checks exercise lean installed cold tools;
 application smoke covers all-battery generation and Explorer. Normal full quality

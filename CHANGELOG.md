@@ -15,6 +15,11 @@ website renders this same changelog.
 
 ### Developer experience
 
+- Make `graph` a compact project map with recorded module purposes and peer module
+  connections, always text by default; explicit JSON retains stable IDs and summaries.
+  Keep `context MODULE` as the complete module map, remove `context --focus` and
+  the redundant `graph modules` action, and show command money risk in signatures.
+
 - Add compact offline module maps and a declared architecture explorer, with
   stable IDs, rule/interface paths, declared signatures and verification evidence. Agents can query
   JSON; people can navigate a standalone HTML diagram with equivalent text lists.

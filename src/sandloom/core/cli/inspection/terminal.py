@@ -55,6 +55,54 @@ def _topology(data: Doc) -> list[str]:
     return lines or ["No modules in this scope."]
 
 
+def _overview(data: Doc) -> list[str]:
+    nodes = {n["id"]: n.get("name", n["id"]) for n in data["nodes"]}
+    relations = data["module_relations"]
+    lines = []
+    for module in data["modules"]:
+        owner = module["id"]
+        edges = [e for e in data["edges"] if e["owner"] == owner]
+        facts = [
+            f"{module.get('route_count', len(module.get('routes', [])))} routes",
+            f"{module.get('model_count', len(module.get('models', [])))} tables",
+        ]
+        provides = sorted(
+            {nodes[e["target"]] for e in edges if e["kind"] == "provides_contract"}
+        )
+        calls = sorted(
+            {
+                nodes[r["target"]]
+                for r in relations
+                if r["source"] == owner
+                and r["kind"] in {"required_contract", "optional_contract"}
+            }
+        )
+        listens = sorted(
+            {
+                nodes[r["source"]]
+                for r in relations
+                if r["target"] == owner and r["kind"] == "event_impact"
+            }
+        )
+        events = len({e["target"] for e in edges if e["kind"] == "produces_event"})
+        if provides:
+            facts.append("provides " + ", ".join(provides))
+        if events:
+            facts.append(f"{events} events")
+        if calls:
+            facts.append("calls " + ", ".join(calls))
+        if listens:
+            facts.append("listens to " + ", ".join(listens))
+        missing = sum(u["module_id"] == owner for u in data["unresolved"])
+        if missing:
+            facts.append(f"{missing} unresolved")
+        lines += [
+            module["name"] + ": " + module.get("summary", ""),
+            "└─ " + " · ".join(facts),
+        ]
+    return lines or ["No modules in this scope."]
+
+
 def _messages(title: str, messages: list[Doc]) -> list[str]:
     lines = [title]
     for message in messages:
@@ -69,10 +117,12 @@ def _messages(title: str, messages: list[Doc]) -> list[str]:
     return lines
 
 
-def render(envelope: Doc) -> str:
+def render(envelope: Doc, *, overview: bool = False) -> str:
     data, kind = envelope["data"], envelope["kind"]
     lines = [HEADER, "Freshness: " + envelope["freshness"]["state"], ""]
-    if kind in {"graph", "modules"}:
+    if kind == "graph" and overview:
+        lines += _overview(data)
+    elif kind in {"graph", "modules"}:
         lines += _topology(data)
     elif kind == "impact":
         lines += ["Potential impact: " + data["item"]["id"], data["meaning"]]
@@ -105,5 +155,5 @@ def render(envelope: Doc) -> str:
             lines += [p["id"] + " · " + p["name"] for p in data["processes"]]
             if not data["processes"]:
                 lines.append("No declared processes in this scope.")
-    lines += ["", "Open the interactive view: sandloom explore"]
+    lines += [] if overview else ["", "Open the interactive view: sandloom explore"]
     return "\n".join(_safe(line) for line in lines) + "\n"
