@@ -393,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         "--dist-dir", type=Path, help="preserve the exact fully validated archives"
     )
     args = parser.parse_args(argv)
+    _run(sys.executable, str(BACKEND_ROOT / "tools/packaging/sync_release.py"))
     if args.dist_dir is not None and args.skip_install:
         parser.error("--dist-dir requires the installed-package checks")
     with tempfile.TemporaryDirectory(prefix="sandloom-package-check-") as raw:

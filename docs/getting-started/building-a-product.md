@@ -34,13 +34,13 @@ package: they call it through the contract stubs `sandloom generate` writes in
 runnable, testable standalone project. From an empty directory, use the published alpha:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a2" sandloom new helpdesk --with identity,tenancy,billing --module tickets
-uvx --from "sandloom==0.7.0a2" sandloom new linkly --no-batteries --module links
+uvx --from "sandloom[standard]==0.7.0a3" sandloom new helpdesk --with identity,tenancy,billing --module tickets
+uvx --from "sandloom==0.7.0a3" sandloom new linkly --no-batteries --module links
 ```
 
 | Flag | Meaning |
 | --- | --- |
-| `--with a,b,c` | standard modules to install and load (`identity`, `tenancy`, `billing`): the app depends on `sandloom[redis,celery]>=0.7.0a2,<0.8` plus `sandloom-<module>>=0.7.0a2,<0.8` for each |
+| `--with a,b,c` | standard modules to install and load (`identity`, `tenancy`, `billing`): the app depends on `sandloom[redis,celery]>=0.7.0a3,<0.8` plus `sandloom-<module>>=0.7.0a3,<0.8` for each |
 | `--no-batteries` | install no standard module (minimal app: depends on `sandloom[redis,celery]` only) |
 | `--module <name>` | name of the initial sample module |
 | `--dir <path>` | parent directory (default: cwd) |

@@ -7,6 +7,10 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a3]
+
+- Depend on `sandloom>=0.7.0a3,<0.8`.
+
 - Create the `citext` extension in tenancy's initial migration so a standalone
   tenancy installation does not depend on identity's migration chain. Existing
   databases need no schema change; the extension is retained on downgrade.
