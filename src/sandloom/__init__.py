@@ -241,6 +241,14 @@ def main() -> None:  # noqa: C901
     sub.add_parser(
         "test", add_help=False, help="module tests + fast suite + static gates"
     )
+    sub.add_parser(
+        "context", add_help=False, help="bounded module context for agents and people"
+    )
+    sub.add_parser(
+        "graph",
+        add_help=False,
+        help="offline declared architecture graph and module discovery",
+    )
     sub.add_parser("migrate", add_help=False, help="run database migrations")
     sub.add_parser("projection", add_help=False, help="operate query projections")
     sub.add_parser("outbox", add_help=False, help="requeue dead-lettered outbox events")
@@ -283,6 +291,10 @@ def main() -> None:  # noqa: C901
     if args.command == "generate":
         _load_test_env_for_authoring()
         raise SystemExit(_static_import("sandloom.core.cli.generated").main(rest))
+    if args.command in {"context", "graph"}:
+        raise SystemExit(
+            _static_import("sandloom.core.cli.inspection.cli").main(args.command, rest)
+        )
     if args.command == "test":
         raise SystemExit(_static_import("sandloom.core.cli.run_tests").main(rest))
     if args.command == "docs":

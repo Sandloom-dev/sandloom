@@ -2424,6 +2424,33 @@
         "design/context-and-graph/spec.md",
         "design/context-and-graph/usage.md"
       ]
+    },
+    {
+      "reason": "Offline module context and declared graph tooling: cold readers, generation integration, SDK catalog/viewer resources, framework/app skills, guides and acceptance smokes.",
+      "paths": [
+        ".agents/skills/sandloom-module-context/SKILL.md",
+        ".claude/skills/sandloom-module-context/SKILL.md",
+        ".sandloom/inspection.json",
+        "design/context-and-graph/implementation.md",
+        "docs/guides/architecture-graph.md",
+        "docs/guides/module-context.md",
+        "examples/tutorial/.sandloom/inspection.json",
+        "src/sandloom/core/cli/inspection/__init__.py",
+        "src/sandloom/core/cli/inspection/cli.py",
+        "src/sandloom/core/cli/inspection/collect.py",
+        "src/sandloom/core/cli/inspection/context.py",
+        "src/sandloom/core/cli/inspection/files.py",
+        "src/sandloom/core/cli/inspection/generation.py",
+        "src/sandloom/core/cli/inspection/graph.py",
+        "src/sandloom/core/cli/inspection/model.py",
+        "src/sandloom/core/cli/inspection/read.py",
+        "src/sandloom/core/cli/inspection/sdk-catalog.json",
+        "src/sandloom/core/cli/inspection/viewer.html",
+        "src/sandloom/core/cli/templates/skills/sandloom-module-context/SKILL.md",
+        "src/sandloom/core/tests/test_inspection_tools.py",
+        "tools/docs/sdk_catalog.py",
+        "tools/packaging/inspection_smoke.py"
+      ]
     }
   ],
   "exclude_files": {

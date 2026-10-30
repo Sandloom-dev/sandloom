@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import distribution_imports
+import inspection_smoke
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = BACKEND_ROOT / "packages"
@@ -309,6 +310,7 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         )
         if name.rsplit(".", 1)[-1] not in shown.stdout:
             raise RuntimeError(f"`sandloom docs {name}` printed:\n{shown.stdout}")
+    inspection_smoke.check(_python(venv), work)
     _run(str(sandloom), "version", env=env, cwd=work)
     _run(str(sandloom), "new", "probe", "--dir", str(work), env=env, cwd=work)
     pyproject = (work / "probe" / "pyproject.toml").read_text()

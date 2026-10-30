@@ -354,3 +354,10 @@ the architecture tests and the import contracts.
 - [ADR-0002: the framework absorbs module boilerplate](../adr/0002-framework-absorbs-module-boilerplate.md)
 - [ADR-0007: kernel layers](../adr/0007-kernel-layers.md)
 - [ADR-0010: Public API 1.0](../adr/0010-public-api-1.0.md)
+
+## Inspect before changing a module
+
+Use [module context](../guides/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../guides/architecture-graph.md)
+to inspect contract/event connections. Both commands can be invoked by an agent
+and read their index without booting the app.

@@ -251,7 +251,9 @@ gate names the account it checks, `require(Subscribed(of=Account.user()))` or
 How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 `uv run sandloom docs contracts`, `... events`, `... <contract or channel>`.
 Skills (`.claude/skills`): sandloom-new-module, sandloom-quality-gates,
-sandloom-event-version-roll, sandloom-split-deploy. Refresh: `sandloom add skills`.
+sandloom-event-version-roll, sandloom-split-deploy, sandloom-module-context.
+Before changing a module: `uv run sandloom context <name>`; discover connections
+with `uv run sandloom graph --module <name> --hops 1`. Refresh: `sandloom add skills`.
 
 """
 )
@@ -388,7 +390,8 @@ Every module of `$app/modules` (plus the bundled ones: `$bundled_json`);
 """
 )
 
-_GITIGNORE = """__pycache__/
+_GITIGNORE = """.sandloom/cache/
+__pycache__/
 *.py[cod]
 .venv/
 .env

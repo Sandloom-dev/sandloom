@@ -1,0 +1,2236 @@
+{
+  "definitions": {
+    "sandloom.sdk.Base": {
+      "signature": "Base(**kwargs: Any) -> None",
+      "summary": "Base class for all SQLAlchemy models.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.Contract": {
+      "signature": "Contract(ref: ContractRef[P], *, optional: bool = False) -> P | OptionalContract[P]",
+      "summary": "The caller of contract ``ref`` (spec §5.3), declared at module level::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.CreatedAt": {
+      "signature": "CreatedAt(*args, **kwargs)",
+      "summary": "A ``timestamptz NOT NULL`` column the database stamps on insert::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.Credits": {
+      "signature": "Credits(minimum: int, *, of: Account = <object object>, adapter: Any = None) -> None",
+      "summary": "Subject's live credit balance is at least ``minimum``.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.CurrentUser": {
+      "signature": "CurrentUser(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.Event": {
+      "signature": "Event() -> None",
+      "summary": "Base class of typed events: ``class E(Event, channel=..., role=\"auto\")``.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.OrgRole": {
+      "signature": "OrgRole(minimum: str, *, org_param: str = 'org_id', adapter: Any = None) -> None",
+      "summary": "Subject holds at least ``minimum`` role in the request's organization.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.Owner": {
+      "signature": "Owner(get_owner: Callable[[Any], UUID | None]) -> None",
+      "summary": "Subject owns the request resource.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.Subscribed": {
+      "signature": "Subscribed(statuses: frozenset[str] | None = None, *, of: Account = <object object>, claim_key: str = 'subscription_status') -> None",
+      "summary": "Subject's subscription grants access (coarse, claim-based).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.SubscriptionActive": {
+      "signature": "SubscriptionActive(*, of: Account = <object object>, adapter: Any = None) -> None",
+      "summary": "Subject's subscription is active right now (live, authoritative).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.TenantScoped": {
+      "signature": "TenantScoped()",
+      "summary": "Mixin marking a model as tenant-owned (adds the indexed ``tenant_id``).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.app.app_modules": {
+      "signature": "app_modules(package: str) -> list[str]",
+      "summary": "The dotted names of ``package``'s module packages, sorted by name.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.app.create_app": {
+      "signature": "create_app(*, default_modules: collections.abc.Sequence[str] = (), default_optional_modules: collections.abc.Sequence[str] = (), title: str = 'Sandloom Framework') -> fastapi.applications.FastAPI",
+      "summary": "Build a fully wired Sandloom application (kernel + modules + ops API).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authorize_resource": {
+      "signature": "authorize_resource(*, loader: Callable[[Any, AsyncSession], Awaitable[Any]], by: str, policy: Requirement, cast: Callable[[str], Any] | None = None, not_found_detail: str = 'Not found', status_code: int | None = None) -> Callable[..., Awaitable[Any]]",
+      "summary": "Load a resource by path id, authorize, and return it to the endpoint.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.authz.ACTIVE_SUBSCRIPTION_STATUSES": {
+      "signature": "ACTIVE_SUBSCRIPTION_STATUSES (see sandloom docs for this value/type)",
+      "summary": "frozenset() -> empty frozenset object\nfrozenset(iterable) -> frozenset object",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.AccessDecision": {
+      "signature": "AccessDecision(allowed: bool, code: str = 'ok', category: str | None = None, reason: str = '', http_status: int = 200, failed_requirement: str | None = None, policy_code: str | None = None, metadata: dict[str, Any] = <factory>, indeterminate: bool = False) -> None",
+      "summary": "The outcome of evaluating a policy against an :class:`AuthzContext`.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.AccessDenied": {
+      "signature": "AccessDenied(decision: AccessDecision, *, status_code: int | None = None) -> None",
+      "summary": "Raised by ``enforce`` (and the HTTP guards) when a policy is not satisfied.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.AccessFact": {
+      "signature": "AccessFact(name: str, owner_module: str, claim_key: str | None = None, projection_reader: ProjectionReader | None = None, live_service: str | None = None, live_resolver: LiveResolver | None = None, min_freshness: str = 'claim', default_mode: str = 'auto', deny_category: str | None = None, claim_rule: ClaimRule | Callable[[], ClaimRule] | None = None) -> None",
+      "summary": "Declarative binding of a fact name to its three resolution paths.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Account": {
+      "signature": "Account(kind: AccountKind, param: str | None = None, reason: str | None = None) -> None",
+      "summary": "The billing account an atom checks (``of=``); build it with\n:meth:`user`, :meth:`org` or :meth:`bound_tenant`.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.And": {
+      "signature": "And(*parts: Requirement) -> None",
+      "summary": "Conjunction: all operands must hold. Short-circuits on first non-allow.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.AuthzContext": {
+      "signature": "AuthzContext(subject: UserContext, *, request: Request | None = None, db: AsyncSession | None = None, resource: Any = <object object>, loader: Callable[[AuthzContext], Awaitable[Any]] | None = None, source: str = 'http', core: Any = None) -> None",
+      "summary": "Inputs available to a :class:`Requirement` during evaluation.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Category": {
+      "signature": "Category()",
+      "summary": "Mandatory denial categories (TZ §10.2).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.ClaimRule": {
+      "signature": "ClaimRule(kind: str = 'truthy', values: frozenset[Any] = frozenset()) -> None",
+      "summary": "Declarative claim -> bool interpretation: wire-safe, no callables.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Credits": {
+      "signature": "Credits(minimum: int, *, of: Account = <object object>, adapter: Any = None) -> None",
+      "summary": "Subject's live credit balance is at least ``minimum``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.ENTITLEMENTS": {
+      "signature": "ENTITLEMENTS (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Entitled": {
+      "signature": "Entitled(fact_name: str, *, category: str | None = None, code: str | None = None, mode: str | None = None) -> None",
+      "summary": "Subject satisfies the registered access fact ``fact_name``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.EntitlementsAdapter": {
+      "signature": "EntitlementsAdapter(*args, **kwargs)",
+      "summary": "Answers subscription / credit questions (``SubscriptionActive``/``Credits``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.FactDenied": {
+      "signature": "FactDenied(reason: str, *, category: str = 'forbidden', code: str | None = None) -> None",
+      "summary": "A resolver's *definite* denial for a reason other than \"the fact is False\".",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.FactOwnerUnreachable": {
+      "signature": "FactOwnerUnreachable (see sandloom docs for this value/type)",
+      "summary": "The fact's owner is bound but could not describe its facts (503).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.FactUnavailable": {
+      "signature": "FactUnavailable (see sandloom docs for this value/type)",
+      "summary": "A fact could not be resolved in any acceptable mode (a misconfiguration).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Feature": {
+      "signature": "Feature(key: str, *, of: Account = <object object>, claim_key: str = 'features') -> None",
+      "summary": "The account's plan enables the feature flag ``key`` (``of=``, §7.2).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MEMBERSHIP": {
+      "signature": "MEMBERSHIP (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MODE_AUTO": {
+      "signature": "MODE_AUTO (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MODE_CLAIM": {
+      "signature": "MODE_CLAIM (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MODE_LIVE": {
+      "signature": "MODE_LIVE (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MODE_PROJECTION": {
+      "signature": "MODE_PROJECTION (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.MembershipAdapter": {
+      "signature": "MembershipAdapter(*args, **kwargs)",
+      "summary": "Answers organization-role questions for ``OrgRole``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Not": {
+      "signature": "Not(inner: Requirement) -> None",
+      "summary": "Negation of a single requirement.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Or": {
+      "signature": "Or(*parts: Requirement) -> None",
+      "summary": "Disjunction: any operand may hold. Short-circuits on first allow.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.OrgRole": {
+      "signature": "OrgRole(minimum: str, *, org_param: str = 'org_id', adapter: Any = None) -> None",
+      "summary": "Subject holds at least ``minimum`` role in the request's organization.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Owner": {
+      "signature": "Owner(get_owner: Callable[[Any], UUID | None]) -> None",
+      "summary": "Subject owns the request resource.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Perm": {
+      "signature": "Perm(perm: str) -> None",
+      "summary": "Subject holds the fine-grained permission ``perm``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Permissions": {
+      "signature": "Permissions()",
+      "summary": "Predefined fine-grained permission codes.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.PolicyIndeterminate": {
+      "signature": "PolicyIndeterminate(decision: AccessDecision) -> None",
+      "summary": "Raised by an atom's ``evaluate`` when it cannot answer at all.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Requirement": {
+      "signature": "Requirement()",
+      "summary": "An authorization predicate, composable with ``& | ~``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Role": {
+      "signature": "Role(role: str) -> None",
+      "summary": "Subject holds the global role ``role``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Roles": {
+      "signature": "Roles()",
+      "summary": "Predefined global role codes.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.SOURCE_HTTP": {
+      "signature": "SOURCE_HTTP (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.SOURCE_INTERNAL": {
+      "signature": "SOURCE_INTERNAL (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.SOURCE_SYSTEM": {
+      "signature": "SOURCE_SYSTEM (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.SOURCE_TASK": {
+      "signature": "SOURCE_TASK (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.Subscribed": {
+      "signature": "Subscribed(statuses: frozenset[str] | None = None, *, of: Account = <object object>, claim_key: str = 'subscription_status') -> None",
+      "summary": "Subject's subscription grants access (coarse, claim-based).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.SubscriptionActive": {
+      "signature": "SubscriptionActive(*, of: Account = <object object>, adapter: Any = None) -> None",
+      "summary": "Subject's subscription is active right now (live, authoritative).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.TIER_CLAIM": {
+      "signature": "TIER_CLAIM (see sandloom docs for this value/type)",
+      "summary": "int([x]) -> integer\nint(x, base=10) -> integer",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.TIER_LIVE": {
+      "signature": "TIER_LIVE (see sandloom docs for this value/type)",
+      "summary": "int([x]) -> integer\nint(x, base=10) -> integer",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.TIER_RESOURCE": {
+      "signature": "TIER_RESOURCE (see sandloom docs for this value/type)",
+      "summary": "int([x]) -> integer\nint(x, base=10) -> integer",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.WithinLimit": {
+      "signature": "WithinLimit(key: str, used: int, *, of: Account = <object object>, claim_key: str = 'limits') -> None",
+      "summary": "``used`` is strictly below the account's plan limit for ``key``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.authorize": {
+      "signature": "authorize(resource: Any, policy: Requirement, *, ctx: UserContext, request: Request | None = None, db: AsyncSession | None = None, status_code: int | None = None) -> None",
+      "summary": "Inline check over an already-loaded ``resource``; raises on failure.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.authorize_resource": {
+      "signature": "authorize_resource(*, loader: Callable[[Any, AsyncSession], Awaitable[Any]], by: str, policy: Requirement, cast: Callable[[str], Any] | None = None, not_found_detail: str = 'Not found', status_code: int | None = None) -> Callable[..., Awaitable[Any]]",
+      "summary": "Load a resource by path id, authorize, and return it to the endpoint.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.current_context": {
+      "signature": "current_context(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(dependency=<fastapi.security.http.HTTPBearer object>, use_cache=True, scope=None)) -> UserContext",
+      "summary": "Authenticated subject from the Bearer access token (cached per request).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.enforce": {
+      "signature": "enforce(policy: Requirement, *, subject: UserContext, db: AsyncSession | None = None, request: Request | None = None, resource: Any = <object object>, loader: Callable[[AuthzContext], Awaitable[Any]] | None = None, source: str = 'internal', core: Any = None, policy_code: str | None = None) -> AccessDecision",
+      "summary": "Evaluate ``policy`` for ``subject``; raise :class:`AccessDenied` on deny.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.lookup_access_fact": {
+      "signature": "lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None",
+      "summary": "The fact ``name``: the local registration, else the owner's public one.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.make_rebuild_gate": {
+      "signature": "make_rebuild_gate(rebuilder: Any, *, name: str = '') -> StartupTask",
+      "summary": "A startup task that rebuilds an authz projection from its sources.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.register_authz_projection": {
+      "signature": "register_authz_projection(core: Any, *, descriptor: Any, consumers: list[Any], rebuilder: Any, rebuild_on_startup: bool = False, critical: bool = True) -> None",
+      "summary": "Register an authorization projection, its consumers and rebuilder.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.register_live_adapter": {
+      "signature": "register_live_adapter(kind: str, adapter: Any) -> None",
+      "summary": "Bind the adapter the live atoms use for ``kind`` — CONSUMER-side config.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.require": {
+      "signature": "require(policy: Requirement, *, status_code: int | None = None) -> Callable[..., Awaitable[UserContext]]",
+      "summary": "Return a dependency enforcing ``policy`` (no request resource).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.resolve_fact": {
+      "signature": "resolve_fact(fact: AccessFact, ctx: AuthzContext, *, mode: str | None = None) -> bool",
+      "summary": "Resolve ``fact`` to a boolean, caching the result on ``ctx``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.service_subject": {
+      "signature": "service_subject(*, roles: frozenset[str] = frozenset({'service'})) -> UserContext",
+      "summary": "A subject representing another service calling across a module boundary.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.authz.system_subject": {
+      "signature": "system_subject(*, roles: frozenset[str] = frozenset({'system'})) -> UserContext",
+      "summary": "A subject representing the platform itself (trusted background work).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.command": {
+      "signature": "command(*, idempotency_key: str, idempotency_scope: tuple[str, ...] = (), database: str | None = None, risk: Literal['money'] | None = None) -> Callable[[Callable[PS, R]], Callable[PS, R]]",
+      "summary": "Mark a provider method as a command: deduplicated by its\n``idempotency_key`` argument, committed in the provider's own unit, not\natomic with the caller (a saga step)::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.contract": {
+      "signature": "contract(name: str, *, database: str | None = None) -> Callable[[C], C]",
+      "summary": "Declare a stateless provider class of contract ``name``::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.contracts.BACKWARD": {
+      "signature": "BACKWARD (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.Contract": {
+      "signature": "Contract(ref: ContractRef[P], *, optional: bool = False) -> P | OptionalContract[P]",
+      "summary": "The caller of contract ``ref`` (spec §5.3), declared at module level::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractMethodRuntime": {
+      "signature": "ContractMethodRuntime(name: str, kind: Literal['read', 'command'], signature: inspect.Signature, annotations: dict[str, Any], returns: Any, idempotency_key: str | None = None, idempotency_scope: tuple[str, ...] = (), risk: str | None = None) -> None",
+      "summary": "The validated, wire-portable shape of one exposed contract method.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractMethodSpec": {
+      "signature": "ContractMethodSpec(kind: Literal['read', 'command'] = 'read', idempotency_key: str | None = None, database: str | None = None, planned: bool = False, idempotency_scope: tuple[str, ...] = (), risk: str | None = None) -> None",
+      "summary": "How the contract runtime runs one contract method.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractProvider": {
+      "signature": "ContractProvider(impl: Any, *, core: Any, database: str, name: str) -> None",
+      "summary": "A registered contract bound to its provider's core and database.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractReadScope": {
+      "signature": "ContractReadScope(*, memo: bool = True, idle_seconds: float | None = 0.0) -> None",
+      "summary": "A request-scoped scope in which LOCAL read-contract calls share work.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractReadScopeMiddleware": {
+      "signature": "ContractReadScopeMiddleware(app: Any) -> None",
+      "summary": "Pure-ASGI middleware opening a :class:`ContractReadScope` per request.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractRef": {
+      "signature": "ContractRef(name: str, protocol: type[P] | None = None) -> None",
+      "summary": "A typed reference to a contract (emitted by the stub generator):\n``STATS_QUOTA_V1: ContractRef[StatsQuotaV1] = ContractRef(\"stats.quota.v1\",\nStatsQuotaV1)``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.ContractSchema": {
+      "signature": "ContractSchema(methods: dict[str, ContractMethodRuntime], hash: str) -> None",
+      "summary": "Every exposed method of one registered contract provider + a stable hash.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.DEFAULT_CONTRACT_DTO_PACKAGES": {
+      "signature": "DEFAULT_CONTRACT_DTO_PACKAGES (see sandloom docs for this value/type)",
+      "summary": "Built-in immutable sequence.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.FORWARD": {
+      "signature": "FORWARD (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.OptionalContract": {
+      "signature": "OptionalContract(ref: ContractRef[P]) -> None",
+      "summary": "``Contract(REF, optional=True)``: ``client()`` is ``None`` only when the\nprovider is neither local nor bound in this deployment (decided at\nstartup); a deployed provider that is down still raises (503).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.bind_contract": {
+      "signature": "bind_contract(impl: Any, *, core: Any, database: str, name: str) -> Any",
+      "summary": "Wrap ``impl`` in a :class:`ContractProvider` (idempotent).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.caller_user_id": {
+      "signature": "caller_user_id() -> UUID | None",
+      "summary": "The end user on whose behalf the running contract call executes, or\n``None`` (a system / service caller, a task, a consumer).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.command": {
+      "signature": "command(*, idempotency_key: str, idempotency_scope: tuple[str, ...] = (), database: str | None = None, risk: Literal['money'] | None = None) -> Callable[[Callable[PS, R]], Callable[PS, R]]",
+      "summary": "Mark a provider method as a command: deduplicated by its\n``idempotency_key`` argument, committed in the provider's own unit, not\natomic with the caller (a saga step)::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract": {
+      "signature": "contract(name: str, *, database: str | None = None) -> Callable[[C], C]",
+      "summary": "Declare a stateless provider class of contract ``name``::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_dto_problems": {
+      "signature": "contract_dto_problems(name: str, impl: Any, *, provider_module: str | None, module_packages: Iterable[str] = (), shared_packages: Iterable[str] = ()) -> list[str]",
+      "summary": "DTOs of contract ``name`` no caller process could hold (SANDLOOM-C012).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_error": {
+      "signature": "contract_error(*, status_code: int, detail: Any, headers: Mapping[str, str] | None = None, code: str | None = None) -> ContractCallError",
+      "summary": "Build the caller-side exception for a contract error (local or RPC).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_kind": {
+      "signature": "contract_kind(method: Any) -> Literal['read', 'command'] | None",
+      "summary": "How a BOUND contract member runs: ``read`` / ``command``, or ``None``\nfor a plain (non-contract) member of the provider.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_method": {
+      "signature": "contract_method(fn: _F | None = None, *, command: bool = False, idempotency_key: str | None = None, idempotency_scope: tuple[str, ...] = (), database: str | None = None, planned: bool = False, risk: Literal['admin', 'money', 'security'] | None = None) -> _F | Callable[[_F], _F]",
+      "summary": "Mark an async method as a service-contract entry point.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_read_scope": {
+      "signature": "contract_read_scope(*, memo: bool | None = None, idle_ms: int | None = None) -> AsyncIterator[ContractReadScope]",
+      "summary": "Open a :class:`ContractReadScope` for the block (reuses an outer one).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_reads": {
+      "signature": "contract_reads() -> Any",
+      "summary": "The declared-operations handle (``sandloom.core.orm.Reads``) of the running\ncontract call.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_schema": {
+      "signature": "contract_schema(impl: Any) -> ContractSchema",
+      "summary": "The validated :class:`ContractSchema` of a contract provider (cached).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_session_bound": {
+      "signature": "contract_session_bound() -> bool",
+      "summary": "Whether a test seam session (:func:`bind_contract_session`) is bound.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.contract_spec": {
+      "signature": "contract_spec(method: Any) -> ContractMethodSpec | None",
+      "summary": "The :class:`ContractMethodSpec` of a (bound) contract method, if any.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.current_contract_read_scope": {
+      "signature": "current_contract_read_scope() -> ContractReadScope | None",
+      "summary": "The read scope bound to the current context, if any.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.invalidate_contract_read_memo": {
+      "signature": "invalidate_contract_read_memo() -> None",
+      "summary": "Clear the current read scope's memo (a write happened elsewhere).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.normalize_contract_error": {
+      "signature": "normalize_contract_error(exc: BaseException) -> ContractCallError | None",
+      "summary": "The caller-side form of a provider exception, or ``None`` (a 5xx bug).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.run_contract_call": {
+      "signature": "run_contract_call(func: Callable[..., Awaitable[Any]], args: tuple[Any, ...], kwargs: dict[str, Any], *, spec: ContractMethodSpec, core: Any = None, database: str = 'default', contract: str | None = None) -> Any",
+      "summary": "Run one contract call in the provider's own Unit of Work.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.contracts.service": {
+      "signature": "service(name: str, *, optional: bool = False) -> Any",
+      "summary": "The proxy of contract ``name`` (spec §2.3, §5.3).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.Base": {
+      "signature": "Base(**kwargs: Any) -> None",
+      "summary": "Base class for all SQLAlchemy models.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.CreatedAt": {
+      "signature": "CreatedAt(*args, **kwargs)",
+      "summary": "A ``timestamptz NOT NULL`` column the database stamps on insert::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.InvalidCursor": {
+      "signature": "InvalidCursor(detail: str = 'invalid pagination cursor') -> None",
+      "summary": "A pagination cursor that is malformed, tampered with or foreign (400).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.JoinRead": {
+      "signature": "JoinRead(entity: type, result: type[R], by: tuple[str, ...] = ('id',), tenant_scoped: bool | None = None, database: str = 'default', name: str = '', lock: str | None = None, join: type | None = None, via: str = '', join_by: Mapping[str, str] = <factory>, join_where: Mapping[str, Any] = <factory>, joined_fields: Mapping[str, str] = <factory>) -> None",
+      "summary": "A declared single-row read of ``entity`` joined to ``join`` on a FK.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.ListOperation": {
+      "signature": "ListOperation(entity: type, result: type[R], by: tuple[str, ...] = (), tenant_scoped: bool | None = None, database: str = 'default', name: str = '', lock: str | None = None, where: Mapping[str, Any] = <factory>, order_by: tuple[str, ...] = ('id',), descending: bool = False, max_limit: int | None = None, require_index: bool = True, join: type | None = None, via: str = '', join_by: Mapping[str, str] = <factory>, join_where: Mapping[str, Any] = <factory>, joined_fields: Mapping[str, str] = <factory>, optional: Mapping[str, str] = <factory>, prefix: Mapping[str, str] = <factory>, prefix_ignore_case: bool = False) -> None",
+      "summary": "A declared list read: ``entity`` rows, one keyset page per call.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.MoneyLedger": {
+      "signature": "MoneyLedger()",
+      "summary": "Model mixin of a money ledger: names its unique operation-key column.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.Page": {
+      "signature": "Page(items: list[R], next_cursor: str | None) -> None",
+      "summary": "One page of a :class:`ListOperation`: the DTOs and the next cursor.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.PageLimitError": {
+      "signature": "PageLimitError(detail: str) -> None",
+      "summary": "``limit`` missing, < 1 or above the operation's page cap (400).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.PlannedReads": {
+      "signature": "PlannedReads(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.ReadOperation": {
+      "signature": "ReadOperation(entity: type, result: type[R], by: tuple[str, ...] = ('id',), tenant_scoped: bool | None = None, database: str = 'default', name: str = '', lock: str | None = None) -> None",
+      "summary": "A declared single-row read: ``entity`` WHERE ``by`` columns = arguments.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.Reads": {
+      "signature": "Reads(core: CoreRuntime | None, unit: Any = None, *, adapter: ExecutionAdapter | None = None, shared: bool = False, contract: bool = False, isolation: Isolation = 'read_committed') -> None",
+      "summary": "Handle that runs declared operations.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.SnapshotReads": {
+      "signature": "SnapshotReads(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.TenantScoped": {
+      "signature": "TenantScoped()",
+      "summary": "Mixin marking a model as tenant-owned (adds the indexed ``tenant_id``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.UowReads": {
+      "signature": "UowReads(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.UpdatedAt": {
+      "signature": "UpdatedAt(*args, **kwargs)",
+      "summary": "As ``CreatedAt``, and set again by every ORM update::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.db": {
+      "signature": "db() -> AsyncSession",
+      "summary": "The session of the innermost open unit of the current task (§4.3)::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.disable_tenant_rls": {
+      "signature": "disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None",
+      "summary": "Drop the Sandloom tenant policies and disable RLS on\n``table`` (for downgrade).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.enable_tenant_rls": {
+      "signature": "enable_tenant_rls(op: _Executes, table: str, *, column: str = 'tenant_id', schema: str | None = None, system_access: bool = False, system_role: str = 'sandloom_system') -> None",
+      "summary": "Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on ``table``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.get_planned_reads": {
+      "signature": "get_planned_reads(request: Request) -> AsyncGenerator[Any, None]",
+      "summary": "The handle of a route DECLARED read-only (execution planner).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.get_read_only_db": {
+      "signature": "get_read_only_db(request: Request) -> AsyncGenerator[AsyncSession, None]",
+      "summary": "PROTOTYPE: request session for a route DECLARED read-only.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.get_snapshot_reads": {
+      "signature": "get_snapshot_reads(request: Request) -> AsyncGenerator[Any, None]",
+      "summary": "``PlannedReads`` with ONE snapshot: ``REPEATABLE READ READ ONLY``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.get_uow_reads": {
+      "signature": "get_uow_reads(request: Request, db: DbSession) -> Any",
+      "summary": "Planned reads INSIDE the request Unit of Work (mixed routes).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.make_cursor": {
+      "signature": "make_cursor(op: ListOperation[Any], position: Sequence[Any], /, **key: Any) -> str",
+      "summary": "A cursor starting after ``position`` (the operation's order values, in\n``order_by`` + primary-key order) for these filter arguments and the bound\ntenant (e.g. to resume a list at a known row).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.make_db_dependency": {
+      "signature": "make_db_dependency(name: str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]",
+      "summary": "Build a request dependency yielding a session for a NAMED database.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.new_id": {
+      "signature": "new_id() -> uuid.UUID",
+      "summary": "A new time-ordered id (UUIDv7, RFC 9562) for a primary key::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.open_uow": {
+      "signature": "open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSession]",
+      "summary": "Open a unit of work on ``database`` (today ``db_session``, §4.3)::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.data.session_reads": {
+      "signature": "session_reads(session: Any) -> sandloom.core.planner.Reads",
+      "summary": "Run declared operations ON ``session`` (an open Unit of Work).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.db": {
+      "signature": "db() -> AsyncSession",
+      "summary": "The session of the innermost open unit of the current task (§4.3)::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.define_module": {
+      "signature": "define_module(package: str | None = None, /, *, version: str = '0.1.0', optional: bool = False, consumes: Sequence[Any] = (), capabilities: Sequence[Any] = (), depends_on: Sequence[str] = (), migrations_database: str | None = None, migrations_chain: str | None = None, health_check: Any | None = None, setup: Callable[[ModuleAPI], None] | None = None, name: str | None = None, router: Any = 'auto', events: Any = 'auto', issues_tokens: bool = False) -> Callable[[ModuleAPI], Any]",
+      "summary": "Build a module's ``register(core)`` from its declarations (spec §5.7).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.effects.before_commit": {
+      "signature": "before_commit(callback: OnCommitCallback, *, database: str | None = None) -> None",
+      "summary": "Run ``callback`` right BEFORE the current Unit of Work commits.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.durable_inbox": {
+      "signature": "durable_inbox(consumer: str) -> Any",
+      "summary": "Return a :class:`DurableConsumerInbox` for exactly-once consumer effects.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.mark_reauthenticated": {
+      "signature": "mark_reauthenticated() -> None",
+      "summary": "Record a successful re-authentication in this request (the caller just\nverified the current password, or a just-completed sign-in): it satisfies\nevery step-up of the request (ADR-0009 item 8).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.on_commit": {
+      "signature": "on_commit(callback: OnCommitCallback, *, database: str | None = None) -> None",
+      "summary": "Run ``callback`` only after the current Unit of Work COMMITS.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.operation_key": {
+      "signature": "operation_key(*parts: object) -> str",
+      "summary": "A derived operation key: ``\":\".join(parts)`` with checked parts.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.record_audit": {
+      "signature": "record_audit(action: str, *, actor_id: _uuid.UUID | str | None = None, actor_type: str = 'user', resource_type: str | None = None, resource_id: str | None = None, data: dict[str, Any] | None = None, required: bool | None = None, database: str | None = None) -> None",
+      "summary": "Append an entry to the audit log within the current Unit of Work.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.run_async": {
+      "signature": "run_async(coro: Coroutine[Any, Any, T]) -> T",
+      "summary": "Run ``coro`` to completion on this process's persistent event loop.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.effects.sensitive_effect": {
+      "signature": "sensitive_effect(risk: Risk, *, step_up: int | None = None) -> Callable[[F], F]",
+      "summary": "Declare the risk of an effect service, once, at its source (ADR-0009\nitems 7-8). Stack it UNDER ``@classmethod`` / ``@staticmethod``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.AuditUnavailableError": {
+      "signature": "AuditUnavailableError (see sandloom docs for this value/type)",
+      "summary": "A ``required`` audit write could not be performed.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.BlockUnavailableError": {
+      "signature": "BlockUnavailableError (see sandloom docs for this value/type)",
+      "summary": "The emergency-block mark could not be written / removed (cache outage).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ConsumerDefinitionError": {
+      "signature": "ConsumerDefinitionError(message: str, *, fix: str | None = None) -> None",
+      "summary": "An invalid ``@on`` consumer (SANDLOOM-B016).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractArgumentError": {
+      "signature": "ContractArgumentError(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "The call's arguments do not bind to / validate against the signature (422).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractCallError": {
+      "signature": "ContractCallError(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "A contract call failed with a declared status — identical locally and over RPC.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractCallInProgress": {
+      "signature": "ContractCallInProgress(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "A command with this idempotency key is still running (503, retry later).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractDefinitionError": {
+      "signature": "ContractDefinitionError(message: str, *, fix: str | None = None) -> None",
+      "summary": "An invalid ``@contract`` class or ``@command`` method (SANDLOOM-B018).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractIdempotencyConflict": {
+      "signature": "ContractIdempotencyConflict(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "A command's idempotency key was reused with DIFFERENT arguments (409).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractIdempotencyKeyMissing": {
+      "signature": "ContractIdempotencyKeyMissing(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "A command contract was called without its idempotency/operation key.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractIdempotencyUnavailable": {
+      "signature": "ContractIdempotencyUnavailable(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "The command dedupe store is unreachable: the command is refused (503).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ContractResultNotReplayable": {
+      "signature": "ContractResultNotReplayable(detail: Any = None, *, status_code: int | None = None, headers: Mapping[str, str] | None = None, code: str | None = None) -> None",
+      "summary": "A retried command already completed but its result was too large to keep (409).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.DeclarationError": {
+      "signature": "DeclarationError(message: str, *, fix: str | None = None) -> None",
+      "summary": "Base class of the L1 declaration refusals.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.EventDefinitionError": {
+      "signature": "EventDefinitionError(message: str, *, fix: str | None = None) -> None",
+      "summary": "An invalid ``Event`` class, or ``.publish()`` on a view (SANDLOOM-B015;\na view's ``.publish()`` is SANDLOOM-C025 statically).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.EventMetaUnavailable": {
+      "signature": "EventMetaUnavailable (see sandloom docs for this value/type)",
+      "summary": "``event.meta`` read on an event that was not delivered.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.MissingTenantError": {
+      "signature": "MissingTenantError (see sandloom docs for this value/type)",
+      "summary": "A tenant-scoped operation ran with no tenant bound in the context.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ModuleDiscoveryError": {
+      "signature": "ModuleDiscoveryError(message: str, *, fix: str | None = None) -> None",
+      "summary": "Discovery refused the module: a declaration in the wrong place, two\ndeclarations claiming one name (SANDLOOM-B006).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ModuleRegistrationConflict": {
+      "signature": "ModuleRegistrationConflict (see sandloom docs for this value/type)",
+      "summary": "A buffered registration would conflict with live kernel state.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ProjectionDefinitionError": {
+      "signature": "ProjectionDefinitionError(message: str, *, fix: str | None = None) -> None",
+      "summary": "An invalid ``Projection`` (SANDLOOM-B012).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ReadContractWriteError": {
+      "signature": "ReadContractWriteError (see sandloom docs for this value/type)",
+      "summary": "A read contract tried to write (its UoW is always rolled back).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.RemoteServiceUnavailable": {
+      "signature": "RemoteServiceUnavailable(service_name: str, *, reason: str, code: str = 'remote_service_unavailable') -> None",
+      "summary": "A remote service binding exists, but the provider cannot serve the call.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.RoutePolicyError": {
+      "signature": "RoutePolicyError(message: str, *, fix: str | None = None) -> None",
+      "summary": "A route is both ``public()`` and authenticated (SANDLOOM-B008).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.SagaDefinitionError": {
+      "signature": "SagaDefinitionError (see sandloom docs for this value/type)",
+      "summary": "A saga definition is malformed or does not match its contracts.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ServiceNotFound": {
+      "signature": "ServiceNotFound (see sandloom docs for this value/type)",
+      "summary": "Base error for service registry.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.ServiceUnavailableInDeployment": {
+      "signature": "ServiceUnavailableInDeployment(service_name: str, *, reason: str | None = None) -> None",
+      "summary": "A contract is neither provided locally nor bound to a remote provider.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.TaskEnqueueConflict": {
+      "signature": "TaskEnqueueConflict() -> None",
+      "summary": "An HTTP exception you can raise in your own code to show errors to the client.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.TaskEnqueueUnavailable": {
+      "signature": "TaskEnqueueUnavailable() -> None",
+      "summary": "An HTTP exception you can raise in your own code to show errors to the client.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.TaskEnqueueUncertain": {
+      "signature": "TaskEnqueueUncertain(task_id: str | None = None) -> None",
+      "summary": "An HTTP exception you can raise in your own code to show errors to the client.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.TenantMismatchError": {
+      "signature": "TenantMismatchError (see sandloom docs for this value/type)",
+      "summary": "A tenant-owned object does not belong to the bound tenant.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.UnitOfWorkRequiredError": {
+      "signature": "UnitOfWorkRequiredError (see sandloom docs for this value/type)",
+      "summary": "A guaranteed write-path effect was requested outside a Unit of Work.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.errors.UnsafeTenantOperationError": {
+      "signature": "UnsafeTenantOperationError (see sandloom docs for this value/type)",
+      "summary": "An ORM operation could bypass or mutate tenant ownership.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.Event": {
+      "signature": "Event() -> None",
+      "summary": "Base class of typed events: ``class E(Event, channel=..., role=\"auto\")``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.EventEnvelope": {
+      "signature": "EventEnvelope(*args, **kwargs)",
+      "summary": "A Mapping is a generic container for associating key/value\npairs.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.EventMeta": {
+      "signature": "EventMeta(id: str, channel: str, schema_version: str, trace_id: str | None, emitted_at: str, tenant_id: UUID | None) -> None",
+      "summary": "Delivery metadata of an event; mirrors the envelope, never part of\nthe payload (``event.meta`` on a delivered event).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.PoisonEventError": {
+      "signature": "PoisonEventError (see sandloom docs for this value/type)",
+      "summary": "Raised by a consumer handler for an event that can NEVER be applied\n(malformed payload): the delivery is dead-lettered at once (CRITICAL log)\ninstead of being retried — the one way out for a ``dead_letter=False``\nconsumer, whose transient failures are retried forever.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.on": {
+      "signature": "on(event: type[E], *, name: str | None = None, durable: bool = True, required: bool = True, dead_letter: bool = True, start_from: Literal['earliest', 'latest'] | datetime = 'earliest', group: str | None = None, database: str = 'default', tenant: str | None = 'derive') -> Callable[[Callable[[E], Awaitable[None]]], Callable[[E], Awaitable[None]]]",
+      "summary": "Register the decorated coroutine as a consumer of ``event`` (§5.4).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.publish_event": {
+      "signature": "publish_event(channel: str, payload: dict[str, Any], schema_version: str = 'v1', *, database: str | None = None, required: bool | None = None) -> None",
+      "summary": "Publish a domain event through the transactional outbox.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.events.publish_event_versions": {
+      "signature": "publish_event_versions(payloads: Mapping[str, dict[str, Any]], *, database: str | None = None, bus: Any = None, required: bool | None = None) -> None",
+      "summary": "Publish one domain event under several versions of its channel.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.CLAIMS_CONTRACT_SUFFIX": {
+      "signature": "CLAIMS_CONTRACT_SUFFIX (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.ClaimsContributorContract": {
+      "signature": "ClaimsContributorContract(facade: CoreFacade, owner: str | None) -> None",
+      "summary": "``<module>.claims.v1`` — a module's token-claims contributors as a contract.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.CoreFacade": {
+      "signature": "CoreFacade(app: FastAPI, settings_obj: Settings | None = None, service_registry: ServiceRegistry | None = None, get_db: Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None = None) -> None",
+      "summary": "A module's strictly bounded access point to the framework's infrastructure.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.CoreRuntime": {
+      "signature": "CoreRuntime(facade: CoreFacade) -> None",
+      "summary": "Read-only runtime view of the :class:`CoreFacade` for module code.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.FACTS_CONTRACT_SUFFIX": {
+      "signature": "FACTS_CONTRACT_SUFFIX (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.Notification": {
+      "signature": "Notification(channel: NotificationChannel, recipient: str, subject: str, body: str, data: Mapping[str, Any] = <factory>, dedupe_key: str | None = None) -> None",
+      "summary": "One outbound notification, independent of the delivery backend.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.ShutdownTask": {
+      "signature": "ShutdownTask (see sandloom docs for this value/type)",
+      "summary": "Represent a PEP 604 union type",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.StartupTask": {
+      "signature": "StartupTask (see sandloom docs for this value/type)",
+      "summary": "Represent a PEP 604 union type",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.cache": {
+      "signature": "cache(name: str = 'default') -> CacheProvider",
+      "summary": "Return the operation-based ``CacheProvider`` for a named instance.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.capability": {
+      "signature": "capability(capability: str, name: str = 'default', contract: type | None = None) -> Any",
+      "summary": "Return the provider of ``capability`` instance ``name``, checked\nagainst ``contract`` when given (the module-level twin of\n``CoreRuntime.capability``; spec §2.2).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.claims_contract_name": {
+      "signature": "claims_contract_name(owner: str) -> str",
+      "summary": "``\"tenancy\"`` -> ``\"tenancy.claims.v1\"``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.core_from_request": {
+      "signature": "core_from_request(request: Request) -> CoreRuntime",
+      "summary": "SYNC accessor of the request's :class:`CoreRuntime` (direct calls).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.facts_contract_name": {
+      "signature": "facts_contract_name(owner: str) -> str",
+      "summary": "``\"billing\"`` -> ``\"billing.facts.v1\"``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.get_core": {
+      "signature": "get_core(request: Request) -> CoreRuntime",
+      "summary": "Return the read-only :class:`CoreRuntime` view of the app's facade.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.notifier": {
+      "signature": "notifier(name: str = 'default') -> Any",
+      "summary": "Return the ``NotifierProvider`` for a named instance.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.objectstore": {
+      "signature": "objectstore(name: str = 'default') -> Any",
+      "summary": "Return the ``ObjectStoreProvider`` for a named instance (the\nmodule-level twin of ``CoreRuntime.objectstore``; spec §2.2).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.settings": {
+      "signature": "settings (see sandloom docs for this value/type)",
+      "summary": "Lazy framework settings; read through the SDK facade.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.infra.taskqueue": {
+      "signature": "taskqueue(name: str = 'default') -> Any",
+      "summary": "Return the ``TaskQueueProvider`` for a named instance (the module-level\ntwin of ``CoreRuntime.taskqueue``; spec §2.2).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.migrations.run_migrations": {
+      "signature": "run_migrations(table_names: Iterable[str] = (), model_modules: Sequence[str] = (), *, table_prefix: str | None = None) -> None",
+      "summary": "Run the active alembic chain scoped to the chain's own tables.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.migrations.run_module_migrations": {
+      "signature": "run_module_migrations(env_file: str | os.PathLike[str], *, package: str | None = None, model_modules: Sequence[str] | None = None, table_prefix: str | None = None, table_names: Iterable[str] = ()) -> None",
+      "summary": "Run a module's own migration chain by convention (from its env.py).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.AUTO": {
+      "signature": "AUTO (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.CapabilityRequirement": {
+      "signature": "CapabilityRequirement(capability: str, instance: str = 'default', version: str = 'v1', features: frozenset[str] = <factory>, required: bool = True) -> None",
+      "summary": "An infrastructure capability a module needs to function.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.ContractRequirement": {
+      "signature": "ContractRequirement(name: str, required: bool = True, reason: str = '', methods: tuple[str, ...] = ()) -> None",
+      "summary": "A sync service contract a module CALLS (``core.get_service(name)``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.FailedModule": {
+      "signature": "FailedModule(name: str, error: str, required: bool) -> None",
+      "summary": "A module that failed to load, with its error and whether it was required.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.HealthCheck": {
+      "signature": "HealthCheck(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.HealthResult": {
+      "signature": "HealthResult(status: HealthStatus, details: dict[str, object] | None = None) -> None",
+      "summary": "Outcome of a module health check: a status plus optional details.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.HealthStatus": {
+      "signature": "HealthStatus(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.MigrationTargetError": {
+      "signature": "MigrationTargetError (see sandloom docs for this value/type)",
+      "summary": "A module's migration target database cannot be determined unambiguously.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.ModuleAPI": {
+      "signature": "ModuleAPI(facade: CoreFacade, *, draft: ModuleRegistrationDraft | None = None) -> None",
+      "summary": "Stable, minimal registration surface for business modules.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.ModuleDescriptor": {
+      "signature": "ModuleDescriptor(name: str, version: str, optional: bool = False, routes: APIRouter | None = None, health_check: HealthCheck | None = None, migrations_path: str | None = None, depends_on: list[str] = <factory>, capabilities: list[CapabilityRequirement] = <factory>, migrations_database: str | None = None, migrations_chain: str | None = None, consumes: list[ContractRequirement] = <factory>, issues_tokens: bool = False) -> None",
+      "summary": "What a module returns from ``register(core)`` to describe itself.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.ModuleLoadSummary": {
+      "signature": "ModuleLoadSummary(loaded: list[ModuleDescriptor] = <factory>, skipped: list[SkippedModule] = <factory>, failed: list[FailedModule] = <factory>, duplicates: list[str] = <factory>, explicit: list[str] = <factory>, consumes: dict[str, list[dict[str, Any]]] = <factory>, manifests: dict[str, Any] = <factory>) -> None",
+      "summary": "Aggregate result of a load pass: loaded, skipped, failed, and duplicates.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.SkippedModule": {
+      "signature": "SkippedModule(name: str, reason: str) -> None",
+      "summary": "A module the loader skipped, with the reason why.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module.define_module": {
+      "signature": "define_module(package: str | None = None, /, *, version: str = '0.1.0', optional: bool = False, consumes: Sequence[Any] = (), capabilities: Sequence[Any] = (), depends_on: Sequence[str] = (), migrations_database: str | None = None, migrations_chain: str | None = None, health_check: Any | None = None, setup: Callable[[ModuleAPI], None] | None = None, name: str | None = None, router: Any = 'auto', events: Any = 'auto', issues_tokens: bool = False) -> Callable[[ModuleAPI], Any]",
+      "summary": "Build a module's ``register(core)`` from its declarations (spec §5.7).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.module_router": {
+      "signature": "module_router(*, prefix: str | None = None, tags: Sequence[str] | None = None, tenant: TenantBinding = 'derive', dependencies: Sequence[params.Depends] = ()) -> ModuleRouter",
+      "summary": "The module's router (spec §5.1), in ``<module>/api.py``::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.new_id": {
+      "signature": "new_id() -> uuid.UUID",
+      "summary": "A new time-ordered id (UUIDv7, RFC 9562) for a primary key::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.on": {
+      "signature": "on(event: type[E], *, name: str | None = None, durable: bool = True, required: bool = True, dead_letter: bool = True, start_from: Literal['earliest', 'latest'] | datetime = 'earliest', group: str | None = None, database: str = 'default', tenant: str | None = 'derive') -> Callable[[Callable[[E], Awaitable[None]]], Callable[[E], Awaitable[None]]]",
+      "summary": "Register the decorated coroutine as a consumer of ``event`` (§5.4).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.on_commit": {
+      "signature": "on_commit(callback: OnCommitCallback, *, database: str | None = None) -> None",
+      "summary": "Run ``callback`` only after the current Unit of Work COMMITS.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.projections.BoundContractMethod": {
+      "signature": "BoundContractMethod(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ConditionalWriteStore": {
+      "signature": "ConditionalWriteStore(*args, **kwargs)",
+      "summary": "Driver feature ``conditional_write`` (spec §2.3).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ConsistencyToken": {
+      "signature": "ConsistencyToken(kid: str, issued_at: int, tenant_id: UUID, entries: tuple[TokenEntry, ...]) -> None",
+      "summary": "A verified token (spec §2.3).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.Mapper": {
+      "signature": "Mapper(*args, **kwargs)",
+      "summary": "Maps an event to the projection fields its group owns.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.Projection": {
+      "signature": "Projection(name: str, *, key: tuple[str, ...], groups: Sequence[SourceGroup], model: type[TenantScoped] | None = None, store: tuple[str, str] | None = None, insert_only: Mapping[str, Any] | None = None, deleted_column: str = 'deleted_at', rebuild_from: BoundContractMethod | tuple[str, str] | None = None, lag_slo_s: float = 5.0, at_least_once: bool = False) -> None",
+      "summary": "A declared read model (spec §6.4), registered by ``define_module``\nfrom the module's ``projections`` submodule.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionConsumerDescriptor": {
+      "signature": "ProjectionConsumerDescriptor(name: str, source_channel: str, projection: str, handler: ProjectionHandler, durable: bool = True, required: bool = True, module: str | None = None, group: str | None = None, start_from: str = 'earliest', bind_tenant_from: str | None = None) -> None",
+      "summary": "A durable consumer that applies one source channel to one projection.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionHandler": {
+      "signature": "ProjectionHandler(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionRebuildResult": {
+      "signature": "ProjectionRebuildResult(projection: str, rows: int = 0, cleared: bool = False, details: dict[str, Any] = <factory>) -> None",
+      "summary": "Outcome of a rebuild run (rows written + whether the index was cleared).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionRebuilder": {
+      "signature": "ProjectionRebuilder(*args, **kwargs)",
+      "summary": "Reconstructs a projection from its source modules (idempotently).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionRegistryError": {
+      "signature": "ProjectionRegistryError (see sandloom docs for this value/type)",
+      "summary": "A projection/consumer registration conflicts with existing state.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.ProjectionView": {
+      "signature": "ProjectionView(projection: Projection, row: type[R], session: Any, *, on_stale: Literal['serve', 'source'] = 'serve', wait_ms: int | None = None, token: ConsistencyToken | None = None, response: Response | None = None) -> None",
+      "summary": "Reads one projection (``Annotated[ProjectionView[R], View(...)]``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.QueryProjectionDescriptor": {
+      "signature": "QueryProjectionDescriptor(name: str, owner_module: str, version: str = 'v1', source_events: tuple[str, ...] = (), storage: str = 'default', consistency: Literal['eventual'] = 'eventual', rebuildable: bool = True, purge: TombstonePurger | None = None, token_entries: TokenEntries | None = None) -> None",
+      "summary": "A denormalised cross-module read model owned by one module.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.QueryProjectionRegistry": {
+      "signature": "QueryProjectionRegistry() -> None",
+      "summary": "Holds query-projection descriptors, consumers and rebuilders by name.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.SourceGroup": {
+      "signature": "SourceGroup(events: Mapping[type[Event], Mapper[Any]], aggregate_key: str, version_field: str, version_column: str, owns: tuple[str, ...], tenant_from: str = 'tenant_id') -> None",
+      "summary": "The channels of ONE aggregate feeding a projection, with its version.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.View": {
+      "signature": "View(name: str, row: type[R], *, on_stale: Literal['serve', 'source'] = 'serve', wait_ms: int | None = None) -> params.Depends",
+      "summary": "The dependency resolving a ``ProjectionView`` of projection ``name``::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.delta": {
+      "signature": "delta(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]",
+      "summary": "A mapper of delta events (column increments); allowed only for a\nrelational projection applied under the durable inbox (§6.4 item 4).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.full_state": {
+      "signature": "full_state(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]",
+      "summary": "A mapper of full-state events: every owned field, replaced iff the\nstored version is NULL or older (convergent under any interleaving).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.make_consumer_callback": {
+      "signature": "make_consumer_callback(descriptor: ProjectionConsumerDescriptor, storage: str, opener: SessionOpener) -> Any",
+      "summary": "Wrap a projection consumer descriptor into an event-bus callback.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.monotonic_delete": {
+      "signature": "monotonic_delete(session: AsyncSession, target: Any, *, key: dict[str, Any], version_column: str, incoming_version: int, values: dict[str, Any] | None = None, insert_only: dict[str, Any] | None = None, deleted_column: str = 'deleted_at', deleted_at: datetime | None = None) -> bool",
+      "summary": "Persist a versioned tombstone, including when deletion arrives first.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.monotonic_update": {
+      "signature": "monotonic_update(session: AsyncSession, target: Any, *, match: dict[str, Any], values: dict[str, Any], version_column: str, incoming_version: int) -> int",
+      "summary": "Update every projection row matching ``match``, guarded by source version.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.monotonic_upsert": {
+      "signature": "monotonic_upsert(session: AsyncSession, target: Any, *, key: dict[str, Any], values: dict[str, Any], version_column: str, incoming_version: int, insert_only: dict[str, Any] | None = None) -> bool",
+      "summary": "Insert-or-update a single projection row, guarded by source version.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.purge_tombstones": {
+      "signature": "purge_tombstones(name: str, *, older_than: timedelta) -> int",
+      "summary": "Purge tombstones behind the watermark that refuses older replays.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.read_token": {
+      "signature": "read_token(header: str | None) -> ConsistencyToken | None",
+      "summary": "The token of ``header``; ``None`` for a missing, malformed, expired,\nunknown-kid or other-tenant token (never an error).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.rebuild": {
+      "signature": "rebuild(name: str, *, tenant_id: UUID | None = None, blue_green: bool = True) -> ProjectionRebuildResult",
+      "summary": "Rebuild projection ``name`` from its source (§6.4): one tenant, or\nevery tenant. Purges refuse while it runs; the purge watermark is kept.\nWithout an alias-swapping store a blue/green rebuild runs in place\n(``details[\"blue_green\"] == \"in_place\"``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.start_projection_consumers": {
+      "signature": "start_projection_consumers(core: CoreFacade, *, session_opener: SessionOpener | None = None) -> int",
+      "summary": "Subscribe every registered projection consumer to the event bus.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.projections.tombstone": {
+      "signature": "tombstone(fn: Callable[[E], Mapping[str, Any]]) -> Mapper[E]",
+      "summary": "A mapper of delete events: a versioned tombstone in the owning group\n(§6.4 item 5); reads filter it.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.public": {
+      "signature": "public(*, reason: str, issues_tokens: bool = False) -> params.Depends",
+      "summary": "Declare a route unauthenticated, and why (ADR-0009 item 1).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.record_audit": {
+      "signature": "record_audit(action: str, *, actor_id: _uuid.UUID | str | None = None, actor_type: str = 'user', resource_type: str | None = None, resource_id: str | None = None, data: dict[str, Any] | None = None, required: bool | None = None, database: str | None = None) -> None",
+      "summary": "Append an entry to the audit log within the current Unit of Work.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.require": {
+      "signature": "require(policy: Requirement, *, status_code: int | None = None) -> Callable[..., Awaitable[UserContext]]",
+      "summary": "Return a dependency enforcing ``policy`` (no request resource).",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.sagas.CommandStep": {
+      "signature": "CommandStep(name: str, call: str, args: ArgsFn, compensate: str | None = None, compensate_args: ArgsFn | None = None, kind: StepKind | None = None, refuse_on: frozenset[int] = frozenset(), check_args: bool = True, deadline: timedelta | None = None) -> None",
+      "summary": "A step that calls a command contract (``call=\"<contract>.<method>\"``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.Direction": {
+      "signature": "Direction(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.LocalStep": {
+      "signature": "LocalStep(name: str, apply: LocalFn, compensate: LocalFn | None = None, kind: StepKind | None = None, deadline: timedelta | None = None) -> None",
+      "summary": "A step run in the owner's own Unit of Work (transactional, §1).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.Saga": {
+      "signature": "Saga(name: str, *, version: int, input: type[InputT], deadline: timedelta, steps: Sequence[SagaStep], compensation_deadline: timedelta | None = None) -> None",
+      "summary": "A saga definition (ADR-0008), discovered from the module's ``sagas``\nsubmodule; every parameter is today's.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.SagaContext": {
+      "signature": "SagaContext(saga_type: str, saga_id: str, input: InputT, results: Mapping[str, Any] = <factory>, synthetic: bool = False) -> None",
+      "summary": "What a step's argument function (or local step) sees.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.SagaHandle": {
+      "signature": "SagaHandle(saga_type: str, saga_id: str, instance_id: uuid.UUID, status: str, created: bool = False, step: str | None = None, park_reason: str | None = None, version: int = 0) -> None",
+      "summary": "What ``start_saga`` / ``saga_status`` return.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.SagaInputConflict": {
+      "signature": "SagaInputConflict (see sandloom docs for this value/type)",
+      "summary": "``start_saga`` of an existing business id with OTHER input (409).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.SagaStep": {
+      "signature": "SagaStep (see sandloom docs for this value/type)",
+      "summary": "Represent a PEP 604 union type",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.StepKind": {
+      "signature": "StepKind (see sandloom docs for this value/type)",
+      "summary": "The kind of a saga step (Garcia-Molina & Salem; Richardson).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.local_step": {
+      "signature": "local_step(name: str, *, apply: LocalFn, compensate: LocalFn | None = None, kind: StepKind | str | None = None, deadline: timedelta | None = None) -> LocalStep",
+      "summary": "A local step: ``await apply(db, ctx)`` inside the transition's UoW.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.saga_contract_requirements": {
+      "signature": "saga_contract_requirements(saga: Saga[Any]) -> list[ContractRequirement]",
+      "summary": "One ``ContractRequirement(name, methods=...)`` per contract it calls.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.saga_status": {
+      "signature": "saga_status(definition: Saga[Any], saga_id: object) -> SagaHandle | None",
+      "summary": "The instance of ``definition`` for ``saga_id`` (``None`` if never started).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.saga_step_key": {
+      "signature": "saga_step_key(saga_type: str, saga_id: str, step: str, direction: Direction) -> str",
+      "summary": "The idempotency key the runtime injects into a step's command call.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.start_saga": {
+      "signature": "start_saga(definition: Saga[Any], *, saga_id: object, input: BaseModel | Mapping[str, Any]) -> SagaHandle",
+      "summary": "Start ``definition`` for business id ``saga_id`` in the caller's UoW.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.step": {
+      "signature": "step(name: str, *, call: CommandRef, args: ArgsFn, compensate: CommandRef | None = None, compensate_args: ArgsFn | None = None, kind: StepKind | str | None = None, refuse_on: Iterable[int] = (), check_args: bool = True, deadline: timedelta | None = None) -> CommandStep",
+      "summary": "A command step: ``call`` a command contract with ``args(ctx)``::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.sagas.synthetic_instance": {
+      "signature": "synthetic_instance(model: type[T]) -> T",
+      "summary": "An instance of ``model`` built from its schema alone (no validation).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.ClaimsUnavailable": {
+      "signature": "ClaimsUnavailable(owner: str) -> None",
+      "summary": "A CRITICAL claims contributor failed: the token must not be minted.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.SERVICE_PRINCIPAL_ID": {
+      "signature": "SERVICE_PRINCIPAL_ID (see sandloom docs for this value/type)",
+      "summary": "Instances of the UUID class represent UUIDs as specified in RFC 4122.\nUUID objects are immutable, hashable, and usable as dictionary keys.\nConverting a UUID to a string with str() yields something in the form\n'12345678-1234-1234-1234-123456789abc'.  The UUID constructor accepts\nfive possible forms: a similar string of hexadecimal digits, or a tuple\nof six integer fields (with 32-bit, 16-bit, 16-bit, 8-bit, 8-bit, and\n48-bit values respectively) as an argument named 'fields', or a string\nof 16 bytes (with all the integer fields in big-endian order) as an\nargument named 'bytes', or a string of 16 bytes (with the first three\nfields in little-endian order) as an argument named 'bytes_le', or a\nsingle 128-bit integer as an argument named 'int'.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.apply_pending_revocation": {
+      "signature": "apply_pending_revocation(payload: dict[str, Any]) -> None",
+      "summary": "Apply a ``core.auth.tokens_revoked.v1`` payload (durable applier body).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.block_user": {
+      "signature": "block_user(user_id: Any, *, reason: str, actor_id: Any = None, database: str | None = None) -> None",
+      "summary": "Block ``user_id`` NOW: every authenticated request of theirs gets 401.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.create_access_token": {
+      "signature": "create_access_token(*, data: dict[str, Any], expires_delta: int | None = None) -> str",
+      "summary": "Create JWT access token via sandloom.core.auth (stable adapter).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.decode_token": {
+      "signature": "decode_token(token: str) -> dict[str, Any] | None",
+      "summary": "Decode JWT using sandloom.core.auth.tokens (stable adapter).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.decode_token_cached": {
+      "signature": "decode_token_cached(request: Any, token: str) -> dict[str, Any] | None",
+      "summary": "Per-request-cached JWT decode via sandloom.core.auth (stable adapter).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.ensure_token_not_revoked": {
+      "signature": "ensure_token_not_revoked(request: Any, claims: dict[str, Any]) -> None",
+      "summary": "Raise 401 when ``claims`` predate a revocation (503 on fail-closed outage).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.ensure_user_not_blocked": {
+      "signature": "ensure_user_not_blocked(user_id: Any) -> None",
+      "summary": "Refuse to authenticate a blocked user: ``401 \"Account blocked\"``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.generate_private_key": {
+      "signature": "generate_private_key(algorithm: str) -> PrivateKey",
+      "summary": "A fresh private key for ``algorithm`` (``sandloom keys generate``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.generate_x25519_key": {
+      "signature": "generate_x25519_key() -> x25519.X25519PrivateKey",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.has_internal_access": {
+      "signature": "has_internal_access(x_internal_token: str | None) -> bool",
+      "summary": "Non-raising variant: True when the caller may see internal details.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.is_user_blocked": {
+      "signature": "is_user_blocked(user_id: Any) -> bool",
+      "summary": "Live read of the subject-state record (raises on a cache outage).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.password_hasher": {
+      "signature": "password_hasher() -> Any",
+      "summary": "A fresh argon2id ``PasswordHasher`` with the CONFIGURED parameters\n(``PASSWORD_HASH_PROFILE`` / ``_TIME_COST`` / ``_MEMORY_KIB`` /\n``_PARALLELISM``; fixed 16-byte salt, 32-byte digest).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.private_pem": {
+      "signature": "private_pem(key: PrivateKey) -> str",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.public_pem": {
+      "signature": "public_pem(key: PrivateKey | PublicKey) -> str",
+      "summary": "The SubjectPublicKeyInfo PEM of a key (or of a private key's public half).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.rehash_password_if_needed": {
+      "signature": "rehash_password_if_needed(plain_password: str, stored_hash: str, *, hasher: Any = None) -> str | None",
+      "summary": "New hash when ``stored_hash`` was made with other argon2 parameters\nthan the configured ones (stronger or weaker), else ``None``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.revoke_user_tokens": {
+      "signature": "revoke_user_tokens(user_id: Any, *, valid_after: int | None = None) -> bool",
+      "summary": "Invalidate every access token issued to ``user_id`` up to now.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.revoke_user_tokens_on_commit": {
+      "signature": "revoke_user_tokens_on_commit(user_id: Any, *, reason: str, valid_after: int | None = None, database: str | None = None, require_immediate: bool = False) -> int",
+      "summary": "Revoke ``user_id``'s access tokens AFTER the current UoW commits.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.run_password_hashing": {
+      "signature": "run_password_hashing(fn: Callable[..., _T], *args: Any) -> _T",
+      "summary": "Run an argon2 hash/verify ``fn(*args)`` on the BOUNDED password pool.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.subject_commit_check": {
+      "signature": "subject_commit_check(request: Request) -> Callable[[], Awaitable[None]]",
+      "summary": "A ``before_commit`` check: is the request's bearer STILL valid now?",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.unblock_user": {
+      "signature": "unblock_user(user_id: Any, *, reason: str, actor_id: Any = None, database: str | None = None) -> None",
+      "summary": "Lift an emergency block (audited ``auth.user.unblocked``, same rules).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.x25519_private_pem": {
+      "signature": "x25519_private_pem(key: x25519.X25519PrivateKey) -> str",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.security.x25519_public_pem": {
+      "signature": "x25519_public_pem(key: x25519.X25519PrivateKey | x25519.X25519PublicKey) -> str",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tasks.Task": {
+      "signature": "Task(*args, **kwargs)",
+      "summary": "A registered task: call it inline, or enqueue it.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tasks.cron": {
+      "signature": "cron(expression: str) -> Any",
+      "summary": "A beat schedule from a five-field cron expression\n(``\"minute hour day-of-month month day-of-week\"``, e.g. ``\"0 3 * * *\"``)::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tasks.shared_task": {
+      "signature": "shared_task(fn: Callable[..., Any] | None = None, /, *, name: str | None = None, acks_late: bool | None = None, reject_on_worker_lost: bool | None = None, **options: Any) -> Any",
+      "summary": "``@shared_task`` / ``@shared_task(name=..., acks_late=True, ...)``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.TenantKind": {
+      "signature": "TenantKind(*args, **kwargs)",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.bind_tenant": {
+      "signature": "bind_tenant(tenant_id: uuid.UUID) -> Iterator[uuid.UUID]",
+      "summary": "Bind ``tenant_id`` for the duration of the block.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.current_tenant_id": {
+      "signature": "current_tenant_id() -> uuid.UUID",
+      "summary": "Return the tenant bound in the current context, or raise (fail closed).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.current_tenant_id_optional": {
+      "signature": "current_tenant_id_optional() -> uuid.UUID | None",
+      "summary": "Return the bound tenant or ``None`` (does not raise).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.scoped": {
+      "signature": "scoped(stmt: Any, model: Any) -> Any",
+      "summary": "Add a fail-closed tenant filter to ``stmt`` for ``model``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.tenant_filter": {
+      "signature": "tenant_filter(model: Any) -> Any",
+      "summary": "A ``model.tenant_id == <current tenant>`` clause (raises if unbound).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.tenant_kind": {
+      "signature": "tenant_kind(tenant_id: UUID, *, ctx: AuthzContext | None = None) -> TenantKind",
+      "summary": "The kind of ``tenant_id`` from authoritative sources only (spec §7.1),\nmemoised per request: ``canonical`` under ``TENANCY_MODE=single``,\n``personal`` when it is the caller's user id, ``organization`` when the\nmembership contract confirms the caller's membership, else ``unknown``.\nWithout ``ctx`` it uses the request ``current_context`` authenticated.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tenant.unscoped": {
+      "signature": "unscoped() -> Iterator[None]",
+      "summary": "Disable tenant enforcement for deliberate admin/system work.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.BootOutcome": {
+      "signature": "BootOutcome(module: str, started: bool, missing_contracts: frozenset[str] = <factory>) -> None",
+      "summary": "What booting one module alone did.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.Captured": {
+      "signature": "Captured(*args, **kwargs)",
+      "summary": "dict() -> new empty dictionary\ndict(mapping) -> new dictionary initialized from a mapping object's\n    (key, value) pairs\ndict(iterable) -> new dictionary initialized as if via:\n    d = {}\n    for k, v in iterable:\n        d[k] = v\ndict(**kwargs) -> new dictionary initialized with the name=value pairs\n    in the keyword argument list.  For example:  dict(one=1, two=2)",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.ContractCase": {
+      "signature": "ContractCase(method: str, args: tuple[Any, ...] = (), kwargs: Mapping[str, Any] = <factory>, tenant: UUID | None = None, label: str = '') -> None",
+      "summary": "One call to compare: ``method(*args, **kwargs)`` under ``tenant``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.ContractConformanceError": {
+      "signature": "ContractConformanceError (see sandloom docs for this value/type)",
+      "summary": "The local and the RPC path disagreed for at least one case.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.FakeClock": {
+      "signature": "FakeClock(start: datetime | None = None) -> None",
+      "summary": "The runtime's injectable clock (naive UTC).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.Headers": {
+      "signature": "Headers(*args, **kwargs)",
+      "summary": "dict() -> new empty dictionary\ndict(mapping) -> new dictionary initialized from a mapping object's\n    (key, value) pairs\ndict(iterable) -> new dictionary initialized as if via:\n    d = {}\n    for k, v in iterable:\n        d[k] = v\ndict(**kwargs) -> new dictionary initialized with the name=value pairs\n    in the keyword argument list.  For example:  dict(one=1, two=2)",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.InMemoryCache": {
+      "signature": "InMemoryCache(*, broken: bool = False) -> None",
+      "summary": "Dict-backed :class:`CacheProvider` (incl. ``cas`` and an atomic\n``set_max``) for unit tests.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.MigrationChain": {
+      "signature": "MigrationChain(key: str, module: str | None, script_location: Path, version_table: str) -> None",
+      "summary": "One Alembic chain: the kernel's core chain or a module's own.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.ModuleBootError": {
+      "signature": "ModuleBootError (see sandloom docs for this value/type)",
+      "summary": "The module started alone, but logged errors while doing so.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.ModuleRegistrationDraft": {
+      "signature": "ModuleRegistrationDraft() -> None",
+      "summary": "A buffer of one module's registrations, applied atomically on commit.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.Outcome": {
+      "signature": "Outcome(ok: bool, value: Any = None, error: tuple[Any, ...] | None = None) -> None",
+      "summary": "A normalized call outcome (comparable across the two paths).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.RecordingSession": {
+      "signature": "RecordingSession(info: dict[str, Any] = <factory>, audits: list[dict[str, Any]] = <factory>, events: list[tuple[str, dict[str, Any], str]] = <factory>) -> None",
+      "summary": "Stand-in UoW session for :func:`recording_uow` (only ``info``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.RegistrationSurface": {
+      "signature": "RegistrationSurface(descriptor: Any, calls: list[Call] = <factory>) -> None",
+      "summary": "What one ``register(core)`` call registered, in call order.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.ReservedPort": {
+      "signature": "ReservedPort(host: str = '127.0.0.1', backlog: int = 128) -> None",
+      "summary": "A loopback port held by a listening socket owned by the test process.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.RoutePolicy": {
+      "signature": "RoutePolicy(always_strict: bool, declares_budget: bool, staleness_budget: float, auth: str = 'user', public_reason: str | None = None, effect: str = 'read', risk: tuple[str, ...] = ()) -> None",
+      "summary": "What the framework applies to one route (ADR-0009).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.RpcKeys": {
+      "signature": "RpcKeys(service_id: str, kid: str, private_key: str, public_key: str, dh_private_key: str, dh_public_key: str) -> None",
+      "summary": "One service's ephemeral internal-RPC keys (tests only).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.SagaHarness": {
+      "signature": "SagaHarness(core: Any) -> None",
+      "summary": "The ``saga_harness`` fixture's object (see the module docstring).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.SagaRun": {
+      "signature": "SagaRun(definition: Saga[Any], instance: InstanceRow, calls: list[str], keys: list[str], steps: list[dict[str, Any]], transitions: list[str] = <factory>, crashes: int = 0) -> None",
+      "summary": "What one ``run()`` / ``drive()`` observed.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.SimulatedCrash": {
+      "signature": "SimulatedCrash (see sandloom docs for this value/type)",
+      "summary": "The process \"died\": the transition's UoW rolls back (not an Exception,\nso the step classification never sees it).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.SpawnedServer": {
+      "signature": "SpawnedServer(proc: subprocess.Popen[bytes], url: str, nonce: str, label: str = '') -> None",
+      "summary": "A child serving on a :class:`ReservedPort`, identified by its nonce.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.SpawnedServerError": {
+      "signature": "SpawnedServerError (see sandloom docs for this value/type)",
+      "summary": "The spawned server exited, or its port is answered by another process.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.TestResourceOwnershipError": {
+      "signature": "TestResourceOwnershipError (see sandloom docs for this value/type)",
+      "summary": "The test database / Redis index belongs to another run.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.UNIQUE": {
+      "signature": "UNIQUE (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.apply_worker_env": {
+      "signature": "apply_worker_env(environ: MutableMapping[str, str] | None = None, *, create_database: bool = True) -> dict[str, str]",
+      "summary": "Point ``environ`` (default ``os.environ``) at this worker's backends.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.as_user": {
+      "signature": "as_user(user_id: UUID | None = None, tenant_id: UUID | None = None, *, email: str | None = '', email_verified: bool | None = True, tenant: bool = True, **claims: Any) -> tuple[UUID, dict[str, str]]",
+      "summary": "``(user_id, headers)`` with a freshly minted access token.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.testing.assert_contract_conformance": {
+      "signature": "assert_contract_conformance(core: Any, contract_name: str, cases: Sequence[ContractCase], *, transport: str = 'asgi') -> None",
+      "summary": "Assert ``contract_name`` behaves identically locally and over RPC.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.assert_route_snapshot": {
+      "signature": "assert_route_snapshot(app: Any, *modules: str) -> None",
+      "summary": "Fail unless each module's routes equal its committed ``routes.snapshot.json``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.bind_contract_session": {
+      "signature": "bind_contract_session(session: Any) -> Iterator[Any]",
+      "summary": "Run contract calls in this block on ``session`` (TEST SEAM).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.bind_test_uow": {
+      "signature": "bind_test_uow(session: Any, *, database: str = 'default', outbox: OutboxStore | None = None, audit: AuditStore | None = None) -> Iterator[Any]",
+      "summary": "Bind ``session`` as the active UoW for ``database`` in this context.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.block_mark_key": {
+      "signature": "block_mark_key(user_id: Any) -> str",
+      "summary": "The cache key of ``user_id``'s subject-state record (the block lives there).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.boot_module_alone": {
+      "signature": "boot_module_alone(module: str, *, lifespan: bool = True) -> BootOutcome",
+      "summary": "``create_app`` with only ``module`` loaded, then run its lifespan.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.capture_effects": {
+      "signature": "capture_effects(monkeypatch: Any, *modules: ModuleType) -> Captured",
+      "summary": "Record ``publish_event`` / ``record_audit`` and typed ``Event.publish()``\ncalls made from ``modules``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.chain_coverage_problems": {
+      "signature": "chain_coverage_problems(core: Any = None) -> list[str]",
+      "summary": "Tables / indexes a model declares that its owning chain does not create.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.check_contract_conformance": {
+      "signature": "check_contract_conformance(core: Any, contract_name: str, cases: Sequence[ContractCase], *, transport: str = 'asgi') -> list[tuple[ContractCase, Outcome, Outcome]]",
+      "summary": "Run every case locally and over RPC; return the mismatches.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.committing_uow": {
+      "signature": "committing_uow(session_factory: Any, *, database: str = 'default') -> AsyncIterator[Any]",
+      "summary": "Run the block in a REAL Unit of Work that commits, like ``db_session()``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.deliver": {
+      "signature": "deliver(event: str | Event, payload: dict[str, Any] | None = None, *, times: int = 1, event_id: str | None = None, session: Any = None, core: Any = None) -> int",
+      "summary": "Deliver one event to every consumer of its channel; returns how many.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.testing.email_of": {
+      "signature": "email_of(user_id: uuid.UUID) -> str",
+      "summary": "The deterministic ``email`` claim minted for a test user.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fake_access_fact": {
+      "signature": "fake_access_fact(name: str, value: bool | Callable[[Any], Any] = True, *, deny_category: str | None = None, core: Any = None) -> Iterator[None]",
+      "summary": "Answer the access fact ``name`` with ``value`` inside the block.",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.testing.fake_contract": {
+      "signature": "fake_contract(ref: ContractRef[P] | str, impl: object) -> AbstractContextManager[None]",
+      "summary": "Serve contract ``ref`` from ``impl`` for the block::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.testing.fixtures.COMPOSITION_ROOT_INI": {
+      "signature": "COMPOSITION_ROOT_INI (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.ENV_FILE": {
+      "signature": "ENV_FILE (see sandloom docs for this value/type)",
+      "summary": "str(object='') -> str\nstr(bytes_or_buffer[, encoding[, errors]]) -> str",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.RevokedTokens": {
+      "signature": "RevokedTokens(iterable=(), /)",
+      "summary": "The user ids ``revoke_user_tokens`` was called for (``revoked_tokens``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures._sandloom_isolate_module_globals": {
+      "signature": "_sandloom_isolate_module_globals(request: pytest.FixtureRequest) -> Iterator[None]",
+      "summary": "Start every test module from the session baseline (the harness app's\nruntime) and put the process's runtime bindings back to it afterwards.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures._sandloom_isolate_process_globals": {
+      "signature": "_sandloom_isolate_process_globals() -> Iterator[None]",
+      "summary": "Restore the process's runtime bindings after every test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures._sandloom_release_default_pools": {
+      "signature": "_sandloom_release_default_pools() -> AsyncIterator[None]",
+      "summary": "Return the ``default`` engines' pooled connections after every test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures._sandloom_sdk_kit": {
+      "signature": "_sandloom_sdk_kit(request: _pytest.fixtures.FixtureRequest) -> collections.abc.Iterator[None]",
+      "summary": "Record ``published`` events; bind ``Contract`` resolution to the app.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.ambient_uow": {
+      "signature": "ambient_uow() -> AsyncIterator[Any]",
+      "summary": "Bind an in-memory recording UoW for the whole test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.async_client": {
+      "signature": "async_client(client: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.client": {
+      "signature": "client(sandloom_app: Any, db: Any, request: pytest.FixtureRequest) -> AsyncIterator[Any]",
+      "summary": "HTTP client on the app; every request runs on the test's ``db``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.db": {
+      "signature": "db(db_engine: Any) -> AsyncIterator[Any]",
+      "summary": "A session on the test database, rolled back after the test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.db_engine": {
+      "signature": "db_engine(sandloom_app: Any) -> AsyncIterator[Any]",
+      "summary": "Engine on the test database; every table present and empty.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.db_uow": {
+      "signature": "db_uow(db: Any) -> AsyncIterator[Any]",
+      "summary": "``db`` bound as the UoW for the whole test (outbox / audit rows join it).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.env_starts": {
+      "signature": "env_starts(config: pytest.Config) -> list[Path]",
+      "summary": "Where to look for ``.env.test``: the rootdir, then each test path.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.find_env_file": {
+      "signature": "find_env_file(starts: Iterable[Path]) -> Path | None",
+      "summary": "The nearest ``.env.test`` walking up from each start (first hit wins).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.load_test_env": {
+      "signature": "load_test_env(starts: Iterable[Path], *, warn_if_late: bool = False) -> Path",
+      "summary": "Load the nearest ``.env.test`` (:func:`sandloom.core.testing.env.load_test_env`);\na missing file is a pytest usage error.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.make_headers": {
+      "signature": "make_headers(sandloom_test_env: Path) -> Callable[..., tuple[Any, dict[str, str]]]",
+      "summary": "Factory: ``make_headers(user_id=None, tenant_id=None, **claims)``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.real_uow_client": {
+      "signature": "real_uow_client(sandloom_app: Any, sandloom_core: Any, db_engine: Any, request: pytest.FixtureRequest) -> AsyncIterator[Any]",
+      "summary": "HTTP client whose requests run through the REAL request UoW.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.revoked_tokens": {
+      "signature": "revoked_tokens(monkeypatch: pytest.MonkeyPatch) -> RevokedTokens",
+      "summary": "Record ``revoke_user_tokens(user_id)`` calls instead of running them.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.saga_harness": {
+      "signature": "saga_harness(sandloom_core: Any, db_engine: Any) -> AsyncIterator[Any]",
+      "summary": "Drive the REAL saga protocol synchronously (``sandloom.core.testing.sagas``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.sandloom_app": {
+      "signature": "sandloom_app(pytestconfig: pytest.Config, sandloom_test_env: Path) -> Any",
+      "summary": "The application's ASGI app, built by its composition root.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.sandloom_cache": {
+      "signature": "sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]",
+      "summary": "The app's ``default`` cache on the test ``CACHE_URL``, emptied first.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.sandloom_core": {
+      "signature": "sandloom_core(sandloom_app: Any) -> Any",
+      "summary": "The application's ``CoreFacade``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.sandloom_test_env": {
+      "signature": "sandloom_test_env(request: pytest.FixtureRequest) -> Path",
+      "summary": "Load the nearest ``.env.test`` (rootdir first, then the test paths).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.scratch_database": {
+      "signature": "scratch_database(sandloom_test_env: Path) -> Iterator[str]",
+      "summary": "A throw-away database on the test server (sync URL), dropped after.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.test_db": {
+      "signature": "test_db(db: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.test_engine": {
+      "signature": "test_engine(db_engine: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.fixtures.user_headers": {
+      "signature": "user_headers(make_headers: Callable[..., tuple[Any, dict[str, str]]]) -> dict[str, str]",
+      "summary": "Headers of a default user (random user id and tenant).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.flush_owned_redis": {
+      "signature": "flush_owned_redis(client: Any, *, owner: str | None = None) -> None",
+      "summary": "``FLUSHDB`` a test Redis database this run owns, keeping its marker.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.get_db": {
+      "signature": "get_db(request: Request) -> AsyncGenerator[AsyncSession, None]",
+      "summary": "Request-scoped DB session governed by a UnitOfWork (the canonical path).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.in_process_rpc_client": {
+      "signature": "in_process_rpc_client(core: Any, settings: Any = None) -> httpx.AsyncClient",
+      "summary": "An HTTP client whose requests hit ``core``'s internal RPC routes\nin-process (authenticated and bound under ``settings``, default the core's).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.keyed_rpc_settings": {
+      "signature": "keyed_rpc_settings(cfg: Any, contracts: Iterable[str], service_id: str = 'sandloom-conformance') -> Any",
+      "summary": "A copy of ``cfg`` keyed as ``service_id`` calling ITSELF.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.migrate_module": {
+      "signature": "migrate_module(url: str, package: str, revision: str = 'head', *, downgrade: bool = False, chain: str | None = None) -> None",
+      "summary": "Move ``package``'s own chain in ``url`` to ``revision``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.migration_chains": {
+      "signature": "migration_chains(core: Any = None) -> list[MigrationChain]",
+      "summary": "The core chain plus the chain of every loaded module that has one.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.model_tables": {
+      "signature": "model_tables(core: Any = None) -> dict[str, MigrationChain]",
+      "summary": "``{table: owning chain}`` for every ORM table of the core and the\nloaded modules — the owner is the package that DECLARES the model.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.open_saga_harness": {
+      "signature": "open_saga_harness(core: Any) -> AsyncIterator[SagaHarness]",
+      "summary": "The fixture body: point ``default`` at the test database, yield a harness.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.override_instance": {
+      "signature": "override_instance(core: Any, capability: str, name: str = 'default', *, driver: str, **options: Any) -> AsyncIterator[Any]",
+      "summary": "Configure ``capability``/``name`` with ``driver`` + ``options`` in the block.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.ambient_uow": {
+      "signature": "ambient_uow() -> AsyncIterator[Any]",
+      "summary": "Bind an in-memory recording UoW for the whole test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.async_client": {
+      "signature": "async_client(client: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.client": {
+      "signature": "client(sandloom_app: Any, db: Any, request: pytest.FixtureRequest) -> AsyncIterator[Any]",
+      "summary": "HTTP client on the app; every request runs on the test's ``db``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.db": {
+      "signature": "db(db_engine: Any) -> AsyncIterator[Any]",
+      "summary": "A session on the test database, rolled back after the test.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.db_engine": {
+      "signature": "db_engine(sandloom_app: Any) -> AsyncIterator[Any]",
+      "summary": "Engine on the test database; every table present and empty.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.db_uow": {
+      "signature": "db_uow(db: Any) -> AsyncIterator[Any]",
+      "summary": "``db`` bound as the UoW for the whole test (outbox / audit rows join it).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.make_headers": {
+      "signature": "make_headers(sandloom_test_env: Path) -> Callable[..., tuple[Any, dict[str, str]]]",
+      "summary": "Factory: ``make_headers(user_id=None, tenant_id=None, **claims)``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.real_uow_client": {
+      "signature": "real_uow_client(sandloom_app: Any, sandloom_core: Any, db_engine: Any, request: pytest.FixtureRequest) -> AsyncIterator[Any]",
+      "summary": "HTTP client whose requests run through the REAL request UoW.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.revoked_tokens": {
+      "signature": "revoked_tokens(monkeypatch: pytest.MonkeyPatch) -> RevokedTokens",
+      "summary": "Record ``revoke_user_tokens(user_id)`` calls instead of running them.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.saga_harness": {
+      "signature": "saga_harness(sandloom_core: Any, db_engine: Any) -> AsyncIterator[Any]",
+      "summary": "Drive the REAL saga protocol synchronously (``sandloom.core.testing.sagas``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.sandloom_app": {
+      "signature": "sandloom_app(pytestconfig: pytest.Config, sandloom_test_env: Path) -> Any",
+      "summary": "The application's ASGI app, built by its composition root.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.sandloom_cache": {
+      "signature": "sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]",
+      "summary": "The app's ``default`` cache on the test ``CACHE_URL``, emptied first.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.sandloom_core": {
+      "signature": "sandloom_core(sandloom_app: Any) -> Any",
+      "summary": "The application's ``CoreFacade``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.sandloom_test_env": {
+      "signature": "sandloom_test_env(request: pytest.FixtureRequest) -> Path",
+      "summary": "Load the nearest ``.env.test`` (rootdir first, then the test paths).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.scratch_database": {
+      "signature": "scratch_database(sandloom_test_env: Path) -> Iterator[str]",
+      "summary": "A throw-away database on the test server (sync URL), dropped after.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.test_db": {
+      "signature": "test_db(db: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.test_engine": {
+      "signature": "test_engine(db_engine: Any) -> Any",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.plugin.user_headers": {
+      "signature": "user_headers(make_headers: Callable[..., tuple[Any, dict[str, str]]]) -> dict[str, str]",
+      "summary": "Headers of a default user (random user id and tenant).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.probe": {
+      "signature": "probe(server: SpawnedServer, timeout: float = 1.0) -> bool",
+      "summary": "One readiness check: ``True`` once THIS spawn answers with its nonce.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.published": {
+      "signature": "published(event: type[E] | str) -> list[E]",
+      "summary": "The events of ``event``'s channel published by the code under test::",
+      "tier": "beginner"
+    },
+    "sandloom.sdk.testing.record_revocation_checks": {
+      "signature": "record_revocation_checks(monkeypatch: pytest.MonkeyPatch) -> list[str]",
+      "summary": "Record the ``sub`` of every access-token revocation check.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.recording_uow": {
+      "signature": "recording_uow(*, database: str = 'default') -> Iterator[RecordingSession]",
+      "summary": "Bind an in-memory UoW that records audits/events (unit tests).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.register_event_schemas": {
+      "signature": "register_event_schemas(channels: Mapping[str, dict[str, Any] | None] | Iterable[str], *, target: Any = None) -> None",
+      "summary": "Register schemas for ``channels`` (a list = permissive object schemas).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.registration_surface": {
+      "signature": "registration_surface(register: Callable[[Any], Any], *, api: Any | None = None) -> RegistrationSurface",
+      "summary": "Run ``register`` against a recording ``ModuleAPI`` stand-in.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.reload_test_env": {
+      "signature": "reload_test_env(path: str | os.PathLike[str]) -> None",
+      "summary": "``load_dotenv(path, override=True)`` then re-apply the worker rewrite.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.revocation_mark_key": {
+      "signature": "revocation_mark_key(user_id: Any) -> str",
+      "summary": "The cache key of ``user_id``'s subject-state record.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.route_policy": {
+      "signature": "route_policy(route: Any) -> RoutePolicy",
+      "summary": "The policy the framework applies to ``route`` (resolved live). An app\nasserts deny-by-default with it::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_client_for": {
+      "signature": "rpc_client_for(core: Any, transport: str, settings: Any = None) -> AsyncIterator[tuple[Any, str]]",
+      "summary": "(client, base_url) of the RPC path for ``transport`` (see module doc).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_env": {
+      "signature": "rpc_env(service_id: str, *, peers: Iterable[str] = (), allowed_calls: Mapping[str, Any] | None = None) -> dict[str, str]",
+      "summary": ":func:`rpc_settings` as environment variables (maps JSON-encoded).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_keys": {
+      "signature": "rpc_keys(service_id: str) -> RpcKeys",
+      "summary": "Fresh keys for ``service_id`` (generated once per process).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_proxy_for": {
+      "signature": "rpc_proxy_for(core: Any, contract_name: str, client: Any, base_url: str = 'http://sandloom-conformance', *, settings: Any = None) -> Any",
+      "summary": "A generated RPC proxy for ``contract_name`` served by ``core`` via ``client``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_request_headers": {
+      "signature": "rpc_request_headers(settings: Any, target: str, body: bytes = b'', *, http_method: str = 'POST', provider: str | None = None, sign: bool = False) -> dict[str, str]",
+      "summary": "Authenticated headers of ONE raw internal-RPC request (tests).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_response_headers": {
+      "signature": "rpc_response_headers(settings: Any, request_headers: Mapping[str, str], status_code: int, body: bytes) -> dict[str, str]",
+      "summary": "The binding headers a provider keyed with ``settings`` puts on its\nresponse to ``request_headers`` (tests faking a provider's answer).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.rpc_settings": {
+      "signature": "rpc_settings(service_id: str, *, peers: Iterable[str] = (), allowed_calls: Mapping[str, Any] | None = None) -> dict[str, Any]",
+      "summary": "``Settings`` field values keying ``service_id`` for internal RPC.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.run_on_commit": {
+      "signature": "run_on_commit(session: Any = None, *, database: str | None = None) -> None",
+      "summary": "Treat a test-owned UoW session as committed: run its ``before_commit``\nchecks (a failing one propagates and no ``on_commit`` callback runs —\nlike a real UoW that refuses to commit), then its ``on_commit`` callbacks.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.run_sql": {
+      "signature": "run_sql(url: str, sql: str, params: Any = None) -> list[Any]",
+      "summary": "Run ``sql`` in its own committed transaction; the rows it returned.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.served_rpc": {
+      "signature": "served_rpc(core: Any, app: Any = None, settings: Any = None) -> AsyncIterator[str]",
+      "summary": "Serve ``core``'s internal RPC routes (or ``app``) on a loopback socket.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.set_environment": {
+      "signature": "set_environment(monkeypatch: pytest.MonkeyPatch, name: Literal['dev', 'test', 'prod']) -> None",
+      "summary": "Run the rest of the test with ``settings.environment == name``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.spawn_served": {
+      "signature": "spawn_served(port: ReservedPort, app: str, *, env: dict[str, str], log_level: str = 'warning', label: str = '', **popen_kwargs: Any) -> SpawnedServer",
+      "summary": "Start ``app`` (``\"module:attr\"``) in a child serving on ``port``'s socket.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.stop_revocation_listener": {
+      "signature": "stop_revocation_listener() -> None",
+      "summary": "Drop every per-process copy of a subject's state (test teardown).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.tables_created_by": {
+      "signature": "tables_created_by(chain: MigrationChain) -> set[str]",
+      "summary": "Tables a chain's revisions create (``op.create_table(<name>, ...)``).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.temporary_database": {
+      "signature": "temporary_database(base_url: str | None = None) -> Iterator[str]",
+      "summary": "Create an empty database on the test server; yield its sync URL.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.upgrade_core_chain": {
+      "signature": "upgrade_core_chain(url: str) -> None",
+      "summary": "Apply the core chain (outbox / audit / inbox / command log) to ``url``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.use_security_cache": {
+      "signature": "use_security_cache(monkeypatch: pytest.MonkeyPatch, provider: CacheProvider) -> CacheProvider",
+      "summary": "Resolve the kernel's revocation / block state to ``provider``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.wait_revocation_listener_subscribed": {
+      "signature": "wait_revocation_listener_subscribed(timeout: float = 5.0) -> None",
+      "summary": "Return once no per-process copy of a subject's state can be stale.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.testing.worker_env_values": {
+      "signature": "worker_env_values(path: str | os.PathLike[str]) -> dict[str, str]",
+      "summary": "``dotenv_values(path)`` (``None`` dropped), the ``SANDLOOM_TEST_<VAR>``\noverrides applied, rewritten for this worker. Missing file -> ``{}`` base.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tooling.docs_main": {
+      "signature": "docs_main(argv: list[str] | None = None) -> int",
+      "summary": "``sandloom docs <name> | --write | --check``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.tooling.main": {
+      "signature": "main(argv: list[str] | None = None) -> int",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.Capability": {
+      "signature": "Capability(capability: str, contract: type | None = None, name: str = 'default', *, features: set[str] | None = None) -> Any",
+      "summary": "Annotated dependency resolving any capability instance.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.CurrentService": {
+      "signature": "CurrentService(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.CurrentUser": {
+      "signature": "CurrentUser(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.Database": {
+      "signature": "Database(name: str) -> Any",
+      "summary": "Annotated dependency for a named database session.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.DbSession": {
+      "signature": "DbSession(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.ModuleRouter": {
+      "signature": "ModuleRouter(*, sandloom_owner: str, sandloom_tenant: TenantBinding = 'derive', prefix: str = '', tags: list[str | Enum] | None = None, dependencies: Sequence[params.Depends] | None = None, **kwargs: Any) -> None",
+      "summary": "An ``APIRouter`` whose route decorators also take\n``tenant: Literal[\"required\", \"optional\", \"none\"] | None = None``.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.ReadOnlyDbSession": {
+      "signature": "ReadOnlyDbSession(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.ResolvedAccount": {
+      "signature": "ResolvedAccount(kind: Literal['user', 'org'], id: UUID) -> None",
+      "summary": "The billing account a release check is for (spec §2.3, §4.6, §7).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.TenantId": {
+      "signature": "TenantId(*args, **kwargs)",
+      "summary": "Runtime representation of an annotated type.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.TenantScope": {
+      "signature": "TenantScope(*, header: str = 'X-Tenant-Id', claim_keys: tuple[str, ...] = ('tenant_id', 'org_id'), required: bool = True) -> Any",
+      "summary": "FastAPI dependency that binds the request's tenant for its whole scope.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.allow_multi_db_write": {
+      "signature": "allow_multi_db_write(*, secondaries: tuple[str, ...], reason: str) -> params.Depends",
+      "summary": "The reviewed best-effort 1PC opt-out of the one-writer rule (spec §4.4\nrule 4): the listed secondaries may write too; they commit first and the\nwrite store last.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.at_commit": {
+      "signature": "at_commit() -> params.Depends",
+      "summary": "Re-check the caller's session before the COMMIT of EVERY unit the\nrequest opens, empty ones included (spec §4.5; today's\n``revocation_at_commit()``). Writes are re-checked automatically; this is\nfor a non-write route with an explicit commit obligation.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.authenticates": {
+      "signature": "authenticates(fn: F | None = None, *, kind: Literal['user', 'service'] = 'user') -> F | Callable[[F], F]",
+      "summary": "Mark ``fn`` (a FastAPI dependency) as authenticating the caller.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.authorizes": {
+      "signature": "authorizes(fn: _F) -> _F",
+      "summary": "Mark ``fn`` (a FastAPI dependency) as a custom authorization check.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.current_service": {
+      "signature": "current_service(x_internal_token: str | None = Header(None)) -> UserContext",
+      "summary": "The service principal of an internal call (``SOURCE_INTERNAL``): the\ninternal token authenticates it (404 otherwise, existence hidden). A route\ntaking it is service-authenticated, never user-authenticated (spec §2.3).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.current_user_id": {
+      "signature": "current_user_id(subject: sandloom.shared.subject.UserContext = Depends(dependency=<function current_context>, use_cache=True, scope=None)) -> uuid.UUID",
+      "summary": "Extract the authenticated user id from the Bearer access token.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.external_call": {
+      "signature": "external_call(name: str) -> AsyncIterator[None]",
+      "summary": "Run one external (PSP) call with no unit of the request open (§4.6).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.get_client_ip": {
+      "signature": "get_client_ip(request: Any, *, config: Any | None = None) -> str",
+      "summary": "Return the real client IP for ``request`` (Starlette ``Request``-like).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.idempotency_guard": {
+      "signature": "idempotency_guard(*, scope: str, ttl_seconds: int = 86400, required: bool = True, fail_closed: bool = False, store_response: bool = True, durable: bool = False) -> Any",
+      "summary": "Public re-export of the Idempotency-Key dependency factory.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.module_router": {
+      "signature": "module_router(*, prefix: str | None = None, tags: Sequence[str] | None = None, tenant: TenantBinding = 'derive', dependencies: Sequence[params.Depends] = ()) -> ModuleRouter",
+      "summary": "The module's router (spec §5.1), in ``<module>/api.py``::",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.no_idempotency": {
+      "signature": "no_idempotency(*, reason: str) -> params.Depends",
+      "summary": "Opt a write route out of the automatic idempotency guard (streaming,\nnon-JSON bodies). The reason is recorded in the route snapshot.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.operation_intent": {
+      "signature": "operation_intent(*, reason: str) -> params.Depends",
+      "summary": "Declare the operation-intent mode (spec §4.6): no request unit,\nsequential ``open_uow()`` units, external calls in ``external_call()``,\nand ``release_check()`` before a 2xx (SANDLOOM-R008 / SANDLOOM-R012). Only for\nroutes that call an external provider (billing checkout and portal).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.public": {
+      "signature": "public(*, reason: str, issues_tokens: bool = False) -> params.Depends",
+      "summary": "Declare a route unauthenticated, and why (ADR-0009 item 1).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.rate_limiter": {
+      "signature": "rate_limiter(*, requests: int, period: int, fail_closed: bool = False) -> Any",
+      "summary": "Expose rate limiter dependency routed through sandloom.core.ingress.rate_limit.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.release_check": {
+      "signature": "release_check(account: ResolvedAccount, *, authority: Callable[[], Awaitable[None]] | None = None) -> None",
+      "summary": "The final re-read before an intent route releases a bearer value.",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.replay_safe": {
+      "signature": "replay_safe(*, reason: str) -> params.Depends",
+      "summary": "Opt a keyed write in to BODY replay (idempotency mode B, spec §4.7).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.request_operation_key": {
+      "signature": "request_operation_key() -> str | None",
+      "summary": "The request's operation key: a stable digest of its route, caller,\ntenant and ``Idempotency-Key`` as claimed by the route's idempotency guard,\nor ``None`` (no key, or no guard). Pass it as a money effect's\n``operation_key`` (ADR-0009 item 11).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.require_platform_admin": {
+      "signature": "require_platform_admin(subject: sandloom.shared.subject.UserContext = Depends(dependency=<function current_context>, use_cache=True, scope=None)) -> None",
+      "summary": "",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.sensitive": {
+      "signature": "sensitive(risk: Risk) -> params.Depends",
+      "summary": "The escape hatch for a route whose authority check is hand-rolled:\ndeclare its risk (``admin`` / ``money`` / ``security``) so the framework\napplies what that risk triggers (ADR-0009 item 9).",
+      "tier": "advanced"
+    },
+    "sandloom.sdk.web.writes": {
+      "signature": "writes(database: str) -> params.Depends",
+      "summary": "Name the route's write store when it injects several writable sessions\n(spec §6.1, SANDLOOM-B009).",
+      "tier": "advanced"
+    }
+  },
+  "schema": "sandloom.sdk_catalog",
+  "schema_version": 1
+}

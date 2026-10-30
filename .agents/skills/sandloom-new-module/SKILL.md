@@ -82,3 +82,6 @@ description: Create a new Sandloom business module (sandloom add module, migrate
 - `src/sandloom_billing/`: PSP port, durable idempotency, command contracts.
 - `examples/helpdesk`: an app module consuming `tenancy.membership.v1`.
 - `examples/projecthub`: a projection and a consumer.
+
+When extending an existing module or assessing its external impact, use
+`sandloom-module-context` to read scoped rules/interfaces and declared connections.

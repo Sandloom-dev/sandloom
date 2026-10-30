@@ -1,8 +1,8 @@
 # Context bundles and declared architecture graph
 
-**Status: Proposed — not implemented.** Date: 2026-10-30.
-Targets the existing 0.7.0a3 architecture. This document specifies tooling for
-module authors and agents; its command examples are proposed interfaces.
+**Status: Implemented on this branch — unreleased.** Date: 2026-10-30.
+Targets the existing 0.7.0a3 architecture. This document records the design for module authors and agents.
+See [implementation and validation](implementation.md) for delivered behavior and limits.
 [Evidence](research.md) · [Implementation plan](plan.md) · [Draft usage guide](usage.md) ·
 [Draft agent skill](skills/sandloom-module-context/SKILL.md).
 

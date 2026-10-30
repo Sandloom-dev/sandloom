@@ -32,3 +32,6 @@ private/local-state/
 
 # Internal preparation material stays outside public source.
 private/
+
+# Local verification receipts; the semantic inspection index is committed.
+**/.sandloom/cache/

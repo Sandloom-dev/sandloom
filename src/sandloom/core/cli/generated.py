@@ -51,6 +51,8 @@ from pathlib import Path
 from typing import Any
 
 import sandloom.core.cli.dto_copies as _dto_copies
+import sandloom.core.cli.inspection.collect as _inspection_collect
+import sandloom.core.cli.inspection.generation as _inspection_generation
 import sandloom.core.cli.route_weakening as _route_weakening
 import sandloom.core.contract_compat as _contract_compat
 import sandloom.core.route_snapshots as _route_snapshots
@@ -1286,7 +1288,10 @@ def apply(
         item.path.parent.mkdir(parents=True, exist_ok=True)
         if item.path.suffix == ".py":
             _ensure_package(item.path.parent, shared_dir)
-        item.path.write_text(item.content, encoding="utf-8")
+        if item.path.name == "inspection.json" and item.path.parent.name == ".sandloom":
+            _inspection_generation.publish_index(item.path, item.content)
+        else:
+            item.path.write_text(item.content, encoding="utf-8")
         print(f"wrote {_shown(item.path, root)}")
     return 0
 
@@ -1309,6 +1314,7 @@ def main(argv: list[str] | None = None) -> int:
     rules = load_rules(args.root / "architecture_rules.yml")
     if str(rules.source_root) not in sys.path:
         sys.path.insert(0, str(rules.source_root))
+    before = _inspection_collect.capture(rules)
     app = load_composition_app()
     if args.modules:
         known = {
@@ -1327,13 +1333,22 @@ def main(argv: list[str] | None = None) -> int:
         shared_package=rules.shared_dto_package,
         modules=args.modules or None,
     )
-    code = apply(
-        files, write=not args.check, shared_dir=rules.shared_dir, root=args.root
+    return _inspection_generation.finish(
+        rules=rules,
+        app=app,
+        selected=files,
+        modules=args.modules,
+        check=args.check,
+        before=before,
+        plan_all=lambda: plan(
+            app,
+            rules.shared_dir,
+            rules.source_root,
+            shared_package=rules.shared_dto_package,
+        ),
+        make_file=Generated,
+        apply_files=apply,
     )
-    if code == 0:
-        verb = "up to date" if args.check else "current"
-        print(f"generated files {verb} ({len(files)} file(s))")
-    return code
 
 
 __all__ = [

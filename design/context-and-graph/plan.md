@@ -1,6 +1,6 @@
 # Implementation plan: module context and architecture graph
 
-**Status: Proposed — implementation not started.** Date: 2026-10-30.
+**Status: Implemented on this branch — unreleased.** Date: 2026-10-30.
 [Specification](spec.md) · [Research and source evidence](research.md) ·
 [Usage draft](usage.md) · [Skill draft](skills/sandloom-module-context/SKILL.md).
 
@@ -229,5 +229,5 @@ A smaller bundle alone is not success. No new claims are made until measured.
 - **Context safety:** denied-content output or cross-module implementation leakage
   blocks release, including through symlink/alias/Markdown boundary fixtures.
 
-Implementation starts only after this proposed specification is reviewed. Design
-artifacts do not add working commands or alter current generation/test behavior.
+Implementation and validation are recorded in [implementation.md](implementation.md).
+Commands are available on this branch; no new PyPI release or site deployment is performed.

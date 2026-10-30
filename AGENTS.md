@@ -132,7 +132,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | deployment profiles; a module in microservices; the distributions | `deploy/AGENTS.md`, `deploy/README.md`, `packages/README.md` |
 | security model; operations runbook (secrets, backups, incidents) | `docs/reference/security-model.md`, `docs/operations/operator-reference.md` |
 | decisions (effect model, route policy, Public API 1.0, …) | `docs/adr/` |
-| procedures (skills); file-type rules (migrations, tasks, contracts, tests) | `.claude/skills/sandloom-*`, `.claude/rules/` |
+| procedures; context/graph before module changes: `sandloom-module-context` | `.claude/skills/sandloom-*`, `.claude/rules/` |
 | issue tracker, triage labels, domain docs | `CONTRIBUTING.md` |
 
 ## Looks wrong but is intentional
