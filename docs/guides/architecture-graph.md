@@ -12,17 +12,41 @@ This is a declared map, not production traffic or active RPC routing.
     Added after 0.7.0a3. Use the current source checkout until the next PyPI release.
 
 ```bash
-uv run sandloom graph --view modules
-uv run sandloom graph --module notes --hops 1
+uv run sandloom explore                  # generate, save HTML, open the browser
+uv run sandloom graph                    # terminal tree; JSON in a pipe
+uv run sandloom graph notes              # module and immediate neighbors
+uv run sandloom graph impact stats.quota.v1
+uv run sandloom graph diff main          # compare the committed model on main
+```
+
+`explore` explicitly runs `sandloom generate`: it loads the application in its
+own process and writes managed artifacts after compatibility checks. It then
+saves `.sandloom/cache/explore.html` and opens its local file URL. The HTML embeds
+its renderer and data; no web server or external service is needed. Generation
+failure stops the command before opening a stale page. The file URL is always
+printed; a headless environment can use `--no-open`.
+
+```bash
+uv run sandloom explore notes --hops 0
+uv run sandloom explore --no-generate    # inspect the saved model, without app loading
+uv run sandloom explore --no-open        # generate and save only
+uv run sandloom graph --format json      # stable choice for scripts/agents, including a TTY
+uv run sandloom graph --format text      # readable output even through a pipe
+uv run sandloom graph --view modules     # discover stable module IDs
 uv run sandloom graph --format html --output architecture.html
 ```
 
-Discovery lists stable module IDs without dumping relationships. The graph
-returns compact JSON by default; the HTML file is an offline viewer with module
-search across entities (with explicit hints for matches hidden by another layer
-or filters), semantic layers, directed neighborhoods, zoom/pan/fit,
-a persistent inspector and equivalent entity/relationship lists.
-Open it yourself; the command never opens a browser or starts an app server.
+`graph` reads the saved model and never opens a browser or regenerates files.
+Its default depends only on stdout: a TTY gets a plain tree, while a pipe,
+redirect or `--output` gets compact JSON. `--format` overrides that choice.
+There is no agent identity detection. The existing `--module`, `--view`, `--item`
+and `--before` forms remain supported. Modules named `impact` or `diff` can be
+selected explicitly with `--module`.
+
+Discovery lists stable module IDs without dumping relationships. HTML provides
+module search across entities (with hints for matches hidden by another layer
+or filters), semantic layers, directed neighborhoods, zoom/pan/fit, a persistent
+inspector and equivalent entity/relationship lists.
 
 ## What an arrow means
 
@@ -84,7 +108,7 @@ export must be available to its recipient. The mobile details button leads to th
 ## Potential impact and architecture changes
 
 ```bash
-uv run sandloom graph --view impact --item contract:stats.quota.v1
+uv run sandloom graph impact stats.quota.v1
 cp .sandloom/inspection.json architecture-before.json
 # Change declarations, then explicitly regenerate.
 uv run sandloom generate
@@ -98,8 +122,13 @@ results can involve other interfaces: this is an overapproximation of declared
 impact, not complete call-site or test coverage. Optional dependencies remain
 optional. Suggested module test commands never replace normal quality gates.
 
-Diff reads a project-relative historical index as JSON data. It does not check
-out Git revisions, import old code or resolve old source paths. It lists additions,
+`graph diff REV` reads this project's `.sandloom/inspection.json` from a local
+Git revision, including the project prefix in a monorepo. The response records
+the resolved commit ID. Commit the generated index on the baseline branch first;
+a revision without it produces an explicit error, with no inferred replacement.
+No fetch, checkout, old-code execution or historical source resolution occurs.
+Git is required only for this explicit revision form. `--view diff --before PATH`
+reads a project-relative saved index without Git. Both treat the baseline as JSON data. It lists additions,
 removals and changes to declarations/interfaces; implementation bodies are not
 compared. Contract compatibility uses the framework's rolling-upgrade rules;
 event changes use its same-version schema rules. Missing interface evidence is
@@ -132,5 +161,6 @@ underlying export inventory.
 
 Freshness, explicit generation, output safety and structured errors follow the
 [module context guide](module-context.md). Cold reads need no app environment,
-PostgreSQL, Redis or optional PyYAML. A missing inspection index requires explicit
-`sandloom generate`; this may load the app and is not run automatically.
+PostgreSQL, Redis or optional PyYAML. For cold `graph` reads, a missing inspection index requires explicit
+`sandloom generate`; it is never run automatically. `explore` is the separate
+authoring command that generates by default.

@@ -15,7 +15,7 @@ description: Gather scoped context before changing a Sandloom module; inspect de
 2. When the target is unclear, discover stable IDs:
 
    ```bash
-   uv run sandloom graph --view modules
+   uv run sandloom graph --view modules --format json
    ```
 
    Select the module matching the task. Ambiguous ownership needs clarification;
@@ -24,11 +24,13 @@ description: Gather scoped context before changing a Sandloom module; inspect de
 
    ```bash
    uv run sandloom context module:notes
-   uv run sandloom graph --module module:notes --hops 1
+   uv run sandloom graph module:notes --hops 1 --format json
    ```
 
    Replace `module:notes` with the selected ID. Context is compact Markdown;
-   graph is compact JSON. Inspect freshness, declared scope, unresolved facts
+   graph is explicit compact JSON. Without `--format`, graph uses text on stdout
+   TTY and JSON in pipes; choose the format rather than relying on how the agent
+   runner allocates a terminal. Inspect freshness, declared scope, unresolved facts
    and omissions before relying on the result. This is a declaration graph,
    not a runtime trace, transaction guarantee or permission to edit other modules.
 
@@ -41,10 +43,13 @@ description: Gather scoped context before changing a Sandloom module; inspect de
 - For process order, query `graph --view sequence --process ID`; state view
   requires a saga ID. Forward steps, compensation alternatives and framework
   route phases are declarations, never observed attempts or handler call traces.
-- Before changing an interface, query `graph --view impact --item ID`.
+- Before changing an interface, query `graph impact ID --format json`.
   Keep its direct witnesses distinct from transitive module overapproximation.
   Compare an explicitly saved historical index with
-  `graph --view diff --before PATH`; missing compatibility evidence is unknown.
+  `graph --view diff --before PATH --format json`, or use
+  `graph diff REV --format json` for a committed local baseline. A revision must
+  contain the generated index; the query never fetches or checks out code.
+  Missing compatibility evidence is unknown.
   These read-only queries do not justify skipping normal quality gates.
 - Include a missing implementation/test file with repeatable module-relative
   `--file` selections; use the byte budget to bound the result:
@@ -59,6 +64,8 @@ description: Gather scoped context before changing a Sandloom module; inspect de
   and typed diagnostics. For complete hashes/provenance add `--detail full`.
   A nonzero exit is not usable partial context. Full detail does not expand
   business scope; a larger budget may be required for its metadata.
+- `sandloom explore` is the human authoring/browser command: it generates and
+  opens HTML by default. Use cold `context`/`graph` for inspection tasks.
 - A missing index requires explicit `uv run sandloom generate`, which writes
   managed artifacts and may load the application. Run it only within the task's
   authority and environment, review its diff, then recapture. A changed/missing

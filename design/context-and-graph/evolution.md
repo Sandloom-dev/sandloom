@@ -154,3 +154,27 @@ four final wheel/sdist pairs passed rebuild, license/layering and clean
 bare/standard installation checks, including the installed cold inspection
 smoke. Browser reload also preserves interactive impact preview and its mobile
 details action. The local Explorer was regenerated from the final source.
+
+
+## Human CLI front door (2026-10-30)
+
+Added `sandloom explore [MODULE]` (explicit generation + offline HTML + browser),
+`graph [MODULE]`, `graph impact ITEM` and `graph diff REV`. Graph defaults to text
+on stdout TTY and JSON in pipes/redirects or file-writing mode; explicit formats
+win. Legacy flags remain supported. Revision diff reads only this project's
+committed index, resolves an immutable commit and reports that basis, without
+checkout/fetch or old-code execution. Missing baseline data is an error.
+
+The source specification, CLI guide/reference and four agent skill copies were
+updated together. Paid agent DX remains deferred. Targeted inspection suite:
+112 passing cases; lint, formatting, types and skill validation pass. Full-gate,
+distribution and Linux CI results are recorded in the pull request.
+
+Final front-door validation: 5,167 full-suite tests, 1,273 architecture tests and
+all quality gates passed; existing skips/expected failure retained. Four
+wheel/sdist pairs passed rebuild, license/layering and clean-install checks,
+including cold positional graph/impact queries. A fresh wheel-installed app
+with identity, tenancy, billing and notes generated a verified offline Explorer,
+returned verified graph JSON through a pipe and received both updated skill
+mirrors. The unified website, explicit architecture check, skill validator and
+2,374-file reviewed-source check also passed.

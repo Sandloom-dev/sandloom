@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import types
@@ -1395,3 +1396,372 @@ def test_mermaid_sequence_escapes_control_text_without_losing_unit_boundaries() 
     assert "unit#59; separate commit #38; #60;callback#62; #34;quoted#34;" in text
     assert "first next line" in text
     assert "&amp" not in text and "&#" not in text
+
+
+@pytest.mark.parametrize(
+    ("tty", "fmt", "expected"),
+    [
+        (True, None, "text"),
+        (False, None, "json"),
+        (True, "json", "json"),
+        (False, "text", "text"),
+    ],
+)
+def test_graph_terminal_and_pipe_formats(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tty: bool,
+    fmt: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
+    args = ["notes", *(["--format", fmt] if fmt else [])]
+    rc, text, err = run(project, capsys, "graph", *args)
+    assert rc == 0 and not err
+    if expected == "json":
+        assert json.loads(text)["selection"]["module_ids"] == [
+            "module:notes",
+            "module:stats",
+        ]
+    else:
+        assert "Freshness: verified" in text and "├─" in text
+        assert "stats.quota.v1" in text and "stats.changed.v1" in text
+        assert "archive" not in text
+
+
+def test_positional_graph_and_impact_preserve_legacy_scope(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run(project, capsys, "graph", "notes", "--hops", "0") == run(
+        project, capsys, "graph", "--module", "notes", "--hops", "0"
+    )
+    short = run(
+        project, capsys, "graph", "impact", "--format", "json", "stats.quota.v1"
+    )
+    assert short == run(
+        project,
+        capsys,
+        "graph",
+        "--view",
+        "impact",
+        "--item",
+        "contract:stats.quota.v1",
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["impact"],
+        ["diff"],
+        ["notes", "stats"],
+        ["notes", "--module", "stats"],
+        ["impact", "stats.quota.v1", "--view", "graph"],
+        ["diff", "main", "--before", "saved.json"],
+        ["impact", "stats.quota.v1", "--module", "notes"],
+    ],
+)
+def test_short_command_usage_is_structured_without_writes(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    args: list[str],
+) -> None:
+    before = {p: p.read_bytes() for p in project.root.rglob("*") if p.is_file()}
+    rc, text, err = run(project, capsys, "graph", *args)
+    assert rc == 2 and not err
+    assert json.loads(text)["diagnostics"][0]["kind"] == "usage"
+    assert before == {p: p.read_bytes() for p in project.root.rglob("*") if p.is_file()}
+
+
+def test_terminal_errors_use_stderr_and_output_files_keep_json(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    rc, text, err = run(project, capsys, "graph", "impact")
+    assert rc == 2 and text == "" and "graph impact ITEM" in err
+    rc, text, err = run(project, capsys, "graph", "notes", "--output", "graph.json")
+    assert rc == 0 and not err
+    assert json.loads(text)["kind"] == "artifact"
+    assert json.loads((project.root / "graph.json").read_text())["kind"] == "graph"
+
+
+def _git_commit(root: Path) -> str:
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            [
+                "git",
+                "-c",
+                "core.hooksPath=" + str(root / ".disabled-hooks"),
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "user.name=Inspection Fixture",
+                "-c",
+                "user.email=inspection@example.invalid",
+                "-C",
+                str(root),
+                *args,
+            ],
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+
+    git("init", "--initial-branch", "main")
+    git("add", ".")
+    git("commit", "-m", "Record architecture")
+    return git("rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_git_diff_reads_saved_model_without_checkout_or_app_import(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path_factory: pytest.TempPathFactory,
+    nested: bool,
+) -> None:
+    repo = tmp_path_factory.mktemp("inspection-git")
+    root = repo / "apps/demo" if nested else repo
+    shutil.copytree(project.root, root, dirs_exist_ok=True)
+    commit = _git_commit(repo)
+    document = json.loads((root / INDEX).read_text())
+    document["modules"][0]["version"] = "2"
+    (root / INDEX).write_text(encode(document))
+    before = (repo / ".git/HEAD").read_bytes()
+    rc, text, err = run(SimpleNamespace(root=root), capsys, "graph", "diff", "main")
+    assert rc == 0 and not err
+    data = json.loads(text)["data"]
+    assert data["basis"]["before_revision"] == commit
+    assert data["basis"]["before"] == "main:" + ("apps/demo/" if nested else "") + INDEX
+    assert data["counts"] == {"added": 0, "removed": 0, "changed": 1}
+    assert data["changes"][0]["compatibility"]["state"] == "not_assessed"
+    assert (repo / ".git/HEAD").read_bytes() == before
+    assert json.loads((root / INDEX).read_text())["modules"][0]["version"] == "2"
+
+
+def test_git_diff_missing_baseline_and_option_like_revision_are_errors(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    saved = (project.root / INDEX).read_bytes()
+    (project.root / INDEX).unlink()
+    _git_commit(project.root)
+    (project.root / INDEX).write_bytes(saved)
+    for revision in ("main", "does-not-exist", "--output=unexpected"):
+        rc, text, err = run(project, capsys, "graph", "diff", "--", revision)
+        assert rc == 1 and not err
+        assert json.loads(text)["diagnostics"][0]["kind"] == "git_baseline_unavailable"
+    assert not (project.root / "unexpected").exists()
+
+
+def test_git_diff_handles_missing_git_and_timeout(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli.inspection import history
+
+    monkeypatch.setattr(history.shutil, "which", lambda _: None)
+    rc, text, _ = run(project, capsys, "graph", "diff", "main")
+    assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "git_unavailable"
+    monkeypatch.setattr(history.shutil, "which", lambda _: "/git")
+
+    def timed_out(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired("git", 10)
+
+    monkeypatch.setattr(history._tool_process, "run_tool", timed_out)
+    rc, text, _ = run(project, capsys, "graph", "diff", "main")
+    assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "git_unavailable"
+
+
+def test_terminal_escapes_controls_and_reuses_export_safely(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    document = json.loads((project.root / INDEX).read_text())
+    document["nodes"][0]["name"] = "notes\x1b[31m\nspoof"
+    document["modules"][0]["name"] = "notes\x1b[31m\nspoof"
+    (project.root / INDEX).write_text(encode(document))
+    rc, text, _ = run(project, capsys, "graph", "--format", "text")
+    assert rc == 0 and "\x1b" not in text and "\\x1b[31m\\nspoof" in text
+    for extra in ([], ["--force"]):
+        rc, _, err = run(
+            project, capsys, "graph", "--format", "text", "--output", "tree.txt", *extra
+        )
+        assert rc == 0, err
+
+
+@pytest.mark.parametrize("generated", [True, False])
+def test_explore_generates_then_opens_one_local_artifact(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    generated: bool,
+) -> None:
+    from sandloom.core.cli import explore
+
+    calls = []
+
+    def generate(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(("generate", argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="generated\n")
+
+    def open_browser(uri: str, **kwargs: object) -> bool:
+        calls.append(("open", uri))
+        assert (project.root / explore.OUTPUT).is_file()
+        return True
+
+    monkeypatch.setattr(explore._tool_process, "run_tool", generate)
+    monkeypatch.setattr(explore.webbrowser, "open", open_browser)
+    args = ["notes", "--root", str(project.root), "--hops", "0"]
+    assert explore.main(args + ([] if generated else ["--no-generate"])) == 0
+    output = capsys.readouterr()
+    assert "file:" in output.out and "freshness: verified" in output.out
+    assert [c[0] for c in calls] == (["generate", "open"] if generated else ["open"])
+    if generated:
+        assert calls[0][1][-3:] == ["generate", "--root", str(project.root)]
+    assert calls[-1][1] == (project.root / explore.OUTPUT).as_uri()
+    payload = _embedded_viewer((project.root / explore.OUTPUT).read_text())
+    assert payload["selection"]["module_ids"] == ["module:notes"]
+
+
+def test_explore_failure_never_opens_stale_html(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli import explore
+
+    target = project.root / explore.OUTPUT
+    target.write_text("old page")
+    monkeypatch.setattr(
+        explore._tool_process,
+        "run_tool",
+        lambda *a, **kw: subprocess.CompletedProcess(
+            [], 1, stdout="incompatible declaration\n"
+        ),
+    )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("browser must not open")
+
+    monkeypatch.setattr(explore.webbrowser, "open", forbidden)
+    assert explore.main(["--root", str(project.root)]) == 1
+    assert target.read_text() == "old page"
+    assert "Generation failed" in capsys.readouterr().err
+
+
+def test_explore_no_open_and_unavailable_browser_keep_usable_artifact(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli import explore
+
+    monkeypatch.setattr(explore.webbrowser, "open", lambda *a, **kw: False)
+    assert (
+        explore.main(["--root", str(project.root), "--no-generate", "--no-open"]) == 0
+    )
+    assert "No browser" not in capsys.readouterr().err
+    assert explore.main(["--root", str(project.root), "--no-generate"]) == 0
+    assert "No browser available" in capsys.readouterr().err
+
+
+def test_explore_invalid_input_has_no_traceback(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sandloom.core.cli import explore
+
+    (project.root / INDEX).write_text(
+        '{"schema": "sandloom.inspection", "schema_version": 1}'
+    )
+    assert (
+        explore.main(["--root", str(project.root), "--no-generate", "--no-open"]) == 1
+    )
+    output = capsys.readouterr()
+    assert not output.out and "cannot safely read" in output.err
+
+
+@pytest.mark.parametrize("mutation", ["crlf", "secret", "oversize", "future"])
+def test_git_baseline_preserves_input_validation(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    mutation: str,
+) -> None:
+    from sandloom.core.cli.inspection.files import MAX_FILE
+
+    path = project.root / INDEX
+    current = path.read_bytes()
+    document = json.loads(current)
+    expected = None
+    if mutation == "crlf":
+        path.write_bytes(
+            json.dumps(document, indent=2, ensure_ascii=False)
+            .replace("\n", "\r\n")
+            .encode()
+        )
+    elif mutation == "oversize":
+        path.write_bytes(b" " * (MAX_FILE + 1))
+        expected = "file_too_large"
+    elif mutation == "secret":
+        document["modules"][0]["name"] = "ghp_" + "A" * 40
+        path.write_text(encode(document))
+        expected = "sensitive_content"
+    else:
+        document["schema_version"] = 999
+        path.write_text(encode(document))
+        expected = "unsupported_schema"
+    _git_commit(project.root)
+    path.write_bytes(current)
+    rc, text, err = run(project, capsys, "graph", "diff", "main")
+    assert not err
+    result = json.loads(text)
+    if expected:
+        assert rc == 1 and result["diagnostics"][0]["kind"] == expected
+    else:
+        assert rc == 0 and result["data"]["counts"] == {
+            "added": 0,
+            "changed": 0,
+            "removed": 0,
+        }
+
+
+@pytest.mark.parametrize(
+    "formats",
+    [
+        ["--format=json", "--format", "text"],
+        ["--format", "text", "--format=json"],
+    ],
+)
+def test_explicit_error_format_uses_the_last_option(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    formats: list[str],
+) -> None:
+    rc, out, err = run(project, capsys, "graph", "impact", *formats)
+    assert rc == 2
+    if formats[-1].endswith("json"):
+        assert not err and json.loads(out)["kind"] == "error"
+    else:
+        assert not out and "usage" in err
+
+
+def test_graph_never_starts_a_browser_or_authoring_process(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli import explore
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("graph must remain a cold read")
+
+    monkeypatch.setattr(explore.webbrowser, "open", forbidden)
+    monkeypatch.setattr(explore._tool_process, "run_tool", forbidden)
+    for args in ([], ["notes"], ["impact", "stats.quota.v1"], ["--format", "text"]):
+        rc, _, err = run(project, capsys, "graph", *args)
+        assert rc == 0 and not err

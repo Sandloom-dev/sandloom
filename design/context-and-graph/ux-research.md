@@ -267,3 +267,34 @@ optional tenancy contract's billing user and provider appear as direct matches,
 and the inspector shows its actual `requires_contract` witness. Zero-change HTML
 diff reported 0/0/0 and an explicit empty state. These are browser scenario checks,
 not participant-study findings.
+
+
+## CLI entry-point checkpoint (2026-10-30)
+
+The human entry path now has one authoring command, `sandloom explore`: generate
+in a child process, save an ignored offline HTML file, print its local URL and
+open the browser. Failure to generate stops before opening an old artifact;
+`--no-generate` and `--no-open` make the two side effects explicit. Headless
+browser failure preserves a usable file and explains the remaining manual step.
+
+Cold `graph` uses stdout TTY for a readable tree, and JSON for pipes/redirects;
+explicit `--format` wins, including for error output. This is stream detection,
+not agent detection. Agent skill examples explicitly request JSON so a runner's
+PTY allocation cannot silently change the expected protocol. Positional module,
+impact and Git-diff forms remove the separate view/item pair from common tasks;
+the existing flag forms remain available for saved-file comparisons and scripts.
+
+This follows the primary [CLI output guidance](https://clig.dev/#output):
+human-readable terminal output with explicit structured machine output. Git
+revision resolution follows [rev-parse's untrusted-name guidance](https://git-scm.com/docs/git-rev-parse)
+with `--end-of-options` and a commit type suffix. Only the bounded committed
+inspection blob is read; lazy fetching and terminal authentication prompts are
+disabled. Browser fallback follows Python's documented
+[webbrowser return value](https://docs.python.org/3/library/webbrowser.html).
+
+Scenario checks used a real TTY on Academy, pipe/format regression cases,
+root/nested Git repositories, missing/unsupported/oversized/sensitive baselines,
+CRLF JSON, failed generation and mocked browser success/unavailability. A real
+`explore --no-open` generated Academy's verified HTML; `graph diff HEAD` returned
+0 added/removed/changed without checking out historical code. These are CLI
+scenario checks and source-guided design, not a participant usability study.

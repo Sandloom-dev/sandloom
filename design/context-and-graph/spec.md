@@ -58,8 +58,9 @@ paths are relative to that module. It never permits sibling source access.
 `--max-bytes` defaults to 131072 UTF-8 bytes, counting the entire serialized
 output, metadata and omissions included. It is not called a token limit.
 
-`graph` defaults to compact JSON on stdout; `--output` writes the explicitly
-chosen format atomically. Its formats are `html`, `json`, `mermaid`; a filename
+`graph` defaults to plain text on stdout TTY and compact JSON in a pipe,
+redirect or `--output`; explicit `--format` wins. `--output` writes the
+chosen format atomically. Its formats are `text`, `html`, `json`, `mermaid`; a filename
 extension never silently selects the format. `--view modules` is a bounded
 JSON discovery view containing module IDs/import paths, source availability,
 summary counts and freshness. It does not require a deliberately failing
@@ -101,11 +102,17 @@ does not reserve unverified numeric error-code slots.
 ### 2.1 Agent protocol: first-class, not a human-output parser
 
 Defaults depend on the information: compact Markdown for code/rules context,
-compact JSON for graph/discovery relations. There is no TTY/agent detection or
-environment switch. An agent can read Markdown directly; a program chooses
-explicit JSON instead of scraping Markdown. All commands are noninteractive:
-no confirmation prompt, browser opening, pager, progress animation or automatic
-fallback to app imports/network/generation. A caller decides whether to execute
+compact JSON for graph/discovery relations in pipes and plain text on stdout
+TTY. Output mode uses `isatty`, never agent identity or an environment switch. An agent can read Markdown directly; a program chooses
+explicit JSON instead of scraping Markdown. The cold `context`/`graph` commands are noninteractive: no confirmation prompt,
+browser opening, pager, progress animation or fallback to app imports/network/generation.
+`graph MODULE`, `graph impact ITEM` and `graph diff REV` are positional forms;
+explicit revision diff reads the committed inspection index without checkout or
+fetch, while saved-file diff still works without Git. A separate `explore`
+authoring command explicitly generates, saves an offline viewer in the ignored
+`.sandloom/cache/` directory and opens its local file URL. `--no-generate` and
+`--no-open` expose those steps independently. Generation failure never opens
+a stale artifact. A caller decides whether to execute
 a proposed recovery action according to its own permissions.
 
 Every JSON response uses one versioned envelope:

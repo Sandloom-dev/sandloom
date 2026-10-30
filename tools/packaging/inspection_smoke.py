@@ -116,6 +116,8 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
 """
     for command, args in (
         ("context", ["notes", "--format", "json"]),
+        ("graph", ["notes"]),
+        ("graph", ["impact", "module:notes"]),
         ("graph", ["--view", "modules"]),
         ("graph", ["--view", "sequence"]),
         ("graph", ["--view", "sequence", "--process", "route:notes%3AGET%20%2Fnotes"]),

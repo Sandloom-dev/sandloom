@@ -18,15 +18,19 @@ def run_tool(
     env: dict[str, str] | None = None,
     capture: bool = False,
     stdin: str | None = None,
+    timeout: float | None = None,
+    encoding: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run ``argv`` in ``cwd`` (``capture``: stdout + stderr in ``.stdout``;
     ``stdin``: the text fed to the tool)."""
-    return subprocess.run(  # noqa: S603 - fixed argv of the project's own dev tools (pytest, ruff, mypy, lint-imports, the generated-files writer), never user input
+    return subprocess.run(  # noqa: S603 - fixed argv of the project's own dev tools (pytest, ruff, mypy, lint-imports, the generated-files writer), no shell; tool-specific callers validate their arguments
         argv,
         cwd=cwd,
         env=env,
         check=False,
+        timeout=timeout,
         text=True,
+        encoding=encoding,
         input=stdin,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.STDOUT if capture else None,

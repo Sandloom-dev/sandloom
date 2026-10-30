@@ -249,6 +249,9 @@ def main() -> None:  # noqa: C901
         add_help=False,
         help="offline declared architecture graph and module discovery",
     )
+    sub.add_parser(
+        "explore", add_help=False, help="generate and open the architecture explorer"
+    )
     sub.add_parser("migrate", add_help=False, help="run database migrations")
     sub.add_parser("projection", add_help=False, help="operate query projections")
     sub.add_parser("outbox", add_help=False, help="requeue dead-lettered outbox events")
@@ -291,6 +294,8 @@ def main() -> None:  # noqa: C901
     if args.command == "generate":
         _load_test_env_for_authoring()
         raise SystemExit(_static_import("sandloom.core.cli.generated").main(rest))
+    if args.command == "explore":
+        raise SystemExit(_static_import("sandloom.core.cli.explore").main(rest))
     if args.command in {"context", "graph"}:
         raise SystemExit(
             _static_import("sandloom.core.cli.inspection.cli").main(args.command, rest)

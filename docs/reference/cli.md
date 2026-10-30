@@ -23,13 +23,14 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | `sandloom context <module> --focus ID` | Focus an interface/process; preserve rules and whole DTO closure. Source matching is a navigation hint. |
 | `sandloom graph --view sequence [--process ID] [--module ID]` | List processes or inspect a declared saga / framework route lifecycle. |
 | `sandloom graph --view state --process ID` | Conditional saga state transitions; JSON, Mermaid or HTML. |
-| `sandloom graph --view impact --item ID` | Direct witnesses and potential transitive module impact; JSON or HTML. |
-| `sandloom graph --view diff --before PATH` | Compare a saved inspection index; JSON or HTML. |
+| `sandloom graph impact ID` | Direct witnesses and potential transitive module impact; JSON or HTML. |
+| `sandloom graph diff REV` / `--view diff --before PATH` | Compare a saved inspection index; JSON or HTML. |
 
 Both commands accept `--root PATH`, `--output PATH`, `--force`,
 `--require-verified`; context and graph JSON also accept `--detail compact|full`
 and `--max-bytes N` (default: 131072 UTF-8 bytes). Context formats: `markdown|json`;
-graph formats: `json|mermaid|html`. Explicit files are module-relative and repeatable.
+graph formats: `text|json|mermaid|html`. Graph defaults to text on stdout TTY,
+JSON in pipes/redirects or with `--output`; explicit `--format` always wins. Explicit files are module-relative and repeatable.
 `--hops` requires `--module`, defaults to 1 and accepts 0. Topology views also
 accept `--direction incoming|outgoing|both` (default both). Process selectors are
 limited to sequence/state; impact/diff use their own item/historical scope.
@@ -45,6 +46,19 @@ are protected. No app imports, prompts, network access,
 
 See [context and freshness](../guides/module-context.md) and
 [graph semantics](../guides/architecture-graph.md).
+
+`sandloom explore [<module>] [--root PATH] [--hops N] [--direction incoming|outgoing|both]`
+is the human browser entry point: it runs `generate`, writes
+`.sandloom/cache/explore.html`, prints the file URL and opens it. `--no-generate`
+uses the saved index without app loading; `--no-open` only saves the file.
+Generation failure leaves the browser unopened. A missing desktop browser keeps
+the usable file and prints an explanation. `graph` always stays a cold read.
+
+`graph impact ID` accepts a unique stable ID or interface name. `graph diff REV`
+reads a local Git revision's committed index and records its commit ID; Git is
+required only for that form. A missing baseline index is an error. It never
+fetches, checks out code or generates historical data. File-based comparison and
+the existing `--module`/`--view`/`--item`/`--before` flags remain supported.
 
 ## Project and code
 

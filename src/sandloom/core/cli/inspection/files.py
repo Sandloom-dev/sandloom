@@ -88,15 +88,19 @@ def read(root: Path, locator: str) -> str:
             before.st_mtime_ns,
             before.st_size,
         ) == (after.st_ino, after.st_mtime_ns, after.st_size):
-            text = content.decode("utf-8")
-            if "\x00" in text or _SECRET.search(text):
-                raise InspectionError(
-                    "sensitive_content", f"Content cannot be exported: {locator}"
-                )
-            return text
+            return checked_content(content, locator)
     raise InspectionError(
         "source_changing", f"Source changed during capture: {locator}"
     )
+
+
+def checked_content(content: bytes, locator: str) -> str:
+    text = content.decode("utf-8")
+    if "\x00" in text or _SECRET.search(text):
+        raise InspectionError(
+            "sensitive_content", f"Content cannot be exported: {locator}"
+        )
+    return text
 
 
 def candidates(root: Path, directory: str) -> list[str]:
@@ -193,6 +197,8 @@ def atomic(
 
 
 def _is_export(text: str) -> bool:
+    if text.startswith("Sandloom architecture · declared model\nFreshness: "):
+        return True
     if text.startswith("# Sandloom context: "):
         lines = text.splitlines()
         return len(lines) > 1 and lines[1].startswith(

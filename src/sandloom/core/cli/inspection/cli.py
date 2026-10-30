@@ -8,11 +8,19 @@ import sys
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from sandloom.core.cli.inspection import context, files, graph, queries, sequences
+from sandloom.core.cli.inspection import (
+    context,
+    files,
+    graph,
+    queries,
+    sequences,
+    terminal,
+)
 from sandloom.core.cli.inspection.model import (
     INDEX,
     LIMIT,
     RECEIPT,
+    Doc,
     InspectionError,
     encode,
     response,
@@ -33,6 +41,14 @@ def parser_for(command: str) -> Parser:
             "Offline declared architecture inspection; never imports the "
             "application or regenerates files"
         ),
+        epilog=(
+            "Examples: sandloom graph payments; sandloom graph impact "
+            "payments.charges.v1; sandloom graph diff main. "
+            "TTY: text; pipe/output: JSON. --format overrides detection. "
+            "Use sandloom explore to generate and open a browser."
+        )
+        if command == "graph"
+        else None,
     )
     parser.add_argument(
         "--root",
@@ -44,8 +60,8 @@ def parser_for(command: str) -> Parser:
         "--format",
         choices=("markdown", "json")
         if command == "context"
-        else ("json", "mermaid", "html"),
-        default="markdown" if command == "context" else "json",
+        else ("text", "json", "mermaid", "html"),
+        default="markdown" if command == "context" else None,
     )
     parser.add_argument(
         "--detail",
@@ -92,6 +108,9 @@ def parser_for(command: str) -> Parser:
         )
     else:
         parser.add_argument(
+            "selectors", nargs="*", metavar="MODULE | impact ITEM | diff REV"
+        )
+        parser.add_argument(
             "--view",
             choices=("graph", "modules", "sequence", "state", "impact", "diff"),
             default="graph",
@@ -115,64 +134,131 @@ def parser_for(command: str) -> Parser:
     return parser
 
 
+def _selectors(args: argparse.Namespace, argv: list[str]) -> None:
+    args.revision = None
+    selectors = args.selectors
+    if not selectors:
+        return
+    action = selectors[0]
+    if action not in {"impact", "diff"}:
+        if len(selectors) != 1 or args.module:
+            raise InspectionError("usage", "Choose one module selector", code=2)
+        args.module = action
+        return
+    if any(a.split("=")[0] == "--view" for a in argv) and args.view != action:
+        raise InspectionError("usage", "Subcommand conflicts with --view", code=2)
+    args.view = action
+    if len(selectors) != 2:
+        raise InspectionError(
+            "usage",
+            f"Use sandloom graph {action} " + ("ITEM" if action == "impact" else "REV"),
+            code=2,
+        )
+    if args.item or args.before:
+        raise InspectionError(
+            "usage", "Choose a positional selector or the legacy flags", code=2
+        )
+    if action == "impact":
+        args.item = selectors[1]
+    else:
+        args.revision = selectors[1]
+
+
 def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
-    args = parser_for(command).parse_args(argv)
+    parser = parser_for(command)
+    args = (
+        parser.parse_intermixed_args(argv)
+        if command == "graph"
+        else parser.parse_args(argv)
+    )
+    if command == "graph":
+        _selectors(args, argv)
+        args.format = args.format or (
+            "json" if args.output or not sys.stdout.isatty() else "text"
+        )
     if args.max_bytes <= 0:
         raise InspectionError("usage", "--max-bytes must be positive", code=2)
     if command == "graph":
-        if (
-            (args.process and args.view not in {"sequence", "state"})
-            or (args.item and args.view != "impact")
-            or (args.before and args.view != "diff")
-        ):
-            raise InspectionError(
-                "usage",
-                (
-                    "--process needs sequence/state; --item needs impact; --before "
-                    "needs diff"
-                ),
-                code=2,
-            )
-        if args.view in {"impact", "diff"} and not getattr(
-            args, "item" if args.view == "impact" else "before"
-        ):
-            raise InspectionError(
-                "usage", "Impact needs --item; diff needs --before", code=2
-            )
-        if args.view not in {"graph", "modules"} and (
-            args.hops is not None or args.direction != "both"
-        ):
-            raise InspectionError(
-                "usage", "--hops and --direction scope topology views only", code=2
-            )
-        if args.view in {"impact", "diff"} and args.format == "mermaid":
-            raise InspectionError("usage", "Impact/diff support JSON or HTML", code=2)
-        if args.module and args.view in {"impact", "diff"}:
-            raise InspectionError(
-                "usage", "Impact/diff have their own explicit scope", code=2
-            )
-        if args.hops is not None and (not args.module or args.hops < 0):
-            raise InspectionError(
-                "usage", "--hops needs --module and a non-negative distance", code=2
-            )
-        if args.format != "json" and (
-            args.view == "modules"
-            or any(a.split("=")[0] in {"--max-bytes", "--detail"} for a in argv)
-        ):
-            raise InspectionError(
-                "usage",
-                "Discovery, --detail and --max-bytes require graph JSON",
-                code=2,
-            )
+        _validate_graph(args, argv)
     return args
+
+
+def _validate_graph(args: argparse.Namespace, argv: list[str]) -> None:
+    if (
+        (args.process and args.view not in {"sequence", "state"})
+        or (args.item and args.view != "impact")
+        or (args.before and args.view != "diff")
+    ):
+        raise InspectionError(
+            "usage",
+            (
+                "--process needs sequence/state; --item needs impact; --before "
+                "needs diff"
+            ),
+            code=2,
+        )
+    if (args.view == "impact" and not args.item) or (
+        args.view == "diff" and not (args.before or args.revision)
+    ):
+        raise InspectionError(
+            "usage",
+            "Use graph impact ITEM or graph diff REV "
+            "(saved files: --view diff --before PATH)",
+            code=2,
+        )
+    if args.view not in {"graph", "modules"} and (
+        args.hops is not None or args.direction != "both"
+    ):
+        raise InspectionError(
+            "usage", "--hops and --direction scope topology views only", code=2
+        )
+    if args.view in {"impact", "diff"} and args.format == "mermaid":
+        raise InspectionError("usage", "Impact/diff support text, JSON or HTML", code=2)
+    if args.module and args.view in {"impact", "diff"}:
+        raise InspectionError(
+            "usage", "Impact/diff have their own explicit scope", code=2
+        )
+    if args.hops is not None and (not args.module or args.hops < 0):
+        raise InspectionError(
+            "usage", "--hops needs --module and a non-negative distance", code=2
+        )
+    if args.format != "json" and (
+        (args.view == "modules" and args.format != "text")
+        or any(a.split("=")[0] in {"--max-bytes", "--detail"} for a in argv)
+    ):
+        raise InspectionError(
+            "usage",
+            "Discovery, --detail and --max-bytes require graph JSON",
+            code=2,
+        )
 
 
 def _json_requested(command: str, argv: list[str]) -> bool:
     if "--output" in argv or any(a.startswith("--output=") for a in argv):
         return True
-    formats = [a.split("=", 1)[1] for a in argv if a.startswith("--format=")]
-    formats += [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--format"]
-    return (formats[-1] == "json") if formats else command == "graph"
+    fmt = None
+    for i, arg in enumerate(argv):
+        if arg == "--":
+            break
+        if arg.startswith("--format="):
+            fmt = arg.split("=", 1)[1]
+        elif arg == "--format" and i + 1 < len(argv):
+            fmt = argv[i + 1]
+    return fmt == "json" if fmt else command == "graph" and not sys.stdout.isatty()
+
+
+def _graph_text(envelope: Doc, args: argparse.Namespace, reader: Reader) -> str:
+    if args.format == "text":
+        return terminal.render(envelope)
+    if args.format == "mermaid":
+        return (
+            sequences.mermaid(envelope)
+            if args.view in {"sequence", "state"}
+            else graph.mermaid(envelope)
+        )
+    if args.format == "html":
+        return graph.viewer(envelope, reader)
+    return encode(envelope)
 
 
 def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
@@ -199,7 +285,11 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
         elif args.view == "impact":
             envelope = queries.impact(reader, args.item, args.require_verified)
         elif args.view == "diff":
-            envelope = queries.compare(reader, args.before, args.require_verified)
+            envelope = (
+                queries.compare_revision(reader, args.revision, args.require_verified)
+                if args.revision
+                else queries.compare(reader, args.before, args.require_verified)
+            )
         else:
             envelope = graph.build(
                 reader,
@@ -210,21 +300,13 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
                 require=args.require_verified,
                 direction=args.direction,
             )
-        text = encode(envelope)
+        text = _graph_text(envelope, args, reader)
         if args.format == "json" and len(text.encode()) > args.max_bytes:
             raise InspectionError(
                 "budget_exceeded",
                 f"Graph needs {len(text.encode())} bytes; "
                 "focus with --module/--hops or raise --max-bytes",
             )
-        if args.format == "mermaid":
-            text = (
-                sequences.mermaid(envelope)
-                if args.view in {"sequence", "state"}
-                else graph.mermaid(envelope)
-            )
-        elif args.format == "html":
-            text = graph.viewer(envelope, reader)
     if args.output:
         if Path(args.output).suffix.lower() in {
             ".py",

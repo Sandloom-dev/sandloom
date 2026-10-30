@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from pathlib import Path
 
-from sandloom.core.cli.inspection import files, graph
+from sandloom.core.cli.inspection import files, graph, history
 from sandloom.core.cli.inspection.model import Doc, InspectionError, digest, response
 from sandloom.core.cli.inspection.read import Reader, parse
 from sandloom.core.contracts.compatibility import compare_contract
@@ -149,7 +149,19 @@ def _entities(document: Doc) -> dict[str, Doc]:
 
 def compare(reader: Reader, before: str, require: bool) -> Doc:
     # Historical indexes are data: never resolve their source paths.
-    previous = parse(files.read(reader.root, before))
+    return compare_data(
+        reader, parse(files.read(reader.root, before)), Path(before).as_posix(), require
+    )
+
+
+def compare_revision(reader: Reader, revision: str, require: bool) -> Doc:
+    previous, label, commit = history.read(reader.root, revision)
+    result = compare_data(reader, previous, label, require)
+    result["data"]["basis"]["before_revision"] = commit
+    return result
+
+
+def compare_data(reader: Reader, previous: Doc, before: str, require: bool) -> Doc:
     if (
         previous.get("schema") != "sandloom.inspection"
         or previous.get("schema_version") != 1
@@ -208,7 +220,7 @@ def compare(reader: Reader, before: str, require: bool) -> Doc:
         "diff",
         {
             "basis": {
-                "before": Path(before).as_posix(),
+                "before": before,
                 "before_digest": digest(previous),
                 "after_digest": digest(reader.doc),
             },
