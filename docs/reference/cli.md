@@ -15,12 +15,12 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 
 | Command | What it does |
 | --- | --- |
-| `sandloom context <module> [--file PATH ...]` | Bounded module rules, SDK, wire interfaces and owned source. Default: compact Markdown. |
+| `sandloom context <module>` | Compact module map: interfaces, dependencies, events, routes and owned file pointers. Default: Markdown; no implementation bodies. |
 | `sandloom graph --view modules --format json` | Compact JSON module catalog with stable IDs and freshness. |
 | `sandloom graph [MODULE] [--hops N]` | Declared graph: terminal tree or compact JSON in a pipe. One hop means a module relation, retaining its contract/event witnesses. |
 | `sandloom graph --format html --output architecture.html` | Standalone offline viewer with filters, source evidence and text tables. |
 | `sandloom graph --format mermaid` | Escaped interchange diagram. |
-| `sandloom context <module> --focus ID` | Focus an interface/process; preserve rules and whole DTO closure. Source matching is a navigation hint. |
+| `sandloom context <module> --focus ID` | Focus an interface/process; show declared DTO types or event schemas and file navigation hints. |
 | `sandloom graph --view sequence [--process ID] [--module ID]` | List processes or inspect a declared saga / framework route lifecycle. |
 | `sandloom graph --view state --process ID` | Conditional saga state transitions; text, JSON, Mermaid or HTML. |
 | `sandloom graph impact ID` | Direct witnesses and potential transitive module impact; text, JSON or HTML. |
@@ -31,7 +31,7 @@ Both commands accept `--root PATH`, `--output PATH`, `--force`,
 and `--max-bytes N` (default: 131072 UTF-8 bytes). Context formats: `markdown|json`;
 graph formats: `text|json|mermaid|html`. Graph defaults to text on stdout TTY,
 JSON in pipes/redirects or with `--output`; explicit `--format` always wins.
-Explicit files are module-relative and repeatable.
+Context does not export source files; agents open them directly.
 `--hops` requires a module selector (positional or `--module`), defaults to 1
 and accepts 0. Topology views also
 accept `--direction incoming|outgoing|both` (default both). Process selectors are

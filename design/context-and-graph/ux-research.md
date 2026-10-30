@@ -298,3 +298,24 @@ CRLF JSON, failed generation and mocked browser success/unavailability. A real
 `explore --no-open` generated Academy's verified HTML; `graph diff HEAD` returned
 0 added/removed/changed without checking out historical code. These are CLI
 scenario checks and source-guided design, not a participant usability study.
+
+
+## Map rather than source delivery: user-feedback checkpoint
+
+The owner's concrete identity example exposed a mismatch: the tool duplicated
+implementation files the agent can already read and buried navigation under SDK
+reference material. The revised interface supplies outside-facing facts and file
+locations; the agent chooses which implementations to inspect. This is direct
+user feedback, not a new participant study.
+
+Identity's current map was reconciled against the generated index: two provided
+contracts, 15 published and two incoming event channels, 48 route-method entries,
+nine tables and no sagas. File purposes use first-line module docstrings;
+symbol/line metadata is parsed without execution. Grouping retains every route,
+while exact paths remain in JSON. Focus was checked separately to avoid reporting
+irrelevant zero-count sections or enumerating every excluded file.
+
+Same-workspace default output decreased from 131,058 to 7,908 UTF-8 bytes; contact
+interface focus is 1,301 bytes. This measures byte size, not comprehension or task
+success. Canary regressions verify that even full/focused formats do not deliver
+implementation, instruction or generated-DTO bodies. Paid agent DX stays deferred.

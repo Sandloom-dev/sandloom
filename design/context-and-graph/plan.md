@@ -1,5 +1,7 @@
 # Implementation plan: module context and architecture graph
 
+> Historical source-bundle prototype record. The current tool returns a compact module map, with no implementation bodies or `--file` option. See [current specification](spec.md) and [public map guide](../../docs/guides/module-context.md).
+
 **Status: Implemented on this branch — unreleased.** Date: 2026-10-30.
 [Specification](spec.md) · [Research and source evidence](research.md) ·
 [Usage draft](usage.md) · [Skill draft](skills/sandloom-module-context/SKILL.md).

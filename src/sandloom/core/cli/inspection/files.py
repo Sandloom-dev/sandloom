@@ -202,7 +202,7 @@ def _is_export(text: str) -> bool:
     if text.startswith("# Sandloom context: "):
         lines = text.splitlines()
         return len(lines) > 1 and lines[1].startswith(
-            "Schema: sandloom.tool_response/1 | "
+            ("Schema: sandloom.tool_response/1 | ", "Freshness: ")
         )
     if text.startswith("<!doctype html>"):
         return (

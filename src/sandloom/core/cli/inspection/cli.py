@@ -67,7 +67,7 @@ def parser_for(command: str) -> Parser:
         "--detail",
         choices=("compact", "full"),
         default="compact",
-        help="full adds provenance without changing business scope",
+        help="full adds verification evidence without expanding scope",
     )
     parser.add_argument(
         "--max-bytes",
@@ -99,12 +99,6 @@ def parser_for(command: str) -> Parser:
         )
         parser.add_argument(
             "--focus", help="stable entity/process ID related to the selected module"
-        )
-        parser.add_argument(
-            "--file",
-            action="append",
-            default=[],
-            help="mandatory module-relative file; repeatable",
         )
     else:
         parser.add_argument(
@@ -266,7 +260,6 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
         envelope, text = context.build(
             reader,
             args.module,
-            requested=args.file,
             budget=args.max_bytes,
             fmt=args.format,
             detail=args.detail,

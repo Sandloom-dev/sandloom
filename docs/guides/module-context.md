@@ -1,129 +1,118 @@
 ---
-title: Module context for agents
+title: Module maps for agents
 ---
 
-# Module context for agents
+# Module maps for agents
 
-Collect the rules, public interfaces and selected source needed to change one
-business module. An AI agent can invoke the command itself; people can read the
-same artifact. No model service or hosted account is required.
+`sandloom context MODULE` returns a compact navigation map: what the module
+provides, what it uses, who depends on it, and where its implementation lives.
+The agent opens the relevant files itself. Implementation bodies, whole source
+files, instruction documents and the SDK reference are not embedded in the map.
 
 !!! note "Package availability"
-    Added after 0.7.0a3. Use the current source checkout until the next PyPI release.
-
-From the application or framework root:
+    Added after 0.7.0a3. Use the current source checkout until the next package release.
 
 ```bash
-uv run sandloom graph --view modules
+uv run sandloom graph --view modules --format json
 uv run sandloom context notes
-```
-
-Choose an actual module ID/name from discovery. The default is compact Markdown:
-a short status header, applicable scoped instructions, beginner/used advanced SDK
-signatures, required contract and event wire types, followed by optional owned
-source/tests. Source code remains in fenced blocks. Other modules contribute
-public interfaces, never their implementation bodies.
-
-## Choose a format and scope
-
-```bash
-uv run sandloom context module:notes --format json
-uv run sandloom context notes --file services.py --max-bytes 131072
-uv run sandloom context notes --format json --detail full
 uv run sandloom context notes --focus contract:stats.quota.v1
 ```
 
-`--file` is repeatable and relative to the selected module; choose files that
-exist. JSON exposes typed sections, source locators and diagnostics for programs.
-Full detail adds file hashes, inclusion reasons and verification evidence. It
-keeps the same business selection as compact mode; if the additional metadata
-exceeds the budget it fails instead of silently evicting source.
+## What the map contains
 
-`--focus` selects an entity/process used or owned by that module: contract, event,
-consumer, projection, saga, route or module. Consumer/projection focus includes
-its declared input event interfaces; infrastructure focus retains the whole module. Whole selected wire files and their transitive DTO closure remain
-mandatory. Saga focus includes its declared command interfaces; route internals
-are opaque, so route focus retains every declared interface. Rules and the public
-SDK remain available. Owned source matches are navigation hints, not a complete
-call graph: add helpers/tests explicitly with `--file`. `outside_focus` omissions
-make that limit visible. Focus never authorizes editing another module.
+- Provided and consumed contracts: declared method signatures, read/command kind,
+  optionality, and callers/providers in this authoring composition.
+- Published events and their declared listeners; incoming events and handlers.
+- HTTP routes grouped by namespace/resource, tables, sagas and infrastructure
+  requirements. These are declarations, not runtime traffic or active bindings.
+- Owned file paths, sizes, first-line purpose from the module docstring, and a
+  few public symbols with line numbers. More symbols are counted explicitly.
+  Schemas, models, migrations and tests have directory summaries.
+- Paths to applicable instruction documents and generated public interfaces.
+  Read the selected rules before editing, then open the implementation files
+  needed for the task. Peer implementations are outside the map.
 
-The default limit is **131072 UTF-8 bytes**, counting the complete serialized
-output, not a token count. Rules, explicitly requested files and transitive DTO
-closure are mandatory. An oversized mandatory section fails with the required
-size. Optional whole files can be omitted with an explicit ledger.
+Descriptions come from source metadata; the tool does not invent explanations
+or infer a complete call graph. Syntax errors in an implementation file leave
+its path available with an explicit metadata warning. They do not make stale
+recorded declarations current. Migration heads come from literal revision links,
+not filename sorting. Test summaries count files, not executed test cases.
 
-A project `.sandloomignore` contains project-relative glob patterns, one per line;
-blank lines and `#` comments are ignored. It excludes optional context files and
-blocks explicit selection of those files. It does not remove mandatory scoped
-rules or public wire interfaces. Negation/re-inclusion syntax is not supported.
+## Narrow an interface
 
-Sensitive paths, binaries and symlink traversal are excluded or rejected even for
-explicit selections. Credential pattern checks reduce accidental exposure; they
-are not a complete secret detector. Review source before sharing an artifact.
-The tool writes locally and never sends context to a model automatically.
+```bash
+uv run sandloom context notes --focus contract:stats.quota.v1
+uv run sandloom context notes --focus event:stats.changed.v1
+```
 
-## Read freshness before relying on the result
+Focus restricts the interface map and file navigation hints. Contract detail adds
+DTO field types and requiredness; event detail adds its declared wire schema.
+Exact validation rules, aliases and defaults remain in the linked generated
+interface files. The agent reads those definitions when needed.
 
-Inspection reads `.sandloom/inspection.json`, produced by explicit
-`sandloom generate`, plus current selected source. It does not load `.env`, import
-the application or connect to backends. The semantic index belongs in Git.
-A local verification receipt lives under ignored `.sandloom/cache/`. Receipt
-entries are per module: an unavailable optional provider does not prevent an
-independent module from verifying. Incomplete scopes stay explicitly unverified.
+Source matches are navigation hints, not a complete call graph. Open related
+helpers and tests using normal repository tools. `context` has no source export
+flag; `--file` is not supported. A focus must belong to or be used by the selected
+module. A consumer/projection focus retains its incoming event interface.
+
+## Formats and limits
+
+```bash
+uv run sandloom context notes --format json
+uv run sandloom context notes --format json --detail full
+uv run sandloom context notes --max-bytes 131072
+```
+
+Markdown is the default in terminals and pipes. JSON returns the same map in a
+versioned response envelope; `data.representation` is `module_map`. Full detail
+adds verification evidence, without embedding implementations or expanding the
+business scope. The default limit is 131072 UTF-8 bytes for the complete response,
+not a token estimate. A map that exceeds the limit fails with a remedy; no
+successful partial map is returned.
+
+`.sandloomignore` contains project-relative glob patterns, one per line. Blank
+lines and `#` comments are ignored; negation is unsupported. It excludes owned
+file metadata, not mandatory rule/interface references. The map reports excluded
+counts by reason, including `context_ignore` and `outside_focus`.
+
+## Freshness and cold reads
+
+The map reads `.sandloom/inspection.json`, produced by explicit `sandloom generate`,
+and current owned file metadata. It never loads `.env`, imports the application,
+connects to backends or regenerates implicitly. The semantic index belongs in Git;
+the local verification receipt lives under ignored `.sandloom/cache/`.
 
 | State | Meaning |
 | --- | --- |
-| `verified` | Enumerated selected inputs match a successful authoring generation. |
-| `missing_receipt` | Recorded declarations are readable, but no local receipt exists, e.g. a fresh clone. |
-| `source_changed` | Source membership/content or scoped instructions changed. |
-| `dependency_changed` | Wire/interface verification basis changed. |
+| `verified` | Selected inputs match a successful authoring generation. |
+| `missing_receipt` | Recorded declarations are readable, but have no local receipt. |
+| `source_changed` | Source membership/content or scoped rules changed. |
+| `dependency_changed` | The wire/interface verification basis changed. |
 | `partial` | Selected modules have different verification states. |
 
-This is source evidence, not runtime health or a proof of arbitrary
-configuration-dependent Python behavior. Default exports label uncertainty;
-`--require-verified` exits 3 unless the selected basis is verified.
-Missing mandatory interfaces fail regardless of that flag. A malformed or
-unsupported receipt is rejected with a typed error; it can never establish
-verification. Explicit generation recreates the receipt.
-
-A missing index or changed layout requires explicit generation:
+This is source evidence, not production health. `--require-verified` exits 3 when
+verification is unavailable. Missing mandatory interfaces fail independently;
+malformed or unsupported receipts produce typed errors. A missing index or changed
+layout requires explicit generation, which loads the app and writes managed files:
 
 ```bash
 uv run sandloom generate
 uv run sandloom context notes --require-verified
 ```
 
-Generation uses the existing trusted application loading path and writes managed
-artifacts; review its diff. Inspection never performs this recovery automatically.
-Ordinary implementation-only edits do not change the semantic index merely due
-to their content hashes. `generate --check` and `sandloom test` remain read-only.
-
-## Save and automate
+## Save a map
 
 ```bash
-uv run sandloom context notes --output notes-context.md
+uv run sandloom context notes --output notes-map.md
 ```
 
-The file receives the context; stdout receives one small JSON acknowledgement.
-Existing outputs require `--force` and must be recognized Sandloom inspection
-exports. Arbitrary existing files, project instructions, source/policy/generated
-inputs and version-control/tool directories cannot be replaced. If an older file
-has no recognized export marker, choose a new destination. A destination changed
-by another process during export is preserved.
-Without `--output`, explicit JSON returns one success/error envelope on stdout.
-Default Markdown errors leave stdout empty and explain on stderr. Programs should
-select JSON and branch on typed diagnostic kinds and exit codes, not English text.
-See [CLI options and exit codes](../reference/cli.md#context-and-declared-architecture).
+The destination receives the map; stdout receives a small JSON acknowledgement.
+Without `--output`, JSON mode emits exactly one success/error envelope. Markdown
+errors leave stdout empty and explain on stderr. Existing artifacts require
+`--force` and must be recognized Sandloom inspection exports. Arbitrary files,
+source/managed inputs and reserved tool/VCS directories are protected; detectable
+concurrent destination changes are preserved. Output paths are project-relative.
 
-## Agent skill
-
-`sandloom-module-context` is supplied in framework `.agents/skills` and
-`.claude/skills`, new applications, and `sandloom add skills` for existing apps.
-Customized skill files retain the existing preserve-unless-forced behavior.
-The skill guides discovery, scoped context/graph inspection, freshness checks,
-bounded expansion and the project's existing quality gates. Installed-only
-providers contribute interfaces; context targets require checkout-owned source.
-
-Continue with the [architecture graph](architecture-graph.md),
-[generation workflow](generate.md) and [module tests](testing.md).
+The tool never sends the map to an LLM. Installed-only dependencies contribute
+public interfaces, while a directly selected context target requires owned source.
+See the [architecture graph](architecture-graph.md) for impact and process views.

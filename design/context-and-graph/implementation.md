@@ -1,5 +1,7 @@
 # Implementation and validation
 
+> Historical source-bundle prototype record. The current tool returns a compact module map, with no implementation bodies or `--file` option. See [current specification](spec.md) and [public map guide](../../docs/guides/module-context.md).
+
 Implemented 2026-10-30 on `codex/context-graph-design`; unreleased. This is the
 implementation record for the [specification](spec.md), not a release announcement.
 The current public package version remains 0.7.0a3. Public guides explicitly mark

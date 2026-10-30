@@ -58,7 +58,8 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
         text = files.read(reader.root, path)
         if (
             selected["id"].startswith(("module:", "capability:"))
-            or Path(path).name in {"__init__.py", "schemas.py"}
+            or path == module["source"] + "/__init__.py"
+            or Path(path).name == "schemas.py"
             or any(t in text for t in tokens)
         ):
             paths.append(path)
@@ -81,7 +82,7 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
         },
         "limits": (
             "Source matches are navigation hints, not a complete call "
-            "graph. Add module-local helpers/tests explicitly with --file; "
+            "graph. Read the owned files and their helpers/tests directly; "
             "normal quality gates still apply."
         ),
     }

@@ -1,5 +1,7 @@
 # Using module context and the architecture graph
 
+> Historical source-bundle prototype record. The current tool returns a compact module map, with no implementation bodies or `--file` option. See [current specification](spec.md) and [public map guide](../../docs/guides/module-context.md).
+
 **Proposed documentation — commands are not implemented in 0.7.0a3.**
 Review alongside the [specification](spec.md), [delivery plan](plan.md) and
 [agent skill](skills/sandloom-module-context/SKILL.md). This draft stays outside

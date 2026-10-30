@@ -1,166 +1,196 @@
-"Budgeted context selection, shared by Markdown and JSON presentations."
+"""Compact module navigation maps; callers open implementation files themselves."""
 
 from __future__ import annotations
 
-import ast
-import re
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from sandloom.core.cli.inspection import files, focus
+from sandloom.core.cli.inspection import files, focus, interfaces, inventory
 from sandloom.core.cli.inspection.model import Doc, InspectionError, encode, response
 from sandloom.core.cli.inspection.read import Reader
 
 
-def _advanced_reason(lines: list[str]) -> str:
-    for line in lines:
-        match = re.search(r"#\s*sandloom:\s*advanced\s+(.+)", line)
-        if match:
-            return match[1]
-    return ""
-
-
-def _attribute_key(node: ast.AST, aliases: dict[str, str]) -> str | None:
-    if not isinstance(node, ast.Attribute):
-        return None
-    parts = []
-    current: ast.expr = node
-    while isinstance(current, ast.Attribute):
-        parts.append(current.attr)
-        current = current.value
-    if isinstance(current, ast.Name) and current.id in aliases:
-        return ".".join([aliases[current.id], *reversed(parts)])
-    return None
-
-
-def _sdk_imports(tree: ast.AST, lines: list[str], path: str) -> dict[str, list[Doc]]:
-    aliases: dict[str, str] = {}
-    uses: dict[str, list[Doc]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
-            "sandloom.sdk"
-        ):
-            for alias in node.names:
-                key = f"{node.module}.{alias.name}"
-                aliases[alias.asname or alias.name] = key
-                reason = _advanced_reason(lines[node.lineno - 1 : node.end_lineno])
-                uses.setdefault(key, []).append(
-                    {"path": path, "line": node.lineno, "reason": reason}
-                )
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("sandloom.sdk"):
-                    aliases[alias.asname or alias.name.split(".")[0]] = (
-                        alias.name if alias.asname else "sandloom"
-                    )
-    for node in ast.walk(tree):
-        attribute_key = _attribute_key(node, aliases)
-        if attribute_key:
-            uses.setdefault(attribute_key, []).append(
-                {"path": path, "line": getattr(node, "lineno", 0)}
-            )
-    return uses
-
-
-def _sdk(reader: Reader, paths: list[str]) -> list[Doc]:
-    catalog = reader.catalog["definitions"]
-    needed = {key for key, value in catalog.items() if value["tier"] == "beginner"}
-    uses: dict[str, list[Doc]] = {}
-    for path in paths:
-        if not path.endswith(".py"):
-            continue
-        text = files.read(reader.root, path)
-        discovered = _sdk_imports(
-            ast.parse(text, filename=path), text.splitlines(), path
+def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
+    out = ["## " + title]
+    for entry in entries:
+        out.append(
+            "- "
+            + entry["name"]
+            + (" (optional)" if entry.get("required") is False else "")
         )
-        for key, evidence in discovered.items():
-            if key in catalog:
-                needed.add(key)
-                uses.setdefault(key, []).extend(evidence)
-    return [
-        {"id": key, **catalog[key], "uses": uses.get(key, [])} for key in sorted(needed)
+        for method in entry["methods"]:
+            out.append(f"  - {method['kind']} {method['signature']}")
+            semantics = "; ".join(
+                f"{k}={method[k]}"
+                for k in ("idempotency_key", "idempotency_scope", "risk")
+                if method.get(k)
+            )
+            if semantics:
+                out.append("    " + semantics)
+        if not entry["description_available"]:
+            out.append("  - Signature metadata unavailable; read the interface files.")
+        peers = ", ".join(p.removeprefix("module:") for p in entry["peers"])
+        out.append(
+            f"  - {'Callers' if provided else 'Providers'} here: "
+            f"{peers or 'none declared'}"
+        )
+        for dto in entry.get("dtos", []):
+            out.append("  - DTO " + dto["ref"])
+            out += [
+                f"    - {f['name']}: {f['type']}"
+                + (" (optional)" if not f["required"] else "")
+                for f in dto["fields"]
+            ]
+    return out + ([""] if entries else ["- None.", ""])
+
+
+def _files(data: Doc) -> list[str]:
+    out, root = ["## Files"], data["module"]["source"] + "/"
+    for record in data["files"]:
+        symbols = ", ".join(f"{s['name']}:{s['line']}" for s in record["symbols"])
+        if record["more_symbols"]:
+            symbols += f" +{record['more_symbols']}"
+        description = " — ".join(p for p in (record["summary"], symbols) if p)
+        description = record.get("parse_error") or description
+        out.append(
+            f"- {record['path'].removeprefix(root)} · "
+            f"{record['bytes'] / 1024:.1f} KiB · {description}"
+        )
+    for group in data["file_groups"]:
+        if group["kind"] == "tests":
+            summary = ", ".join(f"{p}: {n}" for p, n in group["directories"].items())
+        elif group["kind"] == "migrations":
+            summary = f"{group['revision_count']} revisions; declared heads: " + (
+                ", ".join(group["heads"]) or "unavailable"
+            )
+        else:
+            summary = ", ".join(group["files"])
+        out.append(
+            f"- {group['path'].removeprefix(root)}/ · "
+            f"{group['count']} files · {summary}"
+        )
+    return [*out, ""]
+
+
+def _published(events: list[Doc]) -> list[str]:
+    out = [f"## Events published: {len(events)}"]
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for event in events:
+        parts = event["channel"].rsplit(".", 2)
+        if len(parts) == 3:
+            grouped.setdefault((parts[0], parts[2]), []).append(parts[1])
+        else:
+            out.append("- " + event["channel"])
+    for (prefix, version), names in sorted(grouped.items()):
+        out.append(f"- {prefix}.{{{', '.join(names)}}}.{version}")
+    listeners = [e for e in events if e["listeners"]]
+    out += [
+        "- "
+        + e["channel"]
+        + " → "
+        + ", ".join(
+            p["module"].removeprefix("module:") + "/" + p["consumer"]
+            for p in e["listeners"]
+        )
+        for e in listeners
     ]
+    if not listeners:
+        out.append("Listeners in this composition: none declared.")
+    return out
 
 
-def _fence(content: str) -> str:
-    longest = max((len(match) for match in re.findall(r"`+", content)), default=0)
-    return "`" * max(3, longest + 1)
+def _interface_paths(paths: list[str]) -> list[str]:
+    if not paths:
+        return []
+    grouped: dict[str, list[str]] = {}
+    for path in paths:
+        grouped.setdefault(str(Path(path).parent), []).append(Path(path).name)
+    out = ["Interface paths:"]
+    for parent, names in sorted(grouped.items()):
+        summary = (
+            f"{len(names)} event schemas (focus an event for detail)"
+            if len(names) > 4 and all(n.endswith(".json") for n in names)
+            else ", ".join(names)
+        )
+        out.append(f"- {parent}/: {summary}")
+    return [*out, ""]
 
 
-def _focus_markdown(data: Doc) -> list[str]:
-    return ["## Focus and limits", encode(data["focus"])] if data.get("focus") else []
+def _overview(data: Doc) -> list[str]:
+    out: list[str] = []
+    if data["events_published"] or not data["focus"]:
+        out += _published(data["events_published"])
+    if data["events_consumed"] or not data["focus"]:
+        out += ["", f"## Events consumed: {len(data['events_consumed'])}"]
+        out += [
+            f"- {e['channel']} → {e['handler']}" for e in data["events_consumed"]
+        ] or ["- None."]
+    for channel, schema in data.get("event_schemas", {}).items():
+        out += ["", "### Event wire schema: " + channel, encode(schema).strip()]
+    if data["routes"] or not data["focus"]:
+        out += ["", f"## Routes: {sum(len(g['routes']) for g in data['routes'])}"]
+    for group in data["routes"]:
+        out.append(
+            f"- {group['prefix']} ({len(group['routes'])}): "
+            + " · ".join(r["method"] + " " + r["path"] for r in group["routes"])
+        )
+    if data["tables"] or not data["focus"]:
+        out += [
+            "",
+            f"## Tables: {len(data['tables'])}",
+            ", ".join(t["table"] for t in data["tables"]) or "None.",
+        ]
+    if data["sagas"] or not data["focus"]:
+        out += ["Sagas: " + (", ".join(data["sagas"]) or "none"), ""]
+    if data["infrastructure"]:
+        out += ["Infrastructure requirements: " + ", ".join(data["infrastructure"]), ""]
+    return out
 
 
 def markdown(envelope: Doc) -> str:
-    data = envelope["data"]
-    fresh = envelope["freshness"]
+    data, fresh = envelope["data"], envelope["freshness"]
+    module = data["module"]
     out = [
-        f"# Sandloom context: {data['module']['id']}",
-        f"Schema: sandloom.tool_response/1 | Framework: {data['framework_version']} "
-        f"| Catalog: {data['catalog_version']}",
-        f"Freshness: {fresh['state']} | Closure: {fresh['semantic_digest']}",
-        (
-            "Scope: one module and public wire interfaces; declarations, not "
-            "live topology."
-        ),
+        f"# Sandloom context: {module['name']} · {module['source']}",
+        "Freshness: " + fresh["state"],
+        "Module map. Open source files by their paths below.",
     ]
     if fresh["state"] != "verified":
         out.append(
-            "Verification unavailable/changed: review the basis; explicit "
-            "sandloom generate can refresh it."
+            "Declarations may be stale; run sandloom generate to refresh verification."
         )
-    out += [f"Bytes: {data['bytes']} | Budget: {data['budget']}", ""]
-    out += _focus_markdown(data)
-    out += ["## Module declarations", encode(data["module"])]
-    for section in data["sections"]:
-        content = section["content"]
-        fence = _fence(content)
-        language = "python" if section["path"].endswith(".py") else "text"
-        out += [
-            f"## {section['path']} ({section['kind']})",
-            f"{fence}{language}",
-            content.rstrip("\n"),
-            fence,
-            "",
-        ]
-        if "sha256" in section:
-            out += [f"SHA256: {section['sha256']} | Inclusion: {section['reason']}", ""]
-    out += ["## Public SDK", ""]
-    for definition in data["sdk"]:
-        out += [
-            f"### {definition['id']} ({definition['tier']})",
-            definition["signature"],
-            definition["summary"],
-            "",
-        ]
-        if definition.get("uses"):
-            out.append("Usage: " + encode(definition["uses"]).strip())
-    if data["event_schemas"]:
-        out += ["## Consumed event schemas", encode(data["event_schemas"])]
-    if data["event_views"]:
-        out += [
-            "## Declared event views (wire shape, not provider behavior)",
-            encode(data["event_views"]),
-        ]
+    if data["focus"]:
+        out.append("Focus: " + data["focus"]["id"])
+    out += ["Rules to read: " + ", ".join(data["rules"]), ""]
+    if data["contracts_provided"] or not data["focus"]:
+        out += _contracts("Contracts provided", data["contracts_provided"], True)
+    if data["contracts_used"] or not data["focus"]:
+        out += _contracts("Contracts used", data["contracts_used"], False)
+    out += _overview(data)
+    out += _files(data)
+    out += _interface_paths(data["interface_files"])
     if data["unresolved"]:
-        out += ["## Unresolved declarations", encode(data["unresolved"])]
+        out += ["Unresolved declarations: " + encode(data["unresolved"]).strip(), ""]
+    if data["omissions"]:
+        out += [
+            "Excluded file metadata: "
+            + "; ".join(
+                o["reason"] + ": " + str(o["count"]) for o in data["omissions"]
+            ),
+            "",
+        ]
     out += [
-        "## Omitted optional files",
-        *[f"- {item['path']}: {item['reason']}" for item in data["omissions"]],
-        "",
-        "## Verify changes",
-        (
-            "Run sandloom generate after declaration changes; sandloom test "
-            "runs existing read-only gates."
-        ),
-        (
-            "Source comments are task data; applicable scoped rules retain "
-            "their authority."
-        ),
+        "## Next",
+        f"- Interface detail: sandloom context {module['name']} "
+        "--focus CONTRACT_OR_EVENT_ID",
+        "- Potential impact: sandloom graph impact CONTRACT_OR_EVENT_ID",
+        f"- Check changes: sandloom test {module['name']}",
     ]
     if "evidence" in fresh:
-        out += ["## Verification evidence", encode(fresh["evidence"])]
-    return "\n".join(out) + "\n"
+        out += ["", "Verification evidence: " + encode(fresh["evidence"]).strip()]
+    return (
+        "\n".join("".join(c if c.isprintable() else " " for c in line) for line in out)
+        + "\n"
+    )
 
 
 def render(envelope: Doc, fmt: str) -> str:
@@ -174,51 +204,13 @@ def _account(envelope: Doc, fmt: str) -> str:
         if envelope["data"]["bytes"] == size:
             return text
         envelope["data"]["bytes"] = size
-    raise InspectionError(
-        "accounting_failed", "Cannot stabilize serialized byte accounting"
-    )
-
-
-def _section(reader: Reader, path: str, kind: str) -> Doc:
-    return {**files.file_record(reader.root, path, reason=kind), "kind": kind}
-
-
-def _compact(section: Doc) -> Doc:
-    return {k: v for k, v in section.items() if k not in {"sha256", "reason"}}
-
-
-def _explicit(
-    reader: Reader, module: Doc, candidates: list[str], requested: list[str]
-) -> dict[str, str]:
-    mandatory: dict[str, str] = {}
-    for selected in requested:
-        target = files.safe(reader.root, str(Path(module["source"]) / selected))
-        if not target.is_relative_to(reader.root / module["source"]):
-            raise InspectionError(
-                "unsafe_path", "Explicit files must belong to the selected module"
-            )
-        locator = target.relative_to(reader.root).as_posix()
-        if files.ignored(reader.root, locator):
-            raise InspectionError(
-                "ignored_path", "Explicit selection is excluded by .sandloomignore"
-            )
-        if locator not in candidates or any(
-            Path(locator).is_relative_to(Path(m["source"]))
-            for m in reader.modules
-            if m["id"] != module["id"] and m["source"]
-        ):
-            raise InspectionError(
-                "unsafe_path", "Select an allowed module-local source or test file"
-            )
-        mandatory[locator] = "explicit_selection"
-    return mandatory
+    raise InspectionError("accounting_failed", "Cannot stabilize map byte accounting")
 
 
 def build(
     reader: Reader,
     selector: str,
     *,
-    requested: list[str],
     budget: int,
     fmt: str,
     detail: str,
@@ -229,92 +221,58 @@ def build(
     if any(v.get("unresolved_bases") for v in module["event_views"]):
         raise InspectionError(
             "incomplete_view",
-            "Cannot statically resolve an event view base; "
-            "declare its wire fields locally",
+            "Event view metadata has unresolved bases; declare its wire fields locally",
         )
-    all_candidates = reader.owned_paths(module)
     before = reader.basis(module)
-    ignored = [p for p in all_candidates if files.ignored(reader.root, p)]
-    candidates = [p for p in all_candidates if p not in ignored]
+    owned = reader.owned_paths(module)
+    ignored = [p for p in owned if files.ignored(reader.root, p)]
+    candidates = [p for p in owned if p not in ignored]
     focused = (
         focus.scope(reader, module, focus_selector, candidates)
         if focus_selector
         else None
     )
-    outside = set(candidates) - set(focused["candidates"]) if focused else set()
-    mandatory = dict.fromkeys(reader.rules(module), "scoped_rules")
-    mandatory.update(
-        dict.fromkeys(
-            focused["wires"] if focused else reader.wire_paths(module), "wire_interface"
-        )
-    )
-    mandatory.update(_explicit(reader, module, candidates, requested))
-    # Inspect all candidate imports so omissions cannot hide an advanced dependency.
-    sdk = _sdk(reader, candidates)
-    all_sections = [
-        _section(reader, path, kind) for path, kind in sorted(mandatory.items())
-    ]
-    optional = sorted(
-        set(candidates) - set(mandatory) - outside,
-        key=lambda p: ("tests" in Path(p).parts, len(Path(p).parts), p),
-    )
-    try:
-        framework_version = version("sandloom")
-    except PackageNotFoundError:
-        framework_version = "0.0.0+local"
-    channels = {
-        e["source"]
-        for e in reader.doc["edges"]
-        if e["owner"] == module["id"]
-        and e["kind"] in {"consumes_event", "projects_event"}
-    }
-    schemas = {
-        channel: schema
-        for channel, schema in reader.doc.get("event_schemas", {}).items()
-        if "event:" + channel in channels
-        and (not focused or focused["all_interfaces"] or channel in focused["channels"])
-    }
+    selected = focused["candidates"] if focused else candidates
+    whole = not focused or focused["all_interfaces"]
     data: Doc = {
+        "representation": "module_map",
         "module": {
-            k: module[k]
-            for k in (
-                "id",
-                "name",
-                "import_path",
-                "version",
-                "optional",
-                "models",
-                "sagas",
-                "routes",
-                "deviations",
-                "chain",
-            )
-            if k in module
+            k: module[k] for k in ("id", "name", "source", "import_path", "version")
         },
-        "focus": {k: focused[k] for k in ("item", "limits")} if focused else None,
-        "framework_version": framework_version,
-        "catalog_version": reader.catalog["schema_version"],
-        "sections": [_compact(s) for s in all_sections],
-        "sdk": sdk,
-        "event_views": [
-            v
-            for v in module["event_views"]
-            if not focused
-            or focused["all_interfaces"]
-            or v["channel"] in focused["channels"]
-        ],
-        "event_schemas": schemas,
+        "focus": {"id": focused["item"]["id"], "limits": focused["limits"]}
+        if focused
+        else None,
+        "rules": reader.rules(module),
+        **interfaces.build(reader, module, focused),
+        "routes": interfaces.routes(module.get("routes", [])) if whole else [],
+        "tables": module.get("models", []) if whole else [],
+        "sagas": sorted(
+            p["id"]
+            for p in reader.doc.get("processes", [])
+            if p["owner"] == module["id"]
+            and p["id"].startswith("saga:")
+            and (whole or (focused is not None and p["id"] == focused["item"]["id"]))
+        ),
+        "infrastructure": sorted(
+            e["target"].removeprefix("capability:")
+            for e in reader.doc["edges"]
+            if e["owner"] == module["id"] and e["kind"] == "requires_capability"
+        ),
+        **inventory.build(reader, module, selected),
+        "interface_files": focused["wires"] if focused else reader.wire_paths(module),
         "unresolved": [
             u for u in reader.doc["unresolved"] if u["module_id"] == module["id"]
         ],
         "budget": budget,
         "bytes": 0,
-        "omissions": [{"path": p, "reason": "byte_budget"} for p in optional]
-        + [{"path": p, "reason": "context_ignore"} for p in ignored]
-        + [
-            {"path": p, "reason": "outside_focus"}
-            for p in sorted(outside - set(mandatory))
-        ],
+        "omissions": (
+            [{"reason": "context_ignore", "count": len(ignored)}] if ignored else []
+        )
+        + (
+            [{"reason": "outside_focus", "count": len(set(candidates) - set(selected))}]
+            if set(candidates) - set(selected)
+            else []
+        ),
     }
     envelope = response(
         "context",
@@ -324,39 +282,17 @@ def build(
             "module_id": module["id"],
             "focus_id": focused["item"]["id"] if focused else None,
         },
-        freshness=reader.freshness([module], require=require),
+        freshness=reader.freshness([module], require=require, full=detail == "full"),
     )
     text = _account(envelope, fmt)
     if len(text.encode()) > budget:
         raise InspectionError(
             "budget_exceeded",
-            f"Mandatory context needs {len(text.encode())} bytes; "
-            f"raise --max-bytes (budget {budget})",
-        )
-    for path in optional:
-        section = _section(reader, path, "module_source")
-        data["sections"].append(_compact(section))
-        data["omissions"] = [o for o in data["omissions"] if o["path"] != path]
-        trial = _account(envelope, fmt)
-        if len(trial.encode()) > budget:
-            data["sections"].pop()
-            data["omissions"].append({"path": path, "reason": "byte_budget"})
-            data["omissions"].sort(key=lambda o: o["path"])
-        else:
-            all_sections.append(section)
-    if detail == "full":
-        by_path = {section["path"]: section for section in all_sections}
-        data["sections"] = [by_path[s["path"]] for s in data["sections"]]
-        envelope["freshness"] = reader.freshness([module], require=require, full=True)
-    text = _account(envelope, fmt)
-    if len(text.encode()) > budget:
-        raise InspectionError(
-            "budget_exceeded",
-            f"Selected context needs {len(text.encode())} bytes with full metadata; "
-            "raise --max-bytes",
+            f"Complete module map needs {len(text.encode())} bytes; "
+            f"focus the map or raise --max-bytes (budget {budget})",
         )
     if before != reader.basis(module):
         raise InspectionError(
-            "source_changing", "Inputs changed during context capture; retry"
+            "source_changing", "Inputs changed during map capture; retry"
         )
     return envelope, text

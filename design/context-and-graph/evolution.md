@@ -178,3 +178,37 @@ with identity, tenancy, billing and notes generated a verified offline Explorer,
 returned verified graph JSON through a pipe and received both updated skill
 mirrors. The unified website, explicit architecture check, skill validator and
 2,374-file reviewed-source check also passed.
+
+
+## Compact module-map revision (2026-10-30)
+
+Context now returns a structural navigation map, superseding the earlier
+source-bundle prototype. Implementation bodies, copied source/instruction files
+and the bulk SDK reference are absent from default/full/focused Markdown and
+JSON. The source-export `--file` flag was removed before release. The agent reads
+applicable rules and implementation/interface files itself from the map's paths.
+
+The map includes provided/used contract signatures and composition-local peers,
+produced/consumed events, grouped routes, tables/sagas, infrastructure requirements,
+owned file sizes/purpose/public symbols/line numbers and grouped inventories.
+Focus adds declared DTO field types or event schemas and counts excluded metadata
+without dumping irrelevant filenames. Exact defaults/validation remain in linked
+interface files. Temporarily invalid implementation syntax retains navigation with
+an explicit metadata warning; no application import or execution is introduced.
+
+Measured on the same current identity composition and default 131072-byte budget:
+the earlier source bundle was 131,058 UTF-8 bytes; the module map is 7,908 bytes
+(94% smaller), and contact-contract focus is 1,301 bytes. This measures serialized
+bytes, not LLM tokens or productivity. Real contract-wire descriptors exercise
+type rendering; canary tests cover implementation/rule/DTO body absence across
+Markdown/JSON, compact/full detail and interface focus. Current specification,
+public guide/reference and four skill copies were updated together.
+
+Compact-map validation completed: 134 focused inspection cases passed; full
+quality gate passed with 5,189 full-suite tests and 1,283 architecture tests,
+retaining existing skips/expected failure. All four wheel/sdist pairs passed
+rebuild, license/layering and clean installs. A fresh wheel-installed all-battery
+application generated verified compact/full maps without an implementation body
+canary and received both revised agent skill mirrors. Website build, explicit
+architecture checker, skill validator and 2,376-file source-export check passed.
+Linux/GitHub results for the committed revision are linked in the pull request.

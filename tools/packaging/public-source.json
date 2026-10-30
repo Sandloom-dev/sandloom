@@ -2472,7 +2472,9 @@
         "src/sandloom/core/contracts/schema_compatibility.py",
         "src/sandloom/core/cli/explore.py",
         "src/sandloom/core/cli/inspection/history.py",
-        "src/sandloom/core/cli/inspection/terminal.py"
+        "src/sandloom/core/cli/inspection/terminal.py",
+        "src/sandloom/core/cli/inspection/interfaces.py",
+        "src/sandloom/core/cli/inspection/inventory.py"
       ]
     }
   ],

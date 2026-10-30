@@ -149,23 +149,25 @@ def run(
     return result, output.out, output.err
 
 
-def test_context_has_rules_wire_closure_and_no_sibling_source(
+def test_context_map_has_rule_and_interface_pointers_without_bodies(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
     assert rc == 0, err + text
     result = json.loads(text)
+    data = result["data"]
+    assert data["representation"] == "module_map"
     assert result["freshness"]["state"] == "verified"
-    paths = {s["path"] for s in result["data"]["sections"]}
-    assert {
-        "AGENTS.md",
-        "app/modules/notes/AGENTS.md",
-        "app/shared/contracts/stats_dto.py",
-    } <= paths
-    assert not any("modules/stats/" in p or "modules/archive/" in p for p in paths)
-    assert '"Out | None"' in text.replace('\\"', '"')
-    assert result["data"]["bytes"] == len(text.encode())
-    assert "sandloom.sdk.db" in {s["id"] for s in result["data"]["sdk"]}
+    assert {"AGENTS.md", "app/modules/notes/AGENTS.md"} <= set(data["rules"])
+    assert "app/shared/contracts/stats_dto.py" in data["interface_files"]
+    assert "contract:stats.quota.v1" in {c["id"] for c in data["contracts_used"]}
+    assert data["events_consumed"][0]["channel"] == "stats.changed.v1"
+    assert not any("modules/stats/" in f["path"] for f in data["files"])
+    assert "sections" not in data and "sdk" not in data
+    assert (
+        "local implementation" not in text and "APPLICATION MUST NOT IMPORT" not in text
+    )
+    assert data["bytes"] == len(text.encode())
 
 
 def test_markdown_default_deterministic_and_collision_safe(
@@ -177,7 +179,8 @@ def test_markdown_default_deterministic_and_collision_safe(
     assert first == second
     assert first[0] == 0
     assert "Freshness: source_changed" in first[1]
-    assert "````python" in first[1]
+    assert "````python" not in first[1]
+    assert "## Files" in first[1]
 
 
 def test_graph_hops_preserve_contract_and_event_witnesses(
@@ -215,7 +218,7 @@ def test_discovery_is_catalog_and_never_claims_empty_graph(
     "extra,kind,code",
     [
         (["unknown"], "unknown_module", 1),
-        (["notes", "--file", "../stats/services.py"], "unsafe_path", 1),
+        (["notes", "--file", "../stats/services.py"], "usage", 2),
         (["notes", "--max-bytes", "20"], "budget_exceeded", 1),
         (["notes", "--max-bytes", "-1"], "usage", 2),
         (["notes", "--not-an-option"], "usage", 2),
@@ -275,7 +278,7 @@ def test_layout_change_fails_before_scope_resolution(
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "layout_changed"
 
 
-def test_full_detail_preserves_business_selection(
+def test_full_detail_preserves_map_without_source_payloads(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     compact = json.loads(
@@ -286,11 +289,11 @@ def test_full_detail_preserves_business_selection(
             project, capsys, "context", "notes", "--format", "json", "--detail", "full"
         )[1]
     )
-    assert [(s["path"], s["content"]) for s in compact["data"]["sections"]] == [
-        (s["path"], s["content"]) for s in full["data"]["sections"]
-    ]
-    assert "sha256" not in compact["data"]["sections"][0]
-    assert "sha256" in full["data"]["sections"][0]
+    for key in ("module", "files", "interface_files", "contracts_used", "rules"):
+        assert compact["data"][key] == full["data"][key]
+    assert "evidence" not in compact["freshness"]
+    assert "evidence" in full["freshness"]
+    assert "local implementation" not in encode(full)
     assert full["data"]["bytes"] > compact["data"]["bytes"]
 
 
@@ -326,7 +329,7 @@ def test_symlink_and_sensitive_explicit_file_never_leak(
     rc, text, _ = run(
         project, capsys, "context", "notes", "--file", ".env", "--format", "json"
     )
-    assert rc == 1 and "never-print-this" not in text
+    assert rc == 2 and "never-print-this" not in text
 
 
 def test_output_atomic_protected_and_not_duplicated(
@@ -486,7 +489,7 @@ def test_discovery_survives_missing_wire_and_labels_uncertainty(
     assert run(project, capsys, "context", "notes")[0] == 1
 
 
-def test_advanced_alias_usage_and_ignore_policy(
+def test_map_omits_sdk_dump_and_respects_ignore_policy(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = "app/modules/notes/services.py"
@@ -494,17 +497,15 @@ def test_advanced_alias_usage_and_ignore_policy(
         "import sandloom.sdk.authz as authz\nx = authz.Account.user()\n"
     )
     rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
-    assert rc == 0
-    assert "sandloom.sdk.authz.Account" in {
-        d["id"] for d in json.loads(text)["data"]["sdk"]
-    }
+    assert rc == 0 and "sdk" not in json.loads(text)["data"]
+    assert "authz.Account.user" not in text
     (project.root / ".sandloomignore").write_text(path + "\n")
     rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
     assert rc == 0
     data = json.loads(text)["data"]
-    assert path not in {s["path"] for s in data["sections"]}
-    assert {"path": path, "reason": "context_ignore"} in data["omissions"]
-    assert run(project, capsys, "context", "notes", "--file", "services.py")[0] == 1
+    assert path not in {f["path"] for f in data["files"]}
+    assert {"reason": "context_ignore", "count": 1} in data["omissions"]
+    assert run(project, capsys, "context", "notes", "--file", "services.py")[0] == 2
 
 
 def test_unknown_graph_variant_and_owner_escape_fail_closed(
@@ -749,11 +750,12 @@ def test_route_process_uses_resolved_snapshot_not_empty_manifest(
     assert any(s["label"] == "Validate intent release rule" for s in result["steps"])
 
 
-def test_focused_context_keeps_dto_closure_and_explicit_owned_helpers(
+def test_focused_map_keeps_interface_paths_and_bounded_navigation(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    helper = project.root / "app/modules/notes/unrelated.py"
-    helper.write_text("def helper(): return 1\n")
+    (project.root / "app/modules/notes/unrelated.py").write_text(
+        "def helper(): return 1\n"
+    )
     rc, text, _ = run(
         project,
         capsys,
@@ -766,31 +768,15 @@ def test_focused_context_keeps_dto_closure_and_explicit_owned_helpers(
     )
     assert rc == 0
     data = json.loads(text)["data"]
-    paths = {s["path"] for s in data["sections"]}
-    assert "app/shared/contracts/stats_dto.py" in paths
-    assert "app/shared/events/stats.changed.v1.json" not in paths
+    assert "app/shared/contracts/stats_dto.py" in data["interface_files"]
+    assert "app/shared/events/stats.changed.v1.json" not in data["interface_files"]
     assert data["event_schemas"] == {}
-    assert not any("modules/stats/" in p for p in paths)
-    assert {
-        "path": "app/modules/notes/unrelated.py",
-        "reason": "outside_focus",
-    } in data["omissions"]
-    rc, text, _ = run(
-        project,
-        capsys,
-        "context",
-        "notes",
-        "--focus",
-        "contract:stats.quota.v1",
-        "--file",
-        "unrelated.py",
-        "--format",
-        "json",
+    assert not any("modules/stats/" in f["path"] for f in data["files"])
+    assert not any(f["path"].endswith("unrelated.py") for f in data["files"])
+    assert any(
+        o["reason"] == "outside_focus" and o["count"] > 0 for o in data["omissions"]
     )
-    assert rc == 0
-    assert "app/modules/notes/unrelated.py" in {
-        s["path"] for s in json.loads(text)["data"]["sections"]
-    }
+    assert all("path" not in o for o in data["omissions"])
     assert (
         run(
             project, capsys, "context", "archive", "--focus", "contract:stats.quota.v1"
@@ -1060,7 +1046,7 @@ def test_compact_topology_defers_route_policy_to_explicit_detail(
     assert full["processes"][0]["policy"] == {"session": "live"}
 
 
-def test_consumer_context_focus_keeps_its_incoming_event_interface(
+def test_consumer_map_focus_keeps_its_incoming_event_interface(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     rc, text, _ = run(
@@ -1075,13 +1061,10 @@ def test_consumer_context_focus_keeps_its_incoming_event_interface(
     )
     assert rc == 0
     data = json.loads(text)["data"]
-    assert "app/shared/events/stats.changed.v1.json" in {
-        s["path"] for s in data["sections"]
-    }
+    assert "app/shared/events/stats.changed.v1.json" in data["interface_files"]
     assert "stats.changed.v1" in data["event_schemas"]
-    assert "app/shared/contracts/stats_quota_v1.py" not in {
-        s["path"] for s in data["sections"]
-    }
+    assert "app/shared/contracts/stats_quota_v1.py" not in data["interface_files"]
+    assert "sections" not in data
 
 
 @pytest.mark.parametrize(
@@ -1765,3 +1748,222 @@ def test_graph_never_starts_a_browser_or_authoring_process(
     for args in ([], ["notes"], ["impact", "stats.quota.v1"], ["--format", "text"]):
         rc, _, err = run(project, capsys, "graph", *args)
         assert rc == 0 and not err
+
+
+@pytest.mark.parametrize("fmt", ["markdown", "json"])
+@pytest.mark.parametrize("detail", ["compact", "full"])
+@pytest.mark.parametrize("focused", [False, True])
+def test_map_never_contains_implementation_or_rule_bodies(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    fmt: str,
+    detail: str,
+    focused: bool,
+) -> None:
+    (project.root / "app/modules/notes/services.py").write_text(
+        '"""Business service entry points."""\nclass Worker:\n    def execute(self):\n        return "BODY_CANARY_NEVER_EMBED"\n'
+    )
+    (project.root / "AGENTS.md").write_text("RULE_BODY_CANARY_NEVER_EMBED\n")
+    wire = project.root / "app/shared/contracts/stats_dto.py"
+    wire.write_text(
+        wire.read_text()
+        + '\ndef implementation_helper(): return "WIRE_BODY_CANARY_NEVER_EMBED"\n'
+    )
+    extra = ["--focus", "stats.quota.v1"] if focused else []
+    rc, out, err = run(
+        project, capsys, "context", "notes", "--format", fmt, "--detail", detail, *extra
+    )
+    assert rc == 0 and not err
+    assert "BODY_CANARY_NEVER_EMBED" not in out
+    assert "RULE_BODY_CANARY_NEVER_EMBED" not in out
+    if not focused:
+        assert "Business service entry points." in out and "Worker" in out
+    assert "AGENTS.md" in out
+    if not focused:
+        assert "services.py" in out
+    assert "def execute" not in out and "## Public SDK" not in out
+
+
+def test_contract_map_has_signatures_callers_and_focused_dto_types(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = json.loads((project.root / INDEX).read_text())
+    dto = {
+        "k": "model",
+        "ref": "app.modules.stats.schemas:QuotaOut",
+        "fields": {
+            "remaining": {"required": True, "type": {"k": "scalar", "t": "int"}},
+            "next": {
+                "required": False,
+                "type": {
+                    "k": "union",
+                    "of": [
+                        {"k": "ref", "ref": "app.modules.stats.schemas:QuotaOut"},
+                        {"k": "none"},
+                    ],
+                },
+            },
+        },
+    }
+    doc["contract_descriptions"] = {
+        "stats.quota.v1": {
+            "methods": {
+                "read": {
+                    "kind": "read",
+                    "params": [
+                        {
+                            "name": "limit",
+                            "kind": "keyword_only",
+                            "required": False,
+                            "type": {"k": "scalar", "t": "int"},
+                        }
+                    ],
+                    "returns": dto,
+                }
+            }
+        }
+    }
+    (project.root / INDEX).write_text(encode(doc))
+    rc, out, _ = run(project, capsys, "context", "stats", "--format", "json")
+    assert rc == 0
+    contract = json.loads(out)["data"]["contracts_provided"][0]
+    assert contract["methods"][0]["signature"] == "read(*, limit: int = …) -> QuotaOut"
+    assert contract["peers"] == ["module:notes"] and "dtos" not in contract
+    rc, out, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "stats.quota.v1",
+        "--format",
+        "json",
+    )
+    assert rc == 0
+    contract = json.loads(out)["data"]["contracts_used"][0]
+    assert contract["peers"] == ["module:stats"]
+    assert contract["dtos"][0]["fields"] == [
+        {"name": "next", "type": "QuotaOut | None", "required": False},
+        {"name": "remaining", "type": "int", "required": True},
+    ]
+    assert "class QuotaOut" not in out
+
+
+def test_map_inventory_groups_files_and_prefers_public_symbols_without_execution(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = project.root / "app/modules/notes"
+    (root / "api").mkdir()
+    (root / "api/work.py").write_text(
+        '"""Work endpoints."""\ndef _private(): pass\nclass Worker: pass\n'
+        "def create(): pass\ndef update(): pass\ndef delete(): pass\ndef inspect(): pass\n"
+    )
+    for name in (
+        "schemas/input.py",
+        "models/note.py",
+        "tests/api/test_work.py",
+        "migrations/versions/0001.py",
+    ):
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("raise RuntimeError('MUST_NOT_EXECUTE')\n")
+    (root / "migrations/versions/0001.py").write_text(
+        "revision = 'r1'\ndown_revision = None\n"
+    )
+    rc, out, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0 and "MUST_NOT_EXECUTE" not in out
+    data = json.loads(out)["data"]
+    record = next(f for f in data["files"] if f["path"].endswith("api/work.py"))
+    assert [s["name"] for s in record["symbols"]] == [
+        "Worker",
+        "create",
+        "update",
+        "delete",
+    ]
+    assert record["more_symbols"] == 2 and record["symbols"][0]["line"] == 3
+    groups = {g["kind"]: g for g in data["file_groups"]}
+    assert groups["tests"]["directories"] == {"api": 1}
+    assert groups["schemas"]["files"] == ["input.py"]
+    assert groups["migrations"]["heads"] == ["r1"]
+
+
+def test_map_keeps_navigation_when_implementation_is_temporarily_invalid(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (project.root / "app/modules/notes/services.py").write_text("def unfinished(:\n")
+    rc, out, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0
+    data = json.loads(out)
+    record = next(f for f in data["data"]["files"] if f["path"].endswith("services.py"))
+    assert record["parse_error"] == "Syntax metadata unavailable at line 1"
+    assert data["freshness"]["state"] == "source_changed"
+    assert "def unfinished" not in out
+
+
+def test_route_map_groups_namespaces_without_losing_methods_or_parameters() -> None:
+    from sandloom.core.cli.inspection import interfaces
+
+    paths = [
+        ("GET", "/api/v1/users"),
+        ("POST", "/api/v1/users"),
+        ("GET", "/api/v1/users/{id}"),
+        ("GET", "/api/v1/roles"),
+        ("POST", "/api/v1/roles"),
+        ("GET", "/auth/me"),
+        ("PATCH", "/auth/me"),
+        ("GET", "/auth/2fa/status"),
+        ("POST", "/auth/2fa/enable"),
+    ]
+    groups = interfaces.routes(
+        [{"method": method, "path": path, "name": "handler"} for method, path in paths]
+    )
+    restored = [
+        (r["method"], (g["prefix"].rstrip("/") + r["path"]).rstrip("/"))
+        for g in groups
+        for r in g["routes"]
+    ]
+    assert sorted(restored) == sorted(paths)
+    assert {g["prefix"] for g in groups} == {
+        "/api/v1/users",
+        "/api/v1/roles",
+        "/auth",
+        "/auth/2fa",
+    }
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        (int, "int"),
+        (list[str], "list[str]"),
+        (set[int], "set[int]"),
+        (frozenset[str], "frozenset[str]"),
+        (dict[str, int], "dict[str, int]"),
+        (tuple[int, str], "tuple[int, str]"),
+        (tuple[int, ...], "tuple[int, ...]"),
+        (tuple[()], "tuple[()]"),
+        (str | None, "str | None"),
+    ],
+)
+def test_map_types_match_real_contract_wire_descriptors(
+    annotation: object, expected: str
+) -> None:
+    from sandloom.core.cli.inspection.interfaces import type_name
+    from sandloom.core.contract_wire import type_descriptor
+
+    assert type_name(type_descriptor(annotation)) == expected
+
+
+def test_map_literal_types_preserve_the_allowed_values() -> None:
+    from typing import Literal
+
+    from sandloom.core.cli.inspection.interfaces import type_name
+    from sandloom.core.contract_wire import type_descriptor
+
+    assert (
+        type_name(type_descriptor(Literal["open", "closed"]))
+        == "Literal['open', 'closed']"
+    )

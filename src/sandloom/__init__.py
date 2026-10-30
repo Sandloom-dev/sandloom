@@ -242,7 +242,9 @@ def main() -> None:  # noqa: C901
         "test", add_help=False, help="module tests + fast suite + static gates"
     )
     sub.add_parser(
-        "context", add_help=False, help="bounded module context for agents and people"
+        "context",
+        add_help=False,
+        help="compact module map with interfaces and file pointers",
     )
     sub.add_parser(
         "graph",
