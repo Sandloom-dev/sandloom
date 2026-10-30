@@ -179,7 +179,7 @@ def test_markdown_default_deterministic_and_collision_safe(
     second = run(project, capsys, "context", "app.modules.notes")
     assert first == second
     assert first[0] == 0
-    assert "Freshness: source_changed" in first[1]
+    assert "Freshness: source changed since last generate" in first[1]
     assert "````python" not in first[1]
     assert "## Files" in first[1]
 
@@ -2320,3 +2320,58 @@ def test_single_published_event_uses_its_literal_channel(
 ) -> None:
     rc, text, _ = run(project, capsys, "context", "stats")
     assert rc == 0 and "- stats.changed.v1" in text and "stats.{changed}.v1" not in text
+
+
+@pytest.mark.parametrize(
+    "state,label",
+    [
+        ("verified", "verified"),
+        ("missing_receipt", "not verified on this checkout"),
+        ("source_changed", "source changed since last generate"),
+        (
+            "dependency_changed",
+            "declarations or dependencies changed since last generate",
+        ),
+    ],
+)
+def test_context_explains_freshness_without_changing_json_statuses(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    state: str,
+    label: str,
+) -> None:
+    if state == "missing_receipt":
+        (project.root / RECEIPT).unlink()
+    elif state == "source_changed":
+        (project.root / "app/modules/notes/services.py").write_text("# changed\n")
+    elif state == "dependency_changed":
+        path = project.root / "app/shared/contracts/stats_dto.py"
+        path.write_text(path.read_text() + "# changed\n")
+    rc, text, err = run(project, capsys, "context", "notes")
+    assert rc == 0 and not err
+    assert "Freshness: " + label in text
+    assert "\n\n\n" not in text
+    rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0 and json.loads(text)["freshness"]["state"] == state
+
+
+def test_text_map_only_reports_outside_focus_exclusions(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = project.root / "app/modules/notes"
+    (root / "api").mkdir()
+    (root / "api/__init__.py").write_text('"""API package."""\n')
+    (root / "ignored.py").write_text("# implementation\n")
+    (project.root / ".sandloomignore").write_text("app/modules/notes/ignored.py\n")
+    rc, text, _ = run(project, capsys, "context", "notes")
+    assert rc == 0 and "Excluded file metadata" not in text
+    assert "package_scaffolding" not in text and "context_ignore" not in text
+    rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0
+    counts = {o["reason"]: o["count"] for o in json.loads(text)["data"]["omissions"]}
+    assert counts == {"package_scaffolding": 1, "context_ignore": 1}
+    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
+    assert rc == 0 and "outside_focus:" in text
+    assert "context_ignore" not in text and "package_scaffolding" not in text
+    assert "\n\n\n" not in text

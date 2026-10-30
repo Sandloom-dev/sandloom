@@ -8,6 +8,23 @@ from sandloom.core.cli.inspection import files, focus, interfaces, inventory
 from sandloom.core.cli.inspection.model import Doc, InspectionError, encode, response
 from sandloom.core.cli.inspection.read import Reader
 
+_FRESHNESS = {
+    "verified": "verified",
+    "source_changed": "source changed since last generate",
+    "missing_receipt": "not verified on this checkout",
+    "dependency_changed": "declarations or dependencies changed since last generate",
+    "partial": "verification incomplete for this scope",
+}
+
+
+def _text(lines: list[str]) -> str:
+    clean: list[str] = []
+    for line in lines:
+        line = "".join(c if c.isprintable() else " " for c in line).rstrip()
+        if line or (clean and clean[-1]):
+            clean.append(line)
+    return "\n".join(clean).rstrip() + "\n"
+
 
 def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
     out = ["## " + title]
@@ -231,7 +248,7 @@ def markdown(envelope: Doc) -> str:
     module = data["module"]
     out = [
         f"# Sandloom context: {module['name']} · {module['source']}",
-        "Freshness: " + fresh["state"],
+        "Freshness: " + _FRESHNESS.get(fresh["state"], fresh["state"]),
     ]
     if data["focus"]:
         out.append("Focus: " + data["focus"]["name"])
@@ -246,20 +263,16 @@ def markdown(envelope: Doc) -> str:
     out += _files(data)
     out += _interface_paths(data["interface_files"])
     out += _unresolved(data["unresolved"])
-    if data["omissions"]:
+    omissions = [o for o in data["omissions"] if o["reason"] == "outside_focus"]
+    if omissions:
         out += [
             "Excluded file metadata: "
-            + "; ".join(
-                o["reason"] + ": " + str(o["count"]) for o in data["omissions"]
-            ),
+            + "; ".join(o["reason"] + ": " + str(o["count"]) for o in omissions),
             "",
         ]
     if "evidence" in fresh:
         out += ["", "Verification evidence: " + encode(fresh["evidence"]).strip()]
-    return (
-        "\n".join("".join(c if c.isprintable() else " " for c in line) for line in out)
-        + "\n"
-    )
+    return _text(out)
 
 
 def render(envelope: Doc, fmt: str) -> str:

@@ -108,6 +108,9 @@ tables by tenant scope, and shows readable process labels. DTO references and
 file/line locators resolve actual local shared copies through `dto_copy` metadata;
 missing local definitions remain explicitly unavailable. Focused unresolved facts
 are filtered to the selected interfaces; structured output retains stable IDs.
+Markdown explains freshness in words and reports only outside-focus exclusions,
+with single blank lines between sections. JSON retains status enums and all
+exclusion counters for automation.
 
 ## Shared model and freshness
 

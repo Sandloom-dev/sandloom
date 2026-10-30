@@ -89,9 +89,9 @@ successful partial map is returned.
 
 `.sandloomignore` contains project-relative glob patterns, one per line. Blank
 lines and `#` comments are ignored; negation is unsupported. It excludes owned
-file metadata, not mandatory rule/interface references. The map reports excluded
-counts by reason, including `context_ignore`, `outside_focus` and
-`package_scaffolding`.
+file metadata, not mandatory rule/interface references. JSON retains counts for
+`context_ignore`, `outside_focus` and `package_scaffolding`. Markdown shows only
+`outside_focus`; routine scaffolding/filter accounting stays out of the text map.
 
 ## Freshness and cold reads
 
@@ -100,13 +100,16 @@ and current owned file metadata. It never loads `.env`, imports the application,
 connects to backends or regenerates implicitly. The semantic index belongs in Git;
 the local verification receipt lives under ignored `.sandloom/cache/`.
 
-| State | Meaning |
+| JSON state | Markdown label |
 | --- | --- |
-| `verified` | Selected inputs match a successful authoring generation. |
-| `missing_receipt` | Recorded declarations are readable, but have no local receipt. |
-| `source_changed` | Source membership/content or scoped rules changed. |
-| `dependency_changed` | The wire/interface verification basis changed. |
-| `partial` | Selected modules have different verification states. |
+| `verified` | verified |
+| `missing_receipt` | not verified on this checkout |
+| `source_changed` | source changed since last generate |
+| `dependency_changed` | declarations or dependencies changed since last generate |
+| `partial` | verification incomplete for this scope |
+
+A fresh clone normally has no local verification receipt; its recorded declarations
+remain readable. JSON keeps the stable status codes for automation.
 
 This is source evidence, not production health. `--require-verified` exits 3 when
 verification is unavailable. Missing mandatory interfaces fail independently;
