@@ -106,11 +106,40 @@ def _revision(tree: ast.Module | None) -> tuple[str | None, list[str]]:
     return revision if isinstance(revision, str) else None, parents
 
 
+def _exports(node: ast.stmt) -> bool:
+    if not isinstance(node, ast.Assign):
+        return False
+    return (
+        all(isinstance(n, ast.Name) and n.id == "__all__" for n in node.targets)
+        and isinstance(node.value, (ast.List, ast.Tuple))
+        and all(
+            isinstance(n, ast.Constant) and isinstance(n.value, str)
+            for n in node.value.elts
+        )
+    )
+
+
+def _scaffolding(path: str, tree: ast.Module | None) -> bool:
+    if Path(path).name != "__init__.py" or tree is None:
+        return False
+    return all(
+        isinstance(n, (ast.Import, ast.ImportFrom, ast.Pass))
+        or _exports(n)
+        or (
+            isinstance(n, ast.Expr)
+            and isinstance(n.value, ast.Constant)
+            and isinstance(n.value.value, str)
+        )
+        for n in tree.body
+    )
+
+
 def build(reader: Reader, module: Doc, candidates: list[str]) -> Doc:
     root = Path(module["source"])
     listed: list[Doc] = []
     grouped: dict[str, list[str]] = {}
     revisions, parents = set(), set()
+    scaffolding = 0
     for path in candidates:
         relative = Path(path).relative_to(root)
         group = relative.parts[0] if len(relative.parts) > 1 else ""
@@ -118,6 +147,9 @@ def build(reader: Reader, module: Doc, candidates: list[str]) -> Doc:
             grouped.setdefault(group, []).append(path)
             continue
         record, tree = _record(reader, path)
+        if _scaffolding(path, tree):
+            scaffolding += 1
+            continue
         if group not in {"tests", "migrations", "schemas", "models"}:
             listed.append(record)
             continue
@@ -151,4 +183,11 @@ def build(reader: Reader, module: Doc, candidates: list[str]) -> Doc:
                 Path(p).relative_to(root / name).as_posix() for p in paths
             ]
         groups.append(entry)
-    return {"files": listed, "file_groups": groups, "file_count": len(candidates)}
+    return {
+        "files": listed,
+        "file_groups": groups,
+        "file_count": len(candidates),
+        "omissions": [{"reason": "package_scaffolding", "count": scaffolding}]
+        if scaffolding
+        else [],
+    }

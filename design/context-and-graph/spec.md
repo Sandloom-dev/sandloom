@@ -69,23 +69,23 @@ of the same facts. The map includes:
   kind, optionality and callers/providers within this composition. Missing method
   descriptions are explicitly unavailable; provider bodies are never inspected.
 - Produced events and declared listeners, incoming events and handlers.
-- Grouped route methods/paths, tables, versioned sagas and infrastructure
+- Route methods/paths, tables, versioned sagas and infrastructure
   requirements. Available authoring metadata is not deployed configuration.
-- Owned file paths/sizes, first-line purpose from module docstrings and a few
-  top-level public symbols with line numbers. Additional symbols are counted.
+- Owned file paths (sizes in JSON), first-line purpose from module docstrings and
+  a few top-level public symbols with line numbers. Additional symbols are counted.
   Schemas/models have directory inventories; tests and migrations have summaries.
   Migration heads come from literal revision/down-revision links.
-- Generated public interface paths, freshness, unresolved declarations and next
-  queries. Implementation bodies, full files, SDK reference entries and instruction
-  bodies are not embedded. Descriptions are source metadata, not inferred behavior.
+- Generated public interface paths, freshness and scope-specific unresolved facts.
+  Implementation bodies, full files, SDK reference entries and instruction bodies
+  are not embedded. Descriptions are source metadata, not inferred behavior.
 
 File metadata is read through contained stable readers and parsed without imports
 or execution. Syntax errors, oversized files and unsupported text encoding retain
 a navigable path and an explicit per-file metadata warning. Test bodies need no
-decoding or AST parsing; raw hashes still track source changes. Such a map cannot claim the recorded declarations
-are current when the receipt detects source changes. Escaping ownership or
-traversing symlinks fails closed. Actual exported metadata remains secret-checked. `.sandloomignore` excludes owned file metadata, while
-rule/public-interface references remain available.
+decoding or AST parsing; raw hashes still track source changes. Source changes
+invalidate the freshness receipt. Escaping ownership or traversing symlinks fails
+closed. Actual exported metadata remains secret-checked. `.sandloomignore`
+excludes owned file metadata, while rule/public-interface references remain available.
 
 Focus must belong to or be used by the selected module. It narrows interfaces
 and source-location hints, adds declared DTO field types/requiredness or event
@@ -100,6 +100,14 @@ open those and implementation helpers/tests using their ordinary repository tool
 A context target requires checkout-owned source. Installed-only dependencies
 supply public interfaces and logical identities rather than editable inventories.
 Cross-module imports/edit authority are not expanded by inspecting a relation.
+
+The map contains facts about its selected scope. Follow-up commands and general
+limits belong in the module-context skill. Markdown suppresses default auth tags,
+redundant route groups, small-file sizes and inert package initializers, groups
+tables by tenant scope, and shows readable process labels. DTO references and
+file/line locators resolve actual local shared copies through `dto_copy` metadata;
+missing local definitions remain explicitly unavailable. Focused unresolved facts
+are filtered to the selected interfaces; structured output retains stable IDs.
 
 ## Shared model and freshness
 

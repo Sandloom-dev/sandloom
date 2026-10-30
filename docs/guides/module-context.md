@@ -23,20 +23,29 @@ uv run sandloom context notes --focus contract:stats.quota.v1
 - Provided and consumed contracts: declared method signatures, read/command kind,
   optionality, and callers/providers in this authoring composition.
 - Published events and their declared listeners; incoming events and handlers.
-- HTTP routes grouped by namespace/resource, tables, sagas and infrastructure
-  requirements. These are declarations, not runtime traffic or active bindings.
-- Owned file paths, sizes, first-line purpose from the module docstring, and a
+- HTTP routes with handlers, tables grouped by tenant scope, sagas and
+  infrastructure requirements. Markdown marks public routes with `[public]`;
+  unmarked routes are authenticated. These are declarations, not runtime traffic
+  or active bindings.
+- Owned file paths, first-line purpose from the module docstring, and a
   few public symbols with line numbers. More symbols are counted explicitly.
-  Schemas, models, migrations and tests have directory summaries.
+  Schemas, models, migrations and tests have directory summaries. Inert package
+  initializers are counted as excluded scaffolding; meaningful initializer logic
+  remains navigable. JSON additionally includes file sizes.
 - Paths to applicable instruction documents and generated public interfaces.
   Read the selected rules before editing, then open the implementation files
   needed for the task. Peer implementations are outside the map.
 
+Maps contain module-specific facts, without a next-step checklist. The
+`sandloom-module-context` skill covers follow-up commands and inspection limits.
+Unresolved declarations are limited to the selected interfaces when focused.
+Structured output retains stable IDs; Markdown uses readable focus labels.
+
 Descriptions come from source metadata; the tool does not invent explanations
-or infer a complete call graph. Syntax errors, non-UTF-8 text and oversized implementation files leave
-their paths available with an explicit metadata warning. Test bodies are not
-parsed or decoded for directory counts; raw source hashes still track freshness. They do not make stale
-recorded declarations current. Migration heads come from literal revision links,
+or infer a complete call graph. Syntax errors, non-UTF-8 text and oversized
+implementation files leave their paths available with an explicit metadata
+warning. Test bodies are not parsed or decoded for directory counts; raw source
+hashes still track freshness. Source changes invalidate the freshness receipt. Migration heads come from literal revision links,
 not filename sorting. Test summaries count files, not executed test cases.
 
 ## Narrow an interface
@@ -48,8 +57,11 @@ uv run sandloom context notes --focus event:stats.changed.v1
 
 Focus restricts the interface map and file navigation hints. Contract detail adds
 DTO field types and requiredness; event detail adds its declared wire schema.
-Exact validation rules, aliases and defaults remain in the linked generated
-interface files. The agent reads those definitions when needed.
+DTO names/references and file/line locations resolve the local generated shared
+copies, including renamed classes. Provider-internal provenance stays out of
+the map. When no matching local class is available, its location is explicitly
+unavailable. Exact validation rules, aliases and defaults remain in the linked
+generated interface files. The agent reads those definitions when needed.
 
 Route focus shows exactly the selected route and its recorded handler location.
 Its opaque implementation does not establish which contracts or tables it uses.
@@ -78,7 +90,8 @@ successful partial map is returned.
 `.sandloomignore` contains project-relative glob patterns, one per line. Blank
 lines and `#` comments are ignored; negation is unsupported. It excludes owned
 file metadata, not mandatory rule/interface references. The map reports excluded
-counts by reason, including `context_ignore` and `outside_focus`.
+counts by reason, including `context_ignore`, `outside_focus` and
+`package_scaffolding`.
 
 ## Freshness and cold reads
 

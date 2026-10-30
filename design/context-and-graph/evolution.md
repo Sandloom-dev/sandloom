@@ -248,3 +248,30 @@ copy feedback and readable owner labels. Paid agent DX remains deferred.
 Linux `backend-static` and strict docs CI passed on `f522b3e` in 86 seconds,
 including installed-wheel RPC transport and vulnerability checks. The final
 packaged viewer also separates owner labels from impact evidence on screen.
+
+
+## Facts-only map refinement
+
+Default Markdown now contains scope-specific facts without a Next checklist,
+source-opening preamble or generic focus caveats. Workflow and inference limits
+remain in the shipped module-context skill. Route rows retain handlers/public
+markers without duplicate group headings/default auth tags. Tables are grouped
+by scope; inert import/re-export initializers are excluded and counted, while
+initializer logic remains navigable. File sizes remain available in JSON.
+Singleton event channels and process labels render literally/readably. Focused
+unresolved facts retain only the selected interfaces and use plain text.
+
+DTO method/field names and public references resolve against local shared wire
+syntax, including explicit `dto_copy` origins and renamed class definitions.
+The map points to the actual local class/file/line rather than a peer's internal
+schema module. Missing local definitions stay unavailable, without guessed paths.
+This lookup remains cold: no application or wire-file execution/imports.
+
+Validation: 148 focused cases; 5,203 full-suite tests and 1,283 architecture
+cases with every static gate passing; six fresh generated-file checks; 14 module
+maps, 19 contract-focus maps and six filesystem edge cases. Every rendered DTO
+locator in the matrix matches a local class definition. Four wheel/sdist pairs,
+lean/standard installs, an installed Helpdesk DTO focus, all-battery scaffolding,
+site/skill and the 2,368-file source audit passed. On the same compositions,
+Markdown identity shrank 9,942 → 8,357 bytes, enrollment 2,118 → 1,585 and
+membership focus 1,704 → 1,167 (serialized UTF-8 bytes, not LLM tokens).

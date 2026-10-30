@@ -2123,3 +2123,200 @@ def test_extracted_metadata_still_redacts_secrets_and_private_symbols(
     rc, text, _ = run(project, capsys, "context", "notes")
     assert rc == 0 and "BEGIN PRIVATE KEY" not in text and "_private" not in text
     assert "public:" in text and "Summary omitted" in text
+
+
+def test_context_maps_dto_origins_to_local_copies_and_renamed_wire_types(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    origin = "foreign_package.schemas.internal:Result"
+    descriptor = {
+        "k": "model",
+        "ref": origin,
+        "fields": {
+            "next": {
+                "type": {
+                    "k": "union",
+                    "of": [{"k": "ref", "ref": origin}, {"k": "none"}],
+                },
+                "required": False,
+            }
+        },
+    }
+    doc = json.loads((project.root / INDEX).read_text())
+    doc["contract_descriptions"] = {
+        "stats.quota.v1": {
+            "methods": {"read": {"kind": "read", "params": [], "returns": descriptor}}
+        }
+    }
+    (project.root / INDEX).write_text(encode(doc))
+    target = project.root / "app/shared/contracts/stats_dto.py"
+    target.write_text(
+        "from sandloom.core.descriptors.contract_refs import dto_copy\n"
+        "from pydantic import BaseModel\n"
+        f"@dto_copy({origin!r})\n"
+        'class PublicResult(BaseModel):\n    next: "PublicResult | None" = None\n'
+        "class Out(BaseModel): pass\n"
+        'raise AssertionError("wire file must not be imported")\n'
+    )
+    rc, text, err = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "stats.quota.v1",
+        "--format",
+        "json",
+    )
+    assert rc == 0 and not err and "foreign_package" not in text
+    contract = json.loads(text)["data"]["contracts_used"][0]
+    assert contract["methods"][0]["signature"] == "read() -> PublicResult"
+    dto = contract["dtos"][0]
+    assert dto["ref"] == "app.shared.contracts.stats_dto:PublicResult"
+    assert dto["path"] == "app/shared/contracts/stats_dto.py" and dto["line"] == 4
+    assert dto["fields"][0]["type"] == "PublicResult | None"
+    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
+    assert rc == 0 and "DTO PublicResult · app/shared/contracts/stats_dto.py:4" in text
+    assert "foreign_package" not in text
+
+
+def test_context_does_not_invent_a_local_dto_locator(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = json.loads((project.root / INDEX).read_text())
+    doc["contract_descriptions"] = {
+        "stats.quota.v1": {
+            "methods": {
+                "read": {
+                    "kind": "read",
+                    "params": [],
+                    "returns": {
+                        "k": "model",
+                        "ref": "private_provider.schemas:Missing",
+                        "fields": {},
+                    },
+                }
+            }
+        }
+    }
+    (project.root / INDEX).write_text(encode(doc))
+    rc, text, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "stats.quota.v1",
+        "--format",
+        "json",
+    )
+    assert rc == 0 and "private_provider" not in text
+    dto = json.loads(text)["data"]["contracts_used"][0]["dtos"][0]
+    assert dto["path"] is None and dto["ref"] is None
+
+
+def test_map_contains_concrete_facts_without_generic_advice_or_scaffolding(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = project.root / "app/modules/notes"
+    (root / "api").mkdir()
+    (root / "api/__init__.py").write_text(
+        '"""API."""\nfrom .notes import router\n__all__ = ["router"]\n'
+    )
+    (root / "api/notes.py").write_text("def create_note(): pass\n")
+    (root / "services").mkdir()
+    (root / "services/__init__.py").write_text("def configure(): pass\n")
+    (root / "tests").mkdir()
+    (root / "tests/test_notes.py").write_text("def test_notes(): pass\n")
+    doc = json.loads((project.root / INDEX).read_text())
+    module = next(m for m in doc["modules"] if m["id"] == "module:notes")
+    module["routes"] = [
+        {
+            "method": "GET",
+            "path": "/notes",
+            "name": "get_notes",
+            "auth": "authenticated",
+        },
+        {"method": "POST", "path": "/notes", "name": "create_note", "auth": "public"},
+    ]
+    module["models"] = [
+        {"table": "users", "tenant_scoped": False},
+        {"table": "roles", "tenant_scoped": False},
+        {"table": "notes", "tenant_scoped": True},
+    ]
+    (project.root / INDEX).write_text(encode(doc))
+    rc, text, _ = run(project, capsys, "context", "notes")
+    assert rc == 0
+    for noise in (
+        "## Next",
+        "Module map.",
+        "CONTRACT_OR_EVENT_ID",
+        "KiB",
+        "api/__init__.py",
+        ".: 1",
+        "[authenticated]",
+        "- /notes (2)",
+        "run sandloom",
+    ):
+        assert noise not in text
+    assert "POST /notes → create_note [public]" in text
+    assert "GET /notes → get_notes" in text
+    assert "Global: roles, users" in text and "Tenant scoped: notes" in text
+    assert "tests/ · 1 file" in text
+    assert "services/__init__.py" in text and "configure:" in text
+    rc, text, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "stats.quota.v1",
+        "--format",
+        "json",
+    )
+    assert rc == 0 and "limits" not in json.loads(text)["data"]["focus"]
+
+
+def test_map_scopes_unresolved_facts_to_selected_interfaces(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = json.loads((project.root / INDEX).read_text())
+    doc["unresolved"] = [
+        {
+            "module_id": "module:notes",
+            "kind": "provider_not_in_composition",
+            "related_id": "contract:stats.quota.v1",
+            "required": False,
+        }
+    ]
+    doc["processes"] = [
+        {
+            "id": "route:notes%3APOST%20%2Fnotes",
+            "owner": "module:notes",
+            "name": "POST /notes",
+            "handler": "create_note",
+        }
+    ]
+    (project.root / INDEX).write_text(encode(doc))
+    rc, text, _ = run(project, capsys, "context", "notes", "--focus", "stats.quota.v1")
+    assert rc == 0 and "stats.quota.v1 — provider not in composition (optional)" in text
+    assert '"module_id"' not in text
+    rc, text, _ = run(
+        project, capsys, "context", "notes", "--focus", "route:notes%3APOST%20%2Fnotes"
+    )
+    assert rc == 0 and "Unresolved declarations" not in text
+    assert "Focus: POST /notes" in text and "%3A" not in text
+    assert "Declared interfaces and source landmarks" not in text
+    assert "## Next" not in text
+
+
+def test_single_published_event_uses_its_literal_channel(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc, text, _ = run(project, capsys, "context", "stats")
+    assert rc == 0 and "- stats.changed.v1" in text and "stats.{changed}.v1" not in text

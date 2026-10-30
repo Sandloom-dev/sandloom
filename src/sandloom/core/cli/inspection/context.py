@@ -27,14 +27,19 @@ def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
             if semantics:
                 out.append("    " + semantics)
         if not entry["description_available"]:
-            out.append("  - Signature metadata unavailable; read the interface files.")
+            out.append("  - Signature metadata unavailable.")
         peers = ", ".join(p.removeprefix("module:") for p in entry["peers"])
         out.append(
             f"  - {'Callers' if provided else 'Providers'} here: "
             f"{peers or 'none declared'}"
         )
         for dto in entry.get("dtos", []):
-            out.append("  - DTO " + dto["ref"])
+            location = (
+                f"{dto['path']}:{dto['line']}"
+                if dto["path"]
+                else "local copy unavailable"
+            )
+            out.append(f"  - DTO {dto['name']} · {location}")
             out += [
                 f"    - {f['name']}: {f['type']}"
                 + (" (optional)" if not f["required"] else "")
@@ -44,30 +49,38 @@ def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
 
 
 def _files(data: Doc) -> list[str]:
+    if not data["files"] and not data["file_groups"]:
+        return []
     out, root = ["## Files"], data["module"]["source"] + "/"
     for record in data["files"]:
         symbols = ", ".join(f"{s['name']}:{s['line']}" for s in record["symbols"])
         if record["more_symbols"]:
             symbols += f" +{record['more_symbols']}"
-        description = " — ".join(p for p in (record["summary"], symbols) if p)
-        description = record.get("parse_error") or description
+        description = record.get("parse_error") or " — ".join(
+            p for p in (record["summary"], symbols) if p
+        )
         out.append(
-            f"- {record['path'].removeprefix(root)} · "
-            f"{record['bytes'] / 1024:.1f} KiB · {description}"
+            "- "
+            + record["path"].removeprefix(root)
+            + (" · " + description if description else "")
         )
     for group in data["file_groups"]:
         if group["kind"] == "tests":
-            summary = ", ".join(f"{p}: {n}" for p, n in group["directories"].items())
+            summary = f"{group['count']} " + (
+                "file" if group["count"] == 1 else "files"
+            )
+            if set(group["directories"]) != {"."}:
+                summary += " · " + ", ".join(
+                    f"{'root' if p == '.' else p}: {n}"
+                    for p, n in group["directories"].items()
+                )
         elif group["kind"] == "migrations":
             summary = f"{group['revision_count']} revisions; declared heads: " + (
                 ", ".join(group["heads"]) or "unavailable"
             )
         else:
             summary = ", ".join(group["files"])
-        out.append(
-            f"- {group['path'].removeprefix(root)}/ · "
-            f"{group['count']} files · {summary}"
-        )
+        out.append(f"- {group['path'].removeprefix(root)}/ · {summary}")
     return [*out, ""]
 
 
@@ -81,7 +94,12 @@ def _published(events: list[Doc]) -> list[str]:
         else:
             out.append("- " + event["channel"])
     for (prefix, version), names in sorted(grouped.items()):
-        out.append(f"- {prefix}.{{{', '.join(names)}}}.{version}")
+        channel = (
+            f"{prefix}.{names[0]}.{version}"
+            if len(names) == 1
+            else f"{prefix}.{{{', '.join(names)}}}.{version}"
+        )
+        out.append("- " + channel)
     listeners = [e for e in events if e["listeners"]]
     out += [
         "- "
@@ -107,7 +125,7 @@ def _interface_paths(paths: list[str]) -> list[str]:
     out = ["Interface paths:"]
     for parent, names in sorted(grouped.items()):
         summary = (
-            f"{len(names)} event schemas (focus an event for detail)"
+            f"{len(names)} event schemas"
             if len(names) > 4 and all(n.endswith(".json") for n in names)
             else ", ".join(names)
         )
@@ -116,17 +134,56 @@ def _interface_paths(paths: list[str]) -> list[str]:
 
 
 def _routes(groups: list[Doc]) -> list[str]:
-    out = ["", f"## Routes: {sum(len(g['routes']) for g in groups)}"] if groups else []
-    for group in groups:
-        if len(group["routes"]) > 1:
-            out.append(f"- {group['prefix']} ({len(group['routes'])})")
-        out.extend(
-            f"  - {route['method']} {route['full_path']} → "
-            + (route["handler"] or "?")
-            + (f" [{route['auth']}]" if route.get("auth") else "")
-            for route in group["routes"]
+    rows = sorted(
+        (r for group in groups for r in group["routes"]),
+        key=lambda r: (r["full_path"], r["method"]),
+    )
+    if not rows:
+        return []
+    return [
+        "",
+        f"## Routes: {len(rows)}",
+        *[
+            f"- {r['method']} {r['full_path']} → {r['handler'] or '?'}"
+            + (
+                f" [{r['auth']}]"
+                if r.get("auth") not in {None, "authenticated"}
+                else ""
+            )
+            for r in rows
+        ],
+    ]
+
+
+def _tables(tables: list[Doc]) -> list[str]:
+    return [
+        label
+        + ": "
+        + ", ".join(
+            sorted(t["table"] for t in tables if bool(t.get("tenant_scoped")) == scoped)
         )
-    return out
+        for label, scoped in (("Global", False), ("Tenant scoped", True))
+        if any(bool(t.get("tenant_scoped")) == scoped for t in tables)
+    ]
+
+
+def _unresolved(items: list[Doc]) -> list[str]:
+    return (
+        [
+            "Unresolved declarations:",
+            *[
+                "- "
+                + item["related_id"].split(":", 1)[-1]
+                + " — "
+                + item["kind"].replace("_", " ")
+                + (" (optional)" if item.get("required") is False else "")
+                for item in items
+            ],
+            "",
+        ]
+        if items
+        else []
+    )
 
 
 def _overview(data: Doc) -> list[str]:
@@ -141,11 +198,7 @@ def _overview(data: Doc) -> list[str]:
     out += _routes(data["routes"])
     if data["tables"]:
         out += ["", f"## Tables: {len(data['tables'])}"]
-        out += [
-            f"- {t['table']}"
-            + (" [tenant scoped]" if t.get("tenant_scoped") else " [global]")
-            for t in data["tables"]
-        ]
+        out += _tables(data["tables"])
     if data["sagas"]:
         out += [
             "",
@@ -179,14 +232,9 @@ def markdown(envelope: Doc) -> str:
     out = [
         f"# Sandloom context: {module['name']} · {module['source']}",
         "Freshness: " + fresh["state"],
-        "Module map. Open source files by their paths below.",
     ]
-    if fresh["state"] != "verified":
-        out.append(
-            "Declarations may be stale; run sandloom generate to refresh verification."
-        )
     if data["focus"]:
-        out.append("Focus: " + data["focus"]["id"])
+        out.append("Focus: " + data["focus"]["name"])
     if data["rules"]:
         out += ["Rules to read: " + ", ".join(data["rules"])]
     out.append("")
@@ -197,8 +245,7 @@ def markdown(envelope: Doc) -> str:
     out += _overview(data)
     out += _files(data)
     out += _interface_paths(data["interface_files"])
-    if data["unresolved"]:
-        out += ["Unresolved declarations: " + encode(data["unresolved"]).strip(), ""]
+    out += _unresolved(data["unresolved"])
     if data["omissions"]:
         out += [
             "Excluded file metadata: "
@@ -207,20 +254,6 @@ def markdown(envelope: Doc) -> str:
             ),
             "",
         ]
-    out += ["## Next"]
-    if data["focus"]:
-        out += [
-            "- " + data["focus"]["limits"],
-            f"- Module overview: sandloom context {module['name']}",
-            f"- Potential impact: sandloom graph impact '{data['focus']['id']}'",
-        ]
-    else:
-        out += [
-            f"- Interface detail: sandloom context {module['name']} "
-            "--focus CONTRACT_OR_EVENT_ID",
-            "- Potential impact: sandloom graph impact CONTRACT_OR_EVENT_ID",
-        ]
-    out.append(f"- Check changes: sandloom test {module['name']}")
     if "evidence" in fresh:
         out += ["", "Verification evidence: " + encode(fresh["evidence"]).strip()]
     return (
@@ -274,16 +307,18 @@ def build(
     )
     selected = focused["candidates"] if focused else candidates
     whole = not focused or focused["all_interfaces"]
+    wires = focused["wires"] if focused else reader.wire_paths(module)
+    navigation = inventory.build(reader, module, selected)
     data: Doc = {
         "representation": "module_map",
         "module": {
             k: module[k] for k in ("id", "name", "source", "import_path", "version")
         },
-        "focus": {"id": focused["item"]["id"], "limits": focused["limits"]}
+        "focus": {"id": focused["item"]["id"], "name": focused["name"]}
         if focused
         else None,
         "rules": reader.rules(module),
-        **interfaces.build(reader, module, focused),
+        **interfaces.build(reader, module, focused, wires),
         "routes": interfaces.routes(
             [
                 route
@@ -316,16 +351,24 @@ def build(
             and e["owner"] == module["id"]
             and e["kind"] == "requires_capability"
         ),
-        **inventory.build(reader, module, selected),
-        "interface_files": focused["wires"] if focused else reader.wire_paths(module),
+        **navigation,
+        "interface_files": wires,
         "unresolved": [
-            u for u in reader.doc["unresolved"] if u["module_id"] == module["id"]
+            u
+            for u in reader.doc["unresolved"]
+            if u["module_id"] == module["id"]
+            and (
+                whole
+                or (
+                    focused is not None
+                    and u.get("related_id") in focused["interface_ids"]
+                )
+            )
         ],
         "budget": budget,
         "bytes": 0,
-        "omissions": (
-            [{"reason": "context_ignore", "count": len(ignored)}] if ignored else []
-        )
+        "omissions": navigation["omissions"]
+        + ([{"reason": "context_ignore", "count": len(ignored)}] if ignored else [])
         + (
             [{"reason": "outside_focus", "count": len(set(candidates) - set(selected))}]
             if set(candidates) - set(selected)

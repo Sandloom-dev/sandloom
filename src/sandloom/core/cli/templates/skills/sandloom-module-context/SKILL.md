@@ -19,15 +19,20 @@ uv run sandloom graph MODULE --hops 1 --format json
 ```
 
 Choose the module matching the task. `context` is a compact Markdown map: contract
-signatures, dependencies, events, grouped routes and file locations. It does not
+signatures, dependencies, events, routes and file locations. It does not
 supply implementation code or a bulk SDK reference. Read its freshness, applicable
 rule paths and unresolved facts, then open the relevant owned files using normal
 repository tools. Files include purpose/symbol/line hints; helpers and tests are
 read directly as needed. Read the linked generated interfaces for exact wire types.
+Import contract DTOs from the map's local generated shared package; its DTO paths
+and public references resolve copied/renamed classes in this application.
 
 Graph uses text on stdout TTY and JSON in pipes; request JSON explicitly for
 programmatic inspection regardless of the runner's terminal allocation. Context
-also supports `--format json` when structured fields are needed. Check exit codes
+also supports `--format json` for structured fields and stable focus IDs; Markdown
+uses readable focus labels. An unmarked route is authenticated; `[public]` marks
+explicit public access. The map contains facts; select next steps from this skill.
+Check exit codes
 and typed diagnostics; a nonzero exit is not usable partial output.
 
 ## Inspect the interface or process

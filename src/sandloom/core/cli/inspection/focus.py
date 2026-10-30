@@ -96,11 +96,13 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
         "candidates": sorted(paths.intersection(candidates)),
         "wires": reader.wire_paths({**module, "wire_paths": wires}),
         "all_interfaces": whole_module,
+        "interface_ids": sorted(interfaces),
+        "name": (
+            f"{selected['saga_type']} v{selected['version']}"
+            if selected["id"].startswith("saga:")
+            else selected["name"]
+        ),
         "channels": {
             i.removeprefix("event:") for i in interfaces if i.startswith("event:")
         },
-        "limits": (
-            "Declared interfaces and source landmarks only. Handler dependencies "
-            "are not inferred. Open helpers/tests directly; normal quality gates apply."
-        ),
     }

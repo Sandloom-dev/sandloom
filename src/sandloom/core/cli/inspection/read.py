@@ -323,6 +323,41 @@ class Reader:
                 pending += self._wire_imports(path, text)
         return sorted(seen)
 
+    def dto_locations(self, paths: list[str]) -> dict[str, Doc]:
+        """Resolve public DTO names from local wire syntax, without importing it."""
+        result: dict[str, Doc] = {}
+        for path in paths:
+            if not path.endswith(".py"):
+                continue
+            parts = list(
+                Path(path).relative_to(self.layout["shared_dir"]).with_suffix("").parts
+            )
+            if parts[-1] == "__init__":
+                parts.pop()
+            package = ".".join([self.layout["shared_package"], *parts])
+            tree = ast.parse(files.read(self.root, path), filename=path)
+            for node in tree.body:
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                local: Doc = {
+                    "ref": package + ":" + node.name,
+                    "name": node.name,
+                    "path": path,
+                    "line": node.lineno,
+                }
+                result[local["ref"]] = local
+                for decorator in node.decorator_list:
+                    if (
+                        isinstance(decorator, ast.Call)
+                        and isinstance(decorator.func, ast.Name)
+                        and decorator.func.id == "dto_copy"
+                        and len(decorator.args) == 1
+                        and isinstance(decorator.args[0], ast.Constant)
+                        and isinstance(decorator.args[0].value, str)
+                    ):
+                        result[decorator.args[0].value] = local
+        return result
+
     def _wire_imports(self, path: str, text: str) -> list[str]:
         result = []
         shared = self.layout["shared_package"]
