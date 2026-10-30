@@ -13,7 +13,7 @@ const modules=data.nodes.filter(n=>n.kind==='module');
 $('status').textContent=`Freshness: ${envelope.freshness.state} · Scope: ${data.scope.kind} · Export hidden: ${data.hidden.nodes} nodes / ${data.hidden.edges} edges`;
 $('uncertainty').textContent=JSON.stringify({cycles:data.cycles,unresolved:data.unresolved},null,2);
 for(const module of modules){const option=document.createElement('option');option.value=module.id;option.textContent=module.name;$('focus').append(option)}
-function evidence(value){$('evidence').textContent=JSON.stringify(value,null,2)}
+function evidence(value){const target=$('evidence');target.textContent=JSON.stringify(value,null,2);target.tabIndex=-1;target.closest('section').scrollIntoView({block:'start'});target.focus({preventScroll:true})}
 function element(tag,text){const node=document.createElement(tag);node.textContent=text;return node}
 function draw(){let links=data.module_relations.filter(r=>!$('relation').value||r.kind===$('relation').value);let selected=new Set(modules.map(n=>n.id));const focus=$('focus').value;
 if(focus){selected=new Set([focus]);for(let i=0;i<Math.min(20,Math.max(0,Number($('hops').value)||0));i++){const add=links.filter(r=>selected.has(r.source)||selected.has(r.target));for(const r of add){selected.add(r.source);selected.add(r.target)}}}

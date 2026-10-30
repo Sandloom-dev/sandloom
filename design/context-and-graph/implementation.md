@@ -59,7 +59,8 @@ in every variant: installed battery implementation source was excluded.
 
 All five checked-in examples carry their generated inspection index; generation
 and its read-only check passed for each. Linux fallback CI on the implementation
-commit passed `backend-static` and `docs`. Unified website build passed. Browser checks confirmed search/focus and absence
+commit passed `backend-static` and `docs`; the follow-up index commit passed
+all five example jobs, including the tutorial replay from an empty app. Unified website build passed. Browser checks confirmed search/focus and absence
 of JavaScript errors in the standalone graph. A declared 20-module high-fan-out/
 event-cycle fixture exported 80 nodes, 140 raw edges and 80 module relations:
 67,058 JSON bytes / 75,744 standalone HTML bytes; in-process export took 16.66 ms.
