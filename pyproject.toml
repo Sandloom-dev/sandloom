@@ -1,7 +1,7 @@
 # Development environment only; publish only packages/* (sandloom, sandloom-*).
 [project]
 name = "sandloom-dev"
-version = "0.7.0a2"
+version = "0.7.0a3"
 description = "Local development environment for the Sandloom monorepo"
 readme = "README.md"
 license = "Apache-2.0"

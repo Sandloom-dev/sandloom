@@ -11,7 +11,8 @@ the CLI, never something to add here. The steps:
 2. every line ``sandloom new`` prints under "Next steps", verbatim and in order
    (``sandloom.core.cli.project.QUICKSTART`` is their one source, and the docs
    are tested against it):
-   ``cd``, ``uv sync``, ``uv run sandloom generate``, the dev services, ``uv run sandloom add module <m>``,
+   ``cd``, ``uv sync``, ``uv run sandloom generate``, the dev services,
+   ``uv run sandloom add module <m>``,
    ``uv run sandloom test`` (every step must PASS), ``uv run sandloom migrate
    upgrade-all --apply`` and ``uv run uvicorn <app>.asgi:app --reload``;
    right after ``uv sync``, the app's ``sandloom`` must be this checkout (the
@@ -23,7 +24,9 @@ the CLI, never something to add here. The steps:
 4. ``uv run sandloom test --ci`` (the generated app's CI gate) — also once on the
    fresh app, after installing dependencies, generating files and starting
    the dev services. ``--cli`` can select a kernel-only CLI to exercise the
-   isolated uvx path; ``--profile`` selects each standard battery or all three.
+   isolated uvx path; ``--profile`` selects any subset of the standard batteries.
+   ``--dist-dir`` uses reviewed wheels via find-links and registry requirements,
+   verifies installed package versions and bytes, and refuses editable imports.
 
 Services. Without ``--postgres-url`` the dev-services line runs as printed
 (``docker compose ... up -d --wait``, the generated compose file). With it
@@ -53,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -75,6 +79,9 @@ class Runner:
             # the caller's virtualenv / project must not leak into the app's uv
             if k not in {"VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT"}
         }
+        if args.dist_dir:
+            self.env["UV_FIND_LINKS"] = str(args.dist_dir.resolve())
+            self.env["UV_NO_SOURCES"] = "true"
         self.cwd = Path.cwd()
         self.server: subprocess.Popen[bytes] | None = None
         self.base_url = ""
@@ -175,13 +182,17 @@ class Runner:
                 "import json, pathlib, sandloom\n"
                 "from importlib.metadata import distributions\n"
                 "files = {}\n"
+                "names = ('sandloom', 'sandloom-identity', "
+                "'sandloom-tenancy', 'sandloom-billing')\n"
                 "for d in distributions():\n"
-                "    if (d.metadata['Name'] or '').startswith('sandloom-'):\n"
+                "    if (d.metadata['Name'] or '') in names:\n"
                 "        for f in d.files or []:\n"
-                "            if f.parts[0] == 'sandloom' and f.suffix != '.pyc':\n"
+                "            if f.parts[0] in tuple("
+                "n.replace('-', '_') for n in names) "
+                "and f.suffix != '.pyc':\n"
                 "                files[str(f)] = str(f.locate())\n"
-                "print(json.dumps({'init': str(pathlib.Path(sandloom.__file__).resolve()),"
-                " 'files': files}))\n"
+                "print(json.dumps({'init': "
+                "str(pathlib.Path(sandloom.__file__).resolve()), 'files': files}))\n"
             ).splitlines()[-1]
         )
         backend = self.repo
@@ -189,7 +200,7 @@ class Runner:
         stale: list[str] = []
         for rel, located in sorted(installed["files"].items()):
             if rel.startswith("sandloom/core/migrations/core_chain/"):
-                source = backend / "alembic" / rel.split("/", 4)[4]
+                source = backend / "migrations/core" / rel.split("/", 4)[4]
             else:
                 source = backend / "src" / rel
             if not source.is_file() or (
@@ -197,6 +208,10 @@ class Runner:
             ):
                 stale.append(rel)
         is_live = Path(installed["init"]) == live.resolve()
+        if self.args.dist_dir and is_live:
+            raise QuickstartError(
+                "wheel quickstart imported editable framework sources"
+            )
         if not is_live and not installed["files"]:
             raise QuickstartError(
                 f"sandloom is imported from {installed['init']}, not from {backend}"
@@ -213,6 +228,26 @@ class Runner:
             else f"{len(installed['files'])} installed files"
         )
         print(f"framework: {how} matches {backend}")
+        if self.args.dist_dir:
+            expected = {
+                name: tomllib.loads(
+                    (backend / "packages" / name / "pyproject.toml").read_text()
+                )["project"]["version"]
+                for name in ("sandloom", *(f"sandloom-{m}" for m in self.batteries))
+            }
+            observed = json.loads(
+                self.python(
+                    "import json; from importlib.metadata import version; "
+                    f"names = {list(expected)!r}; "
+                    "print(json.dumps({name: version(name) for name in names}))"
+                ).splitlines()[-1]
+            )
+            if observed != expected:
+                raise QuickstartError(
+                    f"installed versions {observed} differ from "
+                    f"reviewed wheels {expected}"
+                )
+            print(f"installed release versions verified: {observed}")
 
     # ----------------------------------------------------------------- serve
     def serve(self, command: str) -> None:
@@ -304,12 +339,15 @@ class Runner:
             else f"uv run --project {shlex.quote(str(self.repo))} sandloom"
         )
         batteries = "identity,tenancy,billing" if a.profile == "all" else a.profile
+        self.batteries = [] if a.profile == "bare" else batteries.split(",")
         selection = "--no-batteries" if a.profile == "bare" else f"--with {batteries}"
-        new = (
-            f"{cli} new "
-            f"{a.app} --framework-source path "
-            f"--framework-path {shlex.quote(str(self.repo))} {selection}"
+        source = (
+            "--framework-source pypi"
+            if a.dist_dir
+            else "--framework-source path --framework-path "
+            + shlex.quote(str(self.repo))
         )
+        new = f"{cli} new {a.app} {source} {selection}"
         out = self.step("sandloom new", self.sh, new, capture=True)
         if "ModuleLoadError" in out:
             raise QuickstartError(
@@ -386,8 +424,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--profile",
-        choices=("bare", "identity", "tenancy", "billing", "all"),
+        choices=(
+            "bare",
+            "identity",
+            "tenancy",
+            "billing",
+            "identity,tenancy",
+            "identity,billing",
+            "tenancy,billing",
+            "all",
+        ),
         default="bare",
+    )
+    p.add_argument(
+        "--dist-dir",
+        type=Path,
+        help="validated wheels: use registry requirements with local find-links, "
+        "never editable sources",
     )
     p.add_argument("--postgres-url", help="server URL without a database (CI)")
     p.add_argument("--admin-db", default="postgres", help="database to connect to")
@@ -395,7 +448,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--redis-db-base", type=int, default=0)
     p.add_argument("--db-prefix", default="sandloom_test_quickstart")
     p.add_argument("--serve-timeout", type=float, default=90.0)
-    runner = Runner(p.parse_args(argv))
+    args = p.parse_args(argv)
+    if args.dist_dir and (not args.cli or not args.dist_dir.is_dir()):
+        p.error(
+            "--dist-dir requires an existing wheel directory and "
+            "--cli installed from its sandloom wheel"
+        )
+    runner = Runner(args)
     try:
         runner.run()
     except QuickstartError as exc:

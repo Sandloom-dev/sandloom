@@ -7,7 +7,7 @@ description: Review and apply Sandloom package upgrades, generated contracts and
 
 Sandloom is an alpha. Pin and review the versions you deploy; do not infer
 compatibility from a passing installation alone. The current published alpha
-is `0.7.0a2`. See the [changelog](../changelog.md) and
+is `0.7.0a3`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
 [versioning policy](../contributing/versioning.md).
 
 1. Record the installed kernel and optional battery versions, the application

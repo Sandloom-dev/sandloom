@@ -302,6 +302,9 @@ def broken_links(site: Path) -> list[tuple[str, str]]:
 
 def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1:8766") -> int:
     origin = site_origin(public_url or preview_url)
+    synced = subprocess.run([sys.executable, str(REPO / "tools/packaging/sync_release.py")], cwd=REPO, check=False)
+    if synced.returncode:
+        return synced.returncode
     check = subprocess.run(
         [sys.executable, str(REPO / "tools/docs/docs_reference.py"), "--check"],
         cwd=REPO, check=False,

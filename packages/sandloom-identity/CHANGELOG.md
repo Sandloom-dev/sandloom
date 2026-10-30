@@ -7,6 +7,10 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a3]
+
+- Depend on `sandloom>=0.7.0a3,<0.8`.
+
 ### Security
 
 - Require `authlib>=1.9.1,<2` so fresh dependency resolutions cannot select

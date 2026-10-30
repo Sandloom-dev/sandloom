@@ -995,7 +995,7 @@ def _sourced_names(bundled: list[str]) -> list[str]:
 
 
 #: The framework range a generated app depends on (0.x: one minor).
-FRAMEWORK_RANGE = ">=0.7.0a2,<0.8"
+FRAMEWORK_RANGE = ">=0.7.0a3,<0.8"
 
 
 def _framework_sources(

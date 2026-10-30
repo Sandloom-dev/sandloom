@@ -283,7 +283,7 @@ To ship a module of your own:
    (`<name> = "<import_package>"`). Lay the repository out like the framework
    tree: top-level module packages under `src/`, `modules_package: ""` in
    its `architecture_rules.yml`, so `sandloom check` applies.
-2. Depend on a compatible framework range, `sandloom>=0.7.0a2,<0.8`, never an
+2. Depend on a compatible framework range, `sandloom>=0.7.0a3,<0.8`, never an
    exact pin, and on no other module package.
 3. Author its contract DTOs in its own `schemas` module and ship the stubs and
    DTO copies `sandloom generate` writes in a package every caller process

@@ -8,6 +8,12 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a3]
+
+- Improve standalone CLI battery onboarding and link diagnostics to the exact
+  error documentation. Add descriptions to configuration fields.
+- Generate applications with the `0.7.0a3` dependency baseline.
+
 ## [0.7.0a2]
 
 - Refresh the package description and project links on PyPI.

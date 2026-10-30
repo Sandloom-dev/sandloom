@@ -15,9 +15,9 @@ checks, Alembic `env.py`, docker mounts, documentation imports) is undisturbed.
 | distribution | import package | depends on | extras | entry points |
 | --- | --- | --- | --- | --- |
 | `sandloom` | `sandloom`: the kernel (`sandloom.core`), the public SDK (`sandloom.sdk`), framework DTOs, guards and authz (`sandloom.shared`), the CLI and the composition root `sandloom.main` | third-party ranges only | `redis`, `celery`, `standard`, `fast`, `check`, `testing`, `sentry` | console script `sandloom` |
-| `sandloom-identity` | `sandloom_identity` (users, JWT, RBAC, 2FA, SSO) | `sandloom>=0.7.0a2,<0.8`, pyotp, authlib, qrcode, pillow, itsdangerous, email-validator | none | `sandloom.modules`: `identity = "sandloom_identity"` |
-| `sandloom-tenancy` | `sandloom_tenancy` (organizations, membership, invitations) | `sandloom>=0.7.0a2,<0.8`, email-validator | none | `sandloom.modules`: `tenancy = "sandloom_tenancy"` |
-| `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a2,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
+| `sandloom-identity` | `sandloom_identity` (users, JWT, RBAC, 2FA, SSO) | `sandloom>=0.7.0a3,<0.8`, pyotp, authlib, qrcode, pillow, itsdangerous, email-validator | none | `sandloom.modules`: `identity = "sandloom_identity"` |
+| `sandloom-tenancy` | `sandloom_tenancy` (organizations, membership, invitations) | `sandloom>=0.7.0a3,<0.8`, email-validator | none | `sandloom.modules`: `tenancy = "sandloom_tenancy"` |
+| `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a3,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
 
 Extras of `sandloom`:
 
@@ -25,7 +25,7 @@ Extras of `sandloom`:
 | --- | --- | --- |
 | `redis` | `redis` | the Redis cache and the Redis Streams event bus |
 | `celery` | `celery[redis]` | the Celery task queue |
-| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a2,<0.8`) | the batteries-included set |
+| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a3,<0.8`) | the batteries-included set | <!-- sandloom-release -->
 | `fast` | `redis[hiredis]`, `jsonschema-rs` | optional accelerators |
 | `check` | `PyYAML` | `sandloom check` (reads YAML manifests) |
 | `testing` | `pytest`, `pytest-asyncio`, `pytest-xdist` | the test kit (`sandloom.sdk.testing`, `sandloom test`) |
@@ -54,7 +54,7 @@ What the layout means:
   asyncpg) carries its reason in a comment. Exact versions live only in
   `uv.lock`.
 - **Versions are independent.** Each distribution versions on its own; the current
-  published alpha is 0.7.0a2 and the module packages depend on `sandloom>=0.7.0a2,<0.8`
+  published alpha is 0.7.0a3 and the module packages depend on `sandloom>=0.7.0a3,<0.8` <!-- sandloom-release -->
   ([versioning](../docs/contributing/versioning.md)).
 
 ## Editable development installs

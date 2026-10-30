@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a3]
+
 ### Security
 
 - Require Authlib 1.9.1 or newer in identity, update the dev virtualenv to
@@ -21,6 +23,10 @@ website renders this same changelog.
   lock in CI and include all maintained dependency manifests in PR review.
 
 ### Developer experience
+
+- Synchronize current package pins, scaffold requirements, README and documentation
+  from the framework package version; fail CI, package checks and site builds
+  when release references drift. Preserve historical releases and audit evidence.
 
 - Make tenancy's initial migration install its own `citext` prerequisite on a
   fresh database, including deployments without identity.
@@ -32,7 +38,7 @@ website renders this same changelog.
 - Link framework error diagnostics, warnings and offline explanations to their
   exact sections at `sandloom.dev/docs/reference/error-codes/`.
 - Update installation instructions, README badges and examples to the current
-  published alpha, `0.7.0a2`.
+  release baseline, `0.7.0a3`.
 
 ### CI and publishing
 
