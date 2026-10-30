@@ -29,29 +29,30 @@ Normal architecture, compatibility and quality gates remain authoritative.
 ```bash
 sandloom context MODULE
 sandloom context MODULE --focus CONTRACT_OR_EVENT_ID
-sandloom context MODULE --format json --detail full
+sandloom context MODULE --format json
 sandloom context MODULE --require-verified
 sandloom graph
 sandloom graph MODULE --hops 1
 sandloom graph impact INTERFACE_ID_OR_NAME
 sandloom graph diff LOCAL_REVISION
-sandloom graph --view diff --before saved-index.json
+sandloom graph diff saved-index.json
 sandloom explore
 ```
 
 Context defaults to Markdown in terminals and pipes. Explicit JSON exposes the
-same map through a versioned envelope. It has no implementation export mode and
-no `--file` option. `--detail full` adds verification evidence, not source bodies.
-Graph defaults to text on stdout TTY and compact JSON in pipes, redirects or
-`--output`; explicit `--format` wins. This is stream detection, not agent identity
-detection. Existing `--module`, `--view`, `--item`, `--before` forms remain valid.
-Agent skill examples explicitly select graph JSON regardless of PTY allocation.
+same map through a versioned envelope. It has no source export, byte-budget or
+full-evidence mode. Graph JSON retains full
+provenance and a configurable byte budget.
+Graph defaults to text in a TTY and JSON in pipes/redirects, with explicit
+`--format` overrides. Modes are positional: `modules`, `impact ITEM`,
+`diff REV_OR_FILE`, `sequence [ID]`, `state ID` or a module selector.
+Reserved module names use `module:NAME`. Shell redirection saves stdout;
+Explorer alone writes an internal, fixed cache artifact atomically.
 
-Context/graph accept a project root, complete UTF-8 byte budget, explicit output
-file and verification requirement. Default budget: 131072 bytes, not tokens.
-Overflow fails without a successful partial response. A larger limit does not
-expand ownership. Excluded file metadata is counted by reason. Whole signatures,
-DTO fields and route methods are not silently cut to fit a budget.
+Both commands accept a project root and verification requirement. Graph JSON
+has a default 131072-byte budget; overflow fails without a partial success.
+Context emits its complete map without size accounting. Whole signatures, DTO
+fields and route methods remain intact.
 
 `explore` explicitly invokes normal authoring generation in a child process,
 saves `.sandloom/cache/explore.html`, prints its local URL and opens the browser.
@@ -165,11 +166,10 @@ error; file-based comparison works without Git. The response records its basis.
 
 ## Artifact and browser safety
 
-`--output` atomically writes a project-relative artifact and emits a small JSON
-acknowledgement, rather than duplicating its content. No symlink/traversal or
-sensitive path/content can enter an export. `--force` refreshes recognized
-inspection artifacts only; VCS/tool directories and source/rule/managed inputs
-are protected. A detectable destination race preserves the concurrent file.
+Inspection writes only stdout. Shell redirection saves external artifacts.
+Explorer and generation atomically replace only their framework-owned cache/index
+paths, retaining containment and symlink checks. There is no public destination,
+force flag, artifact acknowledgement or export-recognition layer.
 
 HTML embeds renderer/data with safe JSON encoding and no external asset service,
 telemetry or font request. It contains only the selected module/process inventory
@@ -182,15 +182,15 @@ Runtime accessibility and participant comprehension claims require separate stud
 ## Response and verification contract
 
 JSON emits one `sandloom.tool_response/1` success/error envelope, with command,
-kind, selection, freshness, data and typed diagnostics. Markdown errors without
-`--output` leave stdout empty and explain on stderr. Exit codes: 0 usable,
+kind, selection, freshness, data and typed diagnostics. Text errors leave stdout
+empty and explain on stderr. Exit codes: 0 usable,
 1 invalid/missing/unsafe input or budget/I/O failure, 2 usage, 3 unavailable strict
 verification. SANDLOOM-T015 routes to the existing explanation machinery.
 
 Tests cross the CLI/model interface: compact map completeness, absence of bodies
-in default/full/focused Markdown and JSON, exact byte accounting, interface/type
+in default/focused Markdown and JSON, graph byte limits, interface/type
 and peer evidence, file navigation without execution, focus/ignore counts,
-route preservation, stale/cold reads, source/output races, safe exports and
+route preservation, stale/cold reads, source races, managed atomic writes and
 HTML scope/selection. Packaging checks exercise lean installed cold tools;
 application smoke covers all-battery generation and Explorer. Normal full quality
 gates, Linux CI and source-export checks apply. Paid AI-agent DX remains deferred.

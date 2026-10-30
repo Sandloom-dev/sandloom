@@ -241,11 +241,11 @@ class Reader:
         if len(matches) != 1:
             raise InspectionError(
                 "unknown_module" if not matches else "ambiguous_module",
-                "Choose an unambiguous module ID from sandloom graph --view modules",
+                "Choose an unambiguous module ID from sandloom graph modules",
                 actions=[
                     {
                         "action": "list_modules",
-                        "argv": ["sandloom", "graph", "--view", "modules"],
+                        "argv": ["sandloom", "graph", "modules"],
                         "side_effects": [],
                     }
                 ],

@@ -322,7 +322,7 @@ function drawProcess() {
   syncSelection();
   $('steps-title').textContent=state?'Conditional state transitions':compensation?'Compensation alternatives · reverse completed steps':'Forward steps';
   for(const note of process.notes) $('process-notes').append(el('p',note));
-  const a=el('a','Lifecycle documentation'); a.href=process.docs; $('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph','--view',state?'state':'sequence','--process',process.id,'--format','mermaid'].map(shell).join(' '))));
+  const a=el('a','Lifecycle documentation'); a.href=process.docs; $('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph',state?'state':'sequence',process.id,'--format','mermaid'].map(shell).join(' '))));
 }
 function drawStates(svg,transitions) {
   svg.replaceChildren(); marker(svg,'state-arrow'); svg.setAttribute('viewBox','0 0 720 640');svg.style.width='720px';svg.style.height='640px';
@@ -351,7 +351,7 @@ function drawChanges() {
     for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
   } else {
     $('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
-    $('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph --view diff --before architecture-before.json --format html --output architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
+    $('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph diff architecture-before.json --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
   }
 }
 function save(text,type,filename) { const url=URL.createObjectURL(new Blob([text],{type})), a=el('a'); a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }

@@ -118,14 +118,14 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
         ("context", ["notes", "--format", "json"]),
         ("graph", ["notes"]),
         ("graph", ["impact", "module:notes"]),
-        ("graph", ["--view", "modules"]),
-        ("graph", ["--view", "sequence"]),
-        ("graph", ["--view", "sequence", "--process", "route:notes%3AGET%20%2Fnotes"]),
-        ("graph", ["--view", "diff", "--before", "before.json"]),
-        ("graph", ["--view", "impact", "--item", "module:notes"]),
+        ("graph", ["modules",]),
+        ("graph", ["sequence",]),
+        ("graph", ["sequence", "route:notes%3AGET%20%2Fnotes"]),
+        ("graph", ["diff", "before.json"]),
+        ("graph", ["impact", "module:notes"]),
         ("context", ["notes", "--focus", "module:notes", "--format", "json"]),
         ("context", ["notes", "--focus", "consumer:notes.changed", "--format", "json"]),
-        ("graph", ["--format", "html", "--output", "map.html"]),
+        ("graph", ["--format", "html"]),
     ):
         done = subprocess.run(  # noqa: S603 - static argv; interpreter belongs to the isolated wheel venv
             [str(python), "-c", code, command, *args],
@@ -135,12 +135,11 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
             text=True,
             timeout=30,
         )
-        if done.returncode or not json.loads(done.stdout)["ok"]:
+        valid = "Architecture explorer" in done.stdout if "html" in args else json.loads(done.stdout)["ok"]
+        if done.returncode or not valid:
             raise RuntimeError(
                 f"Installed inspection {command}: {done.stderr} {done.stdout}"
             )
-    if "Architecture explorer" not in (root / "map.html").read_text():
-        raise RuntimeError("Offline viewer asset missing from installed wheel")
     print(
         "Installed inspection OK: cold context, catalog, graph and offline viewer",
         flush=True,

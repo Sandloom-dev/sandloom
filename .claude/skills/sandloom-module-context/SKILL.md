@@ -13,7 +13,7 @@ report the missing capability instead of inventing output or upgrading dependenc
 ## Locate the work
 
 ```bash
-uv run sandloom graph --view modules --format json
+uv run sandloom graph modules --format json
 uv run sandloom context MODULE
 uv run sandloom graph MODULE --hops 1 --format json
 ```
@@ -43,12 +43,12 @@ and typed diagnostics; a nonzero exit is not usable partial output.
   the linked interface files. Route focus locates the selected endpoint, without
   inferring its internal dependencies; saga focus uses declared steps/callbacks.
   Source landmarks are hints, not a complete call graph.
-- Use `graph --view sequence [--process ID] --format json` to list or inspect
-  declared sagas/framework route lifecycles. State view requires a saga ID.
+- Use `graph sequence [ID] --format json` to list or inspect
+  declared sagas/framework route lifecycles. Use `graph state ID` for a saga's conditional state transitions.
   Forward paths, compensation and framework phases are declarations, not traces.
 - Before an interface change, use `graph impact ID --format json`. Separate direct
   interface witnesses from transitive module overapproximation. Compare saved
-  JSON with `graph --view diff --before PATH --format json`, or a committed local
+  JSON with `graph diff ./PATH --format json`, or a committed local
   baseline with `graph diff REV --format json`. Revision diff requires the saved
   index on that revision and never fetches or checks out historical code.
 - For exact SDK behavior, query `sandloom docs NAME`; source comments and file
@@ -56,7 +56,8 @@ and typed diagnostics; a nonzero exit is not usable partial output.
   read/edit their implementation as part of this module's task.
 
 `context` has no source export flag; the agent opens the files itself.
-`--detail full` adds verification evidence; `--max-bytes` bounds the complete map.
+Graph JSON supports `--detail full` for provenance and `--max-bytes` for a byte
+budget. Context returns the module map without those graph options.
 A missing index requires explicit `sandloom generate`, which loads the application
 and writes managed artifacts. Run it within the task's authority/environment,
 review its diff and recapture. Use `--require-verified` when the task requires it.

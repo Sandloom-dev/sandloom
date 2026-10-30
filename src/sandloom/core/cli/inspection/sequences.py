@@ -27,7 +27,7 @@ def select(reader: Reader, selector: str, module: str | None = None) -> Doc:
     if len(found) != 1:
         raise InspectionError(
             "unknown_process" if not found else "ambiguous_process",
-            "Select one stable process ID from graph --view sequence",
+            "Select one stable process ID from graph sequence",
         )
     return found[0]
 
@@ -232,13 +232,12 @@ def build(
     module: str | None,
     require: bool,
     state: bool = False,
+    full: bool = False,
 ) -> Doc:
     candidates = catalog(reader, module)
     selected = select(reader, selector, module) if selector else None
     if state and (selected is None or not selected["id"].startswith("saga:")):
-        raise InspectionError(
-            "usage", "State view requires --process with a saga ID", code=2
-        )
+        raise InspectionError("usage", "Use graph state ID with a saga ID", code=2)
     if selected:
         candidates = [selected]
     owners = (
@@ -272,6 +271,7 @@ def build(
         freshness=reader.freshness(
             [m for m in reader.modules if m["id"] in owners],
             require=require,
+            full=full,
             tolerate_missing=True,
         ),
     )
@@ -301,7 +301,7 @@ def mermaid(envelope: Doc) -> str:
         return "\n".join(out) + "\n"
     process = data.get("process")
     if not process:
-        raise InspectionError("usage", "Mermaid sequence needs --process", code=2)
+        raise InspectionError("usage", "Use graph sequence ID --format mermaid", code=2)
     messages = process["steps"] + process["alternatives"]
     participants = sorted({m[end] for m in messages for end in ("source", "target")})
     ids = {name: f"p{i}" for i, name in enumerate(participants)}

@@ -32,17 +32,17 @@ uv run sandloom explore --no-generate    # inspect the saved model, without app 
 uv run sandloom explore --no-open        # generate and save only
 uv run sandloom graph --format json      # stable choice for scripts/agents, including a TTY
 uv run sandloom graph --format text      # readable output even through a pipe
-uv run sandloom graph --view modules     # discover stable module IDs
-uv run sandloom graph --format html --output architecture.html
+uv run sandloom graph modules     # discover stable module IDs
+uv run sandloom graph --format html > architecture.html
 ```
 
 `graph` reads the saved model and never opens a browser or regenerates files.
-Its default depends only on stdout: a TTY gets a plain tree, while a pipe,
-redirect or `--output` gets compact JSON. `--format` overrides that choice.
-There is no agent identity detection. Named flags select process views
-(`--view`/`--process`), disambiguate modules (`--module`) and compare a saved
-index (`--view diff --before FILE`). Modules named `impact` or `diff` use
-`--module` to avoid subcommand ambiguity.
+Its default depends only on stdout: a TTY gets a plain tree, while a pipe or
+redirect gets compact JSON. `--format` overrides that choice. Every action uses
+one positional grammar: `graph [MODULE]`, `graph modules`, `graph impact ITEM`,
+`graph diff REV_OR_FILE`, `graph sequence [ID]` and `graph state ID`.
+Use `module:NAME` for a module named `modules`, `impact`, `diff`, `sequence` or
+`state`; import-path module selectors also work. No agent identity detection occurs.
 
 Discovery lists stable module IDs without dumping relationships. HTML provides
 module search across entities (with hints for matches hidden by another layer
@@ -75,10 +75,10 @@ because both touch one module.
 ## Processes: sequence and state
 
 ```bash
-uv run sandloom graph --view sequence
-uv run sandloom graph --view sequence --process SAGA_OR_ROUTE_ID
-uv run sandloom graph --view sequence --process SAGA_OR_ROUTE_ID --format mermaid
-uv run sandloom graph --view state --process SAGA_ID --format html --output states.html
+uv run sandloom graph sequence
+uv run sandloom graph sequence SAGA_OR_ROUTE_ID
+uv run sandloom graph sequence SAGA_OR_ROUTE_ID --format mermaid
+uv run sandloom graph state SAGA_ID --format html > states.html
 ```
 
 Select an actual stable ID from the process catalog. Saga IDs include their
@@ -113,8 +113,8 @@ uv run sandloom graph impact stats.quota.v1
 cp .sandloom/inspection.json architecture-before.json
 # Change declarations, then explicitly regenerate.
 uv run sandloom generate
-uv run sandloom graph --view diff --before architecture-before.json
-uv run sandloom graph --view diff --before architecture-before.json --format html --output changes.html
+uv run sandloom graph diff architecture-before.json
+uv run sandloom graph diff architecture-before.json --format html > changes.html
 ```
 
 Replace the item ID with one from your graph. Impact preserves the direct
@@ -128,8 +128,10 @@ Git revision, including the project prefix in a monorepo. The response records
 the resolved commit ID. Commit the generated index on the baseline branch first;
 a revision without it produces an explicit error, with no inferred replacement.
 No fetch, checkout, old-code execution or historical source resolution occurs.
-Git is required only for this explicit revision form. `--view diff --before PATH`
-reads a project-relative saved index without Git. Both treat the baseline as JSON data. It lists additions,
+Git is required only for revision baselines. `graph diff old.json` reads a
+project-relative saved index without Git. Existing files take precedence over
+revision names; `.json` names and explicit `./` paths select files even when
+missing. Both forms treat the baseline as JSON data. It lists additions,
 removals and changes to declarations/interfaces; implementation bodies are not
 compared. Contract compatibility uses the framework's rolling-upgrade rules;
 event changes use its same-version schema rules. Missing interface evidence is
@@ -139,9 +141,9 @@ The comparison basis and counts are included in JSON and the HTML Changes tab.
 ## Exports and limits
 
 ```bash
-uv run sandloom graph --module module:notes --hops 0
-uv run sandloom graph --module notes --format json --detail full
-uv run sandloom graph --module notes --format mermaid
+uv run sandloom graph module:notes --hops 0
+uv run sandloom graph notes --format json --detail full
+uv run sandloom graph notes --format mermaid
 uv run sandloom graph --require-verified
 ```
 
@@ -151,7 +153,7 @@ topology includes process counts and defers their bodies to the sequence query.
 `--max-bytes` limits complete JSON output (default
 131072 UTF-8 bytes); overflow fails with a remedy to focus the graph or raise the
 budget. Nodes/edges are never silently truncated. Scoped exports report hidden
-counts. `--hops` requires a positional module or `--module` and accepts non-negative integers.
+counts. `--hops` requires a module selector and accepts non-negative integers.
 
 `--detail` and `--max-bytes` are JSON options; presentation formats reject them.
 Mermaid is interchange output; third-party layout can vary. HTML embeds its data

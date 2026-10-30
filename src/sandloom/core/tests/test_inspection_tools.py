@@ -168,7 +168,7 @@ def test_context_map_has_rule_and_interface_pointers_without_bodies(
     assert (
         "local implementation" not in text and "APPLICATION MUST NOT IMPORT" not in text
     )
-    assert data["bytes"] == len(text.encode())
+    assert "bytes" not in data and "budget" not in data
 
 
 def test_markdown_default_deterministic_and_collision_safe(
@@ -187,7 +187,7 @@ def test_markdown_default_deterministic_and_collision_safe(
 def test_graph_hops_preserve_contract_and_event_witnesses(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rc, text, _ = run(project, capsys, "graph", "--module", "notes", "--hops", "1")
+    rc, text, _ = run(project, capsys, "graph", "notes", "--hops", "1")
     assert rc == 0
     data = json.loads(text)["data"]
     assert {
@@ -208,7 +208,12 @@ def test_graph_hops_preserve_contract_and_event_witnesses(
 def test_discovery_is_catalog_and_never_claims_empty_graph(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rc, text, _ = run(project, capsys, "graph", "--view", "modules")
+    rc, text, _ = run(
+        project,
+        capsys,
+        "graph",
+        "modules",
+    )
     data = json.loads(text)["data"]
     assert rc == 0 and data["relations_included"] is False
     assert len(data["modules"]) == 3
@@ -220,7 +225,7 @@ def test_discovery_is_catalog_and_never_claims_empty_graph(
     [
         (["unknown"], "unknown_module", 1),
         (["notes", "--file", "../stats/services.py"], "usage", 2),
-        (["notes", "--max-bytes", "20"], "budget_exceeded", 1),
+        (["notes", "--max-bytes", "20"], "usage", 2),
         (["notes", "--max-bytes", "-1"], "usage", 2),
         (["notes", "--not-an-option"], "usage", 2),
     ],
@@ -275,27 +280,13 @@ def test_layout_change_fails_before_scope_resolution(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (project.root / "architecture_rules.yml").write_text("modules_path: ../outside\n")
-    rc, text, _ = run(project, capsys, "graph", "--view", "modules")
+    rc, text, _ = run(
+        project,
+        capsys,
+        "graph",
+        "modules",
+    )
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "layout_changed"
-
-
-def test_full_detail_preserves_map_without_source_payloads(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    compact = json.loads(
-        run(project, capsys, "context", "notes", "--format", "json")[1]
-    )
-    full = json.loads(
-        run(
-            project, capsys, "context", "notes", "--format", "json", "--detail", "full"
-        )[1]
-    )
-    for key in ("module", "files", "interface_files", "contracts_used", "rules"):
-        assert compact["data"][key] == full["data"][key]
-    assert "evidence" not in compact["freshness"]
-    assert "evidence" in full["freshness"]
-    assert "local implementation" not in encode(full)
-    assert full["data"]["bytes"] > compact["data"]["bytes"]
 
 
 def test_wire_missing_changed_and_external_refs(
@@ -331,25 +322,6 @@ def test_symlink_and_sensitive_explicit_file_never_leak(
         project, capsys, "context", "notes", "--file", ".env", "--format", "json"
     )
     assert rc == 2 and "never-print-this" not in text
-
-
-def test_output_atomic_protected_and_not_duplicated(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rc, text, _ = run(project, capsys, "context", "notes", "--output", "bundle.md")
-    assert rc == 0 and json.loads(text)["kind"] == "artifact"
-    output = project.root / "bundle.md"
-    before = output.read_bytes()
-    assert before.startswith(b"# Sandloom context")
-    assert run(project, capsys, "context", "notes", "--output", "bundle.md")[0] == 1
-    assert output.read_bytes() == before
-    assert (
-        run(project, capsys, "context", "notes", "--output", "AGENTS.md", "--force")[0]
-        == 1
-    )
-    assert (
-        run(project, capsys, "context", "notes", "--output", INDEX, "--force")[0] == 1
-    )
 
 
 @pytest.mark.subprocess_probe
@@ -479,14 +451,17 @@ def test_discovery_survives_missing_wire_and_labels_uncertainty(
     project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (project.root / "app/shared/contracts/stats_dto.py").unlink()
-    rc, text, _ = run(project, capsys, "graph", "--view", "modules")
+    rc, text, _ = run(
+        project,
+        capsys,
+        "graph",
+        "modules",
+    )
     assert rc == 0
     result = json.loads(text)
     assert result["freshness"]["state"] == "partial"
     assert result["freshness"]["issues"]["module:notes"] == "incomplete_wire"
-    assert (
-        run(project, capsys, "graph", "--view", "modules", "--require-verified")[0] == 3
-    )
+    assert run(project, capsys, "graph", "modules", "--require-verified")[0] == 3
     assert run(project, capsys, "context", "notes")[0] == 1
 
 
@@ -521,7 +496,12 @@ def test_unknown_graph_variant_and_owner_escape_fail_closed(
     doc = json.loads(original)
     doc["modules"][0]["source"] = "app/shared"
     (project.root / INDEX).write_text(encode(doc))
-    rc, text, _ = run(project, capsys, "graph", "--view", "modules")
+    rc, text, _ = run(
+        project,
+        capsys,
+        "graph",
+        "modules",
+    )
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "unsafe_path"
 
 
@@ -580,19 +560,6 @@ def test_incomplete_optional_provider_does_not_block_independent_receipt(
         reader.freshness([reader.module("archive")], tolerate_missing=True)["state"]
         == "partial"
     )
-
-
-def test_output_canonical_alias_still_protects_rules(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    prior = (project.root / "AGENTS.md").read_bytes()
-    assert (
-        run(project, capsys, "context", "notes", "--output", "./AGENTS.md", "--force")[
-            0
-        ]
-        == 1
-    )
-    assert (project.root / "AGENTS.md").read_bytes() == prior
 
 
 def _publish(project: SimpleNamespace, document: dict[str, object]) -> Reader:
@@ -793,9 +760,7 @@ def test_declared_impact_preserves_direct_interface_witnesses(
         project,
         capsys,
         "graph",
-        "--view",
         "impact",
-        "--item",
         "contract:stats.quota.v1",
     )
     assert rc == 0
@@ -811,9 +776,7 @@ def test_semantic_diff_ignores_bodies_and_checks_event_compatibility(
     original = (project.root / INDEX).read_text()
     (project.root / "before.json").write_text(original)
     (project.root / "app/modules/notes/services.py").write_text("# body-only edit\n")
-    rc, text, _ = run(
-        project, capsys, "graph", "--view", "diff", "--before", "before.json"
-    )
+    rc, text, _ = run(project, capsys, "graph", "diff", "before.json")
     assert rc == 0
     assert json.loads(text)["data"]["counts"] == {
         "added": 0,
@@ -825,9 +788,7 @@ def test_semantic_diff_ignores_bodies_and_checks_event_compatibility(
     schema["properties"]["required_now"] = {"type": "string"}
     schema["required"] = ["required_now"]
     (project.root / INDEX).write_text(encode(document))
-    rc, text, _ = run(
-        project, capsys, "graph", "--view", "diff", "--before", "before.json"
-    )
+    rc, text, _ = run(project, capsys, "graph", "diff", "before.json")
     assert rc == 0
     changes = json.loads(text)["data"]["changes"]
     assert len(changes) == 1 and changes[0]["id"] == "event:stats.changed.v1"
@@ -845,9 +806,7 @@ def test_contract_diff_uses_existing_shared_compatibility_rules(
     (project.root / "before.json").write_text(encode(document))
     document["contract_descriptions"]["stats.quota.v1"]["methods"] = {}
     (project.root / INDEX).write_text(encode(document))
-    rc, text, _ = run(
-        project, capsys, "graph", "--view", "diff", "--before", "before.json"
-    )
+    rc, text, _ = run(project, capsys, "graph", "diff", "before.json")
     assert rc == 0
     change = json.loads(text)["data"]["changes"][0]
     assert change["compatibility"]["state"] == "breaking"
@@ -857,12 +816,18 @@ def test_contract_diff_uses_existing_shared_compatibility_rules(
 @pytest.mark.parametrize(
     "args",
     [
-        ["--view", "state"],
-        ["--view", "impact"],
-        ["--view", "diff"],
+        [
+            "state",
+        ],
+        [
+            "impact",
+        ],
+        [
+            "diff",
+        ],
         ["--process", "fake"],
-        ["--view", "impact", "--item", "module:notes", "--format", "mermaid"],
-        ["--view", "sequence", "--hops", "1"],
+        ["impact", "module:notes", "--format", "mermaid"],
+        ["sequence", "--hops", "1"],
     ],
 )
 def test_new_views_reject_incompatible_or_missing_arguments(
@@ -876,18 +841,6 @@ def test_new_views_reject_incompatible_or_missing_arguments(
     assert rc == 2
     if text:
         assert json.loads(text)["diagnostics"][0]["kind"] == "usage"
-
-
-def test_ignore_policy_cannot_be_overwritten_through_alias(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = project.root / ".sandloomignore"
-    path.write_text("# keep\n")
-    assert (
-        run(project, capsys, "graph", "--output", "./.sandloomignore", "--force")[0]
-        == 1
-    )
-    assert path.read_text() == "# keep\n"
 
 
 def test_generation_fingerprint_is_not_a_source_export_filter(
@@ -1069,118 +1022,6 @@ def test_consumer_map_focus_keeps_its_incoming_event_interface(
 
 
 @pytest.mark.parametrize(
-    "locator",
-    [
-        ".git/HEAD",
-        ".git/index",
-        ".git/config",
-        ".GiT/refs/heads/new",
-        ".hg/requires",
-        ".github/report.json",
-        ".agents/report.md",
-        "README.md",
-        "LICENSE",
-        "NOTICE",
-        ".gitignore",
-        "docs/guide.md",
-        "package.json",
-        "config.txt",
-    ],
-)
-def test_force_export_never_overwrites_project_files(
-    project: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-    locator: str,
-) -> None:
-    target = project.root / locator
-    target.parent.mkdir(parents=True, exist_ok=True)
-    original = b"project input must survive\n"
-    target.write_bytes(original)
-    rc, text, err = run(project, capsys, "graph", "--output", locator, "--force")
-    assert rc == 1 and not err
-    assert json.loads(text)["diagnostics"][0]["kind"] == "unsafe_output"
-    assert target.read_bytes() == original
-
-
-@pytest.mark.parametrize(
-    "fmt,command,args,suffix",
-    [
-        ("json", "graph", [], "json"),
-        ("html", "graph", [], "html"),
-        ("markdown", "context", ["notes"], "md"),
-    ],
-)
-def test_force_can_refresh_owned_export_formats(
-    project: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-    fmt: str,
-    command: str,
-    args: list[str],
-    suffix: str,
-) -> None:
-    locator = "reports/current." + suffix
-    for extra in ([], ["--force"]):
-        rc, text, err = run(
-            project,
-            capsys,
-            command,
-            *args,
-            "--format",
-            fmt,
-            "--output",
-            locator,
-            *extra,
-        )
-        assert rc == 0, text + err
-        assert json.loads(text)["kind"] == "artifact"
-    # Even recognizable output content cannot turn a protected source path into an artifact.
-    (project.root / "README.md").write_bytes((project.root / locator).read_bytes())
-    before = (project.root / "README.md").read_bytes()
-    assert (
-        run(
-            project,
-            capsys,
-            command,
-            *args,
-            "--format",
-            fmt,
-            "--output",
-            "README.md",
-            "--force",
-        )[0]
-        == 1
-    )
-    assert (project.root / "README.md").read_bytes() == before
-
-
-@pytest.mark.parametrize("exists", [False, True])
-def test_export_preserves_a_concurrent_destination_edit(
-    project: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
-    exists: bool,
-) -> None:
-    from sandloom.core.cli.inspection import files
-    from sandloom.core.cli.inspection.model import InspectionError, response
-
-    target = project.root / "map.json"
-    artifact = encode(response("graph", "graph", {}))
-    if exists:
-        target.write_text(artifact)
-    original = files.tempfile.mkstemp
-
-    def create_and_edit(*args: object, **kwargs: object) -> tuple[int, str]:
-        descriptor, temp = original(*args, **kwargs)
-        target.write_text("concurrent project input\n")
-        return descriptor, temp
-
-    monkeypatch.setattr(files.tempfile, "mkstemp", create_and_edit)
-    with pytest.raises(InspectionError, match="Output changed"):
-        files.export(project.root, "map.json", artifact, force=True, protected=[])
-    assert target.read_text() == "concurrent project input\n"
-    assert not list(project.root.glob(".inspection-*"))
-
-
-@pytest.mark.parametrize(
     "mutation",
     [
         "future",
@@ -1230,9 +1071,6 @@ def test_invalid_receipt_returns_typed_error_without_verification_or_writes(
         capsys,
         "graph",
         "--require-verified",
-        "--output",
-        "existing.json",
-        "--force",
     )
     assert rc == 1 and not err
     envelope = json.loads(text)
@@ -1414,12 +1252,12 @@ def test_graph_terminal_and_pipe_formats(
         assert "archive" not in text
 
 
-def test_positional_graph_and_impact_preserve_legacy_scope(
+def test_module_and_interface_ids_match_logical_selectors(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert run(project, capsys, "graph", "notes", "--hops", "0") == run(
-        project, capsys, "graph", "--module", "notes", "--hops", "0"
+        project, capsys, "graph", "module:notes", "--hops", "0"
     )
     short = run(
         project, capsys, "graph", "impact", "--format", "json", "stats.quota.v1"
@@ -1428,9 +1266,7 @@ def test_positional_graph_and_impact_preserve_legacy_scope(
         project,
         capsys,
         "graph",
-        "--view",
         "impact",
-        "--item",
         "contract:stats.quota.v1",
     )
 
@@ -1441,10 +1277,10 @@ def test_positional_graph_and_impact_preserve_legacy_scope(
         ["impact"],
         ["diff"],
         ["notes", "stats"],
-        ["notes", "--module", "stats"],
+        ["notes", "stats"],
         ["impact", "stats.quota.v1", "--view", "graph"],
-        ["diff", "main", "--before", "saved.json"],
-        ["impact", "stats.quota.v1", "--module", "notes"],
+        ["diff", "main", "saved.json"],
+        ["impact", "stats.quota.v1", "notes"],
     ],
 )
 def test_short_command_usage_is_structured_without_writes(
@@ -1459,7 +1295,7 @@ def test_short_command_usage_is_structured_without_writes(
     assert before == {p: p.read_bytes() for p in project.root.rglob("*") if p.is_file()}
 
 
-def test_terminal_errors_use_stderr_and_output_files_keep_json(
+def test_terminal_errors_use_stderr(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -1467,10 +1303,6 @@ def test_terminal_errors_use_stderr_and_output_files_keep_json(
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc, text, err = run(project, capsys, "graph", "impact")
     assert rc == 2 and text == "" and "graph impact ITEM" in err
-    rc, text, err = run(project, capsys, "graph", "notes", "--output", "graph.json")
-    assert rc == 0 and not err
-    assert json.loads(text)["kind"] == "artifact"
-    assert json.loads((project.root / "graph.json").read_text())["kind"] == "graph"
 
 
 def _git_commit(root: Path) -> str:
@@ -1561,7 +1393,7 @@ def test_git_diff_handles_missing_git_and_timeout(
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "git_unavailable"
 
 
-def test_terminal_escapes_controls_and_reuses_export_safely(
+def test_terminal_escapes_controls(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1571,11 +1403,6 @@ def test_terminal_escapes_controls_and_reuses_export_safely(
     (project.root / INDEX).write_text(encode(document))
     rc, text, _ = run(project, capsys, "graph", "--format", "text")
     assert rc == 0 and "\x1b" not in text and "\\x1b[31m\\nspoof" in text
-    for extra in ([], ["--force"]):
-        rc, _, err = run(
-            project, capsys, "graph", "--format", "text", "--output", "tree.txt", *extra
-        )
-        assert rc == 0, err
 
 
 @pytest.mark.parametrize("generated", [True, False])
@@ -1752,13 +1579,11 @@ def test_graph_never_starts_a_browser_or_authoring_process(
 
 
 @pytest.mark.parametrize("fmt", ["markdown", "json"])
-@pytest.mark.parametrize("detail", ["compact", "full"])
 @pytest.mark.parametrize("focused", [False, True])
 def test_map_never_contains_implementation_or_rule_bodies(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
     fmt: str,
-    detail: str,
     focused: bool,
 ) -> None:
     (project.root / "app/modules/notes/services.py").write_text(
@@ -1771,9 +1596,7 @@ def test_map_never_contains_implementation_or_rule_bodies(
         + '\ndef implementation_helper(): return "WIRE_BODY_CANARY_NEVER_EMBED"\n'
     )
     extra = ["--focus", "stats.quota.v1"] if focused else []
-    rc, out, err = run(
-        project, capsys, "context", "notes", "--format", fmt, "--detail", detail, *extra
-    )
+    rc, out, err = run(project, capsys, "context", "notes", "--format", fmt, *extra)
     assert rc == 0 and not err
     assert "BODY_CANARY_NEVER_EMBED" not in out
     assert "RULE_BODY_CANARY_NEVER_EMBED" not in out
@@ -2375,3 +2198,160 @@ def test_text_map_only_reports_outside_focus_exclusions(
     assert rc == 0 and "outside_focus:" in text
     assert "context_ignore" not in text and "package_scaffolding" not in text
     assert "\n\n\n" not in text
+
+
+@pytest.mark.parametrize("name", ["modules", "impact", "diff", "sequence", "state"])
+def test_reserved_module_names_use_explicit_module_ids(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+) -> None:
+    path = project.root / INDEX
+    path.write_text(path.read_text().replace("archive", name))
+    (project.root / "app/modules/archive").rename(project.root / "app/modules" / name)
+    rc, text, err = run(project, capsys, "graph", "module:" + name, "--hops", "0")
+    assert rc == 0 and not err
+    assert [m["id"] for m in json.loads(text)["data"]["modules"]] == ["module:" + name]
+
+
+@pytest.mark.parametrize(
+    "command,flags",
+    [
+        ("context", ["notes", "--detail", "full"]),
+        ("context", ["notes", "--max-bytes", "1"]),
+        ("context", ["notes", "--output", "map.md"]),
+        ("context", ["notes", "--force"]),
+        ("graph", ["--output", "map.html"]),
+        ("graph", ["--force"]),
+        ("graph", ["--module", "notes"]),
+        ("graph", ["--view", "modules"]),
+        ("graph", ["--item", "notes"]),
+        ("graph", ["--process", "notes"]),
+        ("graph", ["--before", "old.json"]),
+    ],
+)
+def test_removed_options_are_usage_errors_without_writes(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    flags: list[str],
+) -> None:
+    before = {p: p.read_bytes() for p in project.root.rglob("*") if p.is_file()}
+    rc, text, err = run(project, capsys, command, *flags, "--format", "json")
+    assert rc == 2 and not err
+    assert json.loads(text)["diagnostics"][0]["kind"] == "usage"
+    assert before == {p: p.read_bytes() for p in project.root.rglob("*") if p.is_file()}
+
+
+def test_sequence_actions_preserve_scope_and_full_verification(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _process_reader(project)
+    rc, text, _ = run(project, capsys, "graph", "sequence")
+    assert rc == 0 and len(json.loads(text)["data"]["processes"]) == 4
+    rc, text, _ = run(
+        project, capsys, "graph", "sequence", "route:notes-GET", "--detail", "full"
+    )
+    assert rc == 0
+    doc = json.loads(text)
+    assert doc["selection"]["module_ids"] == ["module:notes"]
+    assert "evidence" in doc["freshness"]
+    rc, text, _ = run(project, capsys, "graph", "state", "route:notes-GET")
+    assert rc == 2
+
+
+def test_graph_limit_is_retained_but_context_has_no_size_accounting(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc, text, _ = run(project, capsys, "graph", "--max-bytes", "10")
+    assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "budget_exceeded"
+    rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0
+    assert (
+        "bytes" not in json.loads(text)["data"]
+        and "budget" not in json.loads(text)["data"]
+    )
+
+
+def test_diff_existing_file_takes_precedence_over_revision_name(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.cli.inspection import history
+
+    (project.root / "main").write_bytes((project.root / INDEX).read_bytes())
+    monkeypatch.setattr(history.shutil, "which", lambda _: None)
+    rc, text, err = run(project, capsys, "graph", "diff", "main")
+    assert (
+        rc == 0
+        and not err
+        and json.loads(text)["data"]["counts"]
+        == {"added": 0, "removed": 0, "changed": 0}
+    )
+
+
+def test_explore_refuses_a_symlink_at_its_managed_output(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sandloom.core.cli import explore
+
+    target = project.root / explore.OUTPUT
+    target.symlink_to(project.root / "AGENTS.md")
+    before = (project.root / "AGENTS.md").read_bytes()
+    assert (
+        explore.main(["--root", str(project.root), "--no-generate", "--no-open"]) == 1
+    )
+    assert (project.root / "AGENTS.md").read_bytes() == before
+    assert "symlink" in capsys.readouterr().err
+
+
+def test_explore_accepts_a_module_import_path(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sandloom.core.cli import explore
+
+    assert (
+        explore.main(
+            [
+                "app.modules.notes",
+                "--root",
+                str(project.root),
+                "--hops",
+                "0",
+                "--no-generate",
+                "--no-open",
+            ]
+        )
+        == 0
+    )
+    assert "file:" in capsys.readouterr().out
+    payload = _embedded_viewer((project.root / explore.OUTPUT).read_text())
+    assert payload["selection"]["module_ids"] == ["module:notes"]
+
+
+def test_context_returns_a_complete_map_above_the_former_byte_limit(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = json.loads((project.root / INDEX).read_text())
+    doc["contract_descriptions"] = {
+        "stats.quota.v1": {
+            "methods": {
+                f"read_{n}": {
+                    "kind": "read",
+                    "params": [],
+                    "returns": {"k": "scalar", "t": "int"},
+                }
+                for n in range(4000)
+            }
+        }
+    }
+    (project.root / INDEX).write_text(encode(doc))
+    rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0 and not err and len(text.encode()) > 131072
+    assert len(json.loads(text)["data"]["contracts_used"][0]["methods"]) == 4000

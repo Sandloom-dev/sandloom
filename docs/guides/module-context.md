@@ -13,7 +13,7 @@ files, instruction documents and the SDK reference are not embedded in the map.
     Added after 0.7.0a3. Use the current source checkout until the next package release.
 
 ```bash
-uv run sandloom graph --view modules --format json
+uv run sandloom graph modules --format json
 uv run sandloom context notes
 uv run sandloom context notes --focus contract:stats.quota.v1
 ```
@@ -72,20 +72,16 @@ helpers and tests using normal repository tools. `context` has no source export
 flag; `--file` is not supported. A focus must belong to or be used by the selected
 module. A consumer/projection focus retains its incoming event interface.
 
-## Formats and limits
+## Formats
 
 ```bash
 uv run sandloom context notes --format json
-uv run sandloom context notes --format json --detail full
-uv run sandloom context notes --max-bytes 131072
 ```
 
 Markdown is the default in terminals and pipes. JSON returns the same map in a
-versioned response envelope; `data.representation` is `module_map`. Full detail
-adds verification evidence, without embedding implementations or expanding the
-business scope. The default limit is 131072 UTF-8 bytes for the complete response,
-not a token estimate. A map that exceeds the limit fails with a remedy; no
-successful partial map is returned.
+versioned response envelope; `data.representation` is `module_map`. The command
+accepts `--focus`, `--format`, `--require-verified` and `--root`. Graph-specific
+output budgets and full provenance are outside the module map interface.
 
 `.sandloomignore` contains project-relative glob patterns, one per line. Blank
 lines and `#` comments are ignored; negation is unsupported. It excludes owned
@@ -124,15 +120,12 @@ uv run sandloom context notes --require-verified
 ## Save a map
 
 ```bash
-uv run sandloom context notes --output notes-map.md
+uv run sandloom context notes > notes-map.md
 ```
 
-The destination receives the map; stdout receives a small JSON acknowledgement.
-Without `--output`, JSON mode emits exactly one success/error envelope. Markdown
-errors leave stdout empty and explain on stderr. Existing artifacts require
-`--force` and must be recognized Sandloom inspection exports. Arbitrary files,
-source/managed inputs and reserved tool/VCS directories are protected; detectable
-concurrent destination changes are preserved. Output paths are project-relative.
+Both inspection commands write their result to stdout; use shell redirection to
+save it. JSON mode emits one success/error envelope. Markdown errors leave stdout
+empty and explain on stderr. `sandloom explore` manages its own HTML cache file.
 
 The tool never sends the map to an LLM. Installed-only dependencies contribute
 public interfaces, while a directly selected context target requires owned source.

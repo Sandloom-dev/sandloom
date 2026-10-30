@@ -12,7 +12,7 @@ from sandloom.core.cli.inspection.read import Reader, parse
 
 
 def publish_index(path: Path, text: str) -> None:
-    files.atomic(path.parent.parent, INDEX, text, force=True, protected=[])
+    files.atomic(path.parent.parent, INDEX, text)
 
 
 def capture(rules: Any) -> dict[str, str] | None:
@@ -82,7 +82,7 @@ def finish(
                     "warning[SANDLOOM-T015]: some interfaces are incomplete; "
                     "graph/context report their scope"
                 )
-            files.atomic(rules.root, RECEIPT, receipt, force=True, protected=[])
+            files.atomic(rules.root, RECEIPT, receipt)
         except InspectionError as exc:
             # Existing generation remains usable when inspection metadata is incomplete.
             # Withhold receipt; the cold reader diagnoses its precise missing input.

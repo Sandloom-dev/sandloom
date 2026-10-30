@@ -15,53 +15,47 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 
 | Command | What it does |
 | --- | --- |
-| `sandloom context <module>` | Compact module map: interfaces, dependencies, events, routes and owned file pointers. Default: Markdown; no implementation bodies. |
-| `sandloom graph --view modules --format json` | Compact JSON module catalog with stable IDs and freshness. |
-| `sandloom graph [MODULE] [--hops N]` | Declared graph: terminal tree or compact JSON in a pipe. One hop means a module relation, retaining its contract/event witnesses. |
-| `sandloom graph --format html --output architecture.html` | Standalone offline viewer with filters, source evidence and text tables. |
-| `sandloom graph --format mermaid` | Escaped interchange diagram. |
-| `sandloom context <module> --focus ID` | Focus an interface/process; show declared DTO types or event schemas and file navigation hints. |
-| `sandloom graph --view sequence [--process ID] [--module ID]` | List processes or inspect a declared saga / framework route lifecycle. |
-| `sandloom graph --view state --process ID` | Conditional saga state transitions; text, JSON, Mermaid or HTML. |
-| `sandloom graph impact ID` | Direct witnesses and potential transitive module impact; text, JSON or HTML. |
-| `sandloom graph diff REV` / `--view diff --before PATH` | Compare a committed or saved inspection index; text, JSON or HTML. |
+| `sandloom context MODULE` | Compact Markdown module map; JSON with `--format json`. |
+| `sandloom context MODULE --focus ID` | Declared DTO types/event schemas and focused file navigation. |
+| `sandloom graph [MODULE]` | Whole graph or a module neighborhood. |
+| `sandloom graph modules` | Module catalog with stable IDs and freshness. |
+| `sandloom graph impact ITEM` | Direct witnesses and potential transitive module impact. |
+| `sandloom graph diff REV_OR_FILE` | Compare the committed or saved inspection index. |
+| `sandloom graph sequence [ID]` | List processes or inspect saga/route phases. |
+| `sandloom graph state ID` | Conditional saga state transitions. |
+| `sandloom graph --format html > architecture.html` | Save the offline viewer. |
+| `sandloom explore [MODULE]` | Generate, save and open the offline viewer. |
 
-Both commands accept `--root PATH`, `--output PATH`, `--force`,
-`--require-verified`; context and graph JSON also accept `--detail compact|full`
-and `--max-bytes N` (default: 131072 UTF-8 bytes). Context formats: `markdown|json`;
-graph formats: `text|json|mermaid|html`. Graph defaults to text on stdout TTY,
-JSON in pipes/redirects or with `--output`; explicit `--format` always wins.
-Context does not export source files; agents open them directly.
-`--hops` requires a module selector (positional or `--module`), defaults to 1
-and accepts 0. Topology views also
-accept `--direction incoming|outgoing|both` (default both). Process selectors are
-limited to sequence/state; impact/diff use their own item/historical scope.
+Both inspection commands accept `--root PATH`, `--format` and
+`--require-verified`. Context additionally accepts `--focus`; its formats are
+`markdown|json`. Graph formats are `text|json|mermaid|html`; impact/diff exclude
+Mermaid, and module discovery supports text/JSON. Graph defaults to text on stdout
+TTY and JSON in pipes/redirects; explicit `--format` wins. Context defaults to
+Markdown in either case. Results go to stdout; save them with shell redirection.
 
-Exit codes: 0 usable (check uncertainty/omissions), 1 invalid/missing/unsafe inputs
-or budget/I/O failure, 2 usage, 3 strict verification unavailable. JSON emits one
-versioned success/error envelope; Markdown failures without `--output` leave stdout
-empty and explain on stderr. `--output` receives the artifact; stdout is a small
-JSON acknowledgement, or a structured JSON error. Existing files require
-`--force` and must be recognized Sandloom inspection exports; arbitrary files, reserved tool/VCS directories, source and managed inputs are
-protected. No app imports, prompts, network access,
-`.env` loading or implicit generation occur during inspection.
+Graph JSON accepts `--detail compact|full` and `--max-bytes N` (default 131072).
+Full topology adds provenance/policy; full process queries add verification
+basis evidence. `graph MODULE --hops N --direction incoming|outgoing|both` scopes
+a neighborhood (default one hop, both directions). These flags apply only to
+`graph [MODULE]`. Use `module:NAME` to disambiguate modules named `modules`,
+`impact`, `diff`, `sequence` or `state`.
 
-See [context and freshness](../guides/module-context.md) and
+A diff baseline is a project-relative saved file when it exists, ends in `.json`
+or starts with `./`; otherwise it is a local Git revision. Existing files win
+over revision names. Revision comparison reads this project's committed index
+without fetch, checkout or execution of old code. File comparison needs no Git.
+
+Exit codes: 0 usable (check uncertainty), 1 invalid/missing/unsafe input, budget or
+I/O failure, 2 usage, 3 strict verification unavailable. JSON emits one versioned
+success/error envelope. Text errors leave stdout empty and explain on stderr.
+Inspection performs no app imports, prompts, network access, `.env` loading or
+implicit generation. See [module maps](../guides/module-context.md) and
 [graph semantics](../guides/architecture-graph.md).
 
-`sandloom explore [<module>] [--root PATH] [--hops N] [--direction incoming|outgoing|both]`
-is the human browser entry point: it runs `generate`, writes
-`.sandloom/cache/explore.html`, prints the file URL and opens it. `--no-generate`
-uses the saved index without app loading; `--no-open` only saves the file.
-Generation failure leaves the browser unopened. A missing desktop browser keeps
-the usable file and prints an explanation. `graph` always stays a cold read.
-
-`graph impact ID` accepts a unique stable ID or interface name. `graph diff REV`
-reads a local Git revision's committed index and records its commit ID; Git is
-required only for that form. A missing baseline index is an error. It never
-fetches, checks out code or generates historical data. Use `--view diff --before
-FILE` for a saved-index baseline, `--view sequence|state --process ID` for a
-process, and `--module NAME` to disambiguate a module named `impact` or `diff`.
+`explore` runs `generate`, writes `.sandloom/cache/explore.html` atomically, prints
+its URL and opens the browser. `--no-generate` reads the saved index;
+`--no-open` only saves. Module selectors, `--root`, `--hops` and `--direction`
+work there too. Failed generation leaves the previous HTML intact and unopened.
 
 ## Project and code
 

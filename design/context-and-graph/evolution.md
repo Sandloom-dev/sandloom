@@ -275,3 +275,33 @@ lean/standard installs, an installed Helpdesk DTO focus, all-battery scaffolding
 site/skill and the 2,368-file source audit passed. On the same compositions,
 Markdown identity shrank 9,942 → 8,357 bytes, enrollment 2,118 → 1,585 and
 membership focus 1,704 → 1,167 (serialized UTF-8 bytes, not LLM tokens).
+
+
+## Unified CLI and RPC self-test timing correction
+
+The current positional CLI supersedes historical flag examples in this record:
+`graph [MODULE]`, `graph modules`, `graph impact ITEM`, `graph diff REV_OR_FILE`,
+`graph sequence [ID]`, `graph state ID`. Reserved names use `module:NAME`.
+Context exposes focus/format/root/verification only. Graph retains JSON provenance
+and its JSON output budget. Both stream to stdout; shell redirection saves files.
+Explorer writes its fixed cache HTML directly via the internal atomic writer.
+Removed destination/force/recognition/protected-file branches and context size
+accounting. Source/index/wire/history validation and containment remain intact.
+The three skill mirrors, current guides/spec/reference and viewer commands match.
+
+GitHub run 41130838525 (1926d80) failed only the aiohttp loopback compatibility
+probe; run 41135895312 (034f9b9) later passed every required job. The failing call
+hit a nested 2-second connect timeout inside a 5-second self-test. A controlled
+2.1-second first connection reproduced the same ConnectTimeout; removing that
+nested request timeout made the same real loopback scenario pass. The outer
+self-test deadline and fallback remain; a blocked probe still times out. This is
+a bounded startup probe correction, not retries or changed application RPC limits.
+
+Targeted inspection/RPC coverage: 165 passing cases, including all five reserved
+module names, import-path Explorer scope, Git/file baselines, rejected removed
+flags, a complete context larger than the former limit, preserved graph budget,
+managed-output symlink refusal, delayed loopback connect and overall expiry.
+All seven CLI forms and Mermaid outputs passed against Academy. Four wheel/sdist
+pairs, lean/standard cold tools and the strict site build passed. Browser scenario
+checks cover process selection and copy feedback; clipboard bridge inspection did
+not expose the browser clipboard content, so no clipboard-value claim is made.

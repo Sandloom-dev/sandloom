@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import webbrowser
 from pathlib import Path
 
 import sandloom.core.cli.tool_process as _tool_process
-from sandloom.core.cli.inspection.cli import _arguments, _export
+from sandloom.core.cli.inspection import files, graph
+from sandloom.core.cli.inspection.cli import ACTIONS, _arguments
 from sandloom.core.cli.inspection.model import InspectionError
 from sandloom.core.cli.inspection.read import Reader
 
@@ -43,14 +43,13 @@ def main(argv: list[str] | None = None) -> int:
         str(args.root),
         "--format",
         "html",
-        "--output",
-        OUTPUT,
-        "--force",
         "--direction",
         args.direction,
     ]
     if args.module:
-        graph_argv += ["--module", args.module]
+        graph_argv += [
+            "module:" + args.module if args.module in ACTIONS else args.module
+        ]
     if args.hops is not None:
         graph_argv += ["--hops", str(args.hops)]
     try:
@@ -59,11 +58,21 @@ def main(argv: list[str] | None = None) -> int:
             code = _generate(args.root)
             if code:
                 return code
-        artifact = json.loads(_export("graph", export_args, Reader(args.root)))
+        reader = Reader(args.root)
+        envelope = graph.build(
+            reader,
+            selector=export_args.target,
+            hops=export_args.hops if export_args.hops is not None else 1,
+            direction=export_args.direction,
+            discovery=False,
+            detail="compact",
+            require=False,
+        )
+        files.atomic(reader.root, OUTPUT, graph.viewer(envelope, reader))
         target = (args.root / OUTPUT).resolve()
         uri = target.as_uri()
         print(
-            f"Architecture saved · freshness: {artifact['freshness']['state']}\n{uri}"
+            f"Architecture saved · freshness: {envelope['freshness']['state']}\n{uri}"
         )
         if not args.no_open:
             _open(uri)

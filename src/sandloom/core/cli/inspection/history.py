@@ -17,7 +17,7 @@ def _git(root: Path, *args: str) -> str:
     executable = shutil.which("git")
     if executable is None:
         raise InspectionError(
-            "git_unavailable", "Git is not installed; use --before PATH"
+            "git_unavailable", "Git is not installed; use graph diff ./PATH"
         )
     try:
         result = _tool_process.run_tool(
@@ -30,13 +30,13 @@ def _git(root: Path, *args: str) -> str:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise InspectionError(
-            "git_unavailable", "Cannot read local Git history; use --before PATH"
+            "git_unavailable", "Cannot read local Git history; use graph diff ./PATH"
         ) from exc
     if result.returncode:
         raise InspectionError(
             "git_baseline_unavailable",
             "No local revision/index found; commit the generated inspection "
-            "index on that revision or use --before PATH",
+            "index on that revision or use graph diff ./PATH",
         )
     return result.stdout
 

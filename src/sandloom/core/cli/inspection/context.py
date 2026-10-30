@@ -279,27 +279,11 @@ def render(envelope: Doc, fmt: str) -> str:
     return encode(envelope) if fmt == "json" else markdown(envelope)
 
 
-def _account(envelope: Doc, fmt: str) -> str:
-    if fmt != "json":
-        text = render(envelope, fmt)
-        envelope["data"]["bytes"] = len(text.encode())
-        return text
-    for _ in range(8):
-        text = render(envelope, fmt)
-        size = len(text.encode())
-        if envelope["data"]["bytes"] == size:
-            return text
-        envelope["data"]["bytes"] = size
-    raise InspectionError("accounting_failed", "Cannot stabilize map byte accounting")
-
-
 def build(
     reader: Reader,
     selector: str,
     *,
-    budget: int,
     fmt: str,
-    detail: str,
     require: bool,
     focus_selector: str | None = None,
 ) -> tuple[Doc, str]:
@@ -378,8 +362,6 @@ def build(
                 )
             )
         ],
-        "budget": budget,
-        "bytes": 0,
         "omissions": navigation["omissions"]
         + ([{"reason": "context_ignore", "count": len(ignored)}] if ignored else [])
         + (
@@ -396,15 +378,9 @@ def build(
             "module_id": module["id"],
             "focus_id": focused["item"]["id"] if focused else None,
         },
-        freshness=reader.freshness([module], require=require, full=detail == "full"),
+        freshness=reader.freshness([module], require=require),
     )
-    text = _account(envelope, fmt)
-    if len(text.encode()) > budget:
-        raise InspectionError(
-            "budget_exceeded",
-            f"Complete module map needs {len(text.encode())} bytes; "
-            f"focus the map or raise --max-bytes (budget {budget})",
-        )
+    text = render(envelope, fmt)
     if before != reader.basis(module):
         raise InspectionError(
             "source_changing", "Inputs changed during map capture; retry"

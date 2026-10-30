@@ -10,23 +10,21 @@ from typing import Literal, NoReturn
 
 from sandloom.core.cli.inspection import (
     context,
-    files,
     graph,
     queries,
     sequences,
     terminal,
 )
 from sandloom.core.cli.inspection.model import (
-    INDEX,
     LIMIT,
-    RECEIPT,
     Doc,
     InspectionError,
     encode,
     response,
-    sha,
 )
 from sandloom.core.cli.inspection.read import Reader
+
+ACTIONS = {"modules", "impact", "diff", "sequence", "state"}
 
 
 class Parser(argparse.ArgumentParser):
@@ -42,13 +40,13 @@ def parser_for(command: str) -> Parser:
             "application or regenerates files"
         ),
         epilog=(
-            "Examples: sandloom graph payments; sandloom graph impact "
-            "payments.charges.v1; sandloom graph diff main. "
-            "TTY: text; pipe/output: JSON. --format overrides detection. "
-            "Use sandloom explore to generate and open a browser."
+            "Actions: graph [MODULE], modules, impact ITEM, diff REV_OR_FILE, "
+            "sequence [ID], state ID. Use module:NAME for reserved module names. "
+            "TTY: text; pipe: JSON. Use sandloom explore to open the browser."
         )
         if command == "graph"
         else None,
+        allow_abbrev=False,
     )
     parser.add_argument(
         "--root",
@@ -64,34 +62,9 @@ def parser_for(command: str) -> Parser:
         default="markdown" if command == "context" else None,
     )
     parser.add_argument(
-        "--detail",
-        choices=("compact", "full"),
-        default="compact",
-        help="full adds verification evidence without expanding scope",
-    )
-    parser.add_argument(
-        "--max-bytes",
-        type=int,
-        default=LIMIT,
-        help=f"complete UTF-8 byte budget (default {LIMIT})"
-        + ("; JSON graphs only" if command == "graph" else ""),
-    )
-    parser.add_argument(
         "--require-verified",
         action="store_true",
         help="exit 3 unless selected source basis is verified",
-    )
-    parser.add_argument(
-        "--output",
-        help=(
-            "contained project-relative artifact destination; stdout receives "
-            "JSON acknowledgement"
-        ),
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="replace a recognized Sandloom export, never an arbitrary existing file",
     )
     if command == "context":
         parser.add_argument(
@@ -101,135 +74,76 @@ def parser_for(command: str) -> Parser:
             "--focus", help="stable entity/process ID related to the selected module"
         )
     else:
+        parser.add_argument("selectors", nargs="*", metavar="ACTION_OR_MODULE")
         parser.add_argument(
-            "selectors", nargs="*", metavar="MODULE | impact ITEM | diff REV"
+            "--detail",
+            choices=("compact", "full"),
+            default="compact",
+            help="full JSON adds provenance and verification evidence",
         )
         parser.add_argument(
-            "--view",
-            choices=("graph", "modules", "sequence", "state", "impact", "diff"),
-            default="graph",
+            "--max-bytes",
+            type=int,
+            default=LIMIT,
+            help=f"complete JSON byte budget (default {LIMIT})",
         )
-        parser.add_argument(
-            "--module", help="focus by logical name, import path or stable ID"
-        )
-        parser.add_argument(
-            "--process", help="saga or route stable ID; sequence/state view"
-        )
-        parser.add_argument("--item", help="stable entity ID; impact view")
-        parser.add_argument(
-            "--before", help="project-relative historical inspection index; diff view"
-        )
-        parser.add_argument(
-            "--direction", choices=("both", "incoming", "outgoing"), default="both"
-        )
+        parser.add_argument("--direction", choices=("both", "incoming", "outgoing"))
         parser.add_argument(
             "--hops", type=int, help="module-neighbor distance; default 1 with a focus"
         )
     return parser
 
 
-def _selectors(args: argparse.Namespace, argv: list[str]) -> None:
-    args.revision = None
-    selectors = args.selectors
-    if not selectors:
-        return
-    action = selectors[0]
-    if action not in {"impact", "diff"}:
-        if len(selectors) != 1 or args.module:
-            raise InspectionError("usage", "Choose one module selector", code=2)
-        args.module = action
-        return
-    if any(a.split("=")[0] == "--view" for a in argv) and args.view != action:
-        raise InspectionError("usage", "Subcommand conflicts with --view", code=2)
-    args.view = action
-    if len(selectors) != 2:
-        raise InspectionError(
-            "usage",
-            f"Use sandloom graph {action} " + ("ITEM" if action == "impact" else "REV"),
-            code=2,
-        )
-    if args.item or args.before:
-        raise InspectionError(
-            "usage", "Choose a positional selector or the named flags", code=2
-        )
-    if action == "impact":
-        args.item = selectors[1]
-    else:
-        args.revision = selectors[1]
-
-
 def _arguments(command: str, argv: list[str]) -> argparse.Namespace:
     parser = parser_for(command)
-    args = (
-        parser.parse_intermixed_args(argv)
-        if command == "graph"
-        else parser.parse_args(argv)
-    )
-    if command == "graph":
-        _selectors(args, argv)
-        args.format = args.format or (
-            "json" if args.output or not sys.stdout.isatty() else "text"
+    if command == "context":
+        return parser.parse_args(argv)
+    args = parser.parse_intermixed_args(argv)
+    selectors = args.selectors
+    args.action = selectors[0] if selectors and selectors[0] in ACTIONS else "graph"
+    operands = selectors[1:] if args.action != "graph" else selectors
+    required = args.action in {"impact", "diff", "state"}
+    maximum = 0 if args.action == "modules" else 1
+    if len(operands) > maximum or (required and not operands):
+        usage = {
+            "graph": "[MODULE]",
+            "modules": "",
+            "impact": "ITEM",
+            "diff": "REV_OR_FILE",
+            "sequence": "[ID]",
+            "state": "ID",
+        }[args.action]
+        action = "" if args.action == "graph" else args.action + " "
+        raise InspectionError(
+            "usage", f"Use sandloom graph {action}{usage}".rstrip(), code=2
         )
+    args.target = operands[0] if operands else None
+    args.format = args.format or ("text" if sys.stdout.isatty() else "json")
     if args.max_bytes <= 0:
         raise InspectionError("usage", "--max-bytes must be positive", code=2)
-    if command == "graph":
-        _validate_graph(args, argv)
+    if (args.hops is not None or args.direction is not None) and args.action != "graph":
+        raise InspectionError(
+            "usage", "--hops and --direction apply to graph [MODULE] only", code=2
+        )
+    if args.hops is not None and (not args.target or args.hops < 0):
+        raise InspectionError(
+            "usage", "--hops needs a module and a non-negative distance", code=2
+        )
+    if args.action == "modules" and args.format not in {"text", "json"}:
+        raise InspectionError("usage", "Module discovery supports text or JSON", code=2)
+    if args.action in {"impact", "diff"} and args.format == "mermaid":
+        raise InspectionError("usage", "Impact/diff support text, JSON or HTML", code=2)
+    if args.format != "json" and any(
+        a.split("=")[0] in {"--max-bytes", "--detail"} for a in argv
+    ):
+        raise InspectionError(
+            "usage", "--detail and --max-bytes require graph JSON", code=2
+        )
+    args.direction = args.direction or "both"
     return args
 
 
-def _validate_graph(args: argparse.Namespace, argv: list[str]) -> None:
-    if (
-        (args.process and args.view not in {"sequence", "state"})
-        or (args.item and args.view != "impact")
-        or (args.before and args.view != "diff")
-    ):
-        raise InspectionError(
-            "usage",
-            (
-                "--process needs sequence/state; --item needs impact; --before "
-                "needs diff"
-            ),
-            code=2,
-        )
-    if (args.view == "impact" and not args.item) or (
-        args.view == "diff" and not (args.before or args.revision)
-    ):
-        raise InspectionError(
-            "usage",
-            "Use graph impact ITEM or graph diff REV "
-            "(saved files: --view diff --before PATH)",
-            code=2,
-        )
-    if args.view not in {"graph", "modules"} and (
-        args.hops is not None or args.direction != "both"
-    ):
-        raise InspectionError(
-            "usage", "--hops and --direction scope topology views only", code=2
-        )
-    if args.view in {"impact", "diff"} and args.format == "mermaid":
-        raise InspectionError("usage", "Impact/diff support text, JSON or HTML", code=2)
-    if args.module and args.view in {"impact", "diff"}:
-        raise InspectionError(
-            "usage", "Impact/diff have their own explicit scope", code=2
-        )
-    if args.hops is not None and (not args.module or args.hops < 0):
-        raise InspectionError(
-            "usage", "--hops needs --module and a non-negative distance", code=2
-        )
-    if args.format != "json" and (
-        (args.view == "modules" and args.format != "text")
-        or any(a.split("=")[0] in {"--max-bytes", "--detail"} for a in argv)
-    ):
-        raise InspectionError(
-            "usage",
-            "Discovery, --detail and --max-bytes require graph JSON",
-            code=2,
-        )
-
-
 def _json_requested(command: str, argv: list[str]) -> bool:
-    if "--output" in argv or any(a.startswith("--output=") for a in argv):
-        return True
     fmt = None
     for i, arg in enumerate(argv):
         if arg == "--":
@@ -247,7 +161,7 @@ def _graph_text(envelope: Doc, args: argparse.Namespace, reader: Reader) -> str:
     if args.format == "mermaid":
         return (
             sequences.mermaid(envelope)
-            if args.view in {"sequence", "state"}
+            if args.action in {"sequence", "state"}
             else graph.mermaid(envelope)
         )
     if args.format == "html":
@@ -255,107 +169,55 @@ def _graph_text(envelope: Doc, args: argparse.Namespace, reader: Reader) -> str:
     return encode(envelope)
 
 
-def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
+def _baseline(reader: Reader, target: str, require: bool) -> Doc:
+    path = Path(target)
+    if (
+        (reader.root / path).is_file()
+        or path.suffix.lower() == ".json"
+        or target.startswith((".", "/"))
+    ):
+        return queries.compare(reader, target, require)
+    return queries.compare_revision(reader, target, require)
+
+
+def _render(command: str, args: argparse.Namespace, reader: Reader) -> str:
     if command == "context":
-        envelope, text = context.build(
+        return context.build(
             reader,
             args.module,
-            budget=args.max_bytes,
             fmt=args.format,
-            detail=args.detail,
             require=args.require_verified,
             focus_selector=args.focus,
+        )[1]
+    if args.action in {"sequence", "state"}:
+        envelope = sequences.build(
+            reader,
+            selector=args.target,
+            module=None,
+            require=args.require_verified,
+            state=args.action == "state",
+            full=args.detail == "full",
         )
+    elif args.action == "impact":
+        envelope = queries.impact(reader, args.target, args.require_verified)
+    elif args.action == "diff":
+        envelope = _baseline(reader, args.target, args.require_verified)
     else:
-        if args.view in {"sequence", "state"}:
-            envelope = sequences.build(
-                reader,
-                selector=args.process,
-                module=args.module,
-                require=args.require_verified,
-                state=args.view == "state",
-            )
-        elif args.view == "impact":
-            envelope = queries.impact(reader, args.item, args.require_verified)
-        elif args.view == "diff":
-            envelope = (
-                queries.compare_revision(reader, args.revision, args.require_verified)
-                if args.revision
-                else queries.compare(reader, args.before, args.require_verified)
-            )
-        else:
-            envelope = graph.build(
-                reader,
-                selector=args.module,
-                hops=args.hops if args.hops is not None else 1,
-                discovery=args.view == "modules",
-                detail=args.detail,
-                require=args.require_verified,
-                direction=args.direction,
-            )
-        text = _graph_text(envelope, args, reader)
-        if args.format == "json" and len(text.encode()) > args.max_bytes:
-            raise InspectionError(
-                "budget_exceeded",
-                f"Graph needs {len(text.encode())} bytes; "
-                "focus with --module/--hops or raise --max-bytes",
-            )
-    if args.output:
-        if Path(args.output).suffix.lower() in {
-            ".py",
-            ".toml",
-            ".yaml",
-            ".yml",
-            ".lock",
-            ".svg",
-            ".png",
-            ".ico",
-        }:
-            raise InspectionError(
-                "unsafe_output", "Output cannot replace source/configuration assets"
-            )
-        protected = [
-            INDEX,
-            RECEIPT,
-            "architecture_rules.yml",
-            "pyproject.toml",
-            "uv.lock",
-            "AGENTS.md",
-            "CLAUDE.md",
-            ".sandloomignore",
-            "README.md",
-            "README.rst",
-            "LICENSE",
-            "NOTICE",
-            "CHANGELOG.md",
-            "CONTRIBUTING.md",
-            "SECURITY.md",
-            ".gitignore",
-            ".gitattributes",
-            ".gitmodules",
-            reader.layout["source_root"],
-            *[m["source"] for m in reader.modules if m["source"]],
-        ]
-        # Flat apps can write artifacts beside their source packages.
-        protected = [p for p in protected if p != "."]
-        protected += [p for m in reader.modules for p in reader.rules(m)]
-        protected += list(reader.doc["wire_documents"])
-        files.export(
-            reader.root, args.output, text, force=args.force, protected=protected
+        envelope = graph.build(
+            reader,
+            selector=args.target,
+            hops=args.hops if args.hops is not None else 1,
+            discovery=args.action == "modules",
+            detail=args.detail,
+            require=args.require_verified,
+            direction=args.direction,
         )
-        return encode(
-            response(
-                command,
-                "artifact",
-                {
-                    "path": args.output,
-                    "format": args.format,
-                    "bytes": len(text.encode()),
-                    "sha256": sha(text.encode()),
-                },
-                selection=envelope["selection"],
-                freshness={"state": envelope["freshness"]["state"]},
-            )
+    text = _graph_text(envelope, args, reader)
+    if args.format == "json" and len(text.encode()) > args.max_bytes:
+        raise InspectionError(
+            "budget_exceeded",
+            f"Graph needs {len(text.encode())} bytes; "
+            "select a module, reduce --hops or raise --max-bytes",
         )
     return text
 
@@ -364,7 +226,7 @@ def main(command: Literal["context", "graph"], argv: list[str] | None = None) ->
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         args = _arguments(command, argv)
-        text = _export(command, args, Reader(args.root))
+        text = _render(command, args, Reader(args.root))
     except InspectionError as exc:
         if _json_requested(command, argv):
             print(

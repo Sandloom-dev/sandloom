@@ -277,7 +277,9 @@ async def _selftest_problems() -> list[str]:
     client = AiohttpRpcClient(max_connections=4, idle_seconds=30.0)
     problems: list[str] = []
     try:
-        first = await client.get(f"{base}/sandloom-probe-1", headers={}, timeout=2.0)
+        # full_probe owns the deadline; a shorter nested connect limit can
+        # reject a valid transport when the host is briefly descheduled.
+        first = await client.get(f"{base}/sandloom-probe-1", headers={}, timeout=None)
         if first.content != b"sandloom-probe-1":
             problems.append(f"first call got {first.content[:32]!r}")
         try:
@@ -287,7 +289,7 @@ async def _selftest_problems() -> list[str]:
                 "an idle pooled connection that received unsolicited bytes "
                 "was not closed"
             )
-        second = await client.get(f"{base}/sandloom-probe-2", headers={}, timeout=2.0)
+        second = await client.get(f"{base}/sandloom-probe-2", headers={}, timeout=None)
         if second.content != b"sandloom-probe-2":
             problems.append(
                 "the next call got another response "
