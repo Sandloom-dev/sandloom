@@ -160,7 +160,8 @@ details action. The local Explorer was regenerated from the final source.
 Added `sandloom explore [MODULE]` (explicit generation + offline HTML + browser),
 `graph [MODULE]`, `graph impact ITEM` and `graph diff REV`. Graph defaults to text
 on stdout TTY and JSON in pipes/redirects or file-writing mode; explicit formats
-win. Legacy flags remain supported. Revision diff reads only this project's
+win. Named flags select process views, disambiguate module names and compare
+saved-index files. Revision diff reads only this project's
 committed index, resolves an immutable commit and reports that basis, without
 checkout/fetch or old-code execution. Missing baseline data is an error.
 
@@ -243,3 +244,7 @@ and create a verified all-battery application. Four wheel/sdist pairs, rebuilds,
 lean/standard installs, site build, skill validation and the 2,368-file public
 source audit passed. Browser checks cover impact selection, restored state,
 copy feedback and readable owner labels. Paid agent DX remains deferred.
+
+Linux `backend-static` and strict docs CI passed on `f522b3e` in 86 seconds,
+including installed-wheel RPC transport and vulnerability checks. The final
+packaged viewer also separates owner labels from impact evidence on screen.

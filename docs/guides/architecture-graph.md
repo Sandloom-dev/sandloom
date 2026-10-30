@@ -39,9 +39,10 @@ uv run sandloom graph --format html --output architecture.html
 `graph` reads the saved model and never opens a browser or regenerates files.
 Its default depends only on stdout: a TTY gets a plain tree, while a pipe,
 redirect or `--output` gets compact JSON. `--format` overrides that choice.
-There is no agent identity detection. The existing `--module`, `--view`, `--item`
-and `--before` forms remain supported. Modules named `impact` or `diff` can be
-selected explicitly with `--module`.
+There is no agent identity detection. Named flags select process views
+(`--view`/`--process`), disambiguate modules (`--module`) and compare a saved
+index (`--view diff --before FILE`). Modules named `impact` or `diff` use
+`--module` to avoid subcommand ambiguity.
 
 Discovery lists stable module IDs without dumping relationships. HTML provides
 module search across entities (with hints for matches hidden by another layer

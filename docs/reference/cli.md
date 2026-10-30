@@ -59,8 +59,9 @@ the usable file and prints an explanation. `graph` always stays a cold read.
 `graph impact ID` accepts a unique stable ID or interface name. `graph diff REV`
 reads a local Git revision's committed index and records its commit ID; Git is
 required only for that form. A missing baseline index is an error. It never
-fetches, checks out code or generates historical data. File-based comparison and
-the existing `--module`/`--view`/`--item`/`--before` flags remain supported.
+fetches, checks out code or generates historical data. Use `--view diff --before
+FILE` for a saved-index baseline, `--view sequence|state --process ID` for a
+process, and `--module NAME` to disambiguate a module named `impact` or `diff`.
 
 ## Project and code
 
