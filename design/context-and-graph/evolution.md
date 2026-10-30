@@ -107,3 +107,8 @@ cycles and unresolved facts were compared and remain identical. Focused regressi
 coverage is now 46 passing cases; this measures serialized bytes, not LLM tokens
 or productivity. Linux fallback CI on 08801b9 passed backend-static, docs and all
 five examples in 2m15s.
+
+Final focus-closure regression: selecting a consumer/projection preserves its
+incoming event interfaces; infrastructure focus retains the module's public
+closure and owned source. The focused suite has 47 passing cases. This closes
+the graph-inspector-to-agent-context path as well as direct contract/event focus.

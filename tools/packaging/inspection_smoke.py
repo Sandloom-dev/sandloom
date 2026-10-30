@@ -71,6 +71,33 @@ def check(python: Path, work: Path) -> None:
             }
         ],
     }
+    channel = "stats.changed.v1"
+    schema = {"type": "object", "properties": {"note_id": {"type": "string"}}}
+    wire = "probe/shared/events/stats.changed.v1.json"
+    (root / wire).parent.mkdir(parents=True)
+    (root / wire).write_text(json.dumps(schema))
+    doc["nodes"] += [
+        {"id": "event:" + channel, "kind": "event", "name": channel},
+        {"id": "consumer:notes.changed", "kind": "consumer", "name": "notes.changed"},
+    ]
+    doc["edges"] = [
+        {
+            "id": "edge:owns",
+            "kind": "owns_consumer",
+            "owner": node["id"],
+            "source": node["id"],
+            "target": "consumer:notes.changed",
+        },
+        {
+            "id": "edge:input",
+            "kind": "consumes_event",
+            "owner": node["id"],
+            "source": "event:" + channel,
+            "target": "consumer:notes.changed",
+        },
+    ]
+    doc["modules"][0]["wire_paths"] = [wire]
+    doc["event_schemas"] = {channel: schema}
     (root / ".sandloom").mkdir()
     (root / ".sandloom/inspection.json").write_text(json.dumps(doc))
     (root / "before.json").write_text(json.dumps(doc))
@@ -95,6 +122,7 @@ raise SystemExit(main(sys.argv[1], sys.argv[2:]))
         ("graph", ["--view", "diff", "--before", "before.json"]),
         ("graph", ["--view", "impact", "--item", "module:notes"]),
         ("context", ["notes", "--focus", "module:notes", "--format", "json"]),
+        ("context", ["notes", "--focus", "consumer:notes.changed", "--format", "json"]),
         ("graph", ["--format", "html", "--output", "map.html"]),
     ):
         done = subprocess.run(  # noqa: S603 - static argv; interpreter belongs to the isolated wheel venv

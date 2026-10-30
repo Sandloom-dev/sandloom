@@ -1054,3 +1054,27 @@ def test_compact_topology_defers_route_policy_to_explicit_detail(
     assert "routes" not in compact["modules"][0]
     assert compact["modules"][0]["route_count"] == 0
     assert full["processes"][0]["policy"] == {"session": "live"}
+
+
+def test_consumer_context_focus_keeps_its_incoming_event_interface(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc, text, _ = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "consumer:notes.changed",
+        "--format",
+        "json",
+    )
+    assert rc == 0
+    data = json.loads(text)["data"]
+    assert "app/shared/events/stats.changed.v1.json" in {
+        s["path"] for s in data["sections"]
+    }
+    assert "stats.changed.v1" in data["event_schemas"]
+    assert "app/shared/contracts/stats_quota_v1.py" not in {
+        s["path"] for s in data["sections"]
+    }

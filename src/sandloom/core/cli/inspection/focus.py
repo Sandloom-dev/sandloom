@@ -17,6 +17,13 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
             "wrong_owner", "Focus must belong to or be used by the selected module"
         )
     interfaces = {selected["id"]}
+    interfaces |= {
+        e["source"]
+        for e in reader.doc["edges"]
+        if e["target"] == selected["id"]
+        and e["kind"] in {"consumes_event", "projects_event"}
+    }
+    whole_module = selected["id"].startswith(("route:", "module:", "capability:"))
     for step in selected.get("steps", []):
         interfaces |= {
             "contract:" + step[key].rsplit(".", 1)[0]
@@ -36,7 +43,7 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
         )
     ]
     # Route internals are opaque: retain every declared wire interface.
-    if selected["id"].startswith(("route:", "module:")):
+    if whole_module:
         wires = module["wire_paths"]
     wire_module = {**module, "wire_paths": wires}
     tokens = set(names) | {name.replace(".", "_").upper() for name in names}
@@ -50,7 +57,7 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
     for path in candidates:
         text = files.read(reader.root, path)
         if (
-            selected["id"].startswith("module:")
+            selected["id"].startswith(("module:", "capability:"))
             or Path(path).name in {"__init__.py", "schemas.py"}
             or any(t in text for t in tokens)
         ):
@@ -68,7 +75,7 @@ def scope(reader: Reader, module: Doc, selector: str, candidates: list[str]) -> 
         "item": selected,
         "candidates": paths,
         "wires": reader.wire_paths(wire_module),
-        "all_interfaces": selected["id"].startswith(("route:", "module:")),
+        "all_interfaces": whole_module,
         "channels": {
             i.removeprefix("event:") for i in interfaces if i.startswith("event:")
         },

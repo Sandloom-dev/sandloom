@@ -39,8 +39,9 @@ Full detail adds file hashes, inclusion reasons and verification evidence. It
 keeps the same business selection as compact mode; if the additional metadata
 exceeds the budget it fails instead of silently evicting source.
 
-`--focus` selects a declared contract, event, saga, route or module used/owned by
-that module. Whole selected wire files and their transitive DTO closure remain
+`--focus` selects an entity/process used or owned by that module: contract, event,
+consumer, projection, saga, route or module. Consumer/projection focus includes
+its declared input event interfaces; infrastructure focus retains the whole module. Whole selected wire files and their transitive DTO closure remain
 mandatory. Saga focus includes its declared command interfaces; route internals
 are opaque, so route focus retains every declared interface. Rules and the public
 SDK remain available. Owned source matches are navigation hints, not a complete

@@ -81,7 +81,9 @@ def parser_for(command: str) -> Parser:
         parser.add_argument(
             "module", help="logical name, import path or stable module:name ID"
         )
-        parser.add_argument("--focus", help="stable contract, event, saga or route ID")
+        parser.add_argument(
+            "--focus", help="stable entity/process ID related to the selected module"
+        )
         parser.add_argument(
             "--file",
             action="append",
