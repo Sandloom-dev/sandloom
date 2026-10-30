@@ -7,8 +7,10 @@ module authors and agents; its command examples are proposed interfaces.
 
 ## 1. Outcome and limits
 
-A developer can give an agent a bounded, traceable context for one business
-module and inspect how that module connects to the rest of an application.
+An agent can invoke the CLI itself to discover modules, obtain bounded,
+traceable context for one business module and inspect its connections. A person
+can read the same facts as Markdown or an offline diagram. Manual copy/paste or
+a person preparing the bundle is not a prerequisite.
 Both views come from the same framework declarations and wire artifacts.
 No extra declarations are required from application authors.
 
@@ -29,26 +31,36 @@ A context bundle is navigation and input preparation, not a correctness proof.
 ## 2. Small public interface
 
 ```bash
+sandloom graph --view modules
 sandloom context notes
 sandloom context notes --format json --output notes-context.json
+sandloom context notes --format markdown
 sandloom context notes --file services.py --file tests/test_notes.py --max-bytes 131072
 sandloom context notes --require-verified
 
-sandloom graph --output architecture.html
+sandloom graph --format html --output architecture.html
 sandloom graph --format json
 sandloom graph --format mermaid --module notes --hops 1
 sandloom graph --require-verified --format json
 ```
 
-`context` requires a logical module name or unambiguous import path, resolved
-with existing module naming rules. It defaults to Markdown on stdout.
+`context` requires a logical module name, unambiguous import path or a stable
+`module:<name>` ID returned by discovery, resolved with existing module naming
+rules. Graph focus accepts the same selectors. It defaults to JSON on stdout, in terminals
+and pipes alike. Markdown is an explicit human-readable format.
 `--file` is repeatable and makes selected **module-local** files mandatory;
 paths are relative to that module. It never permits sibling source access.
 `--max-bytes` defaults to 131072 UTF-8 bytes, counting the entire serialized
 output, metadata and omissions included. It is not called a token limit.
 
-`graph` defaults to HTML on stdout; `--output` writes the chosen format
-atomically. Its formats are `html`, `json`, `mermaid`. `--module` focuses a
+`graph` also defaults to JSON on stdout; `--output` writes the explicitly
+chosen format atomically. Its formats are `html`, `json`, `mermaid`; a filename
+extension never silently selects the format. `--view modules` is a bounded
+JSON discovery view containing module IDs/import paths, source availability,
+summary counts and freshness. It does not require a deliberately failing
+command or return the entire relationship graph. Its response identifies the
+view and says relations were not requested; absent relations are not empty
+relationships. Other views use the complete/focused graph contract below. `--module` focuses a
 module; `--hops` is a non-negative integer, defaults to 1 with a focus, and
 is rejected without a focus. Filtering retains evidence and reports hidden
 node/edge counts. The complete underlying inventory remains distinguishable
@@ -64,8 +76,9 @@ requiring generation before resolving ownership. No parent-package `find_spec`,
 application import or `.env` loading is allowed. Unknown/ambiguous
 modules fail with known candidates and a concrete remedy.
 
-Without `--output`, only the artifact goes to stdout. Human warnings go to
-stderr and are also represented in structured diagnostics. All references,
+Without `--output`, stdout contains exactly one response/artifact in the requested
+format. JSON responses follow the agent protocol below, including errors. Human
+logs belong on stderr; diagnostics remain machine-readable in the JSON response. All references,
 identities and input paths in a shareable artifact are project-relative or
 logical distribution-relative locators, never absolute checkout/home paths.
 Existing output files require `--force`; a source, policy or managed generated
@@ -75,9 +88,91 @@ intact. Output targets cannot be symlinks.
 Exit codes: 0 = usable artifact, possibly with explicit warnings; 1 = invalid
 inputs/artifacts, missing mandatory information, unsafe selection or I/O
 failure; 2 = CLI usage error; 3 = verification required but unavailable.
-No partial artifact is emitted on a nonzero exit. Implementation must register
+No partial successful artifact is emitted on a nonzero exit; JSON mode emits
+one complete structured error response instead. Implementation must register
 public diagnostics with the existing error/explanation machinery; this proposal
 does not reserve unverified numeric error-code slots.
+
+### 2.1 Agent protocol: first-class, not a human-output parser
+
+JSON is the default for both commands; no TTY/agent detection or environment
+switch changes it. Human formats are explicit. All commands are noninteractive:
+no confirmation prompt, browser opening, pager, progress animation or automatic
+fallback to app imports/network/generation. A caller decides whether to execute
+a proposed recovery action according to its own permissions.
+
+Every JSON response uses one versioned envelope:
+
+- `schema`: `sandloom.tool_response`; `schema_version`: 1;
+- `command`: `context` or `graph`; `ok`: boolean;
+- `kind`: `context`, `graph`, `modules`, `artifact` or `error`;
+- `selection`: normalized requested scope; resolved stable IDs when available;
+- `freshness`: structured state/evidence, or null when not established;
+- `data`: the appropriate structured result, or null on failure;
+- `diagnostics`: typed records, never a requirement to parse English messages.
+
+Context `data` exposes sections/files/definitions individually with IDs, content,
+source references, inclusion reasons, hashes, byte accounting and omissions.
+Graph `data` exposes typed nodes/edges and witnesses directly. Definitions are
+referenced by ID rather than repeated in every section. Display prose/HTML is
+not the only way to retrieve a fact. `--view modules` returns `kind: modules`
+with a catalog and `relations_included: false`, not a fake edge-free graph.
+
+Diagnostics have stable `kind`, `severity`, human `message`, source locations,
+related IDs, and typed `next_actions`. Public explanation codes are included
+when assigned by the existing catalogue; clients branch on the documented
+machine kind and exit status, not translated wording. A next action contains a
+known action kind, argument array and declared side effects, never an opaque
+shell string from a project document. For example, regeneration is explicitly
+labelled as writing generated files. There is no automatic permission grant.
+
+Illustrative error envelope (not an implemented command):
+
+```json
+{
+  "schema": "sandloom.tool_response",
+  "schema_version": 1,
+  "command": "context",
+  "ok": false,
+  "kind": "error",
+  "selection": {"requested_module": "unknown", "module_id": null},
+  "freshness": null,
+  "data": null,
+  "diagnostics": [{
+    "kind": "unknown_module",
+    "severity": "error",
+    "message": "No module named unknown",
+    "locations": [],
+    "related_ids": [],
+    "next_actions": [{
+      "action": "list_modules",
+      "argv": ["sandloom", "graph", "--view", "modules"],
+      "side_effects": []
+    }]
+  }]
+}
+```
+
+For JSON-mode usage, freshness, budget, closure and path failures, stdout is
+still exactly one parseable error envelope and the exit code is nonzero. Explicit
+`--help` remains conventional help. A failed command cannot overwrite an earlier
+output file. With `--output`, successful stdout is a small `kind: artifact`
+acknowledgement with requested output locator, format, byte count and SHA-256;
+the target holds the complete selected artifact. This avoids dumping a large
+bundle a second time. Portable artifact content does not gain absolute home paths
+from the local write acknowledgement.
+
+Graph JSON and module discovery accept the same `--max-bytes` limit as context;
+exceeding it returns a structured remedy to focus by module/hops or raise the
+budget. No silent node/edge truncation. HTML/Mermaid remain explicit presentation
+exports; `--max-bytes` is rejected for non-JSON graph formats rather than silently
+ignored or pretending to limit embedded renderer assets.
+
+The expected agent loop is: discover modules → choose a stable module ID →
+request its context and a focused graph → inspect freshness/omissions/diagnostics
+→ request additional module-local files or an explicit authorized refresh when
+necessary → modify the selected module → run the existing gates. No stage needs
+a person to copy a diagram, interpret terminal colors or paste a bundle manually.
 
 ## 3. One semantic model, two presentations
 
@@ -380,6 +475,11 @@ across third-party renderer versions.
 
 ## 7. Acceptance and compatibility
 
+- Agents can independently discover modules and consume both commands through
+  the versioned JSON protocol. Non-TTY success/error output parses as one object;
+  no prompts, colors, banners or prose parsing are required.
+- Diagnostic kind/exit code and structured recovery remain stable when human
+  wording/localization changes. Output-file acknowledgements stay bounded.
 - Same selected inputs/options produce byte-identical canonical JSON and context
   output. Dirty/untracked selected files and add/delete changes are accounted for.
 - Cold success paths work with empty app environment and absent PostgreSQL/Redis.

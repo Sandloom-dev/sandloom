@@ -11,8 +11,9 @@ for this design. Keep website publishing separate from these tooling changes.
 
 **Own:** design fixtures/protocol schemas and the collector contract.
 
-- Turn the specification's data model and context output into explicit version-1
-  JSON schemas and complete golden examples before implementing CLI behavior.
+- Turn the shared data model, agent response/error envelope, discovery catalog
+  and command payloads into version-1 JSON schemas and complete golden examples.
+  JSON is the default for direct agent calls; human formats stay explicit.
 - Select a small fixture set from existing app/framework layouts: checkout-owned
   module; installed optional batteries; non-default shared package; DTO aliases,
   recursive `$defs` and copied DTO origins; event views; absent optional provider;
@@ -112,6 +113,9 @@ in `src/sandloom/__init__.py`, context templates and command tests.
   advanced names, complete required wire definitions, selected source and tests.
 - Reserve mandatory material, then select optional whole sections by stable
   priority. Enforce the complete UTF-8 byte budget and omission ledger.
+- Implement noninteractive JSON-first invocation, structured failure responses
+  and output-file acknowledgements; test a subprocess consuming stdout as JSON
+  without parsing human messages or assuming a TTY.
 - Emit Markdown and JSON from the same selected content, with collision-safe
   fences, hashes, freshness, inclusion reasons and verification instructions.
 - Handle missing cache/unsupported installed-only focus with concrete remedies.
@@ -127,6 +131,9 @@ Validate actual commands from a bare wheel, not only parser `--help`.
 assets. No business module or admin-console code is required for a first version.
 
 - Export typed nodes/edges, evidence, scope and unresolved facts as canonical JSON.
+- Add bounded `graph --view modules` discovery and JSON size-limit diagnostics so
+  an agent can select a module without reading the entire graph or using errors
+  for discovery. Label a catalog as not requesting relationships.
 - Add Mermaid interchange output with escaped labels/stable generated identifiers.
 - Build the selected offline HTML renderer, module focus/hop/relation filters,
   incoming/outgoing inspection, explicit hidden counts and evidence selection.
@@ -137,7 +144,9 @@ assets. No business module or admin-console code is required for a first version
 - Report SCCs by relation type; avoid blanket event-cycle errors. Reference
   existing compatibility diagnostics instead of reimplementing evolution checks.
 
-**Done when:** every fixture edge maps to real evidence, legitimate event cycles
+**Done when:** a small ordinary subprocess/JSON client can perform the complete
+discover → context → focused graph → typed-error/recovery flow without human
+assistance or model calls. Every fixture edge maps to real evidence, legitimate event cycles
 remain inspectable, optional/missing providers are understandable, filters export
 truthful scope and hostile labels cannot execute code.
 Test reciprocal contract dependencies and one-hop focus preserving the provider

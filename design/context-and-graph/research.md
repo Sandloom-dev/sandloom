@@ -10,13 +10,14 @@ Recommendations in them are not assertions that Sandloom already provides these 
 
 ## Decisions from the evidence
 
-1. Use existing declaration/generation semantics, not a second hand-authored dependency map or a speculative full Python static interpreter.
-2. Add a generated semantic inspection document because format-1 module snapshots omit capabilities, source evidence, event views and freshness provenance.
-3. Keep exported context/graph readers cold: no business module imports, settings loading, evaluated annotations, entry-point loading or network calls.
-4. Separate semantic generated content from a local full-content verification receipt. A receipt becoming stale must not force `generate` for an implementation-only edit or make `generate --check` write files. Interactive exports show their evidence/freshness; strict callers can require a verified basis.
-5. Context and graph use the same inspected facts, but context adds explicitly scoped current source content. An exact current-file hash is not proof that a provider implementation agrees with a generated wire interface.
-6. Deliver machine-readable JSON and readable exports together. Context is budgeted and reports omissions; graph edges have explicit types, evidence and scope.
-7. Keep framework runtime, public SDK tiers, import isolation, transaction ownership and infrastructure configuration unchanged. These are tooling features, not another application runtime.
+1. Treat direct agent CLI invocation as a primary workflow: JSON-first, noninteractive, versioned data/errors, bounded discovery and typed recovery, with explicit human renderings.
+2. Use existing declaration/generation semantics, not a second hand-authored dependency map or a speculative full Python static interpreter.
+3. Add a generated semantic inspection document because format-1 module snapshots omit capabilities, source evidence, event views and freshness provenance.
+4. Keep exported context/graph readers cold: no business module imports, settings loading, evaluated annotations, entry-point loading or network calls.
+5. Separate semantic generated content from a local full-content verification receipt. A receipt becoming stale must not force `generate` for an implementation-only edit or make `generate --check` write files. Interactive exports show their evidence/freshness; strict callers can require a verified basis.
+6. Context and graph use the same inspected facts, but context adds explicitly scoped current source content. An exact current-file hash is not proof that a provider implementation agrees with a generated wire interface.
+7. Deliver machine-readable JSON and readable exports together. Context is budgeted and reports omissions; graph edges have explicit types, evidence and scope.
+8. Keep framework runtime, public SDK tiers, import isolation, transaction ownership and infrastructure configuration unchanged. These are tooling features, not another application runtime.
 
 ## Draft fit-review corrections
 
