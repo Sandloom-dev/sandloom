@@ -3,7 +3,8 @@
 **Status: Proposed — not implemented.** Date: 2026-10-30.
 Targets the existing 0.7.0a3 architecture. This document specifies tooling for
 module authors and agents; its command examples are proposed interfaces.
-[Evidence](research.md) · [Implementation plan](plan.md).
+[Evidence](research.md) · [Implementation plan](plan.md) · [Draft usage guide](usage.md) ·
+[Draft agent skill](skills/sandloom-module-context/SKILL.md).
 
 ## 1. Outcome and limits
 
@@ -17,7 +18,7 @@ No extra declarations are required from application authors.
 The first release includes:
 
 - a shared, versioned inspection model;
-- module context as Markdown and structured JSON;
+- compact Markdown context for direct LLM consumption and structured JSON for integrations;
 - a declared module/contract/event/projection graph as JSON, Mermaid and an
   offline HTML viewer with an equivalent text table;
 - source evidence, omission reporting, compatibility with existing generated
@@ -34,26 +35,30 @@ A context bundle is navigation and input preparation, not a correctness proof.
 sandloom graph --view modules
 sandloom context notes
 sandloom context notes --format json --output notes-context.json
-sandloom context notes --format markdown
+sandloom context notes --format json --detail full
 sandloom context notes --file services.py --file tests/test_notes.py --max-bytes 131072
 sandloom context notes --require-verified
 
 sandloom graph --format html --output architecture.html
-sandloom graph --format json
+sandloom graph --module notes --hops 1
+sandloom graph --format json --detail full
 sandloom graph --format mermaid --module notes --hops 1
 sandloom graph --require-verified --format json
 ```
 
 `context` requires a logical module name, unambiguous import path or a stable
 `module:<name>` ID returned by discovery, resolved with existing module naming
-rules. Graph focus accepts the same selectors. It defaults to JSON on stdout, in terminals
-and pipes alike. Markdown is an explicit human-readable format.
+rules. Graph focus accepts the same selectors. `context` defaults to compact
+Markdown on stdout in terminals and pipes alike: a short status header, scoped
+rules, interfaces and code blocks. It is intended for direct agent consumption
+as well as people. Use `--format json` when a program needs structured fields.
+Code is not JSON-escaped merely because its reader is an AI agent.
 `--file` is repeatable and makes selected **module-local** files mandatory;
 paths are relative to that module. It never permits sibling source access.
 `--max-bytes` defaults to 131072 UTF-8 bytes, counting the entire serialized
 output, metadata and omissions included. It is not called a token limit.
 
-`graph` also defaults to JSON on stdout; `--output` writes the explicitly
+`graph` defaults to compact JSON on stdout; `--output` writes the explicitly
 chosen format atomically. Its formats are `html`, `json`, `mermaid`; a filename
 extension never silently selects the format. `--view modules` is a bounded
 JSON discovery view containing module IDs/import paths, source availability,
@@ -95,8 +100,10 @@ does not reserve unverified numeric error-code slots.
 
 ### 2.1 Agent protocol: first-class, not a human-output parser
 
-JSON is the default for both commands; no TTY/agent detection or environment
-switch changes it. Human formats are explicit. All commands are noninteractive:
+Defaults depend on the information: compact Markdown for code/rules context,
+compact JSON for graph/discovery relations. There is no TTY/agent detection or
+environment switch. An agent can read Markdown directly; a program chooses
+explicit JSON instead of scraping Markdown. All commands are noninteractive:
 no confirmation prompt, browser opening, pager, progress animation or automatic
 fallback to app imports/network/generation. A caller decides whether to execute
 a proposed recovery action according to its own permissions.
@@ -112,10 +119,24 @@ Every JSON response uses one versioned envelope:
 - `diagnostics`: typed records, never a requirement to parse English messages.
 
 Context `data` exposes sections/files/definitions individually with IDs, content,
-source references, inclusion reasons, hashes, byte accounting and omissions.
-Graph `data` exposes typed nodes/edges and witnesses directly. Definitions are
-referenced by ID rather than repeated in every section. Display prose/HTML is
-not the only way to retrieve a fact. `--view modules` returns `kind: modules`
+source references, byte accounting and omissions. Graph `data` exposes typed
+nodes/edges and witness IDs directly. Definitions are referenced by ID rather
+than repeated in every section. `--detail compact` is the default in both context
+formats and graph JSON: omit per-file hashes and repetitive provenance records,
+not business facts. Keep schema/version, scope/coverage, freshness state and
+closure digest, uncertainty, diagnostics, mandatory content and omission ledger.
+`--detail full` adds file hashes, inclusion reasons and complete provenance/
+evidence records; it changes metadata depth, not selected business scope or
+freshness. Graph compact records retain relation type, endpoints, requiredness
+and witness references, plus one shared minimal evidence/source dictionary.
+Full adds evidence details without inventing new relationships. Empty optional
+diagnostic fields can be omitted under the documented versioned schema.
+JSON uses deterministic compact separators without display indentation. Plain
+meaningful field names remain; no custom compressed syntax or one-letter keys.
+Select content using the compact representation for the requested format and
+budget. Full detail enriches that selection; if its metadata exceeds the budget,
+fail with the required size rather than evicting business content.
+Display prose/HTML is not the only way to retrieve a fact. `--view modules` returns `kind: modules`
 with a catalog and `relations_included: false`, not a fake edge-free graph.
 
 Diagnostics have stable `kind`, `severity`, human `message`, source locations,
@@ -159,14 +180,21 @@ still exactly one parseable error envelope and the exit code is nonzero. Explici
 output file. With `--output`, successful stdout is a small `kind: artifact`
 acknowledgement with requested output locator, format, byte count and SHA-256;
 the target holds the complete selected artifact. This avoids dumping a large
-bundle a second time. Portable artifact content does not gain absolute home paths
-from the local write acknowledgement.
+bundle a second time. This acknowledgement is JSON regardless of target format;
+the explicit file-writing mode has its own machine contract, including JSON
+errors. Portable artifact content does not gain absolute home paths from the
+local write acknowledgement.
 
 Graph JSON and module discovery accept the same `--max-bytes` limit as context;
 exceeding it returns a structured remedy to focus by module/hops or raise the
 budget. No silent node/edge truncation. HTML/Mermaid remain explicit presentation
 exports; `--max-bytes` is rejected for non-JSON graph formats rather than silently
-ignored or pretending to limit embedded renderer assets.
+ignored or pretending to limit embedded renderer assets. `--detail` on graph
+HTML/Mermaid is rejected; those renderers have their own evidence presentation.
+In Markdown mode without `--output`, failures leave stdout empty, print an actionable
+diagnostic on stderr and return the same exit codes. Callers needing structured
+failures explicitly select JSON. Metadata reduction never conceals a stale basis,
+missing mandatory definitions or omissions.
 
 The expected agent loop is: discover modules → choose a stable module ID →
 request its context and a focused graph → inspect freshness/omissions/diagnostics
@@ -394,10 +422,11 @@ exported locally only, never submitted to a model/network service automatically.
 
 Markdown source blocks use collision-safe fences and explicit file/scope labels;
 JSON preserves content as escaped data. File comments/docs are source material,
-not instructions that override the user's/system's authority. Output includes
-actual byte accounting, selected/omitted files, inclusion reasons, file hashes,
-semantic digest and installed framework/catalog versions. No volatile timestamp
-is needed in canonical output.
+not instructions that override the user's/system's authority. Every output includes
+actual byte accounting, selected/omitted files, freshness, semantic digest and
+installed framework/catalog versions. Full detail additionally includes per-file
+hashes and inclusion/provenance records; compact source labels remain traceable.
+No volatile timestamp is needed in canonical output.
 
 ## 6. Declared graph semantics and viewer
 
@@ -475,9 +504,13 @@ across third-party renderer versions.
 
 ## 7. Acceptance and compatibility
 
-- Agents can independently discover modules and consume both commands through
-  the versioned JSON protocol. Non-TTY success/error output parses as one object;
-  no prompts, colors, banners or prose parsing are required.
+- Agents can independently discover modules, read compact Markdown context and
+  consume graph relations; integrations can use the versioned JSON protocol for
+  both commands. JSON-mode non-TTY success/error output parses as one object.
+  No prompts, colors, banners or prose parsing are required for integrations.
+- Compact/full outputs have identical selected business facts and mandatory
+  closure; metadata depth alone changes. Measure actual bytes and, with a named
+  tokenizer, tokens on representative bundles before claiming savings.
 - Diagnostic kind/exit code and structured recovery remain stable when human
   wording/localization changes. Output-file acknowledgements stay bounded.
 - Same selected inputs/options produce byte-identical canonical JSON and context
@@ -500,6 +533,9 @@ across third-party renderer versions.
 - Semantic generation refusal/interrupt/partial generation, source edits during
   generation, same-size/same-mtime content changes, installed distributions,
   wheel/sdist assets, import-layer rules and source-export allowlists are covered.
+- A module-context skill is discoverable in framework and scaffolded app skill
+  directories. It teaches direct CLI use, bounded expansion, freshness handling
+  and existing quality gates; public docs and CLI help match those commands.
 - Runtime request behavior, transactions, discovery and event delivery are unchanged.
 
 No paid agent DX experiment runs as part of design or default tests. Implementation

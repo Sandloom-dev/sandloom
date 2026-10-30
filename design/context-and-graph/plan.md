@@ -1,7 +1,8 @@
 # Implementation plan: module context and architecture graph
 
 **Status: Proposed — implementation not started.** Date: 2026-10-30.
-[Specification](spec.md) · [Research and source evidence](research.md).
+[Specification](spec.md) · [Research and source evidence](research.md) ·
+[Usage draft](usage.md) · [Skill draft](skills/sandloom-module-context/SKILL.md).
 
 The phases below are reviewable PRs with acceptance evidence, not a promise of
 calendar duration. No paid agent benchmark or feature implementation was run
@@ -13,7 +14,10 @@ for this design. Keep website publishing separate from these tooling changes.
 
 - Turn the shared data model, agent response/error envelope, discovery catalog
   and command payloads into version-1 JSON schemas and complete golden examples.
-  JSON is the default for direct agent calls; human formats stay explicit.
+  Lock compact Markdown as the context default and compact JSON as graph default;
+  explicit JSON supports integrations. Specify compact/full metadata projections
+  without changing mandatory business content. Compare bytes and named-tokenizer
+  counts for equivalent fixtures; do not assume JSON is always cheaper.
 - Select a small fixture set from existing app/framework layouts: checkout-owned
   module; installed optional batteries; non-default shared package; DTO aliases,
   recursive `$defs` and copied DTO origins; event views; absent optional provider;
@@ -113,11 +117,13 @@ in `src/sandloom/__init__.py`, context templates and command tests.
   advanced names, complete required wire definitions, selected source and tests.
 - Reserve mandatory material, then select optional whole sections by stable
   priority. Enforce the complete UTF-8 byte budget and omission ledger.
-- Implement noninteractive JSON-first invocation, structured failure responses
-  and output-file acknowledgements; test a subprocess consuming stdout as JSON
-  without parsing human messages or assuming a TTY.
+- Implement noninteractive compact Markdown by default, explicit JSON structured
+  success/failure responses and output-file acknowledgements. Test a subprocess
+  consuming explicit JSON without parsing prose or assuming a TTY; Markdown
+  failures must leave stdout empty. Test compact/full semantic equivalence.
 - Emit Markdown and JSON from the same selected content, with collision-safe
-  fences, hashes, freshness, inclusion reasons and verification instructions.
+  fences, freshness and verification instructions; full detail adds hashes and
+  inclusion reasons without evicting business content to fit metadata.
 - Handle missing cache/unsupported installed-only focus with concrete remedies.
 
 **Done when:** a real `sandloom new` app and framework business module both
@@ -130,7 +136,8 @@ Validate actual commands from a bare wheel, not only parser `--help`.
 **Own:** `core/cli/graph.py`, graph projection/formatters and package-owned viewer
 assets. No business module or admin-console code is required for a first version.
 
-- Export typed nodes/edges, evidence, scope and unresolved facts as canonical JSON.
+- Export typed nodes/edges, evidence, scope and unresolved facts as compact
+  canonical JSON; full detail adds provenance without changing relations.
 - Add bounded `graph --view modules` discovery and JSON size-limit diagnostics so
   an agent can select a module without reading the entire graph or using errors
   for discovery. Label a catalog as not requesting relationships.
@@ -155,8 +162,9 @@ and intermediate contract; capability-sharing must not create module edges. Visu
 
 ## Phase 5 — package, documentation, gates and release readiness
 
-**Own:** CLI/docs references, package smokes, source allowlist and reviewed workflow
-fingerprints. No new optional backend or permanent service is introduced.
+**Own:** CLI/docs references, framework/app skills and their distribution, package
+smokes, source allowlist and reviewed workflow fingerprints. No new optional
+backend or permanent service is introduced.
 
 - Add every source/catalog/viewer/test asset to the reviewed source allowlist.
 - Extend `tools/packaging/check_package_distributions.py` with actual artifact
@@ -166,6 +174,22 @@ fingerprints. No new optional backend or permanent service is introduced.
   an sdist-rebuilt bare wheel with both optional YAML and repo tools/docs absent.
 - Document cold/snapshot semantics, freshness modes, context exclusions, byte
   budgets, partial generation and the difference from live tracing/formal proof.
+- Turn [usage.md](usage.md) into public `docs/guides/module-context.md` and
+  `docs/guides/architecture-graph.md`; link both in `zensical.toml`, concepts,
+  testing/AI development entry points and `llms.txt`. Update `docs/reference/cli.md`
+  and command `--help` with exact defaults/options/exit codes. Keep the design-only
+  status until the matching commands exist; no premature website instructions.
+- Ship `sandloom-module-context` from the [draft skill](skills/sandloom-module-context/SKILL.md):
+  framework `.agents/skills` and `.claude/skills` mirrors, packaged
+  `core/cli/templates/skills/`, `APP_SKILLS`, `sandloom new` and `sandloom add skills`.
+  Adapt framework/app rule paths; add a brief discovery pointer in their agent
+  maps and a conditional pointer from existing module/quality skills. Avoid
+  preloading the bundle or graph for every unrelated task.
+- Verify mirror/template parity, generated-app installation, customized-skill
+  preservation and actual skill command examples against a clean installed wheel.
+  Exercise missing index, changed receipt, denied file, budget overflow and an
+  ambiguous module through an ordinary scripted agent-loop fixture. A paid LLM
+  experiment remains separate; these fixtures prove protocol behavior only.
 - Add error catalogue entries and verify their exact website anchors.
 - Run required static, architecture, import, generated-artifact, typing and package
   gates. Run the framework's normal full validation for the generator/CLI change;

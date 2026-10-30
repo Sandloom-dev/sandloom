@@ -2416,11 +2416,13 @@
       ]
     },
     {
-      "reason": "Proposed context-bundle and declared-graph design: research, specification and implementation plan; no shipped feature claims.",
+      "reason": "Proposed context/graph research, specification, implementation plan, usage guide and inactive agent skill draft; no shipped feature claims.",
       "paths": [
         "design/context-and-graph/plan.md",
         "design/context-and-graph/research.md",
-        "design/context-and-graph/spec.md"
+        "design/context-and-graph/skills/sandloom-module-context/SKILL.md",
+        "design/context-and-graph/spec.md",
+        "design/context-and-graph/usage.md"
       ]
     }
   ],

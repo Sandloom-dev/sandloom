@@ -10,7 +10,7 @@ Recommendations in them are not assertions that Sandloom already provides these 
 
 ## Decisions from the evidence
 
-1. Treat direct agent CLI invocation as a primary workflow: JSON-first, noninteractive, versioned data/errors, bounded discovery and typed recovery, with explicit human renderings.
+1. Treat direct agent CLI invocation as a primary workflow: noninteractive, bounded discovery and typed recovery. Use compact Markdown for direct code-context consumption, compact JSON for graph relations, and explicit versioned JSON for integrations; full provenance is opt-in.
 2. Use existing declaration/generation semantics, not a second hand-authored dependency map or a speculative full Python static interpreter.
 3. Add a generated semantic inspection document because format-1 module snapshots omit capabilities, source evidence, event views and freshness provenance.
 4. Keep exported context/graph readers cold: no business module imports, settings loading, evaluated annotations, entry-point loading or network calls.
@@ -155,3 +155,22 @@ Nearest contract is `src/sandloom/core/AGENTS.md`. Tooling layer already include
 New files must be explicitly listed in public-export allowlist `tools/packaging/public-source.json` (existing CLI list `:1096–1135`); `tests/architecture/test_source_export.py:68–87` rejects unreviewed tracked paths. Package source map already ships `src/sandloom` (`packages/sandloom/pyproject.toml:113–124`); `tools/packaging/package_build.py:33–57` recursively includes runtime assets but strips tests, and `:85–106` builds self-contained sdists. Therefore code/templates placed inside `core.cli` ship automatically; repository-only files outside the package do not. `check_package_distributions.py:254–305` discovers all CLI commands and checks lean-wheel help; `:216–236` checks sdist round trips. Add actual cold artifact commands to lean smoke coverage, since help cannot prove data files shipped.
 
 Reuse/extend `test_app_manifest.py:84–144`, `tests/sdk/test_sdk_generated.py:773–889` (stale/atomic generation), `tests/sdk/test_sdk_contract_dtos.py:272–294,632–658` (copy origins/collisions), static CLI subprocess tests, architecture tests and installed distribution smoke. Add fixtures for absent/stale cache, old formats, module add/delete, installed/provider absent, dynamic declarations, and partial module-set scope. No repo files changed and no backend checks were run for this research-only task.
+
+## Follow-up: output cost and skill delivery
+
+An agent is both a tool caller and a reader. Those roles need not share one
+representation: preserve code/rules as compact Markdown for direct reading,
+while JSON carries typed graph relations and automation responses. This is an
+engineering proposal, not a measured tokenizer result. Retain semantic scope,
+freshness and omissions in every compact view; put repetitive hashes/provenance
+behind explicit full detail. Compare equivalent selected content before claiming
+any byte/token gain. The [usage draft](usage.md) and
+[skill draft](skills/sandloom-module-context/SKILL.md) make the intended loop
+reviewable before commands exist.
+
+Current distribution already has two intentional framework skill mirrors and
+packaged application templates. `core/cli/skills.py` enumerates `APP_SKILLS` and
+writes matching `.agents/skills` and `.claude/skills` via `sandloom new` and
+`add skills`, preserving customized files unless forced. Deliver the new skill
+through this seam when the CLI ships; a design-only copy must not become an
+active instruction to invoke commands absent from 0.7.0a3.
