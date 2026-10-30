@@ -11,7 +11,7 @@ const processMap = new Map(processes.map(p => [p.id, p]));
 const labels = {required_contract:'Calls contract · required', optional_contract:'Calls contract · optional', event_impact:'May deliver event', ordering:'Declares load ordering', provides_contract:'Provides contract', requires_contract:'Requires contract', produces_event:'Publishes event', consumes_event:'Delivers to consumer', owns_consumer:'Owns consumer', projects_event:'Feeds projection', owns_projection:'Owns projection', requires_capability:'Requires infrastructure'};
 const kinds = {module:'Business module', contract:'Public contract', event:'Versioned event', consumer:'Event consumer', projection:'Projection', capability:'Infrastructure requirement'};
 const ns = 'http://www.w3.org/2000/svg';
-let selectedId = '', currentView = 'overview', visibleNodes = [], visibleLinks = [], viewbox = [0,0,900,460];
+let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [], viewbox = [0,0,900,460];
 let feedbackTimer;
 function el(tag, text, className) { const e = document.createElement(tag); if(text !== undefined) e.textContent = text; if(className) e.className = className; return e; }
 function svgEl(tag, attrs = {}, text) { const e = document.createElementNS(ns,tag); for(const [k,v] of Object.entries(attrs)) e.setAttribute(k,String(v)); if(text !== undefined) e.textContent = text; return e; }
@@ -29,7 +29,7 @@ function fact(list,key,value) { if(value === undefined || value === null || valu
 function stateURL() {
   const params=new URLSearchParams();
   for(const id of ['query','layer','relation','focus','direction','hops','process','process-view']) if($(id).value) params.set(id,$(id).value);
-  params.set('view',currentView); if(selectedId) params.set('selected',selectedId);
+  params.set('view',currentView); if(selectedId) {params.set('selected',selectedId);params.set('selection-kind',selectedKind);}
   try { history.replaceState(null,'','#'+params.toString()); } catch { /* file: exports can still be inspected */ }
 }
 function selectView(view, save=true) {
@@ -59,8 +59,38 @@ function witnessDescription(link) {
   const interfaceIds=[...new Set(witness.flatMap(e=>[e.source,e.target]).filter(id=>nodes.get(id)?.kind==='contract'||nodes.get(id)?.kind==='event'))];
   return interfaceIds.map(name).join(', ');
 }
+function syncSelection() {
+  for(const b of document.querySelectorAll('[data-selection]')) {
+    const selected=b.dataset.selection===selectedId;
+    b.classList.toggle('selected',selected);
+    b.setAttribute('aria-pressed',String(selected));
+  }
+}
+function impactRecord(item) {
+  return {...item,id:'impact:'+item.module_id,name:name(item.module_id),owner:item.module_id,notes:[envelope.data.meaning]};
+}
+function resolveSelection(id,hint) {
+  const kind=hint||(currentView==='changes'&&envelope.kind==='diff'?'change':currentView==='changes'&&envelope.kind==='impact'?'impact':'entity');
+  if(kind==='change') {
+    const item=envelope.kind==='diff'?envelope.data.changes.find(c=>c.id===id):null;
+    return item?{item,kind}:null;
+  }
+  if(kind==='impact') {
+    const item=envelope.kind==='impact'?envelope.data.affected.find(c=>'impact:'+c.module_id===id):null;
+    return item?{item:impactRecord(item),kind}:null;
+  }
+  const match=id.match(/^(.*)#(sequence|compensation|state)-step-(\d+)$/);
+  if(match) {
+    const p=processMap.get(match[1]);
+    const source=match[2]==='state'?envelope.saga_states?.transitions:match[2]==='compensation'?p?.alternatives:p?.steps;
+    const step=source?.[Number(match[3])];
+    return step&&p?{item:{...step,id,owner:p.owner,parent_id:p.id},kind:'step'}:null;
+  }
+  const item=nodes.get(id)||edges.get(id)||relations.find(r=>r.id===id)||processMap.get(id)?.declaration;
+  return item?{item,kind}:null;
+}
 function inspection(item, kind='entity') {
-  selectedId=item.id || ''; const target=$('inspector-content'); target.replaceChildren();
+  selectedId=item.id || ''; selectedKind=kind; const target=$('inspector-content'); target.replaceChildren();
   const title=item.name || item.label || (item.source && item.target ? `${name(item.source)} → ${name(item.target)}` : item.label || item.id || 'Selection');
   target.append(el('span',kind==='step'?'PROCESS STEP':kind==='change'?'ARCHITECTURE CHANGE':kinds[item.kind] || human(item.kind || kind),'eyebrow'),el('h2',title));
   const list=el('dl');
@@ -97,11 +127,12 @@ function inspection(item, kind='entity') {
   if(item.source_location) target.append(button('Copy source location',()=>copy(item.source_location.path+':'+item.source_location.line)));
   const details=el('details'); details.append(el('summary','Declaration evidence'),el('pre',json(witnesses.length?{...item,witnesses}:item))); target.append(details);
   const doc=el('a','Read the documentation'); doc.href=item.docs||'https://sandloom.dev/docs/concepts/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/'); target.append(doc);
-  for(const b of document.querySelectorAll('[data-selection]')) b.classList.toggle('selected',b.dataset.selection===selectedId);
+  syncSelection();
   $('inspect-selection').hidden=false; feedback('Selected '+title+'. Details are available in the inspector.');
   drawDiagram(); stateURL();
 }
 function showImpact(item) {
+  selectedId=item.id;selectedKind='impact-preview';stateURL();
   const found=new Map(owners(item).map(id=>[id,[]])), pending=[...found.keys()];
   while(pending.length) {
     const id=pending.shift();
@@ -117,6 +148,8 @@ function showImpact(item) {
   }
   target.append(button('Copy impact query',()=>copy(['sandloom','graph','--view','impact','--item',item.id].map(shell).join(' '))));
   target.append(el('p','Run normal quality gates; do not skip tests based on this view.','notice'));
+  $('inspect-selection').hidden=false;syncSelection();drawDiagram();
+  feedback('Potential impact is available in the inspector.');
 }
 function choose(item,kind) { inspection(item,kind); }
 function moduleScope() {
@@ -150,6 +183,24 @@ function layerModel() {
   }
   return {nodes:candidates,links,matches};
 }
+function searchHints(model) {
+  const target=$('search-hints');target.replaceChildren();target.hidden=true;
+  const query=$('query').value.trim().toLocaleLowerCase();if(!query||model.matches) return;
+  const groups=new Map();
+  for(const n of allNodes.filter(n=>(n.name+' '+n.id).toLocaleLowerCase().includes(query))) {
+    const layer=n.kind==='module'?'modules':n.kind==='capability'?'infrastructure':'interfaces';
+    groups.set(layer,(groups.get(layer)||0)+1);
+  }
+  if(!groups.size) return;
+  target.hidden=false;target.append(el('p','Matching entities exist elsewhere in this export. Your current layer or filters hide them.'));
+  for(const [layer,count] of groups) {
+    const label=[...$('layer').options].find(o=>o.value===layer).textContent;
+    target.append(button(`Show ${count} in ${label}`,()=>{
+      $('layer').value=layer;$('focus').value='';relationOptions();$('relation').value='';renderOverview();
+      $('query').focus({preventScroll:true});feedback('Searching the entire exported scope in '+label+'.');
+    }));
+  }
+}
 function relationOptions() {
   const previous=$('relation').value, layer=$('layer').value;
   const kinds=layer==='modules'?new Set(relations.map(r=>r.kind)):new Set(allEdges.filter(e=>layer==='infrastructure'?e.kind==='requires_capability':e.kind!=='requires_capability'&&e.kind!=='declares_ordering').map(e=>e.kind));
@@ -170,7 +221,7 @@ function renderOverview(fit=true) {
   if(!visibleLinks.length) $('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
   const outside=selectedId&&!visibleNodes.some(n=>n.id===selectedId)&&!visibleLinks.some(r=>r.id===selectedId);
   $('selection-state').hidden=!outside; $('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
-  drawDiagram(fit); stateURL();
+  searchHints(model);syncSelection();drawDiagram(fit); stateURL();
 }
 // Condense strongly connected components before assigning DAG ranks.
 function positions(items,links) {
@@ -268,6 +319,7 @@ function drawProcess() {
   });
   if(state) drawStates(svg,transitions);
   if(!messages.length) $('steps').append(el('p','No declared compensation callbacks. This does not imply rollback across provider commits.','notice'));
+  syncSelection();
   $('steps-title').textContent=state?'Conditional state transitions':compensation?'Compensation alternatives · reverse completed steps':'Forward steps';
   for(const note of process.notes) $('process-notes').append(el('p',note));
   const a=el('a','Lifecycle documentation'); a.href=process.docs; $('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph','--view',state?'state':'sequence','--process',process.id,'--format','mermaid'].map(shell).join(' '))));
@@ -275,14 +327,14 @@ function drawProcess() {
 function drawStates(svg,transitions) {
   svg.replaceChildren(); marker(svg,'state-arrow'); svg.setAttribute('viewBox','0 0 720 640');svg.style.width='720px';svg.style.height='640px';
   const at={running:[60,60],completed:[440,60],compensating:[60,300],compensated:[440,300],parked:[250,540]};
-  for(const [i,t] of transitions.entries()) {
+  for(const t of transitions) {
     const a=at[t.source],b=at[t.target];let d;
     if(t.source===t.target) d=`M ${a[0]+155} ${a[1]+10} C ${a[0]+240} ${a[1]-65},${a[0]+235} ${a[1]+95},${a[0]+155} ${a[1]+40}`;
     else if(t.source==='running'&&t.target==='parked') d='M 140 114 V 155 H 680 V 567 H 410';
     else if(a[1]===b[1]) d=`M ${a[0]+160} ${a[1]+27} L ${b[0]} ${b[1]+27}`;
     else d=`M ${a[0]+80} ${a[1]+54} L ${b[0]+80} ${b[1]}`;
     const line=svgEl('path',{d,class:'message','marker-end':'url(#state-arrow)'});line.append(svgEl('title',{},t.label));svg.append(line);
-    const short=['all succeed','retry / advance','refuse before pivot','undo completed','undo / retry','park','park'][i];
+    const short=t.short_label||t.label;
     svg.append(svgEl('text',{x:t.source==='running'&&t.target==='parked'?500:t.source===t.target?a[0]+175:(a[0]+b[0])/2+85,y:t.source==='running'&&t.target==='parked'?175:t.source===t.target?a[1]-8:(a[1]+b[1])/2+20},short));
   }
   for(const [state,[x,y]] of Object.entries(at)) svg.append(svgEl('rect',{x,y,width:160,height:54,rx:25}),svgEl('text',{x:x+80,y:y+32,'text-anchor':'middle'},state));
@@ -292,11 +344,11 @@ function drawChanges() {
   $('changes').replaceChildren();
   if(report) {
     $('changes-summary').textContent=`${report.counts.added} added · ${report.counts.removed} removed · ${report.counts.changed} changed. ${report.meaning}. Before: ${report.basis.before}`;
-    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.append(el('span','Compatibility: '+c.compatibility.state)); $('changes').append(b); }
+    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.dataset.selection=c.id;b.append(el('span','Compatibility: '+c.compatibility.state)); $('changes').append(b); }
     if(!report.changes.length) $('changes').append(el('p','No declared semantic changes. Implementation changes are outside this comparison.','notice'));
   } else if(impact) {
     $('changes-title').textContent='Potential impact'; $('changes-summary').textContent=impact.meaning;
-    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection({...item,id:'impact:'+item.module_id,name:name(item.module_id),owner:item.module_id,notes:[impact.meaning]},'impact')); b.className='change-button'; b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
+    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
   } else {
     $('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
     $('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph --view diff --before architecture-before.json --format html --output architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
@@ -307,7 +359,7 @@ $('download').onclick=()=>save(json(envelope),'application/json','sandloom-archi
 $('save-svg').onclick=()=>{ const svg=$('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
 $('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
 $('inspect-selection').onclick=()=>{$('inspector').scrollIntoView({block:'start'});const h=$('inspector-content').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}};
-$('clear-selection').onclick=()=>{$('inspect-selection').hidden=true;selectedId='';$('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
+$('clear-selection').onclick=()=>{$('inspect-selection').hidden=true;selectedId='';selectedKind='entity';$('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
 for(const module of modules) { const o=el('option',module.name);o.value=module.id;$('focus').append(o); }
 for(const process of processes) { const o=el('option',(process.id.startsWith('saga:')?'Saga · ':'Route · ')+process.name+' · '+name(process.owner));o.value=process.id;$('process').append(o); }
 $('status').textContent='Freshness: '+(envelope.freshness?.state||'unknown');
@@ -327,10 +379,12 @@ const initial=params.get('view') || (['sequence','state'].includes(envelope.kind
 if(envelope.selection?.process_id&&!params.has('process')) $('process').value=envelope.selection.process_id;
 if(envelope.kind==='state'&&!params.has('process-view')) $('process-view').value='state';
 drawChanges();renderOverview();selectView(['overview','sequence','changes'].includes(initial)?initial:'overview',false);
-const initialSelected=params.get('selected'); if(initialSelected) {
-  let item=nodes.get(initialSelected)||edges.get(initialSelected)||relations.find(r=>r.id===initialSelected)||processMap.get(initialSelected)?.declaration;
-  let kind='entity'; const match=initialSelected.match(/^(.*)#(sequence|compensation|state)-step-(\d+)$/);
-  if(!item&&match) {const p=processMap.get(match[1]);const source=match[2]==='state'?envelope.saga_states?.transitions:match[2]==='compensation'?p?.alternatives:p?.steps;const step=source?.[Number(match[3])];if(step&&p){item={...step,id:initialSelected,owner:p.owner,parent_id:p.id};kind='step';}}
-  if(item) inspection(item,kind);
+const initialSelected=params.get('selected');
+if(initialSelected) {
+  const selection=resolveSelection(initialSelected,params.get('selection-kind'));
+  if(selection) {
+    if(selection.kind==='impact-preview') showImpact(selection.item);
+    else inspection(selection.item,selection.kind);
+  } else feedback('The saved selection is unavailable in this export.');
 }
 stateURL();

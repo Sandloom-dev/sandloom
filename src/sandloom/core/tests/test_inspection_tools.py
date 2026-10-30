@@ -663,6 +663,9 @@ def test_process_collector_reads_real_saga_without_executing_callbacks(
     mermaid = sequences.mermaid(result)
     assert "alt Forward path" in mermaid
     assert "else Compensation before pivot" in mermaid
+    assert "[PIVOT]" in mermaid
+    assert "provider command unit" in mermaid and "separate commit" in mermaid
+    assert "local savepoint" in mermaid
     state = sequences.build(
         reader, selector=process["id"], module=None, require=True, state=True
     )
@@ -1078,3 +1081,317 @@ def test_consumer_context_focus_keeps_its_incoming_event_interface(
     assert "app/shared/contracts/stats_quota_v1.py" not in {
         s["path"] for s in data["sections"]
     }
+
+
+@pytest.mark.parametrize(
+    "locator",
+    [
+        ".git/HEAD",
+        ".git/index",
+        ".git/config",
+        ".GiT/refs/heads/new",
+        ".hg/requires",
+        ".github/report.json",
+        ".agents/report.md",
+        "README.md",
+        "LICENSE",
+        "NOTICE",
+        ".gitignore",
+        "docs/guide.md",
+        "package.json",
+        "config.txt",
+    ],
+)
+def test_force_export_never_overwrites_project_files(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    locator: str,
+) -> None:
+    target = project.root / locator
+    target.parent.mkdir(parents=True, exist_ok=True)
+    original = b"project input must survive\n"
+    target.write_bytes(original)
+    rc, text, err = run(project, capsys, "graph", "--output", locator, "--force")
+    assert rc == 1 and not err
+    assert json.loads(text)["diagnostics"][0]["kind"] == "unsafe_output"
+    assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "fmt,command,args,suffix",
+    [
+        ("json", "graph", [], "json"),
+        ("html", "graph", [], "html"),
+        ("markdown", "context", ["notes"], "md"),
+    ],
+)
+def test_force_can_refresh_owned_export_formats(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    fmt: str,
+    command: str,
+    args: list[str],
+    suffix: str,
+) -> None:
+    locator = "reports/current." + suffix
+    for extra in ([], ["--force"]):
+        rc, text, err = run(
+            project,
+            capsys,
+            command,
+            *args,
+            "--format",
+            fmt,
+            "--output",
+            locator,
+            *extra,
+        )
+        assert rc == 0, text + err
+        assert json.loads(text)["kind"] == "artifact"
+    # Even recognizable output content cannot turn a protected source path into an artifact.
+    (project.root / "README.md").write_bytes((project.root / locator).read_bytes())
+    before = (project.root / "README.md").read_bytes()
+    assert (
+        run(
+            project,
+            capsys,
+            command,
+            *args,
+            "--format",
+            fmt,
+            "--output",
+            "README.md",
+            "--force",
+        )[0]
+        == 1
+    )
+    assert (project.root / "README.md").read_bytes() == before
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_export_preserves_a_concurrent_destination_edit(
+    project: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    exists: bool,
+) -> None:
+    from sandloom.core.cli.inspection import files
+    from sandloom.core.cli.inspection.model import InspectionError, response
+
+    target = project.root / "map.json"
+    artifact = encode(response("graph", "graph", {}))
+    if exists:
+        target.write_text(artifact)
+    original = files.tempfile.mkstemp
+
+    def create_and_edit(*args: object, **kwargs: object) -> tuple[int, str]:
+        descriptor, temp = original(*args, **kwargs)
+        target.write_text("concurrent project input\n")
+        return descriptor, temp
+
+    monkeypatch.setattr(files.tempfile, "mkstemp", create_and_edit)
+    with pytest.raises(InspectionError, match="Output changed"):
+        files.export(project.root, "map.json", artifact, force=True, protected=[])
+    assert target.read_text() == "concurrent project input\n"
+    assert not list(project.root.glob(".inspection-*"))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "future",
+        "boolean_version",
+        "schema",
+        "modules",
+        "basis",
+        "source",
+        "wire",
+        "digest",
+        "distributions",
+        "issues",
+    ],
+)
+def test_invalid_receipt_returns_typed_error_without_verification_or_writes(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    mutation: str,
+) -> None:
+    path = project.root / RECEIPT
+    receipt = json.loads(path.read_text())
+    if mutation == "future":
+        receipt["schema_version"] = 999
+    elif mutation == "boolean_version":
+        receipt["schema_version"] = True
+    elif mutation == "schema":
+        receipt["schema"] = "unknown"
+    elif mutation == "modules":
+        receipt["modules"] = []
+    elif mutation == "basis":
+        receipt["modules"]["module:notes"] = []
+    elif mutation == "source":
+        receipt["modules"]["module:notes"]["source"] = []
+    elif mutation == "wire":
+        receipt["modules"]["module:notes"]["wire"] = {"file": 42}
+    elif mutation == "digest":
+        receipt["modules"]["module:notes"]["semantic_digest"] = "invalid"
+    elif mutation == "distributions":
+        receipt["modules"]["module:notes"]["distributions"] = []
+    else:
+        receipt["issues"] = []
+    path.write_text(encode(receipt))
+    destination = project.root / "existing.json"
+    destination.write_text("preserve previous file\n")
+    rc, text, err = run(
+        project,
+        capsys,
+        "graph",
+        "--require-verified",
+        "--output",
+        "existing.json",
+        "--force",
+    )
+    assert rc == 1 and not err
+    envelope = json.loads(text)
+    assert not envelope["ok"] and envelope["freshness"] is None
+    assert envelope["diagnostics"][0]["kind"] in {
+        "unsupported_receipt",
+        "invalid_receipt",
+    }
+    assert destination.read_text() == "preserve previous file\n"
+    assert json.loads(path.read_text()) == receipt
+
+
+def _embedded_viewer(text: str) -> dict[str, object]:
+    return json.loads(
+        text.split('<script id="graph-data" type="application/json">', 1)[1].split(
+            "</script>", 1
+        )[0]
+    )
+
+
+def _process_reader(project: SimpleNamespace) -> Reader:
+    document = json.loads((project.root / INDEX).read_text())
+    document["processes"] = [
+        {
+            "id": f"route:{module}-{method}",
+            "name": f"{method} /{module}",
+            "owner": "module:" + module,
+            "handler": "handle",
+            "policy": {"effect": "read", "session": "live", "idempotency": "none"},
+            "evidence_kind": "resolved_route_policy",
+        }
+        for module, method in (
+            ("notes", "GET"),
+            ("notes", "POST"),
+            ("stats", "GET"),
+            ("archive", "GET"),
+        )
+    ]
+    return _publish(project, document)
+
+
+def test_html_topology_preserves_module_scope_and_process_freshness(
+    project: SimpleNamespace,
+) -> None:
+    reader = _process_reader(project)
+    envelope = graph.build(
+        reader,
+        selector="notes",
+        hops=0,
+        discovery=False,
+        detail="compact",
+        require=True,
+    )
+    payload = _embedded_viewer(graph.viewer(envelope, reader))
+    assert payload["selection"]["module_ids"] == ["module:notes"]
+    assert payload["workspace"]["scope"]["module_ids"] == ["module:notes"]
+    assert {m["id"] for m in payload["workspace"]["modules"]} == {"module:notes"}
+    assert {p["owner"] for p in payload["sequences"]} == {"module:notes"}
+    assert set(payload["freshness"]["modules"]) == {"module:notes"}
+
+
+@pytest.mark.parametrize("specific", [False, True])
+def test_html_sequence_preserves_module_or_process_scope(
+    project: SimpleNamespace,
+    specific: bool,
+) -> None:
+    from sandloom.core.cli.inspection import sequences
+
+    reader = _process_reader(project)
+    envelope = sequences.build(
+        reader,
+        selector="route:notes-GET" if specific else None,
+        module=None if specific else "notes",
+        require=True,
+    )
+    payload = _embedded_viewer(graph.viewer(envelope, reader))
+    expected = (
+        {"route:notes-GET"} if specific else {"route:notes-GET", "route:notes-POST"}
+    )
+    assert {p["id"] for p in payload["sequences"]} == expected
+    assert {p["id"] for p in payload["data"]["processes"]} == expected
+    assert {m["id"] for m in payload["workspace"]["modules"]} == {"module:notes"}
+    assert set(payload["freshness"]["modules"]) == {"module:notes"}
+
+
+def test_impact_html_workspace_excludes_unaffected_modules(
+    project: SimpleNamespace,
+) -> None:
+    from sandloom.core.cli.inspection import queries
+
+    reader = _process_reader(project)
+    payload = _embedded_viewer(
+        graph.viewer(queries.impact(reader, "contract:stats.quota.v1", True), reader)
+    )
+    expected = {"module:notes", "module:stats"}
+    assert set(payload["selection"]["module_ids"]) == expected
+    assert {m["id"] for m in payload["workspace"]["modules"]} == expected
+    assert {p["owner"] for p in payload["sequences"]} == expected
+    assert set(payload["freshness"]["modules"]) == expected
+
+
+def test_scc_handles_deep_graphs_and_keeps_families_separate() -> None:
+    links = [
+        {"kind": "required_contract", "source": str(i), "target": str(i + 1)}
+        for i in range(2500)
+    ]
+    assert graph.cycles(links) == []
+    links.append({"kind": "required_contract", "source": "2500", "target": "0"})
+    found = graph.cycles(links)
+    assert len(found) == 1 and len(found[0]["module_ids"]) == 2501
+    typed = [
+        {"kind": "event_impact", "source": "a", "target": "b"},
+        {"kind": "event_impact", "source": "b", "target": "a"},
+        {"kind": "required_contract", "source": "a", "target": "b"},
+        {"kind": "optional_contract", "source": "c", "target": "c"},
+    ]
+    result = graph.cycles(typed)
+    assert result == graph.cycles(list(reversed(typed)))
+    assert [(c["kind"], c["module_ids"]) for c in result] == [
+        ("event_impact", ["a", "b"]),
+        ("optional_contract", ["c"]),
+    ]
+
+
+def test_mermaid_sequence_escapes_control_text_without_losing_unit_boundaries() -> None:
+    from sandloom.core.cli.inspection import sequences
+    from sandloom.core.cli.inspection.model import response
+
+    process = {
+        "evidence": "declared",
+        "steps": [
+            {
+                "source": "runtime",
+                "target": "module:notes",
+                "label": "end",
+                "kind": "pivot",
+                "transaction": 'unit; separate commit & <callback> "quoted"',
+                "condition": "first\rnext\u2028line",
+            }
+        ],
+        "alternatives": [],
+    }
+    text = sequences.mermaid(response("graph", "sequence", {"process": process}))
+    assert "#101;nd [PIVOT]" in text
+    assert "unit#59; separate commit #38; #60;callback#62; #34;quoted#34;" in text
+    assert "first next line" in text
+    assert "&amp" not in text and "&#" not in text

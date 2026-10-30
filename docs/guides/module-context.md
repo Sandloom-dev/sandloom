@@ -83,7 +83,9 @@ independent module from verifying. Incomplete scopes stay explicitly unverified.
 This is source evidence, not runtime health or a proof of arbitrary
 configuration-dependent Python behavior. Default exports label uncertainty;
 `--require-verified` exits 3 unless the selected basis is verified.
-Missing mandatory interfaces fail regardless of that flag.
+Missing mandatory interfaces fail regardless of that flag. A malformed or
+unsupported receipt is rejected with a typed error; it can never establish
+verification. Explicit generation recreates the receipt.
 
 A missing index or changed layout requires explicit generation:
 
@@ -104,7 +106,11 @@ uv run sandloom context notes --output notes-context.md
 ```
 
 The file receives the context; stdout receives one small JSON acknowledgement.
-Existing outputs require `--force`; source/policy/generated inputs are protected.
+Existing outputs require `--force` and must be recognized Sandloom inspection
+exports. Arbitrary existing files, project instructions, source/policy/generated
+inputs and version-control/tool directories cannot be replaced. If an older file
+has no recognized export marker, choose a new destination. A destination changed
+by another process during export is preserved.
 Without `--output`, explicit JSON returns one success/error envelope on stdout.
 Default Markdown errors leave stdout empty and explain on stderr. Programs should
 select JSON and branch on typed diagnostic kinds and exit codes, not English text.

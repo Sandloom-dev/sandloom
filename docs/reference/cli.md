@@ -38,8 +38,9 @@ Exit codes: 0 usable (check uncertainty/omissions), 1 invalid/missing/unsafe inp
 or budget/I/O failure, 2 usage, 3 strict verification unavailable. JSON emits one
 versioned success/error envelope; Markdown failures without `--output` leave stdout
 empty and explain on stderr. `--output` receives the artifact; stdout is a small
-JSON acknowledgement, or a structured JSON error. Existing files require `--force`;
-source and managed inputs are protected. No app imports, prompts, network access,
+JSON acknowledgement, or a structured JSON error. Existing files require
+`--force` and must be recognized Sandloom inspection exports; arbitrary files, reserved tool/VCS directories, source and managed inputs
+are protected. No app imports, prompts, network access,
 `.env` loading or implicit generation occur during inspection.
 
 See [context and freshness](../guides/module-context.md) and

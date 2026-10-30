@@ -23,6 +23,7 @@ from sandloom.core.cli.inspection.model import (
 )
 
 CATALOG = Path(__file__).with_name("sdk-catalog.json")
+RECEIPT_SCHEMA = "sandloom.inspection_receipt"
 
 
 def _unique(pairs: list[tuple[str, Any]]) -> Doc:
@@ -41,6 +42,57 @@ def parse(text: str) -> Doc:
     if not isinstance(value, dict):
         raise InspectionError("invalid_artifact", "Expected a JSON object")
     return value
+
+
+def _hashes(value: Any) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(k, str) and isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)
+        for k, v in value.items()
+    )
+
+
+def _receipt_basis(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("semantic_digest"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", value["semantic_digest"]) is not None
+        and _hashes(value.get("source"))
+        and _hashes(value.get("wire"))
+        and isinstance(value.get("distributions"), dict)
+        and all(
+            isinstance(k, str) and (v is None or isinstance(v, str))
+            for k, v in value["distributions"].items()
+        )
+    )
+
+
+def _read_receipt(root: Path) -> Doc:
+    if not (root / RECEIPT).is_file():
+        return {}
+    receipt = parse(files.read(root, RECEIPT))
+    if (
+        receipt.get("schema") != RECEIPT_SCHEMA
+        or type(receipt.get("schema_version")) is not int
+        or receipt["schema_version"] != 1
+    ):
+        raise InspectionError(
+            "unsupported_receipt",
+            "Unsupported verification receipt; regenerate",
+            actions=regenerate(),
+        )
+    modules, issues = receipt.get("modules"), receipt.get("issues")
+    if (
+        not isinstance(modules, dict)
+        or not all(isinstance(k, str) and _receipt_basis(v) for k, v in modules.items())
+        or not isinstance(issues, dict)
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in issues.items())
+    ):
+        raise InspectionError(
+            "invalid_receipt",
+            "Invalid verification receipt; regenerate",
+            actions=regenerate(),
+        )
+    return receipt
 
 
 class Reader:
@@ -436,11 +488,7 @@ class Reader:
         full: bool = False,
         tolerate_missing: bool = False,
     ) -> Doc:
-        receipt = (
-            parse(files.read(self.root, RECEIPT))
-            if (self.root / RECEIPT).is_file()
-            else {}
-        )
+        receipt = _read_receipt(self.root)
         states = {}
         bases: dict[str, str | None] = {}
         issues: dict[str, str] = {}
@@ -512,7 +560,7 @@ class Reader:
                 issues[module["id"]] = failure.kind
         return encode(
             {
-                "schema": "sandloom.inspection_receipt",
+                "schema": RECEIPT_SCHEMA,
                 "schema_version": 1,
                 "modules": modules,
                 "issues": issues,

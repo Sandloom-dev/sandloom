@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -28,6 +29,20 @@ _SECRET = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|pypi-[A-Za-z0-9_-]{40,})\b)"
 )
 _SENSITIVE = {".env", "credentials", "secrets", "id_rsa", "id_ed25519"}
+_RESERVED_OUTPUT = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".jj",
+    ".bzr",
+    ".github",
+    ".agents",
+    ".claude",
+    ".codex",
+    ".venv",
+    "venv",
+    "node_modules",
+}
 
 
 def safe(root: Path, locator: str) -> Path:
@@ -137,7 +152,13 @@ def fingerprints(root: Path, paths: list[str]) -> dict[str, str]:
 
 
 def atomic(
-    root: Path, locator: str, text: str, *, force: bool, protected: list[str]
+    root: Path,
+    locator: str,
+    text: str,
+    *,
+    force: bool,
+    protected: list[str],
+    expected: str | None = None,
 ) -> None:
     target = safe(root, locator)
     if target in {safe(root, p) for p in protected} or any(
@@ -160,9 +181,69 @@ def atomic(
             stream.write(text)
         # Recheck containment immediately before publishing the completed artifact.
         safe(root, locator)
+        if expected is not None:
+            current = fingerprint(root, locator) if target.exists() else ""
+            if current != expected:
+                raise InspectionError(
+                    "output_changed", "Output changed during export; nothing replaced"
+                )
         os.replace(temp, target)
     finally:
         Path(temp).unlink(missing_ok=True)
+
+
+def _is_export(text: str) -> bool:
+    if text.startswith("# Sandloom context: "):
+        lines = text.splitlines()
+        return len(lines) > 1 and lines[1].startswith(
+            "Schema: sandloom.tool_response/1 | "
+        )
+    if text.startswith("<!doctype html>"):
+        return (
+            '<meta name="generator" content="Sandloom inspection/1">' in text[:512]
+            and '<script id="graph-data" type="application/json">' in text
+        )
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return False
+    return (
+        isinstance(document, dict)
+        and document.get("schema") == "sandloom.tool_response"
+        and type(document.get("schema_version")) is int
+        and document["schema_version"] == 1
+        and document.get("kind")
+        in {"context", "graph", "modules", "sequence", "state", "impact", "diff"}
+    )
+
+
+def export(
+    root: Path, locator: str, text: str, *, force: bool, protected: list[str]
+) -> None:
+    """Replace only our own exports; --force never grants source-file ownership."""
+    if any(part.casefold() in _RESERVED_OUTPUT for part in Path(locator).parts):
+        raise InspectionError(
+            "unsafe_output", "Reserved directories cannot hold exports"
+        )
+    target = safe(root, locator)
+    expected = ""
+    if target.exists():
+        if not force:
+            raise InspectionError(
+                "output_exists",
+                "Output exists; use --force for an existing Sandloom export",
+            )
+        if not target.is_file():
+            raise InspectionError("unsafe_output", "Output must be a regular file")
+        previous = read(root, locator)
+        if not _is_export(previous):
+            raise InspectionError(
+                "unsafe_output",
+                "Existing file is not a Sandloom inspection export; "
+                "choose another path",
+            )
+        expected = sha(previous.encode())
+    atomic(root, locator, text, force=force, protected=protected, expected=expected)
 
 
 def file_record(root: Path, path: str, *, reason: str) -> Doc:

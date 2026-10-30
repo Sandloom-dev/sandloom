@@ -75,7 +75,7 @@ def parser_for(command: str) -> Parser:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="replace an existing output artifact, never source/managed inputs",
+        help="replace a recognized Sandloom export, never an arbitrary existing file",
     )
     if command == "context":
         parser.add_argument(
@@ -248,6 +248,16 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
             "AGENTS.md",
             "CLAUDE.md",
             ".sandloomignore",
+            "README.md",
+            "README.rst",
+            "LICENSE",
+            "NOTICE",
+            "CHANGELOG.md",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            ".gitignore",
+            ".gitattributes",
+            ".gitmodules",
             reader.layout["source_root"],
             *[m["source"] for m in reader.modules if m["source"]],
         ]
@@ -255,7 +265,7 @@ def _export(command: str, args: argparse.Namespace, reader: Reader) -> str:
         protected = [p for p in protected if p != "."]
         protected += [p for m in reader.modules for p in reader.rules(m)]
         protected += list(reader.doc["wire_documents"])
-        files.atomic(
+        files.export(
             reader.root, args.output, text, force=args.force, protected=protected
         )
         return encode(

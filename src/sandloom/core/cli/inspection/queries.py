@@ -101,7 +101,7 @@ def impact(reader: Reader, selector: str, require: bool) -> Doc:
                 "Run normal quality gates; this report cannot justify skipping tests.",
             ],
         },
-        selection={"item_id": selected["id"]},
+        selection={"item_id": selected["id"], "module_ids": sorted(paths)},
         freshness=reader.freshness(affected, require=require, tolerate_missing=True),
     )
 
@@ -222,6 +222,7 @@ def compare(reader: Reader, before: str, require: bool) -> Doc:
             },
             "changes": changes,
         },
+        selection={"module_ids": sorted(m["id"] for m in reader.modules)},
         freshness=reader.freshness(
             reader.modules, require=require, tolerate_missing=True
         ),

@@ -19,7 +19,8 @@ uv run sandloom graph --format html --output architecture.html
 
 Discovery lists stable module IDs without dumping relationships. The graph
 returns compact JSON by default; the HTML file is an offline viewer with module
-search across entities, semantic layers, directed neighborhoods, zoom/pan/fit,
+search across entities (with explicit hints for matches hidden by another layer
+or filters), semantic layers, directed neighborhoods, zoom/pan/fit,
 a persistent inspector and equivalent entity/relationship lists.
 Open it yourself; the command never opens a browser or starts an app server.
 
@@ -70,11 +71,15 @@ not establish that an event was published, a request succeeded, a consumer ran,
 or multiple module commits were atomic. Kernel routes without a module policy
 snapshot are not added as invented business-process declarations.
 
+Scoped HTML contains only the selected modules and their process declarations;
+a specific process query includes only that process. Public interface references
+can still identify related providers. Freshness covers the exported module scope.
+
 The HTML **Processes** tab offers forward sequence, compensation alternative and
 saga states, each with an equivalent step/transition list. The inspector explains
 the selected step and source when known. A saved URL fragment restores filters,
-representation and selection; the same local export must be available to its
-recipient. The mobile details button leads to the same inspector.
+representation and typed selection (including Changes/Impact); the same local
+export must be available to its recipient. The mobile details button leads to the same inspector.
 
 ## Potential impact and architecture changes
 

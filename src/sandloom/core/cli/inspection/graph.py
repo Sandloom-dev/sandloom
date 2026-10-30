@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-from collections import defaultdict
 from pathlib import Path
 
 from sandloom.core.cli.inspection import sequences
@@ -55,42 +54,66 @@ def relations(document: Doc) -> list[Doc]:
     return sorted(result, key=lambda r: r["id"])
 
 
+def _postorder(adjacent: dict[str, set[str]]) -> list[str]:
+    seen: set[str] = set()
+    finished: list[str] = []
+    for start in adjacent:
+        pending = [(start, False)]
+        while pending:
+            node, exiting = pending.pop()
+            if exiting:
+                finished.append(node)
+            elif node not in seen:
+                seen.add(node)
+                pending.append((node, True))
+                pending.extend(
+                    (target, False) for target in adjacent[node] if target not in seen
+                )
+    return finished
+
+
+def _components(adjacent: dict[str, set[str]]) -> list[list[str]]:
+    """Iterative Kosaraju: O(V+E) traversal, deterministic component output."""
+    reverse: dict[str, set[str]] = {n: set() for n in adjacent}
+    for node, targets in adjacent.items():
+        for target in targets:
+            reverse[target].add(node)
+    finished = _postorder(adjacent)
+    seen: set[str] = set()
+    groups = []
+    for start in reversed(finished):
+        if start in seen:
+            continue
+        group, todo = [], [start]
+        seen.add(start)
+        while todo:
+            node = todo.pop()
+            group.append(node)
+            for target in reverse[node]:
+                if target not in seen:
+                    seen.add(target)
+                    todo.append(target)
+        groups.append(sorted(group))
+    return sorted(groups)
+
+
 def cycles(links: list[Doc]) -> list[Doc]:
     """SCCs per relation family, including intentional event feedback."""
-    result = []
-    for kind in sorted({r["kind"] for r in links}):
-        adjacent: dict[str, set[str]] = defaultdict(set)
-        for link in links:
-            if link["kind"] == kind:
-                adjacent[link["source"]].add(link["target"])
-                adjacent[link["target"]]
-        # Reachability intersection avoids recursion limits on a large declared map.
-        pending = set(adjacent)
-        while pending:
-            start = min(pending)
-            reached = _reachable(start, adjacent)
-            component = sorted(n for n in reached if start in _reachable(n, adjacent))
-            pending.difference_update(component)
-            if len(component) > 1 or start in adjacent[start]:
-                result.append(
-                    {
-                        "kind": kind,
-                        "module_ids": component,
-                        "meaning": "declared cycle; not proof of deadlock",
-                    }
-                )
-    return result
-
-
-def _reachable(start: str, adjacent: dict[str, set[str]]) -> set[str]:
-    seen = {start}
-    pending = [start]
-    while pending:
-        for target in adjacent[pending.pop()]:
-            if target not in seen:
-                seen.add(target)
-                pending.append(target)
-    return seen
+    families: dict[str, dict[str, set[str]]] = {}
+    for link in links:
+        adjacent = families.setdefault(link["kind"], {})
+        adjacent.setdefault(link["source"], set()).add(link["target"])
+        adjacent.setdefault(link["target"], set())
+    return [
+        {
+            "kind": kind,
+            "module_ids": group,
+            "meaning": "declared cycle; not proof of deadlock",
+        }
+        for kind, adjacent in sorted(families.items())
+        for group in _components(adjacent)
+        if len(group) > 1 or group[0] in adjacent[group[0]]
+    ]
 
 
 def build(
@@ -102,6 +125,7 @@ def build(
     detail: str,
     require: bool,
     direction: str = "both",
+    module_ids: set[str] | None = None,
 ) -> Doc:
     links = relations(reader.doc)
     selected = (
@@ -109,7 +133,9 @@ def build(
         if selector
         else {m["id"] for m in reader.modules}
     )
-    for _ in range(hops if selector else 0):
+    if module_ids is not None:
+        selected = set(module_ids)
+    for _ in range(hops if selector and module_ids is None else 0):
         selected |= {
             end
             for link in links
@@ -152,7 +178,7 @@ def build(
             for e in edges
         ]
     data = {
-        "scope": reader.doc["scope"],
+        "scope": {**reader.doc["scope"], "module_ids": sorted(selected)},
         "evidence": {
             k: v
             for k, v in reader.doc.get("source_locators", {}).items()
@@ -229,6 +255,8 @@ def mermaid(envelope: Doc) -> str:
 def viewer(envelope: Doc, reader: Reader | None = None) -> str:
     workspace = envelope
     if reader is not None:
+        selected = set(envelope["selection"]["module_ids"])
+        process_ids = {p["id"] for p in envelope["data"].get("processes", [])}
         topology = (
             envelope
             if envelope["kind"] == "graph"
@@ -239,6 +267,7 @@ def viewer(envelope: Doc, reader: Reader | None = None) -> str:
                 discovery=False,
                 detail="full",
                 require=False,
+                module_ids=selected,
             )
         )
         workspace = {
@@ -246,7 +275,13 @@ def viewer(envelope: Doc, reader: Reader | None = None) -> str:
             "workspace": topology["data"],
             "saga_states": sequences.states(),
             "sequences": [
-                sequences.project(p) for p in reader.doc.get("processes", [])
+                sequences.project(p)
+                for p in reader.doc.get("processes", [])
+                if p["owner"] in selected
+                and (
+                    envelope["kind"] not in {"sequence", "state"}
+                    or p["id"] in process_ids
+                )
             ],
         }
     payload = (

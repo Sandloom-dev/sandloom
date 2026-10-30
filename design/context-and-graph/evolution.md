@@ -112,3 +112,45 @@ Final focus-closure regression: selecting a consumer/projection preserves its
 incoming event interfaces; infrastructure focus retains the module's public
 closure and owned source. The focused suite has 47 passing cases. This closes
 the graph-inspector-to-agent-context path as well as direct contract/event focus.
+
+
+## Independent audit corrections (2026-10-30)
+
+All nine actionable findings from the independent code/spec/UX review were
+addressed before owner review:
+
+| Finding | Correction and regression evidence |
+| --- | --- |
+| Forced export can overwrite Git metadata or unrelated files | Reserved/VCS directories and project inputs are protected; force only refreshes a recognized Sandloom inspection artifact. An optimistic destination check preserves concurrent edits/creation. CLI and filesystem regressions cover all three formats. |
+| Future/malformed receipt can be trusted or cause a traceback | Receipt schema/version, module records and hash basis are validated before use; failures are typed JSON errors without writes. |
+| HTML exposes out-of-scope process metadata | Selection carries explicit module IDs; embedded workspaces/process catalogs and freshness use that scope. A process selection exports only its declaration. Topology/module/process/impact regressions cover excluded owners. |
+| Mermaid omits pivot and transaction boundaries | Messages mark the pivot and carry unit/call/condition notes, including compensation. Escaping uses Mermaid numeric entities, not HTML entities. |
+| Cycle detection scales cubically | Iterative strongly connected components replace repeated reachability scans; deep chains, cycles, self-loops and relation-family independence are covered. |
+| State labels depend on transition array order | Each transition owns its full and short label; reversing the array preserves its meaning in the SVG. |
+| Changes/Impact selection restores as the wrong entity | URL state records selection kind and restores the corresponding report row/evidence. |
+| Process step loses selected appearance after changing tabs | Rebuilt lists synchronize selected styling and aria-pressed with the inspector and URL. |
+| Search silently misses another layer's interfaces | Zero matches offers a scoped cross-layer/filter action; activation retains the query and returns keyboard focus to it. |
+
+Actual browser checks covered Impact and saved-diff reloads with matching evidence,
+state-step selection across Overview/Processes, reversed state transitions,
+module-only process catalogs, cross-layer event search in the 20-module fixture,
+and 320px long/Unicode inspector and keyboard search. The page and inspector had
+no horizontal overflow in the narrow fixture. Synthetic fixtures are explicitly
+temporary validation data, not observed runtime traces.
+
+Targeted inspection regression suite: 82 passed. Local cycle-detection samples
+were 1.5ms / 3.6ms / 16.1ms for acyclic chains of 800 / 2,500 / 10,000 edges;
+these are single-machine samples, not an application performance guarantee.
+Sequence/state exports and a reserved-word/special-character sequence also parsed
+with the official Mermaid 12.2.0 parser in a temporary DOM harness. Its
+[sequence syntax documentation](https://mermaid.js.org/syntax/sequenceDiagram.html)
+specifies the numeric entity escaping used here. Mermaid/DOM harness packages
+were not added to the shipped dependencies.
+
+Final correction validation: 5,137 full-suite tests and 1,273 architecture tests
+passed, with the existing skips/expected failure retained. All quality gates,
+the unified website build and the 2,371-file reviewed-source check passed. All
+four final wheel/sdist pairs passed rebuild, license/layering and clean
+bare/standard installation checks, including the installed cold inspection
+smoke. Browser reload also preserves interactive impact preview and its mobile
+details action. The local Explorer was regenerated from the final source.

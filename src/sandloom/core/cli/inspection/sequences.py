@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import html
+import re
 
 from sandloom.core.cli.inspection.model import Doc, InspectionError, response
 from sandloom.core.cli.inspection.read import Reader
@@ -72,6 +72,7 @@ def _saga(process: Doc) -> Doc:
                     else "contract:" + step["compensate"].rsplit(".", 1)[0],
                     "Undo " + step["name"],
                     kind="compensation",
+                    transaction=step["transaction"],
                     source_location=step.get("compensation_source"),
                     call=step["compensate"] or "local compensation callback",
                     condition=(
@@ -238,7 +239,15 @@ def build(
         raise InspectionError(
             "usage", "State view requires --process with a saga ID", code=2
         )
-    owners = {p["owner"] for p in ([selected] if selected else candidates)}
+    if selected:
+        candidates = [selected]
+    owners = (
+        {selected["owner"]}
+        if selected
+        else {reader.module(module)["id"]}
+        if module
+        else {m["id"] for m in reader.modules}
+    )
     data: Doc = {
         "processes": [
             {
@@ -256,7 +265,10 @@ def build(
         "graph",
         "state" if state else "sequence",
         data,
-        selection={"process_id": selected["id"] if selected else None},
+        selection={
+            "process_id": selected["id"] if selected else None,
+            "module_ids": sorted(owners),
+        },
         freshness=reader.freshness(
             [m for m in reader.modules if m["id"] in owners],
             require=require,
@@ -266,12 +278,16 @@ def build(
 
 
 def _label(value: str) -> str:
-    return (
-        html.escape(value, quote=True)
-        .replace("\n", " ")
-        .replace(";", "&#59;")
-        .replace("`", "&#96;")
+    # Mermaid sequence entities use #NN; (including #59; for semicolons).
+    escaped = "".join(
+        f"#{ord(char)};"
+        if char in "#&<>\"';`"
+        else " "
+        if char in "\r\n\u2028\u2029"
+        else char
+        for char in value
     )
+    return re.sub(r"\bend\b", "#101;nd", escaped)
 
 
 def mermaid(envelope: Doc) -> str:
@@ -304,13 +320,19 @@ def mermaid(envelope: Doc) -> str:
             out.append(f"  {'alt' if index == 0 else 'else'} {title}")
         for item in path:
             arrow = "-->>" if item.get("kind") == "compensation" else "->>"
+            pivot = " [PIVOT]" if item.get("kind") == "pivot" else ""
             out.append(
                 f"  {ids[item['source']]}{arrow}{ids[item['target']]}: "
-                f"{_label(item['label'])}"
+                f"{_label(item['label'])}{pivot}"
             )
-            if item.get("condition"):
+            facts = [
+                str(item[key])
+                for key in ("kind", "call", "transaction", "condition")
+                if item.get(key)
+            ]
+            if facts:
                 out.append(
-                    f"  Note over {ids[item['source']]}: {_label(item['condition'])}"
+                    f"  Note over {ids[item['target']]}: {_label('; '.join(facts))}"
                 )
     if len(paths) > 1:
         out.append("  end")
@@ -328,36 +350,43 @@ def states() -> Doc:
                 "source": "running",
                 "target": "completed",
                 "label": "all forward steps succeed",
+                "short_label": "all succeed",
             },
             {
                 "source": "running",
                 "target": "running",
                 "label": "advance / retry before deadline",
+                "short_label": "retry / advance",
             },
             {
                 "source": "running",
                 "target": "compensating",
                 "label": "refusal / deadline before pivot",
+                "short_label": "refuse before pivot",
             },
             {
                 "source": "compensating",
                 "target": "compensated",
                 "label": "undo completed",
+                "short_label": "undo completed",
             },
             {
                 "source": "compensating",
                 "target": "compensating",
                 "label": "undo / retry",
+                "short_label": "undo / retry",
             },
             {
                 "source": "running",
                 "target": "parked",
                 "label": "unsafe to continue / deadline after pivot",
+                "short_label": "park",
             },
             {
                 "source": "compensating",
                 "target": "parked",
                 "label": "unsafe undo / compensation deadline",
+                "short_label": "park",
             },
         ],
         "notes": [
