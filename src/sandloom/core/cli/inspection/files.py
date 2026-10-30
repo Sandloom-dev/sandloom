@@ -10,7 +10,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from sandloom.core.cli.inspection.model import Doc, InspectionError, sha
+from sandloom.core.cli.inspection.model import InspectionError, sha
 
 MAX_FILE = 2 * 1024 * 1024
 _SKIP = {
@@ -45,21 +45,12 @@ _RESERVED_OUTPUT = {
 }
 
 
-def safe(root: Path, locator: str) -> Path:
+def contained(root: Path, locator: str) -> Path:
+    """Resolve owned source metadata without imposing export-content policy."""
     path = Path(locator)
     if path.is_absolute() or ".." in path.parts:
         raise InspectionError("unsafe_path", "Use a contained project-relative path")
     target = root / path
-    for part in path.parts:
-        if (
-            part in _SENSITIVE
-            or part.startswith(".env")
-            or Path(part).suffix.lower()
-            in {".pem", ".key", ".p12", ".sqlite", ".db", ".log", ".dump"}
-        ):
-            raise InspectionError(
-                "unsafe_path", "Sensitive paths cannot enter inspection output"
-            )
     cursor = root
     for part in path.parts:
         cursor = cursor / part
@@ -72,8 +63,32 @@ def safe(root: Path, locator: str) -> Path:
     return target
 
 
+def safe(root: Path, locator: str) -> Path:
+    target = contained(root, locator)
+    path = Path(locator)
+    for part in path.parts:
+        if (
+            part in _SENSITIVE
+            or part.startswith(".env")
+            or Path(part).suffix.lower()
+            in {".pem", ".key", ".p12", ".sqlite", ".db", ".log", ".dump"}
+        ):
+            raise InspectionError(
+                "unsafe_path", "Sensitive paths cannot enter inspection output"
+            )
+    return target
+
+
 def read(root: Path, locator: str) -> str:
-    path = safe(root, locator)
+    return checked_content(_read(safe(root, locator), locator), locator)
+
+
+def source(root: Path, locator: str) -> str:
+    """Bounded source read for metadata, never a source-body export."""
+    return _read(contained(root, locator), locator).decode("utf-8")
+
+
+def _read(path: Path, locator: str) -> bytes:
     for _ in range(2):
         before = path.stat()
         if before.st_size > MAX_FILE:
@@ -88,7 +103,7 @@ def read(root: Path, locator: str) -> str:
             before.st_mtime_ns,
             before.st_size,
         ) == (after.st_ino, after.st_mtime_ns, after.st_size):
-            return checked_content(content, locator)
+            return content
     raise InspectionError(
         "source_changing", f"Source changed during capture: {locator}"
     )
@@ -104,20 +119,20 @@ def checked_content(content: bytes, locator: str) -> str:
 
 
 def candidates(root: Path, directory: str) -> list[str]:
-    base = safe(root, directory)
+    base = contained(root, directory)
     result = []
     for path in sorted(base.rglob("*")):
         relative = path.relative_to(base)
         if any(part in _SKIP or part.startswith(".") for part in relative.parts):
             continue
         if path.suffix in {".py", ".md"} and path.is_file():
-            safe(root, path.relative_to(root).as_posix())
+            contained(root, path.relative_to(root).as_posix())
             result.append(path.relative_to(root).as_posix())
     return result
 
 
 def instructions(root: Path, directory: str, role: str | None = None) -> list[str]:
-    current = safe(root, directory)
+    current = contained(root, directory)
     folders = [*reversed(current.relative_to(root).parents), current.relative_to(root)]
     paths = {
         str(folder / name)
@@ -132,7 +147,7 @@ def instructions(root: Path, directory: str, role: str | None = None) -> list[st
 
 def fingerprint(root: Path, locator: str) -> str:
     """Stable raw-byte identity, independent of export/content policies."""
-    path = safe(root, locator)
+    path = contained(root, locator)
     for _ in range(2):
         before = path.stat()
         hashed = hashlib.sha256()
@@ -165,7 +180,7 @@ def atomic(
     expected: str | None = None,
 ) -> None:
     target = safe(root, locator)
-    if target in {safe(root, p) for p in protected} or any(
+    if target in {contained(root, p) for p in protected} or any(
         locator == p or target.is_relative_to(root / p)
         for p in protected
         if (root / p).is_dir()
@@ -201,9 +216,7 @@ def _is_export(text: str) -> bool:
         return True
     if text.startswith("# Sandloom context: "):
         lines = text.splitlines()
-        return len(lines) > 1 and lines[1].startswith(
-            ("Schema: sandloom.tool_response/1 | ", "Freshness: ")
-        )
+        return len(lines) > 1 and lines[1].startswith("Freshness: ")
     if text.startswith("<!doctype html>"):
         return (
             '<meta name="generator" content="Sandloom inspection/1">' in text[:512]
@@ -250,17 +263,6 @@ def export(
             )
         expected = sha(previous.encode())
     atomic(root, locator, text, force=force, protected=protected, expected=expected)
-
-
-def file_record(root: Path, path: str, *, reason: str) -> Doc:
-    content = read(root, path)
-    return {
-        "id": f"file:{path}",
-        "path": path,
-        "content": content,
-        "sha256": sha(content.encode()),
-        "reason": reason,
-    }
 
 
 def ignored(root: Path, locator: str) -> bool:

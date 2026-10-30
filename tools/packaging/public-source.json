@@ -1905,7 +1905,6 @@
         "src/sandloom_identity/module.snapshot.json",
         "src/sandloom_identity/password_policy.py",
         "src/sandloom_identity/providers.py",
-        "src/sandloom_identity/rate_limit.py",
         "src/sandloom_identity/routes.snapshot.json",
         "src/sandloom_identity/schemas/__init__.py",
         "src/sandloom_identity/schemas/auth.py",
@@ -1972,7 +1971,6 @@
         "src/sandloom_identity/tests/services/test_twofa_service.py",
         "src/sandloom_identity/tests/services/test_user_search_index.py",
         "src/sandloom_identity/tests/services/test_user_service.py",
-        "src/sandloom_identity/tests/test_auth_api.py",
         "src/sandloom_identity/tests/test_auth_dependency_failures.py",
         "src/sandloom_identity/tests/test_authz_claims.py",
         "src/sandloom_identity/tests/test_contact_contract.py",
@@ -2418,20 +2416,16 @@
     {
       "reason": "Proposed context/graph research, specification, implementation plan, usage guide and inactive agent skill draft; no shipped feature claims.",
       "paths": [
-        "design/context-and-graph/plan.md",
         "design/context-and-graph/research.md",
-        "design/context-and-graph/skills/sandloom-module-context/SKILL.md",
-        "design/context-and-graph/spec.md",
-        "design/context-and-graph/usage.md"
+        "design/context-and-graph/spec.md"
       ]
     },
     {
-      "reason": "Offline module context and declared graph tooling: cold readers, generation integration, SDK catalog/viewer resources, framework/app skills, guides and acceptance smokes.",
+      "reason": "Offline module context and declared graph tooling: cold readers, generation integration, viewer resources, framework/app skills, guides and acceptance smokes.",
       "paths": [
         ".agents/skills/sandloom-module-context/SKILL.md",
         ".claude/skills/sandloom-module-context/SKILL.md",
         ".sandloom/inspection.json",
-        "design/context-and-graph/implementation.md",
         "docs/guides/architecture-graph.md",
         "docs/guides/module-context.md",
         "examples/academy/.sandloom/inspection.json",
@@ -2448,11 +2442,9 @@
         "src/sandloom/core/cli/inspection/graph.py",
         "src/sandloom/core/cli/inspection/model.py",
         "src/sandloom/core/cli/inspection/read.py",
-        "src/sandloom/core/cli/inspection/sdk-catalog.json",
         "src/sandloom/core/cli/inspection/viewer.html",
         "src/sandloom/core/cli/templates/skills/sandloom-module-context/SKILL.md",
         "src/sandloom/core/tests/test_inspection_tools.py",
-        "tools/docs/sdk_catalog.py",
         "tools/packaging/inspection_smoke.py"
       ]
     },

@@ -80,16 +80,20 @@ of the same facts. The map includes:
   bodies are not embedded. Descriptions are source metadata, not inferred behavior.
 
 File metadata is read through contained stable readers and parsed without imports
-or execution. Syntax errors in implementation files retain a navigable path and
-an explicit metadata warning. Such a map cannot claim the recorded declarations
-are current when the receipt detects source changes. Unsupported encoding or
-unsafe paths fail closed. `.sandloomignore` excludes owned file metadata, while
+or execution. Syntax errors, oversized files and unsupported text encoding retain
+a navigable path and an explicit per-file metadata warning. Test bodies need no
+decoding or AST parsing; raw hashes still track source changes. Such a map cannot claim the recorded declarations
+are current when the receipt detects source changes. Escaping ownership or
+traversing symlinks fails closed. Actual exported metadata remains secret-checked. `.sandloomignore` excludes owned file metadata, while
 rule/public-interface references remain available.
 
 Focus must belong to or be used by the selected module. It narrows interfaces
 and source-location hints, adds declared DTO field types/requiredness or event
 wire schemas, and counts outside-focus metadata rather than listing irrelevant
-files. Source matches are hints, not a complete call graph. Exact defaults,
+files. Route focus selects one endpoint and its recorded handler location, without
+claiming dependencies inside opaque handler code. Saga focus uses declared steps
+and local callbacks. Source matches are exact syntax landmarks, not a complete
+call graph. Exact defaults,
 validation constraints and aliases remain in the linked interface files. Agents
 open those and implementation helpers/tests using their ordinary repository tools.
 
@@ -108,7 +112,7 @@ invokes callbacks, argument functions or application imports.
 
 The semantic index belongs in Git. The receipt under `.sandloom/cache/` is local
 and per module. Basis inputs include owned source membership/content, scoped rule
-files, generated interface closure, declarations, SDK catalog and distributions.
+files, generated interface closure, declarations and distributions.
 Optional inspection failures withhold new verification, while a detectable source
 race aborts before publishing generated output. Existing schema-1 indexes without
 new optional metadata remain readable with explicit unavailability.

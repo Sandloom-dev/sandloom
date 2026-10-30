@@ -22,7 +22,6 @@ from sandloom.core.cli.inspection.model import (
     sha,
 )
 
-CATALOG = Path(__file__).with_name("sdk-catalog.json")
 RECEIPT_SCHEMA = "sandloom.inspection_receipt"
 
 
@@ -118,7 +117,7 @@ class Reader:
             )
         self.layout: Doc = self.doc["layout"]
         for key in ("source_root", "modules_path", "shared_dir"):
-            files.safe(self.root, self.layout[key])
+            files.contained(self.root, self.layout[key])
         policy = sha(files.read(self.root, "architecture_rules.yml").encode())
         if policy != self.layout["policy_sha256"]:
             raise InspectionError(
@@ -143,7 +142,6 @@ class Reader:
         self._validate_processes()
         self._validate_graph()
         self._validate_sources()
-        self.catalog = parse(CATALOG.read_text(encoding="utf-8"))
 
     def _validate_processes(self) -> None:
         processes = self.doc.get("processes", [])
@@ -208,19 +206,19 @@ class Reader:
                     "invalid_artifact", "Invalid module import identity"
                 )
             if source is not None:
-                path = files.safe(self.root, source)
-                expected = files.safe(self.root, self.layout["source_root"]) / Path(
-                    *module["import_path"].split(".")
-                )
+                path = files.contained(self.root, source)
+                expected = files.contained(
+                    self.root, self.layout["source_root"]
+                ) / Path(*module["import_path"].split("."))
                 if path != expected or not path.is_relative_to(
-                    files.safe(self.root, self.layout["modules_path"])
+                    files.contained(self.root, self.layout["modules_path"])
                 ):
                     raise InspectionError(
                         "unsafe_path",
                         "Module source does not match its declared package ownership",
                     )
                 if not path.is_relative_to(
-                    files.safe(self.root, self.layout["source_root"])
+                    files.contained(self.root, self.layout["source_root"])
                 ):
                     raise InspectionError(
                         "unsafe_path",
@@ -263,7 +261,7 @@ class Reader:
                     "dependencies contribute public interfaces only"
                 ),
             )
-        if not files.safe(self.root, module["source"]).is_dir():
+        if not files.contained(self.root, module["source"]).is_dir():
             raise InspectionError(
                 "missing_source", "Selected module source directory is absent"
             )
@@ -440,7 +438,6 @@ class Reader:
                 for k, v in self.doc.get("contract_descriptions", {}).items()
                 if "contract:" + k in related
             },
-            "catalog": digest(self.catalog),
             "providers": [
                 e
                 for e in self.doc["edges"]

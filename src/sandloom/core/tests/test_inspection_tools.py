@@ -107,6 +107,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     ]
     core = SimpleNamespace(
         module_descriptors=descriptors,
+        service_registry=SimpleNamespace(list=lambda: []),
         list_event_schemas=lambda: [
             SimpleNamespace(channel="stats.changed.v1", schema=schema)
         ],
@@ -913,7 +914,7 @@ def test_generation_fingerprint_is_not_a_source_export_filter(
         == 0
     )
     assert "written despite" in project.planned[0].path.read_text()
-    assert not (project.root / RECEIPT).exists()
+    assert (project.root / RECEIPT).exists()
 
 
 def test_inspection_failure_keeps_generate_check_read_only(
@@ -1882,7 +1883,7 @@ def test_map_inventory_groups_files_and_prefers_public_symbols_without_execution
         "update",
         "delete",
     ]
-    assert record["more_symbols"] == 2 and record["symbols"][0]["line"] == 3
+    assert record["more_symbols"] == 1 and record["symbols"][0]["line"] == 3
     groups = {g["kind"]: g for g in data["file_groups"]}
     assert groups["tests"]["directories"] == {"api": 1}
     assert groups["schemas"]["files"] == ["input.py"]
@@ -1967,3 +1968,158 @@ def test_map_literal_types_preserve_the_allowed_values() -> None:
         type_name(type_descriptor(Literal["open", "closed"]))
         == "Literal['open', 'closed']"
     )
+
+
+def test_installed_provider_descriptions_come_from_registered_contracts(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.module_api import contract_method
+
+    class Provider:
+        @classmethod
+        @contract_method
+        async def read(cls, limit: int = 10) -> int:
+            raise AssertionError("collection must never call the provider")
+
+    monkeypatch.setattr(
+        sys.modules["app.modules.stats"], "__file__", "/foreign/stats/__init__.py"
+    )
+    core = project.app.state.core
+    core.service_registry = SimpleNamespace(
+        list=lambda: ["stats.quota.v1"], get=lambda _name: Provider
+    )
+    core.contract_owner = lambda _name: "app.modules.stats"
+    document = collect.collect(project.app, project.rules, project.planned)
+    assert (
+        next(m for m in document["modules"] if m["name"] == "stats")["source"] is None
+    )
+    (project.root / INDEX).write_text(encode(document))
+    (project.root / RECEIPT).write_text(Reader(project.root).receipt())
+    rc, text, err = run(
+        project, capsys, "context", "notes", "--format", "json", "--require-verified"
+    )
+    assert rc == 0 and not err
+    contract = json.loads(text)["data"]["contracts_used"][0]
+    assert contract["description_available"]
+    assert contract["methods"][0]["signature"] == "read(limit: int = …) -> int"
+
+
+@pytest.mark.parametrize(
+    "path,content,warning",
+    [
+        (
+            "tests/test_keys.py",
+            b"KEY = '" + b"-" * 5 + b"BEGIN PRIVATE" + b" KEY" + b"-" * 5 + b"'\n",
+            False,
+        ),
+        ("tests/test_large.py", b"#" * (2 * 1024 * 1024 + 1), False),
+        ("legacy.md", b"\xff\xfe", True),
+        ("large.py", b"#" * (2 * 1024 * 1024 + 1), True),
+        ("secrets/helpers.py", b"def credential_name(): pass\n", False),
+        ("credentials/helpers.py", b"def credential_name(): pass\n", False),
+    ],
+)
+def test_metadata_failures_are_local_and_test_bodies_are_not_read(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    content: bytes,
+    warning: bool,
+) -> None:
+    from sandloom.core.cli.inspection import files
+
+    target = project.root / "app/modules/notes" / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    original = files.source
+
+    def metadata(root: Path, locator: str) -> str:
+        assert "/tests/" not in locator, "test bodies need no metadata read"
+        return original(root, locator)
+
+    monkeypatch.setattr(files, "source", metadata)
+    rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0 and not err and "BEGIN PRIVATE KEY" not in text
+    result = json.loads(text)
+    assert result["freshness"]["state"] == "source_changed"
+    if warning:
+        record = next(f for f in result["data"]["files"] if f["path"].endswith(path))
+        assert record["parse_error"] and record["bytes"] == len(content)
+    if path.startswith("tests/"):
+        assert (
+            next(g for g in result["data"]["file_groups"] if g["kind"] == "tests")[
+                "count"
+            ]
+            == 1
+        )
+
+
+def test_route_focus_selects_one_endpoint_without_claiming_its_dependencies(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = json.loads((project.root / INDEX).read_text())
+    module = next(m for m in doc["modules"] if m["name"] == "notes")
+    handler = "app/modules/notes/services.py"
+    (project.root / handler).write_text("async def enroll(): pass\n")
+    (project.root / "app/modules/notes/unrelated.py").write_text(
+        "async def enrollments(): pass\n"
+    )
+    module["routes"] = [
+        {
+            "method": method,
+            "path": "/notes",
+            "name": name,
+            "auth": "public",
+            "source": {"path": handler, "line": 1},
+        }
+        for method, name in [("POST", "enroll"), ("GET", "get_notes")]
+    ]
+    doc["processes"] = [
+        {
+            "id": "route:notes.POST",
+            "owner": module["id"],
+            "name": "POST /notes",
+            "handler": "enroll",
+            "source": {"path": handler, "line": 1},
+        }
+    ]
+    (project.root / INDEX).write_text(encode(doc))
+    rc, text, err = run(
+        project,
+        capsys,
+        "context",
+        "notes",
+        "--focus",
+        "route:notes.POST",
+        "--format",
+        "json",
+    )
+    assert rc == 0 and not err
+    data = json.loads(text)["data"]
+    assert [r["method"] for g in data["routes"] for r in g["routes"]] == ["POST"]
+    assert [f["path"] for f in data["files"]] == [handler]
+    assert (
+        not data["contracts_used"] and not data["infrastructure"] and not data["tables"]
+    )
+    assert data["routes"][0]["routes"][0]["auth"] == "public"
+
+
+def test_extracted_metadata_still_redacts_secrets_and_private_symbols(
+    project: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (project.root / "app/modules/notes/services.py").write_text(
+        '"""'
+        + "-" * 5
+        + "BEGIN PRIVATE"
+        + " KEY"
+        + "-" * 5
+        + '"""\ndef _private(): pass\ndef public(): pass\n'
+    )
+    rc, text, _ = run(project, capsys, "context", "notes")
+    assert rc == 0 and "BEGIN PRIVATE KEY" not in text and "_private" not in text
+    assert "public:" in text and "Summary omitted" in text

@@ -35,7 +35,9 @@ and typed diagnostics; a nonzero exit is not usable partial output.
 - Use `context MODULE --focus ID` for a contract, event, consumer, projection or
   process owned/used by the module. It adds declared DTO types or event schemas
   and narrows file navigation. Exact defaults, validation and aliases remain in
-  the linked interface files. File matches are hints, not a complete call graph.
+  the linked interface files. Route focus locates the selected endpoint, without
+  inferring its internal dependencies; saga focus uses declared steps/callbacks.
+  Source landmarks are hints, not a complete call graph.
 - Use `graph --view sequence [--process ID] --format json` to list or inspect
   declared sagas/framework route lifecycles. State view requires a saga ID.
   Forward paths, compensation and framework phases are declarations, not traces.

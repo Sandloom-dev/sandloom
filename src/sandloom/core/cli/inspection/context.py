@@ -40,7 +40,7 @@ def _contracts(title: str, entries: list[Doc], provided: bool) -> list[str]:
                 + (" (optional)" if not f["required"] else "")
                 for f in dto["fields"]
             ]
-    return out + ([""] if entries else ["- None.", ""])
+    return [*out, ""] if entries else []
 
 
 def _files(data: Doc) -> list[str]:
@@ -115,35 +115,62 @@ def _interface_paths(paths: list[str]) -> list[str]:
     return [*out, ""]
 
 
+def _routes(groups: list[Doc]) -> list[str]:
+    out = ["", f"## Routes: {sum(len(g['routes']) for g in groups)}"] if groups else []
+    for group in groups:
+        if len(group["routes"]) > 1:
+            out.append(f"- {group['prefix']} ({len(group['routes'])})")
+        out.extend(
+            f"  - {route['method']} {route['full_path']} → "
+            + (route["handler"] or "?")
+            + (f" [{route['auth']}]" if route.get("auth") else "")
+            for route in group["routes"]
+        )
+    return out
+
+
 def _overview(data: Doc) -> list[str]:
     out: list[str] = []
-    if data["events_published"] or not data["focus"]:
+    if data["events_published"]:
         out += _published(data["events_published"])
-    if data["events_consumed"] or not data["focus"]:
+    if data["events_consumed"]:
         out += ["", f"## Events consumed: {len(data['events_consumed'])}"]
-        out += [
-            f"- {e['channel']} → {e['handler']}" for e in data["events_consumed"]
-        ] or ["- None."]
+        out += [f"- {e['channel']} → {e['handler']}" for e in data["events_consumed"]]
     for channel, schema in data.get("event_schemas", {}).items():
         out += ["", "### Event wire schema: " + channel, encode(schema).strip()]
-    if data["routes"] or not data["focus"]:
-        out += ["", f"## Routes: {sum(len(g['routes']) for g in data['routes'])}"]
-    for group in data["routes"]:
-        out.append(
-            f"- {group['prefix']} ({len(group['routes'])}): "
-            + " · ".join(r["method"] + " " + r["path"] for r in group["routes"])
-        )
-    if data["tables"] or not data["focus"]:
+    out += _routes(data["routes"])
+    if data["tables"]:
+        out += ["", f"## Tables: {len(data['tables'])}"]
+        out += [
+            f"- {t['table']}"
+            + (" [tenant scoped]" if t.get("tenant_scoped") else " [global]")
+            for t in data["tables"]
+        ]
+    if data["sagas"]:
         out += [
             "",
-            f"## Tables: {len(data['tables'])}",
-            ", ".join(t["table"] for t in data["tables"]) or "None.",
+            "Sagas: "
+            + ", ".join(f"{s['name']} v{s['version']}" for s in data["sagas"]),
         ]
-    if data["sagas"] or not data["focus"]:
-        out += ["Sagas: " + (", ".join(data["sagas"]) or "none"), ""]
+    if not data["focus"]:
+        empty = [
+            label
+            for label, key in (
+                ("provided contracts", "contracts_provided"),
+                ("used contracts", "contracts_used"),
+                ("published events", "events_published"),
+                ("consumed events", "events_consumed"),
+                ("routes", "routes"),
+                ("tables", "tables"),
+                ("sagas", "sagas"),
+            )
+            if not data[key]
+        ]
+        if empty:
+            out += ["", "None declared: " + ", ".join(empty) + "."]
     if data["infrastructure"]:
-        out += ["Infrastructure requirements: " + ", ".join(data["infrastructure"]), ""]
-    return out
+        out += ["", "Infrastructure requirements: " + ", ".join(data["infrastructure"])]
+    return [*out, ""]
 
 
 def markdown(envelope: Doc) -> str:
@@ -160,7 +187,9 @@ def markdown(envelope: Doc) -> str:
         )
     if data["focus"]:
         out.append("Focus: " + data["focus"]["id"])
-    out += ["Rules to read: " + ", ".join(data["rules"]), ""]
+    if data["rules"]:
+        out += ["Rules to read: " + ", ".join(data["rules"])]
+    out.append("")
     if data["contracts_provided"] or not data["focus"]:
         out += _contracts("Contracts provided", data["contracts_provided"], True)
     if data["contracts_used"] or not data["focus"]:
@@ -178,13 +207,20 @@ def markdown(envelope: Doc) -> str:
             ),
             "",
         ]
-    out += [
-        "## Next",
-        f"- Interface detail: sandloom context {module['name']} "
-        "--focus CONTRACT_OR_EVENT_ID",
-        "- Potential impact: sandloom graph impact CONTRACT_OR_EVENT_ID",
-        f"- Check changes: sandloom test {module['name']}",
-    ]
+    out += ["## Next"]
+    if data["focus"]:
+        out += [
+            "- " + data["focus"]["limits"],
+            f"- Module overview: sandloom context {module['name']}",
+            f"- Potential impact: sandloom graph impact '{data['focus']['id']}'",
+        ]
+    else:
+        out += [
+            f"- Interface detail: sandloom context {module['name']} "
+            "--focus CONTRACT_OR_EVENT_ID",
+            "- Potential impact: sandloom graph impact CONTRACT_OR_EVENT_ID",
+        ]
+    out.append(f"- Check changes: sandloom test {module['name']}")
     if "evidence" in fresh:
         out += ["", "Verification evidence: " + encode(fresh["evidence"]).strip()]
     return (
@@ -198,6 +234,10 @@ def render(envelope: Doc, fmt: str) -> str:
 
 
 def _account(envelope: Doc, fmt: str) -> str:
+    if fmt != "json":
+        text = render(envelope, fmt)
+        envelope["data"]["bytes"] = len(text.encode())
+        return text
     for _ in range(8):
         text = render(envelope, fmt)
         size = len(text.encode())
@@ -244,19 +284,37 @@ def build(
         else None,
         "rules": reader.rules(module),
         **interfaces.build(reader, module, focused),
-        "routes": interfaces.routes(module.get("routes", [])) if whole else [],
+        "routes": interfaces.routes(
+            [
+                route
+                for route in module.get("routes", [])
+                if whole
+                or (
+                    focused is not None
+                    and focused["item"]["id"].startswith("route:")
+                    and focused["item"]["name"] == f"{route['method']} {route['path']}"
+                )
+            ]
+        ),
         "tables": module.get("models", []) if whole else [],
         "sagas": sorted(
-            p["id"]
-            for p in reader.doc.get("processes", [])
-            if p["owner"] == module["id"]
-            and p["id"].startswith("saga:")
-            and (whole or (focused is not None and p["id"] == focused["item"]["id"]))
+            (
+                {"id": p["id"], "name": p["saga_type"], "version": p["version"]}
+                for p in reader.doc.get("processes", [])
+                if p["owner"] == module["id"]
+                and p["id"].startswith("saga:")
+                and (
+                    whole or (focused is not None and p["id"] == focused["item"]["id"])
+                )
+            ),
+            key=lambda p: p["id"],
         ),
         "infrastructure": sorted(
             e["target"].removeprefix("capability:")
             for e in reader.doc["edges"]
-            if e["owner"] == module["id"] and e["kind"] == "requires_capability"
+            if whole
+            and e["owner"] == module["id"]
+            and e["kind"] == "requires_capability"
         ),
         **inventory.build(reader, module, selected),
         "interface_files": focused["wires"] if focused else reader.wire_paths(module),

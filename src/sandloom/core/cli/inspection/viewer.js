@@ -144,9 +144,9 @@ function showImpact(item) {
   }
   const target=$('inspector-content'); target.replaceChildren(el('span','POTENTIAL IMPACT','eyebrow'),el('h2',item.name || item.id),el('p','Direct interface users plus transitive module reachability, including other interfaces. This overapproximates possible impact and is not complete test coverage.','muted'));
   for(const [id,path] of [...found].sort()) {
-    const b=button(name(id),()=>inspection(nodes.get(id))); b.append(el('span',path.length?path.map(r=>witnessDescription(r)||human(r.kind)).join(' → '):'Direct owner / user · '+allEdges.filter(e=>e.owner===id&&[e.source,e.target].includes(item.id)).map(e=>human(e.kind)).join(', '))); target.append(b);
+    const b=button(name(id)+' ',()=>inspection(nodes.get(id))); b.className='change-button'; b.append(el('span',path.length?path.map(r=>witnessDescription(r)||human(r.kind)).join(' → '):'Direct owner / user · '+allEdges.filter(e=>e.owner===id&&[e.source,e.target].includes(item.id)).map(e=>human(e.kind)).join(', '))); target.append(b);
   }
-  target.append(button('Copy impact query',()=>copy(['sandloom','graph','--view','impact','--item',item.id].map(shell).join(' '))));
+  target.append(button('Copy impact query',()=>copy(['sandloom','graph','impact',item.id].map(shell).join(' '))));
   target.append(el('p','Run normal quality gates; do not skip tests based on this view.','notice'));
   $('inspect-selection').hidden=false;syncSelection();drawDiagram();
   feedback('Potential impact is available in the inspector.');

@@ -33,8 +33,9 @@ uv run sandloom context notes --focus contract:stats.quota.v1
   needed for the task. Peer implementations are outside the map.
 
 Descriptions come from source metadata; the tool does not invent explanations
-or infer a complete call graph. Syntax errors in an implementation file leave
-its path available with an explicit metadata warning. They do not make stale
+or infer a complete call graph. Syntax errors, non-UTF-8 text and oversized implementation files leave
+their paths available with an explicit metadata warning. Test bodies are not
+parsed or decoded for directory counts; raw source hashes still track freshness. They do not make stale
 recorded declarations current. Migration heads come from literal revision links,
 not filename sorting. Test summaries count files, not executed test cases.
 
@@ -50,7 +51,11 @@ DTO field types and requiredness; event detail adds its declared wire schema.
 Exact validation rules, aliases and defaults remain in the linked generated
 interface files. The agent reads those definitions when needed.
 
-Source matches are navigation hints, not a complete call graph. Open related
+Route focus shows exactly the selected route and its recorded handler location.
+Its opaque implementation does not establish which contracts or tables it uses.
+Saga focus includes declared contract steps and local callback locations. Other
+source matches use exact syntax landmarks, not substring search. These are
+navigation hints, not a complete call graph. Open related
 helpers and tests using normal repository tools. `context` has no source export
 flag; `--file` is not supported. A focus must belong to or be used by the selected
 module. A consumer/projection focus retains its incoming event interface.

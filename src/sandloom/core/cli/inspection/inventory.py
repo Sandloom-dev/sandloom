@@ -7,12 +7,33 @@ from collections import Counter
 from pathlib import Path
 
 from sandloom.core.cli.inspection import files
-from sandloom.core.cli.inspection.model import Doc
+from sandloom.core.cli.inspection.model import Doc, InspectionError
 from sandloom.core.cli.inspection.read import Reader
 
 
+def _sensitive(value: str, path: str) -> bool:
+    try:
+        files.checked_content(value.encode(), path)
+    except InspectionError:
+        return True
+    return False
+
+
 def _record(reader: Reader, path: str) -> tuple[Doc, ast.Module | None]:
-    text = files.read(reader.root, path)
+    try:
+        text = files.source(reader.root, path)
+    except (InspectionError, UnicodeError) as exc:
+        if isinstance(exc, InspectionError) and exc.kind != "file_too_large":
+            raise
+        return {
+            "path": path,
+            "bytes": files.contained(reader.root, path).stat().st_size,
+            "summary": "",
+            "symbols": [],
+            "more_symbols": 0,
+            "parse_error": "Source metadata unavailable: "
+            + (exc.kind if isinstance(exc, InspectionError) else "not UTF-8"),
+        }, None
     parse_error = None
     try:
         tree = ast.parse(text, filename=path) if path.endswith(".py") else None
@@ -36,10 +57,15 @@ def _record(reader: Reader, path: str) -> tuple[Doc, ast.Module | None]:
             }
             for node in tree.body
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and not node.name.startswith("_")
         ]
         if tree
         else []
     )
+    # Only the extracted metadata may enter output; secret fixtures in bodies do not.
+    symbols = [s for s in symbols if not _sensitive(s["name"], path)]
+    if _sensitive(summary, path):
+        summary = "Summary omitted: sensitive content"
     return {
         "path": path,
         "bytes": len(text.encode("utf-8")),
@@ -87,8 +113,11 @@ def build(reader: Reader, module: Doc, candidates: list[str]) -> Doc:
     revisions, parents = set(), set()
     for path in candidates:
         relative = Path(path).relative_to(root)
-        record, tree = _record(reader, path)
         group = relative.parts[0] if len(relative.parts) > 1 else ""
+        if group == "tests":
+            grouped.setdefault(group, []).append(path)
+            continue
+        record, tree = _record(reader, path)
         if group not in {"tests", "migrations", "schemas", "models"}:
             listed.append(record)
             continue

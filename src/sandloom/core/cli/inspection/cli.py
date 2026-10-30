@@ -150,7 +150,7 @@ def _selectors(args: argparse.Namespace, argv: list[str]) -> None:
         )
     if args.item or args.before:
         raise InspectionError(
-            "usage", "Choose a positional selector or the legacy flags", code=2
+            "usage", "Choose a positional selector or the named flags", code=2
         )
     if action == "impact":
         args.item = selectors[1]

@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import sandloom.core.contract_compat as _contract_compat
 from sandloom.core.archcheck.api10_rules import event_classes
 from sandloom.core.cli.inspection import files, processes
-from sandloom.core.cli.inspection.model import Doc, digest, encode, sha
+from sandloom.core.cli.inspection.model import Doc, InspectionError, digest, encode, sha
 from sandloom.core.descriptors.module_names import module_name
 
 
@@ -118,11 +119,15 @@ def _views(root: Path, directory: str | None, name: str) -> list[Doc]:
         for path in files.candidates(root, directory):
             if not path.endswith(".py") or "tests" in Path(path).parts:
                 continue
-            declared = {
-                n.name
-                for n in ast.walk(ast.parse(files.read(root, path)))
-                if isinstance(n, ast.ClassDef)
-            }
+            try:
+                tree = ast.parse(files.source(root, path))
+            except (UnicodeError, SyntaxError):
+                continue
+            except InspectionError as exc:
+                if exc.kind != "file_too_large":
+                    raise
+                continue
+            declared = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
             result.extend(
                 {
                     "channel": v.channel,
@@ -225,6 +230,7 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
         if path.endswith("/routes.snapshot.json")
         for value in [json.loads(text)]
     }
+    route_sources = processes.route_sources(app, root)
     descriptors = {d.name: d for d in app.state.core.module_descriptors}
     distributions = {
         ep.value: {ep.dist.metadata["Name"]: ep.dist.version}
@@ -264,7 +270,12 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
             (r["method"], r["path"]): r for r in route_documents.get(entry.name, [])
         }
         card["routes"] = [
-            {**r, **policies.get((r["method"], r["path"]), {})} for r in card["routes"]
+            {
+                **r,
+                **policies.get((r["method"], r["path"]), {}),
+                "source": route_sources.get((entry.name, r["method"], r["path"])),
+            }
+            for r in card["routes"]
         ]
         card["event_views"] = _views(root, directory, card["name"])
         modules.append(card)
@@ -313,9 +324,8 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
         "processes": processes.collect(app.state.core, root, modules),
         "contract_descriptions": {
             name: value
-            for path, text in sorted(planned.items())
-            if path.endswith("/contracts.snapshot.json")
-            for name, value in json.loads(text).get("contracts", {}).items()
+            for snapshot in _contract_compat.module_snapshots(app.state.core).values()
+            for name, value in snapshot["contracts"].items()
         },
     }
 

@@ -1,8 +1,7 @@
 # Architecture explorer evolution
 
 Implemented on `codex/context-graph-design`, 2026-10-30; unreleased after 0.7.0a3.
-The initial implementation and its earlier validation remain documented in
-[implementation.md](implementation.md). This extension follows the
+The current behavior is specified in [spec.md](spec.md). This extension follows the
 [evolution research](evolution-research.md) and [UX checkpoints](ux-research.md).
 Research/checkpoint findings are source heuristics and scenario checks, not a
 participant usability study or measured productivity claim.
@@ -16,7 +15,7 @@ It inspects metadata without invoking step callbacks or argument functions.
 Multiple saga versions have distinct stable IDs. Existing schema-1 indexes remain
 readable; absent process/interface metadata remains unavailable, not fabricated.
 The verification basis covers these declarations as well as existing sources,
-wire files, package versions and SDK catalog. Cold inspection still has no app,
+wire files and package versions. Cold inspection still has no app,
 SDK/settings, environment, backend or implicit generation dependency.
 
 Pure contract and event-schema compatibility were extracted into the existing
@@ -202,7 +201,7 @@ the earlier source bundle was 131,058 UTF-8 bytes; the module map is 7,908 bytes
 bytes, not LLM tokens or productivity. Real contract-wire descriptors exercise
 type rendering; canary tests cover implementation/rule/DTO body absence across
 Markdown/JSON, compact/full detail and interface focus. Current specification,
-public guide/reference and four skill copies were updated together.
+public guide/reference and the three shipped skill copies were updated together.
 
 Compact-map validation completed: 134 focused inspection cases passed; full
 quality gate passed with 5,189 full-suite tests and 1,283 architecture tests,
@@ -212,3 +211,35 @@ application generated verified compact/full maps without an implementation body
 canary and received both revised agent skill mirrors. Website build, explicit
 architecture checker, skill validator and 2,376-file source-export check passed.
 Linux/GitHub results for the committed revision are linked in the pull request.
+
+
+## Compact-map review corrections
+
+The follow-up review reproduced three defects: installed providers lost method
+signatures, source metadata inherited whole-file export filters, and route focus
+retained the entire module. Generation now records describe documents from every
+registered provider, without cold-reader imports. Endpoint locations come from
+registered callbacks; focused routes show exactly one endpoint, while saga focus
+uses declared contracts and local callbacks. No handler call graph is inferred.
+
+Source containment and stable hashing are separate from export content policy.
+Test directories are counted without decoding/parsing bodies; all source bytes
+still participate in freshness. Oversized/non-UTF-8 implementation files retain
+navigation with per-file warnings. Extracted summaries/symbols remain secret
+checked, and index/history/output, symlink and overwrite guards remain enforced.
+
+Maps omit private symbols and empty headings; routes include auth/handler,
+tables show tenant scope and sagas have readable version labels. Terminal
+relationships are grouped/sorted semantically. Removed the unused SDK catalog,
+source-body helper, old prototype header, obsolete design drafts/skill copy and
+two empty identity files. Budgets, evidence, ignore policy and atomic exports
+remain useful supported behaviors, rather than prototype debris.
+
+Validation of these corrections: 143 focused cases; 5,198 full-suite tests,
+1,283 architecture cases and every static gate; all 14 owned module maps across
+six compositions and six file edge cases. All six generated indexes pass check.
+Installed wheels expose Helpdesk's membership/entitlement/facts methods (6/3/2)
+and create a verified all-battery application. Four wheel/sdist pairs, rebuilds,
+lean/standard installs, site build, skill validation and the 2,368-file public
+source audit passed. Browser checks cover impact selection, restored state,
+copy feedback and readable owner labels. Paid agent DX remains deferred.

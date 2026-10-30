@@ -28,14 +28,24 @@ def _topology(data: Doc) -> list[str]:
     nodes = {n["id"]: n.get("name", n["id"]) for n in data.get("nodes", [])}
     lines = []
     for module in data["modules"]:
+        relations: dict[str, list[str]] = {}
+        for edge in data.get("edges", []):
+            if edge["owner"] != module["id"] or edge["kind"] in {
+                "owns_consumer",
+                "owns_projection",
+            }:
+                continue
+            source = nodes.get(edge["source"], edge["source"])
+            target = nodes.get(edge["target"], edge["target"])
+            label = (
+                target if edge["source"] == module["id"] else source + " → " + target
+            )
+            if edge.get("required") is False:
+                label += " [optional]"
+            relations.setdefault(edge["kind"].replace("_", " "), []).append(label)
         children = [
-            f"{edge['kind'].replace('_', ' ')}: "
-            f"{nodes.get(edge['source'], edge['source'])} → "
-            f"{nodes.get(edge['target'], edge['target'])}"
-            + (" [optional]" if edge.get("required") is False else "")
-            for edge in data.get("edges", [])
-            if edge["owner"] == module["id"]
-            and edge["kind"] not in {"owns_consumer", "owns_projection"}
+            kind + ": " + "; ".join(sorted(labels))
+            for kind, labels in sorted(relations.items())
         ]
         lines += _tree(module.get("name", module["id"]), children)
     for cycle in data.get("cycles", []):

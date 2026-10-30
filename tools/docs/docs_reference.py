@@ -693,11 +693,8 @@ def render_errors() -> str:
 def expected_pages() -> dict[Path, str]:
     from tools.docs.gen_config_reference import render_pages as config_pages
     from tools.docs.gen_reference_pages import render_pages as route_pages
-    from tools.docs.sdk_catalog import TARGET
-    from tools.docs.sdk_catalog import render as catalog_render
 
     pages = sdk_pages()
-    pages[TARGET] = catalog_render()
     pages[ERRORS_PAGE] = render_errors()
     for family in (config_pages(), route_pages()):
         pages.update({DOCS / name: text for name, text in family.items()})

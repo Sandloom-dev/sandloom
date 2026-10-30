@@ -231,6 +231,8 @@ def _route_groups(rows: list[Doc], prefix: tuple[str, ...]) -> list[Doc]:
                         if prefix
                         else r["path"],
                         "handler": r.get("name"),
+                        "auth": r.get("auth"),
+                        "source": r.get("source"),
                         "full_path": r["path"],
                     }
                     for r in remaining

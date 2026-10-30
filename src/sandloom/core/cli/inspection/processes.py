@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from sandloom.core.cli.inspection.model import Doc
 from sandloom.core.descriptors.module_names import module_name
+from sandloom.core.route_markers import route_module
 
 
 def identity(kind: str, name: str) -> str:
@@ -22,6 +24,19 @@ def _location(callback: Any, root: Path) -> Doc | None:
     if not path.is_relative_to(root):
         return None
     return {"path": path.relative_to(root).as_posix(), "line": code.co_firstlineno}
+
+
+def route_sources(app: Any, root: Path) -> dict[tuple[str, str, str], Doc | None]:
+    result = {}
+    for route in getattr(app, "routes", ()):
+        owner = route_module(route)
+        if owner is None or not getattr(route, "endpoint", None):
+            continue
+        for method in getattr(route, "methods", ()):
+            result[owner, method, route.path] = _location(
+                inspect.unwrap(route.endpoint), root
+            )
+    return result
 
 
 def collect(core: Any, root: Path, modules: list[Doc]) -> list[Doc]:
@@ -59,6 +74,9 @@ def collect(core: Any, root: Path, modules: list[Doc]) -> list[Doc]:
                 "policy": route["policy"],
                 "evidence_kind": "resolved_route_policy",
                 "handler": route["name"],
+                "method": route["method"],
+                "path": route["path"],
+                "source": route.get("source"),
             }
             for route in module["routes"]
             if route["policy"]
