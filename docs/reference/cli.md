@@ -16,22 +16,24 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | Command | What it does |
 | --- | --- |
 | `sandloom context <module> [--file PATH ...]` | Bounded module rules, SDK, wire interfaces and owned source. Default: compact Markdown. |
-| `sandloom graph --view modules` | Compact JSON module catalog with stable IDs and freshness. |
-| `sandloom graph [--module ID --hops N]` | Typed declared graph; compact JSON by default. One hop means a module relation, retaining its contract/event witnesses. |
+| `sandloom graph --view modules --format json` | Compact JSON module catalog with stable IDs and freshness. |
+| `sandloom graph [MODULE] [--hops N]` | Declared graph: terminal tree or compact JSON in a pipe. One hop means a module relation, retaining its contract/event witnesses. |
 | `sandloom graph --format html --output architecture.html` | Standalone offline viewer with filters, source evidence and text tables. |
 | `sandloom graph --format mermaid` | Escaped interchange diagram. |
 | `sandloom context <module> --focus ID` | Focus an interface/process; preserve rules and whole DTO closure. Source matching is a navigation hint. |
 | `sandloom graph --view sequence [--process ID] [--module ID]` | List processes or inspect a declared saga / framework route lifecycle. |
-| `sandloom graph --view state --process ID` | Conditional saga state transitions; JSON, Mermaid or HTML. |
-| `sandloom graph impact ID` | Direct witnesses and potential transitive module impact; JSON or HTML. |
-| `sandloom graph diff REV` / `--view diff --before PATH` | Compare a saved inspection index; JSON or HTML. |
+| `sandloom graph --view state --process ID` | Conditional saga state transitions; text, JSON, Mermaid or HTML. |
+| `sandloom graph impact ID` | Direct witnesses and potential transitive module impact; text, JSON or HTML. |
+| `sandloom graph diff REV` / `--view diff --before PATH` | Compare a committed or saved inspection index; text, JSON or HTML. |
 
 Both commands accept `--root PATH`, `--output PATH`, `--force`,
 `--require-verified`; context and graph JSON also accept `--detail compact|full`
 and `--max-bytes N` (default: 131072 UTF-8 bytes). Context formats: `markdown|json`;
 graph formats: `text|json|mermaid|html`. Graph defaults to text on stdout TTY,
-JSON in pipes/redirects or with `--output`; explicit `--format` always wins. Explicit files are module-relative and repeatable.
-`--hops` requires `--module`, defaults to 1 and accepts 0. Topology views also
+JSON in pipes/redirects or with `--output`; explicit `--format` always wins.
+Explicit files are module-relative and repeatable.
+`--hops` requires a module selector (positional or `--module`), defaults to 1
+and accepts 0. Topology views also
 accept `--direction incoming|outgoing|both` (default both). Process selectors are
 limited to sequence/state; impact/diff use their own item/historical scope.
 
@@ -40,8 +42,8 @@ or budget/I/O failure, 2 usage, 3 strict verification unavailable. JSON emits on
 versioned success/error envelope; Markdown failures without `--output` leave stdout
 empty and explain on stderr. `--output` receives the artifact; stdout is a small
 JSON acknowledgement, or a structured JSON error. Existing files require
-`--force` and must be recognized Sandloom inspection exports; arbitrary files, reserved tool/VCS directories, source and managed inputs
-are protected. No app imports, prompts, network access,
+`--force` and must be recognized Sandloom inspection exports; arbitrary files, reserved tool/VCS directories, source and managed inputs are
+protected. No app imports, prompts, network access,
 `.env` loading or implicit generation occur during inspection.
 
 See [context and freshness](../guides/module-context.md) and

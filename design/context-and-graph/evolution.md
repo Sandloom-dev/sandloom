@@ -170,7 +170,7 @@ updated together. Paid agent DX remains deferred. Targeted inspection suite:
 112 passing cases; lint, formatting, types and skill validation pass. Full-gate,
 distribution and Linux CI results are recorded in the pull request.
 
-Final front-door validation: 5,167 full-suite tests, 1,273 architecture tests and
+Final front-door validation: 5,167 full-suite tests, 1,279 architecture tests and
 all quality gates passed; existing skips/expected failure retained. Four
 wheel/sdist pairs passed rebuild, license/layering and clean-install checks,
 including cold positional graph/impact queries. A fresh wheel-installed app

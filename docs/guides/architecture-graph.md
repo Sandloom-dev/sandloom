@@ -150,7 +150,7 @@ topology includes process counts and defers their bodies to the sequence query.
 `--max-bytes` limits complete JSON output (default
 131072 UTF-8 bytes); overflow fails with a remedy to focus the graph or raise the
 budget. Nodes/edges are never silently truncated. Scoped exports report hidden
-counts. `--hops` requires a module and accepts non-negative integers.
+counts. `--hops` requires a positional module or `--module` and accepts non-negative integers.
 
 `--detail` and `--max-bytes` are JSON options; presentation formats reject them.
 Mermaid is interchange output; third-party layout can vary. HTML embeds its data
