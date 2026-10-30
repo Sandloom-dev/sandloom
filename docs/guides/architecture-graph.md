@@ -87,7 +87,10 @@ uv run sandloom graph sequence SAGA_OR_ROUTE_ID --format mermaid
 uv run sandloom graph state SAGA_ID --format html > states.html
 ```
 
-Select an actual stable ID from the process catalog. Saga IDs include their
+Text catalogs show process names, owning modules and saga versions. Select a
+unique name, quoting names containing spaces, for example
+`uv run sandloom graph sequence "POST /api/v1/enrollments"`. For ambiguous names,
+use `graph sequence --format json` to obtain an exact stable ID. Saga IDs include their
 registered version so parallel definitions remain distinct. A saga sequence
 shows declared forward steps, the pivot and unit boundaries. Compensation is a
 separate alternative: only completed compensatable steps are undone, in reverse

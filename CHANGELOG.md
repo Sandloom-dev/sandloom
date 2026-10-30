@@ -15,6 +15,10 @@ website renders this same changelog.
 
 ### Developer experience
 
+- Polish inspection text: shared freshness wording, singular counts, readable
+  process names and inline docstring markup; remove next-step footers and
+  duplicate impact headings while retaining structured JSON evidence.
+
 - Make `graph` a compact project map with recorded module purposes and peer module
   connections, always text by default; explicit JSON retains stable IDs and summaries.
   Keep `context MODULE` as the complete module map, remove `context --focus` and

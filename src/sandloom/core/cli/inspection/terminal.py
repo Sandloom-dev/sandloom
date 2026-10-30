@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from sandloom.core.cli.inspection.model import Doc
+from sandloom.core.cli.inspection.text import (
+    count_label,
+    docstring_text,
+    freshness_label,
+)
 
 HEADER = "Sandloom architecture · declared model"
 
@@ -63,8 +68,12 @@ def _overview(data: Doc) -> list[str]:
         owner = module["id"]
         edges = [e for e in data["edges"] if e["owner"] == owner]
         facts = [
-            f"{module.get('route_count', len(module.get('routes', [])))} routes",
-            f"{module.get('model_count', len(module.get('models', [])))} tables",
+            count_label(
+                module.get("route_count", len(module.get("routes", []))), "route"
+            ),
+            count_label(
+                module.get("model_count", len(module.get("models", []))), "table"
+            ),
         ]
         provides = sorted(
             {nodes[e["target"]] for e in edges if e["kind"] == "provides_contract"}
@@ -88,7 +97,7 @@ def _overview(data: Doc) -> list[str]:
         if provides:
             facts.append("provides " + ", ".join(provides))
         if events:
-            facts.append(f"{events} events")
+            facts.append(count_label(events, "event"))
         if calls:
             facts.append("calls " + ", ".join(calls))
         if listens:
@@ -97,7 +106,7 @@ def _overview(data: Doc) -> list[str]:
         if missing:
             facts.append(f"{missing} unresolved")
         lines += [
-            module["name"] + ": " + module.get("summary", ""),
+            module["name"] + ": " + docstring_text(module.get("summary", "")),
             "└─ " + " · ".join(facts),
         ]
     return lines or ["No modules in this scope."]
@@ -119,13 +128,20 @@ def _messages(title: str, messages: list[Doc]) -> list[str]:
 
 def render(envelope: Doc, *, overview: bool = False) -> str:
     data, kind = envelope["data"], envelope["kind"]
-    lines = [HEADER, "Freshness: " + envelope["freshness"]["state"], ""]
+    lines = [
+        HEADER,
+        "Freshness: " + freshness_label(envelope["freshness"]["state"]),
+        "",
+    ]
     if kind == "graph" and overview:
         lines += _overview(data)
     elif kind in {"graph", "modules"}:
         lines += _topology(data)
     elif kind == "impact":
-        lines += ["Potential impact: " + data["item"]["id"], data["meaning"]]
+        lines += [
+            "Potential impact: " + data["item"]["id"],
+            data["meaning"].removeprefix("Potential impact: "),
+        ]
         lines += [
             f"{'↳' if item['witness_path'] else '•'} {item['module_id']} "
             f"[{item['scope']}] · " + " ".join(item["test_argv"])
@@ -152,8 +168,13 @@ def render(envelope: Doc, *, overview: bool = False) -> str:
                         "Compensation alternative before pivot", process["alternatives"]
                     )
         else:
-            lines += [p["id"] + " · " + p["name"] for p in data["processes"]]
+            lines += [
+                p["name"]
+                + " · "
+                + p["owner"].removeprefix("module:")
+                + (f" · v{p['version']}" if "version" in p else "")
+                for p in data["processes"]
+            ]
             if not data["processes"]:
                 lines.append("No declared processes in this scope.")
-    lines += [] if overview else ["", "Open the interactive view: sandloom explore"]
     return "\n".join(_safe(line) for line in lines) + "\n"

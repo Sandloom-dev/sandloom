@@ -2130,7 +2130,7 @@ def test_project_overview_uses_purposes_and_module_connections(
     assert rc == 0 and not err
     assert "notes: Notes purpose." in text and "archive: Archive purpose." in text
     assert "calls stats" in text and "listens to stats" in text
-    assert "provides stats.quota.v1" in text and "1 events" in text
+    assert "provides stats.quota.v1" in text and "1 event" in text
     assert "database" not in text and "Internal details" not in text
     assert len(text.encode()) / 3 <= 300
     rc, text, _ = run(project, capsys, "graph")
@@ -2230,3 +2230,95 @@ def test_default_map_exposes_command_risk_without_duplicate_idempotency(
     rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
     method = json.loads(text)["data"]["contracts_used"][0]["methods"][0]
     assert rc == 0 and method["risk"] == "money" and "idempotency_key" not in method
+
+
+@pytest.mark.parametrize(
+    "state,label",
+    [
+        ("missing_receipt", "not verified on this checkout"),
+        ("source_changed", "source changed since last generate"),
+        (
+            "dependency_changed",
+            "declarations or dependencies changed since last generate",
+        ),
+        ("partial", "verification incomplete for this scope"),
+    ],
+)
+def test_graph_and_context_share_freshness_wording(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], state: str, label: str
+) -> None:
+    from sandloom.core.cli.inspection import terminal
+    from sandloom.core.cli.inspection.model import response
+
+    envelope = response("graph", "graph", {"modules": []}, freshness={"state": state})
+    assert "Freshness: " + label in terminal.render(envelope)
+    if state == "missing_receipt":
+        (project.root / RECEIPT).unlink()
+        rc, text, err = run(project, capsys, "graph", "--format", "text")
+        assert rc == 0 and not err and "Freshness: " + label in text
+        rc, text, _ = run(project, capsys, "graph")
+        assert rc == 0 and json.loads(text)["freshness"]["state"] == state
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["notes"], ["impact", "stats.quota.v1"], ["diff", "before.json"], ["sequence"]],
+)
+def test_graph_text_has_no_next_step_footer(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], args: list[str]
+) -> None:
+    (project.root / "before.json").write_bytes((project.root / INDEX).read_bytes())
+    rc, text, err = run(project, capsys, "graph", *args, "--format", "text")
+    assert rc == 0 and not err and "sandloom explore" not in text
+    if args[0] == "impact":
+        assert text.count("Potential impact:") == 1
+        assert "an overapproximation, not complete call-site or test coverage" in text
+
+
+def test_sequence_text_catalog_uses_selectable_names_and_keeps_json_ids(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reader = _process_reader(project)
+    doc = reader.doc
+    doc["processes"][0]["id"] = "route:notes%3AGET%20%2Fnotes"
+    _publish(project, doc)
+    rc, text, err = run(project, capsys, "graph", "sequence", "--format", "text")
+    assert rc == 0 and not err and "GET /notes · notes" in text
+    assert "route:" not in text and "%3A" not in text
+    rc, text, _ = run(project, capsys, "graph", "sequence")
+    assert (
+        rc == 0
+        and json.loads(text)["data"]["processes"][0]["id"]
+        == "route:notes%3AGET%20%2Fnotes"
+    )
+    rc, text, _ = run(
+        project, capsys, "graph", "sequence", "GET /notes", "--format", "text"
+    )
+    assert rc == 0 and "Forward path" in text
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_project_text_pluralization_and_docstring_markup(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], count: int
+) -> None:
+    path = project.root / INDEX
+    doc = json.loads(path.read_text())
+    module = doc["modules"][0]
+    module["summary"] = "Owns the ``notes`` module."
+    module["routes"] = [
+        {"method": "GET", "path": "/notes", "name": "list_notes"}
+    ] * count
+    module["models"] = [{"table": "notes"}] * count
+    path.write_text(encode(doc))
+    (project.root / "app/modules/notes/services.py").write_text(
+        '"""Handles ``notes`` with `db()`."""\n'
+    )
+    rc = main("graph", ["--root", str(project.root)])
+    text, err = capsys.readouterr()
+    assert rc == 0 and not err and "Owns the `notes` module." in text
+    suffix = "" if count == 1 else "s"
+    assert f"{count} route{suffix} · {count} table{suffix}" in text
+    rc, text, _ = run(project, capsys, "context", "notes")
+    assert rc == 0 and "Handles `notes` with `db()`." in text and "``" not in text
+    rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
+    assert rc == 0 and "Handles ``notes`` with `db()`." in text

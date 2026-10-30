@@ -2449,7 +2449,7 @@
       ]
     },
     {
-      "reason": "Declared process exploration, focused context, shared compatibility rules, and recorded UX research/validation.",
+      "reason": "Declared architecture/process inspection, shared compatibility rules, and recorded UX research/validation.",
       "paths": [
         "design/context-and-graph/evolution-research.md",
         "design/context-and-graph/evolution.md",
@@ -2465,7 +2465,8 @@
         "src/sandloom/core/cli/inspection/history.py",
         "src/sandloom/core/cli/inspection/terminal.py",
         "src/sandloom/core/cli/inspection/interfaces.py",
-        "src/sandloom/core/cli/inspection/inventory.py"
+        "src/sandloom/core/cli/inspection/inventory.py",
+        "src/sandloom/core/cli/inspection/text.py"
       ]
     }
   ],

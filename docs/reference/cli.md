@@ -19,7 +19,7 @@ Added after 0.7.0a3; use the current source checkout until the next package rele
 | `sandloom graph [MODULE]` | Compact project map or a detailed module neighborhood. |
 | `sandloom graph impact ITEM` | Direct witnesses and potential transitive module impact. |
 | `sandloom graph diff REV_OR_FILE` | Compare the committed or saved inspection index. |
-| `sandloom graph sequence [ID]` | List processes or inspect saga/route phases. |
+| `sandloom graph sequence [ID]` | List readable process names or inspect saga/route phases; names and stable IDs are accepted. |
 | `sandloom graph state ID` | Conditional saga state transitions. |
 | `sandloom graph --format html > architecture.html` | Save the offline viewer. |
 | `sandloom explore [MODULE]` | Generate, save and open the offline viewer. |

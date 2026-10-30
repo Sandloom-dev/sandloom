@@ -27,7 +27,8 @@ def select(reader: Reader, selector: str, module: str | None = None) -> Doc:
     if len(found) != 1:
         raise InspectionError(
             "unknown_process" if not found else "ambiguous_process",
-            "Select one stable process ID from graph sequence",
+            "Choose a unique process name or a stable process ID "
+            "from graph sequence --format json",
         )
     return found[0]
 

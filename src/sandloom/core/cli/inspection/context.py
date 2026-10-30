@@ -7,14 +7,7 @@ from pathlib import Path
 from sandloom.core.cli.inspection import files, interfaces, inventory
 from sandloom.core.cli.inspection.model import Doc, InspectionError, encode, response
 from sandloom.core.cli.inspection.read import Reader
-
-_FRESHNESS = {
-    "verified": "verified",
-    "source_changed": "source changed since last generate",
-    "missing_receipt": "not verified on this checkout",
-    "dependency_changed": "declarations or dependencies changed since last generate",
-    "partial": "verification incomplete for this scope",
-}
+from sandloom.core.cli.inspection.text import docstring_text, freshness_label
 
 
 def _text(lines: list[str]) -> str:
@@ -58,7 +51,7 @@ def _files(data: Doc) -> list[str]:
         if record["more_symbols"]:
             symbols += f" +{record['more_symbols']}"
         description = record.get("parse_error") or " — ".join(
-            p for p in (record["summary"], symbols) if p
+            p for p in (docstring_text(record["summary"]), symbols) if p
         )
         out.append(
             "- "
@@ -231,7 +224,7 @@ def markdown(envelope: Doc) -> str:
     module = data["module"]
     out = [
         f"# Sandloom context: {module['name']} · {module['source']}",
-        "Freshness: " + _FRESHNESS.get(fresh["state"], fresh["state"]),
+        "Freshness: " + freshness_label(fresh["state"]),
     ]
     if data["rules"]:
         out += ["Rules to read: " + ", ".join(data["rules"])]

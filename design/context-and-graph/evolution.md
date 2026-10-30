@@ -369,3 +369,29 @@ Local Linux CI at code commit `28f82e5` also passed all three selected jobs:
 2m58s total. Linux full tests: 5,202 passed, 8 skipped, 1 expected failure;
 platform-dependent skips and dependency warnings remain visible. Static CI also
 passed installed RPC smoke and its dependency vulnerability audit.
+
+
+## Terminal text polish
+
+Removed the interactive-view footer from every graph text mode. Graph and context
+now share freshness labels, while JSON retains the existing status enums. Impact
+prints its heading once and preserves the scope/overapproximation explanation.
+The process catalog shows names, owners and saga versions; names remain selectable,
+and exact stable IDs remain in JSON for ambiguous names. Human docstring summaries
+convert reStructuredText double-backtick literals to single-backtick code; raw JSON
+metadata is unchanged. Project counts correctly use route/table/event in the singular.
+
+158 inspection cases passed, including missing-receipt JSON status preservation,
+all text-mode footer cases, unique impact heading, selectable route names with
+encoded IDs retained in JSON, zero/one/multiple counts and preserved raw docstrings.
+
+| Composition | Modules | UTF-8 bytes | Bytes/module |
+| --- | ---: | ---: | ---: |
+| root | 3 | 552 | 184.0 |
+| academy | 3 | 498 | 166.0 |
+| helpdesk | 4 | 662 | 165.5 |
+| linkly | 1 | 124 | 124.0 |
+| projecthub | 4 | 633 | 158.2 |
+| tutorial | 2 | 237 | 118.5 |
+
+Measured complete default stdout, including header and freshness; no byte truncation.
