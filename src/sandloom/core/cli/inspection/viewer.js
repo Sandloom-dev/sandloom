@@ -8,10 +8,11 @@ const modules = allNodes.filter(n => n.kind === 'module');
 const cards = new Map((data.modules || []).map(m => [m.id, m]));
 const processes = envelope.sequences || [];
 const processMap = new Map(processes.map(p => [p.id, p]));
-const labels = {required_contract:'Calls contract · required', optional_contract:'Calls contract · optional', event_impact:'May deliver event', ordering:'Declares load ordering', provides_contract:'Provides contract', requires_contract:'Requires contract', produces_event:'Publishes event', consumes_event:'Delivers to consumer', owns_consumer:'Owns consumer', projects_event:'Feeds projection', owns_projection:'Owns projection', requires_capability:'Requires infrastructure'};
+const labels = {required_contract:'Calls contract · required', optional_contract:'Calls contract · optional', event_impact:'May deliver event', ordering:'Declares load ordering', provides_contract:'Provides contract', requires_contract:'Requires contract', produces_event:'Publishes event', consumes_event:'Delivers to consumer', owns_consumer:'Owns consumer', projects_event:'Feeds projection', owns_projection:'Owns projection', requires_capability:'Requires infrastructure', delivers_to_module:'Delivered to module'};
 const kinds = {module:'Business module', contract:'Public contract', event:'Versioned event', consumer:'Event consumer', projection:'Projection', capability:'Infrastructure requirement'};
 const ns = 'http://www.w3.org/2000/svg';
-let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [];
+let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [], listedLinks = [], showAllEntities = false;
+const pairs = new Map();
 let feedbackTimer;
 function el(tag, text, className) { const e = document.createElement(tag); if(text !== undefined) e.textContent = text; if(className) e.className = className; return e; }
 function documentationLink(label, value) {
@@ -63,15 +64,71 @@ for(const v of ['overview','sequence','changes']) {
 }
 function owners(item) {
   if(item.witnesses) return [...new Set(item.witnesses.map(id=>edges.get(id)?.owner).filter(Boolean))].sort();
+  if(item.members) return [item.source,item.target];
   if(item.owner) return [item.owner];
   if(item.kind==='module') return [item.id];
   return [...new Set(allEdges.filter(e=>[e.source,e.target].includes(item.id)).map(e=>e.owner))].sort();
 }
-function witnessDescription(link) {
+function interfaceNames(link) {
   const witness=(link.witnesses || [link.id]).map(id=>edges.get(id)).filter(Boolean);
   const interfaceIds=[...new Set(witness.flatMap(e=>[e.source,e.target]).filter(id=>nodes.get(id)?.kind==='contract'||nodes.get(id)?.kind==='event'))];
-  return interfaceIds.map(name).join(', ');
+  return interfaceIds.map(name);
 }
+function witnessDescription(link) { return interfaceNames(link).join(', '); }
+function edgesOf(kind) { return allEdges.filter(e=>e.kind===kind); }
+function handlers() { return allEdges.filter(e=>e.kind==='consumes_event'||e.kind==='projects_event'); }
+function unique(values) { return [...new Set(values)]; }
+function moduleNames(ids) { return ids.map(name).join(', '); }
+// What the reader asks first: who provides, calls, publishes and listens. Nothing here is inferred beyond declarations.
+function connectionGroups(item) {
+  const provided=id=>edgesOf('provides_contract').filter(e=>e.target===id), callers=id=>edgesOf('requires_contract').filter(e=>e.target===id);
+  const published=id=>edgesOf('produces_event').filter(e=>e.target===id), delivered=id=>handlers().filter(e=>e.source===id);
+  if(item.kind==='module') return [
+    {title:'Provides',rows:edgesOf('provides_contract').filter(e=>e.source===item.id).map(e=>{const users=unique(callers(e.target).map(c=>c.source));return {id:e.target,meta:users.length?'called by '+moduleNames(users):'no callers in this composition'};})},
+    {title:'Calls',rows:edgesOf('requires_contract').filter(e=>e.source===item.id).map(e=>{const from=unique(provided(e.target).map(p=>p.source));return {id:e.target,meta:(from.length?'from '+moduleNames(from):'no provider in this composition')+(e.required?'':' · optional'),warn:!from.length};})},
+    {title:'Publishes',rows:edgesOf('produces_event').filter(e=>e.source===item.id).map(e=>{const to=unique(delivered(e.target).map(h=>h.owner));return {id:e.target,meta:to.length?'delivered to '+moduleNames(to):'no listeners in this composition'};})},
+    {title:'Listens to',rows:unique(handlers().filter(e=>e.owner===item.id).map(e=>e.source)).map(id=>{const from=unique(published(id).map(p=>p.source));return {id,meta:from.length?'from '+moduleNames(from):'no publisher in this composition',warn:!from.length};})},
+  ].filter(group=>group.rows.length);
+  if(item.kind==='contract') return [
+    {title:'Provided by',rows:provided(item.id).map(e=>({id:e.source,meta:e.methods?.join(', ')||''})),empty:'No provider in this composition.'},
+    {title:'Called by',rows:callers(item.id).map(e=>({id:e.source,meta:(e.required?'required':'optional')+(e.methods?.length?' · '+e.methods.join(', '):'')})),empty:'No callers in this composition.'},
+  ];
+  if(item.kind==='event') return [
+    {title:'Published by',rows:published(item.id).map(e=>({id:e.source,meta:''})),empty:'No publisher in this composition.'},
+    {title:'Delivered to',rows:unique(delivered(item.id).map(e=>e.owner)).map(id=>({id,meta:moduleNames(delivered(item.id).filter(e=>e.owner===id).map(e=>e.target))})),empty:'No listeners in this composition.'},
+  ];
+  if(item.kind==='consumer'||item.kind==='projection') return [
+    {title:'Listens to',rows:handlers().filter(e=>e.target===item.id).map(e=>({id:e.source,meta:''}))},
+    {title:'Owned by',rows:allEdges.filter(e=>e.target===item.id&&e.kind.startsWith('owns_')).map(e=>({id:e.source,meta:''}))},
+  ].filter(group=>group.rows.length);
+  return [];
+}
+function homeModules(item) {
+  const own=item.kind==='contract'?edgesOf('provides_contract'):item.kind==='event'?edgesOf('produces_event'):[];
+  const homes=unique(own.filter(e=>e.target===item.id).map(e=>e.source));
+  return homes.length?homes:owners(item);
+}
+function connectionSections(item) {
+  const sections=[];
+  for(const group of connectionGroups(item)) {
+    const section=el('section',undefined,'connections');section.append(el('h3',group.title));
+    for(const row of group.rows) { const b=button(name(row.id),()=>goTo(nodes.get(row.id)));b.className='connection';b.append(el('span',row.meta||(kinds[nodes.get(row.id)?.kind]||''),row.warn?'warn':''));section.append(b); }
+    if(!group.rows.length)section.append(el('p',group.empty||'None declared.','muted'));
+    sections.push(section);
+  }
+  return sections;
+}
+function goTo(item) {
+  // A focused view draws consumers and projections as their owner module.
+  if(item.kind==='consumer'||item.kind==='projection') { const owner=nodes.get(homeModules(item)[0]); if(owner) { byId('layer').value='interfaces';item=owner; } }
+  const layer=byId('layer').value;
+  if(item.kind==='module') { if(layer==='interfaces')byId('focus').value=item.id; else {byId('layer').value='modules';if(byId('focus').value&&!moduleScope().has(item.id))byId('focus').value='';} }
+  else if(item.kind==='capability') { byId('layer').value='infrastructure';byId('focus').value=''; }
+  else { const home=homeModules(item);byId('layer').value='interfaces';byId('focus').value=home.length?home[0]:''; }
+  byId('query').value='';relationOptions();byId('relation').value='';renderOverview();choose(item);
+  byId('diagram').querySelector('[data-item="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+function showInterfaces(id) { byId('layer').value='interfaces';byId('focus').value=id;relationOptions();byId('relation').value='';renderOverview(); }
 function syncSelection() {
   for(const b of document.querySelectorAll('[data-selection]')) {
     const selected=b.dataset.selection===selectedId;
@@ -99,7 +156,7 @@ function resolveSelection(id,hint) {
     const step=source?.[Number(match[3])];
     return step&&p?{item:{...step,id,owner:p.owner,parent_id:p.id},kind:'step'}:null;
   }
-  const item=nodes.get(id)||edges.get(id)||relations.find(r=>r.id===id)||processMap.get(id)?.declaration;
+  const item=nodes.get(id)||edges.get(id)||pairs.get(id)||relations.find(r=>r.id===id)||processMap.get(id)?.declaration;
   return item?{item,kind}:null;
 }
 function declarationChanges(change) {
@@ -139,11 +196,15 @@ function routeDetails(module) {
 }
 function inspection(item, kind='entity') {
   selectedId=item.id || ''; selectedKind=kind; const target=byId('inspector-content'); target.replaceChildren();
-  const title=item.name || item.label || (item.source && item.target ? `${name(item.source)} → ${name(item.target)}` : item.label || item.id || 'Selection');
-  target.append(el('span',kind==='step'?'PROCESS STEP':kind==='change'?'ARCHITECTURE CHANGE':kinds[item.kind] || human(item.kind || kind),'eyebrow'),el('h2',title));
+  const title=item.members?`${name(item.source)} → ${name(item.target)}`:item.name || item.label || (item.source && item.target ? `${name(item.source)} → ${name(item.target)}` : item.label || item.id || 'Selection');
+  target.append(el('span',kind==='step'?'PROCESS STEP':kind==='change'?'ARCHITECTURE CHANGE':item.members?'CONNECTION':kinds[item.kind] || human(item.kind || kind),'eyebrow'),el('h2',title));
+  if(cards.get(item.id)?.summary)target.append(el('p',cards.get(item.id).summary.replaceAll('``',''),'module-purpose'));
+  const sections=connectionSections(item);target.append(...sections);
+  if(item.members) { const section=el('section',undefined,'connections');section.append(el('h3','Why they are linked'));for(const member of item.members) { const via=(member.witnesses||[]).flatMap(id=>{const e=edges.get(id);return e?[e.source,e.target]:[];}).find(id=>['contract','event'].includes(nodes.get(id)?.kind));if(!via){section.append(el('p',human(member.kind)));continue;}const b=button(name(via),()=>goTo(nodes.get(via)));b.className='connection';b.append(el('span',human(member.kind)));section.append(b); }target.append(section); }
   const list=el('dl');
-  fact(list,'Stable ID',item.id);
-  if(item.source && item.target) { fact(list,'From',name(item.source)); fact(list,'To',name(item.target)); fact(list,'Meaning',human(item.kind || kind)); }
+  if(sections.length||item.members)list.classList.add('after-connections');
+  if(!item.members)fact(list,'Stable ID',item.id);
+  if(item.source && item.target && !item.members) { fact(list,'From',name(item.source)); fact(list,'To',name(item.target)); fact(list,'Meaning',human(item.kind || kind)); }
   const witness=witnessDescription(item); if(witness) fact(list,'Public interface',witness);
   const witnesses=(item.witnesses||[]).map(id=>edges.get(id)).filter(Boolean);
   for(const w of witnesses) { if(w.required!==undefined) fact(list,'Required',w.required?'Yes':'Optional'); if(w.methods?.length) fact(list,'Declared methods',w.methods.join(', ')); if(w.reason) fact(list,'Reason',w.reason); }
@@ -152,14 +213,13 @@ function inspection(item, kind='entity') {
   for(const [key,label] of [['condition','Condition'],['call','Call'],['transaction','Unit boundary'],['durable','Durable consumer'],['group','Consumer group'],['reason','Declaration reason']]) fact(list,label,item[key]);
   const module=cards.get(item.id);let routes;
   if(module) {
-    if(module.summary)target.append(el('p',module.summary.replaceAll('``',''),'module-purpose'));
     fact(list,'Package',module.import_path);
     const chain=module.chain&&typeof module.chain==='object'?Object.fromEntries(Object.entries(module.chain).filter(([,v])=>v!==null)):module.chain;
     if(chain&&(typeof chain!=='object'||Object.keys(chain).length))fact(list,'Database chain',chain);
-    fact(list,'Tables',module.models?.length??module.model_count);
-    if(module.routes?.length){routes=routeDetails(module);const dd=el('dd');dd.append(button(module.routes.length+' HTTP routes',()=>{routes.open=true;routes.scrollIntoView({block:'nearest'});}));list.append(el('dt','Routes'),dd);}
+    fact(list,'Tables',module.models?.map(m=>m.table).join(', ')||module.model_count);
+    if(module.routes?.length)routes=routeDetails(module);
   }
-  const ownerIds=owners(item); for(const owner of ownerIds) {
+  const ownerIds=homeModules(item); for(const owner of ownerIds) {
     const evidence=data.evidence?.[owner]; fact(list,'Source · '+name(owner),evidence?.source_root || 'Installed distribution; local implementation unavailable');
     if(evidence?.distributions && Object.keys(evidence.distributions).length) fact(list,'Installed distributions',evidence.distributions);
   }
@@ -170,21 +230,21 @@ function inspection(item, kind='entity') {
   if(kind==='change') { const changes=declarationChanges(item);target.append(el('h3','What changed'));const ul=el('ul',undefined,'change-facts');for(const line of changes.slice(0,50))ul.append(el('li',line));target.append(ul);if(changes.length>50)target.append(el('p',(changes.length-50)+' more differences in declaration evidence.')); const c=item.compatibility || {}; target.append(el('h3','Compatibility'),el('p',c.state || 'Not assessed')); for(const reason of c.reasons || []) target.append(el('p',reason)); }
   if(item.notes) for(const note of item.notes) target.append(el('p',note,'muted'));
   const interfaceId = witnesses.flatMap(w=>[w.source,w.target]).find(id=>['contract','event'].includes(nodes.get(id)?.kind));
-  if(item.id && (nodes.has(item.id)||processMap.has(item.id)||item.parent_id||interfaceId)) {
+  if(item.id && (nodes.has(item.id)||processMap.has(item.id)||item.parent_id||interfaceId||item.members)) {
     target.append(el('h3','Next actions'));
+    if(item.kind==='module'&&byId('layer').value!=='interfaces')target.append(button('Show its contracts & events',()=>showInterfaces(item.id)));
     for(const owner of ownerIds.filter(id=>data.evidence?.[id]?.source_root).slice(0,6)) {
       const command=['sandloom','context',name(owner)].map(shell).join(' ');
       target.append(button('Copy context command · '+name(owner),()=>copy(command)));
     }
-    target.append(button('Inspect potential impact',()=>showImpact(nodes.get(interfaceId)||processMap.get(item.parent_id)?.declaration||item)));
-    target.append(button('Copy stable ID',()=>copy(item.id)));
+    if(!item.members){target.append(button('Inspect potential impact',()=>showImpact(nodes.get(interfaceId)||processMap.get(item.parent_id)?.declaration||item)));target.append(button('Copy stable ID',()=>copy(item.id)));}
   }
   if(item.test_argv) target.append(button('Copy suggested module test',()=>copy(item.test_argv.map(shell).join(' '))));
   if(item.source_location) target.append(button('Copy source location',()=>copy(item.source_location.path+':'+item.source_location.line)));
   const details=el('details'); details.append(el('summary','Declaration evidence'),el('pre',json(witnesses.length?{...item,witnesses}:item))); target.append(details);
   const doc=documentationLink('Read the documentation',item.docs||'https://sandloom.dev/docs/concepts/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/')); target.append(doc);
   syncSelection();
-  byId('inspect-selection').hidden=false; feedback('Selected '+title+'. Details are available in the inspector.');
+  byId('inspect-selection').hidden=false;
   drawDiagram(); stateURL();
 }
 function showImpact(item) {
@@ -221,34 +281,55 @@ function moduleScope() {
   }
   return selected;
 }
+// A module's interfaces with the modules on their far side; consumers and projections collapse into their owner.
+function interfaceNeighborhood(id) {
+  const links=new Map(), add=e=>links.set(e.id,e), deliver=e=>{const link={id:'delivery:'+e.id,kind:'delivers_to_module',via:e.kind,source:e.source,target:e.owner,owner:e.owner,witnesses:[e.id]};edges.set(link.id,link);add(link);};
+  const kind=(e,...names)=>names.includes(e.kind);
+  for(const e of allEdges.filter(e=>e.owner===id&&kind(e,'provides_contract','requires_contract','produces_event'))) {
+    add(e);
+    if(e.kind==='provides_contract')allEdges.filter(o=>o.kind==='requires_contract'&&o.target===e.target).forEach(add);
+    if(e.kind==='requires_contract')allEdges.filter(o=>o.kind==='provides_contract'&&o.target===e.target).forEach(add);
+    if(e.kind==='produces_event')allEdges.filter(o=>kind(o,'consumes_event','projects_event')&&o.source===e.target).forEach(deliver);
+  }
+  for(const e of allEdges.filter(e=>e.owner===id&&kind(e,'consumes_event','projects_event'))) {
+    deliver(e);allEdges.filter(o=>o.kind==='produces_event'&&o.target===e.source).forEach(add);
+  }
+  return [...links.values()];
+}
 function layerModel() {
   const layer=byId('layer').value, selected=layer==='modules'||!byId('focus').value?moduleScope():new Set([byId('focus').value]);
   let links, candidates;
   if(layer==='modules') { candidates=modules.filter(n=>selected.has(n.id)); links=relations.filter(r=>selected.has(r.source)&&selected.has(r.target)); }
+  else if(layer==='interfaces'&&byId('focus').value) {
+    links=interfaceNeighborhood(byId('focus').value);
+    const ids=new Set([byId('focus').value,...links.flatMap(e=>[e.source,e.target])]); candidates=allNodes.filter(n=>ids.has(n.id));
+  }
   else {
     const allowed=layer==='interfaces'?new Set(['module','contract','event','consumer','projection']):new Set(['module','capability']);
     links=allEdges.filter(e=>selected.has(e.owner)&&allowed.has(nodes.get(e.source)?.kind)&&allowed.has(nodes.get(e.target)?.kind));
     const ids=new Set([...selected,...links.flatMap(e=>[e.source,e.target])]); candidates=allNodes.filter(n=>ids.has(n.id)&&allowed.has(n.kind));
   }
-  const filter=byId('relation').value; if(filter) { links=links.filter(e=>e.kind===filter); const ids=new Set(links.flatMap(e=>[e.source,e.target])); candidates=candidates.filter(n=>ids.has(n.id)); }
+  const filter=byId('relation').value; if(filter) { links=links.filter(e=>(e.via||e.kind)===filter); const ids=new Set(links.flatMap(e=>[e.source,e.target])); candidates=candidates.filter(n=>ids.has(n.id)); }
   const query=byId('query').value.trim().toLocaleLowerCase(); let matches=candidates.length;
   if(query) {
     const matched=new Set(candidates.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query)).map(n=>n.id)); matches=matched.size;
     links=links.filter(e=>matched.has(e.source)||matched.has(e.target));
     const ids=new Set([...matched,...links.flatMap(e=>[e.source,e.target])]); candidates=candidates.filter(n=>ids.has(n.id));
   }
-  return {nodes:candidates,links,matches};
+  return {nodes:candidates,links,drawn:layer==='modules'?pairLinks(links,interfaceNames):links,matches};
 }
 function searchHints(model) {
   const target=byId('search-hints');target.replaceChildren();target.hidden=true;
   const query=byId('query').value.trim().toLocaleLowerCase();if(!query)return;
-  const matches=allNodes.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query));
-  if(!matches.length)return;
-  target.hidden=false;target.append(el('p',matches.length+' matches across all layers'+(model.matches?'':'; outside current filters')+'.'));
-  for(const item of matches.slice(0,8))target.append(button((kinds[item.kind]||item.kind)+' · '+item.name,()=>{
-    byId('layer').value=item.kind==='module'?'modules':item.kind==='capability'?'infrastructure':'interfaces';byId('focus').value='';relationOptions();byId('relation').value='';renderOverview();choose(item);
-    byId('diagram').querySelector('[data-item="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
-  }));
+  const matches=allNodes.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query)).map(item=>({text:(kinds[item.kind]||item.kind)+' · '+item.name,open:()=>goTo(item)}));
+  for(const card of cards.values()) {
+    for(const route of card.routes||[]) if((route.method+' '+route.path).toLocaleLowerCase().includes(query)) { const title=route.method+' '+route.path,process=processes.find(p=>p.owner===card.id&&p.declaration?.name===title);matches.push({text:'Route · '+title+' · '+card.name,open:()=>{if(process){byId('process').value=process.id;byId('process-view').value='sequence';selectView('sequence');}else goTo(nodes.get(card.id));}}); }
+    for(const model of card.models||[]) if(String(model.table).toLocaleLowerCase().includes(query)) matches.push({text:'Table · '+model.table+' · '+card.name,open:()=>goTo(nodes.get(card.id))});
+  }
+  target.hidden=false;
+  if(!matches.length){target.append(el('p','No modules, contracts, events, routes or tables match.'));return;}
+  target.append(el('p',matches.length+(matches.length===1?' match':' matches')+' across everything'+(model.matches?'':'; none in the current view')+'.'));
+  for(const item of matches.slice(0,8))target.append(button(item.text,item.open));
   if(matches.length>8)target.append(el('p','Showing the first 8 results. Refine search to narrow the list.'));
 }
 function relationOptions() {
@@ -260,43 +341,64 @@ function relationOptions() {
 }
 function renderOverview(fit=true) {
   for(const id of ['direction','hops'])byId(id).disabled=byId('layer').value!=='modules';
-  const model=layerModel(); visibleNodes=model.nodes; visibleLinks=model.links;
+  const model=layerModel(); visibleNodes=model.nodes; visibleLinks=model.drawn; listedLinks=model.links;
+  pairs.clear();for(const pair of visibleLinks)if(pair.members)pairs.set(pair.id,pair);
   byId('canvas-title').textContent=byId('layer').selectedOptions[0].textContent;
-  byId('counts').textContent=`${visibleNodes.length} visible entities · ${visibleLinks.length} relationships · ${model.matches} search matches · ${allNodes.length-visibleNodes.length} entities outside this view`;
-  byId('entity-count').textContent=visibleNodes.length; byId('relation-count').textContent=visibleLinks.length;
+  const count=(n,word)=>n+' '+word+(n===1?'':'s'), modulesLayer=byId('layer').value==='modules';
+  byId('counts').textContent=[count(visibleNodes.length,modulesLayer?'module':'entity').replace('entitys','entities'),count(visibleLinks.length,modulesLayer?'connection':'link'),modulesLayer&&listedLinks.length!==visibleLinks.length?count(listedLinks.length,'declaration')+' in the list below':'',byId('query').value.trim()?count(model.matches,'match').replace('matchs','matches'):''].filter(Boolean).join(' · ');
+  byId('entity-count').textContent=visibleNodes.length; byId('relation-count').textContent=listedLinks.length;
   byId('nodes').replaceChildren();
   for(const n of visibleNodes) { const b=button(n.name,()=>choose(n)); b.dataset.selection=n.id; b.classList.toggle('selected',selectedId===n.id); b.append(el('span',kinds[n.kind]||n.kind)); if(cards.get(n.id)?.summary)b.append(el('span',cards.get(n.id).summary,'module-purpose')); byId('nodes').append(b); }
   if(!visibleNodes.length) byId('nodes').append(el('p','No entities match these filters.','empty'));
   byId('rows').replaceChildren();
-  for(const r of visibleLinks) { const b=button(`${name(r.source)} → ${name(r.target)}`,()=>choose(r,'relationship')); b.dataset.selection=r.id; b.classList.toggle('selected',selectedId===r.id); b.append(el('span',human(r.kind)+(witnessDescription(r)?' · '+witnessDescription(r):''))); byId('rows').append(b); }
-  if(!visibleLinks.length) byId('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
-  const outside=selectedId&&!visibleNodes.some(n=>n.id===selectedId)&&!visibleLinks.some(r=>r.id===selectedId);
+  for(const r of listedLinks) { const b=button(`${name(r.source)} → ${name(r.target)}`,()=>choose(r,'relationship')); b.dataset.selection=r.id; b.classList.toggle('selected',selectedId===r.id); b.append(el('span',human(r.kind)+(witnessDescription(r)?' · '+witnessDescription(r):''))); byId('rows').append(b); }
+  if(!listedLinks.length) byId('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
+  const outside=selectedId&&!visibleNodes.some(n=>n.id===selectedId)&&!listedLinks.some(r=>r.id===selectedId)&&!visibleLinks.some(r=>r.id===selectedId);
   byId('selection-state').hidden=!outside; byId('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
-  searchHints(model);syncSelection();drawDiagram(fit); stateURL();
+  searchHints(model);syncSelection();drawChooser();drawDiagram(fit); stateURL();
+}
+// Too many entities to read at once: start from the question "which module?".
+function drawChooser() {
+  const target=byId('canvas-choose'), layer=byId('layer').value;
+  const show=layer!=='modules'&&!byId('focus').value&&!byId('query').value.trim()&&!byId('relation').value&&!showAllEntities&&visibleNodes.length>20;
+  choosing=show;target.hidden=!show;target.replaceChildren();byId('diagram').toggleAttribute('hidden',show||!visibleNodes.length);byId('save-svg').disabled=show;if(!show)return;
+  target.append(el('h2','Choose a module'),el('p',visibleNodes.length+' entities are too many to read at once. Pick a module to see its interfaces and who uses them.','muted'));
+  const grid=el('div',undefined,'choose-grid');
+  for(const module of modules) { const facts=[['provides_contract','contract'],['produces_event','event'],['requires_contract','call']].map(([kind,word])=>{const n=allEdges.filter(e=>e.kind===kind&&e.source===module.id).length;return n?n+' '+word+(n===1?'':'s'):'';}).filter(Boolean).join(' · ');const b=button(module.name,()=>showInterfaces(module.id));b.append(el('span',facts||'no interfaces'));if(cards.get(module.id)?.summary)b.append(el('span',cards.get(module.id).summary,'module-purpose'));grid.append(b); }
+  target.append(grid,button('Show all '+visibleNodes.length+' entities anyway',()=>{showAllEntities=true;renderOverview();}));
 }
 function marker(svg,id='arrow') { const defs=svgEl('defs'), mark=svgEl('marker',{id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'}); mark.append(svgEl('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'})); defs.append(mark); svg.append(defs); }
-let diagramBounds=[0,0,900,460],diagramScale=1;
+let diagramBounds=[0,0,900,460],diagramScale=1,choosing=false;
 function applyBox() { const svg=byId('diagram');svg.setAttribute('viewBox',diagramBounds.join(' '));svg.style.width=diagramBounds[2]*diagramScale+'px';svg.style.height=diagramBounds[3]*diagramScale+'px'; }
 function drawDiagram(fit=false) {
+  if(choosing) { byId('diagram').replaceChildren();byId('canvas-empty').hidden=true;return; }
   const svg=byId('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks,cards);
   byId('canvas-empty').hidden=visibleNodes.length>0; svg.hidden=!visibleNodes.length;
   const routes=routedLinks(at,visibleLinks);
+  const selectedLink=visibleLinks.find(r=>r.id===selectedId||r.members?.some(m=>m.id===selectedId));
+  const near=new Set(selectedLink?[selectedLink.source,selectedLink.target]:at.has(selectedId)?[selectedId,...visibleLinks.filter(r=>r.source===selectedId||r.target===selectedId).flatMap(r=>[r.source,r.target])]:[]);
+  const dimming=near.size>0;
   for(const {link:r,points,d} of routes) {
     const [ax,ay]=points[0],[bx,by]=points.at(-1);
-    const type=r.kind.includes('event')?' event':r.kind.includes('optional')||r.kind==='ordering'||r.required===false?' optional':'';
-    const path=svgEl('path',{d,class:'edge'+type+(selectedId===r.id?' selected':''),'marker-end':'url(#arrow)'});
+    const type=r.kind.includes('event')||r.kind==='delivers_to_module'?' event':r.kind.includes('optional')||r.kind==='ordering'||r.required===false?' optional':'';
+    const picked=selectedId===r.id||r.members?.some(m=>m.id===selectedId), tied=picked||r.source===selectedId||r.target===selectedId;
+    const path=svgEl('path',{d,class:'edge'+type+(picked?' selected':tied?' active':dimming?' dim':''),'marker-end':'url(#arrow)'});
     svg.append(svgEl('path',{d,class:'edge-halo'}));
     path.append(svgEl('title',{},`${name(r.source)} → ${name(r.target)}: ${human(r.kind)}`)); svg.append(path);
     const hit=svgEl('path',{d,class:'edge-hit',tabindex:0,role:'button','data-item':r.id,'aria-label':`${name(r.source)} to ${name(r.target)}: ${human(r.kind)}`}); hit.onclick=()=>choose(r,'relationship'); hit.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();choose(r,'relationship');}}; svg.append(hit);
 
   }
   for(const n of visibleNodes) {
-    const p=at.get(n.id), group=svgEl('g',{class:'node'+(selectedId===n.id?' selected':''),tabindex:0,role:'button','data-item':n.id,'aria-label':`${kinds[n.kind]||n.kind}: ${n.name}`});
+    const p=at.get(n.id), group=svgEl('g',{class:'node'+(selectedId===n.id?' selected':dimming&&!near.has(n.id)?' dim':''),tabindex:0,role:'button','data-item':n.id,'aria-label':`${kinds[n.kind]||n.kind}: ${n.name}`});
     group.append(svgEl('title',{},n.name),svgEl('rect',{x:p.x,y:p.y,width:p.width,height:p.height,rx:8}));
     group.append(svgEl('text',{x:p.x+14,y:p.y+22,class:'kind'},(kinds[n.kind]||n.kind)+(p.isolated?' · no links in view':'')));
     p.title.forEach((line,i)=>group.append(svgEl('text',{x:p.x+14,y:p.y+45+i*18},line)));
     p.purpose.forEach((line,i)=>group.append(svgEl('text',{x:p.x+14,y:p.y+48+p.title.length*18+i*15,class:'purpose'},line)));
     group.onclick=()=>choose(n); group.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();choose(n);}}; svg.append(group);
+  }
+  for(const {link,text,box} of placeLabels(routes,at)) {
+    const tied=link.id===selectedId||link.members?.some(m=>m.id===selectedId)||link.source===selectedId||link.target===selectedId;
+    svg.append(svgEl('text',{x:box.x+box.width/2,y:box.y+box.height-4,'text-anchor':'middle',class:'edge-label'+(dimming&&!tied?' dim':'')},text));
   }
   const allPoints=[...at.values()].flatMap(p=>[[p.x,p.y],[p.x+p.width,p.y+p.height]]).concat(routes.flatMap(r=>r.points));
   const xs=allPoints.map(p=>p[0]),ys=allPoints.map(p=>p[1]);
@@ -388,8 +490,8 @@ function drawChanges() {
     byId('changes-title').textContent='Potential impact · '+(impact.item.name||impact.item.id); byId('changes-summary').textContent=impact.meaning.replace(/^Potential impact: /,'');
     for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;for(const evidence of impactEvidence(item))b.append(el('span',evidence));b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); byId('changes').append(b); }
   } else {
-    byId('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
-    byId('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph diff architecture-before.json --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
+    byId('changes-summary').textContent='This page holds one snapshot. To see what a branch changed, build a comparison with its base. Source bodies are excluded; missing interface evidence stays unknown.';
+    byId('changes').append(el('pre','sandloom graph diff main --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector.','notice'));
   }
 }
 function save(text,type,filename) { const url=URL.createObjectURL(new Blob([text],{type})), a=el('a'); a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
@@ -399,15 +501,20 @@ byId('theme').onclick=()=>{document.documentElement.dataset.theme=document.docum
 byId('inspect-selection').onclick=()=>{byId('inspector').scrollIntoView({block:'start'});const h=byId('inspector-content').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}};
 byId('clear-selection').onclick=()=>{byId('inspect-selection').hidden=true;selectedId='';selectedKind='entity';byId('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
 for(const module of modules) { const o=el('option',module.name);o.value=module.id;byId('focus').append(o); }
+const projects=unique([...cards.values()].map(c=>c.import_path?.split('.')[0]).filter(p=>p&&!p.startsWith('sandloom')));
+if(projects.length===1){byId('project').textContent=projects[0];document.title=projects[0]+' · Architecture explorer';}
 for(const process of processes) { const o=el('option',(process.id.startsWith('saga:')?'Saga · ':'Route · ')+process.name+' · '+name(process.owner));o.value=process.id;byId('process').append(o); }
 byId('status').textContent='Freshness: '+(envelope.presentation?.freshness||envelope.freshness?.state||'unavailable');
 byId('scope').textContent=(data.scope?.kind==='authoring_composition'?'Authoring model':'Saved model')+' · '+modules.length+' modules'+(data.hidden?.nodes?' · '+data.hidden.nodes+' entities outside export':'');
-const limits=[...(data.cycles||[]).map(c=>'Declared '+human(c.kind)+' cycle: '+c.module_ids.map(name).join(' ↔ ')+'. Not proof of deadlock.'),...(data.unresolved||[]).map(u=>`${name(u.module_id)}: ${u.related_id} not in this composition (${u.required?'required':'optional'}).`)];
-byId('uncertainty-title').textContent=`Model limits · ${limits.length} cycle / unresolved declarations`;
+const limits=[...(data.cycles||[]).map(c=>({text:'Declared '+human(c.kind)+' cycle: '+c.module_ids.map(name).join(' ↔ ')+'. Not proof of deadlock.',module:c.module_ids[0]})),...(data.unresolved||[]).map(u=>({text:`${name(u.module_id)} needs ${name(u.related_id)}, but nothing here provides it (${u.required?'required':'optional'}).`,module:u.module_id,required:u.required}))];
+byId('uncertainty-title').textContent='Model limits';
 byId('uncertainty').append(el('p','This graph records an authoring composition. Deployment bindings, runtime availability, method call order and delivery outcomes are not inferred.'));
-for(const text of limits) byId('uncertainty').append(el('p',text));
+if(limits.length) {
+  byId('problems').hidden=false;byId('problems').append(el('strong',limits.length+(limits.length===1?' declaration':' declarations')+' to check'));
+  for(const limit of limits) { const b=button(limit.text,()=>{selectView('overview');if(nodes.has(limit.module))goTo(nodes.get(limit.module));});if(limit.required)b.className='required';byId('problems').append(b); }
+}
 for(const id of ['query','focus','direction','hops','relation']) byId(id).addEventListener('input',()=>renderOverview());
-byId('layer').onchange=()=>{relationOptions();renderOverview();};
+byId('layer').onchange=()=>{showAllEntities=false;relationOptions();renderOverview();};
 for(const id of ['process','process-view']) byId(id).onchange=()=>{if(selectedId.includes('#')) byId('clear-selection').onclick();drawProcess();stateURL();};
 byId('reset').onclick=()=>{for(const [id,value] of [['query',''],['layer','modules'],['focus',''],['direction','both'],['hops','1']])byId(id).value=value;relationOptions();byId('relation').value='';renderOverview();feedback('Filters reset.');};
 const params=new URLSearchParams(location.hash.slice(1));

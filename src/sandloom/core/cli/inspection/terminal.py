@@ -56,7 +56,14 @@ def _topology(data: Doc) -> list[str]:
     for cycle in data.get("cycles", []):
         lines.append(f"Cycle ({cycle['kind']}): " + ", ".join(cycle["module_ids"]))
     for fact in data.get("unresolved", []):
-        lines.append("Unresolved: " + str(fact))
+        lines.append(
+            "Unresolved: "
+            + fact["module_id"].removeprefix("module:")
+            + " needs "
+            + fact["related_id"]
+            + (" (required)" if fact["required"] else " (optional)")
+            + ", not in this composition"
+        )
     return lines or ["No modules in this scope."]
 
 

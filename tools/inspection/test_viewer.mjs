@@ -50,6 +50,59 @@ test('documentation navigation accepts web URLs and rejects executable schemes',
     assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),context.value);
   } finally {dom.window.close();}
 });
+// The real page in a DOM: covers what the vm slices below cannot see.
+function livePage(root,hash=''){
+  const cli=fileURLToPath(new URL('../../.venv/bin/sandloom',import.meta.url));
+  const cwd=fileURLToPath(new URL('../../',import.meta.url));
+  const exported=spawnSync(cli,['graph',...(root?['--root',root]:[]),'--format','html'],{cwd,encoding:'utf8',maxBuffer:1<<26});
+  assert.equal(exported.status,0,exported.stderr);
+  const dom=new JSDOM(exported.stdout,{url:'https://viewer.example/'+hash,runScripts:'dangerously',beforeParse(window){
+    window.CSS={escape:value=>value};window.Element.prototype.scrollIntoView=()=>{};
+  }});
+  const document=dom.window.document, byId=id=>document.getElementById(id);
+  const envelope=JSON.parse(byId('graph-data').textContent);
+  return {dom,document,byId,data:envelope.workspace||envelope.data,search(text){byId('query').value=text;byId('query').dispatchEvent(new dom.window.Event('input'));}};
+}
+test('Search opens a consumer through its owner module, drawn and selected',()=>{
+  const page=livePage('examples/projecthub');
+  try {
+    const consumer=page.data.nodes.find(n=>n.kind==='consumer');
+    const owner=page.data.edges.find(e=>e.target===consumer.id&&e.kind==='owns_consumer').source;
+    page.search(consumer.id);
+    assert.match(page.byId('search-hints').querySelector('p').textContent,/^1 match across/);
+    page.byId('search-hints').querySelector('button').click();
+    assert.equal(page.byId('selection-state').hidden,true);
+    assert.equal(page.byId('inspector-content').querySelector('h2').textContent,page.data.nodes.find(n=>n.id===owner).name);
+    assert.ok(page.document.querySelector(`#diagram [data-item="${owner}"]`).getAttribute('class').includes('selected'));
+  } finally {page.dom.window.close();}
+});
+test('The chooser replaces the diagram until a module is chosen',()=>{
+  const page=livePage('','#layer=interfaces');
+  try {
+    const diagram=page.byId('diagram'), chooser=page.byId('canvas-choose');
+    assert.equal(chooser.hidden,false);
+    assert.equal(diagram.hasAttribute('hidden'),true);
+    assert.equal(diagram.childElementCount,0);
+    assert.equal(page.byId('save-svg').disabled,true);
+    page.byId('nodes').querySelector('button').click();
+    assert.equal(diagram.childElementCount,0);
+    chooser.querySelector('.choose-grid button').click();
+    assert.equal(chooser.hidden,true);
+    assert.equal(diagram.hasAttribute('hidden'),false);
+    assert.ok(diagram.childElementCount>0);
+    assert.equal(page.byId('save-svg').disabled,false);
+  } finally {page.dom.window.close();}
+});
+test('Keyboard selection of a block highlights its links and dims the rest',()=>{
+  const page=livePage('examples/projecthub');
+  try {
+    const block=page.document.querySelector('#diagram [data-item="module:tasks"]');
+    block.dispatchEvent(new page.dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    assert.equal(page.byId('inspector-content').querySelector('h2').textContent,'tasks');
+    assert.ok(page.document.querySelectorAll('#diagram .dim').length>0);
+    assert.ok(page.document.querySelectorAll('#diagram .active').length>0);
+  } finally {page.dom.window.close();}
+});
 class Element {
   constructor(tag,attrs={},text=''){this.tag=tag;this.attrs={...attrs};this.textContent=text;this.children=[];this.style={};this.classList={add:()=>{}};}
   append(...items){this.children.push(...items);}
@@ -135,14 +188,62 @@ test('Impact names the exact interface witness',()=>{
   const context=reportFunctions({nodes:new Map([['contract:payments.charges.v1',{kind:'contract'}]])});context.item={seed_witnesses:[{kind:'requires_contract',source:'module:enrollment',target:'contract:payments.charges.v1'}],witness_path:[]};
   assert.deepEqual(Array.from(vm.runInContext('impactEvidence(item)',context)),['requires_contract: contract:payments.charges.v1']);
 });
-test('Contract layer module filter includes that owner only, not every neighbor interface',()=>{
-  const doc=JSON.parse(readFileSync(new URL('../../examples/helpdesk/.sandloom/inspection.json',import.meta.url),'utf8'));
-  const elements={focus:{value:'module:tickets'},hops:{value:'1'},direction:{value:'both'},layer:{value:'interfaces'},relation:{value:''},query:{value:''}};
-  const context=vm.createContext({byId:(id)=>elements[id],allNodes:doc.nodes,allEdges:doc.edges,modules:doc.modules,nodes:new Map(doc.nodes.map(n=>[n.id,n])),cards:new Map(),relations:[{source:'module:tickets',target:'module:billing'},{source:'module:tickets',target:'module:tenancy'}]});
+function overview(project){
+  const doc=JSON.parse(readFileSync(new URL('../../examples/'+project+'/.sandloom/inspection.json',import.meta.url),'utf8'));
+  const elements={focus:{value:''},hops:{value:'1'},direction:{value:'both'},layer:{value:'interfaces'},relation:{value:''},query:{value:''}};
+  const context=vm.createContext({byId:(id)=>elements[id],allNodes:doc.nodes,allEdges:doc.edges,modules:doc.nodes.filter(n=>n.kind==='module'),nodes:new Map(doc.nodes.map(n=>[n.id,n])),edges:new Map(doc.edges.map(e=>[e.id,e])),cards:new Map(),relations:[],interfaceNames:()=>[]});
+  vm.runInContext(layoutSource,context);
   vm.runInContext(source.slice(source.indexOf('function moduleScope('),source.indexOf('function searchHints(')),context);
-  const model=vm.runInContext('layerModel()',context);
+  vm.runInContext(source.slice(source.indexOf('function edgesOf('),source.indexOf('function homeModules(')),context);
+  vm.runInContext('function name(id){return nodes.get(id)?.name||id;}',context);
+  return {context,elements};
+}
+test('A focused module shows its interfaces and the modules on their far side',()=>{
+  const {context,elements}=overview('projecthub');elements.focus.value='module:tasks';
+  const model=vm.runInContext('layerModel()',context),ids=Array.from(model.nodes,n=>n.id);
+  assert.ok(ids.includes('module:taskboard'),'the caller of tasks.read.v1 must be visible');
+  assert.ok(ids.includes('module:notifications'),'a listener of tasks.task.created.v1 must be visible');
+  assert.ok(!ids.some(id=>id.startsWith('consumer:')||id.startsWith('projection:')),'consumers collapse into their owner');
   assert.ok(model.nodes.length<15);
-  assert.ok(model.links.every(e=>e.owner==='module:tickets'));
+});
+test('An event names who publishes it and who receives it, by role',()=>{
+  const {context}=overview('projecthub');
+  const groups=vm.runInContext("connectionGroups(nodes.get('event:tasks.task.created.v1'))",context);
+  const of=title=>Array.from(groups.find(g=>g.title===title).rows,r=>r.id).sort();
+  assert.deepEqual(of('Published by'),['module:tasks']);
+  assert.deepEqual(of('Delivered to'),['module:notifications','module:taskboard']);
+});
+test('A module lists what it provides, calls, publishes and listens to',()=>{
+  const {context}=overview('projecthub');
+  const groups=vm.runInContext("connectionGroups(nodes.get('module:taskboard'))",context);
+  const of=title=>Array.from(groups.find(g=>g.title===title)?.rows||[],r=>r.id).sort();
+  assert.deepEqual(of('Calls'),['contract:projects.read.v1','contract:tasks.read.v1']);
+  assert.ok(of('Listens to').includes('event:tasks.task.created.v1'));
+});
+const projecthub=[['tasks','taskboard','event_impact','tasks.task.created.v1'],['tasks','taskboard','event_impact','tasks.task.updated.v1'],['projects','taskboard','event_impact','projects.project.created.v1'],['projects','taskboard','event_impact','projects.project.updated.v1'],['tasks','notifications','event_impact','tasks.task.created.v1'],['taskboard','projects','required_contract','projects.read.v1'],['taskboard','tasks','required_contract','tasks.read.v1'],['taskboard','projects','ordering',''],['taskboard','tasks','ordering',''],['notifications','tasks','ordering','']].map(([source,target,kind,via],i)=>({id:'r'+i,source,target,kind,via}));
+function pairsOf(rows){const c=vm.createContext({});vm.runInContext(layoutSource,c);c.rows=rows;c.names=r=>r.via?[r.via]:[];return Array.from(vm.runInContext('pairLinks(rows,names)',c));}
+test('Parallel declarations become one labelled line per direction; explained ordering stays in the list',()=>{
+  const pairs=pairsOf(projecthub),label=(a,b)=>pairs.find(p=>p.source===a&&p.target===b)?.label;
+  assert.equal(pairs.length,5);
+  assert.equal(label('tasks','taskboard'),'2 events');
+  assert.equal(label('taskboard','tasks'),'tasks.read.v1');
+  assert.equal(label('notifications','tasks'),undefined);
+  const [only]=pairsOf([{id:'o',source:'a',target:'b',kind:'ordering'}]);
+  assert.equal(only.label,'load order');
+});
+test('Mutual links spread across columns, keep clear routes and readable labels',()=>{
+  const items=['notifications','projects','taskboard','tasks'].map(node),links=pairsOf(projecthub).map(p=>({...p,members:undefined}));
+  const result=render(items,links);clearNodes(result,links);
+  assert.ok(new Set(result.boxes.map(b=>b.x)).size>=2,'four linked modules must not collapse into one column');
+  const labels=result.diagram.children.filter(e=>e.tag==='text');
+  assert.equal(labels.length,links.length,'Every connection carries a label here');
+  const at=vm.runInContext('positions(visibleNodes,visibleLinks,cards)',result.context);
+  const placed=vm.runInContext('placeLabels(routedLinks(positions(visibleNodes,visibleLinks,cards),visibleLinks),positions(visibleNodes,visibleLinks,cards))',result.context);
+  const hit=(a,b)=>a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;
+  for(const [i,{box}] of Array.from(placed).entries()){
+    for(const block of at.values())assert.ok(!hit(box,block),'A label must not cover a block');
+    for(const other of Array.from(placed).slice(i+1))assert.ok(!hit(box,other.box),'Labels must not cover each other');
+  }
 });
 
 test('Route lifecycle wraps full labels at narrow widths instead of truncating them',()=>{
