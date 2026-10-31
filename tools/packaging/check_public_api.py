@@ -33,8 +33,10 @@ ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "architecture_rules.yml"
 BASELINE_PATH = ROOT / "public_api_baseline.json"
 
-# Extra public packages a business module may import beyond core's public_api.
+# Extra public packages beyond core's public_api: those a business module may
+# import, and sandloom.sdk.drivers, which only a driver package may.
 EXTRA_MODULES = (
+    "sandloom.sdk.drivers",
     "sandloom.shared",
     "sandloom.shared.authz",
     "sandloom.shared.guards.auth",

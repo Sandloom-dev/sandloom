@@ -223,7 +223,7 @@ contract.
 | Code or error | When |
 | --- | --- |
 | [SANDLOOM-C003](../reference/error-codes.md#sandloom-c003) | `raw_client()` / `raw_backend()` in module code |
-| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global or an infra-internal module imported by a module |
+| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global, an infra-internal module or `sandloom.sdk.drivers` imported by a module |
 | [SANDLOOM-C005](../reference/error-codes.md#sandloom-c005) | a kernel handle (`.event_bus`, `.infra`, `.service_registry`, `request.app.state.core`) reached in module code |
 | [SANDLOOM-C024](../reference/error-codes.md#sandloom-c024) | a raw non-relational query outside `unscoped()` |
 | [SANDLOOM-B001](../reference/error-codes.md#sandloom-b001) | a required `CapabilityRequirement` that is unknown, unconfigured or missing a feature |

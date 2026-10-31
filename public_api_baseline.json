@@ -430,7 +430,7 @@
       "members": [
         "dedupe_key"
       ],
-      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "PlannedReads": {
       "kind": "callable",
@@ -3055,7 +3055,7 @@
       "members": [
         "dedupe_key"
       ],
-      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "NotifierProvider": {
       "kind": "class",
@@ -3618,7 +3618,7 @@
       "members": [
         "dedupe_key"
       ],
-      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "ShutdownTask": {
       "kind": "value"

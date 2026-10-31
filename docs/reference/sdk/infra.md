@@ -495,6 +495,7 @@ class Notification(
     body: str,
     data: Mapping[str, Any] = <factory>,
     dedupe_key: str | None = None,
+    body_fields: Mapping[str, str] = <factory>,
 ) -> None
 ```
 
@@ -504,6 +505,10 @@ A logical message: which `channel` to deliver on, the `recipient`
 address for that channel (an email, phone, device token, or user id for
 `inapp`), a short `subject` and `body`, plus structured `data` and an
 optional `dedupe_key` a driver may use to suppress duplicate sends.
+
+`body_fields` are the values the `body` was built from, so a driver can
+render its own template. They are as sensitive as the body (a secret link, a
+name): a driver never logs them, and `data` stays safe to record.
 
 ### `notifier`
 

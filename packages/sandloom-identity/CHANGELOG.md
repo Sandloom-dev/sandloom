@@ -7,6 +7,9 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- Fill `Notification.body_fields` on every email, so a notification driver can render
+  its own templates. Needs the `sandloom` release that adds the field.
+
 ## [0.7.0a4] — 2026-10-31
 
 - Align the framework dependency floor and package documentation with

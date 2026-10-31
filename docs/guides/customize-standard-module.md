@@ -19,7 +19,7 @@ this page that does the job.
 | Store more data about a user or an organization | [A module next to it](#2-a-module-next-to-it) |
 | React when a user registers or is deleted | [A consumer](#2-a-module-next-to-it) |
 | Add values to the access token | [A claims contributor](#add-values-to-the-access-token) |
-| Deliver or restyle its email | [A notification driver](#3-a-notification-driver) |
+| Deliver its email or use your own text | [A notification driver](#3-a-notification-driver) |
 
 ## 1. Configuration
 
@@ -97,16 +97,38 @@ Identity sends all mail through the `notification` capability, so a
 type in `notification.data["kind"]`: `email_verification`, `password_reset`,
 `registration_attempt` or `security_notice`.
 
-A driver can use `kind` to pick a sender or wrap the text in your layout. There is
-no template API: the subject and the plain-text body come from identity, and the
-secret link appears only inside the body. To reword a message, your driver must
-find the link in that text, which can break when identity changes its wording.
-Pin the identity version if you do this, and cover it with a test.
+A driver renders its own template from `kind` and `notification.body_fields`, the
+values identity built the plain-text body from:
+
+| `kind` | `body_fields` |
+| --- | --- |
+| `email_verification` | `verification_url`, `full_name` when known |
+| `password_reset` | `reset_url`, `full_name` when known |
+| `registration_attempt` | `sign_in_url`, `reset_url`, `full_name` when known |
+| `security_notice` | `message` |
+
+These values are as sensitive as the body: the links are secrets, so a driver never
+logs them. Fall back to `notification.body` for a `kind` it does not know, because a
+later identity version can add one. Replace the subject the same way.
+
+```python
+TEMPLATES = {"password_reset": "Hello! Choose a new password: {reset_url}"}
+
+
+async def send(self, notification: Notification) -> None:
+    template = TEMPLATES.get(notification.data.get("kind", ""))
+    body = (
+        template.format(**notification.body_fields)
+        if template
+        else notification.body
+    )
+    await self._deliver(notification.recipient, notification.subject, body)
+```
 
 ## What is not supported yet
 
-- **Changing a standard module's own tables, routes or message text.** There are
-  no extension points for these yet.
+- **Changing a standard module's own tables or routes.** There are no extension
+  points for these yet.
 - **Importing a standard module's code**, or patching it at runtime. An import
   fails [SANDLOOM-C001](../reference/error-codes.md#sandloom-c001). Internals may
   change in any release.

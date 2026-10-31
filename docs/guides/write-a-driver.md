@@ -25,9 +25,10 @@ not part of `sandloom.sdk.drivers` ([why](../concepts/capabilities-and-infrastru
 ## Prerequisites
 
 - An application created with `sandloom new`.
-- A separate package for the driver. A driver is not a module: `sandloom check`
-  does not apply to it, and it may import the backend's SDK, which a module may
-  not.
+- A separate package for the driver, outside `<app>/modules`. A driver is not a
+  module: `sandloom check` does not apply to it, and it may import the backend's SDK
+  and `sandloom.sdk.drivers`, which a module may not
+  ([SANDLOOM-C004](../reference/error-codes.md#sandloom-c004)).
 
 ## Steps
 
@@ -52,10 +53,12 @@ This complete driver appends notifications to a file:
   `InstanceConfig` (`capability`, `name`, `driver`, `options`) and returns the
   provider. A class whose constructor takes that config is a factory. It is
   called lazily, on first use: open no connection at import.
-- **`options`** holds the keys of the `INFRA` entry. When you override the
-  `default` instance it also holds the options of the built-in default, such as
-  the `SMTP_*` values for `notification`. Read the keys you need and ignore the
-  rest. Those values can include secrets, so never log `options`.
+- **`options`** holds the keys of the `INFRA` entry and nothing else: replacing a
+  driver leaves the previous driver's options, such as the `SMTP_*` values, behind.
+  Options can include secrets, so never log them.
+- **`Notification`** carries `body_fields`, the values its `body` was built from,
+  for a driver that renders its own template. They are as sensitive as the body:
+  never log them.
 - **`features()`** names what this driver really does. It must be a subset of
   the capability's features. A module that requires `features={"email"}` is
   refused at startup on a driver that does not advertise it.
@@ -149,17 +152,19 @@ A backend with no matching capability needs a contract of its own. Subclass
 ```python
 registry.register_capability(
     CapabilitySpec(
-        name="search",
+        name="vector_index",
         version="v1",
-        provider_contract=SearchProvider,
-        features=frozenset({"facets"}),
+        provider_contract=VectorIndexProvider,
+        features=frozenset({"filters"}),
         stability="experimental",
     )
 )
 ```
 
-A module then reaches it with `capability("search", "default")` from
-`sandloom.sdk.infra`.
+A module then reaches it with `capability("vector_index", "default")` from
+`sandloom.sdk.infra`. The names `search`, `document_store`, `graph_store`, `workflow`,
+`lock` and `secrets` are taken: the kernel already defines those experimental
+capabilities.
 
 ## Errors you may hit
 

@@ -12,6 +12,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
   packages.
 - `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
   is set.
+- `INFRA` no longer passes a default instance's options to a different driver.
+- Add `Notification.body_fields`, the values a notification's body was built from.
 
 ## [0.7.0a4] — 2026-10-31
 

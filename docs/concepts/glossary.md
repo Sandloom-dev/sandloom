@@ -40,7 +40,7 @@ Each term has one meaning across this documentation.
 | --- | --- |
 | **Capability** | A kind of infrastructure, named by what it does: `database`, `cache`, `objectstore`, `taskqueue`, `eventbus`, `notification`. [Capabilities](capabilities-and-infrastructure.md). |
 | **Provider contract** | The abstract class every driver of a capability implements, such as `NotifierProvider`. It is unrelated to a module [contract](contracts.md). |
-| **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration. [Write a driver](../guides/write-a-driver.md). |
+| **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration, and shipped as its own package, never inside a module. [Write a driver](../guides/write-a-driver.md). |
 | **Instance** | A named, configured driver, such as the `default` database and a second `analytics` one. Modules ask for an instance by name. |
 | **Backend** | The external system a driver connects to, such as PostgreSQL or Redis. |
 | **Feature** | An optional ability a driver advertises, such as `cas` for `cache`. A module can require one. |

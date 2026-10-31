@@ -21,6 +21,7 @@ from sandloom.core.archcheck.analyzers import (
     find_cross_module_imports,
     find_kernel_handle_access,
     find_kernel_internal_test_imports,
+    find_legacy_infra_imports,
     find_orm_leakage,
     find_schema_orm_imports,
     module_test_import_hits,
@@ -445,3 +446,10 @@ def test_parsed_ast_is_cached_per_file_version(tmp_path: Path) -> None:
     assert parse_file(sample) is first  # one parse per file per run
     sample.write_text("x = 22\n")  # a changed file is re-parsed
     assert parse_file(sample) is not first
+
+
+def test_a_business_module_cannot_import_the_driver_api(tmp_path: Path) -> None:
+    """A module knows infrastructure by name; only a driver package implements it."""
+    module = tmp_path / "services.py"
+    module.write_text("from sandloom.sdk.drivers import NotifierProvider\n")
+    assert find_legacy_infra_imports(module)

@@ -10,7 +10,13 @@ import pytest
 
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.registry import FeatureUnsupportedError
-from sandloom.sdk.drivers import InfraRegistry, InstanceConfig, Notification
+from sandloom.sdk.drivers import (
+    CapabilitySpec,
+    InfraProvider,
+    InfraRegistry,
+    InstanceConfig,
+    Notification,
+)
 
 SNIPPET = Path(__file__).resolve().parents[4] / "docs/snippets/drivers/file_notifier.py"
 
@@ -60,3 +66,34 @@ def test_a_feature_the_driver_lacks_is_refused(tmp_path: Path) -> None:
     registry = _registry(path=str(tmp_path / "mail.log"))
     with pytest.raises(FeatureUnsupportedError):
         registry.resolve("notification", features={"sms"})
+
+
+def test_a_capability_of_your_own_resolves_through_the_public_api() -> None:
+    class SearchProvider(InfraProvider):
+        capability = "search_index"
+
+    registry = InfraRegistry(
+        config={
+            "search_index": {
+                "default": InstanceConfig(
+                    capability="search_index", name="default", driver="memory"
+                )
+            }
+        }
+    )
+    registry.register_capability(
+        CapabilitySpec(
+            name="search_index",
+            version="v1",
+            provider_contract=SearchProvider,
+            stability="experimental",
+        )
+    )
+    registry.register_driver(
+        "search_index",
+        "memory",
+        lambda config: SearchProvider(
+            name=config.name, driver=config.driver, options=config.options
+        ),
+    )
+    assert isinstance(registry.provider("search_index"), SearchProvider)

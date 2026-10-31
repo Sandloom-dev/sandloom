@@ -38,7 +38,6 @@ public_api:
   - sandloom.sdk.authz
   - sandloom.sdk.contracts
   - sandloom.sdk.data
-  - sandloom.sdk.drivers
   - sandloom.sdk.effects
   - sandloom.sdk.errors
   - sandloom.sdk.events

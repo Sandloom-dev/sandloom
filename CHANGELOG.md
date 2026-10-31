@@ -29,6 +29,14 @@ website renders this same changelog.
 - `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
   is set. Following the quickstart's port note failed with `Connection refused`
   before the services were started.
+- `INFRA` no longer passes a default instance's options to a different driver.
+  Selecting a plugin driver handed it the `SMTP_*` values, including the password.
+
+### Added
+
+- `Notification.body_fields`: the values a notification's body was built from, as
+  sensitive as the body. Identity's mail fills them, so a notification driver can
+  render its own templates by `data["kind"]` without parsing the text.
 
 ### Security
 
