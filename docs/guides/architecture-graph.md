@@ -51,9 +51,12 @@ Use `module:NAME` for a module named `impact`, `diff`, `sequence` or `state`;
 JSON includes the module list with stable IDs and recorded summaries.
 
 HTML provides
-module search across entities (with hints for matches hidden by another layer
-or filters), semantic layers, directed neighborhoods, zoom/pan/fit, a persistent
-inspector and equivalent entity/relationship lists.
+search results across all layers (opening an entity also selects its layer), semantic layers, directed neighborhoods, zoom/pan/fit, a persistent
+inspector and equivalent entity/relationship lists. Disconnected modules are placed
+separately; arrows route around unrelated blocks. Large graphs open at readable
+scale inside a scrollable canvas. Fit-all is explicit and can require zooming
+back in to read labels. Module purposes appear on blocks and in the inspector;
+route counts open recorded routes and their framework lifecycles.
 
 ## What an arrow means
 
@@ -70,7 +73,9 @@ inspector and equivalent entity/relationship lists.
 The overview derives caller → provider and producer → consumer-owner relations,
 retaining the raw contract/channel witness edges. A hop crosses one such module
 relation. `--direction incoming|outgoing|both` controls expansion (default: both). Shared capabilities or DTO
-imports do not invent cross-module calls. Missing providers and optional contracts
+imports do not invent cross-module calls. In the interface/infrastructure layers,
+a module filter shows only that owner's declarations; direction and distance
+controls apply to the module-relationship layer. Missing providers and optional contracts
 remain explicit. Available authoring metadata is not evidence of deployed services.
 
 Required contracts, optional contracts, ordering and event-impact cycles are

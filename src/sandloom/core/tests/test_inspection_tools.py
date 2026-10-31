@@ -2322,3 +2322,37 @@ def test_project_text_pluralization_and_docstring_markup(
     assert rc == 0 and "Handles `notes` with `db()`." in text and "``" not in text
     rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
     assert rc == 0 and "Handles ``notes`` with `db()`." in text
+
+
+def test_viewer_uses_full_scoped_module_cards_and_readable_freshness(
+    project: SimpleNamespace,
+) -> None:
+    path = project.root / INDEX
+    document = json.loads(path.read_text())
+    module = next(m for m in document["modules"] if m["id"] == "module:notes")
+    module["routes"] = [
+        {
+            "method": "GET",
+            "path": "/notes",
+            "name": "list_notes",
+            "auth": "authenticated",
+        }
+    ]
+    path.write_text(encode(document))
+    (project.root / RECEIPT).unlink()
+    reader = Reader(project.root)
+    compact = graph.build(
+        reader,
+        selector="notes",
+        hops=0,
+        discovery=False,
+        detail="compact",
+        require=False,
+    )
+    assert "routes" not in compact["data"]["modules"][0]
+    payload = _embedded_viewer(graph.viewer(compact, reader))
+    assert payload["presentation"]["freshness"] == "not verified on this checkout"
+    cards = payload["workspace"]["modules"]
+    assert len(cards) == 1 and cards[0]["id"] == "module:notes"
+    assert cards[0]["routes"] == module["routes"]
+    assert cards[0]["summary"] == "Notes purpose."

@@ -319,3 +319,46 @@ Same-workspace default output decreased from 131,058 to 7,908 UTF-8 bytes; conta
 interface focus is 1,301 bytes. This measures byte size, not comprehension or task
 success. Canary regressions verify that even full/focused formats do not deliver
 implementation, instruction or generated-DTO bodies. Paid agent DX stays deferred.
+
+
+## Viewer correctness review: obstacle routing and readable scope
+
+The Helpdesk review identified a semantic failure: a long arrow crossed an
+unrelated module rectangle and implied a fictitious intermediary. The actual
+module projection remains exactly tickets → billing, tickets → tenancy and
+billing → tenancy; identity has no declared links in this composition.
+A test of the original SVG renderer reproduced `tickets → billing crosses
+unrelated identity` before any repair.
+
+The repair separates disconnected components, keeps each rank in a vertical
+column and routes orthogonal paths around node rectangles. Endpoint ports are
+spread and shared collinear segments carry a cost. No unvalidated straight
+shortcut is drawn if routing fails. This follows the separation of node layout
+and obstacle-aware routing described by [yWorks](https://www.yworks.com/pages/drawing-orthogonal-diagrams.html);
+the implementation is local, with no new runtime library or external service.
+A Node test exercises the actual SVG-rendering functions and checks every path
+against non-endpoint rectangles on Helpdesk, all six stored compositions and
+seeded cyclic/self-loop/parallel/disconnected fixtures.
+
+Large graphs start at readable scale; scrolling is contained in the diagram.
+Fit-all remains an explicit action, with a warning when labels need zoom.
+The surrounding controls/text reflow on mobile. [W3C Reflow guidance](https://www.w3.org/WAI/WCAG21/Understanding/reflow)
+distinguishes diagrams requiring two-dimensional layout from the surrounding UI;
+this is design guidance, not an accessibility-conformance claim.
+
+Secondary filters move behind disclosure; module selection stays on the first
+row. Interface/infrastructure module filters select the owner rather than
+expanding every neighbor's interfaces; direction/distance controls apply to
+module relationships. Module purposes appear in blocks, entity lists and the
+inspector. Route counts open the recorded route list and declared lifecycle.
+Full module metadata is carried only for the HTML's selected export scope.
+Impact names the selected interface and its witnesses. Diff names added/removed
+methods and concrete changed declaration fields, independently of whether the
+change is backward-compatible. Route lifecycles use wrapped vertical steps;
+the existing saga forward/compensation/state representations remain available.
+
+Browser scenarios at 1440×900 and 375×812 confirm three rendered Helpdesk edges,
+an isolated identity, a scoped Tickets interface view (6 entities/5 links),
+visible method-level diff and impact witnesses, and an unclipped route diagram.
+Canvas top: about 328px desktop and 419px mobile. No page-level horizontal
+overflow was observed. These are scenario checks, not a participant usability study.

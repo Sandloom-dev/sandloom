@@ -11,7 +11,7 @@ const processMap = new Map(processes.map(p => [p.id, p]));
 const labels = {required_contract:'Calls contract · required', optional_contract:'Calls contract · optional', event_impact:'May deliver event', ordering:'Declares load ordering', provides_contract:'Provides contract', requires_contract:'Requires contract', produces_event:'Publishes event', consumes_event:'Delivers to consumer', owns_consumer:'Owns consumer', projects_event:'Feeds projection', owns_projection:'Owns projection', requires_capability:'Requires infrastructure'};
 const kinds = {module:'Business module', contract:'Public contract', event:'Versioned event', consumer:'Event consumer', projection:'Projection', capability:'Infrastructure requirement'};
 const ns = 'http://www.w3.org/2000/svg';
-let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [], viewbox = [0,0,900,460];
+let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [];
 let feedbackTimer;
 function el(tag, text, className) { const e = document.createElement(tag); if(text !== undefined) e.textContent = text; if(className) e.className = className; return e; }
 function svgEl(tag, attrs = {}, text) { const e = document.createElementNS(ns,tag); for(const [k,v] of Object.entries(attrs)) e.setAttribute(k,String(v)); if(text !== undefined) e.textContent = text; return e; }
@@ -67,7 +67,7 @@ function syncSelection() {
   }
 }
 function impactRecord(item) {
-  return {...item,id:'impact:'+item.module_id,name:name(item.module_id),owner:item.module_id,notes:[envelope.data.meaning]};
+  return {...item,id:'impact:'+item.module_id,name:name(item.module_id),owner:item.module_id};
 }
 function resolveSelection(id,hint) {
   const kind=hint||(currentView==='changes'&&envelope.kind==='diff'?'change':currentView==='changes'&&envelope.kind==='impact'?'impact':'entity');
@@ -89,6 +89,41 @@ function resolveSelection(id,hint) {
   const item=nodes.get(id)||edges.get(id)||relations.find(r=>r.id===id)||processMap.get(id)?.declaration;
   return item?{item,kind}:null;
 }
+function declarationChanges(change) {
+  const lines=[],left=change.before,right=change.after;
+  const before=left?.interface?.methods||{},after=right?.interface?.methods||{};
+  for(const method of Object.keys(after).sort())if(!(method in before))lines.push('Added method: '+method);
+  for(const method of Object.keys(before).sort())if(!(method in after))lines.push('Removed method: '+method);
+  function walk(a,b,path) {
+    if(JSON.stringify(a)===JSON.stringify(b))return;
+    if(a&&b&&typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)) {
+      for(const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort()) {
+        if(path==='interface.methods'&&(!(key in a)||!(key in b)))continue;
+        walk(a[key],b[key],path?path+'.'+key:key);
+      }
+    } else {
+      const value=x=>x===undefined?'absent':JSON.stringify(x);
+      lines.push((a===undefined?'Added ':b===undefined?'Removed ':'Changed ')+path+': '+value(a)+' → '+value(b));
+    }
+  }
+  if(left&&right)walk(left,right,'');
+  else lines.push(change.change==='added'?'Declaration added.':'Declaration removed.');
+  return lines;
+}
+function impactEvidence(item) {
+  const direct=(item.seed_witnesses||[]).map(e=>human(e.kind)+': '+[e.source,e.target].filter(id=>['contract','event'].includes(nodes.get(id)?.kind)).map(name).join(', '));
+  const indirect=(item.witness_path||[]).map(r=>'Declared link: '+name(r.source)+' → '+name(r.target)+(witnessDescription(r)?' · '+witnessDescription(r):''));
+  return [...new Set([...direct,...indirect])];
+}
+function routeDetails(module) {
+  const details=el('details'),summary=el('summary',(module.routes?.length||0)+' HTTP routes');details.append(summary);
+  for(const route of module.routes||[]) {
+    const title=route.method+' '+route.path,process=processes.find(p=>p.owner===module.id&&p.declaration?.name===title);
+    if(process)details.append(button(title,()=>{$('process').value=process.id;$('process-view').value='sequence';selectView('sequence');$('workspace').scrollIntoView({block:'start'});}));
+    else details.append(el('p',title+' · '+(route.auth==='public'?'Public':route.auth==='authenticated'?'Authenticated':'Policy unavailable')));
+  }
+  return details;
+}
 function inspection(item, kind='entity') {
   selectedId=item.id || ''; selectedKind=kind; const target=$('inspector-content'); target.replaceChildren();
   const title=item.name || item.label || (item.source && item.target ? `${name(item.source)} → ${name(item.target)}` : item.label || item.id || 'Selection');
@@ -102,7 +137,15 @@ function inspection(item, kind='entity') {
   if(item.required !== undefined) fact(list,'Required',item.required ? 'Yes' : 'Optional; caller must handle absence');
   if(item.owner) fact(list,'Owner',name(item.owner));
   for(const [key,label] of [['condition','Condition'],['call','Call'],['transaction','Unit boundary'],['durable','Durable consumer'],['group','Consumer group'],['reason','Declaration reason']]) fact(list,label,item[key]);
-  const module=cards.get(item.id); if(module) { fact(list,'Package',module.import_path); fact(list,'Database chain',module.chain); fact(list,'Models',module.models?.length??module.model_count); fact(list,'Routes',module.routes?.length??module.route_count); }
+  const module=cards.get(item.id);let routes;
+  if(module) {
+    if(module.summary)target.append(el('p',module.summary.replaceAll('``',''),'module-purpose'));
+    fact(list,'Package',module.import_path);
+    const chain=module.chain&&typeof module.chain==='object'?Object.fromEntries(Object.entries(module.chain).filter(([,v])=>v!==null)):module.chain;
+    if(chain&&(typeof chain!=='object'||Object.keys(chain).length))fact(list,'Database chain',chain);
+    fact(list,'Tables',module.models?.length??module.model_count);
+    if(module.routes?.length){routes=routeDetails(module);const dd=el('dd');dd.append(button(module.routes.length+' HTTP routes',()=>{routes.open=true;routes.scrollIntoView({block:'nearest'});}));list.append(el('dt','Routes'),dd);}
+  }
   const ownerIds=owners(item); for(const owner of ownerIds) {
     const evidence=data.evidence?.[owner]; fact(list,'Source · '+name(owner),evidence?.source_root || 'Installed distribution; local implementation unavailable');
     if(evidence?.distributions && Object.keys(evidence.distributions).length) fact(list,'Installed distributions',evidence.distributions);
@@ -110,8 +153,8 @@ function inspection(item, kind='entity') {
   if(kind==='step') fact(list,'Step kind',item.kind);
   if(item.seed_witnesses){fact(list,'Impact scope',item.scope);fact(list,'Seed module',name(item.seed_module_id));fact(list,'Direct witnesses',item.seed_witnesses.map(e=>human(e.kind)+': '+name(e.source)+' → '+name(e.target)).join('; '));fact(list,'Transitive path',(item.witness_path||[]).map(r=>name(r.source)+' → '+name(r.target)+' · '+human(r.kind)).join('; ')||'Direct interface / owner');}
   fact(list,'Evidence',item.evidence_kind || (kind==='step'?'Declared sequence / conditional framework phase':'Registered authoring declaration'));
-  target.append(list);
-  if(kind==='change') { const c=item.compatibility || {}; target.append(el('h3','Compatibility'),el('p',c.state || 'Not assessed')); for(const reason of c.reasons || []) target.append(el('p',reason)); }
+  target.append(list);if(routes)target.append(routes);
+  if(kind==='change') { const changes=declarationChanges(item);target.append(el('h3','What changed'));const ul=el('ul',undefined,'change-facts');for(const line of changes.slice(0,50))ul.append(el('li',line));target.append(ul);if(changes.length>50)target.append(el('p',(changes.length-50)+' more differences in declaration evidence.')); const c=item.compatibility || {}; target.append(el('h3','Compatibility'),el('p',c.state || 'Not assessed')); for(const reason of c.reasons || []) target.append(el('p',reason)); }
   if(item.notes) for(const note of item.notes) target.append(el('p',note,'muted'));
   const interfaceId = witnesses.flatMap(w=>[w.source,w.target]).find(id=>['contract','event'].includes(nodes.get(id)?.kind));
   if(item.id && (nodes.has(item.id)||processMap.has(item.id)||item.parent_id||interfaceId)) {
@@ -166,7 +209,7 @@ function moduleScope() {
   return selected;
 }
 function layerModel() {
-  const selected=moduleScope(), layer=$('layer').value;
+  const layer=$('layer').value, selected=layer==='modules'||!$('focus').value?moduleScope():new Set([$('focus').value]);
   let links, candidates;
   if(layer==='modules') { candidates=modules.filter(n=>selected.has(n.id)); links=relations.filter(r=>selected.has(r.source)&&selected.has(r.target)); }
   else {
@@ -177,7 +220,7 @@ function layerModel() {
   const filter=$('relation').value; if(filter) { links=links.filter(e=>e.kind===filter); const ids=new Set(links.flatMap(e=>[e.source,e.target])); candidates=candidates.filter(n=>ids.has(n.id)); }
   const query=$('query').value.trim().toLocaleLowerCase(); let matches=candidates.length;
   if(query) {
-    const matched=new Set(candidates.filter(n=>(n.name+' '+n.id).toLocaleLowerCase().includes(query)).map(n=>n.id)); matches=matched.size;
+    const matched=new Set(candidates.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query)).map(n=>n.id)); matches=matched.size;
     links=links.filter(e=>matched.has(e.source)||matched.has(e.target));
     const ids=new Set([...matched,...links.flatMap(e=>[e.source,e.target])]); candidates=candidates.filter(n=>ids.has(n.id));
   }
@@ -185,21 +228,15 @@ function layerModel() {
 }
 function searchHints(model) {
   const target=$('search-hints');target.replaceChildren();target.hidden=true;
-  const query=$('query').value.trim().toLocaleLowerCase();if(!query||model.matches) return;
-  const groups=new Map();
-  for(const n of allNodes.filter(n=>(n.name+' '+n.id).toLocaleLowerCase().includes(query))) {
-    const layer=n.kind==='module'?'modules':n.kind==='capability'?'infrastructure':'interfaces';
-    groups.set(layer,(groups.get(layer)||0)+1);
-  }
-  if(!groups.size) return;
-  target.hidden=false;target.append(el('p','Matching entities exist elsewhere in this export. Your current layer or filters hide them.'));
-  for(const [layer,count] of groups) {
-    const label=[...$('layer').options].find(o=>o.value===layer).textContent;
-    target.append(button(`Show ${count} in ${label}`,()=>{
-      $('layer').value=layer;$('focus').value='';relationOptions();$('relation').value='';renderOverview();
-      $('query').focus({preventScroll:true});feedback('Searching the entire exported scope in '+label+'.');
-    }));
-  }
+  const query=$('query').value.trim().toLocaleLowerCase();if(!query)return;
+  const matches=allNodes.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query));
+  if(!matches.length)return;
+  target.hidden=false;target.append(el('p',matches.length+' matches across all layers'+(model.matches?'':'; outside current filters')+'.'));
+  for(const item of matches.slice(0,8))target.append(button((kinds[item.kind]||item.kind)+' · '+item.name,()=>{
+    $('layer').value=item.kind==='module'?'modules':item.kind==='capability'?'infrastructure':'interfaces';$('focus').value='';relationOptions();$('relation').value='';renderOverview();choose(item);
+    $('diagram').querySelector('[data-item="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+  }));
+  if(matches.length>8)target.append(el('p','Showing the first 8 results. Refine search to narrow the list.'));
 }
 function relationOptions() {
   const previous=$('relation').value, layer=$('layer').value;
@@ -209,12 +246,13 @@ function relationOptions() {
   if(kinds.has(previous)) $('relation').value=previous;
 }
 function renderOverview(fit=true) {
+  for(const id of ['direction','hops'])$(id).disabled=$('layer').value!=='modules';
   const model=layerModel(); visibleNodes=model.nodes; visibleLinks=model.links;
   $('canvas-title').textContent=$('layer').selectedOptions[0].textContent;
   $('counts').textContent=`${visibleNodes.length} visible entities · ${visibleLinks.length} relationships · ${model.matches} search matches · ${allNodes.length-visibleNodes.length} entities outside this view`;
   $('entity-count').textContent=visibleNodes.length; $('relation-count').textContent=visibleLinks.length;
   $('nodes').replaceChildren();
-  for(const n of visibleNodes) { const b=button(n.name,()=>choose(n)); b.dataset.selection=n.id; b.classList.toggle('selected',selectedId===n.id); b.append(el('span',kinds[n.kind]||n.kind)); $('nodes').append(b); }
+  for(const n of visibleNodes) { const b=button(n.name,()=>choose(n)); b.dataset.selection=n.id; b.classList.toggle('selected',selectedId===n.id); b.append(el('span',kinds[n.kind]||n.kind)); if(cards.get(n.id)?.summary)b.append(el('span',cards.get(n.id).summary,'module-purpose')); $('nodes').append(b); }
   if(!visibleNodes.length) $('nodes').append(el('p','No entities match these filters.','empty'));
   $('rows').replaceChildren();
   for(const r of visibleLinks) { const b=button(`${name(r.source)} → ${name(r.target)}`,()=>choose(r,'relationship')); b.dataset.selection=r.id; b.classList.toggle('selected',selectedId===r.id); b.append(el('span',human(r.kind)+(witnessDescription(r)?' · '+witnessDescription(r):''))); $('rows').append(b); }
@@ -223,78 +261,48 @@ function renderOverview(fit=true) {
   $('selection-state').hidden=!outside; $('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
   searchHints(model);syncSelection();drawDiagram(fit); stateURL();
 }
-// Condense strongly connected components before assigning DAG ranks.
-function positions(items,links) {
-  const ids=items.map(n=>n.id).sort(), adjacent=new Map(ids.map(id=>[id,[]])), reverse=new Map(ids.map(id=>[id,[]]));
-  for(const r of links) if(adjacent.has(r.source)&&adjacent.has(r.target)) { adjacent.get(r.source).push(r.target); reverse.get(r.target).push(r.source); }
-  const visited=new Set(), finish=[];
-  for(const id of ids) {
-    if(visited.has(id)) continue; const stack=[[id,false]];
-    while(stack.length) { const [at,exit]=stack.pop(); if(exit) { finish.push(at); continue; } if(visited.has(at)) continue; visited.add(at); stack.push([at,true]); for(const next of adjacent.get(at)) if(!visited.has(next)) stack.push([next,false]); }
-  }
-  const components=[], component=new Map();
-  for(const id of finish.reverse()) {
-    if(component.has(id)) continue; const group=[], queue=[id], index=components.length; component.set(id,index);
-    while(queue.length) { const at=queue.pop(); group.push(at); for(const next of reverse.get(at)) if(!component.has(next)) { component.set(next,index); queue.push(next); } }
-    components.push(group.sort());
-  }
-  const ranks=components.map(()=>0), outgoing=components.map(()=>new Set()), indegree=components.map(()=>0);
-  for(const r of links) { const a=component.get(r.source), b=component.get(r.target); if(a===undefined||b===undefined||a===b||outgoing[a].has(b)) continue; outgoing[a].add(b); indegree[b]++; }
-  const ready=indegree.map((n,i)=>n===0?i:-1).filter(i=>i>=0);
-  while(ready.length) { const a=ready.shift(); for(const b of outgoing[a]) { ranks[b]=Math.max(ranks[b],ranks[a]+1); if(--indegree[b]===0) ready.push(b); } }
-  const result=new Map(); let rankX=40;
-  for(const rank of [...new Set(ranks)].sort((a,b)=>a-b)) {
-    const groups=components.filter((_,i)=>ranks[i]===rank);
-    const blocks=groups.map(group=>{const cols=Math.ceil(Math.sqrt(group.length));return {group,cols,width:cols*260,height:Math.ceil(group.length/cols)*104};});
-    const shelfWidth=Math.max(520,...blocks.map(b=>b.width));let x=0,y=40,rowHeight=0;
-    for(const block of blocks) {
-      if(x+block.width>shelfWidth){x=0;y+=rowHeight+24;rowHeight=0;}
-      block.group.forEach((id,i)=>result.set(id,{x:rankX+x+(i%block.cols)*260,y:y+Math.floor(i/block.cols)*104}));
-      x+=block.width;rowHeight=Math.max(rowHeight,block.height);
-    }
-    rankX+=shelfWidth+80;
-  }
-  return result;
-}
 function marker(svg,id='arrow') { const defs=svgEl('defs'), mark=svgEl('marker',{id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'}); mark.append(svgEl('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'})); defs.append(mark); svg.append(defs); }
-function applyBox() { $('diagram').setAttribute('viewBox',viewbox.join(' ')); }
+let diagramBounds=[0,0,900,460],diagramScale=1;
+function applyBox() { const svg=$('diagram');svg.setAttribute('viewBox',diagramBounds.join(' '));svg.style.width=diagramBounds[2]*diagramScale+'px';svg.style.height=diagramBounds[3]*diagramScale+'px'; }
 function drawDiagram(fit=false) {
-  const svg=$('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks);
+  const svg=$('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks,cards);
   $('canvas-empty').hidden=visibleNodes.length>0; svg.hidden=!visibleNodes.length;
-  for(let i=0;i<visibleLinks.length;i++) {
-    const r=visibleLinks[i], a=at.get(r.source), b=at.get(r.target); if(!a||!b) continue;
-    const forward=b.x>a.x, ax=a.x+(forward?220:0), bx=b.x+(forward?0:220), ay=a.y+34, by=b.y+34;
-    const bend=Math.max(60,Math.abs(bx-ax)*.45)+(i%3)*9;
-    const d=a.x===b.x?`M ${a.x+220} ${ay} C ${a.x+280+(i%3)*14} ${ay}, ${b.x+280+(i%3)*14} ${by}, ${b.x+220} ${by}`:`M ${ax} ${ay} C ${ax+(forward?bend:-bend)} ${ay}, ${bx+(forward?-bend:bend)} ${by}, ${bx} ${by}`;
+  const routes=routedLinks(at,visibleLinks);
+  for(const {link:r,points,d} of routes) {
+    const [ax,ay]=points[0],[bx,by]=points.at(-1);
     const type=r.kind.includes('event')?' event':r.kind.includes('optional')||r.kind==='ordering'||r.required===false?' optional':'';
     const path=svgEl('path',{d,class:'edge'+type+(selectedId===r.id?' selected':''),'marker-end':'url(#arrow)'});
+    svg.append(svgEl('path',{d,class:'edge-halo'}));
     path.append(svgEl('title',{},`${name(r.source)} → ${name(r.target)}: ${human(r.kind)}`)); svg.append(path);
     const hit=svgEl('path',{d,class:'edge-hit',tabindex:0,role:'button','data-item':r.id,'aria-label':`${name(r.source)} to ${name(r.target)}: ${human(r.kind)}`}); hit.onclick=()=>choose(r,'relationship'); hit.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();choose(r,'relationship');}}; svg.append(hit);
-    if(selectedId===r.id) svg.append(svgEl('text',{x:(ax+bx)/2,y:(ay+by)/2-10,class:'edge-label','text-anchor':'middle'},human(r.kind)));
+
   }
   for(const n of visibleNodes) {
     const p=at.get(n.id), group=svgEl('g',{class:'node'+(selectedId===n.id?' selected':''),tabindex:0,role:'button','data-item':n.id,'aria-label':`${kinds[n.kind]||n.kind}: ${n.name}`});
-    group.append(svgEl('title',{},n.name),svgEl('rect',{x:p.x,y:p.y,width:220,height:68,rx:8}));
-    group.append(svgEl('text',{x:p.x+14,y:p.y+22,class:'kind'},kinds[n.kind]||n.kind));
-    group.append(svgEl('text',{x:p.x+14,y:p.y+45},n.name.length>25?n.name.slice(0,24)+'…':n.name));
+    group.append(svgEl('title',{},n.name),svgEl('rect',{x:p.x,y:p.y,width:p.width,height:p.height,rx:8}));
+    group.append(svgEl('text',{x:p.x+14,y:p.y+22,class:'kind'},(kinds[n.kind]||n.kind)+(p.isolated?' · no links in view':'')));
+    p.title.forEach((line,i)=>group.append(svgEl('text',{x:p.x+14,y:p.y+45+i*18},line)));
+    p.purpose.forEach((line,i)=>group.append(svgEl('text',{x:p.x+14,y:p.y+48+p.title.length*18+i*15,class:'purpose'},line)));
     group.onclick=()=>choose(n); group.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();choose(n);}}; svg.append(group);
   }
-  if(fit) {
-    const width=Math.max(500,...[...at.values()].map(p=>p.x+300)), height=Math.max(250,...[...at.values()].map(p=>p.y+110));
-    viewbox=[0,0,width,height];
-  }
+  const allPoints=[...at.values()].flatMap(p=>[[p.x,p.y],[p.x+p.width,p.y+p.height]]).concat(routes.flatMap(r=>r.points));
+  const xs=allPoints.map(p=>p[0]),ys=allPoints.map(p=>p[1]);
+  diagramBounds=[Math.min(0,...xs)-20,Math.min(0,...ys)-20,Math.max(500,...xs)+40,Math.max(250,...ys)+40];
+  diagramBounds[2]-=diagramBounds[0];diagramBounds[3]-=diagramBounds[1];
+  if(fit) {const canvas=$('canvas');diagramScale=Math.max(.9,Math.min(1,(canvas.clientWidth||900)/diagramBounds[2],(canvas.clientHeight||460)/diagramBounds[3]));canvas.scrollLeft=0;canvas.scrollTop=0;}
   applyBox();
   if(restoreFocus) [...svg.querySelectorAll('[data-item]')].find(n=>n.getAttribute('data-item')===restoreFocus)?.focus({preventScroll:true});
 }
-function zoom(factor) { const [x,y,w,h]=viewbox; viewbox=[x+w*(1-factor)/2,y+h*(1-factor)/2,w*factor,h*factor]; if(viewbox[2]<120||viewbox[2]>20000) {viewbox=[x,y,w,h];return;} applyBox(); }
-$('zoom-in').onclick=()=>zoom(.8); $('zoom-out').onclick=()=>zoom(1.25); $('fit').onclick=()=>drawDiagram(true);
-for(const [id,dx,dy] of [['pan-left',-.2,0],['pan-right',.2,0],['pan-up',0,-.2],['pan-down',0,.2]]) $(id).onclick=()=>{viewbox[0]+=viewbox[2]*dx;viewbox[1]+=viewbox[3]*dy;applyBox();};
+function zoom(factor) {diagramScale=Math.max(.15,Math.min(3,diagramScale/factor));applyBox();}
+$('zoom-in').onclick=()=>zoom(.8);$('zoom-out').onclick=()=>zoom(1.25);
+$('fit').onclick=()=>{const canvas=$('canvas');diagramScale=Math.min(1,canvas.clientWidth/diagramBounds[2],canvas.clientHeight/diagramBounds[3]);applyBox();canvas.scrollLeft=0;canvas.scrollTop=0;if(diagramScale<.75)feedback('Entire graph fitted. Zoom in or select a module to read labels.');};
+for(const [id,dx,dy] of [['pan-left',-.2,0],['pan-right',.2,0],['pan-up',0,-.2],['pan-down',0,.2]]) $(id).onclick=()=>{const canvas=$('canvas');canvas.scrollLeft+=dx*canvas.clientWidth;canvas.scrollTop+=dy*canvas.clientHeight;};
 let drag;
-$('diagram').onpointerdown=e=>{if(e.target.closest('[role=button]')) return; drag={x:e.clientX,y:e.clientY,box:[...viewbox]}; $('diagram').setPointerCapture(e.pointerId); $('diagram').classList.add('dragging');};
-$('diagram').onpointermove=e=>{if(!drag)return;const rect=$('diagram').getBoundingClientRect();const scale=Math.max(drag.box[2]/rect.width,drag.box[3]/rect.height);viewbox=[drag.box[0]-(e.clientX-drag.x)*scale,drag.box[1]-(e.clientY-drag.y)*scale,drag.box[2],drag.box[3]];applyBox();};
-for(const event of ['pointerup','pointercancel','lostpointercapture']) $('diagram').addEventListener(event,()=>{drag=null;$('diagram').classList.remove('dragging');});
+$('diagram').onpointerdown=e=>{if(e.target.closest('[role=button]'))return;const c=$('canvas');drag={x:e.clientX,y:e.clientY,left:c.scrollLeft,top:c.scrollTop};$('diagram').setPointerCapture(e.pointerId);$('diagram').classList.add('dragging');};
+$('diagram').onpointermove=e=>{if(!drag)return;const c=$('canvas');c.scrollLeft=drag.left+drag.x-e.clientX;c.scrollTop=drag.top+drag.y-e.clientY;};
+for(const event of ['pointerup','pointercancel','lostpointercapture'])$('diagram').addEventListener(event,()=>{drag=null;$('diagram').classList.remove('dragging');});
 function drawProcess() {
-  const process=processMap.get($('process').value), svg=$('sequence-diagram'); svg.replaceChildren(); $('steps').replaceChildren(); $('process-notes').replaceChildren();
+  const process=processMap.get($('process').value), svg=$('sequence-diagram'); svg.classList.remove('route-flow');svg.replaceChildren(); $('steps').replaceChildren(); $('process-notes').replaceChildren();
   if(!process) { $('process-summary').textContent=processes.length?'Choose a process. Each sequence has an equivalent numbered step list.':'No recorded processes. Regenerate the authoring index to collect saga and route declarations.'; $('process-notes').textContent='Module edges cannot supply business chronology. No observed attempt is recorded in this export.'; return; }
   const state=$('process-view').value==='state';
   if(state&&!process.id.startsWith('saga:')) { $('process-summary').textContent='State view applies to sagas. Choose a saga or switch to Sequence.'; return; }
@@ -317,12 +325,29 @@ function drawProcess() {
     const item={...message,id:process.id+'#'+$('process-view').value+'-step-'+i,owner:process.owner,parent_id:process.id};
     const bttn=button(`${i+1}. ${message.label}`,()=>inspection(item,'step')); bttn.className='step-button'; bttn.dataset.selection=item.id; bttn.append(el('span',`${name(message.source)} → ${name(message.target)} · ${message.kind?message.kind+' · ':''}${message.condition||'declared step'}`)); $('steps').append(bttn);
   });
-  if(state) drawStates(svg,transitions);
+  if(state)drawStates(svg,transitions);else if(!process.id.startsWith('saga:'))drawRoute(svg,messages,process);
   if(!messages.length) $('steps').append(el('p','No declared compensation callbacks. This does not imply rollback across provider commits.','notice'));
   syncSelection();
   $('steps-title').textContent=state?'Conditional state transitions':compensation?'Compensation alternatives · reverse completed steps':'Forward steps';
   for(const note of process.notes) $('process-notes').append(el('p',note));
   const a=el('a','Lifecycle documentation'); a.href=process.docs; $('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph',state?'state':'sequence',process.id,'--format','mermaid'].map(shell).join(' '))));
+}
+function drawRoute(svg,messages,process) {
+  svg.replaceChildren();marker(svg,'route-arrow');svg.classList.add('route-flow');
+  const width=Math.max(280,Math.min(900,svg.parentElement.clientWidth||700)),limit=Math.max(20,Math.floor((width-64)/7));
+  let y=20;svg.append(svgEl('title',{},process.name));
+  messages.forEach((message,i)=>{
+    const title=wrapText(`${i+1}. ${name(message.source)} → ${name(message.target)}`,limit),label=wrapText(message.label,limit),condition=wrapText(message.condition||'',limit);
+    const height=28+title.length*17+label.length*18+condition.length*16;
+    const group=svgEl('g');group.append(svgEl('rect',{x:16,y,width:width-32,height,rx:8}));
+    let lineY=y+22;for(const line of title){group.append(svgEl('text',{x:30,y:lineY,class:'route-condition'},line));lineY+=17;}
+    for(const line of label){group.append(svgEl('text',{x:30,y:lineY+3,class:'route-label'},line));lineY+=18;}
+    for(const line of condition){group.append(svgEl('text',{x:30,y:lineY+6,class:'route-condition'},line));lineY+=16;}
+    svg.append(group);y+=height;
+    if(i<messages.length-1)svg.append(svgEl('path',{d:`M ${width/2} ${y} V ${y+26}`,class:'message','marker-end':'url(#route-arrow)'}));
+    y+=30;
+  });
+  svg.setAttribute('viewBox',`0 0 ${width} ${y}`);svg.style.width='100%';svg.style.height=y+'px';
 }
 function drawStates(svg,transitions) {
   svg.replaceChildren(); marker(svg,'state-arrow'); svg.setAttribute('viewBox','0 0 720 640');svg.style.width='720px';svg.style.height='640px';
@@ -344,11 +369,11 @@ function drawChanges() {
   $('changes').replaceChildren();
   if(report) {
     $('changes-summary').textContent=`${report.counts.added} added · ${report.counts.removed} removed · ${report.counts.changed} changed. ${report.meaning}. Before: ${report.basis.before}`;
-    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.dataset.selection=c.id;b.append(el('span','Compatibility: '+c.compatibility.state)); $('changes').append(b); }
+    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.dataset.selection=c.id;b.append(el('span','Compatibility: '+c.compatibility.state));const changes=declarationChanges(c);for(const line of changes.slice(0,3))b.append(el('span',line));if(changes.length>3)b.append(el('span',(changes.length-3)+' more differences · select to inspect'));  $('changes').append(b); }
     if(!report.changes.length) $('changes').append(el('p','No declared semantic changes. Implementation changes are outside this comparison.','notice'));
   } else if(impact) {
-    $('changes-title').textContent='Potential impact'; $('changes-summary').textContent=impact.meaning;
-    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
+    $('changes-title').textContent='Potential impact · '+(impact.item.name||impact.item.id); $('changes-summary').textContent=impact.meaning.replace(/^Potential impact: /,'');
+    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;for(const evidence of impactEvidence(item))b.append(el('span',evidence));b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
   } else {
     $('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
     $('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph diff architecture-before.json --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
@@ -356,14 +381,14 @@ function drawChanges() {
 }
 function save(text,type,filename) { const url=URL.createObjectURL(new Blob([text],{type})), a=el('a'); a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
 $('download').onclick=()=>save(json(envelope),'application/json','sandloom-architecture.json');
-$('save-svg').onclick=()=>{ const svg=$('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
+$('save-svg').onclick=()=>{ const svg=$('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); svg.style.width='';svg.style.height='';svg.setAttribute('width',diagramBounds[2]);svg.setAttribute('height',diagramBounds[3]); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); svg.style.color=css.getPropertyValue('--text');for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
 $('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
 $('inspect-selection').onclick=()=>{$('inspector').scrollIntoView({block:'start'});const h=$('inspector-content').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}};
 $('clear-selection').onclick=()=>{$('inspect-selection').hidden=true;selectedId='';selectedKind='entity';$('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
 for(const module of modules) { const o=el('option',module.name);o.value=module.id;$('focus').append(o); }
 for(const process of processes) { const o=el('option',(process.id.startsWith('saga:')?'Saga · ':'Route · ')+process.name+' · '+name(process.owner));o.value=process.id;$('process').append(o); }
-$('status').textContent='Freshness: '+(envelope.freshness?.state||'unknown');
-$('scope').textContent=(data.scope?.kind||'saved model')+' · '+modules.length+' modules · '+(data.hidden?.nodes||0)+' nodes outside export';
+$('status').textContent='Freshness: '+(envelope.presentation?.freshness||envelope.freshness?.state||'unavailable');
+$('scope').textContent=(data.scope?.kind==='authoring_composition'?'Authoring model':'Saved model')+' · '+modules.length+' modules'+(data.hidden?.nodes?' · '+data.hidden.nodes+' entities outside export':'');
 const limits=[...(data.cycles||[]).map(c=>'Declared '+human(c.kind)+' cycle: '+c.module_ids.map(name).join(' ↔ ')+'. Not proof of deadlock.'),...(data.unresolved||[]).map(u=>`${name(u.module_id)}: ${u.related_id} not in this composition (${u.required?'required':'optional'}).`)];
 $('uncertainty-title').textContent=`Model limits · ${limits.length} cycle / unresolved declarations`;
 $('uncertainty').append(el('p','This graph records an authoring composition. Deployment bindings, runtime availability, method call order and delivery outcomes are not inferred.'));
@@ -388,3 +413,5 @@ if(initialSelected) {
   } else feedback('The saved selection is unavailable in this export.');
 }
 stateURL();
+
+window.addEventListener('resize',()=>{if(currentView==='sequence'&&!$('process').value.startsWith('saga:'))drawProcess();});

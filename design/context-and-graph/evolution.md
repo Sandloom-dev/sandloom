@@ -395,3 +395,47 @@ encoded IDs retained in JSON, zero/one/multiple counts and preserved raw docstri
 | tutorial | 2 | 237 | 118.5 |
 
 Measured complete default stdout, including header and freshness; no byte truncation.
+
+
+## Correctness of the browser diagram
+
+The original SVG renderer was red-capable through `node --test
+tools/inspection/test_viewer.mjs`: Helpdesk reproduced `tickets → billing
+crosses unrelated identity`. The semantic CLI model was already correct. The
+renderer put multiple rank-zero modules on one horizontal shelf and drew long
+Bezier shortcuts without treating other modules as obstacles.
+
+The layout is now a separate offline asset: weak components are packed
+separately, SCC ranks use vertical columns, endpoint ports are ordered/spread
+and orthogonal candidates are checked against every unrelated node. Shared
+segments and crossings are penalized; no unchecked straight-line fallback is
+drawn. The Helpdesk triangle has three independently routed arrows and a
+separate identity. Geometry tests check actual SVG-renderer output, correct
+endpoints and foreign-rectangle intersections for all six compositions plus
+seeded cycles, parallel edges, self loops and disconnected modules.
+
+The canvas opens at readable scale with internal navigation; Fit-all is explicit.
+Secondary filters are disclosed, first-row module filters are kept visible and
+interface/infrastructure scope uses only the selected owner. Purpose text is
+visible in module blocks/lists/inspector. HTML uses full cards within the selected
+export scope so route counts open real route lists and their declared lifecycle.
+Null database fields stay out of the primary inspector. Human freshness comes
+from the shared formatter. Global search opens an entity across layers directly.
+
+Impact identifies the selected contract and its direct/transitive witnesses.
+Diff reports concrete declaration changes, including `Added method: topup` for
+the Academy baseline lacking that method, even when compatible. Route lifecycle
+diagrams wrap vertically to the panel width without ellipsis; saga sequence,
+compensation and state representations are retained.
+
+Validation at implementation time: 159 Python inspection cases and 7 Node
+regressions passed. Node regressions are enforced in the existing Node-equipped
+CI job; its new path trigger/step were reviewed against the local runner and the
+two workflow fingerprints updated. No new CI job or runtime dependency was added.
+Browser checks cover 1440×900 and 375×812, global search, owner-only filters,
+route navigation, method-level diff, impact witnesses, keyboard tabs, light theme,
+saga compensation and SVG export. Helpdesk has four module groups and three
+relationship paths in the downloaded SVG, with complete bounds and no scripts.
+The canvas begins around 328px desktop and 419px mobile; neither page overflows
+horizontally. Scenario checks are not an accessibility certification or user study.
+

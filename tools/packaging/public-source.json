@@ -2466,7 +2466,9 @@
         "src/sandloom/core/cli/inspection/terminal.py",
         "src/sandloom/core/cli/inspection/interfaces.py",
         "src/sandloom/core/cli/inspection/inventory.py",
-        "src/sandloom/core/cli/inspection/text.py"
+        "src/sandloom/core/cli/inspection/text.py",
+        "tools/inspection/test_viewer.mjs",
+        "src/sandloom/core/cli/inspection/viewer.layout.js"
       ]
     }
   ],

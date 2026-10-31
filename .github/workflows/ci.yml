@@ -90,6 +90,7 @@ jobs:
               - '.env.test'
               - '.github/workflows/ci.yml'
             admin:
+              - 'tools/inspection/**'
               - 'admin/**'
               - 'src/**'
               - 'pyproject.toml'
@@ -939,7 +940,9 @@ jobs:
     # The admin console's generated contracts are current: contracts/openapi.json
     # is what the backend serves and src/api/generated.ts is what
     # openapi-typescript makes of it (`npm run contracts:check`). admin.yml runs
-    # the whole console pipeline; this gate runs with the framework's PR gates
+    # the whole console pipeline; the same Node runner checks the standalone
+    # architecture viewer's geometry/report regressions without another CI job.
+    # This gate runs with the framework's PR gates
     # (and tools/ci/ci_local.sh), so a backend route change or an openapi.json
     # change without its regenerated generated.ts cannot merge.
     needs: changes
@@ -977,6 +980,10 @@ jobs:
 
       - name: Install the admin's dependencies
         run: npm ci --ignore-scripts
+
+      - name: Architecture viewer geometry and report regressions
+        working-directory: .
+        run: node --test tools/inspection/test_viewer.mjs
 
       - name: Generated contracts are current
         run: npm run contracts:check

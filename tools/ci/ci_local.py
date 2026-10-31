@@ -429,7 +429,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:docs": "2bfd2034c9234a2a",
     "ci.yml:workflow-policy": "7182f4643d709639",
-    "ci.yml:changes": "a5877e6f7686ac67",
+    "ci.yml:changes": "95e21b75fd59c982",
     "ci.yml:backend-static": "0a113b038dd0245d",
     "ci.yml:supply-chain": "e461aa1b6fdeadca",
     "ci.yml:backend-tests": "a24ea0500fc4bcb1",
@@ -442,7 +442,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:deploy-profiles": "f0c3c51f23604a21",
     "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
     "ci.yml:docker-build": "6d9cbd4057d87e24",
-    "ci.yml:admin-contracts": "52c8b6998210436f",
+    "ci.yml:admin-contracts": "9b7305c14b201ec3",
     "docs.yml:build": "27a1b2fda90627c1",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }

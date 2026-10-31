@@ -15,6 +15,11 @@ website renders this same changelog.
 
 ### Developer experience
 
+- Correct Explorer routing so arrows avoid unrelated blocks and disconnected
+  modules stay separate. Keep dense graphs readable, narrow owner filters, show
+  module purposes and route navigation, explain impact/diff witnesses and wrap
+  route lifecycles to the available width. Add SVG geometry regressions to CI.
+
 - Polish inspection text: shared freshness wording, singular counts, readable
   process names and inline docstring markup; remove next-step footers and
   duplicate impact headings while retaining structured JSON evidence.

@@ -8,6 +8,7 @@ from pathlib import Path
 from sandloom.core.cli.inspection import sequences
 from sandloom.core.cli.inspection.model import Doc, digest, encode, response
 from sandloom.core.cli.inspection.read import Reader
+from sandloom.core.cli.inspection.text import freshness_label
 
 
 def relations(document: Doc) -> list[Doc]:
@@ -265,22 +266,19 @@ def viewer(envelope: Doc, reader: Reader | None = None) -> str:
     if reader is not None:
         selected = set(envelope["selection"]["module_ids"])
         process_ids = {p["id"] for p in envelope["data"].get("processes", [])}
-        topology = (
-            envelope
-            if envelope["kind"] == "graph"
-            else build(
-                reader,
-                selector=None,
-                hops=1,
-                discovery=False,
-                detail="full",
-                require=False,
-                module_ids=selected,
-            )
+        topology = build(
+            reader,
+            selector=None,
+            hops=1,
+            discovery=False,
+            detail="full",
+            require=False,
+            module_ids=selected,
         )
         workspace = {
             **envelope,
             "workspace": topology["data"],
+            "freshness": topology["freshness"],
             "saga_states": sequences.states(),
             "sequences": [
                 sequences.project(p)
@@ -292,6 +290,12 @@ def viewer(envelope: Doc, reader: Reader | None = None) -> str:
                 )
             ],
         }
+    workspace = {
+        **workspace,
+        "presentation": {
+            "freshness": freshness_label(workspace["freshness"]["state"]),
+        },
+    }
     payload = (
         encode(workspace)
         .replace("<", "\\u003c")
@@ -304,6 +308,10 @@ def viewer(envelope: Doc, reader: Reader | None = None) -> str:
         template.replace(
             "__SANDLOOM_VIEWER_CSS__",
             Path(__file__).with_name("viewer.css").read_text(encoding="utf-8"),
+        )
+        .replace(
+            "__SANDLOOM_VIEWER_LAYOUT__",
+            Path(__file__).with_name("viewer.layout.js").read_text(encoding="utf-8"),
         )
         .replace(
             "__SANDLOOM_VIEWER_JS__",
