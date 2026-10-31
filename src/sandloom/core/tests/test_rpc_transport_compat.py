@@ -303,3 +303,38 @@ async def test_the_fallback_client_serves_calls(
         await rpc.close_rpc_client()
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_loopback_probe_uses_its_overall_deadline_for_connection_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import aiohttp
+
+    original = aiohttp.TCPConnector._create_connection
+    first = True
+
+    async def delayed(self: object, *args: object, **kwargs: object) -> object:
+        nonlocal first
+        if first:
+            first = False
+            await asyncio.sleep(2.1)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(aiohttp.TCPConnector, "_create_connection", delayed)
+    result = await rpc_transport_compat.full_probe()
+    assert result.ok, result.problems
+
+
+@pytest.mark.asyncio
+async def test_loopback_probe_still_fails_at_the_overall_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def blocked() -> list[str]:
+        await asyncio.Event().wait()
+        return []
+
+    monkeypatch.setattr(rpc_transport_compat, "_selftest_problems", blocked)
+    result = await rpc_transport_compat.full_probe(timeout=0.01)
+    assert not result.ok and result.reason == REASON_SELFTEST
+    assert "timed out" in result.problems[0]

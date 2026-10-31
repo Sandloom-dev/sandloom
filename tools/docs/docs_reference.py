@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import enum
-import importlib
 import inspect
 import json
 import re
@@ -678,7 +677,8 @@ def render_errors() -> str:
             if e.docs:
                 out += [f"**More:** `{e.docs}`", ""]
     out += [
-        "## Related reading", "",
+        "## Related reading",
+        "",
         "- [CLI reference](cli.md)",
         "- [Getting help](../getting-started/help.md)",
         "",

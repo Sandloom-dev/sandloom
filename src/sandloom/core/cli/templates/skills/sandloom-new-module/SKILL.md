@@ -55,3 +55,6 @@ description: Create a business module in this Sandloom app (sandloom add module,
    `routes.snapshot.json`, contract stubs and DTO copies in
    `<app>/shared/contracts/`, event schemas in `<app>/shared/events/`):
    review that diff, never edit them by hand. `sandloom test` only checks them.
+
+When extending an existing module or assessing its external impact, use
+`sandloom-module-context` to read scoped rules/interfaces and declared connections.

@@ -904,7 +904,8 @@ async def test_required_consumer_retries_transient_startup_failure() -> None:
     runtime = ConsumerRuntime(
         core,
         session_opener=_session_opener,
-        startup_timeout=0.1,
+        # Retry behavior needs scheduling room; the deadline has its own tests.
+        startup_timeout=5,
         retry_delay=0,
     )
 

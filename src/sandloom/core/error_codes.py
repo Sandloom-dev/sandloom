@@ -99,6 +99,22 @@ def _landed(
 
 
 CATALOGUE: tuple[ErrorCode, ...] = (
+    _entry(
+        "SANDLOOM-T015",
+        "inspection-inputs",
+        "test",
+        "module context or declared architecture inspection cannot use its inputs",
+        "read the diagnostic kind; select valid inputs, adjust the budget "
+        "or explicitly run sandloom generate",
+        "Context and graph read a generated index without booting the app. "
+        "Missing/changed layouts, unsupported schemas, unsafe files, "
+        "incomplete wire definitions or mandatory content over budget fail "
+        "without partial output. JSON clients use typed diagnostic kinds. "
+        "Exit 3 means strict source verification is unavailable. "
+        "Generation explicitly writes files; review its diff. "
+        "A verified source basis is not live topology.",
+        docs="docs/guides/module-context.md",
+    ),
     # ------------------------------------------------------------------ checks
     _entry(
         "SANDLOOM-C001",

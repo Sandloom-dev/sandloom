@@ -8,6 +8,23 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a4] — 2026-10-31
+
+- Add cold project graphs, compact complete module maps and the offline Explorer:
+  `sandloom graph`, `sandloom context MODULE` and `sandloom explore`.
+- Inspect declared saga/route sequences, saga states, interface impact and
+  file/Git architecture diffs, with stable JSON and readable text formats.
+- Record module purposes, contract signatures, money risk, interface references
+  and source navigation; ship the module-context agent skill.
+- Route diagram edges around unrelated blocks, separate disconnected modules,
+  preserve readable scale and explain concrete impact/diff changes.
+- Bound the RPC compatibility self-test with one overall startup deadline while
+  retaining guard detection and transport fallback.
+- Generate applications with the `0.7.0a4` dependency baseline.
+
+- Classify installed modules inside a project-local environment as external
+  providers so cold inspection preserves source ownership.
+
 ## [0.7.0a3]
 
 - Improve standalone CLI battery onboarding and link diagnostics to the exact

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A Sandloom application."
 requires-python = ">=3.11"
 dependencies = [
-    "sandloom[redis,celery]>=0.7.0a3,<0.8",
+    "sandloom[redis,celery]>=0.7.0a4,<0.8",
 ]
 
 [project.optional-dependencies]

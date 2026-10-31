@@ -55,6 +55,10 @@ system. AST-based architecture tests enforce that isolation in CI.
 
 </div>
 
+Use [module maps](guides/module-context.md) to inspect a module before editing;
+[the architecture explorer](guides/architecture-graph.md) shows declared connections,
+processes and interface impact.
+
 For agents, the short always-loaded map is the repository's `AGENTS.md`, and a
 machine-readable index of this site is <a href="llms.txt"><code>llms.txt</code></a>. Every page is
 also served as Markdown: append `index.md` to its HTML directory URL, e.g.

@@ -32,7 +32,7 @@ its prerelease packages.
 
 ```bash
 python -m pip install --pre "sandloom[standard]"
-sandloom new myapp --with identity,tenancy,billing
+sandloom new myapp --with identity,tenancy,billing --module notes
 ```
 
 Follow the printed next steps to install application dependencies, start local
@@ -42,6 +42,24 @@ The `standard` extra includes Redis, Celery and the separate `sandloom-identity`
 `sandloom-tenancy` and `sandloom-billing` packages. Install `sandloom` alone for
 the kernel, public `sandloom.sdk`, shared contracts, CLI and composition root.
 Other extras: `redis`, `celery`, `fast`, `check`, `testing` and `sentry`.
+
+## Inspect before editing
+
+From the application root, after installing its dependencies:
+
+```bash
+uv run sandloom generate
+uv run sandloom graph
+uv run sandloom context notes
+uv run sandloom explore
+```
+
+`graph` shows module purposes and declared connections; `context` gives a compact
+map of one module's contracts, events and owned files. Both default to text;
+request JSON explicitly with `--format json`. `explore` opens an offline browser
+view with declared processes, interface impact and architecture comparisons.
+See [module maps](https://sandloom.dev/docs/guides/module-context/) and the
+[architecture explorer](https://sandloom.dev/docs/guides/architecture-graph/).
 
 ## Alpha status
 
@@ -53,7 +71,7 @@ consult the guarantee reference for their mechanisms and limits.
 ## Links
 
 - [Source and issue tracker](https://github.com/Sandloom-dev/sandloom)
-- [Documentation](https://github.com/Sandloom-dev/sandloom/tree/main/docs)
+- [Documentation](https://sandloom.dev/docs/)
 - [Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)
 - [Compatibility policy](https://github.com/Sandloom-dev/sandloom/blob/main/docs/contributing/versioning.md)
 

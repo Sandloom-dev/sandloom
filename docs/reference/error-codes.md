@@ -23,6 +23,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 
 | Code | Slug | Kind | What happened | Status |
 | --- | --- | --- | --- | --- |
+| [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
 | [`SANDLOOM-C001`](#sandloom-c001) | `module-boundaries` | check | a business module imports a sibling business module | active |
 | [`SANDLOOM-C002`](#sandloom-c002) | `framework-imports` | check | import outside the framework public API | active |
 | [`SANDLOOM-C003`](#sandloom-c003) | `raw-provider` | check | provider escape hatch (raw_client / raw_backend / raw) in module code | active |
@@ -1069,6 +1070,20 @@ cursor executions from such a task are detected on a best-effort basis
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
+
+### SANDLOOM-T015
+
+**module context or declared architecture inspection cannot use its inputs**
+
+Slug: `inspection-inputs` · kind: test · status: active
+
+**What happened and why it matters**
+
+Context and graph read a generated index without booting the app. Missing/changed layouts, unsupported schemas, unsafe files, incomplete wire definitions or mandatory content over budget fail without partial output. JSON clients use typed diagnostic kinds. Exit 3 means strict source verification is unavailable. Generation explicitly writes files; review its diff. A verified source basis is not live topology.
+
+**Fix:** read the diagnostic kind; select valid inputs, adjust the budget or explicitly run sandloom generate
+
+**More:** `docs/guides/module-context.md`
 
 ### SANDLOOM-T001
 

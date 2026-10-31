@@ -119,3 +119,10 @@ search tools plus the project's skills and the `sandloom` CLI.
 
 MCP servers are registered for Copilot (`.vscode/mcp.json`) and Claude Code
 (`.mcp.json`); Codex is wired globally via `codex mcp add` / `~/.codex`.
+
+## Inspect before changing a module
+
+Use [module context](../guides/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../guides/architecture-graph.md)
+to inspect contract/event connections. Both commands can be invoked by an agent
+and read their index without booting the app.

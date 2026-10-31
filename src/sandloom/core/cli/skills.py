@@ -15,6 +15,7 @@ from pathlib import Path
 
 #: The skills an application gets, in the order the map lists them.
 APP_SKILLS: tuple[str, ...] = (
+    "sandloom-module-context",
     "sandloom-new-module",
     "sandloom-quality-gates",
     "sandloom-event-version-roll",

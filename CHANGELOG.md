@@ -13,6 +13,40 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a4] — 2026-10-31
+
+### Developer experience
+
+- Add `sandloom graph` for a compact project map and `sandloom context MODULE`
+  for module purposes, public signatures, money risk, dependencies and owned
+  file navigation. Text is the default; JSON exposes stable IDs and evidence.
+- Add `sandloom explore` to generate and open a standalone architecture viewer.
+  Show module/interface/infrastructure layers with obstacle-aware arrows,
+  separate disconnected modules, readable scale and scoped filters.
+- Inspect declared saga sequences, compensation and states, framework route
+  lifecycles, interface impact and architecture differences against saved
+  indexes or local Git revisions. Explain concrete changed declarations.
+- Ship the module-context agent skill and current inspection instructions in
+  generated applications. Cold graph/context reads need no app imports,
+  environment configuration or backend connections.
+- Align all four package versions, generated application dependency floors,
+  README and documentation with `0.7.0a4` through the release synchronizer.
+
+### Reliability
+
+- Give the RPC compatibility self-test one overall startup deadline so a slow
+  first loopback connection does not spuriously reject a working transport.
+  Preserve bounded probing, guard checks and the httpx fallback.
+
+- Classify installed modules inside a project-local environment as external
+  providers so cold inspection preserves source ownership.
+
+### Security
+
+- Update admin build tools to fixed glob 14.0.2 and minimatch 11.0.1. Preserve
+  legacy consumers with a version-specific export compatibility patch and
+  install-time regression tests; keep the complete npm audit gate enabled.
+
 ## [0.7.0a3]
 
 ### Security

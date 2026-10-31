@@ -437,3 +437,10 @@ violations, `2` bad manifest / usage. It is purely static: no application
 import, no environment needed. `sandloom check --boot` additionally builds the app
 through `create_app` (no server) and reports every startup refusal (SANDLOOM-B0xx)
 and stale route snapshots in the same format.
+
+## Inspect before changing a module
+
+Use [module context](module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](architecture-graph.md)
+to inspect contract/event connections. Both commands can be invoked by an agent
+and read their index without booting the app.

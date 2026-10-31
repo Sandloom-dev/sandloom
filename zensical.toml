@@ -92,6 +92,8 @@ Learn = [
 Build = [
     "guides/index.md",
     "guides/generate.md",
+    "guides/module-context.md",
+    "guides/architecture-graph.md",
     "guides/effect-deduplication.md",
     "guides/session-revocation.md",
     "guides/upgrading.md",
@@ -281,6 +283,8 @@ Build = [
     { "Deduplicate effects" = "guides/effect-deduplication.md" },
     { "Revoke sessions" = "guides/session-revocation.md" },
 ] },
+    { "Module context for agents" = "guides/module-context.md" },
+    { "Explore the architecture graph" = "guides/architecture-graph.md" },
     { "Testing modules" = "guides/testing.md" },
     { Deployment = "guides/deployment.md" },
     { "Split an app into services" = "guides/split-into-services.md" },

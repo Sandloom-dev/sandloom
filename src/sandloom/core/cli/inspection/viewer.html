@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="generator" content="Sandloom inspection/1"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sandloom · Architecture explorer</title><style>__SANDLOOM_VIEWER_CSS__</style></head>
+<body>
+<a class="skip" href="#workspace">Skip to architecture</a>
+<header><div class="brand"><span class="mark" aria-hidden="true">S</span><div><strong>Sandloom</strong><span class="muted">Architecture explorer</span></div></div><div class="header-actions"><button id="theme">Toggle theme</button><button id="download">Save JSON</button></div></header>
+<div class="scope"><span class="badge">DECLARED MODEL</span><span id="status"></span><span id="scope"></span></div>
+<main id="workspace">
+<h1 class="sr-only">Architecture explorer</h1>
+<nav class="views" role="tablist" aria-label="Architecture view"><button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button><button role="tab" id="tab-sequence" aria-controls="panel-sequence" aria-selected="false" tabindex="-1">Processes</button><button role="tab" id="tab-changes" aria-controls="panel-changes" aria-selected="false" tabindex="-1">Changes</button></nav>
+<button id="inspect-selection" hidden>View selected details</button>
+<div class="workspace">
+<div class="content">
+<section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+<div class="filters"><label>Find an entity<input id="query" type="search" placeholder="Module, contract, event…"></label><label>Layer<select id="layer"><option value="modules">Module relationships</option><option value="interfaces">Contracts &amp; events</option><option value="infrastructure">Infrastructure requirements</option></select></label><label>Module<select id="focus"><option value="">Entire exported scope</option></select></label></div>
+<details class="advanced"><summary>Refine relationships</summary><div class="filters secondary"><label>Relation<select id="relation"><option value="">All relation types</option></select></label><label>Direction<select id="direction"><option value="both">Incoming &amp; outgoing</option><option value="incoming">Incoming</option><option value="outgoing">Outgoing</option></select></label><label>Distance<select id="hops"><option>0</option><option selected>1</option><option>2</option><option>3</option><option>5</option><option>10</option></select></label><button id="reset">Reset filters</button></div></details>
+<p id="counts" class="count" role="status"></p><div id="search-hints" class="notice search-hints" role="status" hidden></div>
+<div class="canvas-card"><div class="canvas-tools"><strong id="canvas-title">Module relationships</strong><div><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit">Fit</button><button id="pan-left" aria-label="Pan left">←</button><button id="pan-right" aria-label="Pan right">→</button><button id="pan-up" aria-label="Pan up">↑</button><button id="pan-down" aria-label="Pan down">↓</button><button id="save-svg">Save SVG</button></div></div><div class="canvas" id="canvas"><svg id="diagram" aria-label="Declared relationships; equivalent entity and relation lists below"></svg><p id="canvas-empty" hidden>No entities match. Clear search or reset filters.</p></div><p class="legend"><span>━━ contract</span><span>┄┄ event delivery</span><span>··· optional / ordering</span><span>Arrows express declarations, not chronology. Large graphs open at readable scale; scroll or zoom to navigate.</span></p></div>
+<div class="lists"><section><h2>Entities <span id="entity-count"></span></h2><div id="nodes" class="entity-list"></div></section><section><h2>Relationships <span id="relation-count"></span></h2><div id="rows" class="relation-list"></div></section></div>
+<details class="uncertainty"><summary id="uncertainty-title">Model limits</summary><div id="uncertainty"></div></details>
+</section>
+<section id="panel-sequence" role="tabpanel" aria-labelledby="tab-sequence" hidden>
+<div class="filters"><label>Declared process<select id="process"><option value="">Choose a saga or route</option></select></label><label>Representation<select id="process-view"><option value="sequence">Forward sequence</option><option value="compensation">Compensation alternative</option><option value="state">Saga states</option></select></label></div><p id="process-summary" class="count" role="status"></p><div class="canvas-card"><div class="process-canvas"><svg id="sequence-diagram" role="img" aria-label="Declared process; numbered text equivalent below"></svg></div></div><h2 id="steps-title">Process steps</h2><div id="steps"></div><div id="process-notes" class="notice"></div>
+</section>
+<section id="panel-changes" role="tabpanel" aria-labelledby="tab-changes" hidden><h2 id="changes-title">Compare architecture</h2><p id="changes-summary"></p><div id="changes"></div></section>
+</div>
+<aside id="inspector" aria-label="Selection inspector"><div class="inspector-heading"><span class="eyebrow">INSPECTOR</span><button id="clear-selection" aria-label="Clear selection">×</button></div><p id="selection-state" class="selection-state" hidden></p><div id="inspector-content"><h2>Select something.</h2><p class="muted">Choose a module, relationship or process step to see its meaning, evidence and next actions.</p></div></aside>
+</div>
+<p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+<footer>Offline · No application imports · No backend connections · <a href="https://sandloom.dev/docs/guides/architecture-graph/">Documentation</a></footer>
+</main><script id="graph-data" type="application/json">__SANDLOOM_GRAPH_JSON__</script><script>__SANDLOOM_VIEWER_LAYOUT__
+__SANDLOOM_VIEWER_JS__</script>
+</body></html>

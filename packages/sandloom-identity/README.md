@@ -44,7 +44,7 @@ This is alpha software. Review the compatibility policy before upgrading.
 ## Links
 
 - [Source and issue tracker](https://github.com/Sandloom-dev/sandloom)
-- [Documentation](https://github.com/Sandloom-dev/sandloom/tree/main/docs)
+- [Documentation](https://sandloom.dev/docs/)
 - [Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)
 - [Compatibility policy](https://github.com/Sandloom-dev/sandloom/blob/main/docs/contributing/versioning.md)
 

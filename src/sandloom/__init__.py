@@ -155,7 +155,7 @@ def _cmd_new(argv: list[str]) -> int:
         default=None,
         help=(
             "override the framework dependency requirement string "
-            "(default: sandloom[redis,celery]>=0.7.0a3,<0.8; each --with module "
+            "(default: sandloom[redis,celery]>=0.7.0a4,<0.8; each --with module "
             "adds its sandloom-<module> package)"
         ),
     )
@@ -241,6 +241,19 @@ def main() -> None:  # noqa: C901
     sub.add_parser(
         "test", add_help=False, help="module tests + fast suite + static gates"
     )
+    sub.add_parser(
+        "context",
+        add_help=False,
+        help="compact module map with interfaces and file pointers",
+    )
+    sub.add_parser(
+        "graph",
+        add_help=False,
+        help="offline declared architecture graph and module discovery",
+    )
+    sub.add_parser(
+        "explore", add_help=False, help="generate and open the architecture explorer"
+    )
     sub.add_parser("migrate", add_help=False, help="run database migrations")
     sub.add_parser("projection", add_help=False, help="operate query projections")
     sub.add_parser("outbox", add_help=False, help="requeue dead-lettered outbox events")
@@ -283,6 +296,12 @@ def main() -> None:  # noqa: C901
     if args.command == "generate":
         _load_test_env_for_authoring()
         raise SystemExit(_static_import("sandloom.core.cli.generated").main(rest))
+    if args.command == "explore":
+        raise SystemExit(_static_import("sandloom.core.cli.explore").main(rest))
+    if args.command in {"context", "graph"}:
+        raise SystemExit(
+            _static_import("sandloom.core.cli.inspection.cli").main(args.command, rest)
+        )
     if args.command == "test":
         raise SystemExit(_static_import("sandloom.core.cli.run_tests").main(rest))
     if args.command == "docs":
