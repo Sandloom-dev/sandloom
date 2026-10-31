@@ -2535,7 +2535,7 @@ wheels = [
 
 [[package]]
 name = "sandloom"
-version = "0.7.0a4"
+version = "0.7.0a5"
 source = { editable = "../packages/sandloom" }
 dependencies = [
     { name = "aiohttp" },
@@ -2604,9 +2604,9 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'fast'", specifier = ">=5.2.1,<6" },
     { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'standard'" },
-    { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a4,<0.8" },
-    { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a4,<0.8" },
-    { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a4,<0.8" },
+    { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a5,<0.8" },
+    { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a5,<0.8" },
+    { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a5,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.4,<2.2" },
     { name = "starlette", specifier = ">=1.3.1,<1.7" },
@@ -2674,18 +2674,18 @@ requires-dist = [
 
 [[package]]
 name = "sandloom-billing"
-version = "0.7.0a4"
+version = "0.7.0a5"
 source = { editable = "../packages/sandloom-billing" }
 dependencies = [
     { name = "sandloom" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a4,<0.8" }]
+requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a5,<0.8" }]
 
 [[package]]
 name = "sandloom-identity"
-version = "0.7.0a4"
+version = "0.7.0a5"
 source = { editable = "../packages/sandloom-identity" }
 dependencies = [
     { name = "authlib" },
@@ -2705,12 +2705,12 @@ requires-dist = [
     { name = "pillow", specifier = ">=13.0.0,<14" },
     { name = "pyotp", specifier = ">=2.10.0,<3" },
     { name = "qrcode", specifier = ">=8.2,<9" },
-    { name = "sandloom", specifier = ">=0.7.0a4,<0.8" },
+    { name = "sandloom", specifier = ">=0.7.0a5,<0.8" },
 ]
 
 [[package]]
 name = "sandloom-tenancy"
-version = "0.7.0a4"
+version = "0.7.0a5"
 source = { editable = "../packages/sandloom-tenancy" }
 dependencies = [
     { name = "email-validator" },
@@ -2720,7 +2720,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "email-validator", specifier = ">=2.3.0,<3" },
-    { name = "sandloom", specifier = ">=0.7.0a4,<0.8" },
+    { name = "sandloom", specifier = ">=0.7.0a5,<0.8" },
 ]
 
 [[package]]

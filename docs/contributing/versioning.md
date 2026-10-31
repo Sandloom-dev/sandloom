@@ -46,6 +46,14 @@ internals from business modules (SANDLOOM-C002) and their tests (SANDLOOM-C013).
 
 ## Compatibility guarantees
 
+Public prereleases (`a`, `b`, `rc`) may change APIs between prerelease versions
+without a deprecation window. Breaking changes must be listed in release notes
+and include upgrade instructions. Pin the version used by your application and
+review these changes before upgrading. This does not relax versioned event or
+service-contract compatibility checks.
+
+The guarantees below apply to releases without a prerelease suffix.
+
 Within a major version (`0.x` while pre-1.0, `x.y` thereafter):
 
 - **No removal or breaking change** to a public symbol's signature without a
@@ -65,15 +73,15 @@ per breaking release (e.g. [Upgrading to 1.0](../guides/upgrading-1.0.md)).
 The module packages `sandloom-identity`, `sandloom-tenancy` and
 `sandloom-billing` (see [Publishing](../guides/publishing.md)) **version
 independently**, like any third-party module: each has its own version and
-changelog. The current published alpha is `0.7.0a4`; each module depends on a compatible framework range, <!-- sandloom-release -->
-`sandloom>=0.7.0a4,<0.8` (for a `0.x` framework the next minor is the next breaking
+changelog. The current published alpha is `0.7.0a5`; each module depends on a compatible framework range, <!-- sandloom-release -->
+`sandloom>=0.7.0a5,<0.8` (for a `0.x` framework the next minor is the next breaking
 release). No module package depends on another. A module release that needs a
 newer framework widens or moves its range; a framework minor release requires
 each module package to release a version whose range admits it.
 
 Third-party dependencies are ranges too (`>=tested,<next breaking release`);
 exact versions live only in `uv.lock`. The `sandloom new` generator depends on
-`sandloom[redis,celery]>=0.7.0a4,<0.8` plus `sandloom-<module>>=0.7.0a4,<0.8` for each
+`sandloom[redis,celery]>=0.7.0a5,<0.8` plus `sandloom-<module>>=0.7.0a5,<0.8` for each
 `--with` module, since the code it generates uses that release's API.
 
 ## Event schema evolution

@@ -13,6 +13,24 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a5] — 2026-10-31
+
+### Breaking changes
+
+This alpha changes infrastructure extension APIs. Review the
+[0.7.0a4 → 0.7.0a5 upgrade steps](https://sandloom.dev/docs/guides/upgrading/#upgrading-from-070a4-to-070a5)
+before upgrading an application or a driver package.
+
+- Replace string-based `capability()` / `Capability()` declarations with typed
+  `CapabilityRef[P]` references. The built-in accessors retain their names and
+  now expose typed operation Protocols.
+- Replace `sandloom.infra` registration callbacks with named driver classes in
+  `sandloom.drivers`; custom capability specs use `sandloom.capabilities`.
+  Drivers declare a contract version and their supported features.
+- Remove required operations from feature requirements; explicitly accept the
+  `experimental_capability` risk when using experimental capabilities in production.
+- Install a real driver package before selecting the removed S3/GCS/YC placeholders.
+
 ### Developer experience
 
 - Document the framework's vocabulary in a glossary and use one name per concept:
@@ -38,6 +56,15 @@ website renders this same changelog.
   `experimental_capability` (SANDLOOM-B023).
 - Remove the `s3`, `gcs` and `yc` placeholder drivers. Selecting one without a driver
   package is the ordinary "no registered driver" error.
+- The architecture explorer now answers who is linked and why. The module layer
+  draws one labelled line per direction of a module pair and no longer collapses
+  mutually linked modules into one column. Selecting a block or line highlights its
+  links. The inspector lists what a module provides, calls, publishes and listens
+  to, and who publishes and receives an event. A module filter in the contracts
+  layer shows the modules on the far side of each interface. A contracts layer too
+  large to read opens with a module chooser. Declarations without a provider appear
+  at the top of the page. Search also finds routes and tables. `sandloom graph`
+  prints unresolved declarations as a sentence rather than a raw dictionary.
 
 ### Fixed
 
@@ -83,18 +110,6 @@ website renders this same changelog.
 - Apply pinned Alpine security backports for brotli, curl, musl and zlib in
   the admin runtime image, retaining its unprivileged user. Record unresolved
   Debian runtime advisories separately from fixed application dependencies.
-
-### Developer experience
-
-- The architecture explorer now answers who is linked and why. The module layer
-  draws one labelled line per direction of a module pair and no longer collapses
-  mutually linked modules into one column. Selecting a block or line highlights its
-  links. The inspector lists what a module provides, calls, publishes and listens
-  to, and who publishes and receives an event. A module filter in the contracts
-  layer shows the modules on the far side of each interface. A contracts layer too
-  large to read opens with a module chooser. Declarations without a provider appear
-  at the top of the page. Search also finds routes and tables. `sandloom graph`
-  prints unresolved declarations as a sentence rather than a raw dictionary.
 
 ## [0.7.0a4] — 2026-10-31
 
