@@ -643,6 +643,7 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
         if (
             _is_forbidden_infra_module(name)
             or name.split(".")[0] in FORBIDDEN_BACKEND_ROOTS
+            or name == "sandloom"
         ):
             violations.append(f"Line {line}: dynamic import of {name}")
     return violations

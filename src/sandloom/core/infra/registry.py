@@ -930,10 +930,15 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             f"{entry.value} is not a subclass of {contract.__name__}",
             fix=f"point the entry point at a {contract.__name__} subclass",
         )
-    if inspect.isabstract(driver):
-        missing = ", ".join(sorted(getattr(driver, "__abstractmethods__", ())))
+    missing = sorted(
+        name
+        for name in inspect.getattr_static(contract, "__abstractmethods__", ())
+        if not callable(getattr(driver, name, None))
+        or name in getattr(driver, "__abstractmethods__", ())
+    )
+    if missing:
         raise DriverLoadError(
-            f"Driver {key!r} does not implement {missing}",
+            f"Driver {key!r} does not implement {', '.join(missing)}",
             fix="implement every abstract method of the contract",
         )
     written_for = getattr(driver, "contract_version", None)

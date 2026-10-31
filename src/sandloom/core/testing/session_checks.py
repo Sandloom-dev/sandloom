@@ -96,8 +96,9 @@ def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
     found = []
     for var in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
         parts = urlsplit(values.get(var) or "")
-        if "host" in parse_qs(parts.query):  # a Unix socket: the authority is unused
-            continue
+        hosts = parse_qs(parts.query).get("host", [])
+        if hosts and all(host.startswith("/") for host in hosts):
+            continue  # a Unix socket: the authority is unused
         if parts.hostname == "localhost" and (parts.port or 0) >= EPHEMERAL_PORTS_START:
             found.append(f"{var} (localhost:{parts.port})")
     return found

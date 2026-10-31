@@ -394,29 +394,31 @@ def installed_driver_modules() -> list[str]:
     return sorted({entry.value.partition(":")[0] for entry in entries})
 
 
+def _reaches_driver(imported: str, driver: str, own_package: str) -> bool:
+    """``imported`` is the driver's module or a parent, which reaches it by attribute,
+    or lies inside it. A package-root driver keeps its ``contracts`` submodule, and an
+    application whose root is the driver keeps its own modules."""
+    if imported == driver or driver.startswith(f"{imported}."):
+        return True
+    if not imported.startswith(f"{driver}."):
+        return False
+    return not _covered(imported, [f"{driver}.contracts", own_package])
+
+
 def driver_import_violations(
     file: Path, rules: ArchRules, drivers: Iterable[str]
 ) -> list[str]:
-    """Imports of an installed driver: from such a package a module may import only
-    ``<package>.contracts``. Any other part of it, the bare package included, can reach
-    the driver by attribute. An application's own package stays importable: only
-    the driver's module is refused there."""
+    """Imports that reach an installed driver: a module asks for the capability, and
+    imports the package's separate ``contracts`` module for its types."""
     drivers = list(drivers)
-    own_top = rules.modules_package.partition(".")[0]
-    packages = {d.partition(".")[0] for d in drivers} - {own_top}
     tree = az.parse_file(file)
     refs = az.import_refs(tree, list(file.relative_to(rules.source_root).parts[:-1]))
-    found = []
-    for line, imported, _text in refs:
-        top = imported.partition(".")[0]
-        if _covered(imported, [f"{top}.contracts"]):
-            continue
-        if _covered(imported, drivers) or top in packages:
-            found.append(
-                f"Line {line}: {imported} can reach a driver: ask for the capability "
-                f"instead (a module may import {top}.contracts)"
-            )
-    return found
+    return [
+        f"Line {line}: {imported} can reach a driver: ask for the capability instead "
+        "(a package's contracts module is importable)"
+        for line, imported, _text in refs
+        if any(_reaches_driver(imported, d, rules.modules_package) for d in drivers)
+    ]
 
 
 def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901

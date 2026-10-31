@@ -53,7 +53,7 @@ requirement could pass at startup and fail on first use.
    there needs the accepted risk `experimental_capability` (SANDLOOM-B023, ADR-0006). A
    documentation label alone does not hold: PEP 411 records that.
 9. **A module cannot import a driver.** C004 reads installed `sandloom.drivers` entry
-   points and refuses their modules, so a package keeps its reference and Protocol in a
+   points and refuses them and their parents, so a package keeps its reference and Protocol in a
    separate `contracts` module. `redis` and `celery` join the banned backend SDKs.
 
 ## Consequences

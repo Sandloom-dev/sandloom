@@ -469,22 +469,33 @@ def test_a_business_module_cannot_reach_a_driver_or_a_backend(
 
 
 @pytest.mark.parametrize(
-    ("source", "allowed"),
+    ("driver", "source", "allowed"),
     [
-        ("from acme_search.contracts import SEARCH\n", True),
-        ("from acme_search import contracts\n", True),
-        ("from shop.helpers import x\n", True),
-        ("from acme_search.driver import Search\n", False),
-        ("from acme_search import driver\n", False),
-        ("import acme_search\nacme_search.driver.Search()\n", False),
-        ('__import__("acme_search", fromlist=["driver"])\n', False),
-        ("from shop.driver import Mine\n", False),
-        ("from rooted.contracts import REF\n", True),
-        ("from rooted import Driver\n", False),
+        ("acme_search.driver", "from acme_search.contracts import SEARCH\n", True),
+        ("acme_search.driver", "from acme_search import contracts\n", True),
+        ("acme_search.driver", "from acme_search.driver import Search\n", False),
+        ("acme_search.driver", "from acme_search import driver\n", False),
+        ("acme_search.driver", "import acme_search\nacme_search.driver\n", False),
+        ("acme_search.driver", '__import__("acme_search", fromlist=["x"])\n', False),
+        # A namespace package: only the driver and its parents are off limits.
+        ("acme.search.driver", "from acme.search.contracts import SEARCH\n", True),
+        ("acme.search.driver", "from acme.audit.types import Audit\n", True),
+        ("acme.search.driver", "import acme.search\n", False),
+        # A driver under contracts is still a driver.
+        ("acme.contracts.driver", "from acme.contracts.driver import X\n", False),
+        # The application's own package.
+        ("shop.driver", "from shop.helpers import x\n", True),
+        ("shop.driver", "from shop.driver import Mine\n", False),
+        ("shop.driver", "import shop\nshop.driver.Mine()\n", False),
+        # An entry point at a package root.
+        ("rooted", "from rooted.contracts import REF\n", True),
+        ("rooted", "from rooted import Driver\n", False),
+        ("shop", "from shop.modules.notes.schemas import Note\n", True),
+        ("shop", "import shop\n", False),
     ],
 )
-def test_a_module_may_import_only_a_driver_packages_contracts(
-    tmp_path: Path, source: str, allowed: bool
+def test_a_module_may_not_reach_a_driver(
+    tmp_path: Path, driver: str, source: str, allowed: bool
 ) -> None:
     module = tmp_path / "shop" / "modules" / "notes" / "services.py"
     module.parent.mkdir(parents=True)
@@ -493,16 +504,21 @@ def test_a_module_may_import_only_a_driver_packages_contracts(
         "modules_path: shop/modules\nsource_root: .\n"
     )
     found = driver_import_violations(
-        module,
-        load_rules(tmp_path / "architecture_rules.yml"),
-        ["acme_search.driver", "shop.driver", "rooted"],
+        module, load_rules(tmp_path / "architecture_rules.yml"), [driver]
     )
     assert not found if allowed else found
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sandloom\nsandloom.driverkit.NotifierProvider\n",
+        '__import__("sandloom", fromlist=["driverkit"]).driverkit\n',
+    ],
+)
 def test_a_module_cannot_reach_the_kit_through_the_parent_package(
-    tmp_path: Path,
+    tmp_path: Path, source: str
 ) -> None:
     module = tmp_path / "services.py"
-    module.write_text("import sandloom\nsandloom.driverkit.NotifierProvider\n")
+    module.write_text(source)
     assert find_legacy_infra_imports(module)

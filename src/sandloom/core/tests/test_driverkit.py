@@ -192,6 +192,10 @@ class _Abstract(NotifierProvider):
     contract_version = "v1"
 
 
+class _NotCallable(_Notifier):
+    send = None  # type: ignore[assignment]
+
+
 @pytest.mark.parametrize(
     ("target", "message"),
     [
@@ -200,6 +204,7 @@ class _Abstract(NotifierProvider):
         (_NoVersion, "no contract_version"),
         (_OldVersion, "written for v2"),
         (_Abstract, "does not implement send"),
+        (_NotCallable, "does not implement send"),
     ],
 )
 def test_a_selected_driver_that_cannot_be_used_stops_startup(

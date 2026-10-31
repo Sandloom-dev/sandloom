@@ -174,10 +174,10 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
     nearest = await capability(VECTOR_INDEX).nearest([1.0], limit=5)
     ```
 
-- **What a module may import:** `vector_index.contracts` and nothing else from that
-  package. Importing `vector_index.driver`, or `vector_index` itself, fails
+- **What a module may import:** `vector_index.contracts`. Importing `vector_index.driver`
+  or its parent `vector_index`, which reaches the driver by attribute, fails
   [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), because an entry point names
-  a driver in it.
+  that module.
 - **In production:** `stability="experimental"` requires the accepted risk
   `experimental_capability` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
   Use `"stable"` when you keep the contract stable yourself.
