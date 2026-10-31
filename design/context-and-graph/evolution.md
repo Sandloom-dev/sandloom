@@ -439,3 +439,9 @@ relationship paths in the downloaded SVG, with complete bounds and no scripts.
 The canvas begins around 328px desktop and 419px mobile; neither page overflows
 horizontally. Scenario checks are not an accessibility certification or user study.
 
+A full-suite run exposed an existing 100ms race in the consumer retry-behavior
+test. Delaying its first warning by 150ms deterministically reproduced the same
+startup failure; a generous test-only positive deadline lets the existing two-
+attempt/readiness assertions run. Production deadlines/retry logic and the
+separate startup-timeout bound tests are unchanged. The injected-delay harness
+is local diagnostic evidence, not a new runtime or sleeping regression test.
