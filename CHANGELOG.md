@@ -41,6 +41,12 @@ website renders this same changelog.
 - Classify installed modules inside a project-local environment as external
   providers so cold inspection preserves source ownership.
 
+### Security
+
+- Update admin build tools to fixed glob 14.0.2 and minimatch 11.0.1. Preserve
+  legacy consumers with a version-specific export compatibility patch and
+  install-time regression tests; keep the complete npm audit gate enabled.
+
 ## [0.7.0a3]
 
 ### Security
