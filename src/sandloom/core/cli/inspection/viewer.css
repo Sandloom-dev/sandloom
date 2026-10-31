@@ -18,3 +18,11 @@ header{height:56px;padding:0 24px}.scope{padding:7px 24px;gap:12px}main{padding:
 #inspector-content button{overflow-wrap:anywhere;white-space:normal}
 
 #inspect-selection{display:none}@media(max-width:760px){#inspect-selection:not([hidden]){display:block}}
+
+/* Selection tells the story: its links stay, everything else steps back. */
+svg .dim{opacity:.22}svg .edge.active{stroke:var(--accent);stroke-width:2.5}svg .edge-label{pointer-events:none;font-size:10px}svg .node,svg .edge,svg .edge-label{transition:opacity .12s}
+.connections{margin-bottom:14px}.connections h3{margin:14px 0 4px!important}#inspector-content .connection{display:block;text-align:left;margin-top:4px;padding:7px 10px;min-height:0}.connection span{display:block;font-size:11px;color:var(--muted);margin-top:1px;overflow-wrap:anywhere}.connection span.warn{color:var(--danger)}.after-connections{border-top:1px solid var(--border);padding-top:4px}
+.problems{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:7px 24px;border-bottom:1px solid var(--border);background:var(--accent-soft);font-size:12px}.problems button{min-height:0;padding:3px 9px;font-size:12px;text-align:left;white-space:normal}.problems button.required{border-color:var(--danger);color:var(--danger)}
+.canvas-choose{padding:24px;max-width:860px;margin:auto}.choose-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin:14px 0}.choose-grid button{text-align:left;padding:12px;white-space:normal}.choose-grid button span{display:block;font-size:12px;color:var(--muted);margin-top:3px}.choose-grid .module-purpose{font-size:12px}
+@media(max-width:760px){.problems{padding:6px 12px}.canvas-choose{padding:14px}}
+@media(prefers-reduced-motion:reduce){svg .node,svg .edge,svg .edge-label{transition:none}}

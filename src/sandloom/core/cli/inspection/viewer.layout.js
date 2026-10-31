@@ -1,22 +1,15 @@
-// Condense strongly connected components before assigning DAG ranks.
+// Contracts set the direction first; an event or ordering edge joins only if the graph stays acyclic.
+// A caller sits after the contract it requires, so an interface reads provider → contract → caller.
 function positions(items,links,cardMap=new Map()) {
   const ids=items.map(n=>n.id).sort(), adjacent=new Map(ids.map(id=>[id,[]])), reverse=new Map(ids.map(id=>[id,[]]));
   for(const r of links) if(adjacent.has(r.source)&&adjacent.has(r.target)) { adjacent.get(r.source).push(r.target); reverse.get(r.target).push(r.source); }
-  const visited=new Set(), finish=[];
-  for(const id of ids) {
-    if(visited.has(id)) continue; const stack=[[id,false]];
-    while(stack.length) { const [at,exit]=stack.pop(); if(exit) { finish.push(at); continue; } if(visited.has(at)) continue; visited.add(at); stack.push([at,true]); for(const next of adjacent.get(at)) if(!visited.has(next)) stack.push([next,false]); }
-  }
-  const components=[], component=new Map();
-  for(const id of finish.reverse()) {
-    if(component.has(id)) continue; const group=[], queue=[id], index=components.length; component.set(id,index);
-    while(queue.length) { const at=queue.pop(); group.push(at); for(const next of reverse.get(at)) if(!component.has(next)) { component.set(next,index); queue.push(next); } }
-    components.push(group.sort());
-  }
-  const ranks=components.map(()=>0), outgoing=components.map(()=>new Set()), indegree=components.map(()=>0);
-  for(const r of links) { const a=component.get(r.source), b=component.get(r.target); if(a===undefined||b===undefined||a===b||outgoing[a].has(b)) continue; outgoing[a].add(b); indegree[b]++; }
-  const ready=indegree.map((n,i)=>n===0?i:-1).filter(i=>i>=0);
-  while(ready.length) { const a=ready.shift(); for(const b of outgoing[a]) { ranks[b]=Math.max(ranks[b],ranks[a]+1); if(--indegree[b]===0) ready.push(b); } }
+  const forward=new Map(ids.map(id=>[id,new Set()])), weight=r=>r.kind?.includes('contract')?0:r.kind==='ordering'?2:1;
+  const reaches=(from,to)=>{const seen=new Set([from]),pending=[from];while(pending.length){const at=pending.pop();if(at===to)return true;for(const next of forward.get(at))if(!seen.has(next)){seen.add(next);pending.push(next);}}return false;};
+  for(const r of [...links].sort((a,b)=>weight(a)-weight(b)||String(a.id).localeCompare(String(b.id)))) { const [from,to]=r.kind==='requires_contract'?[r.target,r.source]:[r.source,r.target]; if(forward.has(from)&&forward.has(to)&&from!==to&&!reaches(to,from)) forward.get(from).add(to); }
+  const ranks=new Map(ids.map(id=>[id,0])), indegree=new Map(ids.map(id=>[id,0]));
+  for(const targets of forward.values()) for(const id of targets) indegree.set(id,indegree.get(id)+1);
+  const ready=ids.filter(id=>indegree.get(id)===0);
+  while(ready.length) { const at=ready.shift(); for(const next of forward.get(at)) { ranks.set(next,Math.max(ranks.get(next),ranks.get(at)+1)); indegree.set(next,indegree.get(next)-1); if(indegree.get(next)===0) ready.push(next); } }
   // Pack weak components separately. A column is vertical, never a row of intermediaries.
   const unseen=new Set(ids), groups=[];
   while(unseen.size) {const start=unseen.values().next().value,group=[],pending=[start];unseen.delete(start);while(pending.length){const id=pending.pop();group.push(id);for(const next of [...adjacent.get(id),...reverse.get(id)])if(unseen.delete(next))pending.push(next);}groups.push(group.sort());}
@@ -24,17 +17,55 @@ function positions(items,links,cardMap=new Map()) {
   const result=new Map();let top=64;
   for(const group of groups) {
     let bottom=top;
-    for(const rank of [...new Set(group.map(id=>ranks[component.get(id)]))].sort((a,b)=>a-b)) {
+    const columns=[...new Set(group.map(id=>ranks.get(id)))].sort((a,b)=>a-b), order=new Map(group.map((id,i)=>[id,i]));
+    const score=id=>{const near=[...adjacent.get(id),...reverse.get(id)].filter(n=>ranks.get(n)!==ranks.get(id));return near.length?near.reduce((n,x)=>n+order.get(x),0)/near.length:order.get(id);};
+    for(let pass=0;pass<4;pass++) for(const rank of pass%2?[...columns].reverse():columns) group.filter(id=>ranks.get(id)===rank).sort((a,b)=>score(a)-score(b)||a.localeCompare(b)).forEach((id,i)=>order.set(id,i));
+    for(const rank of columns) {
       let y=top;
-      for(const id of group.filter(id=>ranks[component.get(id)]===rank)) {
-        const n=items.find(n=>n.id===id), title=wrapText(n.name,32), purpose=n.kind==='module'?wrapText(cardMap.get(id)?.summary||'',36):[];
+      for(const id of group.filter(id=>ranks.get(id)===rank).sort((a,b)=>order.get(a)-order.get(b))) {
+        const n=items.find(n=>n.id===id), title=wrapText(n.name,30), purpose=n.kind==='module'?wrapText(cardMap.get(id)?.summary||'',33):[];
         const degree=links.filter(r=>r.source===id||r.target===id).length;
-        const height=Math.max(48+title.length*18+purpose.length*15,40+degree*10);
-        result.set(id,{x:48+rank*380,y,width:260,height,title,purpose,isolated:group.length===1&&!degree});
+        const height=Math.max(48+title.length*18+purpose.length*15,40+degree*14);
+        result.set(id,{x:28+rank*400,y,width:240,height,title,purpose,isolated:group.length===1&&!degree});
         y+=height+72;bottom=Math.max(bottom,y);
       }
     }
     top=bottom+80;
+  }
+  return result;
+}
+// One line per direction of a module pair. Ordering stays in the list when a real link already explains the pair.
+function pairLinks(relations,interfaceNames) {
+  const key=r=>[r.source,r.target].sort().join('|'), explained=new Set(relations.filter(r=>r.kind!=='ordering').map(key)), pairs=new Map();
+  for(const r of relations) {
+    if(r.kind==='ordering'&&explained.has(key(r)))continue;
+    const id='pair:'+r.source+'>'+r.target;if(!pairs.has(id))pairs.set(id,{id,source:r.source,target:r.target,members:[]});
+    pairs.get(id).members.push(r);
+  }
+  const plural=(n,word)=>n+' '+word+(n===1?'':'s');
+  return [...pairs.values()].map(pair=>{
+    const has=kind=>pair.members.some(m=>m.kind===kind), of=test=>[...new Set(pair.members.filter(test).flatMap(interfaceNames))];
+    const contracts=of(m=>m.kind.endsWith('_contract')), events=of(m=>m.kind==='event_impact'), named=[...contracts,...events];
+    const counts=[contracts.length?plural(contracts.length,'contract'):'',events.length?plural(events.length,'event'):''].filter(Boolean).join(' · ')||'load order';
+    return {...pair,kind:has('required_contract')?'required_contract':has('optional_contract')?'optional_contract':has('event_impact')?'event_impact':'ordering',label:named.length===1?named[0]:counts,shortLabel:counts};
+  });
+}
+// A label must never hide a block or another label; the list below always carries the full text.
+function placeLabels(routes,at) {
+  const boxes=[...at.values()], placed=[], hits=(a,b,pad=2)=>a.x<b.x+b.width+pad&&a.x+a.width+pad>b.x&&a.y<b.y+b.height+pad&&a.y+a.height+pad>b.y, result=[];
+  for(const {link,points} of routes) {
+    if(!link.label)continue;
+    const segments=points.slice(1).map((q,i)=>[points[i],q]).filter(([p,q])=>p[1]===q[1]).sort((a,b)=>Math.abs(b[0][0]-b[1][0])-Math.abs(a[0][0]-a[1][0]));
+    let found=null;
+    for(const text of link.shortLabel&&link.shortLabel!==link.label?[link.label,link.shortLabel]:[link.label]) {
+      const width=Array.from(text).length*5.6+8,height=14;
+      for(const [p,q] of segments) for(const t of [.5,.3,.7,.15,.85]) {
+        const box={x:p[0]+(q[0]-p[0])*t-width/2,y:p[1]-height/2,width,height};
+        if(!boxes.some(b=>hits(box,b))&&!placed.some(b=>hits(box,b))){found={link,text,box};break;}
+      }
+      if(found)break;
+    }
+    if(found){placed.push(found.box);result.push(found);}
   }
   return result;
 }

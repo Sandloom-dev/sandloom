@@ -929,7 +929,7 @@ def test_viewer_assets_and_placeholder_data_are_embedded_safely(
     )
     rendered = graph.viewer(envelope, reader)
     assert "\\u003c/script>__SANDLOOM_VIEWER_JS__" in rendered
-    assert "Condense strongly connected components" in rendered
+    assert "Contracts set the direction first" in rendered
     assert "Save SVG" in rendered
     assert "__SANDLOOM_VIEWER_CSS__" not in rendered
     assert "<script src=" not in rendered

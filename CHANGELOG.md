@@ -31,6 +31,18 @@ website renders this same changelog.
   the admin runtime image, retaining its unprivileged user. Record unresolved
   Debian runtime advisories separately from fixed application dependencies.
 
+### Developer experience
+
+- The architecture explorer now answers who is linked and why. The module layer
+  draws one labelled line per direction of a module pair and no longer collapses
+  mutually linked modules into one column. Selecting a block or line highlights its
+  links. The inspector lists what a module provides, calls, publishes and listens
+  to, and who publishes and receives an event. A module filter in the contracts
+  layer shows the modules on the far side of each interface. A contracts layer too
+  large to read opens with a module chooser. Declarations without a provider appear
+  at the top of the page. Search also finds routes and tables. `sandloom graph`
+  prints unresolved declarations as a sentence rather than a raw dictionary.
+
 ## [0.7.0a4] — 2026-10-31
 
 ### Developer experience

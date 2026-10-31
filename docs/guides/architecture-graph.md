@@ -73,9 +73,12 @@ route counts open recorded routes and their framework lifecycles.
 The overview derives caller → provider and producer → consumer-owner relations,
 retaining the raw contract/channel witness edges. A hop crosses one such module
 relation. `--direction incoming|outgoing|both` controls expansion (default: both). Shared capabilities or DTO
-imports do not invent cross-module calls. In the interface/infrastructure layers,
-a module filter shows only that owner's declarations; direction and distance
-controls apply to the module-relationship layer. Missing providers and optional contracts
+imports do not invent cross-module calls. The HTML module layer draws one labelled
+line per direction of a module pair; the list below it keeps every declaration.
+In the HTML interface layer, a module filter shows that module's contracts and events
+with the modules on their far side, with consumers and projections collapsed into
+their owner. In the infrastructure layer it shows only that owner's declarations;
+direction and distance controls apply to the module-relationship layer. Missing providers and optional contracts
 remain explicit. Available authoring metadata is not evidence of deployed services.
 
 Required contracts, optional contracts, ordering and event-impact cycles are
