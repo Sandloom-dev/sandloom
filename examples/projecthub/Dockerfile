@@ -1,22 +1,24 @@
 # syntax=docker/dockerfile:1.7
 # Production image for projecthub (mirrors the Sandloom framework image).
 # ---------- Stage 1: dependency build ----------
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-trixie AS builder
 WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml ./
 COPY uv.loc[k] ./
 # Install the LOCKED dependency set when uv.lock exists (reproducible builds);
 # otherwise resolve from pyproject.toml.
+# Without a lock, resolve published packages rather than the monorepo-only
+# development sources outside this example's Docker build context.
 RUN if [ -f uv.lock ]; then \
         uv export --frozen --no-dev --no-emit-project --output-file requirements.txt; \
     else \
-        uv pip compile pyproject.toml --output-file requirements.txt; \
+        uv pip compile pyproject.toml --no-sources --output-file requirements.txt; \
     fi \
     && uv pip install --system --no-deps -r requirements.txt
 
 # ---------- Stage 2: runtime ----------
-FROM python:3.11-slim AS production
+FROM python:3.11-slim-trixie AS production
 WORKDIR /app
 ARG SITE=/usr/local/lib/python3.11/site-packages
 COPY --from=builder ${SITE} ${SITE}
@@ -44,6 +46,7 @@ ADMIN_PACKAGES = frozenset({"apt", "libapt-pkg7.0", "mount", "passwd", "adduser"
 
 
 def packages_to_remove(records: str) -> list[str]:
+    """Select only allowlisted administration packages, rejecting protected ones."""
     selected = []
     for line in records.splitlines():
         package, essential, protected = line.split("\t")
@@ -57,6 +60,7 @@ def packages_to_remove(records: str) -> list[str]:
 
 
 def strip_privileged_bits(roots: tuple[Path, ...]) -> None:
+    """Remove privilege bits from regular files, preserving ordinary execution."""
     for root in roots:
         for directory, _, files in os.walk(root, followlinks=False):
             for name in files:
@@ -67,6 +71,7 @@ def strip_privileged_bits(roots: tuple[Path, ...]) -> None:
 
 
 def main() -> None:
+    """Minimize the reviewed Debian base without bypassing dpkg safety guards."""
     records = subprocess.check_output(
         [
             "/usr/bin/dpkg-query",

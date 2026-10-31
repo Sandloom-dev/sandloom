@@ -38,6 +38,8 @@ x-app-runtime: &app-runtime
   security_opt: ["no-new-privileges:true"]
   tmpfs:
     - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+  volumes:
+    - app_data:/app/data
 
 services:
   db:
@@ -140,3 +142,6 @@ services:
         limits:
           cpus: "0.25"
           memory: 256m
+
+volumes:
+  app_data:

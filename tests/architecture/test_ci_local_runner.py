@@ -567,6 +567,7 @@ def test_export_does_not_inherit_a_hook_repository(
 def test_host_runtime_probe_uses_the_image_built_by_its_own_job(
     ci_local: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The probe must use this run's image instead of a stale shared Docker tag."""
     from types import SimpleNamespace
 
     calls = []

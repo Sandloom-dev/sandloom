@@ -55,6 +55,7 @@ TOOLS = (
 
 
 def privileged_files() -> list[str]:
+    """List regular SUID/SGID files without following directory or file links."""
     found = []
     for root in ("/usr", "/opt"):
         for directory, _, files in os.walk(root, followlinks=False):
@@ -67,6 +68,7 @@ def privileged_files() -> list[str]:
 
 
 def inventory() -> dict:
+    """Collect installed components and the current process's runtime boundary."""
     rows = subprocess.check_output(
         [
             "dpkg-query",
@@ -181,6 +183,7 @@ def inventory() -> dict:
 
 
 def enforce(data: dict) -> None:
+    """Exercise writable storage and reject privilege or filesystem escapes."""
     checks = {
         "nonroot UID 10001": data["uid"] == 10001,
         "no-new-privileges": data["no_new_privileges"] == 1,
@@ -233,15 +236,24 @@ def enforce(data: dict) -> None:
     data["boundary_checks"] = "pass"
 
 
-def main() -> None:
+def main() -> int:
+    """Emit inventory even when boundary enforcement fails, with a failing exit."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--enforce", action="store_true")
     args = parser.parse_args()
     data = inventory()
+    result = 0
     if args.enforce:
-        enforce(data)
+        try:
+            enforce(data)
+        except Exception as error:
+            # The CLI preserves collected evidence; failures still stop CI.
+            data["boundary_checks"] = "fail"
+            data["boundary_failure"] = f"{type(error).__name__}: {error}"
+            result = 1
     print(json.dumps(data, indent=2, sort_keys=True))
+    return result
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

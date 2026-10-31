@@ -11,6 +11,7 @@ ADMIN_PACKAGES = frozenset({"apt", "libapt-pkg7.0", "mount", "passwd", "adduser"
 
 
 def packages_to_remove(records: str) -> list[str]:
+    """Select only allowlisted administration packages, rejecting protected ones."""
     selected = []
     for line in records.splitlines():
         package, essential, protected = line.split("\t")
@@ -24,6 +25,7 @@ def packages_to_remove(records: str) -> list[str]:
 
 
 def strip_privileged_bits(roots: tuple[Path, ...]) -> None:
+    """Remove privilege bits from regular files, preserving ordinary execution."""
     for root in roots:
         for directory, _, files in os.walk(root, followlinks=False):
             for name in files:
@@ -34,6 +36,7 @@ def strip_privileged_bits(roots: tuple[Path, ...]) -> None:
 
 
 def main() -> None:
+    """Minimize the reviewed Debian base without bypassing dpkg safety guards."""
     records = subprocess.check_output(
         [
             "/usr/bin/dpkg-query",

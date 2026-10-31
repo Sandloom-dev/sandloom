@@ -153,6 +153,10 @@ python3 tools/checks/runtime_review.py --image sandloom-runtime-review \
   --zlib-evidence /tmp/zlib-evidence.json > /tmp/runtime-review.json
 ```
 
+If boundary enforcement fails, the inventory command exits 1 and still emits
+the collected JSON with `boundary_checks: "fail"` and `boundary_failure`.
+Docker CI uploads `runtime-security-inventory` even when that probe fails.
+
 The source evidence command uses a disposable reference container and signed
 Debian indexes; it verifies source/package checksums and exact library bytes.
 It is separate from normal CI because it needs live repository access. The

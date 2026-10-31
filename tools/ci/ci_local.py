@@ -441,7 +441,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:app-recipes": "3708a6d3b9426a26",
     "ci.yml:deploy-profiles": "f0c3c51f23604a21",
     "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
-    "ci.yml:docker-build": "1ade80edbd72d758",
+    "ci.yml:docker-build": "dbc55b0fec74fd68",
     "ci.yml:admin-contracts": "9b7305c14b201ec3",
     "docs.yml:build": "27a1b2fda90627c1",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",

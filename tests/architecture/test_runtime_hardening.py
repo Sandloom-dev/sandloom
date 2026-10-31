@@ -2,22 +2,38 @@
 
 from __future__ import annotations
 
+import json
 import runpy
 import stat
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 from sandloom.core.cli.project import generate_project
-from sandloom.core.testing.deploy_profile import app_processes
+from sandloom.core.testing.deploy_profile import app_processes, process_kind
 
 ROOT = Path(__file__).resolve().parents[2]
 HARDENER = ROOT / "src/sandloom/core/cli/templates/deploy/harden_runtime.py"
 
 
 def assert_restricted(profile: dict) -> None:
-    for name, service in app_processes(profile).items():
+    """Check every application role, including standalone composition roots."""
+    processes = app_processes(profile)
+    processes.update(
+        (name, service)
+        for name, service in profile.get("services", {}).items()
+        if "SANDLOOM_COMPOSITION_ROOT" in service.get("environment", {})
+    )
+    builds = [service["build"] for service in processes.values() if "build" in service]
+    processes.update(
+        (name, service)
+        for name, service in profile.get("services", {}).items()
+        if service.get("build") in builds
+    )
+    assert processes, "No application processes found"
+    for name, service in processes.items():
         assert service.get("read_only") is True, name
         assert service.get("cap_drop") == ["ALL"], name
         assert "no-new-privileges:true" in service.get("security_opt", []), name
@@ -30,6 +46,19 @@ def assert_restricted(profile: dict) -> None:
             and "size=" in m
             for m in mounts
         ), name
+        if process_kind(service) != "migrate":
+            assert any(
+                isinstance(mount, str)
+                and mount.split(":")[0] in profile.get("volumes", {})
+                and mount.split(":")[1:] in (["/app/data"], ["/app/data", "rw"])
+                for mount in service.get("volumes", [])
+            ), f"{name}: missing writable named volume at /app/data"
+
+
+def assert_canonical_hardener(image: str) -> None:
+    """Embedded build steps must retain the canonical removal safeguards."""
+    embedded = image.split("<<'HARDEN'\n", 1)[1].split("\nHARDEN", 1)[0]
+    assert embedded.strip() == HARDENER.read_text().strip()
 
 
 @pytest.mark.parametrize("name", ["monolith", "microservices"])
@@ -44,11 +73,37 @@ def test_new_projects_have_the_same_runtime_boundary(tmp_path: Path) -> None:
     )
     assert_restricted(profile)
     image = (tmp_path / "secureapp/Dockerfile").read_text()
-    assert "packages_to_remove" in image
-    assert "strip_privileged_bits" in image
+    assert_canonical_hardener(image)
+
+
+def test_runtime_checks_reject_empty_or_unrestricted_standalone_profiles(
+    tmp_path: Path,
+) -> None:
+    """A composition-root-only app must not silently bypass the assertions."""
+    generate_project("secureapp", tmp_path, with_batteries=[])
+    profile = yaml.safe_load(
+        (tmp_path / "secureapp/deploy/docker-compose.yml").read_text()
+    )
+    with pytest.raises(AssertionError, match="No application processes"):
+        assert_restricted({"services": {}})
+    del profile["services"]["app"]["read_only"]
+    with pytest.raises(AssertionError, match="app"):
+        assert_restricted(profile)
+
+
+@pytest.mark.parametrize("mounts", [[], ["app_data:/app/data:ro"]])
+def test_runtime_checks_reject_missing_or_readonly_storage(mounts: list) -> None:
+    """Root read-only restrictions must not disable persistent local storage."""
+    profile = yaml.safe_load(
+        (ROOT / "examples/tutorial/deploy/docker-compose.yml").read_text()
+    )
+    profile["services"]["app"]["volumes"] = mounts
+    with pytest.raises(AssertionError, match="writable named volume"):
+        assert_restricted(profile)
 
 
 def test_package_minimization_never_forces_essential_or_protected_removal() -> None:
+    """Removal is allowlisted and refuses both dpkg protection mechanisms."""
     remove = runpy.run_path(str(HARDENER))["packages_to_remove"]
     assert remove(
         "apt\tno\tno\nmount\tno\tno\nlibapt-pkg7.0:arm64\tno\tno\nlibstdc++6\tno\tno\n"
@@ -61,6 +116,7 @@ def test_package_minimization_never_forces_essential_or_protected_removal() -> N
 def test_privileged_bit_removal_preserves_executable_and_ignores_links(
     tmp_path: Path,
 ) -> None:
+    """Hardening must neither break normal executables nor mutate symlink targets."""
     strip = runpy.run_path(str(HARDENER))["strip_privileged_bits"]
     binary = tmp_path / "bin"
     binary.mkdir()
@@ -84,10 +140,72 @@ def test_shipped_examples_have_the_same_runtime_boundary(name: str) -> None:
         (ROOT / f"examples/{name}/deploy/docker-compose.yml").read_text()
     )
     assert_restricted(profile)
-    assert "strip_privileged_bits" in (ROOT / f"examples/{name}/Dockerfile").read_text()
+    image = (ROOT / f"examples/{name}/Dockerfile").read_text()
+    assert_canonical_hardener(image)
+    python_images = [
+        line.split()[1]
+        for line in image.splitlines()
+        if line.startswith("FROM python:")
+    ] + [
+        line.partition("=")[2]
+        for line in image.splitlines()
+        if line.startswith("ARG PYTHON_IMAGE=")
+    ]
+    assert python_images and all("-slim-trixie" in base for base in python_images)
+
+
+def test_inventory_emits_failure_evidence_and_ci_keeps_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failed runtime boundary must leave valid diagnostics and fail CI."""
+    namespace = runpy.run_path(str(ROOT / "tools/checks/runtime_inventory.py"))
+    main = namespace["main"]
+    monkeypatch.setitem(main.__globals__, "inventory", lambda: {"uid": 0})
+
+    def reject(data: dict) -> None:
+        raise RuntimeError("Runtime boundary failed: nonroot UID 10001")
+
+    monkeypatch.setitem(main.__globals__, "enforce", reject)
+    monkeypatch.setattr(sys, "argv", ["runtime_inventory.py", "--enforce"])
+    assert main() == 1
+    evidence = json.loads(capsys.readouterr().out)
+    assert evidence["uid"] == 0
+    assert evidence["boundary_checks"] == "fail"
+    assert "nonroot UID 10001" in evidence["boundary_failure"]
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    upload = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("with", {}).get("name") == "runtime-security-inventory"
+    )
+    assert upload["if"] == "always()"
+
+
+@pytest.mark.parametrize("enforcing", [False, True])
+def test_inventory_success_and_unenforced_collection(
+    enforcing: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Collection alone must not claim enforcement, while a checked run passes."""
+    main = runpy.run_path(str(ROOT / "tools/checks/runtime_inventory.py"))["main"]
+    monkeypatch.setitem(main.__globals__, "inventory", lambda: {"uid": 10001})
+
+    def accept(data: dict) -> None:
+        assert enforcing
+        data["boundary_checks"] = "pass"
+
+    monkeypatch.setitem(main.__globals__, "enforce", accept)
+    monkeypatch.setattr(
+        sys, "argv", ["runtime_inventory.py", *(["--enforce"] if enforcing else [])]
+    )
+    assert main() == 0
+    evidence = json.loads(capsys.readouterr().out)
+    assert evidence.get("boundary_checks") == ("pass" if enforcing else None)
 
 
 def test_zlib_conclusion_rejects_a_different_binary_or_source() -> None:
+    """Source conclusions are invalid after a binary, architecture or source change."""
     verify = runpy.run_path(str(ROOT / "tools/checks/zlib_source_evidence.py"))[
         "verify"
     ]
@@ -123,8 +241,7 @@ def test_zlib_conclusion_rejects_a_different_binary_or_source() -> None:
 
 
 def test_runtime_review_reassesses_new_components_and_refuses_new_cves() -> None:
-    import json
-
+    """An old component-absence conclusion cannot authorize changed inventory."""
     namespace = runpy.run_path(str(ROOT / "tools/checks/runtime_review.py"))
     review = json.loads(
         (ROOT / "tools/checks/debian-runtime-review-2026-10-31.json").read_text()

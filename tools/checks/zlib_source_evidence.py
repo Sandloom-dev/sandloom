@@ -49,6 +49,7 @@ print(json.dumps(record,indent=2,sort_keys=True))
 
 
 def verify(proof: dict, inventory: dict, expected: dict) -> dict:
+    """Bind source observations to the exact installed zlib binary and architecture."""
     packages = {p["name"].partition(":")[0]: p for p in inventory["packages"]}
     if inventory["machine"] != proof["machine"]:
         raise ValueError("Reference and runtime architectures differ")
@@ -74,6 +75,7 @@ def verify(proof: dict, inventory: dict, expected: dict) -> dict:
 
 
 def main() -> None:
+    """Fetch authenticated reference packages in an architecture-matched container."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-image", default="python:3.12.16-slim-trixie")
     parser.add_argument("--inventory", type=Path, required=True)
