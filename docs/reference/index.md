@@ -26,7 +26,7 @@ understand why, read the [concepts](../concepts/index.md).
 | [Execution planner](execution-planner.md) | declared read operations and the planner |
 | [SLOs](slo.md) | SLIs from the shipped metrics, example SLOs and an error-budget template |
 | [Dependency stack](dependencies.md) | the libraries Sandloom builds on |
-| [Bundled modules](../modules/index.md) | identity, tenancy and billing: routes, events, contracts |
+| [Standard modules](../modules/index.md) | identity, tenancy and billing: routes, events, contracts |
 
 Regenerate the committed generated pages (`sdk/` and the error catalogue)
 with `uv run python tools/docs/docs_reference.py`; the docs

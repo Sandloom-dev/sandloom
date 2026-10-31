@@ -432,6 +432,12 @@ dependency (for example qrcode).
 ADR-0009 derives a route's sensitivity from the risk of the effects it
 reaches. An effect that moves money, changes roles or touches credentials
 without a risk tag makes its routes look ordinary; the check warns.
+
+The route form is a heuristic: a write route that raises 403 in its body looks
+like a hand-written authority decision. If the refusal is one, declare the
+risk, or better, move it to a `require(...)` policy. If it is a business rule,
+such as a used-up quota, it is not an authority decision: answer with a status
+that says so (409 or 422), and the warning goes away.
 """,
     ),
     _landed(

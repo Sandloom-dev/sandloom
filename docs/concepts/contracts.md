@@ -125,7 +125,7 @@ class NotesRead:
 `sandloom generate` writes a wire-shape copy of every such DTO, nested ones
 included, into the shared DTO package next to the stub
 (`<app>.shared.contracts.notes_dto`, `sandloom.shared.contracts.<module>_dto`
-for the bundled modules), marked `@dto_copy("<module>:<class>")`; the stub
+for the standard modules), marked `@dto_copy("<module>:<class>")`; the stub
 names the copy. So every caller process imports the same generated class and
 needs nothing of the provider's package:
 

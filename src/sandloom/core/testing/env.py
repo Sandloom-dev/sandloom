@@ -39,7 +39,9 @@ def find_env_file(starts: Iterable[Path]) -> Path | None:
     return None
 
 
-def load_test_env(starts: Iterable[Path], *, warn_if_late: bool = False) -> Path:
+def load_test_env(
+    starts: Iterable[Path], *, warn_if_late: bool = False, create_database: bool = True
+) -> Path:
     """Load the nearest ``.env.test`` into ``os.environ`` (override=True).
 
     ``override=True`` so a leftover shell value (a dev ``DATABASE_URL``) never
@@ -49,7 +51,8 @@ def load_test_env(starts: Iterable[Path], *, warn_if_late: bool = False) -> Path
     backends (:mod:`sandloom.core.testing.workers`).
     Raises :class:`MissingTestEnvError` when no file is found. ``warn_if_late``
     warns when ``sandloom.core.config.settings`` (which snapshots the environment at
-    import) was already imported.
+    import) was already imported. ``create_database=False`` leaves an explicitly
+    named test database alone, for a command that connects to none.
     """
     starts = list(starts)
     path = find_env_file(starts)
@@ -73,7 +76,7 @@ def load_test_env(starts: Iterable[Path], *, warn_if_late: bool = False) -> Path
     # Small pools for a test process unless configured (connection budget).
     apply_test_pool_profile()
     # Explicit SANDLOOM_TEST_<VAR> overrides win over the file (parallel suites).
-    apply_test_overrides()
+    apply_test_overrides(create_database=create_database)
     # Under pytest-xdist: move this worker onto its own database / Redis DBs
     # (idempotent, so later reloads never put it back on the shared ones).
     apply_worker_env()

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -223,3 +225,22 @@ def test_auto_stride_without_an_allocation_fails_loudly() -> None:
     env[workers.REDIS_MAP_ENV] = workers.format_redis_map({15: [7]})
     with pytest.raises(RuntimeError, match="base index 14"):
         workers.rewrite_for_worker(env, env)  # BROKER_URL's /14 has none
+
+
+def test_generate_opens_no_database_for_an_explicit_test_url(tmp_path: Path) -> None:
+    """A taken-port setup names its test database before the services are up."""
+    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_XDIST")}
+    env["SANDLOOM_TEST_DATABASE_URL"] = (
+        "postgresql+asyncpg://user:secret@127.0.0.1:1/nothing_listens_here"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", "import sandloom; sandloom.main()", "generate"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "psycopg2" not in done.stderr, done.stderr
+    assert "Connection refused" not in done.stderr, done.stderr

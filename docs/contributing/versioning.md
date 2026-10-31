@@ -23,6 +23,7 @@ stubs and contract DTOs:
   binding.
 - `sandloom.sdk.events`, `sandloom.sdk.effects`, `sandloom.sdk.contracts`, `sandloom.sdk.sagas`,
   `sandloom.sdk.projections` — cross-module communication and effects.
+- `sandloom.sdk.drivers` — the provider contracts a driver package implements.
 - `sandloom.sdk.authz`, `sandloom.sdk.security`, `sandloom.sdk.infra`, `sandloom.sdk.errors` —
   authorization, token and session security, capabilities, exceptions.
 - `sandloom.sdk.testing` (with `sandloom.sdk.testing.fixtures` and

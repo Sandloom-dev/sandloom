@@ -1123,7 +1123,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-EVENT-10</span> | docs/concepts/modules.md#What you get by default, and what you declare<br>docs/operations/operator-reference.md#Events: outbox relay and dead letters |
 | <span class="sl-id">G-EVENT-11</span> | docs/concepts/modules.md#What you get by default, and what you declare |
 | <span class="sl-id">G-EVENT-12</span> | docs/concepts/modules.md#What you get by default, and what you declare |
-| <span class="sl-id">G-EVENT-13</span> | docs/concepts/modules.md#What you get by default, and what you declare<br>docs/CONTRACTS.md#5. Overwrite & Evolution (Current Rules) |
+| <span class="sl-id">G-EVENT-13</span> | docs/concepts/modules.md#What you get by default, and what you declare<br>docs/concepts/events.md#Changing an event |
 | <span class="sl-id">G-EVENT-14</span> | docs/reference/cli.md |
 | <span class="sl-id">G-AUDIT-01</span> | docs/concepts/modules.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Audit trail<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
 | <span class="sl-id">G-AUDIT-02</span> | docs/concepts/modules.md#What you get by default, and what you declare<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
@@ -1236,7 +1236,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-BILLING-20</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.4 Account selection in billing itself |
 | <span class="sl-id">G-BILLING-21</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.4 Account selection in billing itself |
 | <span class="sl-id">G-BILLING-22</span> | docs/modules/billing.md |
-| <span class="sl-id">G-CONTRACT-01</span> | docs/concepts/contracts.md<br>docs/concepts/contracts.md#Local equals remote<br>docs/CONTRACTS.md#Sync service contracts |
+| <span class="sl-id">G-CONTRACT-01</span> | docs/concepts/contracts.md<br>docs/concepts/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-02</span> | docs/concepts/contracts.md<br>docs/concepts/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-03</span> | docs/concepts/contracts.md<br>docs/concepts/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-04</span> | docs/concepts/contracts.md<br>docs/concepts/contracts.md#Local equals remote |

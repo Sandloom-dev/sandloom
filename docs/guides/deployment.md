@@ -159,7 +159,7 @@ audit (`pip-audit`, blocking CI gate).
   and `/ready` are exposed by every service. `/health` and `/ready` return `503`
   when degraded — that is the k8s probe contract. Public callers see check
   statuses only; details require `X-Internal-Token`.
-- A shared multi-tenant SaaS should run with
+- A shared multi-tenant product should run with
   `PRODUCTION_PROFILE=multi_tenant_strict` (RLS on every database and tenant
   table, fail-closed revocation, a separate non-evicting security Redis, the
   contract check when split) — see

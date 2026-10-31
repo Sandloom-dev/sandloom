@@ -116,11 +116,15 @@ per-database model.
 Application development normally uses published distributions. Contributors
 can consume a local checkout with
 `--framework-source path --framework-path <repository-root>`; these are editable
-uv sources, so the app runs the current checkout. The root `sandloom-dev` project
+uv sources, so the app runs the current checkout and a framework change shows up
+without a reinstall. `--framework-path` is the repository root (the directory
+containing `packages/`). Without `--framework-source path`, `sandloom new` uses
+local editable sources when run from a source checkout, and an installed release
+resolves the framework from published packages. The root `sandloom-dev` project
 is a contributor environment and is not a release package.
 
 To build wheels yourself, use `uv build --wheel packages/sandloom` and build
 the selected `packages/sandloom-*` distributions too. The kernel wheel ships
-its core migration chain; each battery owns its package and migration chain.
+its core migration chain; each standard module owns its package and migration chain.
 See [package layout](https://github.com/Sandloom-dev/sandloom/tree/main/packages)
 and [publishing](../guides/publishing.md).

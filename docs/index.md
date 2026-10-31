@@ -46,7 +46,7 @@ system. AST-based architecture tests enforce that isolation in CI.
 -   :material-api: **[Reference](reference/index.md)**
 
     Look it up: the `sandloom.sdk` Python API, the error catalogue, testing, the
-    CLI, configuration, the security model, the bundled modules.
+    CLI, configuration, the security model, the standard modules.
 
 -   :material-cube-outline: **[Concepts](concepts/index.md)**
 
@@ -65,7 +65,8 @@ also served as Markdown: append `index.md` to its HTML directory URL, e.g.
 `concepts/route-policy/index.md`. On any `error[SANDLOOM-...]`, run
 `sandloom explain <code>` or read the [error catalogue](reference/error-codes.md).
 
-Before adopting Sandloom, read [Is Sandloom for me?](getting-started/is-sandloom-for-me.md).
+New words are defined in the [glossary](concepts/glossary.md). Before adopting
+Sandloom, read [Is Sandloom for me?](getting-started/is-sandloom-for-me.md).
 For signup, verification and tokens, follow [authentication and email](getting-started/authentication.md).
 For questions or an upgrade, see [getting help](getting-started/help.md) and
 [upgrade an application](guides/upgrading.md).
@@ -79,7 +80,7 @@ For questions or an upgrade, see [getting help](getting-started/help.md) and
   contract stubs and DTOs, never each other. They talk through typed,
   versioned events (`billing.credits.spent.v1`) and typed contracts
   (`tenancy.membership.v1`).
-- **Batteries included.** [Identity](modules/identity.md) (JWT auth, RBAC, 2FA,
+- **Standard modules included.** [Identity](modules/identity.md) (JWT auth, RBAC, 2FA,
   SSO), [Tenancy](modules/tenancy.md) (organizations, roles, invitations), and
   [Billing](modules/billing.md) (subscriptions, credit ledger, Stripe) ship as
   ready modules.
@@ -117,7 +118,7 @@ provides their infrastructure through a public SDK.
   <div class="sl-architecture__connector" aria-hidden="true"><span>resolve infrastructure capabilities</span></div>
   <div class="sl-architecture__drivers">
     <div class="sl-architecture__heading"><a href="concepts/capabilities-and-infrastructure/">Drivers</a><span>Selected by configuration</span></div>
-    <p>Adapters connect the runtime to concrete backends.</p>
+    <p>Each driver connects the runtime to a concrete backend.</p>
     <div class="sl-architecture__backends">
       <div><span>Database · sqlalchemy</span><strong>PostgreSQL</strong></div>
       <div><span>Cache</span><strong>Redis</strong></div>

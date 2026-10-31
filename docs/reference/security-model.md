@@ -145,7 +145,7 @@ the concept page with the full detail.
   `auth_revocation_remark_overtook_floor_total`. Trade-offs: during a cache outage these changes are refused (with
   fail-closed nobody can authenticate then anyway), and a rollback AFTER the
   early mark logs the user out (the safe direction) — call it as the last
-  fallible step. The bundled modules use it for every security event: member
+  fallible step. The standard modules use it for every security event: member
   removal / leave, role change, ownership transfer (both parties),
   organization deletion, password change / reset, role revocation,
   deactivation and `block_user`. A process-local `/ready` gate or a
@@ -238,7 +238,7 @@ A live read is fresh at read time only. Every authenticated write therefore
 re-checks the caller's session record before the COMMIT of every unit it
 commits ([ADR-0009](../adr/0009-route-policy-and-session-freshness.md)).
 Where a wrong *allow* is not recoverable (admin and money effects), the
-bundled modules also make the authorization itself hold when the effect
+standard modules also make the authorization itself hold when the effect
 commits:
 
 - **Tenancy (admin writes).** Every write that authorizes on the ACTING member —
@@ -505,7 +505,7 @@ rejected.
 ## Tenant RLS threat model
 
 Row-Level Security is opt-in (`INFRA={"database": {"<name>": {"tenant_rls":
-true}}}`); nothing in the framework or the bundled modules enables it by
+true}}}`); nothing in the framework or the standard modules enables it by
 default — except the `multi_tenant_strict` production profile, which requires
 it on every database and checks every tenant table at startup (see
 [Production profile](#production-profile-the-multi-tenant-trust-model-as-a-contract)). This section states precisely what it does and does not guarantee.

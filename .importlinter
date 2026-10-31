@@ -26,7 +26,7 @@ containers =
 exhaustive = true
 layers =
     cli : testing : contract_testing : archcheck
-    app_factory : admin : composition : worker : gc_tuning : guarantee_windows : di : lifecycle : facade
+    app_factory : admin : composition : worker : gc_tuning : guarantee_windows : di : driver_api : lifecycle : facade
     rpc : loader : module_api : sagas : contract_compat : route_snapshots : contract_cache_shadow : rpc_transport : rpc_transport_compat
     http : idempotency : route_policy : auth : internal_auth : production_profile : route_markers : guard_order : rpc_binding : rpc_identity : rpc_pair_mac : ingress
     _internal : drivers

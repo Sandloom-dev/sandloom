@@ -75,7 +75,8 @@ marked optional dependency (`# sandloom: optional-import <reason>`).
 
 ## Conventions inside a module
 
-- **Layers.** SQLAlchemy and ORM models belong to `models/` and `services/`.
+- **Layers.** SQLAlchemy and ORM models belong to `models/` and `services.py`
+  (or a `services/` package).
   Routes (`api.py`) and `schemas.py` stay persistence-free: a route calls a
   service and returns a pydantic DTO
   ([SANDLOOM-C009](../reference/error-codes.md#sandloom-c009),

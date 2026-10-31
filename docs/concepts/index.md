@@ -6,10 +6,10 @@ type: concept
 
 # Concepts
 
-These pages explain what Sandloom does for you and what you must declare. Each
-page starts with a "default / declare" table for module authors, lists the
-error codes that guard the concept, and ends with the exact guarantees in a
-collapsed box. The design decisions behind them are in the
+These pages explain what Sandloom does for you and what you must declare. Most
+pages start with a "default / declare" table for module authors, list the
+error codes that guard the concept, and end with the exact guarantees in a
+collapsed box. The [glossary](glossary.md) defines every term in one line. The design decisions behind them are in the
 [decision records](../adr/index.md); every error code is in the
 [error catalogue](../reference/error-codes.md).
 

@@ -126,8 +126,9 @@ harness) builds the registry. There is no implicit default registry:
 `cache()`, `notifier()` or any accessor with none bound raises, in every
 environment, with a hint naming those roots.
 
-The `INFRA` setting (JSON) adds named instances or overrides drivers and
-options:
+The flat settings select only the drivers Sandloom ships; a plugin driver is
+always selected through `INFRA`. The `INFRA` setting (JSON) adds named instances
+or overrides drivers and options:
 
 ```json
 {"database": {"analytics": {"driver": "sqlalchemy",
@@ -148,14 +149,19 @@ stability, registered drivers and per-instance health.
 
 ### Adding a backend is a driver, not a kernel edit
 
-Subclass the capability's contract and register it, in process with
-`registry.register_driver(capability, driver, factory)` or as a third-party
-plugin under the `sandloom.infra` entry-point group (a callable
-`register(registry)`; a broken entry point is logged and does not abort
-startup). The driver is the sole constructor of every backend, including the
-`default` instance: a backend constructor (`create_async_engine`,
-`redis.from_url`, `Celery(...)`) is allowed only inside the kernel's driver
-tree, built lazily so nothing opens at import.
+A driver subclasses the capability's provider contract from
+`sandloom.sdk.drivers` and registers itself with
+`registry.register_driver(capability, driver, factory)`, published as a package
+under the `sandloom.infra` entry-point group (a callable `register(registry)`; a
+broken entry point is logged and does not abort startup).
+[Write a driver](../guides/write-a-driver.md) has a complete example, how to select
+it with `INFRA` and how to prove it is used.
+
+Drivers are the only code that constructs a backend, including for the `default`
+instance. Inside the framework, a backend constructor (`create_async_engine`,
+`redis.from_url`, `Celery(...)`) appears only in the kernel's driver tree, built
+lazily so nothing opens at import. A third-party driver follows the same rule in
+its own package, and business modules never construct one.
 
 A capability is a `CapabilitySpec`: the provider contract every driver must
 implement, the optional features a driver may advertise, an optional config

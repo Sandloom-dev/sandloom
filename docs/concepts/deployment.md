@@ -101,7 +101,7 @@ repository. The steps are in the [deployment guide](../guides/deployment.md).
 ### How the framework proves it
 
 - Subset loading: any module subset boots with exactly its own routes.
-- Each bundled module boots **alone** through `create_app` and its lifespan,
+- Each standard module boots **alone** through `create_app` and its lifespan,
   refusing only with the documented binding error for its required consumed
   contracts; any error logged at startup fails the test. Example apps run
   the same gate.

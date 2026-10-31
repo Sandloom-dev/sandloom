@@ -2957,6 +2957,147 @@
       "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
     }
   },
+  "sandloom.sdk.drivers": {
+    "CacheProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "add",
+        "aopen",
+        "capability",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "features",
+        "get",
+        "get_many",
+        "health",
+        "incr",
+        "incr_many",
+        "incr_window",
+        "raw_client",
+        "set",
+        "set_many",
+        "set_max",
+        "set_nx_get",
+        "set_subject_state"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "CapabilitySpec": {
+      "kind": "class",
+      "members": [
+        "config_schema",
+        "description",
+        "is_experimental",
+        "stability"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable') -> None"
+    },
+    "HealthResult": {
+      "kind": "class",
+      "members": [
+        "details",
+        "status"
+      ],
+      "signature": "(status:POSITIONAL_OR_KEYWORD|HealthStatus, details:POSITIONAL_OR_KEYWORD|dict[str, object] | None=None) -> None"
+    },
+    "InfraProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "features",
+        "health"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "InfraRegistry": {
+      "kind": "class",
+      "members": [
+        "aclose_all",
+        "advertised_features",
+        "all_built",
+        "aopen_all",
+        "capabilities",
+        "capability_spec",
+        "configure_instance",
+        "describe",
+        "has_driver",
+        "health_all",
+        "instance_config",
+        "instances",
+        "provider",
+        "register_capability",
+        "register_driver",
+        "resolve",
+        "restore_instance",
+        "set_config",
+        "snapshot_instance",
+        "validate",
+        "validate_requirement"
+      ],
+      "signature": "(config:POSITIONAL_OR_KEYWORD|InfraConfig | None=None, strict_capabilities:KEYWORD_ONLY|bool=False) -> None"
+    },
+    "InstanceConfig": {
+      "kind": "class",
+      "members": [
+        "capability",
+        "driver",
+        "name",
+        "options"
+      ],
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, driver:POSITIONAL_OR_KEYWORD|str, options:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Notification": {
+      "kind": "class",
+      "members": [
+        "dedupe_key"
+      ],
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "NotifierProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "features",
+        "health",
+        "send"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "ObjectStoreProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "delete",
+        "features",
+        "get",
+        "health",
+        "put",
+        "url"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "TaskQueueProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "enqueue",
+        "features",
+        "health",
+        "raw_backend"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    }
+  },
   "sandloom.sdk.effects": {
     "before_commit": {
       "kind": "function",

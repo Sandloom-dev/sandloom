@@ -242,14 +242,19 @@ def explicit_test_overrides(environ: Mapping[str, str] | None = None) -> dict[st
 
 def apply_test_overrides(
     environ: MutableMapping[str, str] | None = None,
+    *,
+    create_database: bool = True,
 ) -> dict[str, str]:
-    """Copy ``SANDLOOM_TEST_<VAR>`` onto ``<VAR>`` in ``environ``; returns them."""
+    """Copy ``SANDLOOM_TEST_<VAR>`` onto ``<VAR>`` in ``environ``; returns them.
+
+    ``create_database=False`` is for a command that connects to no database.
+    """
     env = os.environ if environ is None else environ
     overrides = explicit_test_overrides(env)
     env.update(overrides)
     # An explicitly named test database is created on first use (an xdist
     # worker's own database is created by apply_worker_env instead).
-    if environ is None and worker_id(env) is None:
+    if create_database and environ is None and worker_id(env) is None:
         for var in DATABASE_VARS:
             if var in overrides:
                 ensure_database(overrides[var])

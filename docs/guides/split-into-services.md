@@ -54,7 +54,7 @@ must be identical in every process: the JWT settings, one `CACHE_URL`, the
 internal token, the RPC public keys, and the Streams event bus. The gateway
 never routes `/_sandloom`, `/diagnostics` or `/metrics`.
 
-Bundled modules can each be their own service. A module that issues tokens
+Standard modules can each be their own service. A module that issues tokens
 (identity) gets `JWT_PRIVATE_KEY` and `JWT_SECRET`. No other service gets
 them, so no other service can mint a token.
 

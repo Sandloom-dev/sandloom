@@ -13,6 +13,23 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Developer experience
+
+- Document the framework's vocabulary in a glossary and use one name per concept:
+  "standard module" for identity, tenancy and billing, "driver" for a backend
+  implementation. Add guides to write a driver and to customize a standard module.
+  Reorganize the navigation into Learn, Concepts, Build, Operate, Reference and
+  Project. Remove the compatibility page `docs/CONTRACTS.md`.
+- Add `sandloom.sdk.drivers`, the public home of the provider contracts,
+  `InstanceConfig`, `InfraRegistry` and `CapabilitySpec`. A driver package no longer
+  needs a private `sandloom.core` import.
+
+### Fixed
+
+- `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
+  is set. Following the quickstart's port note failed with `Connection refused`
+  before the services were started.
+
 ### Security
 
 - Quote restored PostgreSQL catalog identifiers, including foreign-key columns,

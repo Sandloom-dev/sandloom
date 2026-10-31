@@ -26,6 +26,13 @@ way they do, see the [concepts](../concepts/index.md).
 | [Change an event's payload](event-versioning.md) | Add an optional field, or roll a channel from `.v1` to `.v2`. |
 | [Testing modules](testing.md) | Write module tests with the fixtures of the testing plugin. |
 
+## Extend
+
+| Guide | What you do |
+| --- | --- |
+| [Customize a standard module](customize-standard-module.md) | Change how identity, tenancy or billing behave without forking. |
+| [Write a driver](write-a-driver.md) | Connect a new backend to a capability and select it by configuration. |
+
 ## Generated files and effects
 
 - [Generate contracts and snapshots](generate.md): write and check generated declarations.
@@ -50,7 +57,6 @@ way they do, see the [concepts](../concepts/index.md).
 | [SSO setup](sso-setup.md) | Configure Google, Microsoft or GitHub sign-in. |
 | [Admin UI for operators](admin-operations.md) | Run the platform-owner console. |
 | [Admin UI for developers](admin.md) | Extend the platform-owner console. |
-| [Publishing packages](publishing.md) | Build and publish the framework distributions. |
 | [Operations](../operations/index.md) | Operating a deployment: overview. |
 | [Operations runbook](../operations/runbook.md) | Health, backups, secrets, incidents. |
 

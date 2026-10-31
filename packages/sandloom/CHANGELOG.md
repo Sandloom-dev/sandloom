@@ -8,6 +8,11 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- Add `sandloom.sdk.drivers`, the public home of the provider contracts for driver
+  packages.
+- `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
+  is set.
+
 ## [0.7.0a4] — 2026-10-31
 
 - Add cold project graphs, compact complete module maps and the offline Explorer:

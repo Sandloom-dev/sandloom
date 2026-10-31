@@ -1559,7 +1559,7 @@ guarantees:
     field or removed required field on the same version) fails registration / module load.
   sources:
   - docs/concepts/modules.md#What you get by default, and what you declare
-  - docs/CONTRACTS.md#5. Overwrite & Evolution (Current Rules)
+  - docs/concepts/events.md#Changing an event
   tests:
   - src/sandloom/core/tests/test_core_event_schemas.py::test_re_register_idempotent
   - src/sandloom/core/tests/test_schema_compat.py::test_add_required_field_same_version_rejected
@@ -2977,7 +2977,6 @@ guarantees:
   sources:
   - docs/concepts/contracts.md
   - docs/concepts/contracts.md#Local equals remote
-  - docs/CONTRACTS.md#Sync service contracts
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_local_call_runs_in_providers_own_uow_on_its_own_database
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key

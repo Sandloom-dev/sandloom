@@ -483,6 +483,7 @@ def render_module(module: ModuleType) -> str:
             "Infrastructure capabilities",
             "concepts/capabilities-and-infrastructure.md",
         ),
+        "drivers": ("Write a driver", "guides/write-a-driver.md"),
         "security": ("Revoke sessions", "guides/session-revocation.md"),
         "errors": ("Error catalogue", "reference/error-codes.md"),
         "migrations": ("Run migrations", "guides/migrations.md"),
