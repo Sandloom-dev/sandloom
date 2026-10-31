@@ -1086,6 +1086,12 @@ class JobResult:
     steps: list[tuple[str, str, float]] = field(default_factory=list)
 
 
+def _extract_source_archive(archive: Path, destination: Path) -> None:
+    """Unpack the reviewed source archive into a job workspace."""
+    with tarfile.open(archive) as source:
+        source.extractall(destination, filter="data")
+
+
 class Run:
     def __init__(self, args: argparse.Namespace, repo: Path) -> None:
         self.args = args
@@ -1156,8 +1162,7 @@ class Run:
         )
         self.src_root = self.tmp / "src"
         self.src_root.mkdir()
-        with tarfile.open(self.tar) as tf:
-            tf.extractall(self.src_root, filter="tar")
+        _extract_source_archive(self.tar, self.src_root)
         self.say(f"exported {self.args.ref} @ {self.sha[:12]} -> {self.tmp}")
 
     def setup_network(self) -> None:
@@ -1286,8 +1291,7 @@ RUN apt-get update \\
                 commit,
             ]
         )
-        with tarfile.open(tar) as tf:
-            tf.extractall(dest, filter="tar")
+        _extract_source_archive(tar, dest)
 
     # -- cleanup -----------------------------------------------------------
     def cleanup(self) -> None:
@@ -1786,8 +1790,7 @@ class HostJob(_JobBase):
 
     def setup(self) -> None:
         self.dir.mkdir()
-        with tarfile.open(self.run.tar) as tf:
-            tf.extractall(self.dir, filter="tar")
+        _extract_source_archive(self.run.tar, self.dir)
         index_export(self.dir)
         tag = f"{self.run.prefix}".lower()
         if self.job.spec.local == "microservices-smoke":

@@ -11,12 +11,16 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import stat
+import subprocess
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
 from benchsuite import dataset
+from ladder import cg_matrix
 
 asyncpg = pytest.importorskip("asyncpg")
 
@@ -169,3 +173,51 @@ def test_counts_catch_a_table_the_reset_does_not_cover(dsn: str) -> None:
             await conn.close()
 
     asyncio.run(scenario())
+
+
+def test_counts_quote_names_returned_by_the_database_catalog(dsn: str) -> None:
+    async def scenario() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute('CREATE TABLE "odd"";-- table" (id integer)')
+            await conn.execute('INSERT INTO "odd"";-- table" VALUES (1), (2)')
+            assert (await dataset.counts_one(conn))['odd";-- table'] == 2
+        finally:
+            await conn.execute('DROP TABLE IF EXISTS "odd"";-- table"')
+            await conn.close()
+
+    asyncio.run(scenario())
+
+
+def test_profiler_output_is_private_to_the_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def container(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        mounts = [command[i + 1] for i, arg in enumerate(command[:-1]) if arg == "-v"]
+        output = Path(
+            next(
+                value.removesuffix(":/out")
+                for value in mounts
+                if value.endswith(":/out")
+            )
+        )
+        assert stat.S_IMODE(output.stat().st_mode) & 0o077 == 0
+        user = command[command.index("--user") + 1]
+        assert user == f"{os.getuid()}:{os.getgid()}"
+        return subprocess.CompletedProcess(command, 0, 'JSON {"probe": 1}\n', "")
+
+    monkeypatch.setattr(cg_matrix.subprocess, "run", container)
+    monkeypatch.setattr(cg_matrix.dataset, "flush_redis", lambda *_: None)
+    cg_matrix._job(
+        {
+            "image": "fixture-image",
+            "pg": "postgresql://unused",
+            "harness": str(tmp_path),
+        },
+        "lane",
+        {"build": str(tmp_path)},
+        {"name": "sample", "rung": "probe"},
+        str(tmp_path / "result.jsonl"),
+    )

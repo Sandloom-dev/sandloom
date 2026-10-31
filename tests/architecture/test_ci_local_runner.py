@@ -14,9 +14,11 @@ here. A changed job body (``FINGERPRINTS``) fails too: review the mapping in
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from types import ModuleType
 
@@ -56,6 +58,51 @@ def test_workflows_are_mapped(ci_local: ModuleType) -> None:
     assert not errors, "tools/ci/ci_local.py cannot map the workflows:\n" + "\n".join(
         errors
     )
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo"])
+def test_source_archives_reject_external_links_and_special_files(
+    ci_local: ModuleType, tmp_path: Path, kind: str
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep").write_text("untouched")
+    archive = tmp_path / "source.tar"
+    member = tarfile.TarInfo("escape")
+    member.type = {
+        "symlink": tarfile.SYMTYPE,
+        "hardlink": tarfile.LNKTYPE,
+        "fifo": tarfile.FIFOTYPE,
+    }[kind]
+    member.linkname = "../outside/keep"
+    with tarfile.open(archive, "w") as output:
+        output.addfile(member)
+    destination = tmp_path / "job"
+    destination.mkdir()
+    with pytest.raises(tarfile.FilterError):
+        ci_local._extract_source_archive(archive, destination)
+    assert (outside / "keep").read_text() == "untouched"
+
+
+def test_source_archives_keep_regular_files_and_internal_symlinks(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    archive = tmp_path / "source.tar"
+    member = tarfile.TarInfo("run.sh")
+    payload = b"#!/bin/sh\nexit 0\n"
+    member.size = len(payload)
+    member.mode = 0o755
+    link = tarfile.TarInfo("alias.sh")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "run.sh"
+    with tarfile.open(archive, "w") as output:
+        output.addfile(member, io.BytesIO(payload))
+        output.addfile(link)
+    destination = tmp_path / "job"
+    destination.mkdir()
+    ci_local._extract_source_archive(archive, destination)
+    assert (destination / "alias.sh").read_bytes() == payload
+    assert (destination / "run.sh").stat().st_mode & 0o100
 
 
 def test_fallback_export_has_an_independent_tracked_file_index(

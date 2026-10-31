@@ -65,11 +65,12 @@ def _job(plan: dict, lane: str, spec: dict, job: dict, out: str) -> None:
     env = {**spec.get("env", {}), **job.get("env", {})}
     tag = f"{lane}.{job['name']}".replace("/", "_")
     with tempfile.TemporaryDirectory() as td:
-        os.chmod(td, 0o777)
         cmd = [
             "docker",
             "run",
             "--rm",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
             "-v",
             f"{build}/src:/w/src:ro",
             "-v",

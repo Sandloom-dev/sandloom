@@ -74,6 +74,11 @@ async def _tables(conn: asyncpg.Connection) -> set[str]:
     return {r[0] for r in rows}
 
 
+def _table_identifier(name: str) -> str:
+    """Quote a PostgreSQL catalog identifier, including embedded quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
 async def reset_one(conn: asyncpg.Connection) -> list[str]:
     have = await _tables(conn)
     done = []
@@ -82,7 +87,7 @@ async def reset_one(conn: asyncpg.Connection) -> list[str]:
             await conn.execute(sql)
             done.append(table)
     for table in done:
-        await conn.execute(f'VACUUM ANALYZE "{table}"')
+        await conn.execute(f"VACUUM ANALYZE {_table_identifier(table)}")
     return done
 
 
@@ -91,7 +96,7 @@ async def counts_one(conn: asyncpg.Connection) -> dict[str, int]:
     for t in sorted(await _tables(conn)):
         if t.startswith("alembic_version"):
             continue
-        out[t] = await conn.fetchval(f'SELECT count(*) FROM "{t}"')
+        out[t] = await conn.fetchval(f"SELECT count(*) FROM {_table_identifier(t)}")
     return out
 
 

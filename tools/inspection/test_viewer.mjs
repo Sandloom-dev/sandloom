@@ -1,9 +1,55 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import vm from 'node:vm';
 const source=readFileSync(new URL('../../src/sandloom/core/cli/inspection/viewer.js',import.meta.url),'utf8');
 const layoutSource=readFileSync(new URL('../../src/sandloom/core/cli/inspection/viewer.layout.js',import.meta.url),'utf8');
+const {JSDOM}=createRequire(new URL('../../admin/package.json',import.meta.url))('jsdom');
+
+test('hostile model text stays text and documentation links cannot execute JavaScript',()=>{
+  const cli=fileURLToPath(new URL('../../.venv/bin/sandloom',import.meta.url));
+  const app=fileURLToPath(new URL('../../examples/helpdesk',import.meta.url));
+  const exported=spawnSync(cli,['graph','--root',app,'--format','html'],{encoding:'utf8'});
+  assert.equal(exported.status,0,exported.stderr);
+  const payload='<img src=x onerror="globalThis.untrustedExecuted=true">';
+  let html=exported.stdout.replace(/(<script id="graph-data"[^>]*>)([\s\S]*?)(<\/script>)/,(_match,open,json,close)=>{
+    const model=JSON.parse(json), data=model.workspace||model.data;
+    const node=data.nodes.find(n=>n.id==='module:tickets');
+    Object.assign(node,{name:payload,notes:[payload],docs:'javascript:globalThis.untrustedExecuted=true'});
+    const card=data.modules.find(m=>m.id===node.id);card.summary=payload;
+    return open+JSON.stringify(model).replaceAll('<','\\u003c')+close;
+  });
+  const dom=new JSDOM(html,{url:'https://viewer.example/#selected=module%3Atickets&selection-kind=entity',runScripts:'dangerously'});
+  try {
+    const document=dom.window.document;
+    assert.ok(document.querySelector('#inspector-content').textContent.includes(payload));
+    assert.equal(document.querySelectorAll('img, [onerror]').length,0);
+    assert.notEqual(dom.window.untrustedExecuted,true);
+    const docs=[...document.querySelectorAll('#inspector-content a')];
+    assert.ok(docs.every(a=>!a.href||['https:','http:'].includes(new URL(a.href).protocol)));
+  } finally {dom.window.close();}
+});
+
+test('documentation navigation accepts web URLs and rejects executable schemes',()=>{
+  const dom=new JSDOM('',{url:'https://viewer.example/'});
+  try {
+    const context=vm.createContext({document:dom.window.document,URL:dom.window.URL});
+    vm.runInContext(source.slice(source.indexOf('function el('),source.indexOf('function svgEl(')),context);
+    for(const value of ['javascript:alert(1)','java\tscript:alert(1)','data:text/html,unsafe','file:///tmp/private',{}]) {
+      context.value=value;
+      const link=vm.runInContext('documentationLink("Docs",value)',context);
+      assert.equal(link.getAttribute('href'),null);
+      assert.equal(link.getAttribute('aria-disabled'),'true');
+    }
+    context.value='/docs/concepts/events/';
+    assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),'https://sandloom.dev/docs/concepts/events/');
+    context.value='https://example.test/module-docs/';
+    assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),context.value);
+  } finally {dom.window.close();}
+});
 class Element {
   constructor(tag,attrs={},text=''){this.tag=tag;this.attrs={...attrs};this.textContent=text;this.children=[];this.style={};this.classList={add:()=>{}};}
   append(...items){this.children.push(...items);}
@@ -13,7 +59,7 @@ class Element {
 }
 function render(items,links){
   const diagram=new Element('svg'), empty={};
-  const context=vm.createContext({visibleNodes:items,visibleLinks:links,selectedId:'',viewbox:[],document:{activeElement:null},kinds:{module:'Business module'},cards:new Map(),name:id=>id,human:kind=>kind, svgEl:(...args)=>new Element(...args),$:(id)=>id==='diagram'?diagram:empty});
+  const context=vm.createContext({visibleNodes:items,visibleLinks:links,selectedId:'',viewbox:[],document:{activeElement:null},kinds:{module:'Business module'},cards:new Map(),name:id=>id,human:kind=>kind, svgEl:(...args)=>new Element(...args),byId:(id)=>id==='diagram'?diagram:empty});
   vm.runInContext(layoutSource,context);
   vm.runInContext(source.slice(source.indexOf('function marker('),source.indexOf('function zoom(')),context);
   vm.runInContext('drawDiagram(true)',context);
@@ -92,7 +138,7 @@ test('Impact names the exact interface witness',()=>{
 test('Contract layer module filter includes that owner only, not every neighbor interface',()=>{
   const doc=JSON.parse(readFileSync(new URL('../../examples/helpdesk/.sandloom/inspection.json',import.meta.url),'utf8'));
   const elements={focus:{value:'module:tickets'},hops:{value:'1'},direction:{value:'both'},layer:{value:'interfaces'},relation:{value:''},query:{value:''}};
-  const context=vm.createContext({$:(id)=>elements[id],allNodes:doc.nodes,allEdges:doc.edges,modules:doc.modules,nodes:new Map(doc.nodes.map(n=>[n.id,n])),cards:new Map(),relations:[{source:'module:tickets',target:'module:billing'},{source:'module:tickets',target:'module:tenancy'}]});
+  const context=vm.createContext({byId:(id)=>elements[id],allNodes:doc.nodes,allEdges:doc.edges,modules:doc.modules,nodes:new Map(doc.nodes.map(n=>[n.id,n])),cards:new Map(),relations:[{source:'module:tickets',target:'module:billing'},{source:'module:tickets',target:'module:tenancy'}]});
   vm.runInContext(source.slice(source.indexOf('function moduleScope('),source.indexOf('function searchHints(')),context);
   const model=vm.runInContext('layerModel()',context);
   assert.ok(model.nodes.length<15);

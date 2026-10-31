@@ -13,6 +13,24 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Security
+
+- Quote restored PostgreSQL catalog identifiers, including foreign-key columns,
+  before checking backups; handle quoted names without changing query semantics.
+- Restrict architecture-viewer documentation links to HTTP/HTTPS and retain
+  text-only rendering of imported model labels.
+- Extract local CI source archives with Python's `data` filter, rejecting
+  escaping links and special files. Keep profiler output private and run its
+  container as the operator; quote benchmark catalog identifiers.
+- Remove vulnerable admin build dependencies `uri-js` and `braces`. Replace
+  Ajv's URI parser with `fast-uri` and guard picomatch's repeated-wildcard
+  extglobs with a version/hash-pinned install patch and timeout regressions.
+  Snyk still reports picomatch's version advisory; the mitigation is documented
+  without a scanner ignore. Record the complete Snyk finding review.
+- Apply pinned Alpine security backports for brotli, curl, musl and zlib in
+  the admin runtime image, retaining its unprivileged user. Record unresolved
+  Debian runtime advisories separately from fixed application dependencies.
+
 ## [0.7.0a4] — 2026-10-31
 
 ### Developer experience

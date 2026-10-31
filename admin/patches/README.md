@@ -1,23 +1,45 @@
-# Build-tool dependency compatibility
+# Build-tool dependency hardening
 
-The admin uses `glob` 14.0.2 and `minimatch` 11.0.1 to address
-[GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) and
-[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
-The npm audit gate remains unchanged, including development dependencies.
+`npm ci` runs `scripts/apply-build-tool-patches.mjs`, then the real consumer and
+security regressions in `scripts/dependency-compat.test.mjs`. The installer uses
+only Node built-ins. It checks exact package versions and pristine/patched
+SHA-256 hashes, rejects unexpected source, and can run again without changing
+an already reviewed result. Docker copies the manifest and scripts before
+installation. Lifecycle scripts must be enabled; `npm test` also detects a
+missing or ineffective patch.
 
-Pinned ESLint, jsx-a11y and Redocly consumers still use the older callable
-CommonJS/default import of minimatch. Overriding their dependency with the
-unmodified version 11 breaks those calls. The version-specific patch restores
-only the callable CommonJS export and the ESM default export. Named exports,
-the matching implementation and the upstream security fix are unchanged.
+`build-tools.json` contains two deliberately narrow changes:
 
-`npm ci` applies the patch with `patch-package --error-on-fail`, then runs
-`scripts/dependency-compat.test.mjs`. Those tests exercise both import formats,
-jsx-a11y's custom component patterns and Redocly's URL-matched headers. They
-also run with `npm test`. Docker copies the patch and test before installation.
-Do not install this build environment with lifecycle scripts disabled.
+- **minimatch 11.0.1:** preserve the callable CommonJS and default ESM imports
+  used by pinned ESLint, jsx-a11y and Redocly consumers. The upstream matching
+  implementation and security fix are unchanged.
+- **picomatch 4.0.7:** reject single-branch repeated extglobs whose parsed tokens
+  contain an unbounded wildcard, such as `+(*a)`. They can compile to nested
+  unbounded regex quantifiers. Escaped stars, character classes and ordinary
+  multi-branch extglobs remain supported. This guard does not depend on the
+  opt-out for upstream extglob recursion checks. The regression uses a separate
+  process and a timeout; the unpatched `+(*a)` matcher was observed hanging.
 
-Remove the patch and its install hook once every pinned consumer accepts the
-modern named import. Remove the overrides once their declared version ranges
-select fixed versions on a fresh install. Recheck both conditions when changing
-these dependencies; do not silently regenerate the patch for another version.
+The unmaintained `uri-js` dependency of Ajv 6 is replaced through an npm alias
+with Fastify's `fast-uri` 4.2.3. Actual Ajv reference resolution and the advisory
+inputs are tested. Removing `patch-package` also removes its vulnerable
+`micromatch` / `braces` / picomatch 2 dependency chain.
+
+The complete npm audit gate stays enabled, including development dependencies.
+There is no Snyk ignore policy. Snyk's package-version analysis still reports
+picomatch because its advisory lists every released version; it does not
+inspect the local parser patch. Retain that visible finding and the regression
+evidence until an upstream fixed release replaces the patch.
+
+Review and regenerate hashes deliberately when changing the pinned versions.
+Remove the minimatch compatibility patch once every consumer uses named imports;
+remove the picomatch guard once the upstream fixed implementation passes the
+same attack regressions. Do not substitute a new version silently.
+
+References:
+
+- [Glob cancellation](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)
+- [Minimatch amplification](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+- [Picomatch ReDoS](https://security.snyk.io/vuln/SNYK-JS-PICOMATCH-21248802)
+- [uri-js advisory index](https://security.snyk.io/package/npm/uri-js)
+- [braces recursion](https://security.snyk.io/vuln/SNYK-JS-BRACES-19963945)

@@ -187,6 +187,39 @@ def test_verify_flags_orphan_rows_of_a_broken_restore(tmp_path: Path) -> None:
     assert [c.name for c in failed] == ["foreign keys hold"], report.as_dict()
 
 
+@pytest.mark.parametrize("orphan", [False, True])
+def test_restore_check_quotes_catalog_column_identifiers(
+    tmp_path: Path, orphan: bool
+) -> None:
+    def restore(_dump: Path, url: str) -> None:
+        _migrate(url)
+        url = url.replace("postgresql+psycopg2://", "postgresql://")
+        run_sql(
+            url,
+            'CREATE TABLE "parent odd" ("key"";--" integer PRIMARY KEY); '
+            'CREATE TABLE "child odd" ("ref"";--" integer REFERENCES '
+            '"parent odd" ("key"";--")); '
+            'INSERT INTO "parent odd" VALUES (1); '
+            'INSERT INTO "child odd" VALUES (1)',
+        )
+        if orphan:
+            run_sql(
+                url,
+                "SET session_replication_role = replica; "
+                'INSERT INTO "child odd" VALUES (2)',
+            )
+
+    report = verify_dump(
+        _fake_dump(tmp_path), server_url=_server_url(), chains=CHAINS, restorer=restore
+    )
+    assert all(c.ok for c in report.checks if c.name != "foreign keys hold"), (
+        report.as_dict()
+    )
+    foreign_keys = [c for c in report.checks if c.name == "foreign keys hold"]
+    assert len(foreign_keys) == 1, report.as_dict()
+    assert foreign_keys[0].ok is not orphan
+
+
 def test_dump_format_detection(tmp_path: Path) -> None:
     custom = tmp_path / "a.dump"
     custom.write_bytes(b"PGDMP\x01\x0e")
