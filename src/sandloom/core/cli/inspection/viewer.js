@@ -119,6 +119,8 @@ function connectionSections(item) {
   return sections;
 }
 function goTo(item) {
+  // A focused view draws consumers and projections as their owner module.
+  if(item.kind==='consumer'||item.kind==='projection') { const owner=nodes.get(homeModules(item)[0]); if(owner) { byId('layer').value='interfaces';item=owner; } }
   const layer=byId('layer').value;
   if(item.kind==='module') { if(layer==='interfaces')byId('focus').value=item.id; else {byId('layer').value='modules';if(byId('focus').value&&!moduleScope().has(item.id))byId('focus').value='';} }
   else if(item.kind==='capability') { byId('layer').value='infrastructure';byId('focus').value=''; }
@@ -326,7 +328,7 @@ function searchHints(model) {
   }
   target.hidden=false;
   if(!matches.length){target.append(el('p','No modules, contracts, events, routes or tables match.'));return;}
-  target.append(el('p',matches.length+' matches across everything'+(model.matches?'':'; none in the current view')+'.'));
+  target.append(el('p',matches.length+(matches.length===1?' match':' matches')+' across everything'+(model.matches?'':'; none in the current view')+'.'));
   for(const item of matches.slice(0,8))target.append(button(item.text,item.open));
   if(matches.length>8)target.append(el('p','Showing the first 8 results. Refine search to narrow the list.'));
 }
@@ -353,22 +355,23 @@ function renderOverview(fit=true) {
   if(!listedLinks.length) byId('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
   const outside=selectedId&&!visibleNodes.some(n=>n.id===selectedId)&&!listedLinks.some(r=>r.id===selectedId)&&!visibleLinks.some(r=>r.id===selectedId);
   byId('selection-state').hidden=!outside; byId('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
-  searchHints(model);syncSelection();drawDiagram(fit);drawChooser(); stateURL();
+  searchHints(model);syncSelection();drawChooser();drawDiagram(fit); stateURL();
 }
 // Too many entities to read at once: start from the question "which module?".
 function drawChooser() {
   const target=byId('canvas-choose'), layer=byId('layer').value;
   const show=layer!=='modules'&&!byId('focus').value&&!byId('query').value.trim()&&!byId('relation').value&&!showAllEntities&&visibleNodes.length>20;
-  target.hidden=!show;target.replaceChildren();byId('diagram').toggleAttribute('hidden',show||!visibleNodes.length);if(!show)return;
+  choosing=show;target.hidden=!show;target.replaceChildren();byId('diagram').toggleAttribute('hidden',show||!visibleNodes.length);byId('save-svg').disabled=show;if(!show)return;
   target.append(el('h2','Choose a module'),el('p',visibleNodes.length+' entities are too many to read at once. Pick a module to see its interfaces and who uses them.','muted'));
   const grid=el('div',undefined,'choose-grid');
   for(const module of modules) { const facts=[['provides_contract','contract'],['produces_event','event'],['requires_contract','call']].map(([kind,word])=>{const n=allEdges.filter(e=>e.kind===kind&&e.source===module.id).length;return n?n+' '+word+(n===1?'':'s'):'';}).filter(Boolean).join(' · ');const b=button(module.name,()=>showInterfaces(module.id));b.append(el('span',facts||'no interfaces'));if(cards.get(module.id)?.summary)b.append(el('span',cards.get(module.id).summary,'module-purpose'));grid.append(b); }
   target.append(grid,button('Show all '+visibleNodes.length+' entities anyway',()=>{showAllEntities=true;renderOverview();}));
 }
 function marker(svg,id='arrow') { const defs=svgEl('defs'), mark=svgEl('marker',{id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'}); mark.append(svgEl('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'})); defs.append(mark); svg.append(defs); }
-let diagramBounds=[0,0,900,460],diagramScale=1;
+let diagramBounds=[0,0,900,460],diagramScale=1,choosing=false;
 function applyBox() { const svg=byId('diagram');svg.setAttribute('viewBox',diagramBounds.join(' '));svg.style.width=diagramBounds[2]*diagramScale+'px';svg.style.height=diagramBounds[3]*diagramScale+'px'; }
 function drawDiagram(fit=false) {
+  if(choosing) { byId('diagram').replaceChildren();byId('canvas-empty').hidden=true;return; }
   const svg=byId('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks,cards);
   byId('canvas-empty').hidden=visibleNodes.length>0; svg.hidden=!visibleNodes.length;
   const routes=routedLinks(at,visibleLinks);

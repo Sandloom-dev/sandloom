@@ -50,6 +50,59 @@ test('documentation navigation accepts web URLs and rejects executable schemes',
     assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),context.value);
   } finally {dom.window.close();}
 });
+// The real page in a DOM: covers what the vm slices below cannot see.
+function livePage(root,hash=''){
+  const cli=fileURLToPath(new URL('../../.venv/bin/sandloom',import.meta.url));
+  const cwd=fileURLToPath(new URL('../../',import.meta.url));
+  const exported=spawnSync(cli,['graph',...(root?['--root',root]:[]),'--format','html'],{cwd,encoding:'utf8',maxBuffer:1<<26});
+  assert.equal(exported.status,0,exported.stderr);
+  const dom=new JSDOM(exported.stdout,{url:'https://viewer.example/'+hash,runScripts:'dangerously',beforeParse(window){
+    window.CSS={escape:value=>value};window.Element.prototype.scrollIntoView=()=>{};
+  }});
+  const document=dom.window.document, byId=id=>document.getElementById(id);
+  const envelope=JSON.parse(byId('graph-data').textContent);
+  return {dom,document,byId,data:envelope.workspace||envelope.data,search(text){byId('query').value=text;byId('query').dispatchEvent(new dom.window.Event('input'));}};
+}
+test('Search opens a consumer through its owner module, drawn and selected',()=>{
+  const page=livePage('examples/projecthub');
+  try {
+    const consumer=page.data.nodes.find(n=>n.kind==='consumer');
+    const owner=page.data.edges.find(e=>e.target===consumer.id&&e.kind==='owns_consumer').source;
+    page.search(consumer.id);
+    assert.match(page.byId('search-hints').querySelector('p').textContent,/^1 match across/);
+    page.byId('search-hints').querySelector('button').click();
+    assert.equal(page.byId('selection-state').hidden,true);
+    assert.equal(page.byId('inspector-content').querySelector('h2').textContent,page.data.nodes.find(n=>n.id===owner).name);
+    assert.ok(page.document.querySelector(`#diagram [data-item="${owner}"]`).getAttribute('class').includes('selected'));
+  } finally {page.dom.window.close();}
+});
+test('The chooser replaces the diagram until a module is chosen',()=>{
+  const page=livePage('','#layer=interfaces');
+  try {
+    const diagram=page.byId('diagram'), chooser=page.byId('canvas-choose');
+    assert.equal(chooser.hidden,false);
+    assert.equal(diagram.hasAttribute('hidden'),true);
+    assert.equal(diagram.childElementCount,0);
+    assert.equal(page.byId('save-svg').disabled,true);
+    page.byId('nodes').querySelector('button').click();
+    assert.equal(diagram.childElementCount,0);
+    chooser.querySelector('.choose-grid button').click();
+    assert.equal(chooser.hidden,true);
+    assert.equal(diagram.hasAttribute('hidden'),false);
+    assert.ok(diagram.childElementCount>0);
+    assert.equal(page.byId('save-svg').disabled,false);
+  } finally {page.dom.window.close();}
+});
+test('Keyboard selection of a block highlights its links and dims the rest',()=>{
+  const page=livePage('examples/projecthub');
+  try {
+    const block=page.document.querySelector('#diagram [data-item="module:tasks"]');
+    block.dispatchEvent(new page.dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    assert.equal(page.byId('inspector-content').querySelector('h2').textContent,'tasks');
+    assert.ok(page.document.querySelectorAll('#diagram .dim').length>0);
+    assert.ok(page.document.querySelectorAll('#diagram .active').length>0);
+  } finally {page.dom.window.close();}
+});
 class Element {
   constructor(tag,attrs={},text=''){this.tag=tag;this.attrs={...attrs};this.textContent=text;this.children=[];this.style={};this.classList={add:()=>{}};}
   append(...items){this.children.push(...items);}
