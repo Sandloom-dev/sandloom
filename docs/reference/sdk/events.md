@@ -26,7 +26,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`EventEnvelope`](#eventenvelope) | callable | A Mapping is a generic container for associating key/value pairs. |
-| [`EventMeta`](#eventmeta) | class | Delivery metadata of an event; mirrors the envelope, never part of the payload (`event.meta` on a delivered event). |
+| [`EventMeta`](#eventmeta_1) | class | Delivery metadata of an event; mirrors the envelope, never part of the payload (`event.meta` on a delivered event). |
 | [`PoisonEventError`](#poisoneventerror) | exception | Raised by a consumer handler for an event that can NEVER be applied (malformed payload): the delivery is dead-lettered at once (CRITICAL... |
 | [`publish_event`](#publish_event) | async function | Publish a domain event through the transactional outbox. |
 | [`publish_event_versions`](#publish_event_versions) | async function | Publish one domain event under several versions of its channel. |

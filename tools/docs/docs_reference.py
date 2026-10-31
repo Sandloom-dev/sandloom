@@ -416,27 +416,48 @@ def _entry(name: str, obj: Any) -> list[str]:
     return lines
 
 
+def _beginner_and_advanced(module: ModuleType) -> tuple[list[str], list[str]]:
+    names = list(getattr(module, "__all__", ()))
+    beginner = sorted(
+        (n for n in getattr(module, "__beginner__", ()) if n in names), key=str.lower
+    )
+    return beginner, sorted((n for n in names if n not in beginner), key=str.lower)
+
+
+def _anchors(module: ModuleType) -> dict[str, str]:
+    """Each name's heading id on its page, in page order. The site numbers a repeated
+    id, and a method heading counts: `Event.meta` takes `eventmeta` before `EventMeta`,
+    and `Cache` takes `cache` before the function `cache`."""
+    seen: dict[str, int] = {}
+
+    def heading_id(text: str) -> str:
+        slug = text.lower().replace(".", "")
+        seen[slug] = seen.get(slug, 0) + 1
+        return slug if seen[slug] == 1 else f"{slug}_{seen[slug] - 1}"
+
+    anchors: dict[str, str] = {}
+    beginner, advanced = _beginner_and_advanced(module)
+    for name in (*beginner, *advanced):
+        anchors[name] = heading_id(name)
+        for attr, _signature_text, _doc in _methods(getattr(module, name)):
+            heading_id(f"{name}.{attr}")
+    return anchors
+
+
 def _table(names: Iterable[str], module: ModuleType) -> list[str]:
     rows = ["| Name | Kind | Summary |", "| --- | --- | --- |"]
-    seen: dict[str, int] = {}
+    anchors = _anchors(module)
     for name in names:
         obj = getattr(module, name)
-        # The site numbers a repeated heading id: `Cache` then `cache` is cache_1.
-        anchor = name.lower()
-        seen[anchor] = seen.get(anchor, 0) + 1
-        if seen[anchor] > 1:
-            anchor = f"{anchor}_{seen[anchor] - 1}"
-        rows.append(f"| [`{name}`](#{anchor}) | {_kind(obj)} | {_summary(obj)} |")
+        rows.append(
+            f"| [`{name}`](#{anchors[name]}) | {_kind(obj)} | {_summary(obj)} |"
+        )
     return rows
 
 
 def render_module(module: ModuleType) -> str:
     """The reference page of one public ``sandloom.sdk`` module."""
-    names = list(getattr(module, "__all__", ()))
-    beginner = sorted(
-        (n for n in getattr(module, "__beginner__", ()) if n in names), key=str.lower
-    )
-    advanced = sorted((n for n in names if n not in beginner), key=str.lower)
+    beginner, advanced = _beginner_and_advanced(module)
     out = [
         "---",
         f"title: {module.__name__}",
@@ -537,7 +558,7 @@ def render_index(modules: list[ModuleType]) -> str:
         home = _home_of(name, modules)
         obj = getattr(root, name)
         link = (
-            f"[`{name}`]({_rel('sandloom.sdk', home.__name__)}#{name.lower()})"
+            f"[`{name}`]({_rel('sandloom.sdk', home.__name__)}#{_anchors(home)[name]})"
             if home
             else f"`{name}`"
         )
@@ -552,7 +573,8 @@ def render_index(modules: list[ModuleType]) -> str:
             continue
         for name in sorted(getattr(mod, "__beginner__", ()), key=str.lower):
             obj = getattr(mod, name)
-            link = f"[`{name}`]({_rel('sandloom.sdk', mod.__name__)}#{name.lower()})"
+            anchor = _anchors(mod)[name]
+            link = f"[`{name}`]({_rel('sandloom.sdk', mod.__name__)}#{anchor})"
             out.append(
                 f"| {link} | `{mod.__name__}` | {_kind(obj)} | {_summary(obj)} |"
             )
