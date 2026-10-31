@@ -313,6 +313,17 @@ def github_tag_source(api, base: str, tag: str) -> str | None:
     return target["sha"]
 
 
+def wait_github_release(api, base: str, tag: str) -> dict:
+    """Bound delayed REST visibility after creation; retry reads, never writes."""
+    for attempt in range(6):
+        current = find_github_release(api, base, tag)
+        if current is not None:
+            return current
+        if attempt < 5:
+            time.sleep(2)
+    raise RuntimeError("GitHub release is not visible after 6 reads")
+
+
 def publish_github_release(
     manifest_path: Path,
     dist: Path,
@@ -382,9 +393,7 @@ def publish_github_release(
     wanted = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in assets}
 
     def check_assets() -> set[str]:
-        current = find_github_release(api, base, tag)
-        if current is None:
-            raise RuntimeError("GitHub release was not created")
+        current = wait_github_release(api, base, tag)
         found = set()
         for asset in current["assets"]:
             name = asset["name"]

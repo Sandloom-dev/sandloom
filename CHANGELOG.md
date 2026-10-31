@@ -13,6 +13,12 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### CI
+
+- Wait for a newly created GitHub draft release to become visible in REST reads.
+  Retry only reads, with a fixed limit; preserve single create/upload operations
+  and fail-closed checks for conflicting source tags and asset hashes.
+
 ## [0.7.0a5] — 2026-10-31
 
 ### Breaking changes

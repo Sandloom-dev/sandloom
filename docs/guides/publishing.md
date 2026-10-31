@@ -71,6 +71,13 @@ Reruns can fill missing assets in a draft but never overwrite a tag or a
 conflicting asset. A matching published release is verified without changes.
 A dry run never creates a tag, draft, GitHub Release or PyPI upload.
 
+GitHub can briefly delay a newly created draft's visibility in REST reads.
+The publisher retries that read up to six times, with two seconds between
+attempts; it never repeats the create or upload command to handle this delay.
+If the job still fails, inspect the draft and rerun only the `github-release`
+job. Matching drafts and assets are resumed, while conflicting hashes or tags
+still stop publication. A successful PyPI upload does not need to be repeated.
+
 ## Manual release
 
 For a coordinated release, run this from the repository root:

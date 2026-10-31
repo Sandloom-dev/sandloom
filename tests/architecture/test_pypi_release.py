@@ -362,6 +362,45 @@ def test_github_release_resumes_a_partial_draft_without_overwriting(github_candi
     assert len(calls[0][3 : calls[0].index("--repo")]) == 1
 
 
+def test_github_release_waits_for_a_new_draft_without_repeating_writes(
+    github_candidate, monkeypatch
+):
+    """The create response can precede the draft becoming visible in REST reads."""
+    _folder, _manifest, state, calls, publish = github_candidate
+    original = release.find_github_release
+    hidden = 2
+    sleeps = []
+
+    def delayed(api, base, tag):
+        nonlocal hidden
+        if state["release"] is not None and hidden:
+            hidden -= 1
+            return None
+        return original(api, base, tag)
+
+    monkeypatch.setattr(release, "find_github_release", delayed)
+    monkeypatch.setattr(release.time, "sleep", sleeps.append)
+    publish()
+    assert [call[1] for call in calls] == ["create", "upload", "edit"]
+    assert sleeps == [2, 2]
+    assert len(state["release"]["assets"]) == 10
+    assert state["release"]["draft"] is False
+
+
+def test_github_release_visibility_wait_is_bounded_and_never_recreates(
+    github_candidate, monkeypatch
+):
+    """A permanently invisible draft fails closed before any upload or publish."""
+    _folder, _manifest, _state, calls, publish = github_candidate
+    sleeps = []
+    monkeypatch.setattr(release, "find_github_release", lambda *args: None)
+    monkeypatch.setattr(release.time, "sleep", sleeps.append)
+    with pytest.raises(RuntimeError, match="not visible after 6 reads"):
+        publish()
+    assert [call[1] for call in calls] == ["create"]
+    assert sleeps == [2] * 5
+
+
 @pytest.mark.parametrize("conflict", ["tag", "asset", "source", "checksums", "draft"])
 def test_github_release_refuses_conflicts_without_writing(github_candidate, conflict):
     folder, manifest, state, calls, publish = github_candidate
