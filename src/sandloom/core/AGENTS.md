@@ -25,7 +25,7 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
 - **Other `# noqa` markers:** one code per line (`PGH004`, `RUF100`); `BLE001`
   and bandit `S…` need a reason after ` - `; `NOQA_BASELINE` only goes down
   (`docs/contributing/lint-policy.md`).
-- **`sandloom.sdk` is the only public surface** (Public API 1.0, ADR-0010). Each
+- **`sandloom.sdk` is the only public surface for modules** (ADR-0010; `sandloom.driver`, for driver packages, is experimental). Each
   public module declares `__all__` and `__beginner__`; the root re-exports
   the 29 beginner names. `public_api_baseline.json` records every
   name and signature (SANDLOOM-T008), and each module's generated reference block

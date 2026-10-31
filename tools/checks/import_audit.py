@@ -61,7 +61,7 @@ DEFAULT_MODULES: tuple[str, ...] = (
     "sandloom.sdk.authz",
     "sandloom.sdk.sagas",
     "sandloom.sdk.projections",
-    "sandloom.sdk.drivers",
+    "sandloom.driver",
     "sandloom.sdk.infra",
     "sandloom.sdk.security",
     "sandloom.sdk.errors",

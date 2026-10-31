@@ -149,13 +149,13 @@ stability, registered drivers and per-instance health.
 
 ### Adding a backend is a driver, not a kernel edit
 
-A driver subclasses the capability's provider contract from
-`sandloom.sdk.drivers` and registers itself with
+A driver subclasses the capability's provider contract and registers itself with
 `registry.register_driver(capability, driver, factory)`, published as a package
 under the `sandloom.infra` entry-point group (a callable `register(registry)`; a
 broken entry point is logged and does not abort startup).
 [Write a driver](../guides/write-a-driver.md) has a complete example, how to select
-it with `INFRA` and how to prove it is used.
+it with `INFRA` and how to prove it is used. The experimental
+[`sandloom.driver`](../reference/driver-api.md) is its public API.
 
 Drivers are the only code that constructs a backend, including for the `default`
 instance. Inside the framework, a backend constructor (`create_async_engine`,
@@ -223,7 +223,7 @@ contract.
 | Code or error | When |
 | --- | --- |
 | [SANDLOOM-C003](../reference/error-codes.md#sandloom-c003) | `raw_client()` / `raw_backend()` in module code |
-| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global, an infra-internal module or `sandloom.sdk.drivers` imported by a module |
+| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global, an infra-internal module or `sandloom.driver` imported by a module |
 | [SANDLOOM-C005](../reference/error-codes.md#sandloom-c005) | a kernel handle (`.event_bus`, `.infra`, `.service_registry`, `request.app.state.core`) reached in module code |
 | [SANDLOOM-C024](../reference/error-codes.md#sandloom-c024) | a raw non-relational query outside `unscoped()` |
 | [SANDLOOM-B001](../reference/error-codes.md#sandloom-b001) | a required `CapabilityRequirement` that is unknown, unconfigured or missing a feature |

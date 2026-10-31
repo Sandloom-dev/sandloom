@@ -50,5 +50,5 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | `sandloom.sdk.authz` | `Account`, `Role`, `Perm`, `Feature`, `WithinLimit`, `Not`, `authorize`, access facts |
 | `sandloom.sdk.sagas` / `.projections` | `Saga`, `step`, `start_saga` / `Projection`, `SourceGroup`, `full_state`, `View` |
 | `sandloom.sdk.module` / `.app` / `.migrations` | `ModuleAPI`, `ContractRequirement` / `create_app` / `run_module_migrations` |
-| `sandloom.sdk.infra` / `.drivers` / `.security` / `.errors` | `cache`, `notifier`, `settings` / driver packages only, never a module (C004) / tokens, revocation, keys / every exception |
+| `sandloom.sdk.infra` / `.security` / `.errors` | `cache`, `notifier`, `settings` / tokens, revocation, keys / every exception |
 | `sandloom.sdk.testing` | `capture_effects`, `assert_contract_conformance`, `boot_module_alone`, harness helpers |

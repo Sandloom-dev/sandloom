@@ -79,7 +79,7 @@ To talk to another module:
    `Credits(1, of=Account.org(param="org_id"))` (SANDLOOM-B017). An organization
    route gating with `of=Account.user()` needs `reason=` (C027).
 8. **No backend SDK or raw client:** `cache()`, `notifier()` (`sandloom.sdk.infra`),
-   `Database(name)` (C003, C004). `sandloom.sdk.drivers` is for driver packages, not modules.
+   `Database(name)` (C003, C004). `sandloom.driver` is for driver packages, not modules.
 
 ## Rules no check enforces yet (get these right yourself)
 

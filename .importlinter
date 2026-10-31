@@ -26,7 +26,7 @@ containers =
 exhaustive = true
 layers =
     cli : testing : contract_testing : archcheck
-    app_factory : admin : composition : worker : gc_tuning : guarantee_windows : di : driver_api : lifecycle : facade
+    app_factory : admin : composition : worker : gc_tuning : guarantee_windows : di : lifecycle : facade
     rpc : loader : module_api : sagas : contract_compat : route_snapshots : contract_cache_shadow : rpc_transport : rpc_transport_compat
     http : idempotency : route_policy : auth : internal_auth : production_profile : route_markers : guard_order : rpc_binding : rpc_identity : rpc_pair_mac : ingress
     _internal : drivers
@@ -205,13 +205,14 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:kernel-never-imports-sdk]
-name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk (ADR-0010)
+name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk or sandloom.driver (ADR-0010)
 type = forbidden
 source_modules =
     sandloom.core
     sandloom.shared
 forbidden_modules =
     sandloom.sdk
+    sandloom.driver
 
 [importlinter:contract:sdk-decl-l1]
 name = L1 (sandloom.sdk._decl) is built only from L2: no kernel import (spec §3)

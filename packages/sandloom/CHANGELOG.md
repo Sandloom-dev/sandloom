@@ -8,8 +8,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
-- Add `sandloom.sdk.drivers`, the public home of the provider contracts for driver
-  packages.
+- Add `sandloom.driver`, the experimental API for driver packages, with a conformance
+  kit for the `notification` contract.
 - `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
   is set.
 - `INFRA` no longer passes a default instance's options to a different driver.

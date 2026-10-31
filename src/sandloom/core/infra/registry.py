@@ -280,6 +280,7 @@ class InfraRegistry:
         features: frozenset[str] | set[str] | None = None,
         config_schema: type[Any] | None = None,
         instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None,
+        capability_version: str | None = None,
     ) -> None:
         """Register a driver for a capability (idempotent override).
 
@@ -287,9 +288,21 @@ class InfraRegistry:
         :class:`DriverRegistration`). In strict mode the capability must already
         have a registered spec, and any declared features must be a subset of
         the spec's — so a driver cannot advertise a feature the contract does
-        not define.
+        not define. ``capability_version`` is the contract version the driver
+        was written for: another major version of the capability is refused.
         """
         feats = frozenset(features or ())
+        registered = self._capabilities.get(capability)
+        if (
+            capability_version is not None
+            and registered is not None
+            and not _versions_compatible(registered.version, capability_version)
+        ):
+            raise CapabilityConflictError(
+                f"Driver {capability}/{driver} was written for "
+                f"{capability_version}, but the capability is {registered.version}",
+                fix="update the driver to the capability's current contract",
+            )
         if self._strict:
             spec = self._capabilities.get(capability)
             if spec is None:

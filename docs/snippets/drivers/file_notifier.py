@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from sandloom.sdk.drivers import (
+from sandloom.driver import (
     InfraRegistry,
     InstanceConfig,
     Notification,
@@ -34,4 +34,10 @@ class FileNotifier(NotifierProvider):
 
 
 def register(registry: InfraRegistry) -> None:
-    registry.register_driver("notification", "file", FileNotifier, features={"email"})
+    registry.register_driver(
+        "notification",
+        "file",
+        FileNotifier,
+        features={"email"},
+        capability_version="v1",
+    )

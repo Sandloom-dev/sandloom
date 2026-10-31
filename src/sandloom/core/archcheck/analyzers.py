@@ -576,9 +576,9 @@ FORBIDDEN_INFRA_MODULES = frozenset(
         # prefix above: a business module never reaches the system engine
         # (docs/reference/security-model.md).
         "sandloom.core.sql_alchemy.tenant_rls",
-        # Public, but for driver packages: a module resolves a capability by
-        # name and never implements or registers one.
-        "sandloom.sdk.drivers",
+        # For driver packages: a module resolves a capability by name and never
+        # implements or registers one. C002 misses it in the framework tree.
+        "sandloom.driver",
     }
 )
 FORBIDDEN_FROM_CORE = frozenset({"get_db", "get_event_bus"})

@@ -451,5 +451,5 @@ def test_parsed_ast_is_cached_per_file_version(tmp_path: Path) -> None:
 def test_a_business_module_cannot_import_the_driver_api(tmp_path: Path) -> None:
     """A module knows infrastructure by name; only a driver package implements it."""
     module = tmp_path / "services.py"
-    module.write_text("from sandloom.sdk.drivers import NotifierProvider\n")
+    module.write_text("from sandloom.driver import NotifierProvider\n")
     assert find_legacy_infra_imports(module)

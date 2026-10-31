@@ -16,7 +16,7 @@ public name lives in its themed module:
 
 `sandloom.sdk.module`, `.app`, `.migrations`, `.tooling`, `.web`,
 `.data`, `.tenant`, `.events`, `.effects`, `.tasks`, `.contracts`,
-`.authz`, `.sagas`, `.projections`, `.infra`, `.drivers`, `.security`,
+`.authz`, `.sagas`, `.projections`, `.infra`, `.security`,
 `.errors`, `.testing` (and `.testing.fixtures`).
 
 Importing `sandloom.sdk` reads no environment and performs no I/O (spec §2.4,
@@ -72,7 +72,6 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.authz`](authz.md) | 7 | 55 |  |
 | [`sandloom.sdk.contracts`](contracts.md) | 3 | 30 |  |
 | [`sandloom.sdk.data`](data.md) | 5 | 27 |  |
-| [`sandloom.sdk.drivers`](drivers.md) | 0 | 10 |  |
 | [`sandloom.sdk.effects`](effects.md) | 2 | 8 |  |
 | [`sandloom.sdk.errors`](errors.md) | 0 | 30 |  |
 | [`sandloom.sdk.events`](events.md) | 2 | 7 |  |

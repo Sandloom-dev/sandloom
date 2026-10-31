@@ -7,7 +7,7 @@ public name lives in its themed module:
 
 ``sandloom.sdk.module``, ``.app``, ``.migrations``, ``.tooling``, ``.web``,
 ``.data``, ``.tenant``, ``.events``, ``.effects``, ``.tasks``, ``.contracts``,
-``.authz``, ``.sagas``, ``.projections``, ``.infra``, ``.drivers``, ``.security``,
+``.authz``, ``.sagas``, ``.projections``, ``.infra``, ``.security``,
 ``.errors``, ``.testing`` (and ``.testing.fixtures``).
 
 Importing ``sandloom.sdk`` reads no environment and performs no I/O (spec §2.4,

@@ -10,38 +10,38 @@ type: how-to
 [capability](../concepts/capabilities-and-infrastructure.md), selected by
 configuration, with no change to business modules or to the kernel.
 
-**Use it** for a `notification`, `cache`, `objectstore` or `taskqueue` backend
-that Sandloom does not ship, such as an email API or S3.
+**Use it** for a `notification` backend that Sandloom does not ship, such as an
+email API, or for a [capability of your own](#a-capability-of-your-own).
 
 **Do not use it** for business logic: that is a [module](add-module.md). Do not
 use it to replace the `database` or `eventbus` backends either. The unit of work,
 the outbox and the delivery guarantees depend on them, and their contracts are
-not part of `sandloom.sdk.drivers` ([why](../concepts/capabilities-and-infrastructure.md#the-relational-paradigm)).
+not public ([why](../concepts/capabilities-and-infrastructure.md#the-relational-paradigm)).
 
-!!! note "Version"
-    `sandloom.sdk.drivers` arrives in the release after `0.7.0a4`. On `0.7.0a4`
-    itself, these names exist only under the private `sandloom.core.infra`.
+!!! warning "Experimental"
+    [`sandloom.driver`](../reference/driver-api.md) arrives in the release after
+    `0.7.0a4`, and it may change in any release. Pin your driver to one minor range of
+    `sandloom`.
 
 ## Prerequisites
 
 - An application created with `sandloom new`.
 - A separate package for the driver, outside `<app>/modules`. A driver is not a
   module: `sandloom check` does not apply to it, and it may import the backend's SDK
-  and `sandloom.sdk.drivers`, which a module may not
+  and `sandloom.driver`, which a module may not
   ([SANDLOOM-C004](../reference/error-codes.md#sandloom-c004)).
 
 ## Steps
 
 ### 1. Implement the provider contract
 
-Each capability has one abstract provider class in `sandloom.sdk.drivers`:
+`sandloom.driver` publishes a contract only together with a test kit that checks a
+driver against it. Today that is `NotifierProvider` for `notification`, whose one
+method is `send`.
 
-| Capability | Contract | Methods to implement |
-| --- | --- | --- |
-| `notification` | `NotifierProvider` | `send` |
-| `cache` | `CacheProvider` | see [the reference](../reference/sdk/drivers.md#cacheprovider) |
-| `objectstore` | `ObjectStoreProvider` | see [the reference](../reference/sdk/drivers.md#objectstoreprovider) |
-| `taskqueue` | `TaskQueueProvider` | see [the reference](../reference/sdk/drivers.md#taskqueueprovider) |
+The contracts of `cache`, `objectstore` and `taskqueue` are still private, in
+`sandloom.core.infra.contracts`. You can implement them, but nothing checks your
+driver, and they can change without notice.
 
 This complete driver appends notifications to a file:
 
@@ -62,6 +62,8 @@ This complete driver appends notifications to a file:
 - **`features()`** names what this driver really does. It must be a subset of
   the capability's features. A module that requires `features={"email"}` is
   refused at startup on a driver that does not advertise it.
+- **`capability_version`** states the contract version the driver was written for.
+  A driver for another major version is refused when it registers.
 - **`aopen`, `health` and `aclose`** are optional. Override them to open a pool
   at startup, report health in `/diagnostics/infra` and release resources.
 
@@ -130,8 +132,28 @@ async def test_the_file_driver_delivers(client) -> None:
     assert "email|a@b.test|Hi" in Path("/tmp/myapp-mail.log").read_text()
 ```
 
-To test the driver alone, build an `InfraRegistry` with an `InstanceConfig`, call
-`register(registry)`, then `registry.provider("notification")`.
+### 5. Check it against the contract
+
+`sandloom.driver.testing` holds the conformance kit. It sends on every channel the
+driver advertises and fails on a feature the capability does not define, on a body or
+`body_fields` value reaching the logs, or on `aclose` failing when called twice:
+
+```python
+from sandloom.driver import InfraRegistry, InstanceConfig
+from sandloom.driver.testing import assert_notifier_conformance
+
+from sandloom_notify_file import FileNotifier
+
+
+async def test_the_driver_conforms(tmp_path) -> None:
+    config = InstanceConfig(
+        capability="notification",
+        name="default",
+        driver="file",
+        options={"path": str(tmp_path / "mail.log")},
+    )
+    await assert_notifier_conformance(FileNotifier(config))
+```
 
 ## Verify
 
@@ -145,26 +167,47 @@ the driver of each instance. It needs `INTERNAL_API_TOKEN`
 
 ## A capability of your own
 
-A backend with no matching capability needs a contract of its own. Subclass
-`InfraProvider` and register a `CapabilitySpec` before its drivers, in the same
-`register` callable:
+A backend with no matching capability needs a contract of its own. A capability is
+declared in the same `register` callable, before its drivers:
 
 ```python
-registry.register_capability(
-    CapabilitySpec(
-        name="vector_index",
-        version="v1",
-        provider_contract=VectorIndexProvider,
-        features=frozenset({"filters"}),
-        stability="experimental",
+from sandloom.driver import CapabilitySpec, InfraProvider, InfraRegistry
+
+
+class VectorIndexProvider(InfraProvider):
+    capability = "vector_index"
+
+    async def nearest(self, vector: list[float], limit: int) -> list[str]:
+        raise NotImplementedError
+
+
+def register(registry: InfraRegistry) -> None:
+    registry.register_capability(
+        CapabilitySpec(
+            name="vector_index",
+            version="v1",
+            provider_contract=VectorIndexProvider,
+            features=frozenset({"filters"}),
+            stability="experimental",
+        )
     )
-)
+    registry.register_driver(
+        "vector_index", "memory", MemoryVectorIndex, features={"filters"}
+    )
 ```
 
-A module then reaches it with `capability("vector_index", "default")` from
-`sandloom.sdk.infra`. The names `search`, `document_store`, `graph_store`, `workflow`,
-`lock` and `secrets` are taken: the kernel already defines those experimental
-capabilities.
+- **Selecting it:** `INFRA={"vector_index":{"default":{"driver":"memory"}}}`.
+- **Features:** declare them in `register_driver` too. Startup checks that list
+  without building the driver, so a feature missing there fails a module's requirement.
+- **Requiring it from a module:**
+  `CapabilityRequirement("vector_index", features=frozenset({"filters"}))` in
+  `define_module`. Startup then fails, without I/O, if it is missing.
+- **Calling it from a module:** `capability("vector_index")` from
+  `sandloom.sdk.infra`.
+- **Name conflicts:** registering a name with another contract or version is refused.
+  The kernel already defines `search`, `document_store`, `graph_store`, `workflow`,
+  `lock` and `secrets`, contract only, with no driver. Their contracts are not public
+  yet.
 
 ## Errors you may hit
 
@@ -178,5 +221,5 @@ capabilities.
 ## Related
 
 - [Capabilities and infrastructure](../concepts/capabilities-and-infrastructure.md): capabilities, drivers and instances.
-- [`sandloom.sdk.drivers`](../reference/sdk/drivers.md): every contract and its signatures.
+- [`sandloom.driver`](../reference/driver-api.md): every name it exports.
 - [Customize a standard module](customize-standard-module.md): what a notification driver can do for identity's mail.

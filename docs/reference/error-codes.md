@@ -162,8 +162,8 @@ Slug: `infra-imports` · kind: check · status: active
 
 Modules know infrastructure only by logical name. Backend SDKs (boto3, motor,
 neo4j, ...), the legacy globals and the infra-internal packages are blocked;
-the drivers construct every backend. `sandloom.sdk.drivers` is public for driver
-packages and blocked in modules: backend code belongs in a separate package.
+the drivers construct every backend. `sandloom.driver` is for driver packages
+and blocked in modules: backend code belongs in a separate package.
 
 **Fix:** use DbSession / Database(name) / di.cache() / publish_event / Capability
 

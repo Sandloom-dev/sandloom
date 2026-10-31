@@ -23,7 +23,6 @@ stubs and contract DTOs:
   binding.
 - `sandloom.sdk.events`, `sandloom.sdk.effects`, `sandloom.sdk.contracts`, `sandloom.sdk.sagas`,
   `sandloom.sdk.projections` — cross-module communication and effects.
-- `sandloom.sdk.drivers` — the provider contracts a driver package implements.
 - `sandloom.sdk.authz`, `sandloom.sdk.security`, `sandloom.sdk.infra`, `sandloom.sdk.errors` —
   authorization, token and session security, capabilities, exceptions.
 - `sandloom.sdk.testing` (with `sandloom.sdk.testing.fixtures` and
@@ -33,6 +32,11 @@ Each module declares `__all__` and `__beginner__` (the beginner tier is a
 subset); the [SDK reference](../reference/sdk/index.md) is generated from
 them. `public_api_baseline.json` records every public name and
 signature, and a change fails `sandloom test` (SANDLOOM-T008) until it is reviewed.
+
+`sandloom.driver` is public for driver packages and **experimental**: it is outside
+this stability promise and may change in any release. Pin a driver to one minor
+range of `sandloom`. A contract joins it only with a conformance kit in
+`sandloom.driver.testing`.
 
 Everything else (`sandloom.core.*`, modules under `sandloom.sdk` whose name starts with
 an underscore, `sandloom.shared.authz`, `sandloom.shared.guards`) is **internal** and

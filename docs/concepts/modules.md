@@ -66,7 +66,7 @@ private `sandloom.sdk._*` layer. Any spelling counts: absolute, relative,
 `importlib`, `__import__`, `getattr` on a module, `sys.modules`. A module also
 never reaches a kernel handle by attribute (`.event_bus`, `.infra`,
 `.service_registry`, `request.app.state.core`, `.raw_client()`), and imports
-no backend SDK (Redis, boto3, Celery) or `sandloom.sdk.drivers` directly:
+no backend SDK (Redis, boto3, Celery) or `sandloom.driver` directly:
 infrastructure comes from
 capabilities ([Capabilities and infrastructure](capabilities-and-infrastructure.md)).
 

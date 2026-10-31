@@ -17,6 +17,7 @@ Each term has one meaning across this documentation.
 | **Standard module** | A ready-made module Sandloom publishes as its own package: `identity`, `tenancy` or `billing`. It follows the same rules as your modules. The CLI flag `--no-batteries` and the extra `sandloom[standard]` refer to this set; "battery" is the informal word for a standard module. [Standard modules](../modules/index.md). |
 | **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. |
 | **SDK** | `sandloom.sdk`, the public Python API. Everything else in the framework is private. [Reference](../reference/sdk/index.md). |
+| **Driver API** | `sandloom.driver`, the separate experimental API for driver packages. Modules may not import it. Do not confuse it with `sandloom.core.drivers`, the private built-in drivers. [Reference](../reference/driver-api.md). |
 | **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules, and every other public name. An advanced import states its reason in a comment. [Modules](modules.md#the-beginner-tier). |
 
 ## How modules talk

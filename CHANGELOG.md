@@ -20,9 +20,9 @@ website renders this same changelog.
   implementation. Add guides to write a driver and to customize a standard module.
   Reorganize the navigation into Learn, Concepts, Build, Operate, Reference and
   Project. Remove the compatibility page `docs/CONTRACTS.md`.
-- Add `sandloom.sdk.drivers`, the public home of the provider contracts,
-  `InstanceConfig`, `InfraRegistry` and `CapabilitySpec`. A driver package no longer
-  needs a private `sandloom.core` import.
+- Add `sandloom.driver`, the experimental API for driver packages, with the
+  `notification` contract and the conformance kit `sandloom.driver.testing`. Modules
+  may not import it (SANDLOOM-C004). `register_driver` takes `capability_version`.
 
 ### Fixed
 
