@@ -70,6 +70,9 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B017`](#sandloom-b017) | `authz-subject-missing` | boot | a billing atom has no of= subject | active |
 | [`SANDLOOM-B018`](#sandloom-b018) | `contract-definition` | boot | an invalid @contract class | active |
 | [`SANDLOOM-B019`](#sandloom-b019) | `capability-replay` | boot | a token issuer, intent or money route has the wrong idempotency guard or an intent route a request session | active |
+| [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
+| [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
+| [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), publish_event or record_audit ran outside a Unit of Work | active |
@@ -162,8 +165,9 @@ Slug: `infra-imports` · kind: check · status: active
 
 Modules know infrastructure only by logical name. Backend SDKs (boto3, motor,
 neo4j, ...), the legacy globals and the infra-internal packages are blocked;
-the drivers construct every backend. `sandloom.driver` is for driver packages
-and blocked in modules: backend code belongs in a separate package.
+the drivers construct every backend. `sandloom.driverkit` and a driver package's
+own module are blocked too: a module asks for a capability, and a package's
+`contracts` module is what it may import.
 
 **Fix:** use DbSession / Database(name) / di.cache() / publish_event / Capability
 
@@ -852,6 +856,58 @@ replay-only or fail-open guard: an ambiguous COMMIT would re-run the effect
 **Fix:** give token-issuer and operation-intent routes an explicit idempotency_guard(scope=..., fail_closed=True, store_response=False) (mode X); an intent route takes no request-session dependency; a money route (sensitive("money")) uses durable=True or that mode X guard
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
+
+### SANDLOOM-B021
+
+**a selected driver or capability name has two providers**
+
+Slug: `driver-conflict` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Drivers are found by name: `<capability>.<driver>` in the `sandloom.drivers`
+entry-point group. Python gives installed packages no order, so a name with two
+providers has no defined winner. Startup refuses a name INFRA selects when two
+packages publish it, or when a package publishes the name of a built-in driver.
+A built-in cannot be replaced silently: another behaviour is another name.
+
+**Fix:** uninstall all but one package; to change a built-in's behaviour, publish another driver name and select it in INFRA
+
+**More:** `docs/guides/write-a-driver.md`
+
+### SANDLOOM-B022
+
+**a selected driver or capability cannot be used**
+
+Slug: `driver-load-failed` · kind: boot · status: active
+
+**What happened and why it matters**
+
+INFRA selected a driver or capability whose package failed to import, whose entry
+point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
+which declares no `contract_version`, or which was written for another major version.
+A driver that cannot load cannot serve, so startup stops with the cause. An
+unselected package is never imported.
+
+**Fix:** fix or reinstall the package named in the message, or select another driver
+
+**More:** `docs/guides/write-a-driver.md`
+
+### SANDLOOM-B023
+
+**an experimental capability is configured in production**
+
+Slug: `experimental-capability-refused` · kind: boot · status: active
+
+**What happened and why it matters**
+
+An experimental capability's contract may change in any release. Running one in
+production is a weakening, so the deployment accepts it by name and every start
+reports it.
+
+**Fix:** remove it from INFRA, or accept the risk with SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]
+
+**More:** `docs/reference/configuration.md`
 
 ### SANDLOOM-B020
 

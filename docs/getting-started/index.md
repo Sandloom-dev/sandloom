@@ -55,8 +55,10 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
     `SANDLOOM_DEV_TEST_POSTGRES_PORT` or `SANDLOOM_DEV_TEST_REDIS_PORT` before
     `docker compose ... up`, then point the app at them: `DATABASE_URL` /
     `CACHE_URL` / `BROKER_URL` in `.env`, and `SANDLOOM_TEST_DATABASE_URL` /
-    `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. The
-    generated `README.md` shows the commands.
+    `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. Pick ports
+    below 32768, or use `127.0.0.1` in the URLs
+    ([why](../guides/testing.md#isolation-guards)). The generated `README.md` shows the
+    commands.
 
 For an app created with `--with identity`, follow [authentication and email](authentication.md)
 to receive verification mail locally and obtain access/refresh tokens.

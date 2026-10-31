@@ -50,7 +50,7 @@ from sandloom.sdk._decl.events import Event, from_wire, is_concrete, wire_name
 from sandloom.sdk._prim.contracts import service
 from sandloom.sdk._prim.data import Page, TenantScoped, open_uow
 from sandloom.sdk._prim.events import EventEnvelope
-from sandloom.sdk._prim.infra import capability
+from sandloom.sdk._prim.infra import CapabilityRef, capability
 from sandloom.sdk._prim.projections import (
     ConditionalWriteStore,
     ConsistencyToken,
@@ -415,7 +415,7 @@ class Projection:
     def target(self) -> ConditionalWriteStore:
         """The store of a ``store=`` projection (``conditional_write``)."""
         kind, name = cast(tuple[str, str], self.store)
-        provider = capability(kind, name)
+        provider: Any = capability(CapabilityRef[Any](kind), name)
         per_projection = getattr(provider, "projection", None)
         store = (
             per_projection(self.name, self.deleted_column)

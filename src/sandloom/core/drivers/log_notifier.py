@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
@@ -55,7 +57,10 @@ def recipient_fingerprint(recipient: str) -> str:
 class LogNotifierProvider(NotifierProvider):
     """Notifier that records each notification as a structured log line."""
 
-    def features(self) -> frozenset[str]:
+    contract_version = "v1"
+
+    @classmethod
+    def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
         return log_notifier_features()
 
     async def send(self, notification: Notification) -> None:

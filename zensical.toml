@@ -137,7 +137,7 @@ Reference = [
     "reference/sdk/sagas.md",
     "reference/sdk/projections.md",
     "reference/sdk/infra.md",
-    "reference/driver-api.md",
+    "reference/driverkit.md",
     "reference/sdk/security.md",
     "reference/sdk/errors.md",
     "reference/sdk/app.md",
@@ -205,6 +205,7 @@ Optional = [
     "adr/0008-sagas.md",
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
+    "adr/0011-driver-api.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -364,7 +365,7 @@ Reference = [
     { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
     { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
 ] },
-    { "Driver API (sandloom.driver)" = "reference/driver-api.md" },
+    { "Driver kit (sandloom.driverkit)" = "reference/driverkit.md" },
     { "Error catalogue" = "reference/error-codes.md" },
     { "Testing (copy-paste)" = "reference/testing.md" },
     { CLI = "reference/cli.md" },
@@ -411,5 +412,6 @@ Project = [
     { "ADR-0008: Sagas" = "adr/0008-sagas.md" },
     { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
     { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
+    { "ADR-0011: The driver API" = "adr/0011-driver-api.md" },
 ] },
 ]

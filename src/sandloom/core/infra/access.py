@@ -15,14 +15,23 @@ every environment, with a hint naming the composition roots that bind one.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TypeVar, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.infra.active import get_active_infra
-from sandloom.core.infra.contracts import CacheProvider
+from sandloom.core.infra.capabilities import CapabilityRef
+from sandloom.core.infra.contracts import (
+    Cache,
+    CacheProvider,
+    Notifier,
+    ObjectStore,
+    TaskQueue,
+)
+
+P = TypeVar("P")
 
 
-def cache(name: str = "default") -> CacheProvider:
+def cache(name: str = "default") -> Cache:
     """Return the operation-based ``CacheProvider`` for a named instance.
 
     The sanctioned cache surface for modules and core guards — ``get``/``set``/
@@ -62,7 +71,7 @@ def security_cache_name() -> str:
 def security_cache() -> CacheProvider:
     """The ``CacheProvider`` for security-critical state (see above)."""
     name = security_cache_name()
-    return cache() if name == "default" else cache(name)
+    return cast("CacheProvider", cache() if name == "default" else cache(name))
 
 
 def idempotency_cache_name() -> str:
@@ -86,10 +95,10 @@ def idempotency_cache_name() -> str:
 def idempotency_cache() -> CacheProvider:
     """The ``CacheProvider`` for idempotency records (see above)."""
     name = idempotency_cache_name()
-    return cache() if name == "default" else cache(name)
+    return cast("CacheProvider", cache() if name == "default" else cache(name))
 
 
-def notifier(name: str = "default") -> Any:
+def notifier(name: str = "default") -> Notifier:
     """Return the ``NotifierProvider`` for a named instance.
 
     The sanctioned outbound-notification surface for modules: build a
@@ -98,28 +107,26 @@ def notifier(name: str = "default") -> Any:
     process-active :class:`InfraRegistry` (``RuntimeError`` when none is
     bound).
     """
-    return get_active_infra().provider("notification", name)
+    return cast("Notifier", get_active_infra().provider("notification", name))
 
 
-def objectstore(name: str = "default") -> Any:
+def objectstore(name: str = "default") -> ObjectStore:
     """Return the ``ObjectStoreProvider`` for a named instance (the
     module-level twin of ``CoreRuntime.objectstore``; spec §2.2)."""
-    return get_active_infra().resolve("objectstore", name)
+    return cast("ObjectStore", get_active_infra().resolve("objectstore", name))
 
 
-def taskqueue(name: str = "default") -> Any:
+def taskqueue(name: str = "default") -> TaskQueue:
     """Return the ``TaskQueueProvider`` for a named instance (the module-level
     twin of ``CoreRuntime.taskqueue``; spec §2.2)."""
-    return get_active_infra().resolve("taskqueue", name)
+    return cast("TaskQueue", get_active_infra().resolve("taskqueue", name))
 
 
-def capability(
-    capability: str, name: str = "default", contract: type | None = None
-) -> Any:
-    """Return the provider of ``capability`` instance ``name``, checked
-    against ``contract`` when given (the module-level twin of
-    ``CoreRuntime.capability``; spec §2.2)."""
-    return get_active_infra().resolve(capability, name, contract=contract)
+def capability(ref: CapabilityRef[P], name: str = "default") -> P:
+    """Return the instance ``name`` of the capability ``ref`` points to, typed by the
+    ref. A capability's package publishes the ref and the caller's Protocol, and the
+    capability's major version must match the ref's."""
+    return cast("P", get_active_infra().resolve(ref.name, name, version=ref.version))
 
 
 __all__ = [

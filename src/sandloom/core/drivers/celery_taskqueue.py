@@ -28,7 +28,7 @@ from sandloom.core.infra.contracts import TaskQueueProvider
 from sandloom.core.tasks.enqueue import TaskNotSent, enqueue_once
 
 #: Features the Celery task-queue driver supports.
-CELERY_TASKQUEUE_FEATURES = frozenset({"enqueue", "delay", "idempotency_key"})
+CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "idempotency_key"})
 
 
 class CeleryTaskQueueOptions(BaseModel):

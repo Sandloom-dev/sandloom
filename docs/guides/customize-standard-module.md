@@ -107,22 +107,22 @@ values identity built the plain-text body from:
 | `registration_attempt` | `sign_in_url`, `reset_url`, `full_name` when known |
 | `security_notice` | `message` |
 
-These values are as sensitive as the body: the links are secrets, so a driver never
-logs them. Fall back to `notification.body` for a `kind` it does not know, because a
-later identity version can add one. Replace the subject the same way.
+These values are as sensitive as the body: the links are secrets, so a driver never logs
+them. A later identity version can add a `kind`, and `full_name` can be missing, so fall
+back to `notification.body` whenever a template cannot be filled:
 
 ```python
 TEMPLATES = {"password_reset": "Hello! Choose a new password: {reset_url}"}
 
 
-async def send(self, notification: Notification) -> None:
+def render(notification: Notification) -> str:
     template = TEMPLATES.get(notification.data.get("kind", ""))
-    body = (
-        template.format(**notification.body_fields)
-        if template
-        else notification.body
-    )
-    await self._deliver(notification.recipient, notification.subject, body)
+    if template is None:
+        return notification.body
+    try:
+        return template.format(**notification.body_fields)
+    except KeyError:
+        return notification.body
 ```
 
 ## What is not supported yet

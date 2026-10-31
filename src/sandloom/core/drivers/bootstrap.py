@@ -26,7 +26,6 @@ from sandloom.core.drivers.local_objectstore import (
     OBJECTSTORE_FEATURES,
     LocalObjectStoreOptions,
     create_local_objectstore,
-    create_unimplemented_objectstore,
 )
 from sandloom.core.drivers.log_notifier import (
     create_log_notifier,
@@ -57,9 +56,9 @@ from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
 from sandloom.core.infra.config import InfraConfig, load_infra_config
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
 from sandloom.core.infra.registry import (
-    InfraError,
+    ExperimentalCapabilityRefused,
     InfraRegistry,
-    load_entrypoint_drivers,
+    load_selected_plugins,
 )
 
 
@@ -101,11 +100,6 @@ def register_builtin_drivers(
         features=OBJECTSTORE_FEATURES,
         config_schema=LocalObjectStoreOptions,
     )
-    for cloud in ("s3", "gcs", "yc"):
-        # Unimplemented cloud stores advertise no features (cannot satisfy any
-        # requirement) but are known so config validation gives a clear error.
-        # No config_schema: their option shape is the future driver's to define.
-        registry.register_driver("objectstore", cloud, create_unimplemented_objectstore)
     registry.register_driver(
         "taskqueue",
         "celery",
@@ -152,48 +146,41 @@ def build_infra_registry(
     load_plugins: bool = True,
 ) -> InfraRegistry:
     """Build the registry: drivers + plugins + configuration."""
-    cfg = config or load_infra_config(settings or _default_settings)
+    resolved_settings = settings or _default_settings
+    cfg = config or load_infra_config(resolved_settings)
     # Strict in production: a driver cannot be registered for a capability with
-    # no spec, so a plugin must register its CapabilitySpec first.
+    # no spec, and a built instance must report the features it declared.
     registry = InfraRegistry(strict_capabilities=True)
     # Register capabilities + drivers BEFORE the config so that set_config has
     # the specs to validate INFRA against.
     register_builtin_drivers(registry, schema_registry)
     if load_plugins:
-        load_entrypoint_drivers(registry)
+        load_selected_plugins(registry, cfg)
     registry.set_config(cfg)
     # Fail fast on a configured instance whose driver was never registered.
     registry.validate()
-    _reject_placeholder_drivers(registry)
+    _refuse_experimental_in_production(registry, resolved_settings)
     return registry
 
 
-def _reject_placeholder_drivers(registry: InfraRegistry) -> None:
-    """Abort startup when a configured instance uses a placeholder driver.
-
-    ``s3`` / ``gcs`` / ``yc`` object stores are registered only so config
-    validation recognises the names; core ships no implementation. Selecting
-    one (``STORAGE_TYPE=s3``) used to boot fine and then fail every
-    ``/ready`` probe forever. Unless a plugin replaced the placeholder (an
-    ``sandloom.infra`` entry point re-registering the driver), refuse to start with
-    an actionable error instead.
-    """
-    offenders: list[str] = []
-    for name in registry.instances("objectstore"):
-        cfg = registry._config["objectstore"][name]  # same package
-        registration = registry._drivers.get(("objectstore", cfg.driver))
-        if (
-            registration is not None
-            and registration.factory is create_unimplemented_objectstore
-        ):
-            offenders.append(f"objectstore/{name} (driver={cfg.driver!r})")
-    if offenders:
-        raise InfraError(
-            "Object store driver not available: "
-            + ", ".join(offenders)
-            + ". Core implements only the 'local' object store; install a "
-            "plugin that registers this driver under the 'sandloom.infra' "
-            "entry-point group, or set STORAGE_TYPE=local."
+def _refuse_experimental_in_production(
+    registry: InfraRegistry, settings: Settings
+) -> None:
+    """An experimental contract may change in any release: running one in
+    production is a weakening the deployment must accept by name (ADR-0006)."""
+    if not settings.is_prod or settings.accepts_risk("experimental_capability"):
+        return
+    configured = sorted(
+        spec.name
+        for spec in registry.capabilities()
+        if spec.is_experimental and registry.instances(spec.name)
+    )
+    if configured:
+        raise ExperimentalCapabilityRefused(
+            f"Experimental capabilities are configured in production: "
+            f"{', '.join(configured)} (sandloom explain SANDLOOM-B023)",
+            fix="remove them from INFRA, or accept the risk with "
+            'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]',
         )
 
 

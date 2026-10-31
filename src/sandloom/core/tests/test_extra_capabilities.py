@@ -160,7 +160,7 @@ def test_experimental_without_driver_raises_experimental_error() -> None:
     # Back-compat: existing handlers for the precise errors still match.
     assert isinstance(info.value, InstanceNotConfiguredError)
     assert isinstance(info.value, DriverNotRegisteredError)
-    assert "plugin driver" in str(info.value)
+    assert "driver package" in str(info.value)
     with pytest.raises(ExperimentalCapabilityError):
         reg.validate_requirement("graph_store", "default")
 

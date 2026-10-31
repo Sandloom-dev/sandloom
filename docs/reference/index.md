@@ -13,7 +13,7 @@ understand why, read the [concepts](../concepts/index.md).
 | Reference | Contents |
 | --- | --- |
 | [Python API (`sandloom.sdk`)](sdk/index.md) | every public module and name with its exact signature, beginner names first (generated) |
-| [Driver API (`sandloom.driver`)](driver-api.md) | the experimental API for driver packages; modules never import it |
+| [Driver kit (`sandloom.driverkit`)](driverkit.md) | the API for driver packages; modules never import it |
 | [Error catalogue](error-codes.md) | every `SANDLOOM-*` code: what happened, the fix, its status (generated; also `sandloom explain <code>`) |
 | [Testing](testing.md) | the `sandloom.sdk.testing` kit, the fixtures and the harness rules (copy-paste) |
 | [CLI](cli.md) | every `sandloom` command |

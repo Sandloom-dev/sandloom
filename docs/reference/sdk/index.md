@@ -75,7 +75,7 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.effects`](effects.md) | 2 | 8 |  |
 | [`sandloom.sdk.errors`](errors.md) | 0 | 30 |  |
 | [`sandloom.sdk.events`](events.md) | 2 | 7 |  |
-| [`sandloom.sdk.infra`](infra.md) | 0 | 18 |  |
+| [`sandloom.sdk.infra`](infra.md) | 0 | 23 |  |
 | [`sandloom.sdk.migrations`](migrations.md) | 0 | 2 |  |
 | [`sandloom.sdk.module`](module.md) | 1 | 13 |  |
 | [`sandloom.sdk.projections`](projections.md) | 0 | 26 |  |

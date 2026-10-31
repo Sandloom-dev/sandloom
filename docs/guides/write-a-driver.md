@@ -1,76 +1,65 @@
 ---
 title: Write a driver
-description: Connect a new backend to a Sandloom capability - implement the provider contract, register it through an entry point, select it with INFRA and prove it is used.
+description: Connect a new backend to a Sandloom capability - implement the contract, publish it by name, select it with INFRA, and check it with the conformance kit.
 type: how-to
 ---
 
 # Write a driver
 
-**Goal:** a package that adds a backend to an existing
-[capability](../concepts/capabilities-and-infrastructure.md), selected by
-configuration, with no change to business modules or to the kernel.
+**Goal:** a package that adds a backend to a
+[capability](../concepts/capabilities-and-infrastructure.md), selected by configuration,
+with no change to business modules or to the kernel.
 
-**Use it** for a `notification` backend that Sandloom does not ship, such as an
-email API, or for a [capability of your own](#a-capability-of-your-own).
+**Use it** for a `notification` backend that Sandloom does not ship, such as an email
+API, or for a [capability of your own](#a-capability-of-your-own).
 
-**Do not use it** for business logic: that is a [module](add-module.md). Do not
-use it to replace the `database` or `eventbus` backends either. The unit of work,
-the outbox and the delivery guarantees depend on them, and their contracts are
-not public ([why](../concepts/capabilities-and-infrastructure.md#the-relational-paradigm)).
+**Do not use it** for business logic: that is a [module](add-module.md). A contract is
+public only with a conformance kit, so the `cache`, `objectstore` and `taskqueue`
+contracts are not available yet. The `database` and `eventbus` backends carry the
+transaction and delivery guarantees and are not open to drivers
+([why](../concepts/capabilities-and-infrastructure.md#the-relational-paradigm)).
 
-!!! warning "Experimental"
-    [`sandloom.driver`](../reference/driver-api.md) arrives in the release after
-    `0.7.0a4`, and it may change in any release. Pin your driver to one minor range of
-    `sandloom`.
+!!! note "Version"
+    [`sandloom.driverkit`](../reference/driverkit.md) arrives in the release after
+    `0.7.0a4`. Depend on that release once it is published.
 
 ## Prerequisites
 
 - An application created with `sandloom new`.
-- A separate package for the driver, outside `<app>/modules`. A driver is not a
-  module: `sandloom check` does not apply to it, and it may import the backend's SDK
-  and `sandloom.driver`, which a module may not
+- A separate package for the driver, outside `<app>/modules`. A driver may import its
+  backend's SDK and `sandloom.driverkit`; a module may not
   ([SANDLOOM-C004](../reference/error-codes.md#sandloom-c004)).
 
 ## Steps
 
-### 1. Implement the provider contract
+### 1. Implement the contract
 
-`sandloom.driver` publishes a contract only together with a test kit that checks a
-driver against it. Today that is `NotifierProvider` for `notification`, whose one
-method is `send`.
+This complete driver is for development: it appends messages, including their bodies, to
+a file.
 
-The contracts of `cache`, `objectstore` and `taskqueue` are still private, in
-`sandloom.core.infra.contracts`. You can implement them, but nothing checks your
-driver, and they can change without notice.
-
-This complete driver appends notifications to a file:
-
-```python title="sandloom_notify_file/__init__.py"
+```python title="sandloom_notify_file/driver.py"
 --8<-- "docs/snippets/drivers/file_notifier.py"
 ```
 
-- **The factory** is what you pass to `register_driver`. It receives one
-  `InstanceConfig` (`capability`, `name`, `driver`, `options`) and returns the
-  provider. A class whose constructor takes that config is a factory. It is
-  called lazily, on first use: open no connection at import.
-- **`options`** holds the keys of the `INFRA` entry and nothing else: replacing a
-  driver leaves the previous driver's options, such as the `SMTP_*` values, behind.
-  Options can include secrets, so never log them.
-- **`Notification`** carries `body_fields`, the values its `body` was built from,
-  for a driver that renders its own template. They are as sensitive as the body:
-  never log them.
-- **`features()`** names what this driver really does. It must be a subset of
-  the capability's features. A module that requires `features={"email"}` is
-  refused at startup on a driver that does not advertise it.
-- **`capability_version`** states the contract version the driver was written for.
-  A driver for another major version is refused when it registers.
-- **`aopen`, `health` and `aclose`** are optional. Override them to open a pool
-  at startup, report health in `/diagnostics/infra` and release resources.
+- **`contract_version`** is the contract the driver was written for. It is required, and
+  another major version is refused when the driver loads.
+- **`supported_features`** names what the driver really does, and is its one declaration.
+  A module that requires `features={"email"}` is refused at startup on a driver that does
+  not advertise it. If a feature depends on an option, override the classmethod
+  `features_for(options)`. Do not override `features()`: an instance that reports other
+  features than it declared is refused.
+- **`options`** holds the keys of the `INFRA` entry, and nothing from another driver.
+  Options can hold secrets, so never log them. For validation before the driver is built,
+  set `options_schema` to a pydantic model.
+- **The constructor** is called on first use, or at startup if an instance is configured.
+  Open no connection at import. To open a pool at startup, report health in
+  `/diagnostics/infra` or release resources, override `aopen`, `health` and `aclose`.
+- **`Notification.body_fields`** holds the values `body` was built from, for a driver that
+  renders its own template. It is as sensitive as the body: never log it.
 
-### 2. Register it through an entry point
+### 2. Publish it by name
 
-The `sandloom.infra` entry-point group is how Sandloom finds third-party
-drivers. The entry point names a callable `register(registry)`:
+The entry-point name is `<capability>.<driver>`, and its value is your class:
 
 ```toml title="pyproject.toml"
 [project]
@@ -78,81 +67,66 @@ name = "sandloom-notify-file"
 version = "0.1.0"
 dependencies = ["sandloom>=0.7.0a4,<0.8"]
 
-[project.entry-points."sandloom.infra"]
-notify-file = "sandloom_notify_file:register"
+[project.entry-points."sandloom.drivers"]
+"notification.file" = "sandloom_notify_file.driver:FileNotifier"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 ```
 
-Add the package to the application's dependencies. For a package next to the
-application:
+Add the package to the application's dependencies. For a package next to the application:
 
 ```bash
 uv add --editable ../sandloom-notify-file
 ```
 
+Sandloom imports the class only when `INFRA` selects its name. A package nothing selects
+runs no code, and the order of installed packages does not matter.
+
 ### 3. Select it with `INFRA`
 
-The flat settings (`NOTIFIER_BACKEND`, `STORAGE_TYPE`, ...) accept only the
-drivers Sandloom ships. A plugin driver is selected through
-[`INFRA`](../concepts/capabilities-and-infrastructure.md#configuration-not-code-picks-backends),
-in `.env` for the application and in `.env.test` for its tests. Everything other
+Put this in `.env` for the application and in `.env.test` for its tests. Everything other
 than `driver` becomes an option:
 
 ```bash
 INFRA={"notification":{"default":{"driver":"file","path":"/tmp/myapp-mail.log"}}}
 ```
 
-Module code does not change: `await notifier().send(...)` now reaches your
-driver. To keep the default and add a second instance, use another name
-(`"audit"` instead of `"default"`) and resolve it with `notifier("audit")`.
+Module code does not change: `await notifier().send(...)` now reaches your driver. To keep
+the default and add a second instance, use another name (`"audit"` instead of `"default"`)
+and resolve it with `notifier("audit")`.
 
-### 4. Prove it is used
+### 4. Check it against the contract
 
-A test passing does not show the driver was selected: the default `log` driver
-also accepts every `send`. Assert on the driver and on its effect. With `INFRA`
-in `.env.test`, a module test can check both:
+`sandloom.driverkit.testing` holds the conformance kit. Subclass it in the driver's tests;
+each obligation is its own test, so a failure names what to fix. The kit needs `pytest` and
+`pytest-asyncio`, and it sends real messages, so point it at a test backend.
+
+```python title="tests/test_conformance.py"
+--8<-- "docs/snippets/drivers/test_file_notifier.py"
+```
+
+A skipped test means the driver advertises no channel, so nothing was sent. Read the skip
+reason rather than treating it as a pass.
+
+### 5. Prove the application uses it
+
+A passing application test does not show the driver was selected: the default `log` driver
+also accepts every `send`. Assert on the effect. With `INFRA` in `.env.test`, a module test
+can check it:
 
 ```python
 from pathlib import Path
 
-from sandloom.sdk.infra import Notification, notifier
+from sandloom.sdk.infra import Notification, notifier  # sandloom: advanced infra
 
 
-async def test_the_file_driver_delivers(client) -> None:
-    provider = notifier()
-    assert provider.driver == "file"
-
-    await provider.send(
+async def test_mail_goes_through_the_file_driver(client) -> None:
+    await notifier().send(
         Notification(channel="email", recipient="a@b.test", subject="Hi", body="x")
     )
-
-    assert "email|a@b.test|Hi" in Path("/tmp/myapp-mail.log").read_text()
-```
-
-### 5. Check it against the contract
-
-`sandloom.driver.testing` holds the conformance kit. It sends on every channel the
-driver advertises and fails on a feature the capability does not define, on a body or
-`body_fields` value reaching the logs, or on `aclose` failing when called twice:
-
-```python
-from sandloom.driver import InfraRegistry, InstanceConfig
-from sandloom.driver.testing import assert_notifier_conformance
-
-from sandloom_notify_file import FileNotifier
-
-
-async def test_the_driver_conforms(tmp_path) -> None:
-    config = InstanceConfig(
-        capability="notification",
-        name="default",
-        driver="file",
-        options={"path": str(tmp_path / "mail.log")},
-    )
-    await assert_notifier_conformance(FileNotifier(config))
+    assert "a@b.test" in Path("/tmp/myapp-mail.log").read_text()
 ```
 
 ## Verify
@@ -161,65 +135,68 @@ async def test_the_driver_conforms(tmp_path) -> None:
 uv run sandloom test
 ```
 
-On a running application, `/diagnostics/infra` lists the registered drivers and
-the driver of each instance. It needs `INTERNAL_API_TOKEN`
+On a running application, `/diagnostics/infra` lists the installed driver packages and the
+driver of each instance. It needs `INTERNAL_API_TOKEN`
 ([Operator commands](../operations/operator-reference.md)).
 
 ## A capability of your own
 
-A backend with no matching capability needs a contract of its own. A capability is
-declared in the same `register` callable, before its drivers:
+A backend with no matching capability needs a contract of its own. Split the package in
+two, so a module can import the contract without the driver:
 
-```python
-from sandloom.driver import CapabilitySpec, InfraProvider, InfraRegistry
+```python title="vector_index/contracts.py"
+--8<-- "docs/snippets/drivers/vector_index_contracts.py"
+```
 
+```python title="vector_index/driver.py"
+--8<-- "docs/snippets/drivers/vector_index_driver.py"
+```
 
-class VectorIndexProvider(InfraProvider):
-    capability = "vector_index"
+```toml title="pyproject.toml"
+[project.entry-points."sandloom.capabilities"]
+vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
 
-    async def nearest(self, vector: list[float], limit: int) -> list[str]:
-        raise NotImplementedError
-
-
-def register(registry: InfraRegistry) -> None:
-    registry.register_capability(
-        CapabilitySpec(
-            name="vector_index",
-            version="v1",
-            provider_contract=VectorIndexProvider,
-            features=frozenset({"filters"}),
-            stability="experimental",
-        )
-    )
-    registry.register_driver(
-        "vector_index", "memory", MemoryVectorIndex, features={"filters"}
-    )
+[project.entry-points."sandloom.drivers"]
+"vector_index.memory" = "vector_index.driver:MemoryVectorIndex"
 ```
 
 - **Selecting it:** `INFRA={"vector_index":{"default":{"driver":"memory"}}}`.
-- **Features:** declare them in `register_driver` too. Startup checks that list
-  without building the driver, so a feature missing there fails a module's requirement.
 - **Requiring it from a module:**
   `CapabilityRequirement("vector_index", features=frozenset({"filters"}))` in
   `define_module`. Startup then fails, without I/O, if it is missing.
-- **Calling it from a module:** `capability("vector_index")` from
-  `sandloom.sdk.infra`.
-- **Name conflicts:** registering a name with another contract or version is refused.
-  The kernel already defines `search`, `document_store`, `graph_store`, `workflow`,
-  `lock` and `secrets`, contract only, with no driver. Their contracts are not public
-  yet.
+- **Calling it from a module:** the reference carries the type, as long as your package
+  ships a `py.typed` file. Without one, type checkers see `Any`.
+
+    ```python
+    from sandloom.sdk.infra import capability  # sandloom: advanced infra
+    from vector_index.contracts import VECTOR_INDEX
+
+    nearest = await capability(VECTOR_INDEX).nearest([1.0], limit=5)
+    ```
+
+- **What a module may import:** `vector_index.contracts`. Importing `vector_index.driver`
+  fails [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), because an entry point
+  names it.
+- **In production:** `stability="experimental"` requires the accepted risk
+  `experimental_capability` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
+  Use `"stable"` when you keep the contract stable yourself.
+- **Reserved names:** the kernel defines `search`, `document_store`, `graph_store`,
+  `workflow`, `lock` and `secrets`, so a package cannot declare them.
 
 ## Errors you may hit
 
 | Error | Cause and fix |
 | --- | --- |
-| `Configured infrastructure instances have no registered driver` at startup | `INFRA` names a driver nobody registered. The package is not installed, or its entry point failed: a broken entry point is only logged, so look for `failed loading driver plugin` in the startup log. A loaded one logs `loaded driver plugin`. |
-| `ProviderContractError` | The factory returned something that does not subclass the capability's contract. |
-| `FeatureUnsupportedError` | A module requires a feature the driver does not advertise, or the driver declares a feature the capability does not define. |
-| `Input should be 'log' or 'smtp'` | A plugin driver was set in `NOTIFIER_BACKEND`. Use `INFRA` (step 3). |
+| [SANDLOOM-B021](../reference/error-codes.md#sandloom-b021) | The selected name has two providers, or a package published a built-in's name. Uninstall one, or rename your driver. |
+| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no `contract_version`, or was written for another major version. The message names which. |
+| `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
+| `ProviderContractError` | An instance reports other features than its class declares. |
+| `FeatureUnsupportedError` | A module requires a feature the driver does not advertise. |
+| `Input should be 'log' or 'smtp'` | A driver package's name was set in `NOTIFIER_BACKEND`. Use `INFRA`. |
 
 ## Related
 
 - [Capabilities and infrastructure](../concepts/capabilities-and-infrastructure.md): capabilities, drivers and instances.
-- [`sandloom.driver`](../reference/driver-api.md): every name it exports.
+- [`sandloom.driverkit`](../reference/driverkit.md): every name it exports.
 - [Customize a standard module](customize-standard-module.md): what a notification driver can do for identity's mail.
+- [ADR-0011](../adr/0011-driver-api.md): why it works this way.

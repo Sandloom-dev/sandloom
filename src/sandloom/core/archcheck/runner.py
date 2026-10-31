@@ -12,6 +12,7 @@ import fnmatch
 import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -385,6 +386,14 @@ def _installed_module_violation(
     )
 
 
+def installed_driver_modules() -> list[str]:
+    """The modules installed ``sandloom.drivers`` entry points point at. A module
+    asks for a capability and never constructs its driver; a package's separate
+    ``contracts`` module stays importable."""
+    entries = metadata.entry_points().select(group="sandloom.drivers")
+    return sorted({entry.value.partition(":")[0] for entry in entries})
+
+
 def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
     """Public-API, forbidden-pattern and (optional) kernel layering checks.
 
@@ -397,6 +406,7 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
     violations: list[Violation] = []
     own_prefix = rules.modules_package
     installed = installed_module_packages(rules)
+    drivers = installed_driver_modules()
     for file in sorted(rules.modules_path.rglob("*.py")):
         rel_mod = file.relative_to(rules.modules_path)
         rel = file.relative_to(rules.root) if rules.root in file.parents else file
@@ -437,6 +447,16 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
             )
             if found is not None and not _is_allowed(rel, imp, rules.allowlist):
                 violations.append(found)
+            if _covered(imp, drivers) and not _is_allowed(rel, imp, rules.allowlist):
+                violations.append(
+                    Violation(
+                        "infra-imports",
+                        file,
+                        f"Line {import_lines.get(imp, 1)}: {imp} is a driver: ask for "
+                        "the capability instead (a package's contracts module is "
+                        "importable)",
+                    )
+                )
             if imp == "sandloom.core" or imp.startswith("sandloom.core."):
                 if not _covered(imp, rules.public_api) and not _is_allowed(
                     rel, imp, rules.allowlist

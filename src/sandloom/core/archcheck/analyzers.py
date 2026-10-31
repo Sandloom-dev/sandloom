@@ -576,16 +576,16 @@ FORBIDDEN_INFRA_MODULES = frozenset(
         # prefix above: a business module never reaches the system engine
         # (docs/reference/security-model.md).
         "sandloom.core.sql_alchemy.tenant_rls",
-        # For driver packages: a module resolves a capability by name and never
-        # implements or registers one. C002 misses it in the framework tree.
-        "sandloom.driver",
+        # For driver packages: a module asks for a capability and never
+        # implements one. C002 misses it in the framework tree.
+        "sandloom.driverkit",
     }
 )
 FORBIDDEN_FROM_CORE = frozenset({"get_db", "get_event_bus"})
 FORBIDDEN_FROM_DI = frozenset({"get_cache"})
 #: Concrete backend SDKs: reached only through a capability provider.
 FORBIDDEN_BACKEND_ROOTS = frozenset(
-    {"motor", "pymongo", "neo4j", "temporalio", "kafka", "boto3"}
+    {"motor", "pymongo", "neo4j", "temporalio", "kafka", "boto3", "redis", "celery"}
 )
 
 
@@ -602,8 +602,14 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names = ", ".join(a.name for a in node.names)
             root = node.module.split(".")[0]
-            if root in FORBIDDEN_BACKEND_ROOTS or _is_forbidden_infra_module(
-                node.module
+            if (
+                root in FORBIDDEN_BACKEND_ROOTS
+                or _is_forbidden_infra_module(node.module)
+                # ``from sandloom import driverkit`` names the module as an alias.
+                or any(
+                    _is_forbidden_infra_module(f"{node.module}.{a.name}")
+                    for a in node.names
+                )
             ):
                 violations.append(
                     f"Line {node.lineno}: from {node.module} import {names}"

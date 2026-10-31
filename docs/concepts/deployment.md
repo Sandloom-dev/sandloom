@@ -105,7 +105,7 @@ repository. The steps are in the [deployment guide](../guides/deployment.md).
   refusing only with the documented binding error for its required consumed
   contracts; any error logged at startup fails the test. Example apps run
   the same gate.
-- The **split conformance matrix** boots every subset of the bundled
+- The **split conformance matrix** boots every subset of the standard
   identity, tenancy and billing modules as real processes, bound to a peer
   and alone. A bound subset must answer a request script identically to the
   monolith; an unbound one identically or with an explicit 404 / 501 / 503,

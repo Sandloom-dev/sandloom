@@ -17,8 +17,10 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`Cache`](#cache) | class | What a module calls on `cache()`: the operations, not the lifecycle. |
 | [`cache`](#cache) | function | Return the operation-based `CacheProvider` for a named instance. |
-| [`capability`](#capability) | function | Return the provider of `capability` instance `name`, checked against `contract` when given (the module-level twin of `CoreRuntime.capabil... |
+| [`capability`](#capability) | function | Return the instance `name` of the capability `ref` points to, typed by the ref. A capability's package publishes the ref and the caller's... |
+| [`CapabilityRef`](#capabilityref) | class | A typed key to a capability: `CapabilityRef[Search]("search.v1")`. |
 | [`claims_contract_name`](#claims_contract_name) | function | `"tenancy"` -> `"tenancy.claims.v1"`. |
 | [`CLAIMS_CONTRACT_SUFFIX`](#claims_contract_suffix) | constant |  |
 | [`ClaimsContributorContract`](#claimscontributorcontract) | class | `<module>.claims.v1` — a module's token-claims contributors as a contract. |
@@ -29,19 +31,137 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`FACTS_CONTRACT_SUFFIX`](#facts_contract_suffix) | constant |  |
 | [`get_core`](#get_core) | async function | Return the read-only `CoreRuntime` view of the app's facade. |
 | [`Notification`](#notification) | class | One outbound notification, independent of the delivery backend. |
+| [`Notifier`](#notifier) | class | What a module calls on `notifier()`. |
 | [`notifier`](#notifier) | function | Return the `NotifierProvider` for a named instance. |
+| [`ObjectStore`](#objectstore) | class | What a module calls on `objectstore()`. |
 | [`objectstore`](#objectstore) | function | Return the `ObjectStoreProvider` for a named instance (the module-level twin of `CoreRuntime.objectstore`; spec §2.2). |
 | [`settings`](#settings) | settings object |  |
 | [`ShutdownTask`](#shutdowntask) | constant |  |
 | [`StartupTask`](#startuptask) | constant |  |
+| [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`. |
 | [`taskqueue`](#taskqueue) | function | Return the `TaskQueueProvider` for a named instance (the module-level twin of `CoreRuntime.taskqueue`; spec §2.2). |
 
 ## Advanced names
 
+### `Cache`
+
+```python
+class Cache(Protocol)
+```
+
+What a module calls on `cache()`: the operations, not the lifecycle.
+
+#### `Cache.get`
+
+```python
+async def get(self, key: str) -> str | None
+```
+
+#### `Cache.set`
+
+```python
+async def set(self, key: str, value: str, *, ttl_seconds: int | None = None) -> None
+```
+
+#### `Cache.add`
+
+```python
+async def add(self, key: str, value: str, *, ttl_seconds: int | None = None) -> bool
+```
+
+#### `Cache.delete`
+
+```python
+async def delete(self, key: str) -> None
+```
+
+#### `Cache.incr`
+
+```python
+async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int
+```
+
+#### `Cache.get_many`
+
+```python
+async def get_many(self, keys: Sequence[str]) -> list[str | None]
+```
+
+#### `Cache.set_many`
+
+```python
+async def set_many(
+    self,
+    items: Mapping[str, str],
+    *,
+    ttl_seconds: int | None = None,
+) -> None
+```
+
+#### `Cache.compare_and_set`
+
+```python
+async def compare_and_set(
+    self,
+    key: str,
+    expected: str,
+    value: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> bool
+```
+
+#### `Cache.compare_and_delete`
+
+```python
+async def compare_and_delete(self, key: str, expected: str) -> bool
+```
+
+#### `Cache.incr_window`
+
+```python
+async def incr_window(
+    self,
+    key: str,
+    previous_key: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> tuple[int, str | None]
+```
+
+#### `Cache.incr_many`
+
+```python
+async def incr_many(
+    self,
+    keys: Sequence[str],
+    *,
+    ttl_seconds: int | None = None,
+) -> list[int]
+```
+
+#### `Cache.set_nx_get`
+
+```python
+async def set_nx_get(
+    self,
+    key: str,
+    value: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> tuple[bool, str | None]
+```
+
+#### `Cache.set_max`
+
+```python
+async def set_max(self, key: str, value: str, *, ttl_seconds: int | None = None) -> str
+```
+
 ### `cache`
 
 ```python
-def cache(name: str = 'default') -> CacheProvider
+def cache(name: str = 'default') -> Cache
 ```
 
 Return the operation-based `CacheProvider` for a named instance.
@@ -56,16 +176,36 @@ never names a concrete backend.
 ### `capability`
 
 ```python
-def capability(
-    capability: str,
-    name: str = 'default',
-    contract: type | None = None,
-) -> Any
+def capability(ref: CapabilityRef[P], name: str = 'default') -> P
 ```
 
-Return the provider of `capability` instance `name`, checked
-against `contract` when given (the module-level twin of
-`CoreRuntime.capability`; spec §2.2).
+Return the instance `name` of the capability `ref` points to, typed by the
+ref. A capability's package publishes the ref and the caller's Protocol, and the
+capability's major version must match the ref's.
+
+### `CapabilityRef`
+
+```python
+class CapabilityRef(Generic)(value: str) -> None
+```
+
+A typed key to a capability: `CapabilityRef[Search]("search.v1")`.
+
+The caller's Protocol travels in the type, and the version is checked when
+the capability is resolved. A class passed as `type[T]` cannot do this:
+mypy refuses an abstract class or a Protocol there.
+
+#### `CapabilityRef.name`
+
+```python
+name  (property)
+```
+
+#### `CapabilityRef.version`
+
+```python
+version  (property)
+```
 
 ### `claims_contract_name`
 
@@ -383,6 +523,7 @@ def require_capability(
     *,
     features: set[str] | None = None,
     contract: type | None = None,
+    version: str | None = None,
 ) -> Any
 ```
 
@@ -510,10 +651,24 @@ optional `dedupe_key` a driver may use to suppress duplicate sends.
 render its own template. They are as sensitive as the body (a secret link, a
 name): a driver never logs them, and `data` stays safe to record.
 
+### `Notifier`
+
+```python
+class Notifier(Protocol)
+```
+
+What a module calls on `notifier()`.
+
+#### `Notifier.send`
+
+```python
+async def send(self, notification: Notification) -> None
+```
+
 ### `notifier`
 
 ```python
-def notifier(name: str = 'default') -> Any
+def notifier(name: str = 'default') -> Notifier
 ```
 
 Return the `NotifierProvider` for a named instance.
@@ -524,10 +679,49 @@ notifier().send(...)` — never import an email/SMS SDK. Resolves via the
 process-active `InfraRegistry` (`RuntimeError` when none is
 bound).
 
+### `ObjectStore`
+
+```python
+class ObjectStore(Protocol)
+```
+
+What a module calls on `objectstore()`.
+
+#### `ObjectStore.put`
+
+```python
+async def put(
+    self,
+    key: str,
+    data: bytes | Any,
+    *,
+    content_type: str | None = None,
+    metadata: Mapping[str, str] | None = None,
+) -> str
+```
+
+#### `ObjectStore.get`
+
+```python
+async def get(self, key: str) -> bytes
+```
+
+#### `ObjectStore.delete`
+
+```python
+async def delete(self, key: str) -> None
+```
+
+#### `ObjectStore.url`
+
+```python
+async def url(self, key: str) -> str
+```
+
 ### `objectstore`
 
 ```python
-def objectstore(name: str = 'default') -> Any
+def objectstore(name: str = 'default') -> ObjectStore
 ```
 
 Return the `ObjectStoreProvider` for a named instance (the
@@ -557,10 +751,31 @@ StartupTask: UnionType
 
 *(no docstring)*
 
+### `TaskQueue`
+
+```python
+class TaskQueue(Protocol)
+```
+
+What a module calls on `taskqueue()`.
+
+#### `TaskQueue.enqueue`
+
+```python
+async def enqueue(
+    self,
+    task: str,
+    payload: Mapping[str, Any],
+    *,
+    delay_seconds: int | None = None,
+    idempotency_key: str | None = None,
+) -> str
+```
+
 ### `taskqueue`
 
 ```python
-def taskqueue(name: str = 'default') -> Any
+def taskqueue(name: str = 'default') -> TaskQueue
 ```
 
 Return the `TaskQueueProvider` for a named instance (the module-level

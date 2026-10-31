@@ -5644,9 +5644,9 @@ capabilities:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_contract_conformance_holds_under_service_mac
 - id: C-INFRA-01
-  statement: 'A new backend is a driver, not a core edit: registry.register_driver(capability, driver,
-    factory) plugs in any provider implementing the contract (e.g. a non-SQLAlchemy database driver backing
-    the UoW contract), and register_capability adds a new capability.'
+  statement: 'A new backend is a driver, not a core edit: any provider implementing the contract plugs
+    in through the registry (e.g. a non-SQLAlchemy database driver backing the UoW contract), and a CapabilitySpec
+    adds a new capability.'
   sources:
   - docs/concepts/capabilities-and-infrastructure.md
   tests:
@@ -5654,15 +5654,20 @@ capabilities:
   - src/sandloom/core/tests/test_extra_capabilities.py::test_plugin_adds_capability_and_driver
   - src/sandloom/core/tests/test_capabilities.py::test_register_and_query_capability
 - id: C-INFRA-02
-  statement: Third-party driver plugins load from the sandloom.infra entry-point group (a callable register(registry));
-    a broken entry point is logged and does not abort startup.
+  statement: Driver packages are found by name in the sandloom.drivers entry-point group and imported
+    only when INFRA selects them, so load order does not matter and an unselected package runs no code.
+    A selected name with two providers, or one that cannot be used, stops startup (SANDLOOM-B021, B022).
   sources:
   - docs/concepts/capabilities-and-infrastructure.md
   - docs/adr/0001-framework-distribution.md#2. Package graph (monorepo + uv workspace, N wheels, independent
     versions)
   tests:
-  - src/sandloom/core/tests/test_infra_registry.py::test_entrypoint_driver_loading
-  - src/sandloom/core/tests/test_infra_registry.py::test_bad_entrypoint_does_not_abort
+  - src/sandloom/core/tests/test_driverkit.py::test_a_selected_driver_is_found_by_name
+  - src/sandloom/core/tests/test_driverkit.py::test_an_unselected_package_is_never_imported
+  - src/sandloom/core/tests/test_driverkit.py::test_a_capability_in_another_package_loads_in_any_order
+  - src/sandloom/core/tests/test_driverkit.py::test_two_providers_of_a_selected_name_are_refused
+  - src/sandloom/core/tests/test_driverkit.py::test_a_package_cannot_take_over_a_built_in_driver
+  - src/sandloom/core/tests/test_driverkit.py::test_a_selected_driver_that_cannot_be_used_stops_startup
 - id: C-INFRA-03
   statement: With no extra config one default instance per capability is synthesized from the flat settings;
     the INFRA JSON env var adds named instances or overrides drivers/options.
@@ -7677,6 +7682,12 @@ adr_sections:
     Alternatives considered: informational
     Decisions recorded (owner, 2026-10-25): informational
     Follow-ups (not part of this decision): informational
+  0011-driver-api.md:
+    Context: informational
+    Decision:
+    - C-INFRA-01
+    - C-INFRA-02
+    Consequences: informational
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational

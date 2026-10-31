@@ -9,7 +9,8 @@ and cached for the lifetime of the registry.
 Drivers come from two sources:
 
 * built-in drivers (registered by :func:`register_builtin_drivers`)
-* third-party plugins published under the ``sandloom.infra`` entry-point group
+* driver packages, named in the ``sandloom.drivers`` entry-point group and
+  imported only when configuration selects them (:func:`load_selected_plugins`)
 
 A business module never touches this class directly — it asks the
 :class:`~sandloom.core.facade.CoreFacade` for a capability by logical name.
@@ -23,7 +24,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import metadata
-from typing import Any
+from typing import Any, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
@@ -36,6 +37,11 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.contracts import InfraProvider
 
 logger = logging.getLogger("sandloom.core.infra")
+
+#: Entry-point groups: ``"<capability>.<driver>" = "pkg.driver:Class"`` and
+#: ``"<capability>" = "pkg.contracts:SPEC"``.
+DRIVERS_GROUP = "sandloom.drivers"
+CAPABILITIES_GROUP = "sandloom.capabilities"
 
 #: A driver factory turns an instance config into a live provider.
 DriverFactory = Callable[[InstanceConfig], InfraProvider]
@@ -151,6 +157,24 @@ class DriverNotRegisteredError(CapabilityError):
     """The instance names a driver that no plugin registered."""
 
 
+class DriverConflictError(CapabilityError):
+    """A selected driver or capability name has two providers (SANDLOOM-B021)."""
+
+    sandloom_code = "SANDLOOM-B021"
+
+
+class DriverLoadError(CapabilityError):
+    """A selected driver or capability cannot be used (SANDLOOM-B022)."""
+
+    sandloom_code = "SANDLOOM-B022"
+
+
+class ExperimentalCapabilityRefused(CapabilityError):
+    """An experimental capability configured in production (SANDLOOM-B023)."""
+
+    sandloom_code = "SANDLOOM-B023"
+
+
 class ExperimentalCapabilityError(InstanceNotConfiguredError, DriverNotRegisteredError):
     """An EXPERIMENTAL capability was resolved but no driver is registered.
 
@@ -258,8 +282,8 @@ class InfraRegistry:
         raise ExperimentalCapabilityError(
             f"Capability {capability!r} is EXPERIMENTAL and {detail}: core ships "
             "only the contract (no driver), and the contract may still change",
-            fix=f"install/register a plugin driver for {capability!r} "
-            "(registry.register_driver / an sandloom.infra entry point) and configure "
+            fix=f"install a driver package for {capability!r} (an entry point "
+            f"'{capability}.<driver>' in the 'sandloom.drivers' group) and configure "
             f"INFRA[{capability!r}][<name>], or avoid depending on this "
             "experimental capability",
         )
@@ -442,12 +466,17 @@ class InfraRegistry:
                 raise DriverNotRegisteredError(
                     f"No driver {instance_cfg.driver!r} registered for capability "
                     f"'{capability}' (known: {', '.join(known) or '<none>'})",
-                    fix="register the driver (register_driver / an sandloom.infra "
-                    "plugin) or pick a known driver",
+                    fix="install a driver package (an entry point "
+                    f"'{capability}.{instance_cfg.driver}' in the 'sandloom.drivers' "
+                    "group) or pick a known driver",
                 )
             self._validate_options(capability, instance_cfg, registration)
             provider = registration.factory(instance_cfg)
             self._check_contract(capability, name, provider)
+            if self._strict:
+                self._check_declared_features(
+                    name, instance_cfg, registration, provider
+                )
             self._providers[cache_key] = provider
             logger.info(
                 "[infra] built %s/%s via driver %s",
@@ -464,6 +493,7 @@ class InfraRegistry:
         *,
         features: frozenset[str] | None = None,
         contract: type | None = None,
+        version: str | None = None,
     ) -> InfraProvider:
         """Resolve a provider, enforcing the contract and required features.
 
@@ -472,7 +502,19 @@ class InfraRegistry:
         :class:`FeatureUnsupportedError` with a concrete fix is raised. An
         explicit ``contract`` (beyond the spec's) is also checked. This is the
         path behind ``CoreFacade.require_capability`` and the module preflight.
+        A ``version`` (from a ``CapabilityRef``) must match the spec's major.
         """
+        spec = self._capabilities.get(capability)
+        if (
+            version is not None
+            and spec is not None
+            and not _versions_compatible(spec.version, version)
+        ):
+            raise FeatureUnsupportedError(
+                f"Capability {capability!r} is {spec.version}, but this code was "
+                f"written for {version}",
+                fix="align the CapabilityRef with the capability's major version",
+            )
         provider = self.provider(capability, name)
         if contract is not None and not isinstance(provider, contract):
             raise ProviderContractError(
@@ -504,8 +546,8 @@ class InfraRegistry:
         if spec is None:
             raise UnknownCapabilityError(
                 f"Capability {capability!r} is not registered",
-                fix="register the capability (register_capability / an sandloom.infra "
-                "plugin) before requiring it",
+                fix="install the package that declares it (the 'sandloom.capabilities' "
+                "entry-point group) and configure it in INFRA",
             )
         if version is not None and not _versions_compatible(spec.version, version):
             raise FeatureUnsupportedError(
@@ -565,6 +607,25 @@ class InfraRegistry:
                 f"{spec.provider_contract.__name__} contract for capability "
                 f"{capability!r}",
                 fix="fix the driver to subclass the capability's provider contract",
+            )
+
+    @staticmethod
+    def _check_declared_features(
+        name: str,
+        cfg: InstanceConfig,
+        registration: DriverRegistration,
+        provider: InfraProvider,
+    ) -> None:
+        """The preflight reads the declaration, a request reads the instance: they
+        must agree, or a requirement passes at startup and fails on first use."""
+        declared = registration.features_for(cfg.options)
+        actual = provider.features()
+        if declared != actual:
+            raise ProviderContractError(
+                f"Driver {cfg.capability}/{cfg.driver} declares features "
+                f"{sorted(declared)} but instance {name!r} reports {sorted(actual)}",
+                fix="declare features once, in supported_features (or features_for "
+                "when they depend on an option), and do not override features()",
             )
 
     def _check_features(
@@ -646,9 +707,12 @@ class InfraRegistry:
                 # provider. Raises ConfigSchemaError with an actionable fix.
                 self._validate_options(capability, cfg, registration)
         if missing:
-            raise InfraError(
+            raise DriverNotRegisteredError(
                 "Configured infrastructure instances have no registered driver: "
-                + ", ".join(sorted(missing))
+                + ", ".join(sorted(missing)),
+                fix="install the driver package (an entry point "
+                "'<capability>.<driver>' in the 'sandloom.drivers' group) or pick "
+                "a known driver in INFRA",
             )
 
     # ------------------------------------------------------------------ #
@@ -778,6 +842,7 @@ class InfraRegistry:
                 for spec in self.capabilities()
             },
             "drivers": sorted(f"{c}/{d}" for (c, d) in self._drivers),
+            "installed_driver_packages": installed_plugin_names(),
             "instances": {
                 cap: {
                     name: {
@@ -800,28 +865,109 @@ class InfraRegistry:
         }
 
 
-def load_entrypoint_drivers(registry: InfraRegistry) -> list[str]:
-    """Register third-party drivers published under the ``sandloom.infra`` group.
+def _plugins(group: str, name: str) -> list[metadata.EntryPoint]:
+    return list(metadata.entry_points().select(group=group, name=name))
 
-    Each entry point must resolve to a callable ``register(registry)`` that
-    calls :meth:`InfraRegistry.register_driver`. Returns the names loaded.
-    Failures are logged and skipped so one bad plugin cannot abort startup.
-    """
-    loaded: list[str] = []
+
+def _load_plugin(entry: metadata.EntryPoint, what: str) -> Any:
     try:
-        group = metadata.entry_points().select(group="sandloom.infra")
-    except Exception:  # pragma: no cover - enumeration failure
-        logger.exception("[infra] entry-point enumeration failed")
-        return loaded
-    for ep in group:
-        try:
-            register_fn = ep.load()
-            register_fn(registry)
-            loaded.append(ep.name)
-            logger.info("[infra] loaded driver plugin %s", ep.name)
-        except Exception:
-            logger.exception("[infra] failed loading driver plugin %s", ep.name)
-    return loaded
+        return entry.load()
+    except Exception as exc:
+        raise DriverLoadError(
+            f"{what} ({entry.value}) failed to import: {exc!r}",
+            fix="fix or reinstall the package that publishes it, or select another "
+            "one in INFRA",
+        ) from exc
+
+
+def _one_plugin(group: str, name: str) -> metadata.EntryPoint | None:
+    found = _plugins(group, name)
+    if len(found) > 1:
+        owners = sorted(e.dist.name if e.dist else e.value for e in found)
+        raise DriverConflictError(
+            f"{name!r} in the {group!r} entry-point group has several providers: "
+            f"{', '.join(owners)}",
+            fix="uninstall all but one of these packages",
+        )
+    return found[0] if found else None
+
+
+def _load_capability(registry: InfraRegistry, capability: str) -> None:
+    entry = _one_plugin(CAPABILITIES_GROUP, capability)
+    if entry is None:
+        return
+    if registry.capability_spec(capability) is not None:
+        raise DriverConflictError(
+            f"Capability {capability!r} is built in, and {entry.value} declares it too",
+            fix="rename the capability in that package",
+        )
+    spec = _load_plugin(entry, f"Capability {capability!r}")
+    if not isinstance(spec, CapabilitySpec) or spec.name != capability:
+        raise DriverLoadError(
+            f"{entry.value} is not the CapabilitySpec of {capability!r}",
+            fix="point the entry point at a CapabilitySpec with this name",
+        )
+    registry.register_capability(spec)
+
+
+def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
+    key = f"{cfg.capability}.{cfg.driver}"
+    entry = _one_plugin(DRIVERS_GROUP, key)
+    if entry is None:
+        return
+    if registry.has_driver(cfg.capability, cfg.driver):
+        raise DriverConflictError(
+            f"Driver {key!r} is built in, and {entry.value} publishes it too",
+            fix="rename the driver in that package: another behaviour is another "
+            "driver name, selected in INFRA",
+        )
+    driver = _load_plugin(entry, f"Driver {key!r}")
+    spec = registry.capability_spec(cfg.capability)
+    contract = spec.provider_contract if spec else InfraProvider
+    if not (isinstance(driver, type) and issubclass(driver, contract)):
+        raise DriverLoadError(
+            f"{entry.value} is not a subclass of {contract.__name__}",
+            fix=f"point the entry point at a {contract.__name__} subclass",
+        )
+    written_for = getattr(driver, "contract_version", None)
+    if written_for is None:
+        raise DriverLoadError(
+            f"Driver {key!r} declares no contract_version",
+            fix='add a class attribute, for example contract_version = "v1"',
+        )
+    if spec is not None and not _versions_compatible(spec.version, written_for):
+        raise DriverLoadError(
+            f"Driver {key!r} was written for {written_for}, and the capability is "
+            f"{spec.version}",
+            fix="install a version of the driver for this contract",
+        )
+    provider_class = cast("type[InfraProvider]", driver)
+    registry.register_driver(
+        cfg.capability,
+        cfg.driver,
+        provider_class.from_config,
+        features=provider_class.supported_features,
+        config_schema=provider_class.options_schema,
+        instance_features=provider_class.features_for,
+    )
+
+
+def load_selected_plugins(registry: InfraRegistry, config: InfraConfig) -> None:
+    """Import only the driver packages ``config`` selects, by name.
+
+    No order to depend on, and an unselected package runs no code. A selected
+    name with two providers, or one that cannot be used, stops startup: it could
+    not serve anyway, and the operator sees the cause.
+    """
+    for capability, instances in config.items():
+        _load_capability(registry, capability)
+        for cfg in instances.values():
+            _load_driver(registry, cfg)
+
+
+def installed_plugin_names() -> list[str]:
+    """Every driver name installed, read from metadata without importing it."""
+    return sorted(e.name for e in metadata.entry_points().select(group=DRIVERS_GROUP))
 
 
 __all__ = [
@@ -840,5 +986,11 @@ __all__ = [
     "TransactionalOutboxUnsupportedError",
     "DriverFactory",
     "DriverRegistration",
-    "load_entrypoint_drivers",
+    "CAPABILITIES_GROUP",
+    "DRIVERS_GROUP",
+    "DriverConflictError",
+    "DriverLoadError",
+    "ExperimentalCapabilityRefused",
+    "installed_plugin_names",
+    "load_selected_plugins",
 ]

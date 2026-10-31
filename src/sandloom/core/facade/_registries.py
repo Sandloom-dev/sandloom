@@ -68,6 +68,7 @@ class _RegistriesMixin(_FacadeState):
         *,
         features: set[str] | None = None,
         contract: type | None = None,
+        version: str | None = None,
     ) -> Any:
         """Resolve a capability, requiring the given features.
 
@@ -80,6 +81,7 @@ class _RegistriesMixin(_FacadeState):
             name,
             features=frozenset(features or ()),
             contract=contract,
+            version=version,
         )
 
     def database(self, name: str = "default") -> Any:

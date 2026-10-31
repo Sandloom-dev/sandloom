@@ -55,7 +55,14 @@ from sandloom.core.infra.access import (
     objectstore,
     taskqueue,
 )
-from sandloom.core.infra.contracts import Notification
+from sandloom.core.infra.capabilities import CapabilityRef
+from sandloom.core.infra.contracts import (
+    Cache,
+    Notification,
+    Notifier,
+    ObjectStore,
+    TaskQueue,
+)
 from sandloom.core.module_api import bind_contract_session, contract_session
 from sandloom.core.module_api._service_registry import (
     ServiceNotFound,
@@ -483,32 +490,34 @@ def Database(name: str) -> Any:  # dependency factory, used as a type
 
 
 def Capability(  # dependency factory, reads like a type
-    capability: str,
-    contract: type | None = None,
+    capability: CapabilityRef[Any] | str,
     name: str = "default",
     *,
     features: set[str] | None = None,
 ) -> Any:
     """Annotated dependency resolving any capability instance.
 
-    The universal alternative to a bespoke ``Database()``/``GraphStore()`` per
-    capability — resolves through the request app's core, enforcing the contract
-    and any required features::
+    The universal alternative to a bespoke dependency per capability: it
+    resolves through the request app's core, enforcing the version and any
+    required features. A capability's package publishes the reference and the
+    Protocol::
+
+        from vector_index.contracts import VECTOR_INDEX, VectorIndex
+
+
         async def handler(
-            graph: Annotated[
-                GraphStoreProvider,
-                Capability("graph_store", GraphStoreProvider, "recommendations"),
-            ],
+            index: Annotated[VectorIndex, Capability(VECTOR_INDEX, "products")],
         ):
             ...
     """
     feats = set(features) if features else None
+    ref = CapabilityRef(capability) if isinstance(capability, str) else capability
 
     async def _dep(request: Request) -> Any:  # async: no thread-pool hop
         return (
             _get_facade(request)
             .runtime_view()
-            .require_capability(capability, name, features=feats, contract=contract)
+            .require_capability(ref.name, name, features=feats, version=ref.version)
         )
 
     return Depends(_dep)
@@ -722,6 +731,11 @@ UowReads = Annotated[Any, Depends(get_uow_reads, scope=_UOW_DEPENDENCY_SCOPE)]
 settings = _settings
 
 __all__ = [
+    "Cache",
+    "CapabilityRef",
+    "Notifier",
+    "ObjectStore",
+    "TaskQueue",
     "TaskEnqueueConflict",
     "TaskEnqueueUnavailable",
     "TaskEnqueueUncertain",

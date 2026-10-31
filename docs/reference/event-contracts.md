@@ -122,7 +122,7 @@ Registered by the framework at startup as reference patterns:
 
 ## 6. Standard module channels
 
-All bundled channels are additive-only within `v1`. Event payloads are durable
+All standard module channels are additive-only within `v1`. Event payloads are durable
 (outbox) and fan out to every consumer, so they carry **no PII** — consumers
 resolve emails through the owning module by id.
 

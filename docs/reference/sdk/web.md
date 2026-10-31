@@ -165,8 +165,7 @@ authenticates (`@authenticates` does) nor carries a risk
 
 ```python
 def Capability(
-    capability: str,
-    contract: type | None = None,
+    capability: CapabilityRef[Any] | str,
     name: str = 'default',
     *,
     features: set[str] | None = None,
@@ -175,16 +174,16 @@ def Capability(
 
 Annotated dependency resolving any capability instance.
 
-The universal alternative to a bespoke `Database()`/`GraphStore()` per
-capability — resolves through the request app's core, enforcing the contract
-and any required features:
+The universal alternative to a bespoke dependency per capability: it
+resolves through the request app's core, enforcing the version and any
+required features. A capability's package publishes the reference and the
+Protocol:
 
 ```python
+from vector_index.contracts import VECTOR_INDEX, VectorIndex
+
 async def handler(
-    graph: Annotated[
-        GraphStoreProvider,
-        Capability("graph_store", GraphStoreProvider, "recommendations"),
-    ],
+    index: Annotated[VectorIndex, Capability(VECTOR_INDEX, "products")],
 ):
     ...
 ```

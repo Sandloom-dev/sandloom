@@ -32,6 +32,7 @@ from sandloom.core.archcheck.manifest import DEFAULT_TEST_API
 from sandloom.core.archcheck.runner import (
     API10_RULES,
     PENDING_RULES,
+    check_manifest_imports,
     iter_module_test_files,
 )
 
@@ -448,8 +449,46 @@ def test_parsed_ast_is_cached_per_file_version(tmp_path: Path) -> None:
     assert parse_file(sample) is not first
 
 
-def test_a_business_module_cannot_import_the_driver_api(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from sandloom.driverkit import NotifierProvider\n",
+        "from sandloom import driverkit\n",
+        "import sandloom.driverkit.testing\n",
+        "import redis\n",
+        "from celery import Celery\n",
+    ],
+)
+def test_a_business_module_cannot_reach_a_driver_or_a_backend(
+    tmp_path: Path, source: str
+) -> None:
     """A module knows infrastructure by name; only a driver package implements it."""
     module = tmp_path / "services.py"
-    module.write_text("from sandloom.driver import NotifierProvider\n")
+    module.write_text(source)
     assert find_legacy_infra_imports(module)
+
+
+def test_a_module_cannot_import_an_installed_driver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An entry point names the driver's module; its contracts stay importable."""
+    monkeypatch.setattr(
+        "sandloom.core.archcheck.runner.installed_driver_modules",
+        lambda: ["acme_search.driver"],
+    )
+    modules = tmp_path / "app" / "modules" / "notes"
+    modules.mkdir(parents=True)
+    (modules / "__init__.py").write_text("")
+    (tmp_path / "app" / "__init__.py").write_text("")
+    (tmp_path / "app" / "modules" / "__init__.py").write_text("")
+    (modules / "services.py").write_text(
+        "from acme_search.contracts import SEARCH\n"
+        "from acme_search.driver import Search\n"
+    )
+    (tmp_path / "architecture_rules.yml").write_text(
+        "modules_path: app/modules\nsource_root: .\n"
+    )
+    found = check_manifest_imports(load_rules(tmp_path / "architecture_rules.yml"))
+    driver = [v.detail for v in found if v.rule == "infra-imports"]
+    assert len(driver) == 1
+    assert "acme_search.driver" in driver[0]

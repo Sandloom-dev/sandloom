@@ -17,7 +17,6 @@ from sandloom.core.infra.contracts import CacheProvider
 from sandloom.core.infra.registry import (
     InfraError,
     InfraRegistry,
-    load_entrypoint_drivers,
 )
 
 
@@ -153,53 +152,6 @@ def test_configure_instance_overrides_and_invalidates_cache() -> None:
     second = reg.provider("cache", "default")
     assert second is not first
     assert second.options == {"x": 1}
-
-
-def test_entrypoint_driver_loading(monkeypatch: pytest.MonkeyPatch) -> None:
-    reg = InfraRegistry()
-    registered: list[str] = []
-
-    def _register(registry: InfraRegistry) -> None:
-        registry.register_driver("cache", "plugincache", _fake_cache_factory)
-        registered.append("called")
-
-    class _EP:
-        name = "plugincache"
-
-        def load(self) -> Any:
-            return _register
-
-    class _EPs:
-        def select(self, group: str) -> list[Any]:
-            return [_EP()] if group == "sandloom.infra" else []
-
-    monkeypatch.setattr(
-        "sandloom.core.infra.registry.metadata.entry_points", lambda: _EPs()
-    )
-    loaded = load_entrypoint_drivers(reg)
-    assert loaded == ["plugincache"]
-    assert registered == ["called"]
-    assert reg.has_driver("cache", "plugincache")
-
-
-def test_bad_entrypoint_does_not_abort(monkeypatch: pytest.MonkeyPatch) -> None:
-    reg = InfraRegistry()
-
-    class _BadEP:
-        name = "broken"
-
-        def load(self) -> Any:
-            raise RuntimeError("boom")
-
-    class _EPs:
-        def select(self, group: str) -> list[Any]:
-            return [_BadEP()]
-
-    monkeypatch.setattr(
-        "sandloom.core.infra.registry.metadata.entry_points", lambda: _EPs()
-    )
-    # Must swallow the failure and return no loaded plugins.
-    assert load_entrypoint_drivers(reg) == []
 
 
 def test_snapshot_and_restore_an_instance() -> None:

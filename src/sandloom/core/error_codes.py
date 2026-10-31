@@ -175,8 +175,9 @@ layer. Use the operations of the capability contract instead.
         """
 Modules know infrastructure only by logical name. Backend SDKs (boto3, motor,
 neo4j, ...), the legacy globals and the infra-internal packages are blocked;
-the drivers construct every backend. `sandloom.driver` is for driver packages
-and blocked in modules: backend code belongs in a separate package.
+the drivers construct every backend. `sandloom.driverkit` and a driver package's
+own module are blocked too: a module asks for a capability, and a package's
+`contracts` module is what it may import.
 """,
     ),
     _entry(
@@ -797,6 +798,51 @@ replay-only or fail-open guard: an ambiguous COMMIT would re-run the effect
 (the check that replaced the class-F one, ADR-0009).
 """,
     ),
+    _landed(
+        "SANDLOOM-B021",
+        "driver-conflict",
+        "boot",
+        "a selected driver or capability name has two providers",
+        "uninstall all but one package; to change a built-in's behaviour, publish "
+        "another driver name and select it in INFRA",
+        """
+Drivers are found by name: `<capability>.<driver>` in the `sandloom.drivers`
+entry-point group. Python gives installed packages no order, so a name with two
+providers has no defined winner. Startup refuses a name INFRA selects when two
+packages publish it, or when a package publishes the name of a built-in driver.
+A built-in cannot be replaced silently: another behaviour is another name.
+""",
+        docs="docs/guides/write-a-driver.md",
+    ),
+    _landed(
+        "SANDLOOM-B022",
+        "driver-load-failed",
+        "boot",
+        "a selected driver or capability cannot be used",
+        "fix or reinstall the package named in the message, or select another driver",
+        """
+INFRA selected a driver or capability whose package failed to import, whose entry
+point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
+which declares no `contract_version`, or which was written for another major version.
+A driver that cannot load cannot serve, so startup stops with the cause. An
+unselected package is never imported.
+""",
+        docs="docs/guides/write-a-driver.md",
+    ),
+    _landed(
+        "SANDLOOM-B023",
+        "experimental-capability-refused",
+        "boot",
+        "an experimental capability is configured in production",
+        "remove it from INFRA, or accept the risk with "
+        'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]',
+        """
+An experimental capability's contract may change in any release. Running one in
+production is a weakening, so the deployment accepts it by name and every start
+reports it.
+""",
+        docs="docs/reference/configuration.md",
+    ),
     _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
@@ -1223,6 +1269,9 @@ EXCEPTION_CODES: dict[str, str] = {
     "GuardOrderError": "SANDLOOM-B002",
     "ContractBindingError": "SANDLOOM-B005",
     "StoreCapabilityError": "SANDLOOM-B010",
+    "DriverConflictError": "SANDLOOM-B021",
+    "DriverLoadError": "SANDLOOM-B022",
+    "ExperimentalCapabilityRefused": "SANDLOOM-B023",
     "GateOrderError": "SANDLOOM-B007",
     "MissingTenantError": "SANDLOOM-R001",
     "UnitOfWorkRequiredError": "SANDLOOM-R002",

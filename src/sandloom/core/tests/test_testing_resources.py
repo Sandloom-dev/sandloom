@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from sandloom.core.testing import ownership, resources, workers
+from sandloom.core.testing import ownership, resources, session_checks, workers
 from sandloom.core.tests.test_testing_ownership import BACKEND, scratch_db  # noqa: F401
 
 NOW = 1_800_000_000.0
@@ -250,3 +250,18 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
     assert session_checks.cap_auto_workers(config, 6) == expected
     if room < 6:
         assert "Redis database indexes are free" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("url", "risky"),
+    [
+        ("redis://localhost:56398/0", True),
+        ("postgresql+asyncpg://u:p@localhost:49152/db", True),
+        ("redis://localhost:6380/0", False),
+        ("redis://127.0.0.1:56398/0", False),
+        ("redis://cache.internal:56398/0", False),
+        ("", False),
+    ],
+)
+def test_a_url_that_can_connect_to_itself_is_found(url: str, risky: bool) -> None:
+    assert bool(session_checks.self_connecting_urls({"CACHE_URL": url})) is risky

@@ -20,15 +20,33 @@ website renders this same changelog.
   implementation. Add guides to write a driver and to customize a standard module.
   Reorganize the navigation into Learn, Concepts, Build, Operate, Reference and
   Project. Remove the compatibility page `docs/CONTRACTS.md`.
-- Add `sandloom.driver`, the experimental API for driver packages, with the
-  `notification` contract and the conformance kit `sandloom.driver.testing`. Modules
-  may not import it (SANDLOOM-C004). `register_driver` takes `capability_version`.
+- Add `sandloom.driverkit`, the API for driver packages, with the `notification`
+  contract and the kit `sandloom.driverkit.testing.NotifierConformance`. Modules may not
+  import it, or an installed driver (SANDLOOM-C004). See ADR-0011.
+- Drivers are found by name: an entry point `"<capability>.<driver>"` in
+  `sandloom.drivers`, imported only when `INFRA` selects it. This replaces the
+  `sandloom.infra` group and `register(registry)`. A selected name with two providers,
+  or a driver that cannot be used, stops startup (SANDLOOM-B021, B022), and a built-in
+  driver can no longer be replaced silently.
+- `cache()`, `notifier()`, `objectstore()` and `taskqueue()` return Protocols of what a
+  module may call. `capability(ref, name)` and `Capability(ref, ...)` take a typed
+  `CapabilityRef[P]`.
+- A driver declares features once, on its class. An instance reporting others is refused.
+  Required methods are no longer features: `CapabilityRequirement("cache",
+  features={"incr"})` becomes unnecessary and is refused as unknown.
+- An experimental capability in production needs the accepted risk
+  `experimental_capability` (SANDLOOM-B023).
+- Remove the `s3`, `gcs` and `yc` placeholder drivers. Selecting one without a driver
+  package is the ordinary "no registered driver" error.
 
 ### Fixed
 
 - `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
   is set. Following the quickstart's port note failed with `Connection refused`
   before the services were started.
+- The test harness refuses a URL with `localhost` and a port from 32768 up. Such a
+  connection can reach itself, and the client reads its own request as the reply, which
+  shows up as random test failures.
 - `INFRA` no longer passes a default instance's options to a different driver.
   Selecting a plugin driver handed it the `SMTP_*` values, including the password.
 

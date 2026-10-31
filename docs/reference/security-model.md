@@ -746,7 +746,7 @@ Recommended configuration of the security Redis:
   endpoint) or self-hosted Redis + Sentinel. The built-in `redis` driver takes
   a single URL: put Sentinel behind a failover-aware endpoint (the managed
   primary endpoint, or a TCP proxy / HAProxy that tracks the Sentinel master),
-  or register a Sentinel-aware cache driver as an `sandloom.infra` plugin. Redis
+  or install a Sentinel-aware cache driver package. Redis
   Cluster is not supported by the built-in driver (no cluster client ships);
 - the same `SECURITY_CACHE_INSTANCE` and URL in **every** service (revocation
   marks written by one service must be read by all of them), like `CACHE_URL`

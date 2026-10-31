@@ -17,7 +17,7 @@ Each term has one meaning across this documentation.
 | **Standard module** | A ready-made module Sandloom publishes as its own package: `identity`, `tenancy` or `billing`. It follows the same rules as your modules. The CLI flag `--no-batteries` and the extra `sandloom[standard]` refer to this set; "battery" is the informal word for a standard module. [Standard modules](../modules/index.md). |
 | **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. |
 | **SDK** | `sandloom.sdk`, the public Python API. Everything else in the framework is private. [Reference](../reference/sdk/index.md). |
-| **Driver API** | `sandloom.driver`, the separate experimental API for driver packages. Modules may not import it. Do not confuse it with `sandloom.core.drivers`, the private built-in drivers. [Reference](../reference/driver-api.md). |
+| **Driver kit** | `sandloom.driverkit`, the separate API for driver packages. Modules may not import it. [Reference](../reference/driverkit.md). |
 | **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules, and every other public name. An advanced import states its reason in a comment. [Modules](modules.md#the-beginner-tier). |
 
 ## How modules talk
@@ -40,8 +40,9 @@ Each term has one meaning across this documentation.
 | Term | Meaning |
 | --- | --- |
 | **Capability** | A kind of infrastructure, named by what it does: `database`, `cache`, `objectstore`, `taskqueue`, `eventbus`, `notification`. [Capabilities](capabilities-and-infrastructure.md). |
-| **Provider contract** | The abstract class every driver of a capability implements, such as `NotifierProvider`. It is unrelated to a module [contract](contracts.md). |
-| **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration, and shipped as its own package, never inside a module. [Write a driver](../guides/write-a-driver.md). |
+| **Provider contract** | The abstract class every driver of a capability implements, such as `NotifierProvider`. Modules see its operations as a Protocol, such as `Notifier`. It is unrelated to a module [contract](contracts.md). |
+| **Capability reference** | A typed key to a capability, `CapabilityRef[VectorIndex]("vector_index.v1")`, for one that a package adds. |
+| **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration, and published as its own package, found by name, never inside a module. [Write a driver](../guides/write-a-driver.md). |
 | **Instance** | A named, configured driver, such as the `default` database and a second `analytics` one. Modules ask for an instance by name. |
 | **Backend** | The external system a driver connects to, such as PostgreSQL or Redis. |
 | **Feature** | An optional ability a driver advertises, such as `cas` for `cache`. A module can require one. |

@@ -73,9 +73,10 @@ class CoreRuntime:
         *,
         features: set[str] | None = None,
         contract: type | None = None,
+        version: str | None = None,
     ) -> Any:
         return self._facade.require_capability(
-            capability, name, features=features, contract=contract
+            capability, name, features=features, contract=contract, version=version
         )
 
     def database(self, name: str = "default") -> Any:

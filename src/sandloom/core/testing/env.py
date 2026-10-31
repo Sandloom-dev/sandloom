@@ -79,7 +79,7 @@ def load_test_env(
     apply_test_overrides(create_database=create_database)
     # Under pytest-xdist: move this worker onto its own database / Redis DBs
     # (idempotent, so later reloads never put it back on the shared ones).
-    apply_worker_env()
+    apply_worker_env(create_database=create_database)
     return path
 
 

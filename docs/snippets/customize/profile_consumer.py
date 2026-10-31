@@ -14,6 +14,7 @@ class UserDeleted(Event, channel="identity.user_deleted.v1"):
     payload: dict[str, Any]
 
 
-@on(UserDeleted)
+# dead_letter=False: erasure keeps retrying rather than waiting in a dead-letter queue.
+@on(UserDeleted, dead_letter=False)
 async def on_user_deleted(event: UserDeleted) -> None:
     await services.delete_profile(UUID(event.payload["user_id"]))

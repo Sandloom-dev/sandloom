@@ -1,43 +1,36 @@
-"""A notification driver that appends every message to a file."""
+"""A development notification driver: appends every message to a JSON-lines file."""
 
 import asyncio
+import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
-from sandloom.driver import (
-    InfraRegistry,
-    InstanceConfig,
-    Notification,
-    NotifierProvider,
-)
+from sandloom.driverkit import Notification, NotifierProvider
 
 
 class FileNotifier(NotifierProvider):
-    def __init__(self, config: InstanceConfig) -> None:
-        super().__init__(name=config.name, driver=config.driver, options=config.options)
-        path = config.options.get("path")
+    contract_version = "v1"
+    supported_features = frozenset({"email"})
+
+    def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
+        super().__init__(name=name, driver=driver, options=options)
+        path = options.get("path")
         if not path:
             raise ValueError("the file notification driver needs a 'path' option")
         self._path = Path(path)
 
-    def features(self) -> frozenset[str]:
-        return frozenset({"email"})
-
     async def send(self, notification: Notification) -> None:
-        line = (
-            f"{notification.channel}|{notification.recipient}|{notification.subject}\n"
+        line = json.dumps(
+            {
+                "channel": notification.channel,
+                "recipient": notification.recipient,
+                "subject": notification.subject,
+                "body": notification.body,
+            }
         )
         await asyncio.to_thread(self._append, line)
 
     def _append(self, line: str) -> None:
         with self._path.open("a", encoding="utf-8") as target:
-            target.write(line)
-
-
-def register(registry: InfraRegistry) -> None:
-    registry.register_driver(
-        "notification",
-        "file",
-        FileNotifier,
-        features={"email"},
-        capability_version="v1",
-    )
+            target.write(line + "\n")

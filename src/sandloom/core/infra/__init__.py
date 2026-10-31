@@ -63,7 +63,7 @@ from sandloom.core.infra.registry import (
     InstanceNotConfiguredError,
     ProviderContractError,
     UnknownCapabilityError,
-    load_entrypoint_drivers,
+    load_selected_plugins,
 )
 
 __all__ = [
@@ -115,5 +115,5 @@ __all__ = [
     "ExperimentalCapabilityError",
     "ConfigSchemaError",
     "DriverFactory",
-    "load_entrypoint_drivers",
+    "load_selected_plugins",
 ]

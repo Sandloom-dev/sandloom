@@ -8,8 +8,9 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
-- Add `sandloom.driver`, the experimental API for driver packages, with a conformance
-  kit for the `notification` contract.
+- Add `sandloom.driverkit` for driver packages, found by name in the `sandloom.drivers`
+  entry-point group and imported only when selected (ADR-0011). Replaces `sandloom.infra`.
+- Accessors return Protocols; `capability()` and `Capability()` take a `CapabilityRef[P]`.
 - `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
   is set.
 - `INFRA` no longer passes a default instance's options to a different driver.

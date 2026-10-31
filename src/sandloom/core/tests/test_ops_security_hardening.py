@@ -103,7 +103,7 @@ def test_s3_storage_fails_fast_at_startup() -> None:
         S3_ACCESS_KEY_ID="k",
         S3_SECRET_ACCESS_KEY="s",
     )
-    with pytest.raises(InfraError, match="Object store driver not available"):
+    with pytest.raises(InfraError, match="no registered driver"):
         build_infra_registry(InMemorySchemaRegistry(), settings=cfg, load_plugins=False)
 
 

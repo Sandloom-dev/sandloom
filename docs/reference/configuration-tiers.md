@@ -36,6 +36,7 @@ The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_
 
 | Risk id | Weakens | Consulted by |
 | --- | --- | --- |
+| `experimental_capability` | An experimental capability in prod: its contract may change in any release. | build_infra_registry (sandloom.core.drivers.bootstrap) |
 | `fake_psp_in_prod` | BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout sessions, no real payment (demo stacks). | Settings validator (BILLING_PROVIDER) and billing's critical startup check (sandloom_billing.psp.psp_configuration_error) |
 | `log_notifier_in_prod` | The log notifier advertises delivery channels in prod: mail and SMS nobody receives. | log notifier driver features (sandloom.core.drivers.log_notifier) |
 | `local_storage_in_prod` | Local-filesystem object storage in prod: no replication, lost with the container. | local object-store driver (sandloom.core.drivers.local_objectstore) |

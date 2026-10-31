@@ -538,7 +538,7 @@ the idempotency / contract-dedupe store.
 def features(self) -> frozenset[str]
 ```
 
-Optional capability features THIS driver actually supports.
+Optional capability features THIS instance actually supports.
 
 A subset of the owning `CapabilitySpec`'s declared features. A
 module may require a feature; the registry resolves against the driver's

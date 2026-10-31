@@ -64,8 +64,8 @@ class SmtpNotifierOptions(NotifierOptions):
 class SmtpNotifierProvider(NotifierProvider):
     """Email notifier backed by ``smtplib`` (host/port/credentials from options)."""
 
-    def features(self) -> frozenset[str]:
-        return NOTIFIER_SMTP_FEATURES
+    contract_version = "v1"
+    supported_features = NOTIFIER_SMTP_FEATURES
 
     async def send(self, notification: Notification) -> None:
         if notification.channel != "email":

@@ -227,20 +227,37 @@ def test_auto_stride_without_an_allocation_fails_loudly() -> None:
         workers.rewrite_for_worker(env, env)  # BROKER_URL's /14 has none
 
 
-def test_generate_opens_no_database_for_an_explicit_test_url(tmp_path: Path) -> None:
+def test_generate_opens_no_database_for_an_explicit_test_url() -> None:
     """A taken-port setup names its test database before the services are up."""
-    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    example = Path(__file__).resolve().parents[4] / "examples/linkly"
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_XDIST")}
+    env["PYTHONPATH"] = str(example)
     env["SANDLOOM_TEST_DATABASE_URL"] = (
         "postgresql+asyncpg://user:secret@127.0.0.1:1/nothing_listens_here"
     )
     done = subprocess.run(
-        [sys.executable, "-c", "import sandloom; sandloom.main()", "generate"],
-        cwd=tmp_path,
+        [
+            sys.executable,
+            "-c",
+            "import sandloom; sandloom.main()",
+            "generate",
+            "--check",
+        ],
+        cwd=example,
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
-    assert "psycopg2" not in done.stderr, done.stderr
-    assert "Connection refused" not in done.stderr, done.stderr
+    assert done.returncode == 0, done.stderr
+
+
+def test_generate_opens_no_database_on_a_worker_either() -> None:
+    env = {**os.environ, "PYTEST_XDIST_WORKER": "gw0"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(workers, "ensure_database", _refuse_a_connection)
+        workers.apply_worker_env(dict(env), create_database=False)
+
+
+def _refuse_a_connection(_url: str) -> None:
+    raise AssertionError("no database may be opened")
