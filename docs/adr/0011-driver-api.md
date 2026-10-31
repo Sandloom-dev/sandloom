@@ -4,7 +4,7 @@ title: "ADR-0011: The driver API"
 
 # ADR-0011: The driver API
 
-- **Status:** Proposed, for the owner's review
+- **Status:** Accepted (2026-10-31, by the owner)
 - **Date:** 2026-10-31
 - **Amends:** [ADR-0001](0001-framework-distribution.md) (how driver packages register)
   and [ADR-0010](0010-public-api-1.0.md) (a second public surface, not for modules)
