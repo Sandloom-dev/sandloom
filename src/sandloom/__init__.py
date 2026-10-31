@@ -90,7 +90,7 @@ _CONFIGURED_COMMANDS = frozenset(
 )
 
 
-def _load_test_env_for_authoring() -> None:
+def _load_test_env_for_authoring(*, create_database: bool) -> None:
     """``sandloom migrate new`` and ``sandloom generate`` run where ``sandloom
     test`` runs: with the project's ``.env.test`` (+ ``SANDLOOM_TEST_*``)
     loaded, like the test harness, before the settings object is built.
@@ -101,7 +101,7 @@ def _load_test_env_for_authoring() -> None:
     except ImportError:  # no test tooling installed: the process env stands
         return
     if fixtures.find_env_file([Path.cwd()]) is not None:
-        fixtures.load_test_env([Path.cwd()])
+        fixtures.load_test_env([Path.cwd()], create_database=create_database)
 
 
 def _enforce_configuration() -> None:
@@ -294,7 +294,7 @@ def main() -> None:  # noqa: C901
     if args.command == "check":
         raise SystemExit(_static_import("sandloom.core.cli.check").main(rest))
     if args.command == "generate":
-        _load_test_env_for_authoring()
+        _load_test_env_for_authoring(create_database=False)
         raise SystemExit(_static_import("sandloom.core.cli.generated").main(rest))
     if args.command == "explore":
         raise SystemExit(_static_import("sandloom.core.cli.explore").main(rest))
@@ -310,7 +310,7 @@ def main() -> None:  # noqa: C901
         raise SystemExit(_static_import("sandloom.core.cli.explain").main(rest))
     if args.command == "migrate":
         if rest[:1] == ["new"]:
-            _load_test_env_for_authoring()
+            _load_test_env_for_authoring(create_database=True)
         from sandloom.core.cli.migrate import main as migrate_main
 
         raise SystemExit(migrate_main(rest))

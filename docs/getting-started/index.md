@@ -20,9 +20,11 @@ In an empty directory, generate an application from the published alpha:
 uvx --from "sandloom[standard]==0.7.0a4" sandloom new myapp --with identity,tenancy,billing
 ```
 
-This starter selects all three optional batteries. For a minimal backend, use
+This starter selects all three [standard modules](../modules/index.md). For a
+minimal backend, use
 `uvx --from "sandloom==0.7.0a4" sandloom new myapp --no-batteries --module notes`
-instead; the installation, generation and test steps are the same. The
+instead. That command already creates `notes`, so its printed steps add a
+different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.
 
 `sandloom new` prints the next steps; run them as printed:
@@ -53,15 +55,10 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
     `SANDLOOM_DEV_TEST_POSTGRES_PORT` or `SANDLOOM_DEV_TEST_REDIS_PORT` before
     `docker compose ... up`, then point the app at them: `DATABASE_URL` /
     `CACHE_URL` / `BROKER_URL` in `.env`, and `SANDLOOM_TEST_DATABASE_URL` /
-    `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. The
-    generated `README.md` shows the commands.
-
-`--framework-path` is the repository root (the directory containing `packages/`). The
-sources it writes are editable: the app runs the checkout's live tree, so a
-framework change shows up without a reinstall.
-Without `--framework-source path`, `sandloom new` uses local editable sources
-when run from a source checkout. An installed release resolves the
-framework from published packages.
+    `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. Pick ports
+    below 32768, or use `127.0.0.1` in the URLs
+    ([why](../guides/testing.md#isolation-guards)). The generated `README.md` shows the
+    commands.
 
 For an app created with `--with identity`, follow [authentication and email](authentication.md)
 to receive verification mail locally and obtain access/refresh tokens.
@@ -81,6 +78,6 @@ Start with the tutorial; it is one linear path.
 !!! tip "Learn by example"
     `examples/tutorial/` is the finished tutorial application. The
     `examples/` directory also ships four applications: `linkly`
-    (minimal), `helpdesk` (multi-tenant, bundled modules), `academy`
+    (minimal), `helpdesk` (multi-tenant, standard modules), `academy`
     (cross-module sagas) and `projecthub` (query projections). See the
     [example catalog](https://github.com/Sandloom-dev/sandloom/tree/main/examples).

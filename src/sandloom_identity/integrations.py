@@ -122,7 +122,9 @@ class NotifierEmailSender(EmailSender):
     enumeration), and a reset link must never land in a log line.
     """
 
-    async def _send(self, to_email: str, subject: str, body: str, kind: str) -> None:
+    async def _send(
+        self, to_email: str, subject: str, body: str, kind: str, **fields: str | None
+    ) -> None:
         try:
             await notifier().send(
                 Notification(
@@ -131,6 +133,7 @@ class NotifierEmailSender(EmailSender):
                     subject=subject,
                     body=body,
                     data={"kind": kind},
+                    body_fields={k: v for k, v in fields.items() if v is not None},
                 )
             )
         except Exception as exc:  # noqa: BLE001 - email failure never fails the flow
@@ -152,12 +155,21 @@ class NotifierEmailSender(EmailSender):
             "If you did not create an account, you can ignore this email."
         )
         await self._send(
-            to_email, "Verify your email address", body, "email_verification"
+            to_email,
+            "Verify your email address",
+            body,
+            "email_verification",
+            full_name=full_name,
+            verification_url=verification_url,
         )
 
     async def send_security_notice(self, to_email: str, message: str) -> None:
         await self._send(
-            to_email, "Account security notice", message, "security_notice"
+            to_email,
+            "Account security notice",
+            message,
+            "security_notice",
+            message=message,
         )
 
     async def send_password_reset_email(
@@ -173,7 +185,14 @@ class NotifierEmailSender(EmailSender):
             f"1 hour, single use):\n\n{reset_url}\n\n"
             "If you did not request a password reset, you can ignore this email."
         )
-        await self._send(to_email, "Reset your password", body, "password_reset")
+        await self._send(
+            to_email,
+            "Reset your password",
+            body,
+            "password_reset",
+            full_name=full_name,
+            reset_url=reset_url,
+        )
 
     async def send_registration_attempt_email(
         self,
@@ -191,7 +210,13 @@ class NotifierEmailSender(EmailSender):
             "If this was not you, no action is needed."
         )
         await self._send(
-            to_email, "You already have an account", body, "registration_attempt"
+            to_email,
+            "You already have an account",
+            body,
+            "registration_attempt",
+            full_name=full_name,
+            sign_in_url=sign_in_url,
+            reset_url=reset_url,
         )
 
 

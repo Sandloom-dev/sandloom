@@ -66,7 +66,8 @@ private `sandloom.sdk._*` layer. Any spelling counts: absolute, relative,
 `importlib`, `__import__`, `getattr` on a module, `sys.modules`. A module also
 never reaches a kernel handle by attribute (`.event_bus`, `.infra`,
 `.service_registry`, `request.app.state.core`, `.raw_client()`), and imports
-no backend SDK (Redis, boto3, Celery) directly: infrastructure comes from
+no backend SDK (Redis, boto3, Celery), driver or `sandloom.driverkit` directly:
+infrastructure comes from
 capabilities ([Capabilities and infrastructure](capabilities-and-infrastructure.md)).
 
 Business modules carry no function-local imports
@@ -75,7 +76,8 @@ marked optional dependency (`# sandloom: optional-import <reason>`).
 
 ## Conventions inside a module
 
-- **Layers.** SQLAlchemy and ORM models belong to `models/` and `services/`.
+- **Layers.** SQLAlchemy and ORM models belong to `models/` and `services.py`
+  (or a `services/` package).
   Routes (`api.py`) and `schemas.py` stay persistence-free: a route calls a
   service and returns a pydantic DTO
   ([SANDLOOM-C009](../reference/error-codes.md#sandloom-c009),

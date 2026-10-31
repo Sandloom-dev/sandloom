@@ -33,6 +33,12 @@ subset); the [SDK reference](../reference/sdk/index.md) is generated from
 them. `public_api_baseline.json` records every public name and
 signature, and a change fails `sandloom test` (SANDLOOM-T008) until it is reviewed.
 
+`sandloom.driverkit` is public for driver packages. Its contracts are versioned: a
+breaking change is a new contract version, and a driver written for another major
+version is refused at load (SANDLOOM-B022). A contract joins it only with a conformance
+kit in `sandloom.driverkit.testing`. Calling a capability from a module is the stable
+promise; implementing one moves with the contract version.
+
 Everything else (`sandloom.core.*`, modules under `sandloom.sdk` whose name starts with
 an underscore, `sandloom.shared.authz`, `sandloom.shared.guards`) is **internal** and
 may change in any release without notice. `sandloom check` blocks imports of

@@ -98,6 +98,8 @@ Build = [
     "guides/session-revocation.md",
     "guides/upgrading.md",
     "guides/add-module.md",
+    "guides/customize-standard-module.md",
+    "guides/write-a-driver.md",
     "guides/write-migration.md",
     "guides/migrations.md",
     "guides/add-event.md",
@@ -113,7 +115,6 @@ Build = [
     "guides/service-rpc.md",
     "guides/sso-setup.md",
     "guides/loader-configuration.md",
-    "guides/publishing.md",
     "guides/admin-operations.md",
     "guides/admin.md",
     "operations/index.md",
@@ -136,6 +137,7 @@ Reference = [
     "reference/sdk/sagas.md",
     "reference/sdk/projections.md",
     "reference/sdk/infra.md",
+    "reference/driverkit.md",
     "reference/sdk/security.md",
     "reference/sdk/errors.md",
     "reference/sdk/app.md",
@@ -164,6 +166,7 @@ Reference = [
 ]
 Concepts = [
     "concepts/index.md",
+    "concepts/glossary.md",
     "concepts/modules.md",
     "concepts/units.md",
     "concepts/route-policy.md",
@@ -202,6 +205,7 @@ Optional = [
     "adr/0008-sagas.md",
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
+    "adr/0011-driver-api.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -262,13 +266,37 @@ Learn = [
 ]
 
 [[project.nav]]
+Concepts = [
+    "concepts/index.md",
+    { Glossary = "concepts/glossary.md" },
+    { "Modules, levels and discovery" = "concepts/modules.md" },
+    { "Units of work and db()" = "concepts/units.md" },
+    { "Route policy and sessions" = "concepts/route-policy.md" },
+    { Events = "concepts/events.md" },
+    { Contracts = "concepts/contracts.md" },
+    { "Write admission" = "concepts/write-admission.md" },
+    { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
+    { "Guarantees and labels" = "concepts/guarantees.md" },
+    { Multi-Tenancy = "concepts/multi-tenancy.md" },
+    { "Authorization and billing subjects" = "concepts/authorization.md" },
+    { Projections = "concepts/projections.md" },
+    { Audit = "concepts/audit.md" },
+    { Sagas = "concepts/sagas.md" },
+    { "Background tasks" = "concepts/background-tasks.md" },
+    { "Capabilities and infrastructure" = "concepts/capabilities-and-infrastructure.md" },
+    { "Migrations model" = "concepts/migrations.md" },
+    { "Deployment topologies" = "concepts/deployment.md" },
+]
+
+[[project.nav]]
 Build = [
     "guides/index.md",
-    { "Generate contracts and snapshots" = "guides/generate.md" },
     { "Modules and data" = [
     { "Add a module" = "guides/add-module.md" },
     { "Write a migration" = "guides/write-migration.md" },
     { "Run migrations" = "guides/migrations.md" },
+    { "Generate contracts and snapshots" = "guides/generate.md" },
+    { "Testing modules" = "guides/testing.md" },
 ] },
     { "Events and contracts" = [
     { "Add an event" = "guides/add-event.md" },
@@ -278,31 +306,37 @@ Build = [
     { "Add a saga" = "guides/add-saga.md" },
     { "Build a projection" = "guides/add-projection.md" },
 ] },
-    { HTTP = [
+    { "HTTP" = [
     { "Make a write idempotent" = "guides/idempotent-write.md" },
     { "Deduplicate effects" = "guides/effect-deduplication.md" },
     { "Revoke sessions" = "guides/session-revocation.md" },
 ] },
+    { "Extend" = [
+    { "Customize a standard module" = "guides/customize-standard-module.md" },
+    { "Write a driver" = "guides/write-a-driver.md" },
+    { "SSO setup" = "guides/sso-setup.md" },
+    { "Admin UI — developer guide" = "guides/admin.md" },
+] },
+    { "Inspect" = [
     { "Module context for agents" = "guides/module-context.md" },
     { "Explore the architecture graph" = "guides/architecture-graph.md" },
-    { "Testing modules" = "guides/testing.md" },
-    { Deployment = "guides/deployment.md" },
-    { "Split an app into services" = "guides/split-into-services.md" },
-    { "Service RPC" = "guides/service-rpc.md" },
-    { "SSO setup" = "guides/sso-setup.md" },
-    { "Loader configuration" = "guides/loader-configuration.md" },
-    { "Publishing packages" = "guides/publishing.md" },
-    { "Admin UI — operator guide" = "guides/admin-operations.md" },
-    { "Admin UI — developer guide" = "guides/admin.md" },
-    { Operations = [
-    "operations/index.md",
-    { Runbook = "operations/runbook.md" },
-    { "Operator command reference" = "operations/operator-reference.md" },
 ] },
-    { Upgrading = [
+    { "Upgrading" = [
     { "Upgrade an application" = "guides/upgrading.md" },
     { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
 ] },
+]
+
+[[project.nav]]
+Operate = [
+    "operations/index.md",
+    { Deployment = "guides/deployment.md" },
+    { "Split an app into services" = "guides/split-into-services.md" },
+    { "Service RPC" = "guides/service-rpc.md" },
+    { "Loader configuration" = "guides/loader-configuration.md" },
+    { "Admin UI — operator guide" = "guides/admin-operations.md" },
+    { Runbook = "operations/runbook.md" },
+    { "Operator command reference" = "operations/operator-reference.md" },
 ]
 
 [[project.nav]]
@@ -331,6 +365,7 @@ Reference = [
     { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
     { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
 ] },
+    { "Driver kit (sandloom.driverkit)" = "reference/driverkit.md" },
     { "Error catalogue" = "reference/error-codes.md" },
     { "Testing (copy-paste)" = "reference/testing.md" },
     { CLI = "reference/cli.md" },
@@ -343,35 +378,13 @@ Reference = [
     { "Execution planner" = "reference/execution-planner.md" },
     { SLOs = "reference/slo.md" },
     { "Dependency stack" = "reference/dependencies.md" },
-    { "Bundled modules" = [
+    { "Standard modules" = [
     "modules/index.md",
     { Identity = "modules/identity.md" },
     { Tenancy = "modules/tenancy.md" },
     { Billing = "modules/billing.md" },
 ] },
     { Changelog = "changelog.md" },
-]
-
-[[project.nav]]
-Concepts = [
-    "concepts/index.md",
-    { "Modules, levels and discovery" = "concepts/modules.md" },
-    { "Units of work and db()" = "concepts/units.md" },
-    { "Route policy and sessions" = "concepts/route-policy.md" },
-    { Events = "concepts/events.md" },
-    { Contracts = "concepts/contracts.md" },
-    { "Write admission" = "concepts/write-admission.md" },
-    { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
-    { "Guarantees and labels" = "concepts/guarantees.md" },
-    { Multi-Tenancy = "concepts/multi-tenancy.md" },
-    { "Authorization and billing subjects" = "concepts/authorization.md" },
-    { Projections = "concepts/projections.md" },
-    { Audit = "concepts/audit.md" },
-    { Sagas = "concepts/sagas.md" },
-    { "Background tasks" = "concepts/background-tasks.md" },
-    { "Capabilities and infrastructure" = "concepts/capabilities-and-infrastructure.md" },
-    { "Migrations model" = "concepts/migrations.md" },
-    { "Deployment topologies" = "concepts/deployment.md" },
 ]
 
 [[project.nav]]
@@ -382,6 +395,7 @@ Project = [
     { "Branches and owner review" = "contributing/branches.md" },
     { "Website publishing" = "contributing/website.md" },
     { "Versioning policy" = "contributing/versioning.md" },
+    { "Publishing packages" = "guides/publishing.md" },
     { "CI profiles and minute budget" = "contributing/ci.md" },
     { "Local CI runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },
@@ -398,5 +412,6 @@ Project = [
     { "ADR-0008: Sagas" = "adr/0008-sagas.md" },
     { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
     { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
+    { "ADR-0011: The driver API" = "adr/0011-driver-api.md" },
 ] },
 ]

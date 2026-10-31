@@ -11,8 +11,9 @@ import os
 import re
 import tomllib
 import unittest
-from pathlib import Path
+from html import unescape
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 SITE = Path(os.environ.get("SANDLOOM_DOCS_SITE", "build/site/docs"))
@@ -88,6 +89,31 @@ class DocumentationSiteTests(unittest.TestCase):
         else:
             self.assertIn('name="robots" content="noindex, follow"', page)
         self.assertIn("Python backend framework for AI-driven development", page)
+
+    def test_every_sdk_table_link_lands_on_its_own_heading(self) -> None:
+        sdk = SITE / "reference/sdk"
+        headings = {
+            page.resolve(): {
+                anchor: unescape(re.sub(r"<[^>]+>", "", title)).rstrip("¶").strip()
+                for anchor, title in re.findall(
+                    r'<h[1-6] id="([^"]+)"[^>]*>(.*?)</h[1-6]>',
+                    page.read_text(),
+                    flags=re.DOTALL,
+                )
+            }
+            for page in sdk.rglob("index.html")
+        }
+        link = re.compile(
+            r'<td><a href="([^"#]*)#([^"]+)"><code>([^<]+)</code></a></td>'
+        )
+        checked = 0
+        for page in headings:
+            for path, anchor, name in link.findall(page.read_text()):
+                target = (page.parent / path / "index.html").resolve() if path else page
+                with self.subTest(page=str(page), name=name):
+                    self.assertEqual(headings[target].get(anchor), name)
+                checked += 1
+        self.assertGreater(checked, 300)
 
     def test_every_error_permalink_resolves_to_a_built_anchor(self) -> None:
         from sandloom.core.error_codes import CATALOGUE, documentation_url

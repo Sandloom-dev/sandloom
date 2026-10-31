@@ -16,8 +16,9 @@ breaks. See ``docs/archive/CAPABILITY_RUNTIME_TZ.md``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from sandloom.core.infra.contracts import (
     CacheProvider,
@@ -27,6 +28,12 @@ from sandloom.core.infra.contracts import (
     ObjectStoreProvider,
     TaskQueueProvider,
 )
+
+#: The ``.vN`` that ends a versioned capability reference.
+_VERSION_SUFFIX = re.compile(r"\.(v\d+)$")
+
+#: The caller-facing type a capability reference resolves to.
+P = TypeVar("P")
 
 #: Maturity of a capability contract (see :attr:`CapabilitySpec.stability`).
 CapabilityStability = Literal["stable", "experimental"]
@@ -79,6 +86,29 @@ class CapabilitySpec:
         return self.stability == "experimental"
 
 
+@dataclass(frozen=True)
+class CapabilityRef(Generic[P]):
+    """A typed key to a capability: ``CapabilityRef[Search]("search.v1")``.
+
+    The caller's Protocol travels in the type, and a ``.vN`` suffix is checked against
+    the capability when it is resolved; a ref without one skips that check. A class
+    passed as ``type[T]`` cannot do this: mypy refuses an abstract class or a Protocol
+    there.
+    """
+
+    value: str
+
+    @property
+    def name(self) -> str:
+        return _VERSION_SUFFIX.sub("", self.value)
+
+    @property
+    def version(self) -> str | None:
+        """The ``vN`` suffix, if any. Only a versioned ref is checked on resolve."""
+        found = _VERSION_SUFFIX.search(self.value)
+        return found.group(1) if found else None
+
+
 # --------------------------------------------------------------------------- #
 # Built-in capabilities (Phase 1: wrap the existing five, no behavior change)
 # --------------------------------------------------------------------------- #
@@ -127,7 +157,7 @@ CACHE_CAPABILITY = CapabilitySpec(
     version="v1",
     provider_contract=CacheProvider,
     features=frozenset(
-        {"get", "set", "add", "delete", "incr", "cas", "get_many", "set_many"}
+        {"cas", "get_many", "set_many"}
         # Fused single-round-trip ops (portable fallbacks exist for every driver).
         | {"incr_window", "incr_many", "set_nx_get", "set_max", "subject_state"}
     ),
@@ -138,7 +168,7 @@ OBJECTSTORE_CAPABILITY = CapabilitySpec(
     name="objectstore",
     version="v1",
     provider_contract=ObjectStoreProvider,
-    features=frozenset({"put", "get", "delete", "url"}),
+    features=frozenset(),
     description="Blob/file storage (key-addressed).",
 )
 
@@ -146,7 +176,7 @@ TASKQUEUE_CAPABILITY = CapabilitySpec(
     name="taskqueue",
     version="v1",
     provider_contract=TaskQueueProvider,
-    features=frozenset({"enqueue", "delay", "idempotency_key"}),
+    features=frozenset({"delay", "idempotency_key"}),
     description="Background job broker (fire-and-forget enqueue).",
 )
 
@@ -194,6 +224,7 @@ BUILTIN_CAPABILITIES: tuple[CapabilitySpec, ...] = (
 
 
 __all__ = [
+    "CapabilityRef",
     "CapabilitySpec",
     "CapabilityStability",
     "DATABASE_CAPABILITY",

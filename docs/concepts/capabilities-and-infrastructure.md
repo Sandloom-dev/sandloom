@@ -68,11 +68,14 @@ async def latest_report(
   module requiring `features={"email"}` fails at startup unless
   `SANDLOOM_ACCEPTED_RISKS` has `log_notifier_in_prod`. Pair it with an `@on`
   consumer to notify on events.
-- **Object store, task queue, any capability.** `objectstore(name)`,
-  `taskqueue(name)` and `capability(cap, name, contract=None)` from
-  `sandloom.sdk.infra`. In a route, the universal dependency is
-  `Annotated[GraphStoreProvider, Capability("graph_store", GraphStoreProvider, "recommendations", features={...})]`
-  from `sandloom.sdk.web`, which enforces the contract and the features.
+- **Object store, task queue.** `objectstore(name)` and `taskqueue(name)` from
+  `sandloom.sdk.infra`. Each accessor returns a Protocol of what a module may call
+  (`Cache`, `Notifier`, `ObjectStore`, `TaskQueue`), not a driver's lifecycle.
+- **A capability from a package.** The package publishes a typed reference and a
+  Protocol in its `contracts` module: `capability(VECTOR_INDEX, name)` from
+  `sandloom.sdk.infra` returns that Protocol. In a route, use
+  `Annotated[VectorIndex, Capability(VECTOR_INDEX, "products", features={...})]` from
+  `sandloom.sdk.web`, which also enforces the features.
 - **The runtime view.** `core = Depends(get_core)` (or
   `await get_core(request)`) gives the read-only `CoreRuntime`, with
   `core.capability(cap, name)`, `core.require_capability(cap, name,
@@ -105,7 +108,7 @@ from sandloom.sdk.module import CapabilityRequirement
 register = define_module(
     __name__,
     capabilities=[
-        CapabilityRequirement("cache", features=frozenset({"incr"})),
+        CapabilityRequirement("cache", features=frozenset({"cas"})),
         CapabilityRequirement("database", instance="analytics"),
     ],
 )
@@ -126,8 +129,8 @@ harness) builds the registry. There is no implicit default registry:
 `cache()`, `notifier()` or any accessor with none bound raises, in every
 environment, with a hint naming those roots.
 
-The `INFRA` setting (JSON) adds named instances or overrides drivers and
-options:
+The `INFRA` setting (JSON) adds named instances
+or overrides drivers and options:
 
 ```json
 {"database": {"analytics": {"driver": "sqlalchemy",
@@ -135,7 +138,10 @@ options:
  "cache":    {"sessions":  {"driver": "redis", "url": "redis://.../3"}}}
 ```
 
-Driver options are schema-validated; an unknown driver, instance or option
+`NOTIFIER_BACKEND` accepts only the drivers Sandloom ships; a driver package is
+selected through `INFRA`. Keeping the driver merges new options over the old ones,
+and naming another driver starts with only the options given here. Driver options are
+schema-validated; an unknown driver, instance or option
 fails startup. The `sqlalchemy` option `tenant_rls: true` turns on
 PostgreSQL row-level security for that instance, with `system_url` /
 `require_system_channel` for its system channel (see
@@ -148,20 +154,30 @@ stability, registered drivers and per-instance health.
 
 ### Adding a backend is a driver, not a kernel edit
 
-Subclass the capability's contract and register it, in process with
-`registry.register_driver(capability, driver, factory)` or as a third-party
-plugin under the `sandloom.infra` entry-point group (a callable
-`register(registry)`; a broken entry point is logged and does not abort
-startup). The driver is the sole constructor of every backend, including the
-`default` instance: a backend constructor (`create_async_engine`,
-`redis.from_url`, `Celery(...)`) is allowed only inside the kernel's driver
-tree, built lazily so nothing opens at import.
+A driver package subclasses a provider contract from
+[`sandloom.driverkit`](../reference/driverkit.md) and publishes its class by name in
+the `sandloom.drivers` entry-point group: `"notification.sendgrid" =
+"pkg.driver:SendGridNotifier"`. Sandloom imports it only when `INFRA` selects that
+name, so package order does not matter and an unselected package runs no code. A name
+with two providers ([SANDLOOM-B021](../reference/error-codes.md#sandloom-b021)) or a
+driver that cannot be used ([SANDLOOM-B022](../reference/error-codes.md#sandloom-b022))
+stops startup. A built-in driver cannot be replaced: another behaviour is another name.
+[Write a driver](../guides/write-a-driver.md) has a complete example.
+
+Drivers are the only code that constructs a backend. Inside the framework, a backend
+constructor (`create_async_engine`, `redis.from_url`, `Celery(...)`) appears only in
+the kernel's driver tree, built lazily so nothing opens at import. A driver package
+follows the same rule in its own code, and business modules never construct one.
 
 A capability is a `CapabilitySpec`: the provider contract every driver must
-implement, the optional features a driver may advertise, an optional config
-schema, a version and a stability (`stable` or `experimental`). The registry
-enforces the contract (`ProviderContractError`) and the features
-(`FeatureUnsupportedError`); errors carry a fix.
+implement, the optional features a driver may advertise, an optional config schema,
+a version and a stability (`stable` or `experimental`). A package adds one in the
+`sandloom.capabilities` entry-point group. The registry enforces the contract
+(`ProviderContractError`) and the features (`FeatureUnsupportedError`); errors carry a
+fix. A driver declares its features once, on its class, and an instance that reports
+others is refused. Running an experimental capability in production needs the
+accepted risk `experimental_capability`
+([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
 
 ### The relational paradigm
 
@@ -204,8 +220,9 @@ to host request units; a driver conformance suite for them is planned.
 | `taskqueue` | `celery` (Redis broker) | production-ready; replacing the task runtime is not a configuration change |
 | `notification` | `log`, `smtp` | production-ready (`log` only records; `smtp` sends) |
 | `objectstore` | `local` (filesystem) | single node or a shared persistent volume only, with the accepted risk `local_storage_in_prod`; `put` returns a key; no public `url`, CDN or presigned URLs |
-| `objectstore` | `s3`, `gcs`, `yc` | not implemented; startup rejects the placeholder unless a plugin supplies a driver |
-| `document_store`, `graph_store`, `workflow`, `search`, `lock`, `secrets` | none | contract only, experimental; resolving one without a plugin driver raises `ExperimentalCapabilityError` |
+| `objectstore` | `s3`, `gcs`, `yc` | not shipped; selecting one needs a driver package that publishes the name |
+| `document_store` | `memory` | experimental: tests, demos and single-process apps; never durable |
+| `graph_store`, `workflow`, `search`, `lock`, `secrets` | none | experimental and not usable yet: the kernel defines these contracts, they are not public, and no driver exists. They become public with their first driver and conformance kit |
 
 A production deployment today is **PostgreSQL + Redis** (cache, Streams bus,
 Celery broker) plus local or shared-volume files and SMTP. Anything else is
@@ -217,11 +234,13 @@ contract.
 | Code or error | When |
 | --- | --- |
 | [SANDLOOM-C003](../reference/error-codes.md#sandloom-c003) | `raw_client()` / `raw_backend()` in module code |
-| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global or an infra-internal module imported by a module |
+| [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004) | a backend SDK (`boto3`, `motor`, `pymongo`, `neo4j`, `temporalio`, `kafka`), a legacy global, an infra-internal module or `sandloom.driverkit`, or a driver package's module, imported by a module |
 | [SANDLOOM-C005](../reference/error-codes.md#sandloom-c005) | a kernel handle (`.event_bus`, `.infra`, `.service_registry`, `request.app.state.core`) reached in module code |
 | [SANDLOOM-C024](../reference/error-codes.md#sandloom-c024) | a raw non-relational query outside `unscoped()` |
 | [SANDLOOM-B001](../reference/error-codes.md#sandloom-b001) | a required `CapabilityRequirement` that is unknown, unconfigured or missing a feature |
 | [SANDLOOM-B009](../reference/error-codes.md#sandloom-b009) | a write route with several writable sessions and no write store |
+| [SANDLOOM-B021](../reference/error-codes.md#sandloom-b021), [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | a selected driver with two providers, or one that cannot be used |
+| [SANDLOOM-B023](../reference/error-codes.md#sandloom-b023) | an experimental capability in production without the accepted risk |
 | `ProviderContractError` / `FeatureUnsupportedError` / `ExperimentalCapabilityError` | a driver of the wrong contract, a missing feature, an experimental capability without a driver |
 
 ??? note "Guarantees, precisely"
@@ -259,3 +278,5 @@ contract.
   weakenings as named risks).
 - [ADR-0001: framework distribution](../adr/0001-framework-distribution.md)
   (driver plugins as packages).
+- [ADR-0011: the driver API](../adr/0011-driver-api.md)
+  (finding drivers by name, two doors for one contract).

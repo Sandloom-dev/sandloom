@@ -206,7 +206,7 @@ WORKFLOW_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=WorkflowProvider,
-    features=frozenset({"start", "cancel", "result", "signal", "schedule"}),
+    features=frozenset({"signal", "schedule"}),
     description="Durable, resumable long-running workflows.",
 )
 
@@ -233,7 +233,7 @@ SECRETS_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=SecretsProvider,
-    features=frozenset({"get", "rotate", "versioning"}),
+    features=frozenset({"rotate", "versioning"}),
     description="Secret store.",
 )
 

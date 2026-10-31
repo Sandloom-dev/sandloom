@@ -8,6 +8,14 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- Add `sandloom.driverkit` for driver packages, found by name in the `sandloom.drivers`
+  entry-point group and imported only when selected (ADR-0011). Replaces `sandloom.infra`.
+- Accessors return Protocols; `capability()` and `Capability()` take a `CapabilityRef[P]`.
+- `sandloom generate` no longer opens a database when `SANDLOOM_TEST_DATABASE_URL`
+  is set.
+- `INFRA` no longer passes a default instance's options to a different driver.
+- Add `Notification.body_fields`, the values a notification's body was built from.
+
 ## [0.7.0a4] — 2026-10-31
 
 - Add cold project graphs, compact complete module maps and the offline Explorer:

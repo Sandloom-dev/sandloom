@@ -90,8 +90,8 @@ def _store_projection(**overrides: Any) -> Projection:
 def memory_store(monkeypatch: pytest.MonkeyPatch) -> MemoryDocumentStoreProvider:
     provider = MemoryDocumentStoreProvider(name="mem", driver="memory", options={})
 
-    def resolve(kind: str, name: str = "default") -> Any:
-        assert (kind, name) == ("document_store", "mem")
+    def resolve(ref: Any, name: str = "default") -> Any:
+        assert (ref.name, name) == ("document_store", "mem")
         return provider
 
     monkeypatch.setattr(decl, "capability", resolve)

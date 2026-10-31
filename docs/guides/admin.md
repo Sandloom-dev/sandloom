@@ -9,7 +9,7 @@ the CI rules that keep them consistent are described in `admin/README.md`.
 ## Audience and architecture
 
 For everyday tasks and permissions, read the [operator guide](admin-operations.md).
-The panel serves the SaaS owner and trusted operations team with platform `admin`
+The panel serves the product owner and trusted operations team with platform `admin`
 access. It includes global user/organization directories, billing customers and
 history, audited credit adjustments, catalog availability, audit metadata and
 service health. Organization roles alone do not grant console access. Read the

@@ -9,6 +9,7 @@ the ``pending`` record format a reservation writes.
 from __future__ import annotations
 
 import logging
+from typing import cast
 from uuid import uuid4
 
 import orjson
@@ -34,7 +35,7 @@ def _idempotency_cache() -> CacheProvider:
     keep working; the ``default`` instance is ``cache()`` exactly as before.
     """
     name = idempotency_cache_name()
-    return cache() if name == "default" else cache(name)
+    return cast("CacheProvider", cache() if name == "default" else cache(name))
 
 
 async def _store_reserve(

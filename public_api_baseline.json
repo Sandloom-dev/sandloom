@@ -366,9 +366,36 @@
       ],
       "signature": null
     },
+    "Cache": {
+      "kind": "class",
+      "members": [
+        "add",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "get",
+        "get_many",
+        "incr",
+        "incr_many",
+        "incr_window",
+        "set",
+        "set_many",
+        "set_max",
+        "set_nx_get"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
     "Capability": {
       "kind": "function",
-      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, contract:POSITIONAL_OR_KEYWORD|type | None=None, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|CapabilityRef[Any] | str, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
+    },
+    "CapabilityRef": {
+      "kind": "class",
+      "members": [
+        "name",
+        "version"
+      ],
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str) -> None"
     },
     "ClaimsUnavailable": {
       "kind": "class",
@@ -430,7 +457,24 @@
       "members": [
         "dedupe_key"
       ],
-      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Notifier": {
+      "kind": "class",
+      "members": [
+        "send"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ObjectStore": {
+      "kind": "class",
+      "members": [
+        "delete",
+        "get",
+        "put",
+        "url"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "PlannedReads": {
       "kind": "callable",
@@ -542,6 +586,13 @@
       ],
       "signature": "(task_id:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
+    "TaskQueue": {
+      "kind": "class",
+      "members": [
+        "enqueue"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
     "TenantMismatchError": {
       "kind": "class",
       "members": [
@@ -615,11 +666,11 @@
     },
     "cache": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> CacheProvider"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Cache"
     },
     "capability": {
       "kind": "function",
-      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', contract:POSITIONAL_OR_KEYWORD|type | None=None) -> Any"
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|CapabilityRef[P], name:POSITIONAL_OR_KEYWORD|str='default') -> P"
     },
     "contract_session": {
       "kind": "function",
@@ -731,11 +782,11 @@
     },
     "notifier": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Notifier"
     },
     "objectstore": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> ObjectStore"
     },
     "on_commit": {
       "kind": "function",
@@ -838,7 +889,7 @@
     },
     "taskqueue": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> TaskQueue"
     },
     "tenant_filter": {
       "kind": "function",
@@ -1652,18 +1703,22 @@
         "delete",
         "driver",
         "features",
+        "features_for",
+        "from_config",
         "get",
         "get_many",
         "health",
         "incr",
         "incr_many",
         "incr_window",
+        "options_schema",
         "raw_client",
         "set",
         "set_many",
         "set_max",
         "set_nx_get",
-        "set_subject_state"
+        "set_subject_state",
+        "supported_features"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -1903,6 +1958,72 @@
     "worker_env_values": {
       "kind": "function",
       "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> dict[str, str]"
+    }
+  },
+  "sandloom.driverkit": {
+    "CapabilityRef": {
+      "kind": "class",
+      "members": [
+        "name",
+        "version"
+      ],
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
+    "CapabilitySpec": {
+      "kind": "class",
+      "members": [
+        "config_schema",
+        "description",
+        "is_experimental",
+        "stability"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable') -> None"
+    },
+    "HealthResult": {
+      "kind": "class",
+      "members": [
+        "details",
+        "status"
+      ],
+      "signature": "(status:POSITIONAL_OR_KEYWORD|HealthStatus, details:POSITIONAL_OR_KEYWORD|dict[str, object] | None=None) -> None"
+    },
+    "InfraProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "features",
+        "features_for",
+        "from_config",
+        "health",
+        "options_schema",
+        "supported_features"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "Notification": {
+      "kind": "class",
+      "members": [
+        "dedupe_key"
+      ],
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "NotifierProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "features",
+        "features_for",
+        "from_config",
+        "health",
+        "options_schema",
+        "send",
+        "supported_features"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     }
   },
   "sandloom.sdk": {
@@ -3366,6 +3487,33 @@
     "CLAIMS_CONTRACT_SUFFIX": {
       "kind": "value"
     },
+    "Cache": {
+      "kind": "class",
+      "members": [
+        "add",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "get",
+        "get_many",
+        "incr",
+        "incr_many",
+        "incr_window",
+        "set",
+        "set_many",
+        "set_max",
+        "set_nx_get"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "CapabilityRef": {
+      "kind": "class",
+      "members": [
+        "name",
+        "version"
+      ],
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str) -> None"
+    },
     "ClaimsContributorContract": {
       "kind": "class",
       "members": [
@@ -3477,7 +3625,24 @@
       "members": [
         "dedupe_key"
       ],
-      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|NotificationChannel, recipient:POSITIONAL_OR_KEYWORD|str, subject:POSITIONAL_OR_KEYWORD|str, body:POSITIONAL_OR_KEYWORD|str, data:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, dedupe_key:POSITIONAL_OR_KEYWORD|str | None=None, body_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "Notifier": {
+      "kind": "class",
+      "members": [
+        "send"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "ObjectStore": {
+      "kind": "class",
+      "members": [
+        "delete",
+        "get",
+        "put",
+        "url"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "ShutdownTask": {
       "kind": "value"
@@ -3485,13 +3650,20 @@
     "StartupTask": {
       "kind": "value"
     },
+    "TaskQueue": {
+      "kind": "class",
+      "members": [
+        "enqueue"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
     "cache": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> CacheProvider"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Cache"
     },
     "capability": {
       "kind": "function",
-      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', contract:POSITIONAL_OR_KEYWORD|type | None=None) -> Any"
+      "signature": "(ref:POSITIONAL_OR_KEYWORD|CapabilityRef[P], name:POSITIONAL_OR_KEYWORD|str='default') -> P"
     },
     "claims_contract_name": {
       "kind": "function",
@@ -3511,18 +3683,18 @@
     },
     "notifier": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Notifier"
     },
     "objectstore": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> ObjectStore"
     },
     "settings": {
       "kind": "value"
     },
     "taskqueue": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> Any"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str='default') -> TaskQueue"
     }
   },
   "sandloom.sdk.migrations": {
@@ -4221,18 +4393,22 @@
         "delete",
         "driver",
         "features",
+        "features_for",
+        "from_config",
         "get",
         "get_many",
         "health",
         "incr",
         "incr_many",
         "incr_window",
+        "options_schema",
         "raw_client",
         "set",
         "set_many",
         "set_max",
         "set_nx_get",
-        "set_subject_state"
+        "set_subject_state",
+        "supported_features"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -4722,7 +4898,7 @@
   "sandloom.sdk.web": {
     "Capability": {
       "kind": "function",
-      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, contract:POSITIONAL_OR_KEYWORD|type | None=None, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|CapabilityRef[Any] | str, name:POSITIONAL_OR_KEYWORD|str='default', features:KEYWORD_ONLY|set[str] | None=None) -> Any"
     },
     "CurrentService": {
       "kind": "callable",

@@ -12,6 +12,7 @@ import fnmatch
 import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -385,6 +386,41 @@ def _installed_module_violation(
     )
 
 
+def installed_driver_modules() -> list[str]:
+    """The modules installed ``sandloom.drivers`` entry points point at. A module
+    asks for a capability and never constructs its driver; a package's separate
+    ``contracts`` module stays importable."""
+    entries = metadata.entry_points().select(group="sandloom.drivers")
+    return sorted({entry.value.partition(":")[0] for entry in entries})
+
+
+def _reaches_driver(imported: str, driver: str, own_package: str) -> bool:
+    """``imported`` is the driver's module or a parent, which reaches it by attribute,
+    or lies inside it. A package-root driver keeps its ``contracts`` submodule, and an
+    application whose root is the driver keeps its own modules."""
+    if imported == driver or driver.startswith(f"{imported}."):
+        return True
+    if not imported.startswith(f"{driver}."):
+        return False
+    return not _covered(imported, [f"{driver}.contracts", own_package])
+
+
+def driver_import_violations(
+    file: Path, rules: ArchRules, drivers: Iterable[str]
+) -> list[str]:
+    """Imports that reach an installed driver: a module asks for the capability, and
+    imports the package's separate ``contracts`` module for its types."""
+    drivers = list(drivers)
+    tree = az.parse_file(file)
+    refs = az.import_refs(tree, list(file.relative_to(rules.source_root).parts[:-1]))
+    return [
+        f"Line {line}: {imported} can reach a driver: ask for the capability instead "
+        "(a package's contracts module is importable)"
+        for line, imported, _text in refs
+        if any(_reaches_driver(imported, d, rules.modules_package) for d in drivers)
+    ]
+
+
 def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
     """Public-API, forbidden-pattern and (optional) kernel layering checks.
 
@@ -517,6 +553,7 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
     modules = rules.business_modules()
     package = rules.modules_package
     roots = rules.model_roots
+    drivers = installed_driver_modules()
     return {
         "module-boundaries": lambda p: az.find_cross_module_imports(
             p, module, modules, modules_package=package
@@ -527,7 +564,10 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
             if "migrations" in p.relative_to(rules.modules_path / module).parts
             else az.find_unsafe_tenant_sql(p)
         ),
-        "infra-imports": az.find_legacy_infra_imports,
+        "infra-imports": lambda p: (
+            az.find_legacy_infra_imports(p)
+            + driver_import_violations(p, rules, drivers)
+        ),
         "kernel-handles": az.find_kernel_handle_access,
         "uow-boundary": az.find_uow_boundary_breaks,
         "best-effort-effects": az.find_unmarked_best_effort_effects,

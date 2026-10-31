@@ -21,6 +21,7 @@ from sandloom.core.archcheck.analyzers import (
     find_cross_module_imports,
     find_kernel_handle_access,
     find_kernel_internal_test_imports,
+    find_legacy_infra_imports,
     find_orm_leakage,
     find_schema_orm_imports,
     module_test_import_hits,
@@ -31,6 +32,7 @@ from sandloom.core.archcheck.manifest import DEFAULT_TEST_API
 from sandloom.core.archcheck.runner import (
     API10_RULES,
     PENDING_RULES,
+    driver_import_violations,
     iter_module_test_files,
 )
 
@@ -445,3 +447,78 @@ def test_parsed_ast_is_cached_per_file_version(tmp_path: Path) -> None:
     assert parse_file(sample) is first  # one parse per file per run
     sample.write_text("x = 22\n")  # a changed file is re-parsed
     assert parse_file(sample) is not first
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from sandloom.driverkit import NotifierProvider\n",
+        "from sandloom import driverkit\n",
+        "import sandloom.driverkit.testing\n",
+        "import redis\n",
+        "from celery import Celery\n",
+    ],
+)
+def test_a_business_module_cannot_reach_a_driver_or_a_backend(
+    tmp_path: Path, source: str
+) -> None:
+    """A module knows infrastructure by name; only a driver package implements it."""
+    module = tmp_path / "services.py"
+    module.write_text(source)
+    assert find_legacy_infra_imports(module)
+
+
+@pytest.mark.parametrize(
+    ("driver", "source", "allowed"),
+    [
+        ("acme_search.driver", "from acme_search.contracts import SEARCH\n", True),
+        ("acme_search.driver", "from acme_search import contracts\n", True),
+        ("acme_search.driver", "from acme_search.driver import Search\n", False),
+        ("acme_search.driver", "from acme_search import driver\n", False),
+        ("acme_search.driver", "import acme_search\nacme_search.driver\n", False),
+        ("acme_search.driver", '__import__("acme_search", fromlist=["x"])\n', False),
+        # A namespace package: only the driver and its parents are off limits.
+        ("acme.search.driver", "from acme.search.contracts import SEARCH\n", True),
+        ("acme.search.driver", "from acme.audit.types import Audit\n", True),
+        ("acme.search.driver", "import acme.search\n", False),
+        # A driver under contracts is still a driver.
+        ("acme.contracts.driver", "from acme.contracts.driver import X\n", False),
+        # The application's own package.
+        ("shop.driver", "from shop.helpers import x\n", True),
+        ("shop.driver", "from shop.driver import Mine\n", False),
+        ("shop.driver", "import shop\nshop.driver.Mine()\n", False),
+        # An entry point at a package root.
+        ("rooted", "from rooted.contracts import REF\n", True),
+        ("rooted", "from rooted import Driver\n", False),
+        ("shop", "from shop.modules.notes.schemas import Note\n", True),
+        ("shop", "import shop\n", False),
+    ],
+)
+def test_a_module_may_not_reach_a_driver(
+    tmp_path: Path, driver: str, source: str, allowed: bool
+) -> None:
+    module = tmp_path / "shop" / "modules" / "notes" / "services.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source)
+    (tmp_path / "architecture_rules.yml").write_text(
+        "modules_path: shop/modules\nsource_root: .\n"
+    )
+    found = driver_import_violations(
+        module, load_rules(tmp_path / "architecture_rules.yml"), [driver]
+    )
+    assert not found if allowed else found
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sandloom\nsandloom.driverkit.NotifierProvider\n",
+        '__import__("sandloom", fromlist=["driverkit"]).driverkit\n',
+    ],
+)
+def test_a_module_cannot_reach_the_kit_through_the_parent_package(
+    tmp_path: Path, source: str
+) -> None:
+    module = tmp_path / "services.py"
+    module.write_text(source)
+    assert find_legacy_infra_imports(module)

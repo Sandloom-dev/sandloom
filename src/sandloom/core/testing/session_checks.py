@@ -5,6 +5,8 @@
   this run (claimed if unmarked); another run's resource aborts the session.
 * **Connection budget** (:mod:`sandloom.core.testing.connections`): the server has
   room for the run's pools (x workers); ``-n auto`` is capped to it.
+* **Self-connection** (:func:`self_connecting_urls`): no URL can reach itself instead
+  of the service.
 
 Both are wired by the ``sandloom.core.testing`` plugin (and the framework suite's
 root conftest): :func:`check_run_resources` from ``pytest_sessionstart`` on
@@ -16,7 +18,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import psycopg2  # type: ignore[import-untyped]
 import pytest
@@ -24,6 +28,9 @@ import redis
 
 from sandloom.core.testing import connections, ownership, resources, workers
 from sandloom.core.testing.fixtures import env_starts, find_env_file
+
+#: Where Linux's default ephemeral range starts; macOS and Windows start higher.
+EPHEMERAL_PORTS_START = 32768
 
 
 def _numprocesses(config: pytest.Config) -> int:
@@ -77,10 +84,41 @@ def allocate_worker_redis(values: dict[str, str], count: int) -> None:
     os.environ[workers.REDIS_MAP_ENV] = workers.format_redis_map(mapping)
 
 
+def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
+    """URLs naming ``localhost`` with a port in the OS's ephemeral range.
+
+    A service published on one loopback address leaves the other with no listener.
+    ``localhost`` tries both, and a connection to a dead port in the ephemeral range
+    can be given that same port as its source: TCP then connects the socket to
+    itself, and a client reads its own request back as the reply. It takes thousands
+    of connections, which a test run makes, so it looks like a random failure.
+    """
+    found = []
+    for var in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
+        parts = urlsplit(values.get(var) or "")
+        hosts = parse_qs(parts.query).get("host", [])
+        if hosts and all(host.startswith("/") for host in hosts):
+            continue  # a Unix socket: the authority is unused
+        if parts.hostname == "localhost" and (parts.port or 0) >= EPHEMERAL_PORTS_START:
+            found.append(f"{var} (localhost:{parts.port})")
+    return found
+
+
 def check_run_resources(config: pytest.Config) -> None:
     """Ownership + connection budget of the whole run (controller only)."""
     if hasattr(config, "workerinput"):
         return  # an xdist worker: the controller checked for all of them
+    # Both: the framework suite keeps a shell's values over the file's.
+    risky = sorted(
+        {*self_connecting_urls(run_values(config)), *self_connecting_urls(os.environ)}
+    )
+    if risky:
+        pytest.exit(
+            f"{', '.join(risky)} can connect to itself instead of the service, which "
+            "shows up as random test failures. Use 127.0.0.1 in the URL, or a port "
+            f"below {EPHEMERAL_PORTS_START}.",
+            returncode=pytest.ExitCode.USAGE_ERROR,
+        )
     # Pin the owner for this run and every process it starts (xdist workers,
     # e2e subprocesses): a test that chdirs must not change who "we" are.
     os.environ.setdefault(ownership.OWNER_ENV, ownership.current_owner())

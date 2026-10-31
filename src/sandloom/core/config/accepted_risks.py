@@ -49,6 +49,11 @@ class Risk:
 
 RISKS: tuple[Risk, ...] = (
     Risk(
+        "experimental_capability",
+        "An experimental capability in prod: its contract may change in any release.",
+        "build_infra_registry (sandloom.core.drivers.bootstrap)",
+    ),
+    Risk(
         "fake_psp_in_prod",
         "BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout sessions, "
         "no real payment (demo stacks).",

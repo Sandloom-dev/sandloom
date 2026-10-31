@@ -48,7 +48,7 @@ from sandloom.core.observability.metrics import cache_operation_errors_total
 #: Features the Redis cache driver supports (the fused / batch ops are one
 #: round trip).
 REDIS_CACHE_FEATURES = frozenset(
-    {"get", "set", "add", "delete", "incr", "cas", "get_many", "set_many"}
+    {"cas", "get_many", "set_many"}
     | {"incr_window", "incr_many", "set_nx_get", "set_max", "subject_state"}
 )
 

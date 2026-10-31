@@ -29,16 +29,16 @@ Identity, organizations and billing are optional packages.
 - An existing application whose internals cannot be adapted to isolated
   modules: adopting Sandloom is architectural work, not a drop-in wrapper.
 - A product requiring a production-ready MongoDB, Kafka or another backend
-  driver that Sandloom does not currently ship. Capability contracts do not
-  make an unimplemented adapter available.
+  driver that Sandloom does not currently ship. You can
+  [write a driver](../guides/write-a-driver.md), but none exists until someone does.
 - A team needing a mature third-party plugin marketplace, long-term stable
   releases or managed hosting today. Sandloom is an early public alpha.
 
 ## Infrastructure and guarantees
 
-Production adapters currently include PostgreSQL, Redis, local files and SMTP.
-The infrastructure boundary lets a compatible adapter be selected without
-changing business modules; building and operating an adapter still takes work.
+Production drivers currently cover PostgreSQL, Redis, local files and SMTP.
+The infrastructure boundary lets a compatible driver be selected without
+changing business modules; building and operating a driver still takes work.
 See [what ships today](../concepts/capabilities-and-infrastructure.md#what-ships-today).
 
 Guarantees have conditions and boundaries: durable delivery is at least once,

@@ -32,7 +32,7 @@ later hand-off raises `NotImplementedError` naming it.
 | [`Projection`](#projection) | class | A declared read model (spec §6.4), registered by `define_module` from the module's `projections` submodule. |
 | [`ProjectionConsumerDescriptor`](#projectionconsumerdescriptor) | class | A durable consumer that applies one source channel to one projection. |
 | [`ProjectionHandler`](#projectionhandler) | callable |  |
-| [`ProjectionRebuilder`](#projectionrebuilder) | class | Reconstructs a projection from its source modules (idempotently). |
+| [`ProjectionRebuilder`](#projectionrebuilder_1) | class | Reconstructs a projection from its source modules (idempotently). |
 | [`ProjectionRebuildResult`](#projectionrebuildresult) | class | Outcome of a rebuild run (rows written + whether the index was cleared). |
 | [`ProjectionRegistryError`](#projectionregistryerror) | exception | A projection/consumer registration conflicts with existing state. |
 | [`ProjectionView`](#projectionview) | class | Reads one projection (`Annotated[ProjectionView[R], View(...)]`). |

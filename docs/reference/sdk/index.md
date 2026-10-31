@@ -38,7 +38,7 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 | [`Base`](data.md#base) | `sandloom.sdk.data` | class | Base class for all SQLAlchemy models. |
 | [`command`](contracts.md#command) | `sandloom.sdk.contracts` | function | Mark a provider method as a command: deduplicated by its `idempotency_key` argument, committed in the provider's own unit, not atomic wit... |
 | [`Contract`](contracts.md#contract) | `sandloom.sdk.contracts` | function | The caller of contract `ref` (spec §5.3), declared at module level: |
-| [`contract`](contracts.md#contract) | `sandloom.sdk.contracts` | function | Declare a stateless provider class of contract `name`: |
+| [`contract`](contracts.md#contract_1) | `sandloom.sdk.contracts` | function | Declare a stateless provider class of contract `name`: |
 | [`CreatedAt`](data.md#createdat) | `sandloom.sdk.data` | annotated type |  |
 | [`Credits`](authz.md#credits) | `sandloom.sdk.authz` | class | Subject's live credit balance is at least `minimum`. |
 | [`CurrentUser`](web.md#currentuser) | `sandloom.sdk.web` | annotated type |  |
@@ -75,7 +75,7 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.effects`](effects.md) | 2 | 8 |  |
 | [`sandloom.sdk.errors`](errors.md) | 0 | 30 |  |
 | [`sandloom.sdk.events`](events.md) | 2 | 7 |  |
-| [`sandloom.sdk.infra`](infra.md) | 0 | 18 |  |
+| [`sandloom.sdk.infra`](infra.md) | 0 | 23 |  |
 | [`sandloom.sdk.migrations`](migrations.md) | 0 | 2 |  |
 | [`sandloom.sdk.module`](module.md) | 1 | 13 |  |
 | [`sandloom.sdk.projections`](projections.md) | 0 | 26 |  |

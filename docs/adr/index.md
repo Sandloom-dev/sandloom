@@ -17,3 +17,4 @@ ADRs are kept for history and marked accordingly.
 | [0008](0008-sagas.md) | Sagas — a small orchestrator over the existing effect primitives | Accepted |
 | [0009](0009-route-policy-and-session-freshness.md) | Route policy follows authority and effect: deny-by-default, live sessions, no route classes (amends 0003) | Accepted |
 | [0010](0010-public-api-1.0.md) | Public API 1.0 — one `sandloom.sdk` namespace, three API levels, derived declarations (amends 0005, 0007, 0009) | Proposed |
+| [0011](0011-driver-api.md) | The driver API — two doors for one contract, drivers found by name | Accepted |

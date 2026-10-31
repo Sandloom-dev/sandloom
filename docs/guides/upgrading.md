@@ -55,3 +55,19 @@ migration guide, not the general package-upgrade procedure.
 
 If the upgrade fails, capture the error code, package versions and a redacted
 reproduction for [support](../getting-started/help.md).
+
+## Upgrading past 0.7.0a4
+
+The driver API changed ([ADR-0011](../adr/0011-driver-api.md)):
+
+| Before | After |
+| --- | --- |
+| `capability("x", name, contract=X)` | `capability(X_REF, name)`, with `X_REF: CapabilityRef[X]` published by the capability's package |
+| `Capability("x", X, name)` | `Capability(X_REF, name)` |
+| `CapabilityRequirement("cache", features={"incr"})` | No feature needed: `incr` is required of every driver. The same goes for `get`, `set`, `add` and `delete`, for the object store's `put`, `get`, `delete` and `url`, and for `enqueue` |
+| A driver package's `register(registry)` in the `sandloom.infra` group | The class by name in the `sandloom.drivers` group, with `contract_version` and `supported_features` on the class ([Write a driver](write-a-driver.md)) |
+| `STORAGE_TYPE=s3` starting with a placeholder | Install a driver package that publishes `objectstore.s3` |
+
+An experimental capability in production now needs `experimental_capability` in
+`SANDLOOM_ACCEPTED_RISKS`. Test URLs with `localhost` and a port from 32768 up are refused:
+use `127.0.0.1`.

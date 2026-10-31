@@ -447,6 +447,11 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.di.idempotency_guard` | aja.sdk.web | kept | 5 | scope, ttl_seconds, required, fail_closed, store_response, durable | G-IDEM-01, G-IDEM-09, G-GUARD-01, G-GUARD-02 |
 | `core.di.is_user_blocked` | aja.sdk.security | kept | 1 | user_id |  |
 | `core.di.make_db_dependency` | aja.sdk.data | kept | 0 | name |  |
+| `core.di.Cache` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.CapabilityRef` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.Notifier` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.ObjectStore` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.TaskQueue` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
 | `core.di.notifier` | aja.sdk.infra | kept | 7 | name | G-INFRA-02, G-RISK-06, G-OPS-14, C-INFRA-07, C-INFRA-11 |
 | `core.di.on_commit` | aja.sdk.effects | kept | 5 | callback, database | G-UOW-04, G-UOW-05, G-EFFECT-01, G-BLOCK-03, G-CONTRACT-02, C-EFFECT-02 |
 | `core.di.operation_class` | deny-by-default + snapshot (G-ROUTE-01/04) | adr0009 | 27 | name | G-IDEM-13, G-OPCLASS-04, G-GUARD-03 |

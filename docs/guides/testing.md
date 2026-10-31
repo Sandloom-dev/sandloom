@@ -53,8 +53,8 @@ over `.env.test` on every load path. A plain shell `DATABASE_URL` /
 - Set `SANDLOOM_TEST_OWNER` so the ownership guard knows the resources are yours.
 
 ```bash
-export SANDLOOM_TEST_OWNER=me SANDLOOM_TEST_DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test_me
-export SANDLOOM_TEST_CACHE_URL=redis://localhost:6380/120 SANDLOOM_TEST_BROKER_URL=redis://localhost:6380/121
+export SANDLOOM_TEST_OWNER=me SANDLOOM_TEST_DATABASE_URL=postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test_me
+export SANDLOOM_TEST_CACHE_URL=redis://127.0.0.1:6380/120 SANDLOOM_TEST_BROKER_URL=redis://127.0.0.1:6380/121
 ```
 
 The harness refuses to reset any database other than the one
@@ -243,6 +243,11 @@ The harness protects concurrent runs on one machine from each other:
   truncated or flushed), under xdist for every worker's `_gw<N>` copy too.
   `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes a resource over deliberately. Empty a
   test Redis database with `flush_owned_redis(client)` (keeps the marker).
+- **Self-connection.** A URL with `localhost` and a port from 32768 up is refused (exit
+  code 4). A service published on `127.0.0.1` leaves `::1` with no listener, and a
+  connection to that dead port can be given the same port as its source, so the socket
+  connects to itself and reads its own request back. It takes thousands of connections,
+  so it looks like a random failure. Use `127.0.0.1` or a lower port.
 - **Stale markers.** Every claim also stamps when the resource was last used
   (Redis key `sandloom:test:last_used`, database setting `sandloom_test.last_used`; the
   owner marker keeps its format for older checkouts). Markers of finished runs

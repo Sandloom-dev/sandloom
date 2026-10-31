@@ -80,3 +80,19 @@ def test_new_instance_requires_driver(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _settings_with_infra(monkeypatch, {"database": {"x": {"url": "..."}}})
     with pytest.raises(InfraConfigError):
         load_infra_config(s)  # type: ignore[arg-type]
+
+
+def test_infra_overlay_gives_a_replacement_driver_no_prior_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SMTP password of the default instance must not reach a plugin driver."""
+    monkeypatch.setattr(settings, "smtp_password", "secret", raising=False)
+    s = _settings_with_infra(
+        monkeypatch,
+        {"notification": {"default": {"driver": "file", "path": "/m.log"}}},
+    )
+
+    instance = load_infra_config(s)["notification"]["default"]  # type: ignore[arg-type]
+
+    assert instance.driver == "file"
+    assert instance.options == {"path": "/m.log"}

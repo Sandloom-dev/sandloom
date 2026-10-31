@@ -1,7 +1,7 @@
 # Platform owner console: operator guide
 
 Sandloom Admin is the optional **platform owner and operations console**. It serves
-trusted SaaS administrators across the deployment. An organization owner/admin
+trusted product administrators across the deployment. An organization owner/admin
 role alone cannot enter it. The UI, labels, help, and documentation are English;
 customer-entered data retains its original language.
 

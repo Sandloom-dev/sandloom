@@ -84,6 +84,37 @@ class TestNotifierEmailSender:
         assert notification.data == {"kind": "password_reset"}
 
     @pytest.mark.asyncio
+    async def test_a_driver_can_render_each_kind_from_its_body_fields(self) -> None:
+        fake = Mock(send=AsyncMock())
+        sender = NotifierEmailSender()
+        with patch("sandloom_identity.integrations.notifier", return_value=fake):
+            await sender.send_verification_email("a@example.com", "Ann", "https://v")
+            await sender.send_password_reset_email("a@example.com", None, "https://r")
+            await sender.send_registration_attempt_email(
+                "a@example.com", "Ann", "https://s", "https://r"
+            )
+            await sender.send_security_notice("a@example.com", "New device")
+        sent = [call.args[0] for call in fake.send.await_args_list]
+        assert [(n.data["kind"], dict(n.body_fields)) for n in sent] == [
+            (
+                "email_verification",
+                {"full_name": "Ann", "verification_url": "https://v"},
+            ),
+            ("password_reset", {"reset_url": "https://r"}),
+            (
+                "registration_attempt",
+                {
+                    "full_name": "Ann",
+                    "sign_in_url": "https://s",
+                    "reset_url": "https://r",
+                },
+            ),
+            ("security_notice", {"message": "New device"}),
+        ]
+        # Sensitive like the body: never in the metadata a driver may record.
+        assert all(set(n.data) == {"kind"} for n in sent)
+
+    @pytest.mark.asyncio
     async def test_delivery_failure_is_swallowed_without_leaking_link(
         self, caplog
     ) -> None:

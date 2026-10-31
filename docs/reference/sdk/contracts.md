@@ -20,7 +20,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`command`](#command) | function | Mark a provider method as a command: deduplicated by its `idempotency_key` argument, committed in the provider's own unit, not atomic wit... |
 | [`Contract`](#contract) | function | The caller of contract `ref` (spec §5.3), declared at module level: |
-| [`contract`](#contract) | function | Declare a stateless provider class of contract `name`: |
+| [`contract`](#contract_1) | function | Declare a stateless provider class of contract `name`: |
 
 ## Advanced
 

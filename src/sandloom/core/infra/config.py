@@ -185,8 +185,10 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
                 raise InfraConfigError(
                     f"INFRA[{capability!r}][{inst_name!r}] needs a 'driver'"
                 )
-            if existing is not None:
+            if existing is not None and existing.driver == driver:
                 # Override: keep prior options not re-specified, layer new ones.
+                # A different driver starts empty: the prior options are another
+                # driver's, and they can hold its secrets (SMTP_PASSWORD).
                 merged = dict(existing.options)
                 merged.update(options)
                 options = merged

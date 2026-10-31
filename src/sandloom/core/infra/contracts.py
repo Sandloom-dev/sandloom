@@ -38,10 +38,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
+
+if TYPE_CHECKING:
+    from sandloom.core.infra.config import InstanceConfig
 
 
 @dataclass(frozen=True)
@@ -529,7 +532,7 @@ class RequestLogStore(abc.ABC):
         return 0
 
 
-class InfraProvider(abc.ABC):  # noqa: B024 - base with shared concrete lifecycle
+class InfraProvider(abc.ABC):
     """Base class for every infrastructure provider.
 
     A provider is one configured *instance* of a *capability*, backed by a
@@ -539,21 +542,40 @@ class InfraProvider(abc.ABC):  # noqa: B024 - base with shared concrete lifecycl
 
     #: Capability key this provider implements (set by the capability subclass).
     capability: ClassVar[str] = "infra"
+    #: The contract version a driver was written for: required of a driver
+    #: package (refused at load without it, or on another major version).
+    contract_version: ClassVar[str]
+    #: The capability features this driver supports. The one declaration: the
+    #: registry reads it before building, ``features()`` answers from it.
+    supported_features: ClassVar[frozenset[str]] = frozenset()
+    #: Optional pydantic model validating an instance's options before building.
+    options_schema: ClassVar[type[Any] | None] = None
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
         self.name = name
         self.driver = driver
         self.options: dict[str, Any] = dict(options)
 
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        """Build the provider of one configured instance (the driver factory)."""
+        return cls(name=config.name, driver=config.driver, options=config.options)
+
+    @classmethod
+    def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
+        """The features an instance with ``options`` supports, without building
+        it. Override only when a feature depends on an option."""
+        return cls.supported_features
+
     def features(self) -> frozenset[str]:
-        """Optional capability features THIS driver actually supports.
+        """Optional capability features THIS instance actually supports.
 
         A subset of the owning :class:`CapabilitySpec`'s declared features. A
         module may require a feature; the registry resolves against the driver's
         advertised set, so it can refuse a backend that cannot do what the
         module needs (e.g. a graph store without ``cypher``). Default: none.
         """
-        return frozenset()
+        return type(self).features_for(self.options)
 
     async def aopen(self) -> None:
         """Eager initialization hook (optional). Default: no-op.
@@ -654,7 +676,41 @@ class DatabaseProvider(InfraProvider):
         return None
 
 
-class CacheProvider(InfraProvider):
+class Cache(Protocol):
+    """What a module calls on ``cache()``: the operations, not the lifecycle."""
+
+    async def get(self, key: str) -> str | None: ...
+    async def set(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> None: ...
+    async def add(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> bool: ...
+    async def delete(self, key: str) -> None: ...
+    async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int: ...
+    async def get_many(self, keys: Sequence[str]) -> list[str | None]: ...
+    async def set_many(
+        self, items: Mapping[str, str], *, ttl_seconds: int | None = None
+    ) -> None: ...
+    async def compare_and_set(
+        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
+    ) -> bool: ...
+    async def compare_and_delete(self, key: str, expected: str) -> bool: ...
+    async def incr_window(
+        self, key: str, previous_key: str, *, ttl_seconds: int | None = None
+    ) -> tuple[int, str | None]: ...
+    async def incr_many(
+        self, keys: Sequence[str], *, ttl_seconds: int | None = None
+    ) -> list[int]: ...
+    async def set_nx_get(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> tuple[bool, str | None]: ...
+    async def set_max(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> str: ...
+
+
+class CacheProvider(InfraProvider, Cache):
     """Ephemeral key/value store capability (e.g. Redis, Memcached, in-memory).
 
     The contract is a small set of backend-agnostic *operations* — never the
@@ -999,7 +1055,23 @@ async def portable_set_subject_state(
     )
 
 
-class ObjectStoreProvider(InfraProvider):
+class ObjectStore(Protocol):
+    """What a module calls on ``objectstore()``."""
+
+    async def put(
+        self,
+        key: str,
+        data: bytes | Any,
+        *,
+        content_type: str | None = None,
+        metadata: Mapping[str, str] | None = None,
+    ) -> str: ...
+    async def get(self, key: str) -> bytes: ...
+    async def delete(self, key: str) -> None: ...
+    async def url(self, key: str) -> str: ...
+
+
+class ObjectStoreProvider(InfraProvider, ObjectStore):
     """Blob/file storage capability (e.g. local FS, S3, GCS).
 
     The contract is *key-addressed*: callers supply a logical object ``key`` and
@@ -1039,7 +1111,20 @@ class ObjectStoreProvider(InfraProvider):
         """Return a retrieval URL/locator for the object at ``key``."""
 
 
-class TaskQueueProvider(InfraProvider):
+class TaskQueue(Protocol):
+    """What a module calls on ``taskqueue()``."""
+
+    async def enqueue(
+        self,
+        task: str,
+        payload: Mapping[str, Any],
+        *,
+        delay_seconds: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> str: ...
+
+
+class TaskQueueProvider(InfraProvider, TaskQueue):
     """Background job broker capability (e.g. Celery, RQ, Dramatiq, in-memory).
 
     The contract is the single operation callers actually need — *enqueue a
@@ -1108,6 +1193,10 @@ class Notification:
     address for that channel (an email, phone, device token, or user id for
     ``inapp``), a short ``subject`` and ``body``, plus structured ``data`` and an
     optional ``dedupe_key`` a driver may use to suppress duplicate sends.
+
+    ``body_fields`` are the values the ``body`` was built from, so a driver can
+    render its own template. They are as sensitive as the body (a secret link, a
+    name): a driver never logs them, and ``data`` stays safe to record.
     """
 
     channel: NotificationChannel
@@ -1116,9 +1205,16 @@ class Notification:
     body: str
     data: Mapping[str, Any] = field(default_factory=dict)
     dedupe_key: str | None = None
+    body_fields: Mapping[str, str] = field(default_factory=dict, repr=False)
 
 
-class NotifierProvider(InfraProvider):
+class Notifier(Protocol):
+    """What a module calls on ``notifier()``."""
+
+    async def send(self, notification: Notification) -> None: ...
+
+
+class NotifierProvider(InfraProvider, Notifier):
     """Outbound notification capability (email, SMS, push, in-app).
 
     Modules never import an email/SMS SDK: they build a :class:`Notification` and
@@ -1141,7 +1237,11 @@ RelationalProvider = DatabaseProvider
 
 
 __all__ = [
+    "Cache",
     "InfraProvider",
+    "Notifier",
+    "ObjectStore",
+    "TaskQueue",
     "DatabaseProvider",
     "RelationalProvider",
     "CacheProvider",

@@ -35,7 +35,7 @@ BUSINESS_MODULES = [
         d.is_dir()
         and (d / "__init__.py").exists()
         and not d.name.startswith(("_", "."))
-        and d.name not in ("core", "shared", "sdk")
+        and d.name not in ("core", "shared", "sdk", "driverkit")
     )
 ]
 

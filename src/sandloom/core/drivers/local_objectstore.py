@@ -41,7 +41,7 @@ class _BytesReader:
 
 
 #: Features the local (and any plug-compatible) object store supports.
-OBJECTSTORE_FEATURES = frozenset({"put", "get", "delete"})
+OBJECTSTORE_FEATURES: frozenset[str] = frozenset()
 
 
 class LocalObjectStoreOptions(BaseModel):
@@ -164,41 +164,6 @@ def create_local_objectstore(cfg: InstanceConfig) -> LocalObjectStoreProvider:
     )
 
 
-def create_unimplemented_objectstore(cfg: InstanceConfig) -> ObjectStoreProvider:
-    """Driver factory for cloud object stores not yet shipped in core."""
-
-    class _Unimplemented(ObjectStoreProvider):
-        async def put(
-            self,
-            key: str,
-            data: bytes | Any,
-            *,
-            content_type: str | None = None,
-            metadata: Mapping[str, str] | None = None,
-        ) -> str:
-            raise NotImplementedError(
-                f"object store driver {cfg.driver!r} is not implemented in core; "
-                "register a plugin under the 'sandloom.infra' entry-point group"
-            )
-
-        async def get(self, key: str) -> bytes:
-            raise NotImplementedError(f"driver {cfg.driver!r} not implemented")
-
-        async def delete(self, key: str) -> None:
-            raise NotImplementedError(f"driver {cfg.driver!r} not implemented")
-
-        async def url(self, key: str) -> str:
-            raise NotImplementedError(f"driver {cfg.driver!r} not implemented")
-
-        async def health(self) -> HealthResult:
-            return HealthResult(
-                status="fail",
-                details={"error": f"driver {cfg.driver!r} not implemented"},
-            )
-
-    return _Unimplemented(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
-
-
 def _as_int(value: object) -> int | None:
     if isinstance(value, bool):  # avoid treating bools as ints
         return None
@@ -216,6 +181,5 @@ __all__ = [
     "LocalObjectStoreProvider",
     "LocalObjectStoreOptions",
     "create_local_objectstore",
-    "create_unimplemented_objectstore",
     "get_default_storage",
 ]

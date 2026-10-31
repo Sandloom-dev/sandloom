@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -223,3 +225,39 @@ def test_auto_stride_without_an_allocation_fails_loudly() -> None:
     env[workers.REDIS_MAP_ENV] = workers.format_redis_map({15: [7]})
     with pytest.raises(RuntimeError, match="base index 14"):
         workers.rewrite_for_worker(env, env)  # BROKER_URL's /14 has none
+
+
+def test_generate_opens_no_database_for_an_explicit_test_url() -> None:
+    """A taken-port setup names its test database before the services are up."""
+    example = Path(__file__).resolve().parents[4] / "examples/linkly"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_XDIST")}
+    env["PYTHONPATH"] = str(example)
+    env["SANDLOOM_TEST_DATABASE_URL"] = (
+        "postgresql+asyncpg://user:secret@127.0.0.1:1/nothing_listens_here"
+    )
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sandloom; sandloom.main()",
+            "generate",
+            "--check",
+        ],
+        cwd=example,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_generate_opens_no_database_on_a_worker_either() -> None:
+    env = {**os.environ, "PYTEST_XDIST_WORKER": "gw0"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(workers, "ensure_database", _refuse_a_connection)
+        workers.apply_worker_env(dict(env), create_database=False)
+
+
+def _refuse_a_connection(_url: str) -> None:
+    raise AssertionError("no database may be opened")
