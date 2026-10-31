@@ -19,6 +19,7 @@ A business module never touches this class directly — it asks the
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import threading
 from collections.abc import Callable, Mapping
@@ -64,7 +65,7 @@ def _major(version: str) -> int | None:
         return None
 
 
-def _versions_compatible(registered: str, required: str) -> bool:
+def versions_compatible(registered: str, required: str) -> bool:
     """True if ``required`` is satisfied by the ``registered`` spec version.
 
     Compatible iff the MAJOR components match (``v1`` requirement satisfied by
@@ -320,7 +321,7 @@ class InfraRegistry:
         if (
             capability_version is not None
             and registered is not None
-            and not _versions_compatible(registered.version, capability_version)
+            and not versions_compatible(registered.version, capability_version)
         ):
             raise CapabilityConflictError(
                 f"Driver {capability}/{driver} was written for "
@@ -508,7 +509,7 @@ class InfraRegistry:
         if (
             version is not None
             and spec is not None
-            and not _versions_compatible(spec.version, version)
+            and not versions_compatible(spec.version, version)
         ):
             raise FeatureUnsupportedError(
                 f"Capability {capability!r} is {spec.version}, but this code was "
@@ -549,7 +550,7 @@ class InfraRegistry:
                 fix="install the package that declares it (the 'sandloom.capabilities' "
                 "entry-point group) and configure it in INFRA",
             )
-        if version is not None and not _versions_compatible(spec.version, version):
+        if version is not None and not versions_compatible(spec.version, version):
             raise FeatureUnsupportedError(
                 f"Capability {capability!r} is {spec.version}, but incompatible "
                 f"version {version} was required (major versions differ)",
@@ -929,13 +930,19 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             f"{entry.value} is not a subclass of {contract.__name__}",
             fix=f"point the entry point at a {contract.__name__} subclass",
         )
+    if inspect.isabstract(driver):
+        missing = ", ".join(sorted(getattr(driver, "__abstractmethods__", ())))
+        raise DriverLoadError(
+            f"Driver {key!r} does not implement {missing}",
+            fix="implement every abstract method of the contract",
+        )
     written_for = getattr(driver, "contract_version", None)
     if written_for is None:
         raise DriverLoadError(
             f"Driver {key!r} declares no contract_version",
             fix='add a class attribute, for example contract_version = "v1"',
         )
-    if spec is not None and not _versions_compatible(spec.version, written_for):
+    if spec is not None and not versions_compatible(spec.version, written_for):
         raise DriverLoadError(
             f"Driver {key!r} was written for {written_for}, and the capability is "
             f"{spec.version}",
@@ -961,8 +968,9 @@ def load_selected_plugins(registry: InfraRegistry, config: InfraConfig) -> None:
     """
     for capability, instances in config.items():
         _load_capability(registry, capability)
-        for cfg in instances.values():
-            _load_driver(registry, cfg)
+        # One driver can back several instances: load each name once.
+        for driver in {cfg.driver: cfg for cfg in instances.values()}.values():
+            _load_driver(registry, driver)
 
 
 def installed_plugin_names() -> list[str]:
@@ -971,6 +979,7 @@ def installed_plugin_names() -> list[str]:
 
 
 __all__ = [
+    "versions_compatible",
     "InfraRegistry",
     "InstanceSnapshot",
     "InfraError",

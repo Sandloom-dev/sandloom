@@ -23,6 +23,6 @@ VECTOR_INDEX_SPEC = CapabilitySpec(
     name="vector_index",
     version="v1",
     provider_contract=VectorIndexProvider,
-    features=frozenset({"filters"}),
+    features=frozenset({"exact"}),
     stability="experimental",
 )

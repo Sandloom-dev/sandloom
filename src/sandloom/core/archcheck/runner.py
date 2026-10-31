@@ -394,6 +394,31 @@ def installed_driver_modules() -> list[str]:
     return sorted({entry.value.partition(":")[0] for entry in entries})
 
 
+def driver_import_violations(
+    file: Path, rules: ArchRules, drivers: Iterable[str]
+) -> list[str]:
+    """Imports of an installed driver: from such a package a module may import only
+    ``<package>.contracts``. Any other part of it, the bare package included, can reach
+    the driver by attribute. An application's own package stays importable: only
+    the driver's module is refused there."""
+    drivers = list(drivers)
+    own_top = rules.modules_package.partition(".")[0]
+    packages = {d.partition(".")[0] for d in drivers} - {own_top}
+    tree = az.parse_file(file)
+    refs = az.import_refs(tree, list(file.relative_to(rules.source_root).parts[:-1]))
+    found = []
+    for line, imported, _text in refs:
+        top = imported.partition(".")[0]
+        if _covered(imported, [f"{top}.contracts"]):
+            continue
+        if _covered(imported, drivers) or top in packages:
+            found.append(
+                f"Line {line}: {imported} can reach a driver: ask for the capability "
+                f"instead (a module may import {top}.contracts)"
+            )
+    return found
+
+
 def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
     """Public-API, forbidden-pattern and (optional) kernel layering checks.
 
@@ -406,7 +431,6 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
     violations: list[Violation] = []
     own_prefix = rules.modules_package
     installed = installed_module_packages(rules)
-    drivers = installed_driver_modules()
     for file in sorted(rules.modules_path.rglob("*.py")):
         rel_mod = file.relative_to(rules.modules_path)
         rel = file.relative_to(rules.root) if rules.root in file.parents else file
@@ -447,16 +471,6 @@ def check_manifest_imports(rules: ArchRules) -> list[Violation]:  # noqa: C901
             )
             if found is not None and not _is_allowed(rel, imp, rules.allowlist):
                 violations.append(found)
-            if _covered(imp, drivers) and not _is_allowed(rel, imp, rules.allowlist):
-                violations.append(
-                    Violation(
-                        "infra-imports",
-                        file,
-                        f"Line {import_lines.get(imp, 1)}: {imp} is a driver: ask for "
-                        "the capability instead (a package's contracts module is "
-                        "importable)",
-                    )
-                )
             if imp == "sandloom.core" or imp.startswith("sandloom.core."):
                 if not _covered(imp, rules.public_api) and not _is_allowed(
                     rel, imp, rules.allowlist
@@ -537,6 +551,7 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
     modules = rules.business_modules()
     package = rules.modules_package
     roots = rules.model_roots
+    drivers = installed_driver_modules()
     return {
         "module-boundaries": lambda p: az.find_cross_module_imports(
             p, module, modules, modules_package=package
@@ -547,7 +562,10 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
             if "migrations" in p.relative_to(rules.modules_path / module).parts
             else az.find_unsafe_tenant_sql(p)
         ),
-        "infra-imports": az.find_legacy_infra_imports,
+        "infra-imports": lambda p: (
+            az.find_legacy_infra_imports(p)
+            + driver_import_violations(p, rules, drivers)
+        ),
         "kernel-handles": az.find_kernel_handle_access,
         "uow-boundary": az.find_uow_boundary_breaks,
         "best-effort-effects": az.find_unmarked_best_effort_effects,

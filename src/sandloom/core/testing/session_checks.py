@@ -20,7 +20,7 @@ import os
 import sys
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import psycopg2  # type: ignore[import-untyped]
 import pytest
@@ -96,6 +96,8 @@ def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
     found = []
     for var in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
         parts = urlsplit(values.get(var) or "")
+        if "host" in parse_qs(parts.query):  # a Unix socket: the authority is unused
+            continue
         if parts.hostname == "localhost" and (parts.port or 0) >= EPHEMERAL_PORTS_START:
             found.append(f"{var} (localhost:{parts.port})")
     return found
@@ -105,7 +107,10 @@ def check_run_resources(config: pytest.Config) -> None:
     """Ownership + connection budget of the whole run (controller only)."""
     if hasattr(config, "workerinput"):
         return  # an xdist worker: the controller checked for all of them
-    risky = self_connecting_urls(run_values(config))
+    # Both: the framework suite keeps a shell's values over the file's.
+    risky = sorted(
+        {*self_connecting_urls(run_values(config)), *self_connecting_urls(os.environ)}
+    )
     if risky:
         pytest.exit(
             f"{', '.join(risky)} can connect to itself instead of the service, which "

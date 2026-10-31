@@ -5644,9 +5644,10 @@ capabilities:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_contract_conformance_holds_under_service_mac
 - id: C-INFRA-01
-  statement: 'A new backend is a driver, not a core edit: any provider implementing the contract plugs
-    in through the registry (e.g. a non-SQLAlchemy database driver backing the UoW contract), and a CapabilitySpec
-    adds a new capability.'
+  statement: 'A new backend is a driver, not a core edit: inside the kernel, any provider implementing
+    a contract plugs in through the registry (a non-SQLAlchemy database driver included), and a CapabilitySpec
+    adds a capability. A driver package can do so for the contracts sandloom.driverkit publishes and for
+    capabilities of its own.'
   sources:
   - docs/concepts/capabilities-and-infrastructure.md
   tests:

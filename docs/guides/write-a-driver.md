@@ -162,7 +162,7 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
 
 - **Selecting it:** `INFRA={"vector_index":{"default":{"driver":"memory"}}}`.
 - **Requiring it from a module:**
-  `CapabilityRequirement("vector_index", features=frozenset({"filters"}))` in
+  `CapabilityRequirement("vector_index", features=frozenset({"exact"}))` in
   `define_module`. Startup then fails, without I/O, if it is missing.
 - **Calling it from a module:** the reference carries the type, as long as your package
   ships a `py.typed` file. Without one, type checkers see `Any`.
@@ -174,9 +174,10 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
     nearest = await capability(VECTOR_INDEX).nearest([1.0], limit=5)
     ```
 
-- **What a module may import:** `vector_index.contracts`. Importing `vector_index.driver`
-  fails [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), because an entry point
-  names it.
+- **What a module may import:** `vector_index.contracts` and nothing else from that
+  package. Importing `vector_index.driver`, or `vector_index` itself, fails
+  [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), because an entry point names
+  a driver in it.
 - **In production:** `stability="experimental"` requires the accepted risk
   `experimental_capability` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
   Use `"stable"` when you keep the contract stable yourself.

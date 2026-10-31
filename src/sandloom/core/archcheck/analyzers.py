@@ -633,6 +633,8 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
                 if (
                     _is_forbidden_infra_module(alias.name)
                     or alias.name.split(".")[0] in FORBIDDEN_BACKEND_ROOTS
+                    # The bare package reaches every kernel module by attribute.
+                    or alias.name == "sandloom"
                 ):
                     violations.append(f"Line {node.lineno}: import {alias.name}")  # noqa: PERF401 - cold path (startup / diagnostics)
     # Dynamic imports of an infra-internal module (importlib / __import__,

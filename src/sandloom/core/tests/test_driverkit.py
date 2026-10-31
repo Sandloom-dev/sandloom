@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -144,6 +145,16 @@ def test_a_capability_in_another_package_loads_in_any_order(
     assert isinstance(registry.provider("vector_index"), Search)
 
 
+def test_one_driver_can_back_two_instances(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, drivers=[_entry("notification.x", _Notifier)])
+    config = _config()
+    config["notification"]["second"] = InstanceConfig("notification", "second", "x")
+    registry = _strict()
+    load_selected_plugins(registry, config)
+    registry.set_config(config)
+    assert registry.provider("notification", "second").name == "second"
+
+
 def test_two_providers_of_a_selected_name_are_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -177,6 +188,10 @@ class _OldVersion(_Notifier):
     contract_version = "v2"
 
 
+class _Abstract(NotifierProvider):
+    contract_version = "v1"
+
+
 @pytest.mark.parametrize(
     ("target", "message"),
     [
@@ -184,6 +199,7 @@ class _OldVersion(_Notifier):
         (object, "not a subclass"),
         (_NoVersion, "no contract_version"),
         (_OldVersion, "written for v2"),
+        (_Abstract, "does not implement send"),
     ],
 )
 def test_a_selected_driver_that_cannot_be_used_stops_startup(
@@ -238,6 +254,9 @@ def test_a_ref_carries_name_and_version() -> None:
     assert (ref.name, ref.version) == ("vector_index", "v2")
     bare: CapabilityRef[Any] = CapabilityRef("document_store")
     assert (bare.name, bare.version) == ("document_store", None)
+    for not_a_version in ("search.vector", "foo.v"):
+        ref = CapabilityRef[Any](not_a_version)
+        assert (ref.name, ref.version) == (not_a_version, None)
 
 
 def test_a_ref_for_another_major_version_is_refused() -> None:
@@ -312,6 +331,7 @@ async def test_the_guide_driver_records_the_whole_message(tmp_path: Path) -> Non
         Notification(channel="email", recipient="a@b.test", subject="Hi", body="x")
     )
     assert '"body": "x"' in target.read_text()
+    assert target.stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError, match="'path' option"):
         _guide_module().FileNotifier(name="default", driver="file", options={})
 
@@ -357,6 +377,40 @@ def _built(cls: type[Any]) -> Any:
 async def test_the_kit_fails_a_broken_driver(driver: type[Any], check: str) -> None:
     with pytest.raises(AssertionError):
         await getattr(NotifierConformance(), check)(_built(driver))
+
+
+async def test_the_kit_accepts_a_compatible_minor_version() -> None:
+    class Minor(_Notifier):
+        contract_version = "v1.2"
+
+    await NotifierConformance().test_states_the_contract_version(_built(Minor))
+
+
+async def test_the_kit_gives_each_channel_a_recipient_of_its_kind() -> None:
+    class Strict(_Notifier):
+        supported_features = frozenset({"email", "sms"})
+
+        async def send(self, notification: Notification) -> None:
+            is_phone = notification.recipient.startswith("+")
+            assert is_phone == (notification.channel == "sms")
+
+    await NotifierConformance().test_sends_on_each_advertised_channel(_built(Strict))
+
+
+async def test_the_kit_checks_the_logs_on_every_channel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class LeaksOnSms(_Notifier):
+        supported_features = frozenset({"email", "sms"})
+
+        async def send(self, notification: Notification) -> None:
+            if notification.channel == "sms":
+                logging.getLogger("leaky.driver").debug(notification.body)
+
+    with pytest.raises(AssertionError, match="was logged"):
+        await NotifierConformance().test_keeps_the_body_out_of_the_logs(
+            _built(LeaksOnSms), caplog
+        )
 
 
 async def test_the_kit_fails_a_second_close_that_raises() -> None:

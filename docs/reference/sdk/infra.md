@@ -18,7 +18,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`Cache`](#cache) | class | What a module calls on `cache()`: the operations, not the lifecycle. |
-| [`cache`](#cache) | function | Return the operation-based `CacheProvider` for a named instance. |
+| [`cache`](#cache_1) | function | Return the operation-based `CacheProvider` for a named instance. |
 | [`capability`](#capability) | function | Return the instance `name` of the capability `ref` points to, typed by the ref. A capability's package publishes the ref and the caller's... |
 | [`CapabilityRef`](#capabilityref) | class | A typed key to a capability: `CapabilityRef[Search]("search.v1")`. |
 | [`claims_contract_name`](#claims_contract_name) | function | `"tenancy"` -> `"tenancy.claims.v1"`. |
@@ -32,14 +32,14 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`get_core`](#get_core) | async function | Return the read-only `CoreRuntime` view of the app's facade. |
 | [`Notification`](#notification) | class | One outbound notification, independent of the delivery backend. |
 | [`Notifier`](#notifier) | class | What a module calls on `notifier()`. |
-| [`notifier`](#notifier) | function | Return the `NotifierProvider` for a named instance. |
+| [`notifier`](#notifier_1) | function | Return the `NotifierProvider` for a named instance. |
 | [`ObjectStore`](#objectstore) | class | What a module calls on `objectstore()`. |
-| [`objectstore`](#objectstore) | function | Return the `ObjectStoreProvider` for a named instance (the module-level twin of `CoreRuntime.objectstore`; spec §2.2). |
+| [`objectstore`](#objectstore_1) | function | Return the `ObjectStoreProvider` for a named instance (the module-level twin of `CoreRuntime.objectstore`; spec §2.2). |
 | [`settings`](#settings) | settings object |  |
 | [`ShutdownTask`](#shutdowntask) | constant |  |
 | [`StartupTask`](#startuptask) | constant |  |
 | [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`. |
-| [`taskqueue`](#taskqueue) | function | Return the `TaskQueueProvider` for a named instance (the module-level twin of `CoreRuntime.taskqueue`; spec §2.2). |
+| [`taskqueue`](#taskqueue_1) | function | Return the `TaskQueueProvider` for a named instance (the module-level twin of `CoreRuntime.taskqueue`; spec §2.2). |
 
 ## Advanced names
 
@@ -191,9 +191,10 @@ class CapabilityRef(Generic)(value: str) -> None
 
 A typed key to a capability: `CapabilityRef[Search]("search.v1")`.
 
-The caller's Protocol travels in the type, and the version is checked when
-the capability is resolved. A class passed as `type[T]` cannot do this:
-mypy refuses an abstract class or a Protocol there.
+The caller's Protocol travels in the type, and a `.vN` suffix is checked against
+the capability when it is resolved; a ref without one skips that check. A class
+passed as `type[T]` cannot do this: mypy refuses an abstract class or a Protocol
+there.
 
 #### `CapabilityRef.name`
 
@@ -206,6 +207,8 @@ name  (property)
 ```python
 version  (property)
 ```
+
+The `vN` suffix, if any. Only a versioned ref is checked on resolve.
 
 ### `claims_contract_name`
 

@@ -16,6 +16,7 @@ breaks. See ``docs/archive/CAPABILITY_RUNTIME_TZ.md``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
@@ -27,6 +28,9 @@ from sandloom.core.infra.contracts import (
     ObjectStoreProvider,
     TaskQueueProvider,
 )
+
+#: The ``.vN`` that ends a versioned capability reference.
+_VERSION_SUFFIX = re.compile(r"\.(v\d+)$")
 
 #: The caller-facing type a capability reference resolves to.
 P = TypeVar("P")
@@ -86,21 +90,23 @@ class CapabilitySpec:
 class CapabilityRef(Generic[P]):
     """A typed key to a capability: ``CapabilityRef[Search]("search.v1")``.
 
-    The caller's Protocol travels in the type, and the version is checked when
-    the capability is resolved. A class passed as ``type[T]`` cannot do this:
-    mypy refuses an abstract class or a Protocol there.
+    The caller's Protocol travels in the type, and a ``.vN`` suffix is checked against
+    the capability when it is resolved; a ref without one skips that check. A class
+    passed as ``type[T]`` cannot do this: mypy refuses an abstract class or a Protocol
+    there.
     """
 
     value: str
 
     @property
     def name(self) -> str:
-        return self.value.rpartition(".v")[0] or self.value
+        return _VERSION_SUFFIX.sub("", self.value)
 
     @property
     def version(self) -> str | None:
-        head, dot_v, tail = self.value.rpartition(".v")
-        return f"v{tail}" if head and dot_v else None
+        """The ``vN`` suffix, if any. Only a versioned ref is checked on resolve."""
+        found = _VERSION_SUFFIX.search(self.value)
+        return found.group(1) if found else None
 
 
 # --------------------------------------------------------------------------- #

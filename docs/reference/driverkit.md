@@ -29,7 +29,7 @@ A contract is public only with a conformance kit, so `cache`, `objectstore` and
 
 | Name | What it is |
 | --- | --- |
-| `NotifierConformance` | A pytest class with one test per obligation. Subclass it and override the `make_provider` fixture. It needs `pytest` and `pytest-asyncio`. |
+| `NotifierConformance` | A pytest class with one test per obligation. Subclass it and override the `make_provider` fixture, and `recipients` for your test backend. It needs `pytest` and `pytest-asyncio`. |
 
 ## Entry points
 

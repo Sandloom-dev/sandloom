@@ -32,7 +32,7 @@ from sandloom.core.archcheck.manifest import DEFAULT_TEST_API
 from sandloom.core.archcheck.runner import (
     API10_RULES,
     PENDING_RULES,
-    check_manifest_imports,
+    driver_import_violations,
     iter_module_test_files,
 )
 
@@ -468,27 +468,41 @@ def test_a_business_module_cannot_reach_a_driver_or_a_backend(
     assert find_legacy_infra_imports(module)
 
 
-def test_a_module_cannot_import_an_installed_driver(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("source", "allowed"),
+    [
+        ("from acme_search.contracts import SEARCH\n", True),
+        ("from acme_search import contracts\n", True),
+        ("from shop.helpers import x\n", True),
+        ("from acme_search.driver import Search\n", False),
+        ("from acme_search import driver\n", False),
+        ("import acme_search\nacme_search.driver.Search()\n", False),
+        ('__import__("acme_search", fromlist=["driver"])\n', False),
+        ("from shop.driver import Mine\n", False),
+        ("from rooted.contracts import REF\n", True),
+        ("from rooted import Driver\n", False),
+    ],
+)
+def test_a_module_may_import_only_a_driver_packages_contracts(
+    tmp_path: Path, source: str, allowed: bool
 ) -> None:
-    """An entry point names the driver's module; its contracts stay importable."""
-    monkeypatch.setattr(
-        "sandloom.core.archcheck.runner.installed_driver_modules",
-        lambda: ["acme_search.driver"],
-    )
-    modules = tmp_path / "app" / "modules" / "notes"
-    modules.mkdir(parents=True)
-    (modules / "__init__.py").write_text("")
-    (tmp_path / "app" / "__init__.py").write_text("")
-    (tmp_path / "app" / "modules" / "__init__.py").write_text("")
-    (modules / "services.py").write_text(
-        "from acme_search.contracts import SEARCH\n"
-        "from acme_search.driver import Search\n"
-    )
+    module = tmp_path / "shop" / "modules" / "notes" / "services.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source)
     (tmp_path / "architecture_rules.yml").write_text(
-        "modules_path: app/modules\nsource_root: .\n"
+        "modules_path: shop/modules\nsource_root: .\n"
     )
-    found = check_manifest_imports(load_rules(tmp_path / "architecture_rules.yml"))
-    driver = [v.detail for v in found if v.rule == "infra-imports"]
-    assert len(driver) == 1
-    assert "acme_search.driver" in driver[0]
+    found = driver_import_violations(
+        module,
+        load_rules(tmp_path / "architecture_rules.yml"),
+        ["acme_search.driver", "shop.driver", "rooted"],
+    )
+    assert not found if allowed else found
+
+
+def test_a_module_cannot_reach_the_kit_through_the_parent_package(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "services.py"
+    module.write_text("import sandloom\nsandloom.driverkit.NotifierProvider\n")
+    assert find_legacy_infra_imports(module)

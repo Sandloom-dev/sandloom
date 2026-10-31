@@ -4,10 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from sandloom_notify_file.driver import FileNotifier
 
 from sandloom.driverkit import NotifierProvider
 from sandloom.driverkit.testing import NotifierConformance
-from sandloom_notify_file.driver import FileNotifier
 
 
 class TestFileNotifier(NotifierConformance):

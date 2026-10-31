@@ -418,9 +418,14 @@ def _entry(name: str, obj: Any) -> list[str]:
 
 def _table(names: Iterable[str], module: ModuleType) -> list[str]:
     rows = ["| Name | Kind | Summary |", "| --- | --- | --- |"]
+    seen: dict[str, int] = {}
     for name in names:
         obj = getattr(module, name)
+        # The site numbers a repeated heading id: `Cache` then `cache` is cache_1.
         anchor = name.lower()
+        seen[anchor] = seen.get(anchor, 0) + 1
+        if seen[anchor] > 1:
+            anchor = f"{anchor}_{seen[anchor] - 1}"
         rows.append(f"| [`{name}`](#{anchor}) | {_kind(obj)} | {_summary(obj)} |")
     return rows
 

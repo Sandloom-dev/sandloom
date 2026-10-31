@@ -260,6 +260,7 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
         ("redis://localhost:6380/0", False),
         ("redis://127.0.0.1:56398/0", False),
         ("redis://cache.internal:56398/0", False),
+        ("postgresql+asyncpg://u@localhost:55000/db?host=/tmp/pg", False),
         ("", False),
     ],
 )

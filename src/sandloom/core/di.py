@@ -498,9 +498,9 @@ def Capability(  # dependency factory, reads like a type
     """Annotated dependency resolving any capability instance.
 
     The universal alternative to a bespoke dependency per capability: it
-    resolves through the request app's core, enforcing the version and any
-    required features. A capability's package publishes the reference and the
-    Protocol::
+    resolves through the request app's core, enforcing any required features, and
+    the version when the reference carries a ``.vN`` suffix. A capability's package
+    publishes the reference and the Protocol::
 
         from vector_index.contracts import VECTOR_INDEX, VectorIndex
 

@@ -7,14 +7,15 @@ and pytest-asyncio.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Callable
-from typing import cast, get_args
+from collections.abc import AsyncIterator, Callable, Mapping
+from typing import ClassVar, cast, get_args
 
 import pytest
 import pytest_asyncio
 
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.contracts import NotificationChannel
+from sandloom.core.infra.registry import versions_compatible
 from sandloom.driverkit import HealthResult, Notification, NotifierProvider
 
 _MARKER = "sandloom-conformance-marker"
@@ -30,10 +31,12 @@ def _advertised_channels(provider: NotifierProvider) -> list[NotificationChannel
     return [cast("NotificationChannel", channel) for channel in sorted(channels)]
 
 
-def _message(channel: NotificationChannel, recipient: str) -> Notification:
+def _message(
+    channel: NotificationChannel, recipients: Mapping[str, str]
+) -> Notification:
     return Notification(
         channel=channel,
-        recipient=recipient,
+        recipient=recipients[channel],
         subject="Sandloom driver conformance",
         body=f"body {_MARKER}",
         body_fields={"link": _MARKER},
@@ -47,7 +50,13 @@ class NotifierConformance:
     a logger with ``propagate=False`` is not checked.
     """
 
-    recipient = "driver-test@example.com"
+    #: Where each channel sends. Override for your test backend.
+    recipients: ClassVar[Mapping[str, str]] = {
+        "email": "driver-test@example.com",
+        "sms": "+15550100000",
+        "push": "driver-test-device",
+        "inapp": "driver-test-user",
+    }
 
     @pytest.fixture
     def make_provider(self) -> Callable[[], NotifierProvider]:
@@ -73,8 +82,9 @@ class NotifierConformance:
     ) -> None:
         version = getattr(type(provider), "contract_version", None)
         _require(
-            version == NOTIFICATION_CAPABILITY.version,
-            f"contract_version must be {NOTIFICATION_CAPABILITY.version!r}, got "
+            isinstance(version, str)
+            and versions_compatible(NOTIFICATION_CAPABILITY.version, version),
+            f"contract_version must match {NOTIFICATION_CAPABILITY.version!r}, got "
             f"{version!r}",
         )
 
@@ -101,7 +111,7 @@ class NotifierConformance:
         if not channels:
             pytest.skip("this driver advertises no channel: nothing was sent")
         for channel in channels:
-            await provider.send(_message(channel, self.recipient))
+            await provider.send(_message(channel, self.recipients))
 
     async def test_keeps_the_body_out_of_the_logs(
         self, provider: NotifierProvider, caplog: pytest.LogCaptureFixture
@@ -110,7 +120,8 @@ class NotifierConformance:
         if not channels:
             pytest.skip("this driver advertises no channel: nothing was sent")
         with caplog.at_level(logging.DEBUG):
-            await provider.send(_message(channels[0], self.recipient))
+            for channel in channels:
+                await provider.send(_message(channel, self.recipients))
         logged = [f"{r.getMessage()} {r.__dict__}" for r in caplog.records]
         _require(
             not any(_MARKER in line for line in logged),

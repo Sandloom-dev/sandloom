@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -32,5 +33,8 @@ class FileNotifier(NotifierProvider):
         await asyncio.to_thread(self._append, line)
 
     def _append(self, line: str) -> None:
-        with self._path.open("a", encoding="utf-8") as target:
+        # Bodies can hold secret links: only the owner may read the file.
+        descriptor = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as target:
             target.write(line + "\n")
