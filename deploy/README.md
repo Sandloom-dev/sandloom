@@ -479,6 +479,11 @@ with `read_only: true`, `cap_drop: [ALL]` and
 entrypoint requirements. The generated project and split profiles use the same
 application boundary.
 
+Older split profiles retain their operator-owned sections outside generated
+markers when refreshed. Adopt the `x-app-runtime`, HTTP and migration anchors
+from the current template before claiming the new restrictions for such a
+profile; refresh remains valid with its previous `service-runtime` anchor.
+
 Only `/app/data` (persistent storage) and `/tmp` (private tmpfs) are writable.
 The tmpfs is bounded to **128 MiB**, owned by UID/GID 10001, and mounted with
 `noexec,nosuid,nodev`. Gunicorn metrics/worker files, the Celery heartbeat and

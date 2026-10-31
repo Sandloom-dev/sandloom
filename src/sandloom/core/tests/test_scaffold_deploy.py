@@ -570,3 +570,24 @@ def test_keys_dev_env_writes_a_new_private_file(
     assert keys_main(["dev-env", "--out", str(out)]) == 2  # never overwritten
     assert keys_main(["dev-env"]) == 0
     assert capsys.readouterr().out.startswith("# DEVELOPMENT / CI ONLY")
+
+
+def test_refresh_preserves_an_older_profiles_runtime_anchor(app: Path) -> None:
+    """Existing operator-owned template sections need not contain new anchors."""
+    from sandloom.core.cli.scaffold_deploy import apply_regions, regions
+
+    _deploy(app, ["identity"])
+    path = app / "deploy/compose/microservices.yml"
+    text = path.read_text()
+    text = re.sub(r"(?ms)^x-app-runtime:.*?(?=^# Settings shared)", "", text)
+    text = text.replace("<<: *app-runtime\n", "<<: *service-runtime\n")
+    # Recreate the checksum an earlier generator wrote, not a hand-edited block.
+    bodies = {name: body for name, (body, _) in regions(text).items()}
+    text, refusals = apply_regions(text, bodies, force=True, where=str(path))
+    assert not refusals
+    path.write_text(text)
+    result = _deploy(app, None)
+    assert result.refusals == []
+    assert "identity-worker" in _compose(app)["services"]
+    assert "*app-runtime" not in path.read_text()
+    assert _deploy(app, None).written == []

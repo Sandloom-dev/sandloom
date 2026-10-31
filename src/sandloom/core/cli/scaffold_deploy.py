@@ -687,6 +687,12 @@ def deploy(
                 f"{svc.topology.error}"
             )
     compose, gateway, result.unresolved = render(project, services)
+    if not re.search(r"(?m)^[^#\n]*:\s*&app-runtime(?:\s|$)", text):
+        # Static template sections belong to the operator. Older generated
+        # profiles use service-runtime; never emit an undefined YAML anchor.
+        compose["services"] = compose["services"].replace(
+            "<<: *app-runtime", "<<: *service-runtime"
+        )
     result.services = services
     nginx = nginx_path.read_text(encoding="utf-8")
     _refuse_static_fallback(nginx, nginx_path)
