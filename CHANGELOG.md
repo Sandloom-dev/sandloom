@@ -13,29 +13,30 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a4] — 2026-10-31
+
 ### Developer experience
 
-- Correct Explorer routing so arrows avoid unrelated blocks and disconnected
-  modules stay separate. Keep dense graphs readable, narrow owner filters, show
-  module purposes and route navigation, explain impact/diff witnesses and wrap
-  route lifecycles to the available width. Add SVG geometry regressions to CI.
+- Add `sandloom graph` for a compact project map and `sandloom context MODULE`
+  for module purposes, public signatures, money risk, dependencies and owned
+  file navigation. Text is the default; JSON exposes stable IDs and evidence.
+- Add `sandloom explore` to generate and open a standalone architecture viewer.
+  Show module/interface/infrastructure layers with obstacle-aware arrows,
+  separate disconnected modules, readable scale and scoped filters.
+- Inspect declared saga sequences, compensation and states, framework route
+  lifecycles, interface impact and architecture differences against saved
+  indexes or local Git revisions. Explain concrete changed declarations.
+- Ship the module-context agent skill and current inspection instructions in
+  generated applications. Cold graph/context reads need no app imports,
+  environment configuration or backend connections.
+- Align all four package versions, generated application dependency floors,
+  README and documentation with `0.7.0a4` through the release synchronizer.
 
-- Polish inspection text: shared freshness wording, singular counts, readable
-  process names and inline docstring markup; remove next-step footers and
-  duplicate impact headings while retaining structured JSON evidence.
+### Reliability
 
-- Make `graph` a compact project map with recorded module purposes and peer module
-  connections, always text by default; explicit JSON retains stable IDs and summaries.
-  Keep `context MODULE` as the complete module map, remove `context --focus` and
-  the redundant `graph modules` action, and show command money risk in signatures.
-
-- Add compact offline module maps and a declared architecture explorer, with
-  stable IDs, rule/interface paths, declared signatures and verification evidence. Agents can query
-  JSON; people can navigate a standalone HTML diagram with equivalent text lists.
-- Add saga forward/compensation sequences and state transitions, framework route
-  lifecycle views, potential interface impact and saved-index semantic comparisons.
-  Keep declared behavior distinct from observed traffic and opaque handler code.
-
+- Give the RPC compatibility self-test one overall startup deadline so a slow
+  first loopback connection does not spuriously reject a working transport.
+  Preserve bounded probing, guard checks and the httpx fallback.
 
 ## [0.7.0a3]
 

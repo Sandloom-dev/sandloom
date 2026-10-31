@@ -12,11 +12,11 @@ title: Installation
 
 ## Install the alpha from PyPI
 
-The four `0.7.0a3` distributions are available on PyPI. Create an application <!-- sandloom-release -->
+The four `0.7.0a4` distributions are available on PyPI. Create an application <!-- sandloom-release -->
 directly from the published packages:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a3" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a4" sandloom new myapp --with identity,tenancy,billing
 ```
 
 Continue with the [application quickstart](index.md#quickstart): `cd myapp`,

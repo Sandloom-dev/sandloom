@@ -2,7 +2,7 @@
 
 **Python backend framework for AI-driven development.**
 
-[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a3-d7bd91)](https://pypi.org/project/sandloom/0.7.0a3/)
+[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a4-d7bd91)](https://pypi.org/project/sandloom/0.7.0a4/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -24,7 +24,7 @@ services with the same modules. Add identity, organizations or billing as needed
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
 
-> **Alpha:** `0.7.0a3` is available on PyPI. <!-- sandloom-release -->
+> **Alpha:** `0.7.0a4` is available on PyPI. <!-- sandloom-release -->
 > [Compatibility and stability](docs/contributing/versioning.md).
 
 ## Why Sandloom
@@ -55,7 +55,7 @@ the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->
 ```bash
-uvx --from "sandloom==0.7.0a3" sandloom new myapp --no-batteries --module notes
+uvx --from "sandloom==0.7.0a4" sandloom new myapp --no-batteries --module notes
 cd myapp
 uv sync
 uv run sandloom generate
@@ -97,6 +97,23 @@ The test command finishes with `sandloom test: OK`. You have added an isolated
 module, checked it and applied its migration without editing the first module.
 Try the [forbidden-import example](#see-architecture-checks-in-action) below to
 see a boundary violation caught before it becomes a dependency in your app.
+
+## Inspect the project before editing
+
+From the generated application root:
+
+```bash
+uv run sandloom graph
+uv run sandloom context notes
+uv run sandloom explore
+```
+
+`graph` maps module purposes and declared connections; `context notes` lists
+interfaces and owned file locations. Both default to compact text, with explicit
+`--format json` for structured data. `explore` generates and opens an offline
+browser view of the same declared architecture, including processes and impact.
+See [module maps](docs/guides/module-context.md) and the
+[architecture explorer](docs/guides/architecture-graph.md).
 
 ## See architecture checks in action
 

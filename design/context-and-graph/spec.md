@@ -1,6 +1,6 @@
 # Module maps and declared architecture inspection
 
-**Status: implemented on this branch, unreleased after 0.7.0a3.**
+**Status: implemented in 0.7.0a4.**
 Updated 2026-10-30 following the compact-map review. This specification replaces
 the initial source-bundle proposal: context is a navigation map, and the agent
 reads implementation files itself. Historical research/acceptance records describe

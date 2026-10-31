@@ -9,7 +9,7 @@ event channels, consumers, projections and infrastructure requirements.
 This is a declared map, not production traffic or active RPC routing.
 
 !!! note "Package availability"
-    Added after 0.7.0a3. Use the current source checkout until the next PyPI release.
+    Available in `sandloom>=0.7.0a4,<0.8`. <!-- sandloom-release -->
 
 ```bash
 uv run sandloom explore                  # generate, save HTML, open the browser

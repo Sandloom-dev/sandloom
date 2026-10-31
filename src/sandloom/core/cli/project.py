@@ -253,7 +253,7 @@ How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 Skills (`.claude/skills`): sandloom-new-module, sandloom-quality-gates,
 sandloom-event-version-roll, sandloom-split-deploy, sandloom-module-context.
 Before changing a module: `uv run sandloom context <name>`; discover connections
-with `uv run sandloom graph --module <name> --hops 1`. Refresh: `sandloom add skills`.
+with `uv run sandloom graph <name> --hops 1`. Refresh: `sandloom add skills`.
 
 """
 )
@@ -998,7 +998,7 @@ def _sourced_names(bundled: list[str]) -> list[str]:
 
 
 #: The framework range a generated app depends on (0.x: one minor).
-FRAMEWORK_RANGE = ">=0.7.0a3,<0.8"
+FRAMEWORK_RANGE = ">=0.7.0a4,<0.8"
 
 
 def _framework_sources(
