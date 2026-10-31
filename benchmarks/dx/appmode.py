@@ -550,8 +550,8 @@ def framework_version_mismatches(app: Path, dist: Dist) -> list[str]:
 
 
 def _git_blob(data: bytes) -> str:
-    return hashlib.sha1(  # noqa: S324 - git's object id, not a security hash
-        b"blob %d\0" % len(data) + data
+    return hashlib.sha1(
+        b"blob %d\0" % len(data) + data, usedforsecurity=False
     ).hexdigest()
 
 

@@ -1,0 +1,41 @@
+[
+  {
+    "package": "minimatch",
+    "version": "11.0.1",
+    "file": "dist/commonjs/index.js",
+    "before_sha256": "d89e8ca7dda77bd9dc9efed6920b0ed09deb2f478ada54110980daa3080d3f9b",
+    "after_sha256": "839423c1632c0c9818208d65f8f2ff91319fe8ff39e0158bb9134d953934ca16",
+    "replacements": [
+      [
+        "//# sourceMappingURL=index.js.map",
+        "// Preserve the legacy callable import without changing matching code.\nmodule.exports = Object.assign(exports.minimatch, exports);\n//# sourceMappingURL=index.js.map"
+      ]
+    ]
+  },
+  {
+    "package": "minimatch",
+    "version": "11.0.1",
+    "file": "dist/esm/index.js",
+    "before_sha256": "c2ac65e82b196476009b53e1939811c788cb001d910304c6108a1f665fac3c3d",
+    "after_sha256": "454165049959306528c9c0c3aa449697eaf326d57d9af94d57d63b11694413c5",
+    "replacements": [
+      [
+        "//# sourceMappingURL=index.js.map",
+        "// Preserve the legacy default import without changing matching code.\nexport default minimatch;\n//# sourceMappingURL=index.js.map"
+      ]
+    ]
+  },
+  {
+    "package": "picomatch",
+    "version": "4.0.7",
+    "file": "lib/parse.js",
+    "before_sha256": "4e1e05447668aa1e94366c5516a2bcd8f5fff800cc92b1d0cd7d77703b8618c4",
+    "after_sha256": "704f422e8ec9f3e1a98e46e49fe61d8f3a4a4170149e6d3d2d485f0c20f2fd1a",
+    "replacements": [
+      [
+        "    const analysis = analyzeRepeatedExtglob(body, opts);",
+        "    // Parsed tokens distinguish wildcards from escaped stars and classes.\n    // Repeating a wildcard branch nests unbounded regex quantifiers.\n    if ((token.type === 'plus' || token.type === 'star') &&\n        splitTopLevel(body).length === 1 &&\n        tokens.slice(token.tokensIndex + 1).some(inner => inner.type === 'star' || inner.type === 'globstar')) {\n      throw new SyntaxError('Unsafe repeated extglob wildcard pattern');\n    }\n    const analysis = analyzeRepeatedExtglob(body, opts);"
+      ]
+    ]
+  }
+]

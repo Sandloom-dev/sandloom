@@ -1,6 +1,6 @@
 'use strict';
-const $ = id => document.getElementById(id);
-const envelope = JSON.parse($('graph-data').textContent);
+const byId = id => document.getElementById(id);
+const envelope = JSON.parse(byId('graph-data').textContent);
 const data = envelope.workspace || envelope.data;
 const allNodes = data.nodes || [], allEdges = data.edges || [], relations = data.module_relations || [];
 const nodes = new Map(allNodes.map(n => [n.id, n])), edges = new Map(allEdges.map(e => [e.id, e]));
@@ -14,38 +14,51 @@ const ns = 'http://www.w3.org/2000/svg';
 let selectedId = '', selectedKind = 'entity', currentView = 'overview', visibleNodes = [], visibleLinks = [];
 let feedbackTimer;
 function el(tag, text, className) { const e = document.createElement(tag); if(text !== undefined) e.textContent = text; if(className) e.className = className; return e; }
+function documentationLink(label, value) {
+  const link=el('a',label);
+  try {
+    if(typeof value!=='string')throw new TypeError('Missing documentation URL');
+    const url=new URL(value,'https://sandloom.dev/docs/');
+    if(!['https:','http:'].includes(url.protocol))throw new TypeError('Unsafe documentation URL');
+    link.href=url.href;link.rel='noopener noreferrer';
+  } catch {
+    link.removeAttribute('href');link.setAttribute('aria-disabled','true');
+    link.title='Documentation URL is unavailable or uses an unsupported protocol';
+  }
+  return link;
+}
 function svgEl(tag, attrs = {}, text) { const e = document.createElementNS(ns,tag); for(const [k,v] of Object.entries(attrs)) e.setAttribute(k,String(v)); if(text !== undefined) e.textContent = text; return e; }
 function name(id) { return nodes.get(id)?.name || id; }
 function human(kind) { return labels[kind] || kind.replaceAll('_',' '); }
-function feedback(text) { $('feedback').textContent=text; clearTimeout(feedbackTimer); feedbackTimer=setTimeout(()=>{$('feedback').textContent='';},4500); }
+function feedback(text) { byId('feedback').textContent=text; clearTimeout(feedbackTimer); feedbackTimer=setTimeout(()=>{byId('feedback').textContent='';},4500); }
 function json(value) { return JSON.stringify(value,null,2); }
 function shell(value) { return /^[a-zA-Z0-9_./:@=-]+$/.test(value) ? value : "'"+value.replaceAll("'", "'\"'\"'")+"'"; }
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); feedback('Copied to clipboard.'); }
-  catch { const field=el('textarea'); field.value=text; $('inspector-content').append(field); field.focus(); field.select(); feedback('Clipboard unavailable. Selected text is ready to copy.'); }
+  catch { const field=el('textarea'); field.value=text; byId('inspector-content').append(field); field.focus(); field.select(); feedback('Clipboard unavailable. Selected text is ready to copy.'); }
 }
 function button(text, action) { const b=el('button',text); b.type='button'; b.onclick=action; return b; }
 function fact(list,key,value) { if(value === undefined || value === null || value === '') return; list.append(el('dt',key),el('dd',typeof value === 'object' ? json(value) : String(value))); }
 function stateURL() {
   const params=new URLSearchParams();
-  for(const id of ['query','layer','relation','focus','direction','hops','process','process-view']) if($(id).value) params.set(id,$(id).value);
+  for(const id of ['query','layer','relation','focus','direction','hops','process','process-view']) if(byId(id).value) params.set(id,byId(id).value);
   params.set('view',currentView); if(selectedId) {params.set('selected',selectedId);params.set('selection-kind',selectedKind);}
   try { history.replaceState(null,'','#'+params.toString()); } catch { /* file: exports can still be inspected */ }
 }
 function selectView(view, save=true) {
   currentView=view;
   for(const v of ['overview','sequence','changes']) {
-    $('panel-'+v).hidden=v!==view; $('tab-'+v).setAttribute('aria-selected',String(v===view)); $('tab-'+v).tabIndex=v===view?0:-1;
+    byId('panel-'+v).hidden=v!==view; byId('tab-'+v).setAttribute('aria-selected',String(v===view)); byId('tab-'+v).tabIndex=v===view?0:-1;
   }
   if(view==='sequence') drawProcess();
   if(save) stateURL();
 }
 for(const v of ['overview','sequence','changes']) {
-  $('tab-'+v).onclick=()=>selectView(v);
-  $('tab-'+v).onkeydown=e=>{
+  byId('tab-'+v).onclick=()=>selectView(v);
+  byId('tab-'+v).onkeydown=e=>{
     const order=['overview','sequence','changes']; let next=order.indexOf(v);
     if(e.key==='ArrowRight') next=(next+1)%3; else if(e.key==='ArrowLeft') next=(next+2)%3; else if(e.key==='Home') next=0; else if(e.key==='End') next=2; else return;
-    e.preventDefault(); selectView(order[next]); $('tab-'+order[next]).focus();
+    e.preventDefault(); selectView(order[next]); byId('tab-'+order[next]).focus();
   };
 }
 function owners(item) {
@@ -119,13 +132,13 @@ function routeDetails(module) {
   const details=el('details'),summary=el('summary',(module.routes?.length||0)+' HTTP routes');details.append(summary);
   for(const route of module.routes||[]) {
     const title=route.method+' '+route.path,process=processes.find(p=>p.owner===module.id&&p.declaration?.name===title);
-    if(process)details.append(button(title,()=>{$('process').value=process.id;$('process-view').value='sequence';selectView('sequence');$('workspace').scrollIntoView({block:'start'});}));
+    if(process)details.append(button(title,()=>{byId('process').value=process.id;byId('process-view').value='sequence';selectView('sequence');byId('workspace').scrollIntoView({block:'start'});}));
     else details.append(el('p',title+' · '+(route.auth==='public'?'Public':route.auth==='authenticated'?'Authenticated':'Policy unavailable')));
   }
   return details;
 }
 function inspection(item, kind='entity') {
-  selectedId=item.id || ''; selectedKind=kind; const target=$('inspector-content'); target.replaceChildren();
+  selectedId=item.id || ''; selectedKind=kind; const target=byId('inspector-content'); target.replaceChildren();
   const title=item.name || item.label || (item.source && item.target ? `${name(item.source)} → ${name(item.target)}` : item.label || item.id || 'Selection');
   target.append(el('span',kind==='step'?'PROCESS STEP':kind==='change'?'ARCHITECTURE CHANGE':kinds[item.kind] || human(item.kind || kind),'eyebrow'),el('h2',title));
   const list=el('dl');
@@ -169,9 +182,9 @@ function inspection(item, kind='entity') {
   if(item.test_argv) target.append(button('Copy suggested module test',()=>copy(item.test_argv.map(shell).join(' '))));
   if(item.source_location) target.append(button('Copy source location',()=>copy(item.source_location.path+':'+item.source_location.line)));
   const details=el('details'); details.append(el('summary','Declaration evidence'),el('pre',json(witnesses.length?{...item,witnesses}:item))); target.append(details);
-  const doc=el('a','Read the documentation'); doc.href=item.docs||'https://sandloom.dev/docs/concepts/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/'); target.append(doc);
+  const doc=documentationLink('Read the documentation',item.docs||'https://sandloom.dev/docs/concepts/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/')); target.append(doc);
   syncSelection();
-  $('inspect-selection').hidden=false; feedback('Selected '+title+'. Details are available in the inspector.');
+  byId('inspect-selection').hidden=false; feedback('Selected '+title+'. Details are available in the inspector.');
   drawDiagram(); stateURL();
 }
 function showImpact(item) {
@@ -185,20 +198,20 @@ function showImpact(item) {
       if(source===id&&!found.has(target)) { found.set(target,[...found.get(id),r]); pending.push(target); }
     }
   }
-  const target=$('inspector-content'); target.replaceChildren(el('span','POTENTIAL IMPACT','eyebrow'),el('h2',item.name || item.id),el('p','Direct interface users plus transitive module reachability, including other interfaces. This overapproximates possible impact and is not complete test coverage.','muted'));
+  const target=byId('inspector-content'); target.replaceChildren(el('span','POTENTIAL IMPACT','eyebrow'),el('h2',item.name || item.id),el('p','Direct interface users plus transitive module reachability, including other interfaces. This overapproximates possible impact and is not complete test coverage.','muted'));
   for(const [id,path] of [...found].sort()) {
     const b=button(name(id)+' ',()=>inspection(nodes.get(id))); b.className='change-button'; b.append(el('span',path.length?path.map(r=>witnessDescription(r)||human(r.kind)).join(' → '):'Direct owner / user · '+allEdges.filter(e=>e.owner===id&&[e.source,e.target].includes(item.id)).map(e=>human(e.kind)).join(', '))); target.append(b);
   }
   target.append(button('Copy impact query',()=>copy(['sandloom','graph','impact',item.id].map(shell).join(' '))));
   target.append(el('p','Run normal quality gates; do not skip tests based on this view.','notice'));
-  $('inspect-selection').hidden=false;syncSelection();drawDiagram();
+  byId('inspect-selection').hidden=false;syncSelection();drawDiagram();
   feedback('Potential impact is available in the inspector.');
 }
 function choose(item,kind) { inspection(item,kind); }
 function moduleScope() {
-  if(!$('focus').value) return new Set(modules.map(m=>m.id));
-  const selected=new Set([$('focus').value]), direction=$('direction').value;
-  for(let i=0;i<Number($('hops').value);i++) {
+  if(!byId('focus').value) return new Set(modules.map(m=>m.id));
+  const selected=new Set([byId('focus').value]), direction=byId('direction').value;
+  for(let i=0;i<Number(byId('hops').value);i++) {
     const next=[];
     for(const r of relations) {
       if(direction!=='incoming'&&selected.has(r.source)) next.push(r.target);
@@ -209,7 +222,7 @@ function moduleScope() {
   return selected;
 }
 function layerModel() {
-  const layer=$('layer').value, selected=layer==='modules'||!$('focus').value?moduleScope():new Set([$('focus').value]);
+  const layer=byId('layer').value, selected=layer==='modules'||!byId('focus').value?moduleScope():new Set([byId('focus').value]);
   let links, candidates;
   if(layer==='modules') { candidates=modules.filter(n=>selected.has(n.id)); links=relations.filter(r=>selected.has(r.source)&&selected.has(r.target)); }
   else {
@@ -217,8 +230,8 @@ function layerModel() {
     links=allEdges.filter(e=>selected.has(e.owner)&&allowed.has(nodes.get(e.source)?.kind)&&allowed.has(nodes.get(e.target)?.kind));
     const ids=new Set([...selected,...links.flatMap(e=>[e.source,e.target])]); candidates=allNodes.filter(n=>ids.has(n.id)&&allowed.has(n.kind));
   }
-  const filter=$('relation').value; if(filter) { links=links.filter(e=>e.kind===filter); const ids=new Set(links.flatMap(e=>[e.source,e.target])); candidates=candidates.filter(n=>ids.has(n.id)); }
-  const query=$('query').value.trim().toLocaleLowerCase(); let matches=candidates.length;
+  const filter=byId('relation').value; if(filter) { links=links.filter(e=>e.kind===filter); const ids=new Set(links.flatMap(e=>[e.source,e.target])); candidates=candidates.filter(n=>ids.has(n.id)); }
+  const query=byId('query').value.trim().toLocaleLowerCase(); let matches=candidates.length;
   if(query) {
     const matched=new Set(candidates.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query)).map(n=>n.id)); matches=matched.size;
     links=links.filter(e=>matched.has(e.source)||matched.has(e.target));
@@ -227,46 +240,46 @@ function layerModel() {
   return {nodes:candidates,links,matches};
 }
 function searchHints(model) {
-  const target=$('search-hints');target.replaceChildren();target.hidden=true;
-  const query=$('query').value.trim().toLocaleLowerCase();if(!query)return;
+  const target=byId('search-hints');target.replaceChildren();target.hidden=true;
+  const query=byId('query').value.trim().toLocaleLowerCase();if(!query)return;
   const matches=allNodes.filter(n=>(n.name+' '+n.id+' '+(cards.get(n.id)?.summary||'')).toLocaleLowerCase().includes(query));
   if(!matches.length)return;
   target.hidden=false;target.append(el('p',matches.length+' matches across all layers'+(model.matches?'':'; outside current filters')+'.'));
   for(const item of matches.slice(0,8))target.append(button((kinds[item.kind]||item.kind)+' · '+item.name,()=>{
-    $('layer').value=item.kind==='module'?'modules':item.kind==='capability'?'infrastructure':'interfaces';$('focus').value='';relationOptions();$('relation').value='';renderOverview();choose(item);
-    $('diagram').querySelector('[data-item="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+    byId('layer').value=item.kind==='module'?'modules':item.kind==='capability'?'infrastructure':'interfaces';byId('focus').value='';relationOptions();byId('relation').value='';renderOverview();choose(item);
+    byId('diagram').querySelector('[data-item="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
   }));
   if(matches.length>8)target.append(el('p','Showing the first 8 results. Refine search to narrow the list.'));
 }
 function relationOptions() {
-  const previous=$('relation').value, layer=$('layer').value;
+  const previous=byId('relation').value, layer=byId('layer').value;
   const kinds=layer==='modules'?new Set(relations.map(r=>r.kind)):new Set(allEdges.filter(e=>layer==='infrastructure'?e.kind==='requires_capability':e.kind!=='requires_capability'&&e.kind!=='declares_ordering').map(e=>e.kind));
-  $('relation').replaceChildren(el('option','All relation types')); $('relation').firstChild.value='';
-  for(const kind of [...kinds].sort()) { const o=el('option',human(kind)); o.value=kind; $('relation').append(o); }
-  if(kinds.has(previous)) $('relation').value=previous;
+  byId('relation').replaceChildren(el('option','All relation types')); byId('relation').firstChild.value='';
+  for(const kind of [...kinds].sort()) { const o=el('option',human(kind)); o.value=kind; byId('relation').append(o); }
+  if(kinds.has(previous)) byId('relation').value=previous;
 }
 function renderOverview(fit=true) {
-  for(const id of ['direction','hops'])$(id).disabled=$('layer').value!=='modules';
+  for(const id of ['direction','hops'])byId(id).disabled=byId('layer').value!=='modules';
   const model=layerModel(); visibleNodes=model.nodes; visibleLinks=model.links;
-  $('canvas-title').textContent=$('layer').selectedOptions[0].textContent;
-  $('counts').textContent=`${visibleNodes.length} visible entities · ${visibleLinks.length} relationships · ${model.matches} search matches · ${allNodes.length-visibleNodes.length} entities outside this view`;
-  $('entity-count').textContent=visibleNodes.length; $('relation-count').textContent=visibleLinks.length;
-  $('nodes').replaceChildren();
-  for(const n of visibleNodes) { const b=button(n.name,()=>choose(n)); b.dataset.selection=n.id; b.classList.toggle('selected',selectedId===n.id); b.append(el('span',kinds[n.kind]||n.kind)); if(cards.get(n.id)?.summary)b.append(el('span',cards.get(n.id).summary,'module-purpose')); $('nodes').append(b); }
-  if(!visibleNodes.length) $('nodes').append(el('p','No entities match these filters.','empty'));
-  $('rows').replaceChildren();
-  for(const r of visibleLinks) { const b=button(`${name(r.source)} → ${name(r.target)}`,()=>choose(r,'relationship')); b.dataset.selection=r.id; b.classList.toggle('selected',selectedId===r.id); b.append(el('span',human(r.kind)+(witnessDescription(r)?' · '+witnessDescription(r):''))); $('rows').append(b); }
-  if(!visibleLinks.length) $('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
+  byId('canvas-title').textContent=byId('layer').selectedOptions[0].textContent;
+  byId('counts').textContent=`${visibleNodes.length} visible entities · ${visibleLinks.length} relationships · ${model.matches} search matches · ${allNodes.length-visibleNodes.length} entities outside this view`;
+  byId('entity-count').textContent=visibleNodes.length; byId('relation-count').textContent=visibleLinks.length;
+  byId('nodes').replaceChildren();
+  for(const n of visibleNodes) { const b=button(n.name,()=>choose(n)); b.dataset.selection=n.id; b.classList.toggle('selected',selectedId===n.id); b.append(el('span',kinds[n.kind]||n.kind)); if(cards.get(n.id)?.summary)b.append(el('span',cards.get(n.id).summary,'module-purpose')); byId('nodes').append(b); }
+  if(!visibleNodes.length) byId('nodes').append(el('p','No entities match these filters.','empty'));
+  byId('rows').replaceChildren();
+  for(const r of visibleLinks) { const b=button(`${name(r.source)} → ${name(r.target)}`,()=>choose(r,'relationship')); b.dataset.selection=r.id; b.classList.toggle('selected',selectedId===r.id); b.append(el('span',human(r.kind)+(witnessDescription(r)?' · '+witnessDescription(r):''))); byId('rows').append(b); }
+  if(!visibleLinks.length) byId('rows').append(el('p','No relationships in this scope. An isolated module can still be inspected.','empty'));
   const outside=selectedId&&!visibleNodes.some(n=>n.id===selectedId)&&!visibleLinks.some(r=>r.id===selectedId);
-  $('selection-state').hidden=!outside; $('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
+  byId('selection-state').hidden=!outside; byId('selection-state').textContent='Selected item is outside these overview filters. Clear selection or reset filters to return.';
   searchHints(model);syncSelection();drawDiagram(fit); stateURL();
 }
 function marker(svg,id='arrow') { const defs=svgEl('defs'), mark=svgEl('marker',{id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'}); mark.append(svgEl('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'})); defs.append(mark); svg.append(defs); }
 let diagramBounds=[0,0,900,460],diagramScale=1;
-function applyBox() { const svg=$('diagram');svg.setAttribute('viewBox',diagramBounds.join(' '));svg.style.width=diagramBounds[2]*diagramScale+'px';svg.style.height=diagramBounds[3]*diagramScale+'px'; }
+function applyBox() { const svg=byId('diagram');svg.setAttribute('viewBox',diagramBounds.join(' '));svg.style.width=diagramBounds[2]*diagramScale+'px';svg.style.height=diagramBounds[3]*diagramScale+'px'; }
 function drawDiagram(fit=false) {
-  const svg=$('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks,cards);
-  $('canvas-empty').hidden=visibleNodes.length>0; svg.hidden=!visibleNodes.length;
+  const svg=byId('diagram'); const restoreFocus = svg.contains(document.activeElement) ? document.activeElement.getAttribute('data-item') : null; svg.replaceChildren(); marker(svg); const at=positions(visibleNodes,visibleLinks,cards);
+  byId('canvas-empty').hidden=visibleNodes.length>0; svg.hidden=!visibleNodes.length;
   const routes=routedLinks(at,visibleLinks);
   for(const {link:r,points,d} of routes) {
     const [ax,ay]=points[0],[bx,by]=points.at(-1);
@@ -289,28 +302,28 @@ function drawDiagram(fit=false) {
   const xs=allPoints.map(p=>p[0]),ys=allPoints.map(p=>p[1]);
   diagramBounds=[Math.min(0,...xs)-20,Math.min(0,...ys)-20,Math.max(500,...xs)+40,Math.max(250,...ys)+40];
   diagramBounds[2]-=diagramBounds[0];diagramBounds[3]-=diagramBounds[1];
-  if(fit) {const canvas=$('canvas');diagramScale=Math.max(.9,Math.min(1,(canvas.clientWidth||900)/diagramBounds[2],(canvas.clientHeight||460)/diagramBounds[3]));canvas.scrollLeft=0;canvas.scrollTop=0;}
+  if(fit) {const canvas=byId('canvas');diagramScale=Math.max(.9,Math.min(1,(canvas.clientWidth||900)/diagramBounds[2],(canvas.clientHeight||460)/diagramBounds[3]));canvas.scrollLeft=0;canvas.scrollTop=0;}
   applyBox();
   if(restoreFocus) [...svg.querySelectorAll('[data-item]')].find(n=>n.getAttribute('data-item')===restoreFocus)?.focus({preventScroll:true});
 }
 function zoom(factor) {diagramScale=Math.max(.15,Math.min(3,diagramScale/factor));applyBox();}
-$('zoom-in').onclick=()=>zoom(.8);$('zoom-out').onclick=()=>zoom(1.25);
-$('fit').onclick=()=>{const canvas=$('canvas');diagramScale=Math.min(1,canvas.clientWidth/diagramBounds[2],canvas.clientHeight/diagramBounds[3]);applyBox();canvas.scrollLeft=0;canvas.scrollTop=0;if(diagramScale<.75)feedback('Entire graph fitted. Zoom in or select a module to read labels.');};
-for(const [id,dx,dy] of [['pan-left',-.2,0],['pan-right',.2,0],['pan-up',0,-.2],['pan-down',0,.2]]) $(id).onclick=()=>{const canvas=$('canvas');canvas.scrollLeft+=dx*canvas.clientWidth;canvas.scrollTop+=dy*canvas.clientHeight;};
+byId('zoom-in').onclick=()=>zoom(.8);byId('zoom-out').onclick=()=>zoom(1.25);
+byId('fit').onclick=()=>{const canvas=byId('canvas');diagramScale=Math.min(1,canvas.clientWidth/diagramBounds[2],canvas.clientHeight/diagramBounds[3]);applyBox();canvas.scrollLeft=0;canvas.scrollTop=0;if(diagramScale<.75)feedback('Entire graph fitted. Zoom in or select a module to read labels.');};
+for(const [id,dx,dy] of [['pan-left',-.2,0],['pan-right',.2,0],['pan-up',0,-.2],['pan-down',0,.2]]) byId(id).onclick=()=>{const canvas=byId('canvas');canvas.scrollLeft+=dx*canvas.clientWidth;canvas.scrollTop+=dy*canvas.clientHeight;};
 let drag;
-$('diagram').onpointerdown=e=>{if(e.target.closest('[role=button]'))return;const c=$('canvas');drag={x:e.clientX,y:e.clientY,left:c.scrollLeft,top:c.scrollTop};$('diagram').setPointerCapture(e.pointerId);$('diagram').classList.add('dragging');};
-$('diagram').onpointermove=e=>{if(!drag)return;const c=$('canvas');c.scrollLeft=drag.left+drag.x-e.clientX;c.scrollTop=drag.top+drag.y-e.clientY;};
-for(const event of ['pointerup','pointercancel','lostpointercapture'])$('diagram').addEventListener(event,()=>{drag=null;$('diagram').classList.remove('dragging');});
+byId('diagram').onpointerdown=e=>{if(e.target.closest('[role=button]'))return;const c=byId('canvas');drag={x:e.clientX,y:e.clientY,left:c.scrollLeft,top:c.scrollTop};byId('diagram').setPointerCapture(e.pointerId);byId('diagram').classList.add('dragging');};
+byId('diagram').onpointermove=e=>{if(!drag)return;const c=byId('canvas');c.scrollLeft=drag.left+drag.x-e.clientX;c.scrollTop=drag.top+drag.y-e.clientY;};
+for(const event of ['pointerup','pointercancel','lostpointercapture'])byId('diagram').addEventListener(event,()=>{drag=null;byId('diagram').classList.remove('dragging');});
 function drawProcess() {
-  const process=processMap.get($('process').value), svg=$('sequence-diagram'); svg.classList.remove('route-flow');svg.replaceChildren(); $('steps').replaceChildren(); $('process-notes').replaceChildren();
-  if(!process) { $('process-summary').textContent=processes.length?'Choose a process. Each sequence has an equivalent numbered step list.':'No recorded processes. Regenerate the authoring index to collect saga and route declarations.'; $('process-notes').textContent='Module edges cannot supply business chronology. No observed attempt is recorded in this export.'; return; }
-  const state=$('process-view').value==='state';
-  if(state&&!process.id.startsWith('saga:')) { $('process-summary').textContent='State view applies to sagas. Choose a saga or switch to Sequence.'; return; }
-  $('process-summary').textContent=process.evidence;
+  const process=processMap.get(byId('process').value), svg=byId('sequence-diagram'); svg.classList.remove('route-flow');svg.replaceChildren(); byId('steps').replaceChildren(); byId('process-notes').replaceChildren();
+  if(!process) { byId('process-summary').textContent=processes.length?'Choose a process. Each sequence has an equivalent numbered step list.':'No recorded processes. Regenerate the authoring index to collect saga and route declarations.'; byId('process-notes').textContent='Module edges cannot supply business chronology. No observed attempt is recorded in this export.'; return; }
+  const state=byId('process-view').value==='state';
+  if(state&&!process.id.startsWith('saga:')) { byId('process-summary').textContent='State view applies to sagas. Choose a saga or switch to Sequence.'; return; }
+  byId('process-summary').textContent=process.evidence;
   const transitions=envelope.saga_states?.transitions || [];
-  const compensation=$('process-view').value==='compensation';
-  if(compensation&&!process.id.startsWith('saga:')) { $('process-summary').textContent='Compensation applies to declared sagas. Choose a saga or Forward sequence.'; return; }
-  $('process-summary').textContent=(state?'Conditional saga states':compensation?'Alternative: compensation before pivot':'Forward path')+' · '+process.evidence;
+  const compensation=byId('process-view').value==='compensation';
+  if(compensation&&!process.id.startsWith('saga:')) { byId('process-summary').textContent='Compensation applies to declared sagas. Choose a saga or Forward sequence.'; return; }
+  byId('process-summary').textContent=(state?'Conditional saga states':compensation?'Alternative: compensation before pivot':'Forward path')+' · '+process.evidence;
   let messages=state?transitions.map(t=>({...t,condition:'Conditional framework transition'})):compensation?process.alternatives:process.steps;
   const participants=[...new Set(messages.flatMap(m=>[m.source,m.target]))], ids=new Map(participants.map((p,i)=>[p,i]));
   const width=Math.max(650,participants.length*190+60), height=100+messages.length*84;
@@ -321,16 +334,16 @@ function drawProcess() {
     const y=98+i*84, a=120+ids.get(message.source)*190, b=120+ids.get(message.target)*190, undo=message.kind==='compensation';
     const path=svgEl('path',{d:a===b?`M ${a} ${y} h 55 v 25 h -55`:`M ${a} ${y} H ${b}`,class:'message'+(undo?' undo':''),'marker-end':'url(#sequence-arrow)'});
     path.append(svgEl('title',{},message.label+' · '+(message.condition||''))); svg.append(path,svgEl('text',{x:Math.min(a,b)+8,y:y-12},`${i+1}. ${message.label.length>32?message.label.slice(0,31)+'…':message.label}${message.kind==='pivot'?' · PIVOT':''}`));
-    if(undo&&!compensationHeading) { $('steps').append(el('h3','Alternative: compensation before pivot')); compensationHeading=true; }
-    const item={...message,id:process.id+'#'+$('process-view').value+'-step-'+i,owner:process.owner,parent_id:process.id};
-    const bttn=button(`${i+1}. ${message.label}`,()=>inspection(item,'step')); bttn.className='step-button'; bttn.dataset.selection=item.id; bttn.append(el('span',`${name(message.source)} → ${name(message.target)} · ${message.kind?message.kind+' · ':''}${message.condition||'declared step'}`)); $('steps').append(bttn);
+    if(undo&&!compensationHeading) { byId('steps').append(el('h3','Alternative: compensation before pivot')); compensationHeading=true; }
+    const item={...message,id:process.id+'#'+byId('process-view').value+'-step-'+i,owner:process.owner,parent_id:process.id};
+    const bttn=button(`${i+1}. ${message.label}`,()=>inspection(item,'step')); bttn.className='step-button'; bttn.dataset.selection=item.id; bttn.append(el('span',`${name(message.source)} → ${name(message.target)} · ${message.kind?message.kind+' · ':''}${message.condition||'declared step'}`)); byId('steps').append(bttn);
   });
   if(state)drawStates(svg,transitions);else if(!process.id.startsWith('saga:'))drawRoute(svg,messages,process);
-  if(!messages.length) $('steps').append(el('p','No declared compensation callbacks. This does not imply rollback across provider commits.','notice'));
+  if(!messages.length) byId('steps').append(el('p','No declared compensation callbacks. This does not imply rollback across provider commits.','notice'));
   syncSelection();
-  $('steps-title').textContent=state?'Conditional state transitions':compensation?'Compensation alternatives · reverse completed steps':'Forward steps';
-  for(const note of process.notes) $('process-notes').append(el('p',note));
-  const a=el('a','Lifecycle documentation'); a.href=process.docs; $('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph',state?'state':'sequence',process.id,'--format','mermaid'].map(shell).join(' '))));
+  byId('steps-title').textContent=state?'Conditional state transitions':compensation?'Compensation alternatives · reverse completed steps':'Forward steps';
+  for(const note of process.notes) byId('process-notes').append(el('p',note));
+  const a=documentationLink('Lifecycle documentation',process.docs); byId('process-notes').append(a,button('Inspect process declaration',()=>inspection({...process.declaration,name:process.name})),button('Copy Mermaid command',()=>copy(['sandloom','graph',state?'state':'sequence',process.id,'--format','mermaid'].map(shell).join(' '))));
 }
 function drawRoute(svg,messages,process) {
   svg.replaceChildren();marker(svg,'route-arrow');svg.classList.add('route-flow');
@@ -366,43 +379,43 @@ function drawStates(svg,transitions) {
 }
 function drawChanges() {
   const report=envelope.kind==='diff'?envelope.data:null, impact=envelope.kind==='impact'?envelope.data:null;
-  $('changes').replaceChildren();
+  byId('changes').replaceChildren();
   if(report) {
-    $('changes-summary').textContent=`${report.counts.added} added · ${report.counts.removed} removed · ${report.counts.changed} changed. ${report.meaning}. Before: ${report.basis.before}`;
-    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.dataset.selection=c.id;b.append(el('span','Compatibility: '+c.compatibility.state));const changes=declarationChanges(c);for(const line of changes.slice(0,3))b.append(el('span',line));if(changes.length>3)b.append(el('span',(changes.length-3)+' more differences · select to inspect'));  $('changes').append(b); }
-    if(!report.changes.length) $('changes').append(el('p','No declared semantic changes. Implementation changes are outside this comparison.','notice'));
+    byId('changes-summary').textContent=`${report.counts.added} added · ${report.counts.removed} removed · ${report.counts.changed} changed. ${report.meaning}. Before: ${report.basis.before}`;
+    for(const c of report.changes) { const b=button(`${c.change}: ${c.id}`,()=>inspection(c,'change')); b.className='change-button'; b.dataset.selection=c.id;b.append(el('span','Compatibility: '+c.compatibility.state));const changes=declarationChanges(c);for(const line of changes.slice(0,3))b.append(el('span',line));if(changes.length>3)b.append(el('span',(changes.length-3)+' more differences · select to inspect'));  byId('changes').append(b); }
+    if(!report.changes.length) byId('changes').append(el('p','No declared semantic changes. Implementation changes are outside this comparison.','notice'));
   } else if(impact) {
-    $('changes-title').textContent='Potential impact · '+(impact.item.name||impact.item.id); $('changes-summary').textContent=impact.meaning.replace(/^Potential impact: /,'');
-    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;for(const evidence of impactEvidence(item))b.append(el('span',evidence));b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); $('changes').append(b); }
+    byId('changes-title').textContent='Potential impact · '+(impact.item.name||impact.item.id); byId('changes-summary').textContent=impact.meaning.replace(/^Potential impact: /,'');
+    for(const item of impact.affected) { const b=button(name(item.module_id),()=>inspection(impactRecord(item),'impact')); b.className='change-button'; b.dataset.selection='impact:'+item.module_id;for(const evidence of impactEvidence(item))b.append(el('span',evidence));b.append(el('span',item.witness_path.length+' relationship hops · '+item.test_argv.map(shell).join(' '))); byId('changes').append(b); }
   } else {
-    $('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
-    $('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph diff architecture-before.json --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
+    byId('changes-summary').textContent='Compare two saved authoring indexes. Source bodies are excluded; missing interface evidence stays unknown.';
+    byId('changes').append(el('pre','cp .sandloom/inspection.json architecture-before.json\n# make changes; run sandloom generate\nsandloom graph diff architecture-before.json --format html > architecture-diff.html'),el('p','For a single interface, choose “Inspect potential impact” in its inspector. No Git access or application import is required.','notice'));
   }
 }
 function save(text,type,filename) { const url=URL.createObjectURL(new Blob([text],{type})), a=el('a'); a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
-$('download').onclick=()=>save(json(envelope),'application/json','sandloom-architecture.json');
-$('save-svg').onclick=()=>{ const svg=$('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); svg.style.width='';svg.style.height='';svg.setAttribute('width',diagramBounds[2]);svg.setAttribute('height',diagramBounds[3]); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); svg.style.color=css.getPropertyValue('--text');for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
-$('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
-$('inspect-selection').onclick=()=>{$('inspector').scrollIntoView({block:'start'});const h=$('inspector-content').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}};
-$('clear-selection').onclick=()=>{$('inspect-selection').hidden=true;selectedId='';selectedKind='entity';$('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
-for(const module of modules) { const o=el('option',module.name);o.value=module.id;$('focus').append(o); }
-for(const process of processes) { const o=el('option',(process.id.startsWith('saga:')?'Saga · ':'Route · ')+process.name+' · '+name(process.owner));o.value=process.id;$('process').append(o); }
-$('status').textContent='Freshness: '+(envelope.presentation?.freshness||envelope.freshness?.state||'unavailable');
-$('scope').textContent=(data.scope?.kind==='authoring_composition'?'Authoring model':'Saved model')+' · '+modules.length+' modules'+(data.hidden?.nodes?' · '+data.hidden.nodes+' entities outside export':'');
+byId('download').onclick=()=>save(json(envelope),'application/json','sandloom-architecture.json');
+byId('save-svg').onclick=()=>{ const svg=byId('diagram').cloneNode(true); svg.setAttribute('xmlns',ns); svg.style.width='';svg.style.height='';svg.setAttribute('width',diagramBounds[2]);svg.setAttribute('height',diagramBounds[3]); const css=getComputedStyle(document.documentElement); const style=svgEl('style',{},document.querySelector('style').textContent); svg.prepend(style); svg.style.color=css.getPropertyValue('--text');for(const key of ['--text','--raised','--border','--accent','--muted','--event','--panel']) svg.style.setProperty(key,css.getPropertyValue(key)); save(new XMLSerializer().serializeToString(svg),'image/svg+xml','sandloom-architecture.svg'); };
+byId('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
+byId('inspect-selection').onclick=()=>{byId('inspector').scrollIntoView({block:'start'});const h=byId('inspector-content').querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}};
+byId('clear-selection').onclick=()=>{byId('inspect-selection').hidden=true;selectedId='';selectedKind='entity';byId('inspector-content').replaceChildren(el('h2','Select something.'),el('p','Choose an entity, relationship or process step.','muted'));renderOverview(false);};
+for(const module of modules) { const o=el('option',module.name);o.value=module.id;byId('focus').append(o); }
+for(const process of processes) { const o=el('option',(process.id.startsWith('saga:')?'Saga · ':'Route · ')+process.name+' · '+name(process.owner));o.value=process.id;byId('process').append(o); }
+byId('status').textContent='Freshness: '+(envelope.presentation?.freshness||envelope.freshness?.state||'unavailable');
+byId('scope').textContent=(data.scope?.kind==='authoring_composition'?'Authoring model':'Saved model')+' · '+modules.length+' modules'+(data.hidden?.nodes?' · '+data.hidden.nodes+' entities outside export':'');
 const limits=[...(data.cycles||[]).map(c=>'Declared '+human(c.kind)+' cycle: '+c.module_ids.map(name).join(' ↔ ')+'. Not proof of deadlock.'),...(data.unresolved||[]).map(u=>`${name(u.module_id)}: ${u.related_id} not in this composition (${u.required?'required':'optional'}).`)];
-$('uncertainty-title').textContent=`Model limits · ${limits.length} cycle / unresolved declarations`;
-$('uncertainty').append(el('p','This graph records an authoring composition. Deployment bindings, runtime availability, method call order and delivery outcomes are not inferred.'));
-for(const text of limits) $('uncertainty').append(el('p',text));
-for(const id of ['query','focus','direction','hops','relation']) $(id).addEventListener('input',()=>renderOverview());
-$('layer').onchange=()=>{relationOptions();renderOverview();};
-for(const id of ['process','process-view']) $(id).onchange=()=>{if(selectedId.includes('#')) $('clear-selection').onclick();drawProcess();stateURL();};
-$('reset').onclick=()=>{for(const [id,value] of [['query',''],['layer','modules'],['focus',''],['direction','both'],['hops','1']])$(id).value=value;relationOptions();$('relation').value='';renderOverview();feedback('Filters reset.');};
+byId('uncertainty-title').textContent=`Model limits · ${limits.length} cycle / unresolved declarations`;
+byId('uncertainty').append(el('p','This graph records an authoring composition. Deployment bindings, runtime availability, method call order and delivery outcomes are not inferred.'));
+for(const text of limits) byId('uncertainty').append(el('p',text));
+for(const id of ['query','focus','direction','hops','relation']) byId(id).addEventListener('input',()=>renderOverview());
+byId('layer').onchange=()=>{relationOptions();renderOverview();};
+for(const id of ['process','process-view']) byId(id).onchange=()=>{if(selectedId.includes('#')) byId('clear-selection').onclick();drawProcess();stateURL();};
+byId('reset').onclick=()=>{for(const [id,value] of [['query',''],['layer','modules'],['focus',''],['direction','both'],['hops','1']])byId(id).value=value;relationOptions();byId('relation').value='';renderOverview();feedback('Filters reset.');};
 const params=new URLSearchParams(location.hash.slice(1));
-for(const id of ['layer','focus','direction','hops','process','process-view','query']) if(params.has(id)) { const value=params.get(id);if($(id).tagName!=='SELECT'||[...$(id).options].some(o=>o.value===value)) $(id).value=value; }
-relationOptions();if([...$('relation').options].some(o=>o.value===params.get('relation'))) $('relation').value=params.get('relation');
+for(const id of ['layer','focus','direction','hops','process','process-view','query']) if(params.has(id)) { const value=params.get(id);if(byId(id).tagName!=='SELECT'||[...byId(id).options].some(o=>o.value===value)) byId(id).value=value; }
+relationOptions();if([...byId('relation').options].some(o=>o.value===params.get('relation'))) byId('relation').value=params.get('relation');
 const initial=params.get('view') || (['sequence','state'].includes(envelope.kind)?'sequence':['impact','diff'].includes(envelope.kind)?'changes':'overview');
-if(envelope.selection?.process_id&&!params.has('process')) $('process').value=envelope.selection.process_id;
-if(envelope.kind==='state'&&!params.has('process-view')) $('process-view').value='state';
+if(envelope.selection?.process_id&&!params.has('process')) byId('process').value=envelope.selection.process_id;
+if(envelope.kind==='state'&&!params.has('process-view')) byId('process-view').value='state';
 drawChanges();renderOverview();selectView(['overview','sequence','changes'].includes(initial)?initial:'overview',false);
 const initialSelected=params.get('selected');
 if(initialSelected) {
@@ -414,4 +427,4 @@ if(initialSelected) {
 }
 stateURL();
 
-window.addEventListener('resize',()=>{if(currentView==='sequence'&&!$('process').value.startsWith('saga:'))drawProcess();});
+window.addEventListener('resize',()=>{if(currentView==='sequence'&&!byId('process').value.startsWith('saga:'))drawProcess();});

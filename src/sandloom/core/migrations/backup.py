@@ -32,6 +32,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg2  # type: ignore[import-untyped]
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from psycopg2 import sql
 
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.infra.config import load_infra_config
@@ -406,9 +407,9 @@ def command_restorer(
     return _restore
 
 
-def _rows(conn: Any, sql: str, params: Any = None) -> list[Any]:
+def _rows(conn: Any, statement: str | sql.Composable, params: Any = None) -> list[Any]:
     with conn.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(statement, params)
         return list(cur.fetchall()) if cur.description else []
 
 
@@ -436,7 +437,13 @@ def check_restored_database(
             if not _table_exists(conn, table):
                 results.append(CheckResult(f"chain {label}", False, f"{table} missing"))
                 continue
-            stamped = {r[0] for r in _rows(conn, f'SELECT version_num FROM "{table}"')}  # noqa: S608 - configured version-table name
+            stamped = {
+                r[0]
+                for r in _rows(
+                    conn,
+                    sql.SQL("SELECT version_num FROM {}").format(sql.Identifier(table)),
+                )
+            }
             behind = stamped != heads
             results.append(
                 CheckResult(
@@ -448,7 +455,10 @@ def check_restored_database(
             )
         for table in CORE_TABLES:
             if _table_exists(conn, table):
-                count = _rows(conn, f'SELECT count(*) FROM "{table}"')[0][0]  # noqa: S608 - CORE_TABLES constant
+                count = _rows(
+                    conn,
+                    sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table)),
+                )[0][0]
                 results.append(CheckResult(f"table {table}", True, f"{count} rows"))
             else:
                 results.append(CheckResult(f"table {table}", False, "missing"))
@@ -478,28 +488,50 @@ def check_restored_database(
         )
         # Foreign keys hold (a partial / out-of-order restore can break them).
         orphans: list[str] = []
-        for conname, child, parent, child_cols, parent_cols in _rows(
+        for (
+            conname,
+            child_schema,
+            child,
+            parent_schema,
+            parent,
+            child_cols,
+            parent_cols,
+        ) in _rows(
             conn,
-            "SELECT c.conname, c.conrelid::regclass::text, "
-            "c.confrelid::regclass::text, "
+            "SELECT c.conname, child_ns.nspname, child_rel.relname, "
+            "parent_ns.nspname, parent_rel.relname, "
             "array(SELECT attname FROM unnest(c.conkey) WITH ORDINALITY k(n, o) "
             "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.n "
             "ORDER BY k.o), "
             "array(SELECT attname FROM unnest(c.confkey) WITH ORDINALITY k(n, o) "
             "JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.n "
             "ORDER BY k.o) "
-            "FROM pg_constraint c WHERE c.contype = 'f' "
-            "AND c.connamespace = 'public'::regnamespace",
+            "FROM pg_constraint c "
+            "JOIN pg_class child_rel ON child_rel.oid = c.conrelid "
+            "JOIN pg_namespace child_ns ON child_ns.oid = child_rel.relnamespace "
+            "JOIN pg_class parent_rel ON parent_rel.oid = c.confrelid "
+            "JOIN pg_namespace parent_ns ON parent_ns.oid = parent_rel.relnamespace "
+            "WHERE c.contype = 'f' AND child_ns.nspname = 'public'",
         ):
-            on = " AND ".join(
-                f'p."{pc}" = ch."{cc}"'
+            on = sql.SQL(" AND ").join(
+                sql.SQL("p.{} = ch.{}").format(sql.Identifier(pc), sql.Identifier(cc))
                 for cc, pc in zip(child_cols, parent_cols, strict=True)
             )
-            not_null = " AND ".join(f'ch."{cc}" IS NOT NULL' for cc in child_cols)
+            not_null = sql.SQL(" AND ").join(
+                sql.SQL("ch.{} IS NOT NULL").format(sql.Identifier(cc))
+                for cc in child_cols
+            )
             missing = _rows(
                 conn,
-                f"SELECT count(*) FROM {child} ch WHERE {not_null} AND NOT EXISTS "  # noqa: S608 - catalog identifiers; column names NOT escaped (follow-up)
-                f"(SELECT 1 FROM {parent} p WHERE {on})",
+                sql.SQL(
+                    "SELECT count(*) FROM {} ch WHERE {} AND NOT EXISTS "
+                    "(SELECT 1 FROM {} p WHERE {})"
+                ).format(
+                    sql.Identifier(child_schema, child),
+                    not_null,
+                    sql.Identifier(parent_schema, parent),
+                    on,
+                ),
             )[0][0]
             if missing:
                 orphans.append(f"{conname}: {missing}")

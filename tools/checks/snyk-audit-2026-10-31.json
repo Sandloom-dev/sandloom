@@ -1,0 +1,5139 @@
+{
+  "schema": 1,
+  "date": "2026-10-31",
+  "baseline_commit": "f7a6ce32f3804e39aad2dd98b3b9715f4568cbcd",
+  "cli": "snyk 1.1308.3",
+  "purpose": "Review evidence, not a scanner suppression policy. Locations and hashes refer to the immutable baseline; repeated flows remain separate findings.",
+  "code_sarif_sha256": "9c6391d7e37335ddb51222ac7c5ae725035b9c42a859eed0c00c225314a54342",
+  "scope": {
+    "code_results": 384,
+    "npm_unique_advisories": 5,
+    "npm_runtime_dependencies": 100,
+    "npm_runtime_advisories": 0,
+    "python_environment": "CPython 3.12 macOS; uv.lock all groups/all extras, evaluated markers",
+    "python_dependency_records": 136,
+    "python_advisories": 0,
+    "benchmark_dependency_records": 94,
+    "benchmark_advisories": 0,
+    "python_inapplicable_markers": [
+      "async-timeout==5.0.1 ; python_full_version < 3.11.3",
+      "colorama==0.4.6 ; sys_platform == win32"
+    ],
+    "iac": "snyk iac test deploy returned no supported IaC files (Docker Compose is not a supported IaC target); not counted as a passing scan.",
+    "containers": "Built final runtime images, linux/arm64; both OS inventory and application packages, no base-image exclusions."
+  },
+  "summary": {
+    "false_positive": 26,
+    "intentional_test_fixture": 167,
+    "fixed": 7,
+    "nonsecurity_hash": 2,
+    "intentional_local_fixture": 13,
+    "trusted_operator_input": 169
+  },
+  "dispositions": {
+    "native_dom": {
+      "status": "false_positive",
+      "rationale": "The sink is native DOM append/replaceChildren, not jQuery HTML parsing. Labels use textContent or SVG text nodes. Full exported HTML is exercised with hostile labels; executable documentation URLs found during this review are separately fixed.",
+      "evidence": "tools/inspection/test_viewer.mjs"
+    },
+    "fixture": {
+      "status": "intentional_test_fixture",
+      "rationale": "Synthetic credentials or secrets in a test fixture, including deliberate invalid/expired credential tests. No issued production credential is present. Replacing negative controls would weaken the tests."
+    },
+    "build_secret": {
+      "status": "intentional_local_fixture",
+      "rationale": "Explicit local benchmark/build placeholder. Benchmark and build environments are selected by the operator; these values are not production defaults or issued credentials."
+    },
+    "operator_path": {
+      "status": "trusted_operator_input",
+      "rationale": "Local tool file paths are intentionally selected by its invoking operator (CLI arguments, environment, or versioned benchmark recipes). No HTTP/tenant input reaches this operation; the tool already executes operator-selected project code. This is not a sandbox for hostile projects."
+    },
+    "environment_path": {
+      "status": "trusted_operator_input",
+      "rationale": "The heartbeat/Prometheus location is deployment configuration controlled by the process operator, not request input. The operator can already select executable code and files accessible to this process."
+    },
+    "validated_release_path": {
+      "status": "false_positive",
+      "rationale": "Artifact basenames are derived from an allowlisted package and validated version; manifest rows are checked by validate_manifest/validate_local_artifacts before copying. PyPI filenames cannot introduce paths.",
+      "evidence": "tests/architecture/test_pypi_release.py"
+    },
+    "validated_export_path": {
+      "status": "false_positive",
+      "rationale": "Public-source policy validates relative paths, reviewed symlinks, Git tracking and file hashes. Export requires a new destination outside the checkout, rechecks the policy and removes only that newly created destination on failure.",
+      "evidence": "tools/packaging/export_repository.py"
+    },
+    "command_argv": {
+      "status": "trusted_operator_input",
+      "rationale": "The local benchmark/CI runner deliberately launches operator-selected tools/project code using an argument vector without shell interpolation. Arbitrary executable selection is its documented local function, not an application command-injection boundary."
+    },
+    "recipe_shell": {
+      "status": "trusted_operator_input",
+      "rationale": "This smoke runner intentionally executes command lines from the repository-owned versioned recipe through a shell, as a user would. It does not accept remote recipes or application requests."
+    },
+    "project_import": {
+      "status": "trusted_operator_input",
+      "rationale": "This explicit local mutation/import-audit command intentionally imports operator-selected project modules. It is not used by cold graph/context reads or by web requests."
+    },
+    "xml_local": {
+      "status": "false_positive",
+      "rationale": "XML comes from repository-owned SVG assets or the local test subprocess JUnit output. Supported Python is >=3.11; the Snyk recommendation targets Python <3.11. No external DTD or untrusted web XML is accepted here."
+    },
+    "auth_label": {
+      "status": "false_positive",
+      "rationale": "The strings user/service/public are route authentication classification labels, not passwords or credentials."
+    },
+    "git_hash": {
+      "status": "nonsecurity_hash",
+      "rationale": "SHA-1 is required by the Git blob identifier protocol; usedforsecurity=False now makes the non-security purpose explicit. Not used for authentication, signing or password hashing.",
+      "evidence": "benchmarks/dx/appmode.py"
+    },
+    "namespace_hash": {
+      "status": "nonsecurity_hash",
+      "rationale": "SHA-1 only derives a deterministic local test database/resource namespace. usedforsecurity=False now makes that purpose explicit. It protects no secret or security decision.",
+      "evidence": "benchmarks/dx/run_eval.py"
+    },
+    "rsa_negative": {
+      "status": "intentional_test_fixture",
+      "rationale": "The deliberately weak RSA key verifies that the JWT implementation rejects undersized keys. This is a negative security regression, not a generated production key."
+    },
+    "test_sql": {
+      "status": "intentional_test_fixture",
+      "rationale": "The extraction integration test deliberately issues SQL against its disposable test database with fixture-defined identifiers. It does not expose an application query interface."
+    },
+    "task_regex": {
+      "status": "false_positive",
+      "rationale": "Task names are validated with _NAME.fullmatch ([a-z][a-z0-9_]*) before interpolation, excluding regex metacharacters.",
+      "evidence": "src/sandloom/core/cli/add.py"
+    },
+    "topology_regex": {
+      "status": "trusted_operator_input",
+      "rationale": "The local load-test topology intentionally contains operator-authored route regular expressions. There is no web or tenant supplied regex in this code path."
+    },
+    "docs_http": {
+      "status": "trusted_operator_input",
+      "rationale": "Documentation smoke tests intentionally execute repository quickstart/tutorial commands and poll their local test server. They are not an HTTP proxy or externally reachable URL fetcher."
+    },
+    "backup_identifier": {
+      "status": "fixed",
+      "rationale": "Restoration checks now quote schema/table/column identifiers with psycopg2.sql.Identifier, including composite foreign keys. A real PostgreSQL regression covers embedded quotes and SQL comment markers with valid and orphaned rows.",
+      "evidence": "src/sandloom/core/tests/test_backup_cli.py"
+    },
+    "dataset_identifier": {
+      "status": "fixed",
+      "rationale": "Benchmark counts/VACUUM now quote catalog-provided identifiers and escape embedded double quotes. Real PostgreSQL regression uses a table named odd\";-- table.",
+      "evidence": "benchmarks/tests/test_harness_dataset.py"
+    },
+    "tar_filter": {
+      "status": "fixed",
+      "rationale": "All three source extraction sites share _extract_source_archive using the data filter. Regressions reject escaping symbolic/hard links and special files, while preserving safe links and executable files.",
+      "evidence": "tests/architecture/test_ci_local_runner.py"
+    },
+    "private_profiler": {
+      "status": "fixed",
+      "rationale": "The profiler bind-mount directory remains private (0700); Docker runs under the invoking UID/GID instead of chmod 0777. The regression verifies both and a real container writes under that identity.",
+      "evidence": "benchmarks/tests/test_harness_dataset.py"
+    }
+  },
+  "additional_fix": {
+    "path": "src/sandloom/core/cli/inspection/viewer.js",
+    "rationale": "Restrict documentation href protocols to HTTP/HTTPS; reject executable schemes in imported graph metadata. Regression tests execute the actual full HTML export.",
+    "evidence": "tools/inspection/test_viewer.mjs"
+  },
+  "sca": [
+    {
+      "id": "SNYK-JS-BRACES-19963945",
+      "package": "braces",
+      "severity": "high",
+      "status": "removed_dependency",
+      "rationale": "Removed patch-package and its braces/picomatch 2 dependency chain.",
+      "evidence": [
+        "admin/package-lock.json",
+        "admin/patches/build-tools.json",
+        "admin/scripts/dependency-compat.test.mjs"
+      ],
+      "advisory": "https://security.snyk.io/vuln/SNYK-JS-BRACES-19963945"
+    },
+    {
+      "id": "SNYK-JS-PICOMATCH-21248802",
+      "package": "picomatch",
+      "severity": "high",
+      "status": "mitigated_pinned_vendor_patch",
+      "rationale": "No upstream fixed version is available. The pinned parser rejects the vulnerable single-branch repeated wildcard extglob before regex construction. Snyk still reports the package version; no ignore is added.",
+      "evidence": [
+        "admin/package-lock.json",
+        "admin/patches/build-tools.json",
+        "admin/scripts/dependency-compat.test.mjs"
+      ],
+      "advisory": "https://security.snyk.io/vuln/SNYK-JS-PICOMATCH-21248802"
+    },
+    {
+      "id": "SNYK-JS-URIJS-19963961",
+      "package": "uri-js",
+      "severity": "medium",
+      "status": "removed_dependency",
+      "rationale": "Ajv 6 now resolves the maintained fast-uri 4.2.3 alias instead of uri-js; actual schema references and advisory inputs are regression tested.",
+      "evidence": [
+        "admin/package-lock.json",
+        "admin/patches/build-tools.json",
+        "admin/scripts/dependency-compat.test.mjs"
+      ],
+      "advisory": "https://security.snyk.io/vuln/SNYK-JS-URIJS-19963961"
+    },
+    {
+      "id": "SNYK-JS-URIJS-19963963",
+      "package": "uri-js",
+      "severity": "high",
+      "status": "removed_dependency",
+      "rationale": "Ajv 6 now resolves the maintained fast-uri 4.2.3 alias instead of uri-js; actual schema references and advisory inputs are regression tested.",
+      "evidence": [
+        "admin/package-lock.json",
+        "admin/patches/build-tools.json",
+        "admin/scripts/dependency-compat.test.mjs"
+      ],
+      "advisory": "https://security.snyk.io/vuln/SNYK-JS-URIJS-19963963"
+    },
+    {
+      "id": "SNYK-JS-URIJS-20341609",
+      "package": "uri-js",
+      "severity": "medium",
+      "status": "removed_dependency",
+      "rationale": "Ajv 6 now resolves the maintained fast-uri 4.2.3 alias instead of uri-js; actual schema references and advisory inputs are regression tested.",
+      "evidence": [
+        "admin/package-lock.json",
+        "admin/patches/build-tools.json",
+        "admin/scripts/dependency-compat.test.mjs"
+      ],
+      "advisory": "https://security.snyk.io/vuln/SNYK-JS-URIJS-20341609"
+    }
+  ],
+  "code": [
+    {
+      "id": "code-001",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 25,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-002",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 156,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-003",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 157,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-004",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 158,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-005",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 164,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-006",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 172,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-007",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 190,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-008",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 326,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-009",
+      "rule": "javascript/DOMXSS",
+      "severity": "error",
+      "path": "src/sandloom/core/cli/inspection/viewer.js",
+      "line": 372,
+      "symbol": "<module>",
+      "source_sha256": "e9707d35f9d0a7309aed6ffa9331d1d1e528c475d281d427fb1585ad444ed849",
+      "disposition": "native_dom"
+    },
+    {
+      "id": "code-010",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/schema.test.ts",
+      "line": 32,
+      "symbol": "<module>",
+      "source_sha256": "a8433eca9306089eb5bdad7e4b321bb9caa82b6f0f1fb638eb80aa6b5e2d785e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-011",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 28,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-012",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 44,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-013",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 61,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-014",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 79,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-015",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 99,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-016",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 120,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-017",
+      "rule": "javascript/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 138,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-018",
+      "rule": "python/InsecureFilePermissions",
+      "severity": "note",
+      "path": "benchmarks/ladder/cg_matrix.py",
+      "line": 68,
+      "symbol": "_job",
+      "source_sha256": "215350c80bcb71dbfce2ae37da9cd84a593d604c5eded4bc1c6aa7b72b4c1d17",
+      "disposition": "private_profiler"
+    },
+    {
+      "id": "code-019",
+      "rule": "python/InsecureHash",
+      "severity": "note",
+      "path": "benchmarks/dx/appmode.py",
+      "line": 553,
+      "symbol": "_git_blob",
+      "source_sha256": "4f7e8ece23b7846caf4e239cca17df43a5f7bd061a0c7f65f38d68cafe59481c",
+      "disposition": "git_hash"
+    },
+    {
+      "id": "code-020",
+      "rule": "python/InsecureHash",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 908,
+      "symbol": "agent_env",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "namespace_hash"
+    },
+    {
+      "id": "code-021",
+      "rule": "python/InsecureXmlParser",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1455,
+      "symbol": "run_checks",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-022",
+      "rule": "python/InsecureXmlParser",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1577,
+      "symbol": "run_hidden_product",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-023",
+      "rule": "python/InsecureXmlParser",
+      "severity": "warning",
+      "path": "tools/docs/brand_assets.py",
+      "line": 28,
+      "symbol": "mark_paths",
+      "source_sha256": "f487416d23e8c777dfcdecd7ff54e8206326a06627f5db0318d4e30cf6ffb4d4",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-024",
+      "rule": "python/InsecureXmlParser",
+      "severity": "warning",
+      "path": "tools/docs/brand_assets.py",
+      "line": 85,
+      "symbol": "jsx_fragment",
+      "source_sha256": "f487416d23e8c777dfcdecd7ff54e8206326a06627f5db0318d4e30cf6ffb4d4",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-025",
+      "rule": "python/InsecureXmlParser/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 150,
+      "symbol": "test_brand_kit_matches_the_rendered_site",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-026",
+      "rule": "python/InsecureXmlParser/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 153,
+      "symbol": "test_brand_kit_matches_the_rendered_site",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "xml_local"
+    },
+    {
+      "id": "code-027",
+      "rule": "python/NoHardcodedCredentials",
+      "severity": "note",
+      "path": "src/sandloom/core/route_policy.py",
+      "line": 350,
+      "symbol": "resolve_route_policy",
+      "source_sha256": "65a5a10e99efeda229448d7872f6e7546aa5672f58944731a4fd1a2909efe7e9",
+      "disposition": "auth_label"
+    },
+    {
+      "id": "code-028",
+      "rule": "python/NoHardcodedCredentials",
+      "severity": "note",
+      "path": "src/sandloom/core/route_policy.py",
+      "line": 352,
+      "symbol": "resolve_route_policy",
+      "source_sha256": "65a5a10e99efeda229448d7872f6e7546aa5672f58944731a4fd1a2909efe7e9",
+      "disposition": "auth_label"
+    },
+    {
+      "id": "code-029",
+      "rule": "python/NoHardcodedCredentials",
+      "severity": "note",
+      "path": "src/sandloom/core/route_policy.py",
+      "line": 350,
+      "symbol": "resolve_route_policy",
+      "source_sha256": "65a5a10e99efeda229448d7872f6e7546aa5672f58944731a4fd1a2909efe7e9",
+      "disposition": "auth_label"
+    },
+    {
+      "id": "code-030",
+      "rule": "python/NoHardcodedCredentials",
+      "severity": "note",
+      "path": "src/sandloom/core/route_policy.py",
+      "line": 352,
+      "symbol": "resolve_route_policy",
+      "source_sha256": "65a5a10e99efeda229448d7872f6e7546aa5672f58944731a4fd1a2909efe7e9",
+      "disposition": "auth_label"
+    },
+    {
+      "id": "code-031",
+      "rule": "python/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_review_security.py",
+      "line": 150,
+      "symbol": "test_duplicate_username_is_a_conflict_and_does_not_poison_uow",
+      "source_sha256": "4c375034a229ce00f28c19e1ec2a58bb84c28aa3760da216c99bd9103f7a7a01",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-032",
+      "rule": "python/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_token_service.py",
+      "line": 37,
+      "symbol": "sample_user",
+      "source_sha256": "5bbb67a2162a9edae336d1f771300c654fce62e7d8fd0e3b21506acf7e060bed",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-033",
+      "rule": "python/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_user_service.py",
+      "line": 52,
+      "symbol": "sample_user",
+      "source_sha256": "3cd4d3029b79d470d7272a40934ea103f2778a7f98a957d0b06f49b4c72ad8da",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-034",
+      "rule": "python/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_user_service.py",
+      "line": 145,
+      "symbol": "test_list_users_success",
+      "source_sha256": "3cd4d3029b79d470d7272a40934ea103f2778a7f98a957d0b06f49b4c72ad8da",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-035",
+      "rule": "python/NoHardcodedCredentials/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_user_service.py",
+      "line": 160,
+      "symbol": "test_list_users_success",
+      "source_sha256": "3cd4d3029b79d470d7272a40934ea103f2778a7f98a957d0b06f49b4c72ad8da",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-036",
+      "rule": "python/NoHardcodedPasswords",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/mix.py",
+      "line": 62,
+      "symbol": "<module>",
+      "source_sha256": "db6962fedb4eda58d10f9716879ff56dcd2708c8792aeb5f5b101d7df5ce2a3a",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-037",
+      "rule": "python/NoHardcodedPasswords",
+      "severity": "warning",
+      "path": "benchmarks/ladder/write_login.py",
+      "line": 75,
+      "symbol": "<module>",
+      "source_sha256": "e229ceea24983100d5e86695f829273dfe5344053d0059a0366e892da4bf3951",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-038",
+      "rule": "python/NoHardcodedPasswords",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/mix.py",
+      "line": 93,
+      "symbol": "<module>",
+      "source_sha256": "db6962fedb4eda58d10f9716879ff56dcd2708c8792aeb5f5b101d7df5ce2a3a",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-039",
+      "rule": "python/NoHardcodedPasswords",
+      "severity": "warning",
+      "path": "benchmarks/ladder/write_login.py",
+      "line": 261,
+      "symbol": "op",
+      "source_sha256": "e229ceea24983100d5e86695f829273dfe5344053d0059a0366e892da4bf3951",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-040",
+      "rule": "python/NoHardcodedPasswords",
+      "severity": "warning",
+      "path": "benchmarks/ladder/write_login.py",
+      "line": 265,
+      "symbol": "op",
+      "source_sha256": "e229ceea24983100d5e86695f829273dfe5344053d0059a0366e892da4bf3951",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-041",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/schema.test.ts",
+      "line": 32,
+      "symbol": "<module>",
+      "source_sha256": "a8433eca9306089eb5bdad7e4b321bb9caa82b6f0f1fb638eb80aa6b5e2d785e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-042",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 28,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-043",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 44,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-044",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 61,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-045",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 79,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-046",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 99,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-047",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 120,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-048",
+      "rule": "javascript/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "admin/tests/session.test.ts",
+      "line": 138,
+      "symbol": "<module>",
+      "source_sha256": "851794ec6d87378554e63c74795157ab2bd67cc9553993537044cc3cc548f20f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-049",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "benchmarks/tests/test_s5_secure_read.py",
+      "line": 75,
+      "symbol": "<module>",
+      "source_sha256": "26f8746fedf42643b62de580bc119cafcd80b00b607bf4184715bc33ff1710e5",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-050",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_emergency_block.py",
+      "line": 33,
+      "symbol": "<module>",
+      "source_sha256": "00961ea58a07c7f186117ccf53ad1aa4a7418993d7bf056a1873810e9cdffa60",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-051",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_recovery_ops.py",
+      "line": 32,
+      "symbol": "<module>",
+      "source_sha256": "eddabe4a9925744c9946d4ec45865423123d05c7b2665527930370114106737a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-052",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_email_after_commit.py",
+      "line": 25,
+      "symbol": "<module>",
+      "source_sha256": "7b921c1dafbecb3850117ff5861531d2af63a354992bcf2bd9c1766d0789d79a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-053",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_login_otp_lockout.py",
+      "line": 24,
+      "symbol": "<module>",
+      "source_sha256": "c5d82e283cf87a4655962f574855e2da0f55bc5bf311efad631f700ece091e76",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-054",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_twofa_service.py",
+      "line": 29,
+      "symbol": "<module>",
+      "source_sha256": "bbf06d8fe69736199b2ee844e5d15545b0adde82aa18b5d337d82ff18102d87c",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-055",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/extraction/test_extraction_e2e.py",
+      "line": 72,
+      "symbol": "<module>",
+      "source_sha256": "f7512991f70bd89646d9c695e21c9d5f746bb21696e58936584ca9ce9bbe0057",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-056",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/perf_budgets/test_login_round_trips.py",
+      "line": 26,
+      "symbol": "<module>",
+      "source_sha256": "411db68bfc014287dbf5b62c7830c685ae4f253bb2037e0eb56743d61e31521d",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-057",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 605,
+      "symbol": "<module>",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-058",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "benchmarks/tests/test_s5_secure_read.py",
+      "line": 75,
+      "symbol": "<module>",
+      "source_sha256": "26f8746fedf42643b62de580bc119cafcd80b00b607bf4184715bc33ff1710e5",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-059",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 183,
+      "symbol": "test_login_inactive_user",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-060",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 130,
+      "symbol": "test_verify_password_correct",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-061",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 138,
+      "symbol": "test_verify_password_incorrect",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-062",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 147,
+      "symbol": "test_get_password_hash",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-063",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 334,
+      "symbol": "test_split_deployment_end_to_end",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-064",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 458,
+      "symbol": "test_emergency_block_across_the_split",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-065",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_fused_effect_rows.py",
+      "line": 162,
+      "symbol": "body",
+      "source_sha256": "204a830807f8890b25a0a3272a578b68561740b6d358b6004da2efe59d02c865",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-066",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_guardrails.py",
+      "line": 92,
+      "symbol": "test_redaction_formatter_masks_sensitive",
+      "source_sha256": "050a16f61f1bf80e881531cb0a8a9d95dc34626be99ada740ad5aea5f094a1ab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-067",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_observability.py",
+      "line": 50,
+      "symbol": "test_json_formatter_redacts_sensitive_extra",
+      "source_sha256": "c954ef820057d9080e357751a3af75db995ee2bd4f48f4e056a2c399769f64f7",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-068",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_ops_security_hardening.py",
+      "line": 277,
+      "symbol": "StatementError",
+      "source_sha256": "c0da75579bdf60f67dad10509dcb8b950c6e0afcabf3766c5119af991adcd5d3",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-069",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_review_fixes.py",
+      "line": 87,
+      "symbol": "test_redact_matches_compound_secret_keys",
+      "source_sha256": "fa1007b5cb6bd5db2b0f28466ea035f853800fcb6c3108d30e1459f876b31d41",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-070",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_testing_harness.py",
+      "line": 23,
+      "symbol": "test_recording_uow_captures_required_audits",
+      "source_sha256": "aceda139ff0a44e2852790e92a4eb97f1f9b2959cbaa3d51196607e26ca40e3d",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-071",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 33,
+      "symbol": "test_register_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-072",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 64,
+      "symbol": "test_register_duplicate_email",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-073",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 84,
+      "symbol": "test_register_invalid_email",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-074",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 129,
+      "symbol": "test_login_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-075",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 154,
+      "symbol": "test_login_invalid_email",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-076",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 168,
+      "symbol": "test_login_wrong_password",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-077",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 194,
+      "symbol": "test_login_inactive_user",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-078",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 209,
+      "symbol": "test_login_with_2fa",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-079",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 237,
+      "symbol": "test_refresh_token_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-080",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 275,
+      "symbol": "test_refresh_expired_token",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-081",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 324,
+      "symbol": "test_logout_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-082",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 459,
+      "symbol": "test_reset_password_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-083",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 476,
+      "symbol": "test_reset_password_invalid_token",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-084",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 573,
+      "symbol": "test_rate_limiting_registration",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-085",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 598,
+      "symbol": "test_complete_user_journey",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-086",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 659,
+      "symbol": "test_concurrent_operations",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-087",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_emergency_block.py",
+      "line": 38,
+      "symbol": "_login",
+      "source_sha256": "00961ea58a07c7f186117ccf53ad1aa4a7418993d7bf056a1873810e9cdffa60",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-088",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_emergency_block.py",
+      "line": 204,
+      "symbol": "test_blocked_user_cannot_login_with_password_2fa",
+      "source_sha256": "00961ea58a07c7f186117ccf53ad1aa4a7418993d7bf056a1873810e9cdffa60",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-089",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 23,
+      "symbol": "test_refresh_reuse_returns_401_and_revokes_family",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-090",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 52,
+      "symbol": "test_login_lockout_via_api",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-091",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 56,
+      "symbol": "test_login_lockout_via_api",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-092",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 66,
+      "symbol": "test_login_no_longer_returns_dead_200_error",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-093",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 78,
+      "symbol": "test_change_password_endpoint",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-094",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 84,
+      "symbol": "test_change_password_endpoint",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-095",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 84,
+      "symbol": "test_change_password_endpoint",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-096",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 91,
+      "symbol": "test_change_password_endpoint",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-097",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_recovery_ops.py",
+      "line": 64,
+      "symbol": "_login",
+      "source_sha256": "eddabe4a9925744c9946d4ec45865423123d05c7b2665527930370114106737a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-098",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_recovery_ops.py",
+      "line": 220,
+      "symbol": "test_forced_password_reset_refuses_password_login_until_reset",
+      "source_sha256": "eddabe4a9925744c9946d4ec45865423123d05c7b2665527930370114106737a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-099",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_recovery_ops.py",
+      "line": 241,
+      "symbol": "test_forced_password_reset_refuses_password_login_until_reset",
+      "source_sha256": "eddabe4a9925744c9946d4ec45865423123d05c7b2665527930370114106737a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-100",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso.py",
+      "line": 147,
+      "symbol": "test_unlink_sso_provider_integration",
+      "source_sha256": "69d72141c8ba17483e5f9a0096dc07b00562f6f5ebc0ea876937591098169b62",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-101",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso.py",
+      "line": 391,
+      "symbol": "test_link_sso_provider_invalid_state_real",
+      "source_sha256": "69d72141c8ba17483e5f9a0096dc07b00562f6f5ebc0ea876937591098169b62",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-102",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso_hardening.py",
+      "line": 138,
+      "symbol": "test_link_flow_requires_authenticated_link_state",
+      "source_sha256": "310690092173267b95e9575b580ceea134700eab563ef1ee9236c93a47800c6e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-103",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso_hardening.py",
+      "line": 156,
+      "symbol": "test_link_flow_requires_authenticated_link_state",
+      "source_sha256": "310690092173267b95e9575b580ceea134700eab563ef1ee9236c93a47800c6e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-104",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 22,
+      "symbol": "<module>",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-105",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 100,
+      "symbol": "test_enable_2fa_unauthenticated",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-106",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 129,
+      "symbol": "test_enable_2fa_invalid_otp_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-107",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 130,
+      "symbol": "test_enable_2fa_invalid_otp_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-108",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 158,
+      "symbol": "test_enable_2fa_invalid_otp_code",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-109",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 172,
+      "symbol": "test_disable_2fa_unauthenticated",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-110",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 195,
+      "symbol": "test_disable_2fa_when_not_enabled",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-111",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 225,
+      "symbol": "test_disable_2fa_invalid_otp_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-112",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 226,
+      "symbol": "test_disable_2fa_invalid_otp_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-113",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 242,
+      "symbol": "test_verify_2fa_code_unauthenticated",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-114",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 259,
+      "symbol": "test_verify_2fa_code_authenticated",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-115",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 296,
+      "symbol": "test_verify_2fa_code_invalid_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-116",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 300,
+      "symbol": "test_verify_2fa_code_invalid_format",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-117",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 326,
+      "symbol": "test_verify_2fa_code_success_response",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-118",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 397,
+      "symbol": "test_regenerate_backup_codes_unauthenticated",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-119",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 415,
+      "symbol": "test_regenerate_backup_codes_2fa_disabled",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-120",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 450,
+      "symbol": "test_regenerate_backup_codes_invalid_otp",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-121",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 493,
+      "symbol": "test_regenerate_backup_codes_success_scenario",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-122",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 554,
+      "symbol": "test_complete_2fa_flow_invalid_codes",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-123",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 563,
+      "symbol": "test_complete_2fa_flow_invalid_codes",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-124",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 593,
+      "symbol": "test_all_endpoints_consistency",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-125",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 599,
+      "symbol": "test_all_endpoints_consistency",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-126",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 605,
+      "symbol": "test_all_endpoints_consistency",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-127",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 649,
+      "symbol": "test_init_with_wrong_password_rejected",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-128",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_user_safety.py",
+      "line": 60,
+      "symbol": "test_block_status_unblock_round_trip",
+      "source_sha256": "c3a172474043163181c432a2f161c8e97714a555d453c2b568d2a121da8b1396",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-129",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_user_safety.py",
+      "line": 163,
+      "symbol": "test_revoke_sessions_revokes_refresh_tokens_and_audits",
+      "source_sha256": "c3a172474043163181c432a2f161c8e97714a555d453c2b568d2a121da8b1396",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-130",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/conftest.py",
+      "line": 248,
+      "symbol": "get_test_user_data",
+      "source_sha256": "252c68929d7de42697b4a2ee1e6d61f7ca48cf938ee1f9ff915f2bd88322b673",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-131",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/conftest.py",
+      "line": 258,
+      "symbol": "get_admin_user_data",
+      "source_sha256": "252c68929d7de42697b4a2ee1e6d61f7ca48cf938ee1f9ff915f2bd88322b673",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-132",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_refresh_identity_claims.py",
+      "line": 62,
+      "symbol": "_refresh",
+      "source_sha256": "fc00869addc1dc3127f31e833b03abea992a7d89ccfe7d7bda9694fdf09d1a21",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-133",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_authz_claims.py",
+      "line": 24,
+      "symbol": "test_login_token_carries_role_claims",
+      "source_sha256": "17a226f13a1fcf7195ada51054a82b491d9a16b01805900d8b7e306c8b8b2f54",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-134",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_authz_claims.py",
+      "line": 41,
+      "symbol": "test_login_token_without_roles_has_empty_claims",
+      "source_sha256": "17a226f13a1fcf7195ada51054a82b491d9a16b01805900d8b7e306c8b8b2f54",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-135",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_token_claims_and_revocation.py",
+      "line": 23,
+      "symbol": "_login",
+      "source_sha256": "466616d8dd298fc251822d80decb2890418832f1486847f471de74bd0ea8eab8",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-136",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 322,
+      "symbol": "_login",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-137",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 339,
+      "symbol": "test_split_deployment_end_to_end",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-138",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 461,
+      "symbol": "test_emergency_block_across_the_split",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-139",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 473,
+      "symbol": "test_emergency_block_across_the_split",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-140",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 490,
+      "symbol": "test_emergency_block_across_the_split",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-141",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/e2e/test_split_deployment.py",
+      "line": 530,
+      "symbol": "test_emergency_block_across_the_split",
+      "source_sha256": "98d90f6ecd8345af4c89fe8fd6030df50caa039c2d0619db472cb5e644f5472a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-142",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/extraction/test_extraction_e2e.py",
+      "line": 339,
+      "symbol": "_login",
+      "source_sha256": "f7512991f70bd89646d9c695e21c9d5f746bb21696e58936584ca9ce9bbe0057",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-143",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/extraction/test_extraction_e2e.py",
+      "line": 355,
+      "symbol": "_seed",
+      "source_sha256": "f7512991f70bd89646d9c695e21c9d5f746bb21696e58936584ca9ce9bbe0057",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-144",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/perf_budgets/test_login_round_trips.py",
+      "line": 70,
+      "symbol": "test_login_round_trips",
+      "source_sha256": "411db68bfc014287dbf5b62c7830c685ae4f253bb2037e0eb56743d61e31521d",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-145",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/perf_budgets/test_login_round_trips.py",
+      "line": 98,
+      "symbol": "test_refresh_round_trips",
+      "source_sha256": "411db68bfc014287dbf5b62c7830c685ae4f253bb2037e0eb56743d61e31521d",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-146",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 639,
+      "symbol": "_script",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-147",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 965,
+      "symbol": "_script",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-148",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 1298,
+      "symbol": "run_script",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-149",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 1674,
+      "symbol": "_fault_setup",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-150",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 1684,
+      "symbol": "_login",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-151",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_auth.py",
+      "line": 456,
+      "symbol": "test_reset_password_success",
+      "source_sha256": "5a562e8138b2b9c8a86650dcf0202b22938aeca6c9b9d52d95d294a48604466f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-152",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 559,
+      "symbol": "test_reset_password_success",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-153",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 585,
+      "symbol": "test_reset_password_invalid_token",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-154",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_emergency_block.py",
+      "line": 33,
+      "symbol": "<module>",
+      "source_sha256": "00961ea58a07c7f186117ccf53ad1aa4a7418993d7bf056a1873810e9cdffa60",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-155",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso_hardening.py",
+      "line": 89,
+      "symbol": "test_sso_login_with_2fa_goes_through_mfa_endpoint",
+      "source_sha256": "310690092173267b95e9575b580ceea134700eab563ef1ee9236c93a47800c6e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-156",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_sso_hardening.py",
+      "line": 171,
+      "symbol": "_enable_2fa",
+      "source_sha256": "310690092173267b95e9575b580ceea134700eab563ef1ee9236c93a47800c6e",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-157",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_twofa_service.py",
+      "line": 29,
+      "symbol": "<module>",
+      "source_sha256": "bbf06d8fe69736199b2ee844e5d15545b0adde82aa18b5d337d82ff18102d87c",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-158",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_security_api.py",
+      "line": 15,
+      "symbol": "<module>",
+      "source_sha256": "f6aad9298af5a122d3a608b313177280c876f1b0d73f059baa25a8133232e526",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-159",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/api/test_twofa.py",
+      "line": 21,
+      "symbol": "<module>",
+      "source_sha256": "5113fca8c856865e0bb1e23bc03f7df966c5946026a184f25464e4203d601cab",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-160",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_hardening.py",
+      "line": 26,
+      "symbol": "<module>",
+      "source_sha256": "ce7b0c3370e20f222efa5a6260c4c838649f1470e2bcd4efc78624b8d5ad00f9",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-161",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_login_lock_order.py",
+      "line": 21,
+      "symbol": "<module>",
+      "source_sha256": "80e3cc4b6492b48b850630bdaf88bc5776a8b59655cfa9117c730c085d9d2f93",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-162",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_login_timing_equalizer.py",
+      "line": 28,
+      "symbol": "<module>",
+      "source_sha256": "547ea828fdacd78cf04d2aa1ac4144dd3c612519c025a12ea144a694ed4ffb72",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-163",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_password_rehash_on_login.py",
+      "line": 17,
+      "symbol": "<module>",
+      "source_sha256": "95a1ea0e3d19a9a5b31102914060d9134076d63daf26d11a2a6af694f24c4722",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-164",
+      "rule": "python/NoHardcodedPasswords/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_refresh_identity_claims.py",
+      "line": 24,
+      "symbol": "<module>",
+      "source_sha256": "fc00869addc1dc3127f31e833b03abea992a7d89ccfe7d7bda9694fdf09d1a21",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-165",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/benchsuite/loadclient.py",
+      "line": 485,
+      "symbol": "main",
+      "source_sha256": "6600da14039990a845628be9a29e7e87e961bf669f2fc780b5c749c1be4f0874",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-166",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/agg_shadow.py",
+      "line": 47,
+      "symbol": "_reports",
+      "source_sha256": "5d06d15881173e35472b8f4d110bd0603e42cd70420bde76bd349a3bf806ad72",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-167",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/agg_shadow.py",
+      "line": 58,
+      "symbol": "aggregate",
+      "source_sha256": "5d06d15881173e35472b8f4d110bd0603e42cd70420bde76bd349a3bf806ad72",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-168",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/agg_shadow.py",
+      "line": 133,
+      "symbol": "request_stats",
+      "source_sha256": "5d06d15881173e35472b8f4d110bd0603e42cd70420bde76bd349a3bf806ad72",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-169",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/cg_matrix.py",
+      "line": 152,
+      "symbol": "main",
+      "source_sha256": "215350c80bcb71dbfce2ae37da9cd84a593d604c5eded4bc1c6aa7b72b4c1d17",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-170",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/cg_plans.py",
+      "line": 79,
+      "symbol": "_commit",
+      "source_sha256": "bad8f379ca39c2a216801b4491ad964dc583c0e4c750ff8e22f2c78b38695926",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-171",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/layer_attribution.py",
+      "line": 477,
+      "symbol": "main",
+      "source_sha256": "5e08456a71b1596edf3643a8ba47fd20539fc55501ce506f606c942740781cf1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-172",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/rpc_provider_probe.py",
+      "line": 79,
+      "symbol": "<module>",
+      "source_sha256": "0dc7b471a1fa98839f71822a6697c911375944c37290b66c73c7fe50e002d419",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-173",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/rpc_provider_probe.py",
+      "line": 83,
+      "symbol": "<module>",
+      "source_sha256": "0dc7b471a1fa98839f71822a6697c911375944c37290b66c73c7fe50e002d419",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-174",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/run_owasp.py",
+      "line": 273,
+      "symbol": "provider",
+      "source_sha256": "2c67070eea013381a8fbf56f907ce0c03498c3d6dee6e829885b7e71d7380b9d",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-175",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/server_bench.py",
+      "line": 269,
+      "symbol": "_run",
+      "source_sha256": "3bd174ece261714ed66e6dea3192653fc10aaf9d8a4d9e5143c31151cb1f9148",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-176",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 625,
+      "symbol": "_read_json",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-177",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 1046,
+      "symbol": "ab",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-178",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/split_bench.py",
+      "line": 122,
+      "symbol": "_run",
+      "source_sha256": "4ce355b3124f9cbe7ec5b554fe7ae66b34f9703309ba5cb3ac743c72f354ae12",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-179",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/split_bench.py",
+      "line": 125,
+      "symbol": "_run",
+      "source_sha256": "4ce355b3124f9cbe7ec5b554fe7ae66b34f9703309ba5cb3ac743c72f354ae12",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-180",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/benchsuite/mix.py",
+      "line": 517,
+      "symbol": "write_profiles",
+      "source_sha256": "db6962fedb4eda58d10f9716879ff56dcd2708c8792aeb5f5b101d7df5ce2a3a",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-181",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/hot_paths.py",
+      "line": 474,
+      "symbol": "main",
+      "source_sha256": "ef9bd303de878531f4705e50cba8895f7afbd7eccd74ba032b50224be9016767",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-182",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/layer_attribution.py",
+      "line": 475,
+      "symbol": "main",
+      "source_sha256": "5e08456a71b1596edf3643a8ba47fd20539fc55501ce506f606c942740781cf1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-183",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/layer_attribution.py",
+      "line": 484,
+      "symbol": "main",
+      "source_sha256": "5e08456a71b1596edf3643a8ba47fd20539fc55501ce506f606c942740781cf1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-184",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/saga_rung.py",
+      "line": 313,
+      "symbol": "main",
+      "source_sha256": "34d92475865be019b8c5bae6b7094b9804ea39d8c0044ae7a88d813c0c2b813c",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-185",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_login.py",
+      "line": 726,
+      "symbol": "main",
+      "source_sha256": "e229ceea24983100d5e86695f829273dfe5344053d0059a0366e892da4bf3951",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-186",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/checks/bench_pool_checkout.py",
+      "line": 600,
+      "symbol": "_sweep",
+      "source_sha256": "75fa7c5a93d5267a1a97058ec1b52cf1973ca2e2c2987a475bc67e6898bc43b7",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-187",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/benchsuite/render.py",
+      "line": 76,
+      "symbol": "load",
+      "source_sha256": "97af4cdcb64348e1a00a2edb7e2302fa69a6c9df2553d2165ab1066f36728620",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-188",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ci/blocked.py",
+      "line": 25,
+      "symbol": "main",
+      "source_sha256": "e89b5b877372057b7c9a124b0b5150b2bdc3450c27445c52db31b210e016c4f0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-189",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/outbox_delivery_limit.py",
+      "line": 242,
+      "symbol": "bearer",
+      "source_sha256": "df7949b1ecec89e8de2f30a283ced1f1a714ecfdf7857a42d471b906ba47f258",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-190",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/outbox_delivery_limit.py",
+      "line": 243,
+      "symbol": "bearer",
+      "source_sha256": "df7949b1ecec89e8de2f30a283ced1f1a714ecfdf7857a42d471b906ba47f258",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-191",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/checks/check_secrets.py",
+      "line": 48,
+      "symbol": "main",
+      "source_sha256": "3da9a102f68b0b06a62894e8cd06fdcb8ac8bc5a46eb18a81a10b876e3362269",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-192",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ci/blocked.py",
+      "line": 47,
+      "symbol": "main",
+      "source_sha256": "e89b5b877372057b7c9a124b0b5150b2bdc3450c27445c52db31b210e016c4f0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-193",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ci/plan.py",
+      "line": 81,
+      "symbol": "main",
+      "source_sha256": "6a2ba54929f7c562faf5edc89feb56b0622e7a8561a0d009960a30b2023d827e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-194",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ci/plan.py",
+      "line": 86,
+      "symbol": "main",
+      "source_sha256": "6a2ba54929f7c562faf5edc89feb56b0622e7a8561a0d009960a30b2023d827e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-195",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/mixrung.py",
+      "line": 231,
+      "symbol": "_write_tag",
+      "source_sha256": "2be76427fc5c68dada002aa3559ff98554196e9561285cbfca33cb5c23b62fa8",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-196",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/tail_probe.py",
+      "line": 58,
+      "symbol": "_flush",
+      "source_sha256": "6288de049a8e85775ac169e6ef5e6de9cae0e89d8d3050489749084319b3dc48",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-197",
+      "rule": "python/CodeInjection",
+      "severity": "warning",
+      "path": "src/sandloom/core/cli/add.py",
+      "line": 705,
+      "symbol": "_contract_bootstrap",
+      "source_sha256": "aa257f25eb02e88523b8e1e8162eb6275471296a5416859ce0e5f39ca83fa754",
+      "disposition": "project_import"
+    },
+    {
+      "id": "code-198",
+      "rule": "python/CodeInjection",
+      "severity": "warning",
+      "path": "tools/checks/import_audit.py",
+      "line": 292,
+      "symbol": "audit",
+      "source_sha256": "659fae807e23135eb6d9e2154dd81dbc49d499a66a30f7cb63e76be60b97173e",
+      "disposition": "project_import"
+    },
+    {
+      "id": "code-199",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/checks/_dx.py",
+      "line": 63,
+      "symbol": "_rules",
+      "source_sha256": "530a2b92764f992a76d98e282cf251cac5b323b9caccf290e897fd28b69503c1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-200",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/checks/_dx.py",
+      "line": 284,
+      "symbol": "exempt_tables",
+      "source_sha256": "530a2b92764f992a76d98e282cf251cac5b323b9caccf290e897fd28b69503c1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-201",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 751,
+      "symbol": "redis_holders",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-202",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1631,
+      "symbol": "run_task",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-203",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2112,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-204",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2276,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-205",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/checks/_dx.py",
+      "line": 137,
+      "symbol": "changed_files",
+      "source_sha256": "530a2b92764f992a76d98e282cf251cac5b323b9caccf290e897fd28b69503c1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-206",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 836,
+      "symbol": "eval_home",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-207",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/server_profile.py",
+      "line": 236,
+      "symbol": "_proc_cpu",
+      "source_sha256": "d04f97cb892ebdde9a97d3a890a2e6bda7c01cd70731b6d7e1326659a2671209",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-208",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/load.py",
+      "line": 111,
+      "symbol": "run_wrk",
+      "source_sha256": "f81acbb29c3ec9708caba7e4bf6a612a1f1fc691153c23f726261dd99a41eee1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-209",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/load.py",
+      "line": 142,
+      "symbol": "run_wrk",
+      "source_sha256": "f81acbb29c3ec9708caba7e4bf6a612a1f1fc691153c23f726261dd99a41eee1",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-210",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/smoke/quickstart_check.py",
+      "line": 208,
+      "symbol": "check_framework",
+      "source_sha256": "f150c5cb16840a37c4ba11afd95ef2f70ddc941a620d006e750dd819ebb49646",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-211",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 586,
+      "symbol": "_slots_locked",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-212",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/ci/ci_local.py",
+      "line": 2231,
+      "symbol": "record_ci_pass",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-213",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 863,
+      "symbol": "make_worktree",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-214",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 978,
+      "symbol": "seed_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-215",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 990,
+      "symbol": "make_work_dir",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-216",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 993,
+      "symbol": "make_work_dir",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-217",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1060,
+      "symbol": "score_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-218",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1070,
+      "symbol": "score_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-219",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1705,
+      "symbol": "_run_app_task",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-220",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2074,
+      "symbol": "cmd_run",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-221",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2098,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-222",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2200,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-223",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2206,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-224",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2207,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-225",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2212,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-226",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2214,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-227",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2248,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-228",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2254,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-229",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2327,
+      "symbol": "_rescore_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-230",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1000,
+      "symbol": "make_work_dir",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-231",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1063,
+      "symbol": "score_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-232",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1066,
+      "symbol": "score_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-233",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1672,
+      "symbol": "_run_app_task",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-234",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1703,
+      "symbol": "_run_app_task",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-235",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2190,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-236",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2201,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-237",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2249,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-238",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1074,
+      "symbol": "score_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-239",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2280,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-240",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2281,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-241",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2288,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-242",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/gc_stand_conf.py",
+      "line": 153,
+      "symbol": "_dump",
+      "source_sha256": "ec2e59f2d3f519becaed4fba32b65a8b084a386405f68ab96d81abf16f3c33e6",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-243",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/login_concurrency.py",
+      "line": 253,
+      "symbol": "main",
+      "source_sha256": "31da0fdad0e621811e7f580f855dd7c3cf87cce9e883aaa5a136efd65590d836",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-244",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 254,
+      "symbol": "load",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-245",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 258,
+      "symbol": "run",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-246",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/write_login_perf.py",
+      "line": 443,
+      "symbol": "compare",
+      "source_sha256": "51a8e6c0adbe438bde03da5b676b62a2df1b0962d2cc3d5f0b8034b94e9b93b9",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-247",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "src/sandloom/core/cli/security.py",
+      "line": 354,
+      "symbol": "_cmd_export",
+      "source_sha256": "297935761b7490c0ca6a8d4a5c02722b2fd7f5cf2caa4ecc80be44cf796ef3c2",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-248",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/rpc_guard.py",
+      "line": 71,
+      "symbol": "main",
+      "source_sha256": "5e6375113d9e47098af1dbfc63ff3dae1763abfe575a101db761523d3debbc2a",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-249",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/rpc_provider_probe.py",
+      "line": 258,
+      "symbol": "<module>",
+      "source_sha256": "0dc7b471a1fa98839f71822a6697c911375944c37290b66c73c7fe50e002d419",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-250",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/run_owasp.py",
+      "line": 284,
+      "symbol": "provider",
+      "source_sha256": "2c67070eea013381a8fbf56f907ce0c03498c3d6dee6e829885b7e71d7380b9d",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-251",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/run_rpctx.py",
+      "line": 113,
+      "symbol": "run",
+      "source_sha256": "ec24e3d108d38414c96d386c29eb882dc293103b364b4863db608a74945c6f20",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-252",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/run_rpctx.py",
+      "line": 143,
+      "symbol": "open_singles",
+      "source_sha256": "ec24e3d108d38414c96d386c29eb882dc293103b364b4863db608a74945c6f20",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-253",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 719,
+      "symbol": "run",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-254",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 1066,
+      "symbol": "ab",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-255",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 1082,
+      "symbol": "ab",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-256",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/ci/ci_local.py",
+      "line": 1327,
+      "symbol": "run_job",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-257",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/ci/ci_local.py",
+      "line": 2427,
+      "symbol": "main",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-258",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/rpc_provider_probe.py",
+      "line": 226,
+      "symbol": "<module>",
+      "source_sha256": "0dc7b471a1fa98839f71822a6697c911375944c37290b66c73c7fe50e002d419",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-259",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/run.py",
+      "line": 258,
+      "symbol": "start",
+      "source_sha256": "ae66ed5b975c4ca0ff91c16a47a6918eb2fa9727f5fbec5da67553f9cc53f685",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-260",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/run.py",
+      "line": 579,
+      "symbol": "closed_loop",
+      "source_sha256": "ae66ed5b975c4ca0ff91c16a47a6918eb2fa9727f5fbec5da67553f9cc53f685",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-261",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/run.py",
+      "line": 644,
+      "symbol": "open_loop",
+      "source_sha256": "ae66ed5b975c4ca0ff91c16a47a6918eb2fa9727f5fbec5da67553f9cc53f685",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-262",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 444,
+      "symbol": "__init__",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-263",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 227,
+      "symbol": "_load_in_container",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-264",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 409,
+      "symbol": "report",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-265",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/write_login_perf.py",
+      "line": 398,
+      "symbol": "load_dir",
+      "source_sha256": "51a8e6c0adbe438bde03da5b676b62a2df1b0962d2cc3d5f0b8034b94e9b93b9",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-266",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 298,
+      "symbol": "run",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-267",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 303,
+      "symbol": "run",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-268",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/ladder/write_tail.py",
+      "line": 481,
+      "symbol": "report",
+      "source_sha256": "563b6007fc8bf1642269113fab30a40afdae989072f21eba457756e06086488e",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-269",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/ci/ci_local.py",
+      "line": 1098,
+      "symbol": "__init__",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-270",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "benchmarks/qualification/write_login_perf.py",
+      "line": 504,
+      "symbol": "main",
+      "source_sha256": "51a8e6c0adbe438bde03da5b676b62a2df1b0962d2cc3d5f0b8034b94e9b93b9",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-271",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "src/sandloom/core/cli/gunicorn_conf.py",
+      "line": 165,
+      "symbol": "on_starting",
+      "source_sha256": "fe389f333cd949683f50f470af2d3720c096e8d622de03bd1d643d18ff79770b",
+      "disposition": "environment_path"
+    },
+    {
+      "id": "code-272",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "src/sandloom/core/worker.py",
+      "line": 255,
+      "symbol": "install_heartbeat",
+      "source_sha256": "5e96dbe4234261d5491cbd27629b57f63428ae8901769786267953d99a4de66d",
+      "disposition": "environment_path"
+    },
+    {
+      "id": "code-273",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/ci/ci_local.py",
+      "line": 2215,
+      "symbol": "<module>",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-274",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/pypi_release.py",
+      "line": 431,
+      "symbol": "output",
+      "source_sha256": "82a6dea0726f749aed2043a895f0ba34fe6f4904a625b09c3790037dec6b318a",
+      "disposition": "validated_release_path"
+    },
+    {
+      "id": "code-275",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/check_package_distributions.py",
+      "line": 423,
+      "symbol": "main",
+      "source_sha256": "aa7ef85ef0793c4f98c74c394bb8f88d1941118b9fe1d9bb75d36895c4dfef07",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-276",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/pypi_release.py",
+      "line": 127,
+      "symbol": "select_artifacts",
+      "source_sha256": "82a6dea0726f749aed2043a895f0ba34fe6f4904a625b09c3790037dec6b318a",
+      "disposition": "validated_release_path"
+    },
+    {
+      "id": "code-277",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/export_repository.py",
+      "line": 317,
+      "symbol": "export_source",
+      "source_sha256": "4e50a79bb21120c2b93f0d2ac7498c5b090673c8d7ed74c0ece44dfef1e036b0",
+      "disposition": "validated_export_path"
+    },
+    {
+      "id": "code-278",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/export_repository.py",
+      "line": 379,
+      "symbol": "export_source",
+      "source_sha256": "4e50a79bb21120c2b93f0d2ac7498c5b090673c8d7ed74c0ece44dfef1e036b0",
+      "disposition": "validated_export_path"
+    },
+    {
+      "id": "code-279",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/pypi_release.py",
+      "line": 107,
+      "symbol": "select_artifacts",
+      "source_sha256": "82a6dea0726f749aed2043a895f0ba34fe6f4904a625b09c3790037dec6b318a",
+      "disposition": "validated_release_path"
+    },
+    {
+      "id": "code-280",
+      "rule": "python/PT",
+      "severity": "note",
+      "path": "tools/packaging/pypi_release.py",
+      "line": 203,
+      "symbol": "prepare_upload",
+      "source_sha256": "82a6dea0726f749aed2043a895f0ba34fe6f4904a625b09c3790037dec6b318a",
+      "disposition": "validated_release_path"
+    },
+    {
+      "id": "code-281",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/checks/check_p5_scale_switch.py",
+      "line": 133,
+      "symbol": "_boot",
+      "source_sha256": "62dcf80bdd1fdae67a0d85cbc8dcfb127be757a24d3061a38ecc5362dcdd5db5",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-282",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 865,
+      "symbol": "make_worktree",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-283",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 1473,
+      "symbol": "score",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-284",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2074,
+      "symbol": "cmd_run",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-285",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2098,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-286",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2206,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-287",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2212,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-288",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2214,
+      "symbol": "dry_run_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-289",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2280,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-290",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2281,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-291",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2288,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-292",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2289,
+      "symbol": "cmd_rescore",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-293",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2327,
+      "symbol": "_rescore_app",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-294",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/dx/run_eval.py",
+      "line": 2352,
+      "symbol": "_rescore_one",
+      "source_sha256": "cb55eba36e9aed72364645d47ba73602377db97693f47961166e579529c24682",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-295",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 177,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-296",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 180,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-297",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 183,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-298",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 186,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-299",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 189,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-300",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 192,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-301",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 211,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-302",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 275,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-303",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_all.py",
+      "line": 386,
+      "symbol": "main",
+      "source_sha256": "1b1b6459a8a8e49c197cdd85566d33fcd1cfd7c1cbaf6a5a212869ea3d862053",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-304",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_int.py",
+      "line": 271,
+      "symbol": "matrix",
+      "source_sha256": "841d53292b7a675569ecb33b3fff5535e5afda58de54696f5b0d79bfbd5bcea8",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-305",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_int.py",
+      "line": 295,
+      "symbol": "login",
+      "source_sha256": "841d53292b7a675569ecb33b3fff5535e5afda58de54696f5b0d79bfbd5bcea8",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-306",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_int.py",
+      "line": 326,
+      "symbol": "scaling",
+      "source_sha256": "841d53292b7a675569ecb33b3fff5535e5afda58de54696f5b0d79bfbd5bcea8",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-307",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_int.py",
+      "line": 392,
+      "symbol": "topology",
+      "source_sha256": "841d53292b7a675569ecb33b3fff5535e5afda58de54696f5b0d79bfbd5bcea8",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-308",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/run_int.py",
+      "line": 414,
+      "symbol": "rpc",
+      "source_sha256": "841d53292b7a675569ecb33b3fff5535e5afda58de54696f5b0d79bfbd5bcea8",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-309",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/soak.py",
+      "line": 1104,
+      "symbol": "setup",
+      "source_sha256": "9fcea0b74e69a048fc8fd0ed7326abd5ca5233aeea8a4dee69505ea6516543d0",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-310",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/stage_ab.py",
+      "line": 84,
+      "symbol": "_s5",
+      "source_sha256": "85bc89c1d16a7cf16ef565767062a4cca614191c762b26ae59d5d796eaaea68a",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-311",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/stage_ab.py",
+      "line": 124,
+      "symbol": "run_one",
+      "source_sha256": "85bc89c1d16a7cf16ef565767062a4cca614191c762b26ae59d5d796eaaea68a",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-312",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/stage_ab.py",
+      "line": 154,
+      "symbol": "main",
+      "source_sha256": "85bc89c1d16a7cf16ef565767062a4cca614191c762b26ae59d5d796eaaea68a",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-313",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/stage_ab.py",
+      "line": 157,
+      "symbol": "main",
+      "source_sha256": "85bc89c1d16a7cf16ef565767062a4cca614191c762b26ae59d5d796eaaea68a",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-314",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/qualification/disaster_recovery.py",
+      "line": 32,
+      "symbol": "run",
+      "source_sha256": "9f947770e12d4652c5b162716cbe3bb993dcb12f01b522f8fe37a0eaf348b27f",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-315",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/qualification/load.py",
+      "line": 118,
+      "symbol": "run_wrk",
+      "source_sha256": "f81acbb29c3ec9708caba7e4bf6a612a1f1fc691153c23f726261dd99a41eee1",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-316",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/smoke/recipes_check.py",
+      "line": 115,
+      "symbol": "sh",
+      "source_sha256": "8fdd5f97fd381c9ce3a5b21c1b741f5c118b2991d8dfee2acb34e214203d30f4",
+      "disposition": "recipe_shell"
+    },
+    {
+      "id": "code-317",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/smoke/recipes_check.py",
+      "line": 196,
+      "symbol": "recipe",
+      "source_sha256": "8fdd5f97fd381c9ce3a5b21c1b741f5c118b2991d8dfee2acb34e214203d30f4",
+      "disposition": "recipe_shell"
+    },
+    {
+      "id": "code-318",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 1429,
+      "symbol": "matrix",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-319",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 18,
+      "symbol": "<module>",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-320",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 95,
+      "symbol": "test_every_error_permalink_resolves_to_a_built_anchor",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-321",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 104,
+      "symbol": "test_tutorial_markdown_contains_the_real_code",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-322",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 112,
+      "symbol": "test_every_agent_index_link_has_a_markdown_page",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-323",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 133,
+      "symbol": "test_internal_research_is_absent_from_the_site_and_search",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-324",
+      "rule": "python/PT/test",
+      "severity": "note",
+      "path": "tools/docs/test_docs_site.py",
+      "line": 138,
+      "symbol": "test_sdk_overview_describes_the_implemented_api",
+      "source_sha256": "ed4654630575fb57adcc17d797ed06c5da7cfa404c7c5af52ec67e01af5760ee",
+      "disposition": "operator_path"
+    },
+    {
+      "id": "code-325",
+      "rule": "python/Sqli",
+      "severity": "warning",
+      "path": "benchmarks/benchsuite/dataset.py",
+      "line": 94,
+      "symbol": "counts_one",
+      "source_sha256": "4d6b401fe42199f5f67259d4b3a22f3c25edfc84d3d6e27ba905138a8c2ebc15",
+      "disposition": "dataset_identifier"
+    },
+    {
+      "id": "code-326",
+      "rule": "python/Sqli",
+      "severity": "warning",
+      "path": "src/sandloom/core/migrations/backup.py",
+      "line": 411,
+      "symbol": "_rows",
+      "source_sha256": "7d93f7b07eb194f47c2196a9272ef671b8f76e29a08718029ea1460b1867dcb1",
+      "disposition": "backup_identifier"
+    },
+    {
+      "id": "code-327",
+      "rule": "python/Sqli",
+      "severity": "warning",
+      "path": "src/sandloom/core/migrations/backup.py",
+      "line": 499,
+      "symbol": "check_restored_database",
+      "source_sha256": "7d93f7b07eb194f47c2196a9272ef671b8f76e29a08718029ea1460b1867dcb1",
+      "disposition": "backup_identifier"
+    },
+    {
+      "id": "code-328",
+      "rule": "python/Sqli/test",
+      "severity": "note",
+      "path": "tests/extraction/test_extraction_e2e.py",
+      "line": 128,
+      "symbol": "_psql",
+      "source_sha256": "f7512991f70bd89646d9c695e21c9d5f746bb21696e58936584ca9ce9bbe0057",
+      "disposition": "test_sql"
+    },
+    {
+      "id": "code-329",
+      "rule": "python/Sqli/test",
+      "severity": "note",
+      "path": "tests/extraction/test_extraction_e2e.py",
+      "line": 502,
+      "symbol": "_table_fingerprints",
+      "source_sha256": "f7512991f70bd89646d9c695e21c9d5f746bb21696e58936584ca9ce9bbe0057",
+      "disposition": "test_sql"
+    },
+    {
+      "id": "code-330",
+      "rule": "python/Ssrf",
+      "severity": "warning",
+      "path": "tools/smoke/quickstart_check.py",
+      "line": 366,
+      "symbol": "run",
+      "source_sha256": "f150c5cb16840a37c4ba11afd95ef2f70ddc941a620d006e750dd819ebb49646",
+      "disposition": "docs_http"
+    },
+    {
+      "id": "code-331",
+      "rule": "python/Ssrf",
+      "severity": "warning",
+      "path": "tools/smoke/tutorial_check.py",
+      "line": 91,
+      "symbol": "run",
+      "source_sha256": "482c61278324f9c10419984b04039b0dd07cf6b04b08b96ae53a422b320547c8",
+      "disposition": "docs_http"
+    },
+    {
+      "id": "code-332",
+      "rule": "python/TarSlip",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1160,
+      "symbol": "export",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "tar_filter"
+    },
+    {
+      "id": "code-333",
+      "rule": "python/TarSlip",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1290,
+      "symbol": "_extract",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "tar_filter"
+    },
+    {
+      "id": "code-334",
+      "rule": "python/TarSlip",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1790,
+      "symbol": "setup",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "tar_filter"
+    },
+    {
+      "id": "code-335",
+      "rule": "python/TooSmallRsaKeySizeUsed/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_asymmetric_jwt.py",
+      "line": 266,
+      "symbol": "test_short_rsa_keys_are_refused",
+      "source_sha256": "3ea8d8a46a4b3548c1ce128a4aeba0d2ca95435b467af6f48b167ac4775c27aa",
+      "disposition": "rsa_negative"
+    },
+    {
+      "id": "code-336",
+      "rule": "python/reDOS",
+      "severity": "warning",
+      "path": "benchmarks/ladder/split_bench.py",
+      "line": 138,
+      "symbol": "_run",
+      "source_sha256": "4ce355b3124f9cbe7ec5b554fe7ae66b34f9703309ba5cb3ac743c72f354ae12",
+      "disposition": "topology_regex"
+    },
+    {
+      "id": "code-337",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/rpc_guard.py",
+      "line": 60,
+      "symbol": "main",
+      "source_sha256": "5e6375113d9e47098af1dbfc63ff3dae1763abfe575a101db761523d3debbc2a",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-338",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/split_seed.py",
+      "line": 88,
+      "symbol": "split_seed",
+      "source_sha256": "8818342a4f43202fcd9e2a05a6ff84a566b77f138e84f9dab8c684e3bbd8033e",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-339",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/qualification/outbox_latency_ab.py",
+      "line": 139,
+      "symbol": "main",
+      "source_sha256": "fec76fb397ad5951788a11538d919ca1371200ac849351e067b8e0f39331151f",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-340",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/qualification/outbox_latency_ab.py",
+      "line": 192,
+      "symbol": "retire",
+      "source_sha256": "fec76fb397ad5951788a11538d919ca1371200ac849351e067b8e0f39331151f",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-341",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1142,
+      "symbol": "export",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-342",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1212,
+      "symbol": "prepare_act",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-343",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1230,
+      "symbol": "prepare_act",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-344",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/ci/ci_local.py",
+      "line": 1236,
+      "symbol": "tree",
+      "source_sha256": "c9ead056d95b0b11a251de540094f9cbbd49b4b3bb2e06a7c4b4538aceec5549",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-345",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "tools/packaging/check_wheel_rpc_transport.py",
+      "line": 30,
+      "symbol": "_run",
+      "source_sha256": "03af6274c0e88df5c394510e6478685bb3acd9c883de5ffd2cb757b48190eef7",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-346",
+      "rule": "python/reDOS",
+      "severity": "warning",
+      "path": "src/sandloom/core/cli/add.py",
+      "line": 1304,
+      "symbol": "add_task",
+      "source_sha256": "aa257f25eb02e88523b8e1e8162eb6275471296a5416859ce0e5f39ca83fa754",
+      "disposition": "task_regex"
+    },
+    {
+      "id": "code-347",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/rpc_provider_probe.py",
+      "line": 180,
+      "symbol": "<module>",
+      "source_sha256": "0dc7b471a1fa98839f71822a6697c911375944c37290b66c73c7fe50e002d419",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-348",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/ladder/server_bench.py",
+      "line": 291,
+      "symbol": "_run",
+      "source_sha256": "3bd174ece261714ed66e6dea3192653fc10aaf9d8a4d9e5143c31151cb1f9148",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-349",
+      "rule": "python/CommandInjection",
+      "severity": "warning",
+      "path": "benchmarks/qualification/profile_read.py",
+      "line": 44,
+      "symbol": "main",
+      "source_sha256": "e87b7568dca98691490413d86a32c0808865ad539cee09e9ee8dc72d36ebc4ee",
+      "disposition": "command_argv"
+    },
+    {
+      "id": "code-350",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "benchmarks/benchsuite/common.py",
+      "line": 46,
+      "symbol": "<module>",
+      "source_sha256": "989a051f3a0ade47568dc95b8a7c7ca6d755a4372a7f11d279a1891da64cdccb",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-351",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "benchmarks/ladder/cg_plans.py",
+      "line": 39,
+      "symbol": "<module>",
+      "source_sha256": "bad8f379ca39c2a216801b4491ad964dc583c0e4c750ff8e22f2c78b38695926",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-352",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "benchmarks/ladder/ladder.py",
+      "line": 70,
+      "symbol": "<module>",
+      "source_sha256": "e70363cf99c68c96288e5425cc10b4e046aef61a3f7fd9bdf03eff40bd3482e9",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-353",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "benchmarks/ladder/write_login.py",
+      "line": 79,
+      "symbol": "<module>",
+      "source_sha256": "e229ceea24983100d5e86695f829273dfe5344053d0059a0366e892da4bf3951",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-354",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "tools/docs/gen_config_reference.py",
+      "line": 28,
+      "symbol": "<module>",
+      "source_sha256": "4032433166860cdd35a8fdaf2bef8b16309824196d47298dcb6f71024a0fb0ac",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-355",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "tools/docs/gen_reference_pages.py",
+      "line": 24,
+      "symbol": "<module>",
+      "source_sha256": "a6ae20a96d24de35504db83f379e390d957469ab3b296137d2e9e2ed60d20077",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-356",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "tools/packaging/check_package_distributions.py",
+      "line": 59,
+      "symbol": "<module>",
+      "source_sha256": "aa7ef85ef0793c4f98c74c394bb8f88d1941118b9fe1d9bb75d36895c4dfef07",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-357",
+      "rule": "python/HardcodedNonCryptoSecret",
+      "severity": "error",
+      "path": "tools/packaging/wheel_rpc_smoke.py",
+      "line": 55,
+      "symbol": "<module>",
+      "source_sha256": "950f12ef70d661487357725642947254a16d8286ffadfe45081966a5e0c9bb69",
+      "disposition": "build_secret"
+    },
+    {
+      "id": "code-358",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "benchmarks/tests/test_planner_list_order_columns.py",
+      "line": 57,
+      "symbol": "<module>",
+      "source_sha256": "9db1b7b38d0cef892d7166e5e5ee9126d2d443a13c872107518c33e92ee13614",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-359",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_boot_configuration_checks.py",
+      "line": 35,
+      "symbol": "<module>",
+      "source_sha256": "493281846422d0d93fbcd6ca5ab1684714b04ee4bff24463730b93f68cdfd28d",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-360",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_gc_tuning.py",
+      "line": 24,
+      "symbol": "<module>",
+      "source_sha256": "3ca02ea88d30ddbe37c7ce9ddb531dcf2b6b79db0bdc75cee2078bfea6b85909",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-361",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_idempotency_cas.py",
+      "line": 59,
+      "symbol": "<module>",
+      "source_sha256": "a7af18042844904cd3fb43ba05b653a5354b902ef0979a8f03ca591094ad9cfe",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-362",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_lazy_settings.py",
+      "line": 58,
+      "symbol": "test_import_does_not_validate_and_first_use_does",
+      "source_sha256": "2976c75edd84abe3a255fb721d1df2d97385d4f8e397da16d466eb654d00cfd7",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-363",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_password_hash_config.py",
+      "line": 32,
+      "symbol": "<module>",
+      "source_sha256": "8a953b99e46ba2b2274ccb200ee078ef497e4ed8a5a1a0258355301a1d02ff39",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-364",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_planner_production.py",
+      "line": 299,
+      "symbol": "test_default_executor_has_an_explicit_rollback_switch",
+      "source_sha256": "67eba4a3237573c07b9882df4d68417a32a7ae3529d3afd41df5435a768efd5f",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-365",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_scrub_text_equivalence.py",
+      "line": 100,
+      "symbol": "<module>",
+      "source_sha256": "4b48b98b9a1b50b6e81422b8a7009125ada3b63db515664d4f4c0597f43577df",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-366",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_tenant_isolation.py",
+      "line": 380,
+      "symbol": "test_single_tenant_mode_requires_canonical_tenant",
+      "source_sha256": "cecfdf29607c8117583aa474b1bfcde871f107af422329b9a17c50c69df19d84",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-367",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom/core/tests/test_verified_token_cache.py",
+      "line": 22,
+      "symbol": "<module>",
+      "source_sha256": "929ad09bbc2db87b3fc4955b02982f4f7aaf09d56363033583bd102b33748043",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-368",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_billing/tests/conftest.py",
+      "line": 37,
+      "symbol": "fake_psp",
+      "source_sha256": "5d9c9294477398baf6cdcb1ac119cb23d87ab27f960d5cb06929c1a81673dc15",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-369",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/conftest.py",
+      "line": 26,
+      "symbol": "<module>",
+      "source_sha256": "252c68929d7de42697b4a2ee1e6d61f7ca48cf938ee1f9ff915f2bd88322b673",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-370",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/services/test_auth_service.py",
+      "line": 121,
+      "symbol": "sample_tokens",
+      "source_sha256": "85166db9c113c8028272d94644d611b6e70939da04b5fcd38cad9e6dfdd2e251",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-371",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_integrations.py",
+      "line": 131,
+      "symbol": "google_client",
+      "source_sha256": "24bea8f99710841e86963632805e77dc5447b0c310686668a95c23a1b6a74817",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-372",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_integrations.py",
+      "line": 219,
+      "symbol": "github_client",
+      "source_sha256": "24bea8f99710841e86963632805e77dc5447b0c310686668a95c23a1b6a74817",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-373",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_integrations.py",
+      "line": 278,
+      "symbol": "ms",
+      "source_sha256": "24bea8f99710841e86963632805e77dc5447b0c310686668a95c23a1b6a74817",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-374",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_models.py",
+      "line": 131,
+      "symbol": "test_twofa_secret_creation",
+      "source_sha256": "a3a929053594ed61bee9b8ba934507d85de42e923e7b4e558de917cc7656478a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-375",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 88,
+      "symbol": "test_token_utils_initialization",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-376",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 93,
+      "symbol": "test_generate_validate_token",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-377",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 107,
+      "symbol": "test_generate_token_with_custom_expiry",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-378",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 117,
+      "symbol": "test_validate_expired_token",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-379",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 136,
+      "symbol": "test_validate_invalid_token",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-380",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 143,
+      "symbol": "test_validate_token_wrong_secret",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-381",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "src/sandloom_identity/tests/test_utils.py",
+      "line": 144,
+      "symbol": "test_validate_token_wrong_secret",
+      "source_sha256": "b8d5055a5f859d56fd1548b0a03fe529d8f806b64e3a22bd67cde35bed9444f1",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-382",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "tests/integration/test_migration_revision_cli.py",
+      "line": 97,
+      "symbol": "_env",
+      "source_sha256": "d452f25fef21bec5bf6595d489e90657e33e618b8dc7155bd991fbbd752f18c3",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-383",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "tests/perf_budgets/conftest.py",
+      "line": 84,
+      "symbol": "fake_psp",
+      "source_sha256": "a7839346684c6f677f1f66a9e8d71f0ccd2c7ca805282fc8dce61723d8b52b8a",
+      "disposition": "fixture"
+    },
+    {
+      "id": "code-384",
+      "rule": "python/HardcodedNonCryptoSecret/test",
+      "severity": "note",
+      "path": "tests/split_conformance/test_split_conformance.py",
+      "line": 98,
+      "symbol": "<module>",
+      "source_sha256": "20cbc592e65343c82627e5a0805ce60a573f405101b6a013b29f37c7fa71bb48",
+      "disposition": "fixture"
+    }
+  ],
+  "repeat_code_scan": {
+    "source_tree": "90d9d559e21b864f4269af01a2de3422c4284072",
+    "sarif_sha256": "d2463a5bc5a6ed9312f4a7e4ee39854183e2665b44d87ca39626214651582113",
+    "results": 370,
+    "severity": {
+      "note": 290,
+      "warning": 72,
+      "error": 8
+    },
+    "ignored": 0,
+    "new_rule_file_pairs": 0,
+    "remaining_sanitized_sinks": [
+      "The three SQL results remain flagged despite Identifier/escaped-double-quote composition; real PostgreSQL regressions verify them.",
+      "The three tar extraction results consolidate into one helper; Snyk still flags extractall despite the explicit data filter."
+    ],
+    "review": "All remaining rule/file pairs are covered by the original per-finding dispositions. Nine DOM results, two non-security hashes, one permission result and two duplicate tar sites disappear without ignores."
+  },
+  "containers": {
+    "admin_before": {
+      "image": "docker-image|sandloom-admin",
+      "platform": "linux/arm64",
+      "os": {
+        "prettyName": "Alpine Linux v3.24"
+      },
+      "dependencies": 70,
+      "unique_advisories": 27,
+      "severity": {
+        "critical": 1,
+        "low": 25,
+        "high": 1
+      },
+      "report_sha256": "eab83776d901bdd834113ae4b39bc78d83ea7197b73a6c445e8183d6c71c9bb0",
+      "findings": [
+        {
+          "id": "SNYK-ALPINE324-BROTLI-21483816",
+          "package": "brotli",
+          "version": "1.2.0-r1",
+          "severity": "critical",
+          "fixed_in": [
+            "1.2.1-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-BROTLI-21483816",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709298",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709298",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709299",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709299",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709301",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709301",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709302",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709302",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709303",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709303",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709304",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709304",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709305",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709305",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709306",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709306",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709307",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709307",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709308",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709308",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709309",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709309",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709314",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709314",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709317",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709317",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709318",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709318",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709319",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709319",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709320",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709320",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709322",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709322",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709329",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709329",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709330",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709330",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709333",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709333",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709341",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709341",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709343",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709343",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709344",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709344",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-CURL-21709345",
+          "package": "curl",
+          "version": "8.22.0-r0",
+          "severity": "low",
+          "fixed_in": [
+            "8.23.0-r0"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-CURL-21709345",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-MUSL-21430842",
+          "package": "musl",
+          "version": "1.2.6-r2",
+          "severity": "low",
+          "fixed_in": [
+            "1.2.6-r3"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-MUSL-21430842",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        },
+        {
+          "id": "SNYK-ALPINE324-ZLIB-20541555",
+          "package": "zlib",
+          "version": "1.3.2-r0",
+          "severity": "high",
+          "fixed_in": [
+            "1.3.2-r1"
+          ],
+          "advisory": "https://security.snyk.io/vuln/SNYK-ALPINE324-ZLIB-20541555",
+          "status": "fixed",
+          "evidence": "admin/Dockerfile; exact signed Alpine backports, repeat image scan has zero advisories; both proxy topology smokes pass as UID 101."
+        }
+      ]
+    },
+    "admin_after": {
+      "image": "docker-image|sandloom-admin",
+      "platform": "linux/arm64",
+      "os": {
+        "prettyName": "Alpine Linux v3.24"
+      },
+      "dependencies": 70,
+      "unique_advisories": 0,
+      "severity": {},
+      "report_sha256": "6d0d47647251626713df310cca77ad3cba60df40c6bc49202cd2ecebc95792fd",
+      "findings": []
+    },
+    "backend": {
+      "image": "docker-image|sandloom-backend",
+      "platform": "linux/arm64",
+      "os": {
+        "prettyName": "Debian GNU/Linux 13 (trixie)"
+      },
+      "dependencies": 87,
+      "unique_advisories": 68,
+      "severity": {
+        "high": 3,
+        "medium": 1,
+        "low": 64
+      },
+      "report_sha256": "32266ae27b21b5e6daeab1a6565cd06d373f8b710c1d194ae3e4c616c78b774a",
+      "findings": [
+        {
+          "id": "SNYK-DEBIAN13-ACL-17677866",
+          "package": "acl",
+          "version": "2.3.2-2+b1",
+          "severity": "high",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-ACL-17677866",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan.",
+          "context": "Local pathname/ACL issue requires a privileged caller over attacker-controlled paths; Sandloom runtime uses UID 10001. Debian defers the stable ABI update.",
+          "references": [
+            "https://security-tracker.debian.org/tracker/CVE-2026-54369"
+          ]
+        },
+        {
+          "id": "SNYK-DEBIAN13-ACL-17677882",
+          "package": "acl",
+          "version": "2.3.2-2+b1",
+          "severity": "medium",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-ACL-17677882",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-APT-5675173",
+          "package": "apt",
+          "version": "3.0.3",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-APT-5675173",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-ATTR-17678182",
+          "package": "attr",
+          "version": "1:2.5.2-3",
+          "severity": "high",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-ATTR-17678182",
+          "status": "not_affected_utility_absent",
+          "rationale": "This advisory concerns privileged getfattr/setfattr invocations. Neither utility is installed; the runtime contains libattr1 only and runs as appuser. Snyk source-package warning remains visible.",
+          "references": [
+            "https://security-tracker.debian.org/tracker/CVE-2026-54371"
+          ]
+        },
+        {
+          "id": "SNYK-DEBIAN13-BZIP2-17099839",
+          "package": "bzip2",
+          "version": "1.0.8-6",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-BZIP2-17099839",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-COREUTILS-10259260",
+          "package": "coreutils",
+          "version": "9.7-3",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-COREUTILS-10259260",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-COREUTILS-18299902",
+          "package": "coreutils",
+          "version": "9.7-3",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-COREUTILS-18299902",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-COREUTILS-18299912",
+          "package": "coreutils",
+          "version": "9.7-3",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-COREUTILS-18299912",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-COREUTILS-5673914",
+          "package": "coreutils",
+          "version": "9.7-3",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-COREUTILS-5673914",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-DASH-20335454",
+          "package": "dash",
+          "version": "0.5.12-12",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-DASH-20335454",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-DASH-20335455",
+          "package": "dash",
+          "version": "0.5.12-12",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-DASH-20335455",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-DIFFUTILS-18235274",
+          "package": "diffutils",
+          "version": "1:3.10-4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-DIFFUTILS-18235274",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GCC14-20335537",
+          "package": "gcc-14",
+          "version": "14.2.0-19",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GCC14-20335537",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GCC14-20386241",
+          "package": "gcc-14",
+          "version": "14.2.0-19",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GCC14-20386241",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-16325153",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-16325153",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-16325161",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-16325161",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-18605790",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-18605790",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-18612523",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-18612523",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19233584",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19233584",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19269961",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19269961",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19339206",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19339206",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19383357",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19383357",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19402190",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19402190",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19684421",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19684421",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-19885967",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-19885967",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-20046937",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-20046937",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-20046940",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-20046940",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-20197706",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-20197706",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-22083454",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-22083454",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5680884",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5680884",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681058",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681058",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681145",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681145",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681177",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681177",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681215",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681215",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681241",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681241",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-GLIBC-5681256",
+          "package": "glibc",
+          "version": "2.41-12+deb13u4",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-GLIBC-5681256",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-NCURSES-10378958",
+          "package": "ncurses",
+          "version": "6.5+20250216-2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-NCURSES-10378958",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-NCURSES-15762838",
+          "package": "ncurses",
+          "version": "6.5+20250216-2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-NCURSES-15762838",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-PAM-17339897",
+          "package": "pam",
+          "version": "1.7.0-5",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-PAM-17339897",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-PERL-17037374",
+          "package": "perl",
+          "version": "5.40.1-6+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-PERL-17037374",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-PERL-18600690",
+          "package": "perl",
+          "version": "5.40.1-6+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-PERL-18600690",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-PERL-19957687",
+          "package": "perl",
+          "version": "5.40.1-6+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-PERL-19957687",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-PERL-5692251",
+          "package": "perl",
+          "version": "5.40.1-6+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-PERL-5692251",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SHADOW-5695385",
+          "package": "shadow",
+          "version": "1:4.17.4-2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SHADOW-5695385",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SHADOW-8551157",
+          "package": "shadow",
+          "version": "1:4.17.4-2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SHADOW-8551157",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SQLITE3-15682562",
+          "package": "sqlite3",
+          "version": "3.46.1-7+deb13u2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SQLITE3-15682562",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SQLITE3-17975833",
+          "package": "sqlite3",
+          "version": "3.46.1-7+deb13u2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SQLITE3-17975833",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SQLITE3-17975841",
+          "package": "sqlite3",
+          "version": "3.46.1-7+deb13u2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SQLITE3-17975841",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SQLITE3-5696112",
+          "package": "sqlite3",
+          "version": "3.46.1-7+deb13u2",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SQLITE3-5696112",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-16009572",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-16009572",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-18867639",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-18867639",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-18913924",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-18913924",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-5696564",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-5696564",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-5733389",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-5733389",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-5733399",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-5733399",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-SYSTEMD-5733401",
+          "package": "systemd",
+          "version": "257.13-1~deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-SYSTEMD-5733401",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-TAR-15962848",
+          "package": "tar",
+          "version": "1.35+dfsg-3.1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-TAR-15962848",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-TAR-18515585",
+          "package": "tar",
+          "version": "1.35+dfsg-3.1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-TAR-18515585",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-TAR-18515588",
+          "package": "tar",
+          "version": "1.35+dfsg-3.1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-TAR-18515588",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-TAR-5696683",
+          "package": "tar",
+          "version": "1.35+dfsg-3.1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-TAR-5696683",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-15358019",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-15358019",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-19513279",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-19513279",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-19513282",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-19513282",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-19513289",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-19513289",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-19513292",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-19513292",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-UTILLINUX-5698535",
+          "package": "util-linux",
+          "version": "2.41.5-0+deb13u1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-UTILLINUX-5698535",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-ZLIB-15307854",
+          "package": "zlib",
+          "version": "1:1.3.dfsg+really1.3.1-1+b1",
+          "severity": "low",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-ZLIB-15307854",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan."
+        },
+        {
+          "id": "SNYK-DEBIAN13-ZLIB-19520500",
+          "package": "zlib",
+          "version": "1:1.3.dfsg+really1.3.1-1+b1",
+          "severity": "high",
+          "fixed_in": [],
+          "advisory": "https://security.snyk.io/vuln/SNYK-DEBIAN13-ZLIB-19520500",
+          "status": "open_no_stable_fix",
+          "rationale": "Snyk has no fixed Debian 13 package version. Retained visibly; not declared fixed or ignored. Do not mix unstable packages into the stable runtime to suppress the scan.",
+          "context": "Debian still marks stable zlib vulnerable; do not infer safety from the upstream version range alone.",
+          "references": [
+            "https://security-tracker.debian.org/tracker/CVE-2026-85091"
+          ]
+        }
+      ]
+    }
+  },
+  "validation": {
+    "framework": "sandloom test --full --ci: all 14 steps pass; full suite 5219 passed, 7 skipped, 1 xfailed",
+    "admin": "60 unit/compatibility tests, 26 browser scenarios, one real-backend owner scenario; lint, format, contracts, production/Storybook builds, npm audit pass",
+    "viewer": "9 Node tests including full exported HTML with hostile labels and documentation schemes",
+    "packages": "Four wheel/sdist pairs built; isolated base/standard installs, CLI and RPC smokes pass",
+    "site": "Strict unified site build and 14 published-site tests pass",
+    "containers": "Both admin proxy topologies pass before/after Alpine backports; nonroot/read-only and internal route denial preserved"
+  }
+}

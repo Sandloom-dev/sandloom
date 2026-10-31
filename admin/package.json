@@ -23,7 +23,7 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "test:live": "../.venv/bin/python ../tools/smoke/admin_live_acceptance.py",
-    "postinstall": "patch-package --error-on-fail && node --test scripts/dependency-compat.test.mjs"
+    "postinstall": "node scripts/apply-build-tool-patches.mjs && node --test scripts/dependency-compat.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "5.3.0",
@@ -63,7 +63,6 @@
     "globals": "17.13.0",
     "jsdom": "26.1.0",
     "openapi-typescript": "7.13.0",
-    "patch-package": "8.0.1",
     "prettier": "3.9.10",
     "storybook": "10.6.3",
     "tailwindcss": "4.3.3",
@@ -74,6 +73,7 @@
   },
   "overrides": {
     "glob": "14.0.2",
-    "minimatch": "11.0.1"
+    "minimatch": "11.0.1",
+    "uri-js": "npm:fast-uri@4.2.3"
   }
 }

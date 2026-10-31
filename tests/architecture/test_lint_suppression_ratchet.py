@@ -70,7 +70,7 @@ NOQA_BASELINE: dict[str, int] = {
     # +1: the split boot check (sandloom.core.testing.deploy_profile) runs `sandloom
     # doctor` per service in a fresh interpreter (sys.executable, fixed code).
     "S603": 5,
-    "S608": 25,
+    "S608": 22,
     "SIM102": 1,
 }
 

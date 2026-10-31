@@ -905,7 +905,9 @@ def agent_env(task: Task, label: str) -> dict[str, str]:
     take_over = True
     # Short: the harness's own tests append suffixes to the database name, and
     # PostgreSQL truncates identifiers at 63 bytes.
-    slug = hashlib.sha1(f"{label}/{task.id}".encode()).hexdigest()[:10]
+    slug = hashlib.sha1(
+        f"{label}/{task.id}".encode(), usedforsecurity=False
+    ).hexdigest()[:10]
     env.update(
         SANDLOOM_TEST_OWNER=owner,
         SANDLOOM_TEST_DATABASE_URL=f"{PG}/{DB_PREFIX}{slug}",
