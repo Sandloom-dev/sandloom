@@ -694,6 +694,13 @@ x-app-build: &app-build
   context: ..
   dockerfile: Dockerfile
 
+x-app-runtime: &app-runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+
 services:
   db:
     image: postgres:16-alpine
@@ -721,6 +728,7 @@ services:
 
   # One-shot schema migration: runs to completion before the app starts.
   migrate:
+    <<: *app-runtime
     build: *app-build
     command: ["sandloom", "migrate", "upgrade-all", "--apply"]
     environment:
@@ -732,6 +740,7 @@ services:
     restart: "no"
 
   app:
+    <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
     environment:
@@ -761,6 +770,7 @@ services:
   # Celery worker: the FRAMEWORK entrypoint boots $app.asgi (the same modules)
   # and registers each loaded module's tasks.py on the taskqueue's app.
   worker:
+    <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
     command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
@@ -786,6 +796,7 @@ services:
 
   # Exactly ONE beat per deployment (it schedules the modules' periodic tasks).
   beat:
+    <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
     command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
@@ -901,7 +912,7 @@ _DOCKERFILE = Template(
 # Production image for $app (mirrors the Sandloom framework image): a virtualenv
 # (/opt/venv) built by uv, byte-compiled, copied into a clean runtime with no
 # uv / pip, running as a non-root user.
-ARG PYTHON_IMAGE=python:3.12-slim
+ARG PYTHON_IMAGE=python:3.12.16-slim-trixie
 FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 # ---------- Stage 1: build the virtualenv ----------
@@ -943,6 +954,9 @@ RUN python -m pip uninstall -y -q pip setuptools wheel 2>/dev/null || true; \\
 # The application runs from the virtualenv: nothing of the build context is
 # copied into the runtime image.
 COPY --from=builder /opt/venv /opt/venv
+RUN python - <<'HARDEN'
+$runtime_hardening
+HARDEN
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$${PATH}" \\
     VIRTUAL_ENV=/opt/venv \\
@@ -1082,6 +1096,9 @@ def generate_project(
 
     ctx = {
         "app": app,
+        "runtime_hardening": (
+            Path(__file__).parent / "templates/deploy/harden_runtime.py"
+        ).read_text(),
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,

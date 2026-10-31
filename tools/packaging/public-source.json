@@ -2475,6 +2475,19 @@
         "tools/inspection/test_viewer.mjs",
         "src/sandloom/core/cli/inspection/viewer.layout.js"
       ]
+    },
+    {
+      "reason": "Runtime privilege hardening, per-CVE Debian evidence and reproducible security checks; no scanner suppressions.",
+      "paths": [
+        "design/security/debian-runtime-2026-10-31.md",
+        "src/sandloom/core/cli/templates/deploy/harden_runtime.py",
+        "tests/architecture/test_runtime_hardening.py",
+        "tools/checks/debian-runtime-review-2026-10-31.json",
+        "tools/checks/runtime_inventory.py",
+        "tools/checks/runtime_review.py",
+        "tools/checks/zlib_source_evidence.py",
+        "design/security/runtime-validation-2026-10-31.json"
+      ]
     }
   ],
   "exclude_files": {

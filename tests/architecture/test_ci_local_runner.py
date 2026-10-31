@@ -562,3 +562,39 @@ def test_export_does_not_inherit_a_hook_repository(
         ).strip()
         == "exported.txt"
     )
+
+
+def test_host_runtime_probe_uses_the_image_built_by_its_own_job(
+    ci_local: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe must use this run's image instead of a stale shared Docker tag."""
+    from types import SimpleNamespace
+
+    calls = []
+
+    def command(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(ci_local.subprocess, "run", command)
+    run = SimpleNamespace(
+        tmp=tmp_path, run_id="unique-test-run", timeout_scale=1, sha="0" * 40, images=[]
+    )
+    spec = next(j for j in ci_local.local_jobs(REPO) if j.name == "docker-build")
+    job = ci_local.HostJob(run, spec, io.StringIO(), ci_local.JobResult("docker-build"))
+    job.dir.mkdir()
+    build = next(
+        s
+        for s in spec.body["steps"]
+        if str(s.get("uses", "")).startswith("docker/build-push-action@")
+    )
+    probe = next(
+        s
+        for s in spec.body["steps"]
+        if s.get("name") == "Verify runtime privilege and filesystem boundary"
+    )
+    assert job.uses(build)
+    built = calls[-1][calls[-1].index("-t") + 1]
+    assert job.run_step(probe, job.ctx())
+    assert built in calls[-1][-1]
+    assert "sandloom-backend:ci - " not in calls[-1][-1]
