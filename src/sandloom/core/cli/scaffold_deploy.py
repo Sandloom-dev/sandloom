@@ -422,7 +422,7 @@ def _worker_blocks(svc: Service) -> list[str]:
     if topo.tasks or topo.periodic:
         out += [
             f"{_I}{svc.name}-worker:",
-            f"{i2}<<: *service-runtime",
+            f"{i2}<<: *app-runtime",
             f"{i2}image: *image",
             f"{i2}build: *build",
             f"{i2}volumes:",
@@ -453,7 +453,7 @@ def _worker_blocks(svc: Service) -> list[str]:
     if topo.periodic:
         out += [
             f"{_I}{svc.name}-beat:",
-            f"{i2}<<: *service-runtime",
+            f"{i2}<<: *app-runtime",
             f"{i2}image: *image",
             f"{i2}build: *build",
             f"{i2}volumes:",

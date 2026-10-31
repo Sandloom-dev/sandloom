@@ -64,6 +64,14 @@ x-service-runtime: &service-runtime
       max-size: "10m"
       max-file: "3"
 
+x-app-runtime: &app-runtime
+  <<: *service-runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+
 # Settings shared by EVERY process (services, migrations, workers, beat).
 # Anything security/auth-relevant lives HERE, never in a per-service block:
 # a token minted by the issuer is verified by every service, so the JWT
@@ -145,7 +153,7 @@ x-common-env: &common-env
 
 # HTTP service template (environment supplied per service).
 x-http-service: &http-service
-  <<: *service-runtime
+  <<: *app-runtime
   image: *image
   build: *build
   volumes:
@@ -194,6 +202,7 @@ x-worker-env: &worker-env
 # module chains, into the service's own database, created first when missing
 # (init-databases.sh runs only on an empty volume; a service added later).
 x-migrate: &migrate
+  <<: *app-runtime
   image: *image
   build: *build
   command: ["sandloom", "migrate", "upgrade-all", "--apply", "--create-databases"]

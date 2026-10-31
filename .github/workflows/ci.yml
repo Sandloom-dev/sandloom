@@ -936,6 +936,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+
+      - name: Verify runtime privilege and filesystem boundary
+        run: >-
+          docker run --rm -i --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges:true
+          --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+          --tmpfs /app/data:rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700
+          --entrypoint python sandloom-backend:ci - --enforce
+          < tools/checks/runtime_inventory.py > runtime-inventory.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-security-inventory
+          path: runtime-inventory.json
+          retention-days: 7
+
   admin-contracts:
     # The admin console's generated contracts are current: contracts/openapi.json
     # is what the backend serves and src/api/generated.ts is what

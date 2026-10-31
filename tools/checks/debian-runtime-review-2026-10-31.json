@@ -1,0 +1,3041 @@
+{
+  "schema": 1,
+  "review_date": "2026-10-31",
+  "baseline_image": "sandloom-backend:snyk-audit-20261031",
+  "baseline_platform": "linux/arm64",
+  "purpose": "Per-finding applicability and remediation evidence for all 68 original Debian advisories. This is not a scanner ignore policy, vulnerability-free certification, or automatic acceptance of unresolved risks.",
+  "method": [
+    "Read every CVE record directly from Debian Security Tracker and cross-check stable/unstable status against its official JSON export.",
+    "Inspect affected functionality and component presence in the actual baseline image.",
+    "Retain conditional or unresolved live-library findings; no low-severity blanket dismissal.",
+    "Parent independently authenticated exact zlib source and installed arm64 binary; classification remains provisional while Debian still reports vulnerable."
+  ],
+  "tracker_snapshot": {
+    "url": "https://security-tracker.debian.org/tracker/data/json",
+    "sha256": "ebd642fafe805d356f0e959c9f7de42ed33b81875b5a12bd7957ff1ce9817e34"
+  },
+  "summary": {
+    "open_local_privileged_path": 2,
+    "not_affected_component_absent": 15,
+    "open_unused_tool": 15,
+    "under_investigation": 3,
+    "open_live_library": 2,
+    "open_no_identified_framework_path": 12,
+    "open_operator_configuration": 3,
+    "privilege_mitigation_required": 7,
+    "not_affected_architecture": 1,
+    "upstream_disputed": 7,
+    "not_affected_component_not_built": 1
+  },
+  "three_high": {
+    "CVE-2026-54369": "open_local_privileged_path",
+    "CVE-2026-54371": "not_affected_component_absent",
+    "CVE-2026-85091": "under_investigation"
+  },
+  "zlib_evidence": {
+    "source_version": "1:1.3.dfsg+really1.3.1-1",
+    "source_orig_sha256": "60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb",
+    "debian_packaging_sha256": "9ed525955ce9fb0c1b39be8ff98f73450dbfc6305a9a27e6149c8972d38a0a9e",
+    "dsc_sha256": "ede2791e29c1d3b422f9208bdd7edf040c20445ea1e7453a72037576e64fa197",
+    "arm64_deb_sha256": "209aa5cf671e97b9eb0410844fa6df4cae2e75b0c72e7802ab6c8ece13e6ddef",
+    "installed_libz_sha256": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65",
+    "debian_patch_series": "empty",
+    "vulnerable_nonblocking_mechanism_present": false,
+    "vendor_status": "open; retain under_investigation until vendor adjudication or stable fix",
+    "references": [
+      "https://security-tracker.debian.org/tracker/CVE-2026-85091",
+      "https://github.com/madler/zlib/commit/81cc0bebedd935daeb81b0b6e475d8786b51af3d",
+      "https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148"
+    ]
+  },
+  "findings": [
+    {
+      "id": "SNYK-DEBIAN13-ACL-17677866",
+      "cve": "CVE-2026-54369",
+      "severity": "high",
+      "source_package": "acl",
+      "baseline_binary_version": "2.3.2-2+b1",
+      "affected_functionality": "Path-based libacl ACL operations follow attacker-replaced symlinks.",
+      "assessment_status": "open_local_privileged_path",
+      "assessment": "libacl1 is installed; Sandloom has no identified ACL call site. Nonroot limits privileges, but library presence alone cannot establish non-applicability for arbitrary application code.",
+      "recommended_remediation": "Remove unused libacl only if package dependencies permit; otherwise enforce no-new-privileges, no capabilities and a read-only root filesystem, then install a supported stable ACL update when available.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.3.2-2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Will be fixed first in unstable, then point release update; not to be backported by individual patches",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.4.0-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-54369"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-54369",
+        "https://github.com/search?type=Code&q=%22CVE-2026-54369%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-54369%22",
+        "https://www.openwall.com/lists/oss-security/2026/06/29/1",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=5906d2868ec8d3b08be556153696e6b1122eeeda",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=0071c6d1fea0a8a6270333baa85fb609be325c26",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=170dbd3beff9bd5bdab3f72db1a04bf282f6087c"
+      ],
+      "debian_record_sha256": "4677cdb2b848eca7bc76f57dd54e5d01e309f438bba58d892550db432fbde5ca",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-ACL-17677882",
+      "cve": "CVE-2026-54370",
+      "severity": "medium",
+      "source_package": "acl",
+      "baseline_binary_version": "2.3.2-2+b1",
+      "affected_functionality": "Recursive getfacl/setfacl/chacl tree walking has a TOCTOU race.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "The getfacl, setfacl and chacl executables are absent. The affected CLI walk_tree component is separate from the installed libacl shared library.",
+      "recommended_remediation": "Assert these tools remain absent; a future image that installs the acl utilities must reopen this assessment.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.3.2-2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Will be fixed first in unstable, then point release update; not to be backported by individual patches",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.4.0-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-54370"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-54370",
+        "https://github.com/search?type=Code&q=%22CVE-2026-54370%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-54370%22",
+        "https://www.openwall.com/lists/oss-security/2026/06/29/1",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=601cc884a548ae9e9d246ae749e54b3272e4b1d7",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=54e14e9bc545f505b379d0792a2748d9baf88700",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=2c03ceefa0610d551d9cc089ce0a404cbe2d34b4",
+        "https://cgit.git.savannah.nongnu.org/cgit/acl.git/commit/?id=2ee940139e9bba5005a3d987a6daecdda909089e"
+      ],
+      "debian_record_sha256": "36c932e9051decbe74a402bbe4df1e60f52a17c39cab2785b83901467b36758e",
+      "verification_predicates": [
+        "absent-acl-tools"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-APT-5675173",
+      "cve": "CVE-2011-3374",
+      "severity": "low",
+      "source_package": "apt",
+      "baseline_binary_version": "3.0.3",
+      "affected_functionality": "apt-key key validation can accept an incorrectly trusted key.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "apt-key is absent. Builds use the signed Debian archive keyring through APT; the runtime has no reason to manage keys or install packages.",
+      "recommended_remediation": "Remove APT from the runtime when dependency checks allow; verify apt-key remains absent. Do not weaken signed repository verification in the build stage.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.0.3"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2011-3374"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2011-3374",
+        "https://github.com/search?type=Code&q=%22CVE-2011-3374%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2011-3374%22"
+      ],
+      "debian_record_sha256": "8b856fee63fa6fe5d6f580cc402e24566b4a2a3da4a801de1e22521c14bb8063",
+      "verification_predicates": [
+        "absent-apt-key"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-ATTR-17678182",
+      "cve": "CVE-2026-54371",
+      "severity": "high",
+      "source_package": "attr",
+      "baseline_binary_version": "1:2.5.2-3",
+      "affected_functionality": "getfattr/setfattr recursive pathname traversal follows symlinks under a privileged caller.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "Both getfattr and setfattr are absent; libattr1 presence is a source-package match, not presence of the affected utilities.",
+      "recommended_remediation": "Assert both utilities remain absent and bind the finding assessment to the image inventory; reopen if the attr tools are added.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:2.5.2-3"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Will be fixed first in unstable, then point release update; not to be backported by individual patches",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "1:2.6.0-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-54371"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-54371",
+        "https://github.com/search?type=Code&q=%22CVE-2026-54371%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-54371%22",
+        "https://www.openwall.com/lists/oss-security/2026/06/29/1",
+        "https://cgit.git.savannah.nongnu.org/cgit/attr.git/commit/?id=641ea6fcc556c1f34b77efb9cd3f876dff0a0a07",
+        "https://cgit.git.savannah.nongnu.org/cgit/attr.git/commit/?id=3fb06b9ba314d37035d0877e6de313de754f1ac8"
+      ],
+      "debian_record_sha256": "8ef9888ae918a3a3ed6a43c64ad3b1cae6aea82c4bae6c7c6af873af17d8a265",
+      "verification_predicates": [
+        "absent-attr-tools"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-BZIP2-17099839",
+      "cve": "CVE-2026-42250",
+      "severity": "low",
+      "source_package": "bzip2",
+      "baseline_binary_version": "1.0.8-6",
+      "affected_functionality": "bzip2recover overflows a buffer while recovering a crafted bzip2 stream.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "bzip2recover is absent. CPython retains libbz2 for normal bz2 compression; the recovery utility is not that library API.",
+      "recommended_remediation": "Keep the recovery utility absent; preserve Python bz2 functionality. Reopen if recovery tooling is installed.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.0.8-6"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-42250"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-42250",
+        "https://github.com/search?type=Code&q=%22CVE-2026-42250%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-42250%22",
+        "https://inbox.sourceware.org/bzip2-devel/20260528145407.293768-1-mark@klomp.org/",
+        "https://sourceware.org/cgit/bzip2/commit/?id=35d122a3df8b0cc4082a4d89fdc6ee99f375fe67"
+      ],
+      "debian_record_sha256": "498b572f4d30aaefd631fc9d4e313b45e223149d1a21b5ff9056771bb7c96fdb",
+      "verification_predicates": [
+        "absent-bzip2recover"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-COREUTILS-10259260",
+      "cve": "CVE-2025-5278",
+      "severity": "low",
+      "source_package": "coreutils",
+      "baseline_binary_version": "9.7-3",
+      "affected_functionality": "sort legacy key parsing can read before its buffer.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "sort is installed with coreutils, but no Sandloom request path invokes sort on user-selected arguments. coreutils is Debian Essential.",
+      "recommended_remediation": "Remove or replace the unused tool only through a reviewed minimal-runtime contract; otherwise avoid untrusted argument execution and await a supported upstream/stable update.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "9.7-3"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2025-5278"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2025-5278",
+        "https://github.com/search?type=Code&q=%22CVE-2025-5278%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2025-5278%22",
+        "https://www.openwall.com/lists/oss-security/2025/05/27/2"
+      ],
+      "debian_record_sha256": "ba7d8ffa759e35026eeda6bf2a8ce0b057ca6ca9f245ed775da548622f8e9106",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-COREUTILS-18299902",
+      "cve": "CVE-2026-56391",
+      "severity": "low",
+      "source_package": "coreutils",
+      "baseline_binary_version": "9.7-3",
+      "affected_functionality": "uniq multibyte handling with --check-chars can over-read a comparison buffer.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "uniq is installed. No framework call passes user-controlled input/options to it.",
+      "recommended_remediation": "Remove unused uniq in a reviewed minimal image, or retain the finding until a stable fix; do not expose its command-line options through an application endpoint.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "9.7-3"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-56391"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-56391",
+        "https://github.com/search?type=Code&q=%22CVE-2026-56391%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-56391%22",
+        "https://www.openwall.com/lists/oss-security/2026/07/25/2"
+      ],
+      "debian_record_sha256": "23cc4d3918807c145599a4421d05db88729a5e29a891e099ff13b846e0679479",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-COREUTILS-18299912",
+      "cve": "CVE-2026-56392",
+      "severity": "low",
+      "source_package": "coreutils",
+      "baseline_binary_version": "9.7-3",
+      "affected_functionality": "unexpand tab-stop allocation can overflow for very large -t values.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "unexpand is installed. The framework does not invoke it.",
+      "recommended_remediation": "Remove unused unexpand in a reviewed minimal image, or await a stable fix; command argument allowlists remain required for applications using it.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "9.7-3"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-56392"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-56392",
+        "https://github.com/search?type=Code&q=%22CVE-2026-56392%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-56392%22",
+        "https://www.openwall.com/lists/oss-security/2026/07/25/2"
+      ],
+      "debian_record_sha256": "adbdfe00e2aa6eb512f6b205d2154fe8dbd4b5271a23c2632e6bdf39a78038ef",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-COREUTILS-5673914",
+      "cve": "CVE-2017-18018",
+      "severity": "low",
+      "source_package": "coreutils",
+      "baseline_binary_version": "9.7-3",
+      "affected_functionality": "Recursive chown/chgrp with symlink-following options can race directory replacement.",
+      "assessment_status": "open_local_privileged_path",
+      "assessment": "coreutils is installed; runtime startup does not recursively chown user-controlled trees. Application files should be owned during image build.",
+      "recommended_remediation": "Drop runtime capabilities and privilege gains; perform required ownership setup only during build. Removing unused ownership tools reduces surface but does not imply library fixes.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "9.7-3"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2017-18018"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2017-18018",
+        "https://github.com/search?type=Code&q=%22CVE-2017-18018%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2017-18018%22",
+        "https://www.openwall.com/lists/oss-security/2018/01/04/3"
+      ],
+      "debian_record_sha256": "e4e00ef55d7630263d35ffe2d6799ecb088a19a3c7c589232e51e022dd639c85",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-DASH-20335454",
+      "cve": "CVE-2026-102473",
+      "severity": "low",
+      "source_package": "dash",
+      "baseline_binary_version": "0.5.12-12",
+      "affected_functionality": "dash internal pmatch recursion can consume excessive CPU for crafted glob patterns.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "dash is installed as the default shell. Runtime commands use explicit argument lists; no identified request path feeds it user-authored shell patterns. Build configuration of fnmatch was not independently established.",
+      "recommended_remediation": "Use exec-form healthchecks and commands; remove a shell only after verifying operator/CLI compatibility, or await a stable fix. Do not classify absence of the vulnerable build option without evidence.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "0.5.12-12"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-102473"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-102473",
+        "https://github.com/search?type=Code&q=%22CVE-2026-102473%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-102473%22"
+      ],
+      "debian_record_sha256": "013fdfc57a2ff122a56c38dfe1f456d772f7eaefc3969bc5847267e1f4edd4fb",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-DASH-20335455",
+      "cve": "CVE-2026-102474",
+      "severity": "low",
+      "source_package": "dash",
+      "baseline_binary_version": "0.5.12-12",
+      "affected_functionality": "dash printf/echo Unicode escapes can overflow a conversion reservation.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "dash exists; no Sandloom request path constructs shell Unicode escapes.",
+      "recommended_remediation": "Prefer exec-form process invocations, remove the unused shell only with compatibility tests, or await a stable fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "0.5.12-12"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-102474"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-102474",
+        "https://github.com/search?type=Code&q=%22CVE-2026-102474%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-102474%22"
+      ],
+      "debian_record_sha256": "e4076cd8f7e5a6f02ef5850c7ccc0e77fce09ee208cb0f1002d1a0cf13d88133",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-DIFFUTILS-18235274",
+      "cve": "CVE-2026-53910",
+      "severity": "low",
+      "source_package": "diffutils",
+      "baseline_binary_version": "1:3.10-4",
+      "affected_functionality": "diff3 line mapping overflows while processing attacker-controlled diff output.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "diff3 is installed from the Essential diffutils package; the backend does not invoke it.",
+      "recommended_remediation": "Remove unused diff tooling through a reviewed runtime minimization; otherwise retain the open warning and do not process untrusted diff-program commands.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:3.10-4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-53910"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-53910",
+        "https://github.com/search?type=Code&q=%22CVE-2026-53910%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-53910%22"
+      ],
+      "debian_record_sha256": "009545bf64b158c2248f736c6ea2fb67f566d09904891681f94a324012161425",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GCC14-20335537",
+      "cve": "CVE-2026-102010",
+      "severity": "low",
+      "source_package": "gcc-14",
+      "baseline_binary_version": "14.2.0-19",
+      "affected_functionality": "GNU C++ policy-based binary heap erase_if reallocates without updating an entry pointer.",
+      "assessment_status": "under_investigation",
+      "assessment": "gcc-14-base/libgcc/libstdc++ produce a source-package match. No C++ development headers or identified framework caller exercise the policy-based heap; precompiled extension template use has not been exhaustively proved absent.",
+      "recommended_remediation": "Audit native extension dependencies/templates before declaring non-applicability; remove unused C++ libraries only after loader checks, otherwise await a supported stable compiler/runtime update.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "14.2.0-19"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "14.4.0-3",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-102010"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-102010",
+        "https://github.com/search?type=Code&q=%22CVE-2026-102010%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-102010%22",
+        "https://gcc.gnu.org/bugzilla/show_bug.cgi?id=127656",
+        "https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=aaa8351f4d2e636f9680a1f0a8ebc2f0a60611e6",
+        "https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=4fcaf5b1154d9cb929c5e47b509f59a801e94a5c",
+        "https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=29e51a820d76c766ae417fcba912714337b0eb17"
+      ],
+      "debian_record_sha256": "4dfe5f35a8a136a6101c66bf6b6231f8a7de500b77f8c50a08f25c6deeeb07ea",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GCC14-20386241",
+      "cve": "CVE-2026-95619",
+      "severity": "low",
+      "source_package": "gcc-14",
+      "baseline_binary_version": "14.2.0-19",
+      "affected_functionality": "C++ aligned operator new can overflow allocation arithmetic for large sizes.",
+      "assessment_status": "open_live_library",
+      "assessment": "libstdc++6 is installed. The framework is Python, but native extensions may link C++ code; there is no blanket absence claim.",
+      "recommended_remediation": "Check native extension linkage before removing libstdc++; otherwise await a stable library fix and constrain attacker-controlled allocation sizes.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "14.2.0-19"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "14.4.0-3",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-95619"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-95619",
+        "https://github.com/search?type=Code&q=%22CVE-2026-95619%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-95619%22",
+        "https://github.com/gcc-mirror/gcc/commit/59d235ffa5a69231eb42e5290d52dc8c90d28b7a",
+        "https://github.com/gcc-mirror/gcc/commit/d6f4bc858383e071b1a1e2b303f6622b614c37a1",
+        "https://github.com/gcc-mirror/gcc/commit/638de129df3a22917ff2eda13bd0fd861ca9befc",
+        "https://github.com/gcc-mirror/gcc/commit/200183d4ab5d57575f3dfebc6af3baf649910b9e"
+      ],
+      "debian_record_sha256": "7faa4eb8e8873eb30dd30fea4202dbb4882cffc42a24f70cd31da2049363eaf1",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-16325153",
+      "cve": "CVE-2026-6238",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Deprecated DNS debug printers fail to validate resource-record lengths.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The affected debug APIs are not the normal DNS resolver path. No framework DNS-debug-print call is identified; libc remains installed.",
+      "recommended_remediation": "Keep the warning open unless all native callers are excluded; await the announced stable glibc point update and avoid deprecated debug APIs.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-3",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-6238"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-6238",
+        "https://github.com/search?type=Code&q=%22CVE-2026-6238%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-6238%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34069",
+        "https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=advisories/GLIBC-SA-2026-0012"
+      ],
+      "debian_record_sha256": "b2e9c31388df4262186d0645acff6fc7994b53511e4a04f4d4468e5bca7f6343",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-16325161",
+      "cve": "CVE-2026-5435",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Deprecated DNS debug printers can write beyond the caller-supplied buffer.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Normal getaddrinfo resolution is not the reported debug-print API. No identified framework caller uses the deprecated printers.",
+      "recommended_remediation": "Await the stable glibc point update; eliminate debug-printer callers if an application adds them.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-3",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-5435"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-5435",
+        "https://github.com/search?type=Code&q=%22CVE-2026-5435%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-5435%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34033",
+        "https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=advisories/GLIBC-SA-2026-0011"
+      ],
+      "debian_record_sha256": "2361f3d31bc16c0ed30e5f79e4398e73155b117f7c2097c4208f9d756cdd0959",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-18605790",
+      "cve": "CVE-2026-6791",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "wordexp tilde-username parsing can exhaust stack allocation.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Python shell/path expansion is not automatically libc wordexp. No framework wordexp/FFI call was found; arbitrary native applications remain outside that claim.",
+      "recommended_remediation": "Keep libc, avoid exposing wordexp to unbounded user input, and update with the stable glibc point release.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-3",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-6791"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-6791",
+        "https://github.com/search?type=Code&q=%22CVE-2026-6791%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-6791%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34091",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0013"
+      ],
+      "debian_record_sha256": "b90c441e5a74f8025eb132fbc1156d06771123f95cbc48cc5aaa1174cd34a096",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-18612523",
+      "cve": "CVE-2026-6368",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "wordexp with WRDE_APPEND can leave invalid data for wordfree.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "No Sandloom wordexp/wordfree caller is identified.",
+      "recommended_remediation": "Avoid the affected API sequence; update with the stable glibc point release.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-4",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-6368"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-6368",
+        "https://github.com/search?type=Code&q=%22CVE-2026-6368%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-6368%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34090",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0014"
+      ],
+      "debian_record_sha256": "a8c3722420dc1aefb9b9953e3be13e4784264c49b9bee8975739a0370c66b0dd",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19233584",
+      "cve": "CVE-2026-19542",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "tdelete deep-tree rebalancing can overrun an explicit parent stack.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The report needs a native tsearch/tdelete tree with very many insertions/deletions. Python collections are not this API; no framework caller is identified.",
+      "recommended_remediation": "Audit any future native tree users and update with the stable glibc point release; do not remove libc.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-4",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-19542"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-19542",
+        "https://github.com/search?type=Code&q=%22CVE-2026-19542%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-19542%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34506",
+        "https://sourceware.org/git/?p=glibc.git;a=commit;h=e2789c46e3bfdcd67a82bea9946b315c179e83d3",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0018"
+      ],
+      "debian_record_sha256": "dbcdf805c206777ed25f95e2fea9952a174b245e5dd69d212393e2f8f8a5af87",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19269961",
+      "cve": "CVE-2026-19499",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "strfmon/strfmon_l width padding can overflow an output buffer.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "No framework monetary formatting path calls these libc APIs; billing uses typed integer money values. Native callers are not exhaustively traced.",
+      "recommended_remediation": "Avoid unsafe native monetary formatting and install the stable glibc point update when released.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-5",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-19499"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-19499",
+        "https://github.com/search?type=Code&q=%22CVE-2026-19499%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-19499%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34510",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0017"
+      ],
+      "debian_record_sha256": "5ae203e2503db74b024563d3a6cbac974337438d5f3db69b93cbdd0ec38aecd7",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19339206",
+      "cve": "CVE-2026-77117",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "iconv SHIFT_JISX0213 conversion can fail to make progress.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "CPython codecs are not automatically libc iconv. No framework iconv or external conversion process is identified.",
+      "recommended_remediation": "Do not add unbounded untrusted iconv conversion paths; await the stable glibc update.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-5",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-77117"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-77117",
+        "https://github.com/search?type=Code&q=%22CVE-2026-77117%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-77117%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34556",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0019"
+      ],
+      "debian_record_sha256": "ed3ff25f7f5c15f2f957eb6beb981723cf305f53a86bdccff8a7d9cbe4a93004",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19383357",
+      "cve": "CVE-2026-18374",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "fopen with an effectively empty ,ccs= encoding mode can corrupt heap memory.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "No framework code constructs the glibc-specific ,ccs= mode from user input. Ordinary Python open calls do not establish this affected path.",
+      "recommended_remediation": "Keep file mode/encoding selection controlled and install the stable glibc update.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-5",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-18374"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-18374",
+        "https://github.com/search?type=Code&q=%22CVE-2026-18374%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-18374%22",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0015"
+      ],
+      "debian_record_sha256": "a00ae4be86617e03a5eca95bd14869a2baf5ea5ae196356c682f1de2c7117c9f",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19402190",
+      "cve": "CVE-2026-80489",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "iconv EUC_JISX0213 conversion can fail to make progress.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "No framework path invokes libc iconv on user-selected encodings; native caller coverage is not universal.",
+      "recommended_remediation": "Await the stable glibc point update and bound any application-specific conversion jobs.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-5",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-80489"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-80489",
+        "https://github.com/search?type=Code&q=%22CVE-2026-80489%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-80489%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34568",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0020"
+      ],
+      "debian_record_sha256": "c639e01a744829ce5bdb9a22e2eeebdbc33626ea2cb93c454b310626c9362032",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19684421",
+      "cve": "CVE-2026-89092",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "nscd can overflow a thread stack on a very large malicious DNS response.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "nscd is absent and is not the container DNS service. libc package matching alone does not install or run this daemon.",
+      "recommended_remediation": "Assert nscd remains absent; reopen if a DNS cache daemon is added.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-7",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-89092"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-89092",
+        "https://github.com/search?type=Code&q=%22CVE-2026-89092%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-89092%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34624",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0016"
+      ],
+      "debian_record_sha256": "31eb3351ac16b6b226841b8faf481de52043d50e94d7d65db3aba87325d31099",
+      "verification_predicates": [
+        "absent-nscd"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-19885967",
+      "cve": "CVE-2026-8674",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "glibc resolver initialization aborts for an excessively long search-domain configuration.",
+      "assessment_status": "open_operator_configuration",
+      "assessment": "The ordinary resolver is live. Trigger configuration comes from resolv.conf or LOCALDOMAIN, controlled by deployment rather than an HTTP caller.",
+      "recommended_remediation": "Validate deployment DNS search-domain lengths and environment overrides; await the stable glibc point update. Keep this as an open configuration-dependent issue.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-6",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-8674"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-8674",
+        "https://github.com/search?type=Code&q=%22CVE-2026-8674%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-8674%22",
+        "https://www.openwall.com/lists/oss-security/2026/09/17/4",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0021",
+        "https://sourceware.org/git/?p=glibc.git;a=commit;h=506ea57086bfb9ce3daff1c14246a1cb532aba0a"
+      ],
+      "debian_record_sha256": "254763c444adc3aad987289503312aecd31d3e8ef8aa952e3f171a91cdac29d0",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-20046937",
+      "cve": "CVE-2026-86805",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Dynamic loader $ORIGIN path checks can race path resolution for setuid/setgid programs.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "The attack requires an AT_SECURE executable and filesystem conditions. The baseline includes setuid/setgid utilities; nonroot alone is insufficient.",
+      "recommended_remediation": "Strip unused setuid/setgid bits and enforce no-new-privileges with dropped capabilities; retain the CVE until glibc is updated and verify both controls in the actual container.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-7",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-86805"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-86805",
+        "https://github.com/search?type=Code&q=%22CVE-2026-86805%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-86805%22",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0022",
+        "https://sourceware.org/git/?p=glibc.git;a=commit;h=ed0c137b97eb940b4b64981e84ed806d3276edd9"
+      ],
+      "debian_record_sha256": "dc3e479b2edf14d97823b10c1012e791e1473d61fb0be659e16e868c773a2127",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-20046940",
+      "cve": "CVE-2026-95818",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Dynamic loader $ORIGIN handling can overflow stack data for setuid/setgid programs.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "The dangerous context is AT_SECURE execution; baseline privilege-bearing utilities exist.",
+      "recommended_remediation": "Strip privilege bits and enforce no-new-privileges; await a stable glibc update. A mitigation is not an upstream fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-7",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-95818"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-95818",
+        "https://github.com/search?type=Code&q=%22CVE-2026-95818%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-95818%22",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0023",
+        "https://sourceware.org/git/?p=glibc.git;a=commit;h=ed0c137b97eb940b4b64981e84ed806d3276edd9"
+      ],
+      "debian_record_sha256": "88a593e9a655640e719f6f7bf985252e4569ec85acab41e5150498fb6c52f271",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-20197706",
+      "cve": "CVE-2026-97399",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Power8-optimized strncasecmp can read beyond a page boundary.",
+      "assessment_status": "not_affected_architecture",
+      "assessment": "The audited image is linux/arm64. The Power8 implementation is architecture-specific and is not the arm64 implementation.",
+      "recommended_remediation": "Verify image architecture in the evidence. Reopen for ppc64le or other Power builds; do not extrapolate this verdict to all architectures.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": true
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.43-7",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-97399"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-97399",
+        "https://github.com/search?type=Code&q=%22CVE-2026-97399%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-97399%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=34683",
+        "https://sourceware.org/git/?p=glibc.git;a=blob;f=advisories/GLIBC-SA-2026-0024"
+      ],
+      "debian_record_sha256": "3fc856316476a66d6279a005beb47d499a7b486b870a6c072424b4a32b20a5b6",
+      "verification_predicates": [
+        "not-power8"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-22083454",
+      "cve": "CVE-2026-84243",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "gettext LANGUAGE entries can select an arbitrary message catalog outside expected locations.",
+      "assessment_status": "open_operator_configuration",
+      "assessment": "LANGUAGE is an operator/process environment setting, not an HTTP parameter. Untrusted application code can still manipulate its own environment; libc remains installed.",
+      "recommended_remediation": "Control locale-related environment values and writable paths; do not allow request input to select message-catalog paths. Await upstream/stable resolution.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-84243"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-84243",
+        "https://github.com/search?type=Code&q=%22CVE-2026-84243%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-84243%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=17142",
+        "https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=advisories/GLIBC-SA-2026-0025"
+      ],
+      "debian_record_sha256": "657397f5831f0d9ad1d6d8030a4ba2c2046abba5572e9306b8593f474753c202",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5680884",
+      "cve": "CVE-2018-20796",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "glibc POSIX regular-expression backreferences can trigger unbounded recursion.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Python re is a different implementation; no framework libc regexec caller was identified. Debian records that upstream does not treat this as a vulnerability.",
+      "recommended_remediation": "Keep the source-backed dispute visible, avoid adversarial unbounded native regex patterns, and review if native regex callers are introduced.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2018-20796"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2018-20796",
+        "https://github.com/search?type=Code&q=%22CVE-2018-20796%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2018-20796%22",
+        "https://sourceware.org/glibc/wiki/Security%20Exceptions"
+      ],
+      "debian_record_sha256": "e6432d5fc861355dacd40700ae7169b572f03a69c17791bf5bb70543511c76e9",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681058",
+      "cve": "CVE-2010-4756",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "glibc glob can consume excessive CPU/memory for adversarial patterns.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "POSIX glob behavior requires application-level limits. Python glob is not automatically the libc glob interface; no framework C glob caller is identified.",
+      "recommended_remediation": "Apply limits at application glob interfaces and avoid untrusted shell expansion; retain the conditional finding rather than claim libc is patched.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2010-4756"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2010-4756",
+        "https://github.com/search?type=Code&q=%22CVE-2010-4756%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2010-4756%22"
+      ],
+      "debian_record_sha256": "1533aa64c5b15064840929759355263b7de877ee56a438ea7a38a115ecf9d9e3",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681145",
+      "cve": "CVE-2019-1010025",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "A pthread stack/heap address predictability claim concerns ASLR mitigation strength.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Debian records upstream treats this as a non-security issue. It is not evidence of a stand-alone Sandloom remote entry point.",
+      "recommended_remediation": "Record upstream disposition and preserve exploit prerequisites; do not mark it as a fixed library version.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2019-1010025"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2019-1010025",
+        "https://github.com/search?type=Code&q=%22CVE-2019-1010025%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2019-1010025%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=22853"
+      ],
+      "debian_record_sha256": "48754f59ff21707ba10211ef7ade27c43c12dd422dbb1acab80155c321ae00a7",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681177",
+      "cve": "CVE-2019-1010023",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Running ldd on malicious ELF files can execute attacker code.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Backend request handling does not execute ldd on uploaded files. Debian records upstream treats this as a non-security issue.",
+      "recommended_remediation": "Do not run diagnostic executables against untrusted ELF inputs; retain the source-backed disputed status.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2019-1010023"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2019-1010023",
+        "https://github.com/search?type=Code&q=%22CVE-2019-1010023%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2019-1010023%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=22851"
+      ],
+      "debian_record_sha256": "316608e29cf6e9690c7cb3c8424fd54d9ac31173423d112c1bcbda4ca881faba",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681215",
+      "cve": "CVE-2019-9192",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "Crafted glibc POSIX regex/backreferences can cause recursion exhaustion.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "No framework native regexec caller is identified. The vendor disputes the vulnerability classification for this adversarial-pattern behavior.",
+      "recommended_remediation": "Bound any native regex interface and preserve the vendor dispute; a scanner suppression must not be inferred from this note.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2019-9192"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2019-9192",
+        "https://github.com/search?type=Code&q=%22CVE-2019-9192%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2019-9192%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=24269"
+      ],
+      "debian_record_sha256": "31d6c3fae656f6efab2173c5b95dfe8d843ebc6e37110cd9f5de3347fb957dc7",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681241",
+      "cve": "CVE-2019-1010022",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "A stack-guard mitigation bypass claim requires an existing stack-overflow attack.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Debian records upstream treats it as a non-security issue. It does not independently provide code execution in Sandloom.",
+      "recommended_remediation": "Document prerequisite exploitation rather than relabel the library fixed; continue preventing memory-corruption entry points.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2019-1010022"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2019-1010022",
+        "https://github.com/search?type=Code&q=%22CVE-2019-1010022%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2019-1010022%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=22850"
+      ],
+      "debian_record_sha256": "cbef0ea746e9555c4d04761bf8ef09f236c787e9fc9033113695d351d480ab1d",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GLIBC-5681256",
+      "cve": "CVE-2019-1010024",
+      "severity": "low",
+      "source_package": "glibc",
+      "baseline_binary_version": "2.41-12+deb13u4",
+      "affected_functionality": "A cached thread-stack/heap address claim concerns ASLR mitigation strength.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Debian records upstream treats this as a non-security issue; the finding alone is not a runtime attack path.",
+      "recommended_remediation": "Preserve the dispute and prerequisite context; do not weaken memory-safety controls or claim a fixed package exists.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41-12+deb13u4"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2019-1010024"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2019-1010024",
+        "https://github.com/search?type=Code&q=%22CVE-2019-1010024%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2019-1010024%22",
+        "https://sourceware.org/bugzilla/show_bug.cgi?id=22852"
+      ],
+      "debian_record_sha256": "c59a28082119a9ded2f8562007694cd70e5357e727064de5eea447e49a75b4c0",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-NCURSES-10378958",
+      "cve": "CVE-2025-6141",
+      "severity": "low",
+      "source_package": "ncurses",
+      "baseline_binary_version": "6.5+20250216-2",
+      "affected_functionality": "ncurses termcap parsing can overflow a buffer on a crafted terminal description.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "tic/infocmp are installed in the baseline; Python readline links libtinfo, so removing all ncurses libraries would break a separate function.",
+      "recommended_remediation": "Remove unused terminal-description compilers through a reviewed image contract while preserving required readline/libtinfo support, or install a stable fix when available.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "6.5+20250216-2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "6.5+20251115-2",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2025-6141"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2025-6141",
+        "https://github.com/search?type=Code&q=%22CVE-2025-6141%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2025-6141%22"
+      ],
+      "debian_record_sha256": "d44dc6cc2ebd927c3a56d0ccc9b98c5e6fe637c40e8bb862116d5713e05470d9",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-NCURSES-15762838",
+      "cve": "CVE-2025-69720",
+      "severity": "low",
+      "source_package": "ncurses",
+      "baseline_binary_version": "6.5+20250216-2",
+      "affected_functionality": "infocmp analyze_string overflows on a crafted terminal description.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "infocmp is present but not used by backend request handling.",
+      "recommended_remediation": "Remove the unused infocmp tool if the runtime contract permits; otherwise retain the finding until a stable ncurses fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "6.5+20250216-2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "6.6+20251231-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2025-69720"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2025-69720",
+        "https://github.com/search?type=Code&q=%22CVE-2025-69720%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2025-69720%22",
+        "https://github.com/Cao-Wuhui/CVE-2025-69720"
+      ],
+      "debian_record_sha256": "3542be519daaef8f60a0fd662f4a6129a238f59ef9b86155869d49cfd2b3af78",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-PAM-17339897",
+      "cve": "CVE-2026-54411",
+      "severity": "low",
+      "source_package": "pam",
+      "baseline_binary_version": "1.7.0-5",
+      "affected_functionality": "pam_userdb plaintext-password comparison leaks timing information to repeated authentication attempts.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "pam_userdb.so is present. Sandloom identity uses its own authentication, not PAM userdb, and no exposed PAM service is identified.",
+      "recommended_remediation": "Remove unused system login/PAM components if package dependencies allow; otherwise ensure no service config selects pam_userdb plaintext passwords and retain the open finding.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.7.0-5"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-54411"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-54411",
+        "https://github.com/search?type=Code&q=%22CVE-2026-54411%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-54411%22",
+        "https://github.com/linux-pam/linux-pam/issues/992",
+        "https://github.com/linux-pam/linux-pam/pull/991",
+        "https://github.com/linux-pam/linux-pam/commit/30708d973b63891bf700299ce3ae0f1086398284"
+      ],
+      "debian_record_sha256": "aeb51ee7335304f014968bdb5440ba98503a24a34c93b6b67c890b9741cd11a2",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-PERL-17037374",
+      "cve": "CVE-2026-9538",
+      "severity": "low",
+      "source_package": "perl",
+      "baseline_binary_version": "5.40.1-6+deb13u1",
+      "affected_functionality": "Perl Archive::Tar allocates memory from an attacker-controlled archive entry size.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "Archive::Tar cannot be loaded in the baseline perl-base installation. Merely shipping the Perl interpreter does not install this module.",
+      "recommended_remediation": "Assert the module remains absent; reopen if full Perl archive tooling is added.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "5.40.1-6+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue; wait for regressions upstream sorted out",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "5.42.3-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-9538"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-9538",
+        "https://github.com/search?type=Code&q=%22CVE-2026-9538%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-9538%22",
+        "https://github.com/jib/archive-tar-new/commit/f9af01426038e29d9578825a0cd3626946ab08c7"
+      ],
+      "debian_record_sha256": "7ef5d867262210dcfd0f600ea409fd1aa470b38d8d2464d6ba885ab275a7fd57",
+      "verification_predicates": [
+        "absent-perl-archive-tar"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-PERL-18600690",
+      "cve": "CVE-2026-15534",
+      "severity": "low",
+      "source_package": "perl",
+      "baseline_binary_version": "5.40.1-6+deb13u1",
+      "affected_functionality": "Perl regex superlinear-cache arithmetic can overflow for a very large subject/pattern.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "The Perl interpreter is installed; Sandloom does not use it to process request regexes or data.",
+      "recommended_remediation": "Remove unused Perl only through a reviewed image contract (perl-base is Essential), or keep untrusted data out of Perl regex execution and await a stable fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "5.40.1-6+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Wait for exposure unstable and coordinate with Perl maintainers",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-15534"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-15534",
+        "https://github.com/search?type=Code&q=%22CVE-2026-15534%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-15534%22",
+        "https://github.com/Perl/perl5/commit/568e6fd238867bb9e99fa3f47cba3169009239e0",
+        "https://github.com/Perl/perl5/commit/54cf3d44cbbedd17d774e9a37921963e8fd5d0cb"
+      ],
+      "debian_record_sha256": "df6d9633b379c08701a64d541096100d47ad3c04141720f817ad811c023016e6",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-PERL-19957687",
+      "cve": "CVE-2026-82560",
+      "severity": "low",
+      "source_package": "perl",
+      "baseline_binary_version": "5.40.1-6+deb13u1",
+      "affected_functionality": "Perl Pod::Text can loop while wrapping adversarial nested POD indentation.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "Pod::Text cannot be loaded in the baseline perl-base installation.",
+      "recommended_remediation": "Assert the module remains absent; reopen if documentation-generation modules are installed at runtime.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "5.40.1-6+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-82560"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-82560",
+        "https://github.com/search?type=Code&q=%22CVE-2026-82560%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-82560%22",
+        "https://github.com/rra/podlators/commit/70510174f69eb54aa6d617bde4e1402cd9b7c61f"
+      ],
+      "debian_record_sha256": "b143fb7f152ce34bbaa86ef1d0424b51f41422ec9664e1af3829c8bfb7daf953",
+      "verification_predicates": [
+        "absent-perl-pod-text"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-PERL-5692251",
+      "cve": "CVE-2011-4116",
+      "severity": "low",
+      "source_package": "perl",
+      "baseline_binary_version": "5.40.1-6+deb13u1",
+      "affected_functionality": "Perl File::Temp symlink checks do not meet the reported safety expectation.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "File::Temp is installed, but the framework does not execute Perl temporary-file logic.",
+      "recommended_remediation": "Remove unused Perl only with an explicit minimal-image contract, otherwise avoid privileged File::Temp use on attacker-controlled trees and retain the conditional warning.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "5.40.1-6+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2011-4116"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2011-4116",
+        "https://github.com/search?type=Code&q=%22CVE-2011-4116%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2011-4116%22",
+        "https://github.com/Perl-Toolchain-Gang/File-Temp/issues/14"
+      ],
+      "debian_record_sha256": "ff6fd03ed28b5788deb54aff39bc54e27abe492ba8524375a39fa15eb6a7d5a8",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SHADOW-5695385",
+      "cve": "CVE-2007-5686",
+      "severity": "low",
+      "source_package": "shadow",
+      "baseline_binary_version": "1:4.17.4-2",
+      "affected_functionality": "Login failure logging may expose unknown usernames through btmp permissions.",
+      "assessment_status": "open_operator_configuration",
+      "assessment": "System login tooling/configuration exists in the baseline; backend identity authentication does not use this OS login log. Debian notes LOG_UNKFAIL_ENAB=no avoids recording unknown usernames.",
+      "recommended_remediation": "Remove unused login tools/configuration where dependencies permit; verify the stated setting and log permissions if login is intentionally retained.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:4.17.4-2"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2007-5686"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2007-5686",
+        "https://github.com/search?type=Code&q=%22CVE-2007-5686%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2007-5686%22"
+      ],
+      "debian_record_sha256": "5c175dfa11c2dec93503e0d7e26a46004b39a21c8f714c0683b387d3a41defbb",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SHADOW-8551157",
+      "cve": "CVE-2024-56433",
+      "severity": "low",
+      "source_package": "shadow",
+      "baseline_binary_version": "1:4.17.4-2",
+      "affected_functionality": "Default subordinate UID ranges can collide with externally administered user identities.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "The baseline appuser has a subordinate UID range, but newuidmap is absent and the container does not supply an NFS login service.",
+      "recommended_remediation": "Remove unused subordinate-ID mappings and account-management tools after build; strip setuid bits and enforce no-new-privileges. Reassess when user namespaces or shared NFS identities are deliberately enabled.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:4.17.4-2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2024-56433"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2024-56433",
+        "https://github.com/search?type=Code&q=%22CVE-2024-56433%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2024-56433%22",
+        "https://github.com/shadow-maint/shadow/issues/1157"
+      ],
+      "debian_record_sha256": "db7834737da3b01879d3f1742f1bb9350f9ecf1702862721839ccb744574218e",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-15682562",
+      "cve": "CVE-2025-70873",
+      "severity": "low",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite optional zipfile extension can disclose heap data when inflating a crafted ZIP entry.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "The zipfile module/extension is absent. Debian explicitly states this extension is not built in Debian binary packages.",
+      "recommended_remediation": "Assert no zipfile module or extension is installed or dynamically enabled; retain core SQLite for legitimate Python/dependency use.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2025-70873"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2025-70873",
+        "https://github.com/search?type=Code&q=%22CVE-2025-70873%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2025-70873%22",
+        "https://sqlite.org/src/info/3d459f1fb1bd1b5e",
+        "https://sqlite.org/forum/forumpost/761eac3c82",
+        "https://gist.github.com/cnwangjihe/f496393f30f5ecec5b18c8f5ab072054"
+      ],
+      "debian_record_sha256": "a755476974ee116a8a2232053b19f46ef9a95b953bf62459b60ac16b5e87d002",
+      "verification_predicates": [
+        "absent-sqlite-zipfile"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-17975833",
+      "cve": "CVE-2026-50813",
+      "severity": "low",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite Session changeset concat/changegroup merge can disclose data from malformed changesets.",
+      "assessment_status": "open_live_library",
+      "assessment": "The baseline library has ENABLE_SESSION and exports concat/changegroup APIs. Python stdlib does not directly expose them, but native/FFI extension callers have not been exhaustively excluded.",
+      "recommended_remediation": "Do not expose untrusted changeset merge inputs; retain the open library finding until a supported stable SQLite update or proven complete absence of callers.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "3.53.4-2",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-50813"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-50813",
+        "https://github.com/search?type=Code&q=%22CVE-2026-50813%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-50813%22",
+        "https://sqlite.org/src/info/869a51ae84df"
+      ],
+      "debian_record_sha256": "245ae024f8e37e95aa504643607253bc2b67f848abb05e829030c17df147f57c",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-17975841",
+      "cve": "CVE-2026-50812",
+      "severity": "low",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite changeset_apply_v3 corrupt changesets can trigger a null dereference.",
+      "assessment_status": "under_investigation",
+      "assessment": "The exact baseline library lacks sqlite3changeset_apply_v3 while older Session APIs exist. Debian marks the source package vulnerable despite the report naming SQLite 3.53.1 and this newer API.",
+      "recommended_remediation": "Bind the missing-symbol evidence to the image and seek vendor classification; keep provisional under-investigation status until upstream/Debian reconcile it or a supported fix is available.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "3.53.2-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-50812"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-50812",
+        "https://github.com/search?type=Code&q=%22CVE-2026-50812%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-50812%22",
+        "https://sqlite.org/src/info/e807d4e3798efd53"
+      ],
+      "debian_record_sha256": "cdb5b4675f45adfb8bf1de3ac0388ac052368ec2cf75ebed80a0f60413f10016",
+      "verification_predicates": [
+        "absent-sqlite-apply-v3"
+      ],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-5696112",
+      "cve": "CVE-2021-45346",
+      "severity": "low",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "Querying a corrupted SQLite database can disclose unintended bytes/records.",
+      "assessment_status": "upstream_disputed",
+      "assessment": "Upstream disputes the security classification and Debian calls the impact negligible. Sandloom production data is PostgreSQL; arbitrary hostile SQLite files are not a framework input.",
+      "recommended_remediation": "Do not query attacker-supplied SQLite files with sensitive process data; preserve the source-backed disputed status rather than claim a patched package.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2021-45346"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2021-45346",
+        "https://github.com/search?type=Code&q=%22CVE-2021-45346%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2021-45346%22",
+        "https://github.com/guyinatuxedo/sqlite3_record_leaking",
+        "https://sqlite.org/forum/forumpost/056d557c2f8c452ed5bb9c215414c802b215ce437be82be047726e521342161e"
+      ],
+      "debian_record_sha256": "8013738ba497b0ef5fb0b774ac9323d5459eebb640ee33215c51cd065ca4cd95",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-16009572",
+      "cve": "CVE-2026-40228",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "systemd-journald ForwardToWall can send terminal escape sequences to users.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "No journald executable/service or wall-forwarding setup is present; only systemd shared libraries are installed.",
+      "recommended_remediation": "Assert affected daemons remain absent; do not apply daemon findings to libsystemd solely by source package.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-40228"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-40228",
+        "https://github.com/search?type=Code&q=%22CVE-2026-40228%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-40228%22",
+        "https://www.openwall.com/lists/oss-security/2026/04/08/1"
+      ],
+      "debian_record_sha256": "8a80284bc4f08f6f57f96c7a3461217aca86970d7a10f061a62c07675c449af1",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-18867639",
+      "cve": "CVE-2026-16742",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "systemd-homed can add arbitrary system groups for a local managed user.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "systemd-homed is absent and no homed-managed user service runs in the image.",
+      "recommended_remediation": "Assert homed remains absent; reopen if a systemd login/user manager is installed.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "261.2-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-16742"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-16742",
+        "https://github.com/search?type=Code&q=%22CVE-2026-16742%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-16742%22",
+        "https://github.com/systemd/systemd/security/advisories/GHSA-jm29-p7hh-vjhv",
+        "https://github.com/systemd/systemd/commit/d392d17143423e7af0cdb5bd0f64b43da8952662",
+        "https://github.com/systemd/systemd/commit/a7bce5b2052bdb098ad0729768c72e1df9a86adc",
+        "https://github.com/systemd/systemd/commit/8735bb63b7902b6824f4d171bca994252eb04a71",
+        "https://github.com/systemd/systemd/commit/04cba0a78da9d161c2f6426751d0460fb8193263"
+      ],
+      "debian_record_sha256": "9def8c0e8dc245c97190f018412a2f08fe7e72ec90ccf943c132ff756b7ef7b0",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-18913924",
+      "cve": "CVE-2026-15059",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "systemd-oomd IPC can terminate unrelated processes via path traversal.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "systemd-oomd and its IPC service are absent.",
+      "recommended_remediation": "Assert oomd remains absent; do not confuse host systemd exposure with the application image.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "261~rc3-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-15059"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-15059",
+        "https://github.com/search?type=Code&q=%22CVE-2026-15059%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-15059%22",
+        "https://github.com/systemd/systemd/security/advisories/GHSA-652q-wxr6-h5j6",
+        "https://github.com/systemd/systemd/commit/cde88c4ea364e816619f385a870d074ebc12fe0f",
+        "https://github.com/systemd/systemd/commit/a8feb2f23565d39df5c90a753c851c1934a53117"
+      ],
+      "debian_record_sha256": "aa6e5c02cf1427d96d05a7b9a10da4e98505e28c19333e6d45504047225a04cc",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-5696564",
+      "cve": "CVE-2013-4392",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "systemd permission/context update operations may follow attacker-changed symlinks.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "The systemd service/permission-update tools are not installed or run. Shared library presence does not supply that manager operation.",
+      "recommended_remediation": "Keep the system manager absent and verify no privileged permission-update helper is introduced.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2013-4392"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2013-4392",
+        "https://github.com/search?type=Code&q=%22CVE-2013-4392%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2013-4392%22"
+      ],
+      "debian_record_sha256": "2ecaabeb4bc38ca23499eda7e947c102a52641758e6813125757c94c476c5be3",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-5733389",
+      "cve": "CVE-2023-31439",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "Journal forward-secure sealing may not reveal modification of old event contents.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "No journald/journalctl or sealed journal store exists in the runtime; logs go to container output.",
+      "recommended_remediation": "Assert journal tooling remains absent and preserve external log integrity controls.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2023-31439"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2023-31439",
+        "https://github.com/search?type=Code&q=%22CVE-2023-31439%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2023-31439%22",
+        "https://github.com/kastel-security/Journald/blob/main/journald-publication.pdf"
+      ],
+      "debian_record_sha256": "8ff785fb257437ff4247c5db94bb27c788713bae049c120107e9d5cf571c24b4",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-5733399",
+      "cve": "CVE-2023-31438",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "Journal sealing may not reveal truncation followed by resumed sealing.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "No journald/journalctl or journal sealing workflow exists in the runtime.",
+      "recommended_remediation": "Keep journal tooling absent; this image has no journal sealing guarantee to weaken.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2023-31438"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2023-31438",
+        "https://github.com/search?type=Code&q=%22CVE-2023-31438%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2023-31438%22",
+        "https://github.com/kastel-security/Journald/blob/main/journald-publication.pdf"
+      ],
+      "debian_record_sha256": "6cd7c80c645a3e53190b4328ab060ecd038466ab8f8c1b6a416ddce2fcc219fa",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SYSTEMD-5733401",
+      "cve": "CVE-2023-31437",
+      "severity": "low",
+      "source_package": "systemd",
+      "baseline_binary_version": "257.13-1~deb13u1",
+      "affected_functionality": "Journal sealing can permit views that omit sealed messages.",
+      "assessment_status": "not_affected_component_absent",
+      "assessment": "No journald/journalctl or journal sealing workflow exists in the runtime.",
+      "recommended_remediation": "Keep journal tooling absent; assess host log infrastructure independently.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "257.13-1~deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2023-31437"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2023-31437",
+        "https://github.com/search?type=Code&q=%22CVE-2023-31437%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2023-31437%22",
+        "https://github.com/kastel-security/Journald/blob/main/journald-publication.pdf"
+      ],
+      "debian_record_sha256": "c861bf540930601d746a85735f94e4f68e2df6fb10a9261400632046dc192dce",
+      "verification_predicates": [
+        "absent-systemd-daemons"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-TAR-15962848",
+      "cve": "CVE-2026-5704",
+      "severity": "low",
+      "source_package": "tar",
+      "baseline_binary_version": "1.35+dfsg-3.1",
+      "affected_functionality": "GNU tar pre-extraction inspection can disagree with extracted archive contents.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "GNU tar is installed in the baseline. Framework Python tarfile data filtering is a separate implementation; the production backend does not execute GNU tar on requests.",
+      "recommended_remediation": "Remove unused GNU tar in a reviewed runtime contract, or do not inspect/extract attacker archives using this CLI until fixed.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.35+dfsg-3.1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-5704"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-5704",
+        "https://github.com/search?type=Code&q=%22CVE-2026-5704%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-5704%22",
+        "https://www.openwall.com/lists/oss-security/2026/04/11/10"
+      ],
+      "debian_record_sha256": "58218a9796f2944d793b565a861389664d19075d0c4a43060079f22b9759ab20",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-TAR-18515585",
+      "cve": "CVE-2026-18477",
+      "severity": "low",
+      "source_package": "tar",
+      "baseline_binary_version": "1.35+dfsg-3.1",
+      "affected_functionality": "GNU tar incremental dumpdir rename restoration can write outside its extraction tree.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "GNU tar is present but the runtime has no identified incremental GNU tar restore path; database backups use PostgreSQL tooling.",
+      "recommended_remediation": "Remove unused GNU tar, or retain the finding and prohibit affected incremental restore operations on untrusted/mutable trees.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.35+dfsg-3.1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-18477"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-18477",
+        "https://github.com/search?type=Code&q=%22CVE-2026-18477%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-18477%22"
+      ],
+      "debian_record_sha256": "d9511ac429cacff6ca7f8a25287c431a4e399e987bf7a251b96389f8275ccbbf",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-TAR-18515588",
+      "cve": "CVE-2026-18508",
+      "severity": "low",
+      "source_package": "tar",
+      "baseline_binary_version": "1.35+dfsg-3.1",
+      "affected_functionality": "GNU tar --one-top-level hardlink handling can escape the expected boundary.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "GNU tar is installed; Python tarfile filter changes do not fix this separate executable.",
+      "recommended_remediation": "Remove unused GNU tar or disallow the affected untrusted extraction flow; update from a supported stable source when a fix ships.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.35+dfsg-3.1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-18508"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-18508",
+        "https://github.com/search?type=Code&q=%22CVE-2026-18508%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-18508%22"
+      ],
+      "debian_record_sha256": "1b2b7cbc84a09d9febc5149cea42edbba29cb720c1d07afa60f21bc92237c858",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-TAR-5696683",
+      "cve": "CVE-2005-2541",
+      "severity": "low",
+      "source_package": "tar",
+      "baseline_binary_version": "1.35+dfsg-3.1",
+      "affected_functionality": "GNU tar extraction of setuid/setgid files does not provide the expected warning.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "The CLI is installed, but the backend does not perform privileged GNU tar extraction on request data.",
+      "recommended_remediation": "Remove unused GNU tar, strip privilege bits and enforce no-new-privileges; these restrictions mitigate escalation without changing the upstream advisory.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1.35+dfsg-3.1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2005-2541"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2005-2541",
+        "https://github.com/search?type=Code&q=%22CVE-2005-2541%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2005-2541%22"
+      ],
+      "debian_record_sha256": "92b05fd03e6f2459e12010171d73780f5523c1c9f448540f33ce49d20600021a",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-15358019",
+      "cve": "CVE-2026-3184",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "login -h hostname normalization can bypass host-based PAM policy.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "OS login is installed in the baseline; Sandloom JWT/password authentication is a separate path. No telnet/remote OS login daemon is provided.",
+      "recommended_remediation": "Remove unused login/PAM components where dependencies allow, or do not expose a login -h service; await a supported stable fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.42-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-3184"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-3184",
+        "https://github.com/search?type=Code&q=%22CVE-2026-3184%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-3184%22",
+        "https://github.com/util-linux/util-linux/commit/8b29aeb081e297e48c4c1ac53d88ae07e1331984"
+      ],
+      "debian_record_sha256": "aedb732936701a73d66105ed0683774b54cf4c90d437dace4a7ac37a7674b0a0",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-19513279",
+      "cve": "CVE-2026-76642",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "mount can run privileged post-mount hooks after a failed helper.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "mount is installed with a privilege bit in the baseline. Application services do not need runtime filesystem mounting.",
+      "recommended_remediation": "Remove mount helpers if possible; otherwise strip privilege bits and enforce no-new-privileges plus dropped capabilities, and await stable util-linux fixes.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.42.3-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-76642"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-76642",
+        "https://github.com/search?type=Code&q=%22CVE-2026-76642%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-76642%22",
+        "https://github.com/util-linux/util-linux/security/advisories/GHSA-m25x-3hj9-m26f"
+      ],
+      "debian_record_sha256": "243d0dcce2b7e8a9446611151a404ced874c0c45f912bca021c03061334d197b",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-19513282",
+      "cve": "CVE-2026-78408",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "Privileged nsenter --join-cgroup leaks a root-opened cgroup descriptor across exec.",
+      "assessment_status": "open_unused_tool",
+      "assessment": "nsenter is installed, but the application does not invoke it as root or join host cgroups.",
+      "recommended_remediation": "Remove unused namespace tools or keep privileged operator diagnostics outside the runtime; no-new-privileges/capability restrictions reduce the relevant authority.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.42.4-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-78408"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-78408",
+        "https://github.com/search?type=Code&q=%22CVE-2026-78408%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-78408%22",
+        "https://github.com/util-linux/util-linux/security/advisories/GHSA-55fx-f4gg-cfhj",
+        "https://github.com/util-linux/util-linux/commit/286dd3ff41526b582ef48830de239dffbaa61f90"
+      ],
+      "debian_record_sha256": "176ee66ad84e9fdad225f5e0a60fe5cd7bf8a5aa54bd0fd63d07beb795aba5d3",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-19513289",
+      "cve": "CVE-2026-78409",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "mount X-mount.subdir can traverse intermediate symlinks to a host path.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "mount is installed; no application fstab-driven mounting contract is required.",
+      "recommended_remediation": "Remove unused mount tools and privileged mounting support; otherwise strip privilege bits/drop capabilities and retain the open stable-package warning.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.42.3-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-78409"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-78409",
+        "https://github.com/search?type=Code&q=%22CVE-2026-78409%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-78409%22",
+        "https://github.com/util-linux/util-linux/security/advisories/GHSA-8f2p-47x3-43mv"
+      ],
+      "debian_record_sha256": "55bb3527e79127500681d1309f174a4e010dd14b8de0e8c20dac634deb59f67b",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-19513292",
+      "cve": "CVE-2026-78410",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "Restricted SUID bind mounts can race path resolution and redirect ownership/mode changes.",
+      "assessment_status": "privilege_mitigation_required",
+      "assessment": "The baseline has SUID mount. Application services should never need privileged fstab bind mounts.",
+      "recommended_remediation": "Remove mount or its privilege bit and enforce no-new-privileges/capability drops; a stable package update remains the actual library/tool fix.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "2.42.3-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-78410"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-78410",
+        "https://github.com/search?type=Code&q=%22CVE-2026-78410%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-78410%22",
+        "https://github.com/util-linux/util-linux/security/advisories/GHSA-rh77-686x-2f2m"
+      ],
+      "debian_record_sha256": "370b52136365d440004d915421bd2b2529393511c802bdc04f3e3a873241621b",
+      "verification_predicates": [
+        "runtime-no-privilege-gain"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-UTILLINUX-5698535",
+      "cve": "CVE-2022-0563",
+      "severity": "low",
+      "source_package": "util-linux",
+      "baseline_binary_version": "2.41.5-0+deb13u1",
+      "affected_functionality": "Readline-enabled util-linux chfn/chsh can disclose privileged files through INPUTRC errors.",
+      "assessment_status": "not_affected_component_not_built",
+      "assessment": "Debian builds util-linux with --disable-chfn-chsh; the installed chfn/chsh are supplied by src:shadow. Debian explicitly documents this source/binary mismatch.",
+      "recommended_remediation": "Verify ownership/build configuration when the base changes; removing account-management utilities further reduces surface, but do not claim all similarly named tools share this CVE.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "2.41.5-0+deb13u1",
+          "trixie-security": "2.41.5-0+deb13u1"
+        },
+        "fixed_version": null,
+        "urgency": "unimportant",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2022-0563"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2022-0563",
+        "https://github.com/search?type=Code&q=%22CVE-2022-0563%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2022-0563%22",
+        "https://lore.kernel.org/util-linux/20220214110609.msiwlm457ngoic6w@ws.net.home/T/#u",
+        "https://github.com/util-linux/util-linux/commit/faa5a3a83ad0cb5e2c303edbfd8cd823c9d94c17"
+      ],
+      "debian_record_sha256": "00feb7f18e310259c9a494a0d52fc3a4586c39c59422ca0ea36279acfe0aa131",
+      "verification_predicates": [
+        "util-linux-no-chfn-chsh"
+      ],
+      "manual_review_required": false,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-ZLIB-15307854",
+      "cve": "CVE-2026-27171",
+      "severity": "low",
+      "source_package": "zlib",
+      "baseline_binary_version": "1:1.3.dfsg+really1.3.1-1+b1",
+      "affected_functionality": "zlib CRC-combine generation can loop on invalid length arguments.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The native zlib library is installed. Python 3.12 has no crc32_combine binding; other native callers cannot be universally excluded.",
+      "recommended_remediation": "Avoid negative/unbounded lengths in any native combine caller and await a supported stable zlib update; do not remove compression required by Python.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:1.3.dfsg+really1.3.1-1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "1:1.3.dfsg+really1.3.2-1",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-27171"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-27171",
+        "https://github.com/search?type=Code&q=%22CVE-2026-27171%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-27171%22",
+        "https://github.com/madler/zlib/issues/904",
+        "https://github.com/madler/zlib/commit/ba829a458576d1ff0f26fc7230c6de816d1f6a77",
+        "https://github.com/madler/zlib/commit/f8719f5ae5acdc31d3794ddfea8ac963359de41e"
+      ],
+      "debian_record_sha256": "6d4a72efb2cc25cd8e615616cf03457f32fc907c804fe18afc44d22248e5d314",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-ZLIB-19520500",
+      "cve": "CVE-2026-85091",
+      "severity": "high",
+      "source_package": "zlib",
+      "baseline_binary_version": "1:1.3.dfsg+really1.3.1-1+b1",
+      "affected_functionality": "New non-blocking gzwrite/gzprintf retry logic can retain a stale buffer after a write stall.",
+      "assessment_status": "under_investigation",
+      "assessment": "Authenticated Debian 1.3.1 source lacks gz_vacate and state->again; write errors are fatal before the subsequent memmove. The installed arm64 library matches the authenticated Debian artifact. Debian still marks trixie vulnerable.",
+      "recommended_remediation": "Preserve exact source/binary hashes and vendor-reference evidence, keep the finding provisional, and seek Debian/Snyk classification correction or install an eventual supported stable update.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "1:1.3.dfsg+really1.3.1-1"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": null,
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "resolved",
+        "fixed_version": "1:1.3.dfsg+really1.3.2-4",
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-85091"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-85091",
+        "https://github.com/search?type=Code&q=%22CVE-2026-85091%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-85091%22",
+        "https://gist.github.com/thesmartshadow/e0b9481792afb7c31e86fee1ff084490",
+        "https://github.com/madler/zlib/issues/1310",
+        "https://github.com/madler/zlib/pull/1317",
+        "https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148",
+        "https://github.com/madler/zlib/issues/1310#issuecomment-5979623265",
+        "https://github.com/madler/zlib/commit/81cc0bebedd935daeb81b0b6e475d8786b51af3d"
+      ],
+      "debian_record_sha256": "8820eea887fbcad21905959c1002c39d34ec6c00aff80160a17710ed6443d2db",
+      "verification_predicates": [
+        "zlib-source-review"
+      ],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    }
+  ],
+  "verification_predicates": {
+    "absent-acl-tools": {
+      "predicate": "executables_absent",
+      "names": [
+        "getfacl",
+        "setfacl",
+        "chacl"
+      ],
+      "search_roots": [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin"
+      ]
+    },
+    "absent-attr-tools": {
+      "predicate": "executables_absent",
+      "names": [
+        "getfattr",
+        "setfattr"
+      ],
+      "search_roots": [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin"
+      ]
+    },
+    "absent-apt-key": {
+      "predicate": "executables_absent",
+      "names": [
+        "apt-key"
+      ],
+      "search_roots": [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin"
+      ]
+    },
+    "absent-bzip2recover": {
+      "predicate": "executables_absent",
+      "names": [
+        "bzip2recover"
+      ],
+      "search_roots": [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin"
+      ]
+    },
+    "absent-nscd": {
+      "predicate": "executables_absent",
+      "names": [
+        "nscd"
+      ],
+      "search_roots": [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin"
+      ]
+    },
+    "absent-systemd-daemons": {
+      "predicate": "executables_and_paths_absent",
+      "names": [
+        "systemd",
+        "systemd-homed",
+        "systemd-oomd",
+        "systemd-journald",
+        "journalctl",
+        "systemd-tmpfiles"
+      ],
+      "paths": [
+        "/usr/lib/systemd/systemd",
+        "/lib/systemd/systemd",
+        "/usr/lib/systemd/systemd-homed",
+        "/usr/lib/systemd/systemd-oomd",
+        "/usr/lib/systemd/systemd-journald"
+      ]
+    },
+    "absent-perl-archive-tar": {
+      "predicate": "perl_module_absent",
+      "module": "Archive::Tar",
+      "absence_of_interpreter_also_satisfies": true
+    },
+    "absent-perl-pod-text": {
+      "predicate": "perl_module_absent",
+      "module": "Pod::Text",
+      "absence_of_interpreter_also_satisfies": true
+    },
+    "absent-sqlite-zipfile": {
+      "predicate": "sqlite_optional_module_absent",
+      "module": "zipfile",
+      "extension_file_glob": "*zipfile*.so",
+      "search_roots": [
+        "/usr/lib",
+        "/usr/local/lib",
+        "/opt/venv"
+      ]
+    },
+    "absent-sqlite-apply-v3": {
+      "predicate": "shared_library_symbol_absent",
+      "library": "sqlite3",
+      "symbol": "sqlite3changeset_apply_v3",
+      "classification": "under_investigation",
+      "absence_does_not_override_vendor_classification": true
+    },
+    "not-power8": {
+      "predicate": "platform_allowlist",
+      "platforms": [
+        "linux/arm64",
+        "linux/amd64"
+      ],
+      "baseline_verified": [
+        "linux/arm64"
+      ],
+      "reassess_other_platforms": true
+    },
+    "util-linux-no-chfn-chsh": {
+      "predicate": "debian_binary_provenance",
+      "not_source_package_for_executables": "util-linux",
+      "names": [
+        "chfn",
+        "chsh"
+      ],
+      "expected_baseline_source_package": "shadow",
+      "absence_of_executables_also_satisfies": true,
+      "primary_build_configuration_reference": "https://security-tracker.debian.org/tracker/CVE-2022-0563"
+    },
+    "zlib-source-review": {
+      "predicate": "authenticated_source_and_binary_review",
+      "classification": "under_investigation",
+      "expected_source_version": "1:1.3.dfsg+really1.3.1-1",
+      "forbidden_source_patterns": [
+        "gz_vacate",
+        "state->again"
+      ],
+      "require_empty_debian_patch_series": true,
+      "binary_hashes_by_platform": {
+        "linux/arm64": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65"
+      },
+      "unknown_platform_or_version_requires_manual_review": true
+    },
+    "runtime-no-privilege-gain": {
+      "predicate": "actual_container_controls",
+      "no_new_privileges": true,
+      "effective_capabilities": "0000000000000000",
+      "setuid_setgid_files": [],
+      "read_only_root": true,
+      "classification": "mitigation_only"
+    }
+  },
+  "review_base_commit": "453f7bf6bdb4f2af1ac2717d47a85d29159db960",
+  "baseline_image_id": "sha256:cd03ca02aa542aac04e0c13b21698043a990159df357123ca5228ab5f127663d"
+}

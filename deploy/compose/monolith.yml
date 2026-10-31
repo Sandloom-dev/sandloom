@@ -28,6 +28,14 @@ x-service-runtime: &service-runtime
       max-size: "10m"
       max-file: "3"
 
+x-app-runtime: &app-runtime
+  <<: *service-runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+
 # Settings shared by EVERY process (app, migrate, worker, beat): each one boots
 # the same composition root with the same module set, so billing's PSP check,
 # the module list and the databases must agree everywhere.
@@ -100,6 +108,7 @@ x-app-env: &app-env
 services:
   # One-shot schema migration: runs to completion before anything else starts.
   migrate:
+    <<: *app-runtime
     image: *image
     build: *build
     # Applies the core (outbox/audit/inbox) chain to every hosting database and
@@ -112,7 +121,7 @@ services:
     restart: "no"
 
   app:
-    <<: *service-runtime
+    <<: *app-runtime
     image: *image
     build: *build
     volumes:
@@ -165,7 +174,7 @@ services:
   # the same SANDLOOM_MODULES and registers every loaded module's tasks.py on the
   # taskqueue capability's Celery app.
   worker:
-    <<: *service-runtime
+    <<: *app-runtime
     image: *image
     build: *build
     volumes:
@@ -208,7 +217,7 @@ services:
   # Exactly ONE beat per deployment: it schedules the periodic tasks the loaded
   # modules declare (setup_periodic_tasks hooks).
   beat:
-    <<: *service-runtime
+    <<: *app-runtime
     image: *image
     build: *build
     volumes:

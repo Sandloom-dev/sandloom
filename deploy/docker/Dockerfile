@@ -18,6 +18,8 @@ RUN python -m pip uninstall -y pip setuptools wheel \
     && useradd --create-home --uid 10001 appuser \
     && install -d -o appuser -g appuser /app/data
 COPY --from=dependencies /opt/venv /opt/venv
+COPY src/sandloom/core/cli/templates/deploy/harden_runtime.py /tmp/harden_runtime.py
+RUN python /tmp/harden_runtime.py && rm /tmp/harden_runtime.py
 COPY --chown=appuser:appuser migrations /app/migrations
 ENV PATH="/opt/venv/bin:${PATH}" VIRTUAL_ENV=/opt/venv PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app

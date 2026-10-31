@@ -470,6 +470,48 @@ docker compose -f deploy/compose/microservices.yml down -v
 * Behind another load balancer, add its CIDR to `TRUSTED_PROXY_IPS` (and keep
   the gateway's).
 
+## Runtime restrictions
+
+Application containers (HTTP, migrations, workers and beat) run as UID 10001
+with `read_only: true`, `cap_drop: [ALL]` and
+`security_opt: ["no-new-privileges:true"]`. These options belong to the
+`x-app-runtime` anchor; database, Redis and gateway images keep their own
+entrypoint requirements. The generated project and split profiles use the same
+application boundary.
+
+Only `/app/data` (persistent storage) and `/tmp` (private tmpfs) are writable.
+The tmpfs is bounded to **128 MiB**, owned by UID/GID 10001, and mounted with
+`noexec,nosuid,nodev`. Gunicorn metrics/worker files, the Celery heartbeat and
+beat schedule use it. It is cleared on container recreation. Large temporary
+workloads need an explicitly sized scratch mount; do not make the root writable.
+Export backups to a dedicated writable mount or `/app/data`, not the working
+directory. Change permissions/ownership of an existing storage volume before
+starting the restricted process if it was created by a different UID.
+
+The image removes APT, its runtime library, mount/account administration tools
+and SUID/SGID file bits after creating the application user. It refuses to
+remove essential or protected packages, never uses force-removal or autoremove,
+and preserves Debian package metadata. Build dependencies belong in the builder;
+changes to system packages require rebuilding the image. The shipped hardener
+is reviewed for the pinned Debian 13 base; a different base needs review.
+
+The Docker CI job runs `tools/checks/runtime_inventory.py --enforce` **inside
+the actual image**. It checks kernel capabilities and `NoNewPrivs`, rejects
+SUID/SGID files, tests successful scratch/storage writes, rejects an application
+root write, and proves an executable cannot run from `/tmp`. Its
+`runtime-security-inventory` artifact contains package/component evidence.
+Static tests check the application services in every shipped/generated profile.
+
+For other orchestrators, preserve the same restrictions: for example Kubernetes
+`runAsNonRoot`, UID 10001, `allowPrivilegeEscalation: false`, dropped capabilities,
+`readOnlyRootFilesystem` and explicit scratch/storage mounts. Running an image
+without the profile does not automatically apply these runtime controls.
+
+The [Debian review](../design/security/debian-runtime-2026-10-31.md) and
+[supply-chain guide](../docs/contributing/supply-chain.md#runtime-container-scope)
+distinguish removed components, inapplicable findings, mitigations and unresolved
+vendor issues. Restrictions do not turn unresolved CVEs into patched libraries.
+
 ## Sizing
 
 The image installs the `sandloom[fast]` extra (hiredis reply parser,

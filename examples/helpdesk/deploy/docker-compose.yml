@@ -32,6 +32,13 @@ x-app-build: &app-build
   context: ..
   dockerfile: Dockerfile
 
+x-app-runtime: &app-runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+
 services:
   db:
     image: postgres:16-alpine
@@ -49,6 +56,7 @@ services:
 
   # One-shot schema migration: runs to completion before the app starts.
   migrate:
+    <<: *app-runtime
     build: *app-build
     command: ["sandloom", "migrate", "upgrade-all", "--apply"]
     environment:
@@ -60,6 +68,7 @@ services:
     restart: "no"
 
   app:
+    <<: *app-runtime
     build: *app-build
     environment:
       <<: *app-env
@@ -87,6 +96,7 @@ services:
   # Celery worker: the FRAMEWORK entrypoint boots helpdesk.asgi (same SANDLOOM_MODULES)
   # and registers each loaded module's tasks.py on the taskqueue's app.
   worker:
+    <<: *app-runtime
     build: *app-build
     command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
     environment:
@@ -110,6 +120,7 @@ services:
 
   # Exactly ONE beat per deployment (it schedules the modules' periodic tasks).
   beat:
+    <<: *app-runtime
     build: *app-build
     command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
