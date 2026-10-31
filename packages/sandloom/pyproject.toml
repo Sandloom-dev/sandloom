@@ -1,6 +1,6 @@
 [project]
 name = "sandloom"
-version = "0.7.0a4"
+version = "0.7.0a5"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure."
 readme = "README.md"
@@ -68,9 +68,9 @@ celery = [
 # The batteries-included set: the three standard modules plus Redis and Celery.
 standard = [
     "sandloom[redis,celery]",
-    "sandloom-identity>=0.7.0a4,<0.8",
-    "sandloom-tenancy>=0.7.0a4,<0.8",
-    "sandloom-billing>=0.7.0a4,<0.8",
+    "sandloom-identity>=0.7.0a5,<0.8",
+    "sandloom-tenancy>=0.7.0a5,<0.8",
+    "sandloom-billing>=0.7.0a5,<0.8",
 ]
 fast = [
     "redis[hiredis]>=5.2.1,<6",

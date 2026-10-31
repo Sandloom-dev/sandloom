@@ -7,8 +7,12 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a5] — 2026-10-31
+
+- Align the framework dependency floor with `sandloom>=0.7.0a5,<0.8`.
+
 - Fill `Notification.body_fields` on every email, so a notification driver can render
-  its own templates. Needs the `sandloom` release that adds the field.
+  its own templates. Requires `sandloom>=0.7.0a5,<0.8`.
 
 ## [0.7.0a4] — 2026-10-31
 

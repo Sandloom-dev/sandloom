@@ -7,7 +7,7 @@ description: Review and apply Sandloom package upgrades, generated contracts and
 
 Sandloom is an alpha. Pin and review the versions you deploy; do not infer
 compatibility from a passing installation alone. The current published alpha
-is `0.7.0a4`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
+is `0.7.0a5`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
 [versioning policy](../contributing/versioning.md).
 
 1. Record the installed kernel and optional battery versions, the application
@@ -56,9 +56,13 @@ migration guide, not the general package-upgrade procedure.
 If the upgrade fails, capture the error code, package versions and a redacted
 reproduction for [support](../getting-started/help.md).
 
-## Upgrading past 0.7.0a4
+## Upgrading from 0.7.0a4 to 0.7.0a5
 
-The driver API changed ([ADR-0011](../adr/0011-driver-api.md)):
+This alpha changes infrastructure extension APIs. Update the framework and
+standard modules together, then regenerate and run the application gates before
+deployment. Ordinary built-in accessor names such as `cache()` and `notifier()`
+remain available. Custom capability declarations and driver packages need the
+changes below ([ADR-0011](../adr/0011-driver-api.md)):
 
 | Before | After |
 | --- | --- |

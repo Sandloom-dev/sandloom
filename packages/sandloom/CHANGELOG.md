@@ -8,6 +8,14 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a5] — 2026-10-31
+
+- **Breaking infrastructure API:** migrate string capability declarations and
+  registration callbacks using the [a4 → a5 guide](https://sandloom.dev/docs/guides/upgrading/#upgrading-from-070a4-to-070a5).
+- Include runtime container hardening, backup-identifier quoting, safe viewer
+  links and the updated architecture explorer. Generate applications with
+  `sandloom[redis,celery]>=0.7.0a5,<0.8`.
+
 - Add `sandloom.driverkit` for driver packages, found by name in the `sandloom.drivers`
   entry-point group and imported only when selected (ADR-0011). Replaces `sandloom.infra`.
 - Accessors return Protocols; `capability()` and `Capability()` take a `CapabilityRef[P]`.

@@ -9,20 +9,20 @@ type: tutorial
 ## Quickstart
 
 !!! note "Current alpha"
-    The current alpha is `0.7.0a4`. All four packages are available on <!-- sandloom-release -->
-    [PyPI](https://pypi.org/project/sandloom/0.7.0a4/). The source is maintained in
+    The current alpha is `0.7.0a5`. All four packages are available on <!-- sandloom-release -->
+    [PyPI](https://pypi.org/project/sandloom/0.7.0a5/). The source is maintained in
     [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 
 You need Python 3.11+, [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker.
 In an empty directory, generate an application from the published alpha:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a4" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a5" sandloom new myapp --with identity,tenancy,billing
 ```
 
 This starter selects all three [standard modules](../modules/index.md). For a
 minimal backend, use
-`uvx --from "sandloom==0.7.0a4" sandloom new myapp --no-batteries --module notes`
+`uvx --from "sandloom==0.7.0a5" sandloom new myapp --no-batteries --module notes`
 instead. That command already creates `notes`, so its printed steps add a
 different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.
