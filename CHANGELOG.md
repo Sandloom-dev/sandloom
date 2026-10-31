@@ -32,6 +32,16 @@ website renders this same changelog.
 
 ### Security
 
+- Restrict shipped and generated application containers to a read-only root,
+  no capabilities and no privilege gain, with a bounded private `/tmp` and
+  persistent `/app/data`. Apply the same boundary to migrations, workers and beat.
+- Remove nonessential runtime administration packages and SUID/SGID bits without
+  forcing Debian dependency or protected-package removal. Keep package metadata
+  for full vulnerability scans; add a real kernel/filesystem check to Docker CI.
+- Review all 68 Debian findings individually, with repeatable component and
+  authenticated zlib source/binary evidence. Keep unresolved CVEs visible;
+  the evidence checker rejects new findings and invalidates stale conclusions.
+
 - Quote restored PostgreSQL catalog identifiers, including foreign-key columns,
   before checking backups; handle quoted names without changing query semantics.
 - Restrict architecture-viewer documentation links to HTTP/HTTPS and retain

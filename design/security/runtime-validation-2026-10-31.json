@@ -1,0 +1,2989 @@
+{
+  "schema": 1,
+  "date": "2026-10-31",
+  "purpose": "Measured runtime evidence, no scanner ignores or automatic acceptance of open vulnerabilities.",
+  "source_baseline": "453f7bf",
+  "platforms": {
+    "linux/arm64": {
+      "inventory": {
+        "boundary_checks": "pass",
+        "cap_bounding": 0,
+        "cap_effective": 0,
+        "gid": 10001,
+        "library_sha256": {
+          "/usr/lib/aarch64-linux-gnu/libsqlite3.so.0.8.6": "203e52aaa9cfa34eab0f4ea46b434e8a69031610a46d72c2f7886389990468a1",
+          "/usr/lib/aarch64-linux-gnu/libz.so.1.3.1": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65"
+        },
+        "machine": "aarch64",
+        "mounts": [
+          {
+            "filesystem": "overlay",
+            "options": [
+              "ro",
+              "relatime"
+            ],
+            "path": "/",
+            "super_options": []
+          },
+          {
+            "filesystem": "tmpfs",
+            "options": [
+              "rw",
+              "nosuid",
+              "nodev",
+              "noexec",
+              "relatime"
+            ],
+            "path": "/tmp",
+            "super_options": [
+              "size=131072k",
+              "mode=700",
+              "uid=10001",
+              "gid=10001"
+            ]
+          },
+          {
+            "filesystem": "tmpfs",
+            "options": [
+              "rw",
+              "nosuid",
+              "nodev",
+              "noexec",
+              "relatime"
+            ],
+            "path": "/app/data",
+            "super_options": [
+              "size=8192k",
+              "mode=700",
+              "uid=10001",
+              "gid=10001"
+            ]
+          }
+        ],
+        "no_new_privileges": 1,
+        "packages": [
+          {
+            "name": "base-files",
+            "source": "base-files",
+            "version": "13.8+deb13u7"
+          },
+          {
+            "name": "base-passwd",
+            "source": "base-passwd",
+            "version": "3.6.7"
+          },
+          {
+            "name": "bash",
+            "source": "bash",
+            "version": "5.2.37-2+b10"
+          },
+          {
+            "name": "bsdutils",
+            "source": "util-linux",
+            "version": "1:2.41.5-0+deb13u1"
+          },
+          {
+            "name": "ca-certificates",
+            "source": "ca-certificates",
+            "version": "20250419+deb13u1"
+          },
+          {
+            "name": "coreutils",
+            "source": "coreutils",
+            "version": "9.7-3"
+          },
+          {
+            "name": "dash",
+            "source": "dash",
+            "version": "0.5.12-12"
+          },
+          {
+            "name": "debconf",
+            "source": "debconf",
+            "version": "1.5.91"
+          },
+          {
+            "name": "debian-archive-keyring",
+            "source": "debian-archive-keyring",
+            "version": "2025.1"
+          },
+          {
+            "name": "debianutils",
+            "source": "debianutils",
+            "version": "5.23.2"
+          },
+          {
+            "name": "diffutils",
+            "source": "diffutils",
+            "version": "1:3.10-4"
+          },
+          {
+            "name": "dpkg",
+            "source": "dpkg",
+            "version": "1.22.22"
+          },
+          {
+            "name": "findutils",
+            "source": "findutils",
+            "version": "4.10.0-3"
+          },
+          {
+            "name": "gcc-14-base:arm64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "grep",
+            "source": "grep",
+            "version": "3.11-4+b1"
+          },
+          {
+            "name": "gzip",
+            "source": "gzip",
+            "version": "1.13-1+deb13u1"
+          },
+          {
+            "name": "hostname",
+            "source": "hostname",
+            "version": "3.25"
+          },
+          {
+            "name": "init-system-helpers",
+            "source": "init-system-helpers",
+            "version": "1.69~deb13u1"
+          },
+          {
+            "name": "libacl1:arm64",
+            "source": "acl",
+            "version": "2.3.2-2+b1"
+          },
+          {
+            "name": "libattr1:arm64",
+            "source": "attr",
+            "version": "1:2.5.2-3"
+          },
+          {
+            "name": "libaudit-common",
+            "source": "audit",
+            "version": "1:4.0.2-2+deb13u1"
+          },
+          {
+            "name": "libaudit1:arm64",
+            "source": "audit",
+            "version": "1:4.0.2-2+deb13u1"
+          },
+          {
+            "name": "libblkid1:arm64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libbsd0:arm64",
+            "source": "libbsd",
+            "version": "0.12.2-2"
+          },
+          {
+            "name": "libbz2-1.0:arm64",
+            "source": "bzip2",
+            "version": "1.0.8-6"
+          },
+          {
+            "name": "libc-bin",
+            "source": "glibc",
+            "version": "2.41-12+deb13u4"
+          },
+          {
+            "name": "libc6:arm64",
+            "source": "glibc",
+            "version": "2.41-12+deb13u4"
+          },
+          {
+            "name": "libcap-ng0:arm64",
+            "source": "libcap-ng",
+            "version": "0.8.5-4+b1"
+          },
+          {
+            "name": "libcap2:arm64",
+            "source": "libcap2",
+            "version": "1:2.75-10+deb13u1+b3"
+          },
+          {
+            "name": "libcrypt1:arm64",
+            "source": "libxcrypt",
+            "version": "1:4.4.38-1"
+          },
+          {
+            "name": "libdb5.3t64:arm64",
+            "source": "db5.3",
+            "version": "5.3.28+dfsg2-9"
+          },
+          {
+            "name": "libdebconfclient0:arm64",
+            "source": "cdebconf",
+            "version": "0.280"
+          },
+          {
+            "name": "libffi8:arm64",
+            "source": "libffi",
+            "version": "3.4.8-2"
+          },
+          {
+            "name": "libgcc-s1:arm64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "libgdbm6t64:arm64",
+            "source": "gdbm",
+            "version": "1.24-2"
+          },
+          {
+            "name": "libgmp10:arm64",
+            "source": "gmp",
+            "version": "2:6.3.0+dfsg-3"
+          },
+          {
+            "name": "libhogweed6t64:arm64",
+            "source": "nettle",
+            "version": "3.10.1-1"
+          },
+          {
+            "name": "liblastlog2-2:arm64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "liblz4-1:arm64",
+            "source": "lz4",
+            "version": "1.10.0-4"
+          },
+          {
+            "name": "liblzma5:arm64",
+            "source": "xz-utils",
+            "version": "5.8.1-1+deb13u2"
+          },
+          {
+            "name": "libmd0:arm64",
+            "source": "libmd",
+            "version": "1.1.0-2+b1"
+          },
+          {
+            "name": "libmount1:arm64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libncursesw6:arm64",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "libnettle8t64:arm64",
+            "source": "nettle",
+            "version": "3.10.1-1"
+          },
+          {
+            "name": "libpam-modules:arm64",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam-modules-bin",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam-runtime",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam0g:arm64",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpcre2-8-0:arm64",
+            "source": "pcre2",
+            "version": "10.46-1~deb13u3"
+          },
+          {
+            "name": "libreadline8t64:arm64",
+            "source": "readline",
+            "version": "8.2-6"
+          },
+          {
+            "name": "libseccomp2:arm64",
+            "source": "libseccomp",
+            "version": "2.6.0-2"
+          },
+          {
+            "name": "libselinux1:arm64",
+            "source": "libselinux",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsemanage-common",
+            "source": "libsemanage",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsemanage2:arm64",
+            "source": "libsemanage",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsepol2:arm64",
+            "source": "libsepol",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsmartcols1:arm64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libsqlite3-0:arm64",
+            "source": "sqlite3",
+            "version": "3.46.1-7+deb13u2"
+          },
+          {
+            "name": "libssl3t64:arm64",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "libstdc++6:arm64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "libsystemd0:arm64",
+            "source": "systemd",
+            "version": "257.13-1~deb13u1"
+          },
+          {
+            "name": "libtinfo6:arm64",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "libudev1:arm64",
+            "source": "systemd",
+            "version": "257.13-1~deb13u1"
+          },
+          {
+            "name": "libuuid1:arm64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libxxhash0:arm64",
+            "source": "xxhash",
+            "version": "0.8.3-2"
+          },
+          {
+            "name": "libzstd1:arm64",
+            "source": "libzstd",
+            "version": "1.5.7+dfsg-1"
+          },
+          {
+            "name": "login",
+            "source": "util-linux",
+            "version": "1:4.16.0-2+really2.41.5-0+deb13u1"
+          },
+          {
+            "name": "login.defs",
+            "source": "shadow",
+            "version": "1:4.17.4-2"
+          },
+          {
+            "name": "mawk",
+            "source": "mawk",
+            "version": "1.3.4.20250131-1"
+          },
+          {
+            "name": "ncurses-base",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "ncurses-bin",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "netbase",
+            "source": "netbase",
+            "version": "6.5"
+          },
+          {
+            "name": "openssl",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "openssl-provider-legacy",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "perl-base",
+            "source": "perl",
+            "version": "5.40.1-6+deb13u1"
+          },
+          {
+            "name": "readline-common",
+            "source": "readline",
+            "version": "8.2-6"
+          },
+          {
+            "name": "sed",
+            "source": "sed",
+            "version": "4.9-2+deb13u1"
+          },
+          {
+            "name": "sqv",
+            "source": "rust-sequoia-sqv",
+            "version": "1.3.0-3+b2"
+          },
+          {
+            "name": "sysvinit-utils",
+            "source": "sysvinit",
+            "version": "3.14-4"
+          },
+          {
+            "name": "tar",
+            "source": "tar",
+            "version": "1.35+dfsg-3.1"
+          },
+          {
+            "name": "tzdata",
+            "source": "tzdata",
+            "version": "2026e-0+deb13u1"
+          },
+          {
+            "name": "util-linux",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "zlib1g:arm64",
+            "source": "zlib",
+            "version": "1:1.3.dfsg+really1.3.1-1+b1"
+          }
+        ],
+        "perl_modules": {
+          "Archive/Tar.pm": false,
+          "File/Temp.pm": true,
+          "Pod/Text.pm": false
+        },
+        "privileged_files": [],
+        "schema": 1,
+        "sqlite_compile_options": [
+          "ALLOW_ROWID_IN_VIEW",
+          "ATOMIC_INTRINSICS=1",
+          "COMPILER=gcc-14.2.0",
+          "DEFAULT_AUTOVACUUM",
+          "DEFAULT_CACHE_SIZE=-2000",
+          "DEFAULT_FILE_FORMAT=4",
+          "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+          "DEFAULT_MMAP_SIZE=0",
+          "DEFAULT_PAGE_SIZE=4096",
+          "DEFAULT_PCACHE_INITSZ=20",
+          "DEFAULT_RECURSIVE_TRIGGERS",
+          "DEFAULT_SECTOR_SIZE=4096",
+          "DEFAULT_SYNCHRONOUS=2",
+          "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+          "DEFAULT_WAL_SYNCHRONOUS=2",
+          "DEFAULT_WORKER_THREADS=0",
+          "DIRECT_OVERFLOW_READ",
+          "ENABLE_COLUMN_METADATA",
+          "ENABLE_DBPAGE_VTAB",
+          "ENABLE_DBSTAT_VTAB",
+          "ENABLE_FTS3",
+          "ENABLE_FTS3_PARENTHESIS",
+          "ENABLE_FTS3_TOKENIZER",
+          "ENABLE_FTS4",
+          "ENABLE_FTS5",
+          "ENABLE_LOAD_EXTENSION",
+          "ENABLE_MATH_FUNCTIONS",
+          "ENABLE_PREUPDATE_HOOK",
+          "ENABLE_RTREE",
+          "ENABLE_SESSION",
+          "ENABLE_STMTVTAB",
+          "ENABLE_UNLOCK_NOTIFY",
+          "ENABLE_UPDATE_DELETE_LIMIT",
+          "HAVE_ISNAN",
+          "LIKE_DOESNT_MATCH_BLOBS",
+          "MALLOC_SOFT_LIMIT=1024",
+          "MAX_ATTACHED=10",
+          "MAX_COLUMN=2000",
+          "MAX_COMPOUND_SELECT=500",
+          "MAX_DEFAULT_PAGE_SIZE=32768",
+          "MAX_EXPR_DEPTH=1000",
+          "MAX_FUNCTION_ARG=127",
+          "MAX_LENGTH=1000000000",
+          "MAX_LIKE_PATTERN_LENGTH=50000",
+          "MAX_MMAP_SIZE=0x7fff0000",
+          "MAX_PAGE_COUNT=0xfffffffe",
+          "MAX_PAGE_SIZE=65536",
+          "MAX_SCHEMA_RETRY=25",
+          "MAX_SQL_LENGTH=1000000000",
+          "MAX_TRIGGER_DEPTH=1000",
+          "MAX_VARIABLE_NUMBER=250000",
+          "MAX_VDBE_OP=250000000",
+          "MAX_WORKER_THREADS=8",
+          "MUTEX_PTHREADS",
+          "SECURE_DELETE",
+          "SOUNDEX",
+          "SYSTEM_MALLOC",
+          "TEMP_STORE=1",
+          "THREADSAFE=1",
+          "USE_URI"
+        ],
+        "sqlite_modules": [
+          "sqlite_stmt",
+          "json_tree",
+          "json_each",
+          "fts4aux",
+          "fts3",
+          "fts4",
+          "fts3tokenize",
+          "fts5vocab",
+          "dbstat",
+          "fts5",
+          "rtree",
+          "rtree_i32",
+          "sqlite_dbpage"
+        ],
+        "sqlite_version": "3.46.1",
+        "sqlite_zipfile_extensions": [],
+        "symbols": {
+          "sqlite3": {
+            "sqlite3changeset_apply_v2": true,
+            "sqlite3changeset_apply_v3": false
+          },
+          "z": {
+            "crc32_combine": true,
+            "gzprintf": true,
+            "gzwrite": true
+          }
+        },
+        "systemd_paths": {
+          "/lib/systemd/systemd": false,
+          "/usr/lib/systemd/systemd": false,
+          "/usr/lib/systemd/systemd-homed": false,
+          "/usr/lib/systemd/systemd-journald": false,
+          "/usr/lib/systemd/systemd-oomd": false
+        },
+        "tool_source_packages": {
+          "chfn": null,
+          "chsh": null
+        },
+        "tools": {
+          "apt": null,
+          "apt-get": null,
+          "apt-key": null,
+          "bzip2recover": null,
+          "chacl": null,
+          "chfn": null,
+          "chsh": null,
+          "diff3": "/usr/bin/diff3",
+          "getfacl": null,
+          "getfattr": null,
+          "infocmp": "/usr/bin/infocmp",
+          "journalctl": null,
+          "mount": null,
+          "newuidmap": null,
+          "nscd": null,
+          "nsenter": "/usr/bin/nsenter",
+          "passwd": null,
+          "perl": "/usr/bin/perl",
+          "setfacl": null,
+          "setfattr": null,
+          "systemd": null,
+          "systemd-homed": null,
+          "systemd-journald": null,
+          "systemd-oomd": null,
+          "systemd-tmpfiles": null,
+          "tic": "/usr/bin/tic",
+          "umount": null,
+          "useradd": null
+        },
+        "uid": 10001,
+        "zlib_runtime": "1.3.1"
+      },
+      "zlib-evidence": {
+        "assessment": "under_investigation",
+        "authenticated_by": "APT Release/InRelease and package/source index checksums using the reference image Debian archive keyring; no separate dsc-signature verification claimed",
+        "binary_library_sha256": {
+          "./usr/lib/aarch64-linux-gnu/libz.so.1.3.1": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65"
+        },
+        "binary_version": "1:1.3.dfsg+really1.3.1-1+b1",
+        "cve": "CVE-2026-85091",
+        "debian_packaging_sha256": "9ed525955ce9fb0c1b39be8ff98f73450dbfc6305a9a27e6149c8972d38a0a9e",
+        "debian_patches_present": false,
+        "fatal_write_error": true,
+        "files_sha256": {
+          "zlib1g_1%3a1.3.dfsg+really1.3.1-1+b1_arm64.deb": "209aa5cf671e97b9eb0410844fa6df4cae2e75b0c72e7802ab6c8ece13e6ddef",
+          "zlib_1.3.dfsg+really1.3.1-1.debian.tar.xz": "9ed525955ce9fb0c1b39be8ff98f73450dbfc6305a9a27e6149c8972d38a0a9e",
+          "zlib_1.3.dfsg+really1.3.1-1.dsc": "ede2791e29c1d3b422f9208bdd7edf040c20445ea1e7453a72037576e64fa197",
+          "zlib_1.3.dfsg+really1.3.1.orig.tar.gz": "60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb"
+        },
+        "installed_library_matches_authenticated_package": true,
+        "machine": "aarch64",
+        "nonblocking_mechanism_present": false,
+        "returns_before_memmove": true,
+        "schema": 1,
+        "source_orig_sha256": "60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb"
+      },
+      "review": {
+        "baseline_advisories": 68,
+        "current_advisories": 67,
+        "findings": [
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54369",
+            "id": "SNYK-DEBIAN13-ACL-17677866",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "high",
+            "status": "open_local_privileged_path",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54370",
+            "id": "SNYK-DEBIAN13-ACL-17677882",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "medium",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-acl-tools": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2011-3374",
+            "id": "SNYK-DEBIAN13-APT-5675173",
+            "manual_review_required": false,
+            "scan_present": false,
+            "severity": "low",
+            "status": "removed_component",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-apt-key": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54371",
+            "id": "SNYK-DEBIAN13-ATTR-17678182",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "high",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-attr-tools": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-42250",
+            "id": "SNYK-DEBIAN13-BZIP2-17099839",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-bzip2recover": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-5278",
+            "id": "SNYK-DEBIAN13-COREUTILS-10259260",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-56391",
+            "id": "SNYK-DEBIAN13-COREUTILS-18299902",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-56392",
+            "id": "SNYK-DEBIAN13-COREUTILS-18299912",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2017-18018",
+            "id": "SNYK-DEBIAN13-COREUTILS-5673914",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_local_privileged_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102473",
+            "id": "SNYK-DEBIAN13-DASH-20335454",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102474",
+            "id": "SNYK-DEBIAN13-DASH-20335455",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-53910",
+            "id": "SNYK-DEBIAN13-DIFFUTILS-18235274",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102010",
+            "id": "SNYK-DEBIAN13-GCC14-20335537",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-95619",
+            "id": "SNYK-DEBIAN13-GCC14-20386241",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_live_library",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6238",
+            "id": "SNYK-DEBIAN13-GLIBC-16325153",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-5435",
+            "id": "SNYK-DEBIAN13-GLIBC-16325161",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6791",
+            "id": "SNYK-DEBIAN13-GLIBC-18605790",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6368",
+            "id": "SNYK-DEBIAN13-GLIBC-18612523",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-19542",
+            "id": "SNYK-DEBIAN13-GLIBC-19233584",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-19499",
+            "id": "SNYK-DEBIAN13-GLIBC-19269961",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-77117",
+            "id": "SNYK-DEBIAN13-GLIBC-19339206",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18374",
+            "id": "SNYK-DEBIAN13-GLIBC-19383357",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-80489",
+            "id": "SNYK-DEBIAN13-GLIBC-19402190",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-89092",
+            "id": "SNYK-DEBIAN13-GLIBC-19684421",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-nscd": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-8674",
+            "id": "SNYK-DEBIAN13-GLIBC-19885967",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-86805",
+            "id": "SNYK-DEBIAN13-GLIBC-20046937",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-95818",
+            "id": "SNYK-DEBIAN13-GLIBC-20046940",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-97399",
+            "id": "SNYK-DEBIAN13-GLIBC-20197706",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_architecture",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "not-power8": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-84243",
+            "id": "SNYK-DEBIAN13-GLIBC-22083454",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2018-20796",
+            "id": "SNYK-DEBIAN13-GLIBC-5680884",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2010-4756",
+            "id": "SNYK-DEBIAN13-GLIBC-5681058",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010025",
+            "id": "SNYK-DEBIAN13-GLIBC-5681145",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010023",
+            "id": "SNYK-DEBIAN13-GLIBC-5681177",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-9192",
+            "id": "SNYK-DEBIAN13-GLIBC-5681215",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010022",
+            "id": "SNYK-DEBIAN13-GLIBC-5681241",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010024",
+            "id": "SNYK-DEBIAN13-GLIBC-5681256",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-6141",
+            "id": "SNYK-DEBIAN13-NCURSES-10378958",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-69720",
+            "id": "SNYK-DEBIAN13-NCURSES-15762838",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54411",
+            "id": "SNYK-DEBIAN13-PAM-17339897",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-9538",
+            "id": "SNYK-DEBIAN13-PERL-17037374",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-perl-archive-tar": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-15534",
+            "id": "SNYK-DEBIAN13-PERL-18600690",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-82560",
+            "id": "SNYK-DEBIAN13-PERL-19957687",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-perl-pod-text": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2011-4116",
+            "id": "SNYK-DEBIAN13-PERL-5692251",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2007-5686",
+            "id": "SNYK-DEBIAN13-SHADOW-5695385",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2024-56433",
+            "id": "SNYK-DEBIAN13-SHADOW-8551157",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-70873",
+            "id": "SNYK-DEBIAN13-SQLITE3-15682562",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-sqlite-zipfile": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-50813",
+            "id": "SNYK-DEBIAN13-SQLITE3-17975833",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_live_library",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-50812",
+            "id": "SNYK-DEBIAN13-SQLITE3-17975841",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-sqlite-apply-v3": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2021-45346",
+            "id": "SNYK-DEBIAN13-SQLITE3-5696112",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-40228",
+            "id": "SNYK-DEBIAN13-SYSTEMD-16009572",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-16742",
+            "id": "SNYK-DEBIAN13-SYSTEMD-18867639",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-15059",
+            "id": "SNYK-DEBIAN13-SYSTEMD-18913924",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2013-4392",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5696564",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31439",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733389",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31438",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733399",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31437",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733401",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-5704",
+            "id": "SNYK-DEBIAN13-TAR-15962848",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18477",
+            "id": "SNYK-DEBIAN13-TAR-18515585",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18508",
+            "id": "SNYK-DEBIAN13-TAR-18515588",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2005-2541",
+            "id": "SNYK-DEBIAN13-TAR-5696683",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-3184",
+            "id": "SNYK-DEBIAN13-UTILLINUX-15358019",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-76642",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513279",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78408",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513282",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78409",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513289",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78410",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513292",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2022-0563",
+            "id": "SNYK-DEBIAN13-UTILLINUX-5698535",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_not_built",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "util-linux-no-chfn-chsh": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-27171",
+            "id": "SNYK-DEBIAN13-ZLIB-15307854",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-85091",
+            "id": "SNYK-DEBIAN13-ZLIB-19520500",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "high",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "zlib-source-review": true
+            }
+          }
+        ],
+        "ignored": 0,
+        "image": "sandloom-backend:runtime-hardening-20261031",
+        "image_id": "sha256:d3555dc9b0c49e3039bf2436231699d0d4f2dc752f1f021b3b7e1ed253052132",
+        "input_sha256": {
+          "inventory": "7d9accd2e24e87a81accea9b462790afc9ff776a9a6c33ca6c3e6ad0c5483375",
+          "review": "8b241cf39f3d5a5e296de07e977cabca44a89b47105758146904531789c135a0",
+          "scan": "1a4522e7ba64712f1308aa0aefbe6d37166cbaf1bde49c5e81b2e86065d7c5e8",
+          "zlib_evidence": "dc20eac0b8065bac1957f7d7c91dd92de5ddbc88fbe4cc5b2a0b7da9b03ac402"
+        },
+        "machine": "aarch64",
+        "purpose": "Evidence only; not an ignore policy or vulnerability-free certification",
+        "schema": 1,
+        "summary": {
+          "not_affected_architecture": 1,
+          "not_affected_component_absent": 14,
+          "not_affected_component_not_built": 1,
+          "open_live_library": 2,
+          "open_local_privileged_path": 2,
+          "open_no_identified_framework_path": 12,
+          "open_operator_configuration": 3,
+          "open_unused_tool": 15,
+          "privilege_mitigation_required": 7,
+          "removed_component": 1,
+          "under_investigation": 3,
+          "upstream_disputed": 7
+        },
+        "verification_predicates": {
+          "absent-acl-tools": true,
+          "absent-apt-key": true,
+          "absent-attr-tools": true,
+          "absent-bzip2recover": true,
+          "absent-nscd": true,
+          "absent-perl-archive-tar": true,
+          "absent-perl-pod-text": true,
+          "absent-sqlite-apply-v3": true,
+          "absent-sqlite-zipfile": true,
+          "absent-systemd-daemons": true,
+          "not-power8": true,
+          "runtime-no-privilege-gain": true,
+          "util-linux-no-chfn-chsh": true,
+          "zlib-source-review": true
+        }
+      },
+      "scan_sha256": "1a4522e7ba64712f1308aa0aefbe6d37166cbaf1bde49c5e81b2e86065d7c5e8"
+    },
+    "linux/amd64": {
+      "inventory": {
+        "boundary_checks": "pass",
+        "cap_bounding": 0,
+        "cap_effective": 0,
+        "gid": 10001,
+        "library_sha256": {
+          "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6": "317d80bf5d592f98a71e14d2330591d6a339f631f37c5977835af748a1f26715",
+          "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e"
+        },
+        "machine": "x86_64",
+        "mounts": [
+          {
+            "filesystem": "overlay",
+            "options": [
+              "ro",
+              "relatime"
+            ],
+            "path": "/",
+            "super_options": []
+          },
+          {
+            "filesystem": "tmpfs",
+            "options": [
+              "rw",
+              "nosuid",
+              "nodev",
+              "noexec",
+              "relatime"
+            ],
+            "path": "/tmp",
+            "super_options": [
+              "size=131072k",
+              "mode=700",
+              "uid=10001",
+              "gid=10001"
+            ]
+          },
+          {
+            "filesystem": "tmpfs",
+            "options": [
+              "rw",
+              "nosuid",
+              "nodev",
+              "noexec",
+              "relatime"
+            ],
+            "path": "/app/data",
+            "super_options": [
+              "size=8192k",
+              "mode=700",
+              "uid=10001",
+              "gid=10001"
+            ]
+          }
+        ],
+        "no_new_privileges": 1,
+        "packages": [
+          {
+            "name": "base-files",
+            "source": "base-files",
+            "version": "13.8+deb13u7"
+          },
+          {
+            "name": "base-passwd",
+            "source": "base-passwd",
+            "version": "3.6.7"
+          },
+          {
+            "name": "bash",
+            "source": "bash",
+            "version": "5.2.37-2+b10"
+          },
+          {
+            "name": "bsdutils",
+            "source": "util-linux",
+            "version": "1:2.41.5-0+deb13u1"
+          },
+          {
+            "name": "ca-certificates",
+            "source": "ca-certificates",
+            "version": "20250419+deb13u1"
+          },
+          {
+            "name": "coreutils",
+            "source": "coreutils",
+            "version": "9.7-3"
+          },
+          {
+            "name": "dash",
+            "source": "dash",
+            "version": "0.5.12-12"
+          },
+          {
+            "name": "debconf",
+            "source": "debconf",
+            "version": "1.5.91"
+          },
+          {
+            "name": "debian-archive-keyring",
+            "source": "debian-archive-keyring",
+            "version": "2025.1"
+          },
+          {
+            "name": "debianutils",
+            "source": "debianutils",
+            "version": "5.23.2"
+          },
+          {
+            "name": "diffutils",
+            "source": "diffutils",
+            "version": "1:3.10-4"
+          },
+          {
+            "name": "dpkg",
+            "source": "dpkg",
+            "version": "1.22.22"
+          },
+          {
+            "name": "findutils",
+            "source": "findutils",
+            "version": "4.10.0-3"
+          },
+          {
+            "name": "gcc-14-base:amd64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "grep",
+            "source": "grep",
+            "version": "3.11-4"
+          },
+          {
+            "name": "gzip",
+            "source": "gzip",
+            "version": "1.13-1+deb13u1"
+          },
+          {
+            "name": "hostname",
+            "source": "hostname",
+            "version": "3.25"
+          },
+          {
+            "name": "init-system-helpers",
+            "source": "init-system-helpers",
+            "version": "1.69~deb13u1"
+          },
+          {
+            "name": "libacl1:amd64",
+            "source": "acl",
+            "version": "2.3.2-2+b1"
+          },
+          {
+            "name": "libattr1:amd64",
+            "source": "attr",
+            "version": "1:2.5.2-3"
+          },
+          {
+            "name": "libaudit-common",
+            "source": "audit",
+            "version": "1:4.0.2-2+deb13u1"
+          },
+          {
+            "name": "libaudit1:amd64",
+            "source": "audit",
+            "version": "1:4.0.2-2+deb13u1"
+          },
+          {
+            "name": "libblkid1:amd64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libbsd0:amd64",
+            "source": "libbsd",
+            "version": "0.12.2-2"
+          },
+          {
+            "name": "libbz2-1.0:amd64",
+            "source": "bzip2",
+            "version": "1.0.8-6"
+          },
+          {
+            "name": "libc-bin",
+            "source": "glibc",
+            "version": "2.41-12+deb13u4"
+          },
+          {
+            "name": "libc6:amd64",
+            "source": "glibc",
+            "version": "2.41-12+deb13u4"
+          },
+          {
+            "name": "libcap-ng0:amd64",
+            "source": "libcap-ng",
+            "version": "0.8.5-4+b1"
+          },
+          {
+            "name": "libcap2:amd64",
+            "source": "libcap2",
+            "version": "1:2.75-10+deb13u1+b3"
+          },
+          {
+            "name": "libcrypt1:amd64",
+            "source": "libxcrypt",
+            "version": "1:4.4.38-1"
+          },
+          {
+            "name": "libdb5.3t64:amd64",
+            "source": "db5.3",
+            "version": "5.3.28+dfsg2-9"
+          },
+          {
+            "name": "libdebconfclient0:amd64",
+            "source": "cdebconf",
+            "version": "0.280"
+          },
+          {
+            "name": "libffi8:amd64",
+            "source": "libffi",
+            "version": "3.4.8-2"
+          },
+          {
+            "name": "libgcc-s1:amd64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "libgdbm6t64:amd64",
+            "source": "gdbm",
+            "version": "1.24-2"
+          },
+          {
+            "name": "libgmp10:amd64",
+            "source": "gmp",
+            "version": "2:6.3.0+dfsg-3"
+          },
+          {
+            "name": "libhogweed6t64:amd64",
+            "source": "nettle",
+            "version": "3.10.1-1"
+          },
+          {
+            "name": "liblastlog2-2:amd64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "liblz4-1:amd64",
+            "source": "lz4",
+            "version": "1.10.0-4"
+          },
+          {
+            "name": "liblzma5:amd64",
+            "source": "xz-utils",
+            "version": "5.8.1-1+deb13u2"
+          },
+          {
+            "name": "libmd0:amd64",
+            "source": "libmd",
+            "version": "1.1.0-2+b1"
+          },
+          {
+            "name": "libmount1:amd64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libncursesw6:amd64",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "libnettle8t64:amd64",
+            "source": "nettle",
+            "version": "3.10.1-1"
+          },
+          {
+            "name": "libpam-modules:amd64",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam-modules-bin",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam-runtime",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpam0g:amd64",
+            "source": "pam",
+            "version": "1.7.0-5"
+          },
+          {
+            "name": "libpcre2-8-0:amd64",
+            "source": "pcre2",
+            "version": "10.46-1~deb13u3"
+          },
+          {
+            "name": "libreadline8t64:amd64",
+            "source": "readline",
+            "version": "8.2-6"
+          },
+          {
+            "name": "libseccomp2:amd64",
+            "source": "libseccomp",
+            "version": "2.6.0-2"
+          },
+          {
+            "name": "libselinux1:amd64",
+            "source": "libselinux",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsemanage-common",
+            "source": "libsemanage",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsemanage2:amd64",
+            "source": "libsemanage",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsepol2:amd64",
+            "source": "libsepol",
+            "version": "3.8.1-1"
+          },
+          {
+            "name": "libsmartcols1:amd64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libsqlite3-0:amd64",
+            "source": "sqlite3",
+            "version": "3.46.1-7+deb13u2"
+          },
+          {
+            "name": "libssl3t64:amd64",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "libstdc++6:amd64",
+            "source": "gcc-14",
+            "version": "14.2.0-19"
+          },
+          {
+            "name": "libsystemd0:amd64",
+            "source": "systemd",
+            "version": "257.13-1~deb13u1"
+          },
+          {
+            "name": "libtinfo6:amd64",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "libudev1:amd64",
+            "source": "systemd",
+            "version": "257.13-1~deb13u1"
+          },
+          {
+            "name": "libuuid1:amd64",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "libxxhash0:amd64",
+            "source": "xxhash",
+            "version": "0.8.3-2"
+          },
+          {
+            "name": "libzstd1:amd64",
+            "source": "libzstd",
+            "version": "1.5.7+dfsg-1"
+          },
+          {
+            "name": "login",
+            "source": "util-linux",
+            "version": "1:4.16.0-2+really2.41.5-0+deb13u1"
+          },
+          {
+            "name": "login.defs",
+            "source": "shadow",
+            "version": "1:4.17.4-2"
+          },
+          {
+            "name": "mawk",
+            "source": "mawk",
+            "version": "1.3.4.20250131-1"
+          },
+          {
+            "name": "ncurses-base",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "ncurses-bin",
+            "source": "ncurses",
+            "version": "6.5+20250216-2"
+          },
+          {
+            "name": "netbase",
+            "source": "netbase",
+            "version": "6.5"
+          },
+          {
+            "name": "openssl",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "openssl-provider-legacy",
+            "source": "openssl",
+            "version": "3.5.7-1~deb13u3"
+          },
+          {
+            "name": "perl-base",
+            "source": "perl",
+            "version": "5.40.1-6+deb13u1"
+          },
+          {
+            "name": "readline-common",
+            "source": "readline",
+            "version": "8.2-6"
+          },
+          {
+            "name": "sed",
+            "source": "sed",
+            "version": "4.9-2+deb13u1"
+          },
+          {
+            "name": "sqv",
+            "source": "rust-sequoia-sqv",
+            "version": "1.3.0-3+b2"
+          },
+          {
+            "name": "sysvinit-utils",
+            "source": "sysvinit",
+            "version": "3.14-4"
+          },
+          {
+            "name": "tar",
+            "source": "tar",
+            "version": "1.35+dfsg-3.1"
+          },
+          {
+            "name": "tzdata",
+            "source": "tzdata",
+            "version": "2026e-0+deb13u1"
+          },
+          {
+            "name": "util-linux",
+            "source": "util-linux",
+            "version": "2.41.5-0+deb13u1"
+          },
+          {
+            "name": "zlib1g:amd64",
+            "source": "zlib",
+            "version": "1:1.3.dfsg+really1.3.1-1+b1"
+          }
+        ],
+        "perl_modules": {
+          "Archive/Tar.pm": false,
+          "File/Temp.pm": true,
+          "Pod/Text.pm": false
+        },
+        "privileged_files": [],
+        "schema": 1,
+        "sqlite_compile_options": [
+          "ALLOW_ROWID_IN_VIEW",
+          "ATOMIC_INTRINSICS=1",
+          "COMPILER=gcc-14.2.0",
+          "DEFAULT_AUTOVACUUM",
+          "DEFAULT_CACHE_SIZE=-2000",
+          "DEFAULT_FILE_FORMAT=4",
+          "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+          "DEFAULT_MMAP_SIZE=0",
+          "DEFAULT_PAGE_SIZE=4096",
+          "DEFAULT_PCACHE_INITSZ=20",
+          "DEFAULT_RECURSIVE_TRIGGERS",
+          "DEFAULT_SECTOR_SIZE=4096",
+          "DEFAULT_SYNCHRONOUS=2",
+          "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+          "DEFAULT_WAL_SYNCHRONOUS=2",
+          "DEFAULT_WORKER_THREADS=0",
+          "DIRECT_OVERFLOW_READ",
+          "ENABLE_COLUMN_METADATA",
+          "ENABLE_DBPAGE_VTAB",
+          "ENABLE_DBSTAT_VTAB",
+          "ENABLE_FTS3",
+          "ENABLE_FTS3_PARENTHESIS",
+          "ENABLE_FTS3_TOKENIZER",
+          "ENABLE_FTS4",
+          "ENABLE_FTS5",
+          "ENABLE_LOAD_EXTENSION",
+          "ENABLE_MATH_FUNCTIONS",
+          "ENABLE_PREUPDATE_HOOK",
+          "ENABLE_RTREE",
+          "ENABLE_SESSION",
+          "ENABLE_STMTVTAB",
+          "ENABLE_UNLOCK_NOTIFY",
+          "ENABLE_UPDATE_DELETE_LIMIT",
+          "HAVE_ISNAN",
+          "LIKE_DOESNT_MATCH_BLOBS",
+          "MALLOC_SOFT_LIMIT=1024",
+          "MAX_ATTACHED=10",
+          "MAX_COLUMN=2000",
+          "MAX_COMPOUND_SELECT=500",
+          "MAX_DEFAULT_PAGE_SIZE=32768",
+          "MAX_EXPR_DEPTH=1000",
+          "MAX_FUNCTION_ARG=127",
+          "MAX_LENGTH=1000000000",
+          "MAX_LIKE_PATTERN_LENGTH=50000",
+          "MAX_MMAP_SIZE=0x7fff0000",
+          "MAX_PAGE_COUNT=0xfffffffe",
+          "MAX_PAGE_SIZE=65536",
+          "MAX_SCHEMA_RETRY=25",
+          "MAX_SQL_LENGTH=1000000000",
+          "MAX_TRIGGER_DEPTH=1000",
+          "MAX_VARIABLE_NUMBER=250000",
+          "MAX_VDBE_OP=250000000",
+          "MAX_WORKER_THREADS=8",
+          "MUTEX_PTHREADS",
+          "SECURE_DELETE",
+          "SOUNDEX",
+          "SYSTEM_MALLOC",
+          "TEMP_STORE=1",
+          "THREADSAFE=1",
+          "USE_URI"
+        ],
+        "sqlite_modules": [
+          "sqlite_stmt",
+          "json_tree",
+          "json_each",
+          "fts4aux",
+          "fts3",
+          "fts4",
+          "fts3tokenize",
+          "fts5vocab",
+          "dbstat",
+          "fts5",
+          "rtree",
+          "rtree_i32",
+          "sqlite_dbpage"
+        ],
+        "sqlite_version": "3.46.1",
+        "sqlite_zipfile_extensions": [],
+        "symbols": {
+          "sqlite3": {
+            "sqlite3changeset_apply_v2": true,
+            "sqlite3changeset_apply_v3": false
+          },
+          "z": {
+            "crc32_combine": true,
+            "gzprintf": true,
+            "gzwrite": true
+          }
+        },
+        "systemd_paths": {
+          "/lib/systemd/systemd": false,
+          "/usr/lib/systemd/systemd": false,
+          "/usr/lib/systemd/systemd-homed": false,
+          "/usr/lib/systemd/systemd-journald": false,
+          "/usr/lib/systemd/systemd-oomd": false
+        },
+        "tool_source_packages": {
+          "chfn": null,
+          "chsh": null
+        },
+        "tools": {
+          "apt": null,
+          "apt-get": null,
+          "apt-key": null,
+          "bzip2recover": null,
+          "chacl": null,
+          "chfn": null,
+          "chsh": null,
+          "diff3": "/usr/bin/diff3",
+          "getfacl": null,
+          "getfattr": null,
+          "infocmp": "/usr/bin/infocmp",
+          "journalctl": null,
+          "mount": null,
+          "newuidmap": null,
+          "nscd": null,
+          "nsenter": "/usr/bin/nsenter",
+          "passwd": null,
+          "perl": "/usr/bin/perl",
+          "setfacl": null,
+          "setfattr": null,
+          "systemd": null,
+          "systemd-homed": null,
+          "systemd-journald": null,
+          "systemd-oomd": null,
+          "systemd-tmpfiles": null,
+          "tic": "/usr/bin/tic",
+          "umount": null,
+          "useradd": null
+        },
+        "uid": 10001,
+        "zlib_runtime": "1.3.1"
+      },
+      "zlib-evidence": {
+        "assessment": "under_investigation",
+        "authenticated_by": "APT Release/InRelease and package/source index checksums using the reference image Debian archive keyring; no separate dsc-signature verification claimed",
+        "binary_library_sha256": {
+          "./usr/lib/x86_64-linux-gnu/libz.so.1.3.1": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e"
+        },
+        "binary_version": "1:1.3.dfsg+really1.3.1-1+b1",
+        "cve": "CVE-2026-85091",
+        "debian_packaging_sha256": "9ed525955ce9fb0c1b39be8ff98f73450dbfc6305a9a27e6149c8972d38a0a9e",
+        "debian_patches_present": false,
+        "fatal_write_error": true,
+        "files_sha256": {
+          "zlib1g_1%3a1.3.dfsg+really1.3.1-1+b1_amd64.deb": "015be740d6236ad114582dea500c1d907f29e16d6db00566ca32fb68d71ac90d",
+          "zlib_1.3.dfsg+really1.3.1-1.debian.tar.xz": "9ed525955ce9fb0c1b39be8ff98f73450dbfc6305a9a27e6149c8972d38a0a9e",
+          "zlib_1.3.dfsg+really1.3.1-1.dsc": "ede2791e29c1d3b422f9208bdd7edf040c20445ea1e7453a72037576e64fa197",
+          "zlib_1.3.dfsg+really1.3.1.orig.tar.gz": "60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb"
+        },
+        "installed_library_matches_authenticated_package": true,
+        "machine": "x86_64",
+        "nonblocking_mechanism_present": false,
+        "returns_before_memmove": true,
+        "schema": 1,
+        "source_orig_sha256": "60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb"
+      },
+      "review": {
+        "baseline_advisories": 68,
+        "current_advisories": 67,
+        "findings": [
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54369",
+            "id": "SNYK-DEBIAN13-ACL-17677866",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "high",
+            "status": "open_local_privileged_path",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54370",
+            "id": "SNYK-DEBIAN13-ACL-17677882",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "medium",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-acl-tools": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2011-3374",
+            "id": "SNYK-DEBIAN13-APT-5675173",
+            "manual_review_required": false,
+            "scan_present": false,
+            "severity": "low",
+            "status": "removed_component",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-apt-key": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54371",
+            "id": "SNYK-DEBIAN13-ATTR-17678182",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "high",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-attr-tools": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-42250",
+            "id": "SNYK-DEBIAN13-BZIP2-17099839",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-bzip2recover": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-5278",
+            "id": "SNYK-DEBIAN13-COREUTILS-10259260",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-56391",
+            "id": "SNYK-DEBIAN13-COREUTILS-18299902",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-56392",
+            "id": "SNYK-DEBIAN13-COREUTILS-18299912",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2017-18018",
+            "id": "SNYK-DEBIAN13-COREUTILS-5673914",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_local_privileged_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102473",
+            "id": "SNYK-DEBIAN13-DASH-20335454",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102474",
+            "id": "SNYK-DEBIAN13-DASH-20335455",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-53910",
+            "id": "SNYK-DEBIAN13-DIFFUTILS-18235274",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-102010",
+            "id": "SNYK-DEBIAN13-GCC14-20335537",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-95619",
+            "id": "SNYK-DEBIAN13-GCC14-20386241",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_live_library",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6238",
+            "id": "SNYK-DEBIAN13-GLIBC-16325153",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-5435",
+            "id": "SNYK-DEBIAN13-GLIBC-16325161",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6791",
+            "id": "SNYK-DEBIAN13-GLIBC-18605790",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-6368",
+            "id": "SNYK-DEBIAN13-GLIBC-18612523",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-19542",
+            "id": "SNYK-DEBIAN13-GLIBC-19233584",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-19499",
+            "id": "SNYK-DEBIAN13-GLIBC-19269961",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-77117",
+            "id": "SNYK-DEBIAN13-GLIBC-19339206",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18374",
+            "id": "SNYK-DEBIAN13-GLIBC-19383357",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-80489",
+            "id": "SNYK-DEBIAN13-GLIBC-19402190",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-89092",
+            "id": "SNYK-DEBIAN13-GLIBC-19684421",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-nscd": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-8674",
+            "id": "SNYK-DEBIAN13-GLIBC-19885967",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-86805",
+            "id": "SNYK-DEBIAN13-GLIBC-20046937",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-95818",
+            "id": "SNYK-DEBIAN13-GLIBC-20046940",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-97399",
+            "id": "SNYK-DEBIAN13-GLIBC-20197706",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_architecture",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "not-power8": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-84243",
+            "id": "SNYK-DEBIAN13-GLIBC-22083454",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2018-20796",
+            "id": "SNYK-DEBIAN13-GLIBC-5680884",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2010-4756",
+            "id": "SNYK-DEBIAN13-GLIBC-5681058",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010025",
+            "id": "SNYK-DEBIAN13-GLIBC-5681145",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010023",
+            "id": "SNYK-DEBIAN13-GLIBC-5681177",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-9192",
+            "id": "SNYK-DEBIAN13-GLIBC-5681215",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010022",
+            "id": "SNYK-DEBIAN13-GLIBC-5681241",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2019-1010024",
+            "id": "SNYK-DEBIAN13-GLIBC-5681256",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-6141",
+            "id": "SNYK-DEBIAN13-NCURSES-10378958",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-69720",
+            "id": "SNYK-DEBIAN13-NCURSES-15762838",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-54411",
+            "id": "SNYK-DEBIAN13-PAM-17339897",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-9538",
+            "id": "SNYK-DEBIAN13-PERL-17037374",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-perl-archive-tar": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-15534",
+            "id": "SNYK-DEBIAN13-PERL-18600690",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-82560",
+            "id": "SNYK-DEBIAN13-PERL-19957687",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-perl-pod-text": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2011-4116",
+            "id": "SNYK-DEBIAN13-PERL-5692251",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2007-5686",
+            "id": "SNYK-DEBIAN13-SHADOW-5695385",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_operator_configuration",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2024-56433",
+            "id": "SNYK-DEBIAN13-SHADOW-8551157",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2025-70873",
+            "id": "SNYK-DEBIAN13-SQLITE3-15682562",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-sqlite-zipfile": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-50813",
+            "id": "SNYK-DEBIAN13-SQLITE3-17975833",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_live_library",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-50812",
+            "id": "SNYK-DEBIAN13-SQLITE3-17975841",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-sqlite-apply-v3": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2021-45346",
+            "id": "SNYK-DEBIAN13-SQLITE3-5696112",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "upstream_disputed",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-40228",
+            "id": "SNYK-DEBIAN13-SYSTEMD-16009572",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-16742",
+            "id": "SNYK-DEBIAN13-SYSTEMD-18867639",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-15059",
+            "id": "SNYK-DEBIAN13-SYSTEMD-18913924",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2013-4392",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5696564",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31439",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733389",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31438",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733399",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2023-31437",
+            "id": "SNYK-DEBIAN13-SYSTEMD-5733401",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_absent",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "absent-systemd-daemons": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-5704",
+            "id": "SNYK-DEBIAN13-TAR-15962848",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18477",
+            "id": "SNYK-DEBIAN13-TAR-18515585",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-18508",
+            "id": "SNYK-DEBIAN13-TAR-18515588",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2005-2541",
+            "id": "SNYK-DEBIAN13-TAR-5696683",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-3184",
+            "id": "SNYK-DEBIAN13-UTILLINUX-15358019",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-76642",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513279",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78408",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513282",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_unused_tool",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78409",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513289",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-78410",
+            "id": "SNYK-DEBIAN13-UTILLINUX-19513292",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "privilege_mitigation_required",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "runtime-no-privilege-gain": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2022-0563",
+            "id": "SNYK-DEBIAN13-UTILLINUX-5698535",
+            "manual_review_required": false,
+            "scan_present": true,
+            "severity": "low",
+            "status": "not_affected_component_not_built",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "util-linux-no-chfn-chsh": true
+            }
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-27171",
+            "id": "SNYK-DEBIAN13-ZLIB-15307854",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "low",
+            "status": "open_no_identified_framework_path",
+            "vendor_status": "open",
+            "verified_predicates": {}
+          },
+          {
+            "automatic_scanner_ignore_authorized": false,
+            "cve": "CVE-2026-85091",
+            "id": "SNYK-DEBIAN13-ZLIB-19520500",
+            "manual_review_required": true,
+            "scan_present": true,
+            "severity": "high",
+            "status": "under_investigation",
+            "vendor_status": "open",
+            "verified_predicates": {
+              "zlib-source-review": true
+            }
+          }
+        ],
+        "ignored": 0,
+        "image": "sandloom-backend:runtime-hardening-amd64-20261031",
+        "image_id": "sha256:cabb7b51a1cb38a1067fbeb638bd72f37e3f4c3295d3dda57dd5e4c0cf13ad93",
+        "input_sha256": {
+          "inventory": "921f4a34ffa0eeff2703102984e44face8a11cb8602ee04e9a973043211e58d7",
+          "review": "8b241cf39f3d5a5e296de07e977cabca44a89b47105758146904531789c135a0",
+          "scan": "99a591696d44e9b2c3eeddfea4f44b6afab3f88c7c7bbfc18edde6ceccf146d0",
+          "zlib_evidence": "24134883b58745d4d1d3e91d4252924add1a9386cf2267b80bb97503ce27683f"
+        },
+        "machine": "x86_64",
+        "purpose": "Evidence only; not an ignore policy or vulnerability-free certification",
+        "schema": 1,
+        "summary": {
+          "not_affected_architecture": 1,
+          "not_affected_component_absent": 14,
+          "not_affected_component_not_built": 1,
+          "open_live_library": 2,
+          "open_local_privileged_path": 2,
+          "open_no_identified_framework_path": 12,
+          "open_operator_configuration": 3,
+          "open_unused_tool": 15,
+          "privilege_mitigation_required": 7,
+          "removed_component": 1,
+          "under_investigation": 3,
+          "upstream_disputed": 7
+        },
+        "verification_predicates": {
+          "absent-acl-tools": true,
+          "absent-apt-key": true,
+          "absent-attr-tools": true,
+          "absent-bzip2recover": true,
+          "absent-nscd": true,
+          "absent-perl-archive-tar": true,
+          "absent-perl-pod-text": true,
+          "absent-sqlite-apply-v3": true,
+          "absent-sqlite-zipfile": true,
+          "absent-systemd-daemons": true,
+          "not-power8": true,
+          "runtime-no-privilege-gain": true,
+          "util-linux-no-chfn-chsh": true,
+          "zlib-source-review": true
+        }
+      },
+      "scan_sha256": "99a591696d44e9b2c3eeddfea4f44b6afab3f88c7c7bbfc18edde6ceccf146d0"
+    }
+  },
+  "functional_validation": {
+    "monolith": {
+      "monolith": "pass",
+      "migrate_readonly": "pass",
+      "auth_tenancy_billing": "pass",
+      "app_worker_beat_boundaries": "pass",
+      "worker_task": "pass"
+    }
+  }
+}

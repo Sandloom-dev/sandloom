@@ -422,7 +422,7 @@ def _worker_blocks(svc: Service) -> list[str]:
     if topo.tasks or topo.periodic:
         out += [
             f"{_I}{svc.name}-worker:",
-            f"{i2}<<: *service-runtime",
+            f"{i2}<<: *app-runtime",
             f"{i2}image: *image",
             f"{i2}build: *build",
             f"{i2}volumes:",
@@ -453,7 +453,7 @@ def _worker_blocks(svc: Service) -> list[str]:
     if topo.periodic:
         out += [
             f"{_I}{svc.name}-beat:",
-            f"{i2}<<: *service-runtime",
+            f"{i2}<<: *app-runtime",
             f"{i2}image: *image",
             f"{i2}build: *build",
             f"{i2}volumes:",
@@ -687,6 +687,12 @@ def deploy(
                 f"{svc.topology.error}"
             )
     compose, gateway, result.unresolved = render(project, services)
+    if not re.search(r"(?m)^[^#\n]*:\s*&app-runtime(?:\s|$)", text):
+        # Static template sections belong to the operator. Older generated
+        # profiles use service-runtime; never emit an undefined YAML anchor.
+        compose["services"] = compose["services"].replace(
+            "<<: *app-runtime", "<<: *service-runtime"
+        )
     result.services = services
     nginx = nginx_path.read_text(encoding="utf-8")
     _refuse_static_fallback(nginx, nginx_path)

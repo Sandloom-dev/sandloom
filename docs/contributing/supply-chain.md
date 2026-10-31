@@ -104,18 +104,66 @@ musl and zlib remove all 27; a repeat scan of 70 dependencies reports **zero**.
 The image still runs as UID 101 and passes the nonroot/read-only proxy smokes
 in both deployment topologies.
 
-The Python runtime's Debian 13 image has **68 source-package advisories**
-(three high, one medium, 64 low). They remain visible in the ledger; Snyk lists
-no fixed stable versions. `apt-cache policy` confirms that the installed
-`libacl1`, `libattr1` and `zlib1g` are the current stable candidates.
-Debian tracks [ACL](https://security-tracker.debian.org/tracker/CVE-2026-54369)
-and [zlib](https://security-tracker.debian.org/tracker/CVE-2026-85091) as still
-vulnerable in trixie. The high attr advisory concerns privileged `getfattr` /
-`setfattr` utilities, neither of which is installed. The runtime is UID 10001;
-this narrows the privilege-escalation context but does not close every finding.
-Do not treat this image as having a clean vulnerability scan. Re-scan when
-stable security packages or a reviewed replacement base become available;
-do not mix Debian unstable packages into the stable image.
+The original Python runtime had **68 Debian source-package advisories**.
+The follow-up removes runtime APT and mount/account administration packages,
+strips SUID/SGID bits, and restricts application containers to a read-only root,
+zero capabilities and no privilege gain. Repeat scanning reports **67 advisories**:
+APT disappears, while `login.defs` retains shadow source-package findings even
+after the affected account tools are removed. Package metadata remains intact.
+
+Every original CVE has a separate applicability/remediation record in
+[`debian-runtime-review-2026-10-31.json`](https://github.com/Sandloom-dev/sandloom/blob/main/tools/checks/debian-runtime-review-2026-10-31.json).
+The review covers all 18 source-package groups against Debian's tracker,
+including the original 64 low and one medium results. No fixed trixie version
+is available for these baseline CVEs; live-library and conditional findings
+remain open. An absent systemd daemon is distinguished from an installed
+systemd library; optional SQLite and Perl components and architecture-specific
+paths are checked separately. Severity alone never authorizes an exception.
+
+The three high conclusions are:
+
+- **attr:** the affected `getfattr`/`setfattr` utilities are absent. The executable
+  presence predicate must continue to pass before using that conclusion.
+- **ACL:** real local privileged-path risk, mitigated by the runtime boundary;
+  the installed library is not declared fixed or universally unreachable.
+- **zlib:** the exact installed binary matches the authenticated Debian package.
+  The authenticated source lacks the newer nonblocking writer mechanism, and
+  errors return before the affected buffer movement. This supports investigating
+  a version-classification error, but the status remains **under investigation**
+  while [Debian](https://security-tracker.debian.org/tracker/CVE-2026-85091) marks
+  stable vulnerable.
+
+Reproduce evidence from the repository root after building the production image:
+
+```bash
+docker build -f deploy/docker/Dockerfile --target production -t sandloom-runtime-review .
+docker run --rm -i --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700 \
+  --tmpfs /app/data:rw,noexec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700 \
+  --entrypoint python sandloom-runtime-review - --enforce \
+  < tools/checks/runtime_inventory.py > /tmp/runtime-inventory.json
+snyk container test sandloom-runtime-review --file=deploy/docker/Dockerfile \
+  --json-file-output=/tmp/runtime-scan.json
+# A scan with known findings exits 1 but still writes the report; inspect it.
+python3 tools/checks/zlib_source_evidence.py --inventory /tmp/runtime-inventory.json \
+  > /tmp/zlib-evidence.json
+python3 tools/checks/runtime_review.py --image sandloom-runtime-review \
+  --inventory /tmp/runtime-inventory.json --scan /tmp/runtime-scan.json \
+  --zlib-evidence /tmp/zlib-evidence.json > /tmp/runtime-review.json
+```
+
+If boundary enforcement fails, the inventory command exits 1 and still emits
+the collected JSON with `boundary_checks: "fail"` and `boundary_failure`.
+Docker CI uploads `runtime-security-inventory` even when that probe fails.
+
+The source evidence command uses a disposable reference container and signed
+Debian indexes; it verifies source/package checksums and exact library bytes.
+It is separate from normal CI because it needs live repository access. The
+evidence checker rejects new CVEs, detects changed components, and requires
+new source review when zlib bytes or source hashes change. It creates **no
+scanner ignore or automatic risk acceptance**. Re-scan after vendor updates;
+do not mix Debian unstable packages into the stable runtime.
 
 `snyk iac test deploy` found no supported IaC files. Docker Compose is not
 covered by that scan; this result is **not** a passing infrastructure audit.
