@@ -468,6 +468,7 @@ SERVICE_IMAGES = ("postgres", "redis")
 # the gateway's real `host:port`, read back from docker after `compose up`.
 HOST_RUN_REWRITES: dict[str, list[tuple[str, str]]] = {
     "microservices-smoke": [("http://localhost:8080", "http://{GATEWAY_ADDR}")],
+    "docker-build": [("sandloom-backend:ci", "sandloom-backend:ci-{RUN_ID}")],
 }
 
 # The microservices gateway publishes `${GATEWAY_PORT:-8080}:8080`. The runner
@@ -1830,7 +1831,7 @@ class HostJob(_JobBase):
         Docker has bound it, so it is read back lazily (and re-read each time:
         nothing in the smoke recreates the gateway, but a stale port would be
         silently wrong)."""
-        out = dict(self.local_env)
+        out = {**self.local_env, "RUN_ID": self.run.run_id}
         if self.job.spec.local == "microservices-smoke":
             r = subprocess.run(
                 [
