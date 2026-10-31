@@ -1716,10 +1716,12 @@ def test_map_literal_types_preserve_the_allowed_values() -> None:
     )
 
 
+@pytest.mark.parametrize("installed_in_venv", [False, True])
 def test_installed_provider_descriptions_come_from_registered_contracts(
     project: SimpleNamespace,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
+    installed_in_venv: bool,
 ) -> None:
     from sandloom.core.module_api import contract_method
 
@@ -1729,9 +1731,18 @@ def test_installed_provider_descriptions_come_from_registered_contracts(
         async def read(cls, limit: int = 10) -> int:
             raise AssertionError("collection must never call the provider")
 
-    monkeypatch.setattr(
-        sys.modules["app.modules.stats"], "__file__", "/foreign/stats/__init__.py"
+    location = (
+        project.root
+        / ".venv/lib/python3.12/site-packages/app/modules/stats/__init__.py"
+        if installed_in_venv
+        else Path("/foreign/stats/__init__.py")
     )
+    if installed_in_venv:
+        location.parent.mkdir(parents=True)
+        location.write_text(
+            'raise AssertionError("installed source must not execute")\n'
+        )
+    monkeypatch.setattr(sys.modules["app.modules.stats"], "__file__", str(location))
     core = project.app.state.core
     core.service_registry = SimpleNamespace(
         list=lambda: ["stats.quota.v1"], get=lambda _name: Provider

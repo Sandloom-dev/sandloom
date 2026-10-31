@@ -369,6 +369,15 @@ class Runner:
             if self.server is None:
                 raise QuickstartError("the quickstart never starts the app")
             self.step("uv run sandloom test --ci", self.sh, "uv run sandloom test --ci")
+            self.step("cold project graph", self.sh, "uv run sandloom graph")
+            self.step(
+                "owned module map", self.sh, f"uv run sandloom context {self.module}"
+            )
+            self.step(
+                "offline architecture export",
+                self.sh,
+                "uv run sandloom explore --no-open --no-generate",
+            )
         finally:
             self.stop_server()
 

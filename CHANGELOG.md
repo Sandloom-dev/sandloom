@@ -38,6 +38,9 @@ website renders this same changelog.
   first loopback connection does not spuriously reject a working transport.
   Preserve bounded probing, guard checks and the httpx fallback.
 
+- Classify installed modules inside a project-local environment as external
+  providers so cold inspection preserves source ownership.
+
 ## [0.7.0a3]
 
 ### Security

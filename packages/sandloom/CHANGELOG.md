@@ -22,6 +22,9 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
   retaining guard detection and transport fallback.
 - Generate applications with the `0.7.0a4` dependency baseline.
 
+- Classify installed modules inside a project-local environment as external
+  providers so cold inspection preserves source ownership.
+
 ## [0.7.0a3]
 
 - Improve standalone CLI battery onboarding and link diagnostics to the exact

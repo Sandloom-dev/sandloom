@@ -87,8 +87,11 @@ def _edge(
 def _source(entry: Any, root: Path, source_root: Path) -> str | None:
     imported = sys.modules.get(entry.name)
     path = getattr(imported, "__file__", None)
-    if path and Path(path).resolve().parent.is_relative_to(source_root.resolve()):
-        return Path(path).resolve().parent.relative_to(root).as_posix()
+    # Only the declared source-root import path is owned. A local environment
+    # or vendor installation can also sit inside the project directory.
+    expected = source_root.resolve() / Path(*entry.name.split("."))
+    if path and Path(path).resolve().parent == expected:
+        return expected.relative_to(root).as_posix()
     return None
 
 

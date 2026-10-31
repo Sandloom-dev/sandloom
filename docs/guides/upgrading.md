@@ -31,6 +31,24 @@ is `0.7.0a4`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
    application artifact and a database-aware rollback/recovery plan; reverting
    Python code does not automatically undo schema or external payment effects.
 
+## Refresh inspection tools and agent guidance
+
+After installing a new package version, regenerate the authoring index and
+refresh shipped skills from the application root:
+
+```bash
+uv run sandloom generate
+uv run sandloom add skills
+uv run sandloom graph
+```
+
+`generate` loads the application in its configured authoring environment and
+refreshes contracts, snapshots and `.sandloom/inspection.json`. Cold `graph`
+and `context MODULE` read that saved model; they never regenerate implicitly.
+`add skills` preserves locally edited skills and reports conflicts for review.
+See [module maps](module-context.md) and the
+[architecture explorer](architecture-graph.md) for formats and freshness.
+
 For a breaking event payload, use [dual-publish versioning](event-versioning.md).
 The [Public API 1.0 migration](upgrading-1.0.md) is a specific historical source
 migration guide, not the general package-upgrade procedure.
