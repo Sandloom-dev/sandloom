@@ -44,6 +44,10 @@ def installed(monkeypatch: pytest.MonkeyPatch):
         module_names.refresh_installed_modules()
 
     yield install
+    # ``monkeypatch`` restores ``_entry_points`` after this fixture's teardown.
+    # Refreshing first would cache the synthetic entry points for whichever
+    # unrelated test runs next (the shuffled suite exposed that leak).
+    monkeypatch.undo()
     module_names.refresh_installed_modules()
 
 
