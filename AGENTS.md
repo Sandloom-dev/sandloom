@@ -123,7 +123,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | every `sandloom.sdk` name: signature, tier, example | `docs/reference/sdk/index.md`, `uv run sandloom docs <name>` |
 | every error code: why and the fix | `docs/reference/error-codes.md`, `uv run sandloom explain <code>` |
 | tests: every fixture, `as_user`, `deliver`, `published`, fakes (copy-paste) | `docs/reference/testing.md` |
-| concepts: start page; modules, discovery, the three API levels | `docs/concepts/index.md`, `docs/concepts/modules.md` |
+| concepts: start page; modules, discovery, the three API levels | `docs/concepts/index.md`, `docs/concepts/modules.md`, `docs/concepts/module-internals.md` |
 | units, `db()`, effects; one writer per request | `docs/concepts/units.md`, `docs/concepts/write-admission.md` |
 | typed events, views, consumers; contracts, stubs, `optional` | `docs/concepts/events.md`, `docs/concepts/contracts.md` |
 | route policy (model E), sessions, idempotency modes; per-route lifecycle | `docs/concepts/route-policy.md`, `docs/concepts/lifecycle.md` |

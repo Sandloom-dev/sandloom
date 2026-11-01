@@ -3,8 +3,7 @@
 <title>Examples — Sandloom</title>
 <meta name="author" content="Vasyl Cherniavskyi">
 <meta name="description" content="Explore four standalone Sandloom applications: a URL shortener, multi-tenant helpdesk, course-enrollment saga and cross-module project read model.">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Manrope:400,500,600,700&amp;display=fallback">
+<link rel="preload" href="/assets/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/brand.css"><link rel="stylesheet" href="/assets/site.css">
 <script src="/assets/theme.js"></script>
 <script>{{ search_bootstrap | safe }}</script>
@@ -57,7 +56,7 @@
   </section>
   <section class="examples-next" aria-label="Using the examples">
     <div><h2>Application code you can read.</h2><p>The examples live in <code>examples/</code> in the Sandloom repository. Each owns its application namespace and uses the public <code>sandloom.sdk</code>. Open an application's README for its setup and module map.</p></div>
-    <a class="secondary" href="/docs/getting-started/building-a-product/">Create your own application →</a>
+    <a class="secondary" href="/docs/getting-started/">Create your own application →</a>
   </section>
 </main><footer><a class="sl-brand" href="/" aria-label="Sandloom home">{% include "partials/site-logo.html" %}</a><p>Configurable topology. Isolated business modules.</p><a href="/docs/">Read the documentation →</a><a href="/brand/">Brand assets</a><a href="https://github.com/Sandloom-dev/sandloom">GitHub</a></footer><script id="__config" type="application/json">{{ search_config | tojson }}</script>
 <script src="{{ search_bundle }}"></script>

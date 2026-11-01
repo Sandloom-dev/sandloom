@@ -1,11 +1,12 @@
 ---
-title: Contributing
+title: Contribution Guide
 ---
 
-# Contributing
+# Contribution Guide
 
 Sandloom enforces its conventions in CI. The quality gates must be green before
-any commit; pre-commit hooks run the fast ones automatically.
+any commit; pre-commit hooks run the fast ones automatically. To get a working
+checkout, start with [Set up the repository](setup.md).
 
 ## Branches and owner review
 

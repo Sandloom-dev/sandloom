@@ -1,0 +1,11 @@
+{% extends "main.html" %}
+{% block htmltitle %}<title>Page not found - {{ config.site_name }}</title>{% endblock %}
+{% block content %}
+  <h1>Page not found</h1>
+  <p>This page does not exist or has moved. Search above, or go to one of these:</p>
+  <ul>
+    <li><a href="/docs/">Overview</a>: what Sandloom is</li>
+    <li><a href="/docs/getting-started/">Quickstart</a>: create your first application</li>
+    <li><a href="/docs/reference/">Reference</a>: the SDK, commands, settings and error codes</li>
+  </ul>
+{% endblock %}

@@ -30,7 +30,7 @@ GitHub Discussions is not currently the support channel. Include:
 Run `uv run sandloom version` for the framework version. Remove credentials,
 authentication tokens, personal data and production URLs before posting logs
 or configuration. A small reproduction is more useful than a production dump.
-There is no guaranteed support response time during the alpha.
+There is no guaranteed support response time.
 
 ## Security reports
 
@@ -39,8 +39,7 @@ Do not disclose a suspected vulnerability in a public issue. Use
 and follow the repository's
 [security policy](https://github.com/Sandloom-dev/sandloom/blob/main/SECURITY.md).
 
-## Continue learning
+## Keep learning
 
-Start with the [quickstart](index.md), work through the
-[tutorial](tutorial.md), or check [whether Sandloom fits your project](is-sandloom-for-me.md).
-For an existing application, use the [upgrade checklist](../guides/upgrading.md).
+Start with the [quickstart](index.md) and the [tutorial](tutorial.md). For an existing
+application, use the [upgrade checklist](../guides/upgrading.md).

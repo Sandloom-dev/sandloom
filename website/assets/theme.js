@@ -80,6 +80,12 @@
         if (!dialog) return;
         if (dialog.open) dialog.close();
         else {
+          const copy = (slot, source) => {
+            const target = dialog.querySelector(slot), original = document.querySelector(source);
+            if (target && original) target.replaceChildren(original.cloneNode(true));
+          };
+          copy("[data-sandloom-menu-logo]", ".sl-header .sl-brand-logo");
+          copy("[data-sandloom-menu-tree]", ".sl-sidebar .sl-doc-tree");
           dialog.showModal();
           dialog.querySelector("[data-sandloom-menu-close]").focus();
           dialog.querySelector('[aria-current="page"]')?.scrollIntoView({block: "nearest"});

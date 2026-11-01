@@ -107,7 +107,7 @@ implicitly: pass `org_id`.
 ### Declarative module surface
 
 The level-2 forms still work; level 1 is shorter and is what the generators
-write ([Modules, levels and discovery](../concepts/modules.md)).
+write ([Module internals](../concepts/module-internals.md)).
 
 | Old (level 2) | New (level 1) |
 | --- | --- |

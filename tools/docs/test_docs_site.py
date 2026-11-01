@@ -166,6 +166,19 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertNotIn("NotImplementedError", overview)
         self.assertIn("sandloom docs", overview)
 
+    def test_instant_navigation_has_its_sitemap(self) -> None:
+        # Without it every link click reloads the page and rebuilds the search index.
+        self.assertIn("<loc>", (SITE / "sitemap.xml").read_text())
+        # The theme rewrites every [href] on navigation; an SVG href is read-only and stops it.
+        for page in SITE.rglob("*.html"):
+            self.assertNotRegex(page.read_text(), r"<(?:use|image)\b[^>]*\shref=", page)
+
+    def test_pages_load_no_font_service(self) -> None:
+        for page in SITE.parent.rglob("*.html"):
+            html = page.read_text()
+            self.assertNotIn("fonts.googleapis.com", html, page)
+            self.assertNotIn("fonts.gstatic.com", html, page)
+
     def test_brand_kit_matches_the_rendered_site(self) -> None:
         import struct
         import zipfile

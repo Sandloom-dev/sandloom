@@ -5,14 +5,14 @@ title: Modules
 # Standard Modules
 
 Sandloom publishes three ready-made modules for products that need accounts,
-organizations or payments. All three are optional: `--no-batteries` creates an
-application with none of them. Each is its own package: `sandloom-identity`,
+organizations or payments. They follow the same rules as your own modules, and all three
+are optional: `--no-batteries` creates an application with none of them. Each is its own package: `sandloom-identity`,
 `sandloom-tenancy` and `sandloom-billing` (import packages `sandloom_identity`,
 `sandloom_tenancy`, `sandloom_billing`; all three with
 `pip install "sandloom[standard]"`). Each registers a `sandloom.modules` entry
 point whose name is its module name, depends on `sandloom>=0.7.0a5,<0.8` and on no
 other module, and follows the same isolation rules as a module you write yourself
-([Module packages](../concepts/modules.md#module-packages)). Load any subset via
+([Module packages](../concepts/module-internals.md#module-packages)). Load any subset via
 `SANDLOOM_MODULES` (`["identity", "tenancy"]`), or `sandloom new <app> --with
 identity,tenancy,billing`. Sandloom is in alpha, and so are these modules.
 

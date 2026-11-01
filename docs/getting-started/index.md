@@ -1,12 +1,13 @@
 ---
-title: Get started
-description: The tutorial, installation and building a product on Sandloom.
+title: Quickstart
+description: Create a Sandloom application from the published packages, add a module, run the checks and start the API.
 type: tutorial
+footer_previous:
+  title: Overview
+  url: ""
 ---
 
-# Get started
-
-## Quickstart
+# Quickstart
 
 !!! note "Current alpha"
     The current alpha is `0.7.0a5`. All four packages are available on <!-- sandloom-release -->
@@ -65,15 +66,11 @@ to receive verification mail locally and obtain access/refresh tokens.
 
 ## Next
 
-Start with the tutorial; it is one linear path.
-
-1. **[Tutorial: your first feature](tutorial.md)**: an application with two
+1. **[Your project structure](project-structure.md)**: what `sandloom new`
+   generated, which files are yours and which are generated.
+2. **[Tutorial: your first feature](tutorial.md)**: an application with two
    modules, a table, routes, an event consumed exactly once, a contract call
-   and tests, built with the `sandloom new` and `sandloom add` generators.
-2. **[Installation](installation.md)**: prerequisites, dependencies, the test
-   services and running the API from a framework checkout.
-3. **[Building a product](building-a-product.md)**: `sandloom new`, the framework
-   wheel, and how the same codebase deploys as a monolith or microservices.
+   and tests.
 
 !!! tip "Learn by example"
     `examples/tutorial/` is the finished tutorial application. The

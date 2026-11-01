@@ -264,6 +264,24 @@ uv run sandloom migrate upgrade-all --apply
 uv run uvicorn tasklist.asgi:app --reload       # http://localhost:8000/docs
 ```
 
+## 8. See where the infrastructure comes from
+
+Your modules called `db()` and never named a database engine. The backend is chosen in
+`.env`:
+
+```text
+DATABASE_URL=postgresql+asyncpg://...   # the database
+CACHE_URL=redis://...                   # the cache
+BROKER_URL=redis://...                  # the background task queue
+```
+
+Each setting configures a default **driver**, the piece of code that connects Sandloom to
+a backend. Pointing a setting at another server, or selecting another driver in `INFRA`,
+changes no module code. You have now used both main parts of Sandloom: modules hold your product,
+and drivers connect it to the outside world. See
+[what is included](../concepts/capabilities-and-infrastructure.md#what-is-included) and
+[how to write a driver](../guides/write-a-driver.md).
+
 ## If you are stuck
 
 - Every error carries a code: `uv run sandloom explain <code>` says what happened

@@ -603,7 +603,7 @@ def render_index(modules: list[ModuleType]) -> str:
         "`Event`, `on`, `contract`, `command`, `Contract`, typed saga steps, "
         "`Projection`) is built only from level 2 (the primitives these pages "
         "list as advanced). The kernel (level 3) is never imported by a module. "
-        "See [Modules, levels and discovery](../../concepts/modules.md).",
+        "See [Module internals](../../concepts/module-internals.md).",
         "",
     ]
     return "\n".join(out).rstrip() + "\n"
