@@ -14,12 +14,6 @@
     }
   },
   "fonttools_version": "4.68.0",
-  "unicode_ranges": [
-    "U+0000-00FF",
-    "U+2000-206F",
-    "U+2190-22FF",
-    "U+2500-259F",
-    "U+FFFD-FFFD"
-  ],
+  "unicode_ranges": ["U+0000-00FF", "U+2000-206F", "U+2190-22FF", "U+2500-259F", "U+FFFD-FFFD"],
   "subset": "Text web subset; unused private-use icon glyphs are omitted. Site icons use SVG."
 }
