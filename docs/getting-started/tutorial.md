@@ -291,7 +291,8 @@ and drivers connect it to the outside world. See
 
 ## Next steps
 
-- [Concepts](../concepts/index.md): what the framework did in each step, and
-  its exact guarantees.
-- [How-to guides](../guides/index.md): one task each, such as a saga, a
-  projection or a migration.
+- [What a module is](../concepts/modules.md): what the framework did in each step,
+  and its exact guarantees.
+- [Choose how modules talk](../concepts/between-modules.md): events, contracts,
+  projections and sagas, and when to use each.
+- [Deploy an application](../guides/deployment.md): put it into production.

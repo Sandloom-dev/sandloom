@@ -1,10 +1,10 @@
 ---
-title: Split an app into services
+title: Split into services
 description: Move an sandloom new application from the monolith to microservices by configuration - sandloom add deploy writes the profile, the gateway, the bindings and the keys wiring.
 type: how-to
 ---
 
-# Split an app into services
+# Split into services
 
 An `sandloom new` application runs as one service (`deploy/docker-compose.yml`).
 The same code runs as microservices: one service per group of modules, each
@@ -155,9 +155,31 @@ identical in every service. To rotate keys, see the skill
 
 ## Existing data
 
-A new deployment starts empty. A monolith that already holds data moves each
-module's tables to its service's database with
-`sandloom migrate extract-module` (skill `sandloom-extract-module`).
+A new deployment starts empty. The commands above change code and topology, not
+data. A monolith that already holds data moves each module's tables to its service's
+database with `sandloom migrate extract-module <module> --from default --to <url>`.
+
+The move is offline, in a maintenance window: it copies the module's tables, its
+`alembic_version_<module>` row and its pending outbox events, verifies them and
+fences the source. It is a dry run by default. The procedure is in the skill
+`sandloom-extract-module` and in
+[`deploy/README.md`](https://github.com/Sandloom-dev/sandloom/blob/main/deploy/README.md).
+Online (zero-downtime) extraction is not covered yet.
+
+## Roll out a contract change
+
+Services upgrade one at a time, so a caller can briefly meet a provider of another
+version. Every module commits `contracts.snapshot.json`, the describe documents of
+the contracts it provides. `sandloom contracts check --against <released snapshot>`
+fails CI on a breaking change: a removed method or parameter, a newly required
+parameter, an incompatible type, a changed kind or idempotency key. Additive changes
+pass.
+
+At runtime each caller compares every bound provider's live describe document with the
+snapshot in its own image. An incompatible provider fails `/ready` with a
+`contract_incompatible` diagnostic (`CONTRACT_COMPAT_CHECK=ready`, the default;
+`strict` also aborts startup; `off` disables the check). Ship additive changes
+provider-first. A breaking change is a new contract version (`.v2`).
 
 ## Proof
 
@@ -177,5 +199,6 @@ over RPC, `orders` calls `catalog` over RPC, and `orders` consumes
 
 ## Related reading
 
-- [Deployment guide](deployment.md)
-- [Move existing data](migrations.md)
+- [Deploy an application](deployment.md)
+- [Deployment topologies](../concepts/deployment.md)
+- [Run migrations](migrations.md)

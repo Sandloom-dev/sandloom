@@ -1,16 +1,20 @@
 ---
-title: Operations
+title: Operate
+description: Take a Sandloom application to production and keep it running - topologies, deployment, splitting into services, incidents and upgrades.
 ---
 
-# Operations
+# Operate
 
-Running Sandloom in production: the [runbook](runbook.md) covers secrets, migrations,
-backups, dead-lettered events (`sandloom outbox` / `sandloom streams`), background
-workers, data retention/PII, the audit log, and observability.
+Everything after the code is written: where it runs, how it reaches production
+and what to do when something breaks.
 
-The [operator command reference](operator-reference.md) lists every incident
-command, flag and production safeguard. Use `/health/simple` for process
-liveness and `/ready` to decide whether traffic may be routed to an instance.
-
-Pairs with the [Deployment guide](../guides/deployment.md) (monolith vs.
-microservices topology) and the [Security Model](../reference/security-model.md).
+| You want to | Read |
+| --- | --- |
+| choose between one process and several services | [Topologies](../concepts/deployment.md) |
+| put the application into production | [Deploy](../guides/deployment.md) |
+| run modules as separate services | [Split into services](../guides/split-into-services.md) |
+| understand or debug calls between services | [Service RPC](../guides/service-rpc.md) |
+| control which modules a process loads | [Loader configuration](../guides/loader-configuration.md) |
+| react to an incident or do a routine task | [Runbook](runbook.md) |
+| look up a command, flag, metric or alert | [Operator reference](operator-reference.md) |
+| move to a new Sandloom version | [Upgrade](../guides/upgrading.md) |

@@ -150,5 +150,5 @@ required table is missing.
   owner per table.
 - [Deployment](deployment.md).
 - [CLI reference](../reference/cli.md).
-- [Operations runbook](../operations/runbook.md): backups before a
+- [Backups](../operations/operator-reference.md#backups-restore): before a
   migration.

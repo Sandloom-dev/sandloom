@@ -122,19 +122,11 @@ the same transaction. After the commit a dispatcher pushes it to the bus; the
 relay retries any dispatch that failed. So an event is published **if and only
 if** the change that produced it commits.
 
-```mermaid
-sequenceDiagram
-    participant H as Endpoint (unit)
-    participant DB as Database
-    participant R as Outbox relay
-    participant B as Event bus
-    H->>DB: INSERT business rows
-    H->>DB: INSERT outbox row (same transaction)
-    H->>DB: COMMIT
-    DB-->>R: committed outbox row
-    R->>B: dispatch envelope
-    B-->>R: ack
-```
+1. The endpoint's unit inserts the business rows and the outbox row, in one
+   transaction, and commits.
+2. The outbox relay picks up the committed row and dispatches its envelope to the
+   event bus.
+3. The bus acknowledges it. Without an acknowledgement, the relay retries.
 
 - The publish preflights the channel, the schema and the payload size inside
   the transaction, so an event the bus would reject is never committed.

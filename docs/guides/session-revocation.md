@@ -48,5 +48,5 @@ readiness can degrade while a durable revocation is pending. Process liveness
 remains `/health/simple`.
 
 For recovery after a Redis restore, follow
-[the operations runbook](../operations/runbook.md) and its security-cache
-reconciliation procedure before accepting traffic.
+[the restore procedure](../operations/operator-reference.md#restoring-the-order-and-the-traffic-gate)
+before accepting traffic.

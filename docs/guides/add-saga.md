@@ -155,5 +155,5 @@ parked one.
   the missing isolation.
 - [Add a contract](add-contract.md): the command contracts a saga calls.
 - [Contracts](../concepts/contracts.md): command dedupe.
-- [Operations runbook](../operations/runbook.md): repairing parked
-  instances.
+- [A parked saga](../operations/operator-reference.md#runbook-a-parked-saga): repairing
+  parked instances.

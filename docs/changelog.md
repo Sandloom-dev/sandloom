@@ -1,5 +1,7 @@
 ---
 title: Release Notes
+search:
+  exclude: true
 ---
 
 --8<-- "CHANGELOG.md"

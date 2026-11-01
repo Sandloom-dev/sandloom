@@ -12,7 +12,7 @@ is `0.7.0a5`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
 
 1. Record the installed kernel and optional battery versions, the application
    revision and deployed topology. Back up the database and security state
-   using the [runbook](../operations/runbook.md).
+   following [Backups](../operations/operator-reference.md#backups-restore).
 2. Read the release notes for every package being changed, including breaking
    changes and dependency constraints. Standard battery packages and the kernel
    have independent distributions; verify their declared compatible ranges.

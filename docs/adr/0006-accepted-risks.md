@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0006: One accepted-risks list instead of prod opt-out flags
 
 - **Status:** Accepted

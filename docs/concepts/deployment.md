@@ -1,10 +1,10 @@
 ---
-title: Deployment
+title: Deployment topologies
 description: One codebase as a monolith or as services - SANDLOOM_MODULES, SERVICE_BINDINGS, the deploy profiles and the invariants they keep.
 type: concept
 ---
 
-# Deployment
+# Deployment topologies
 
 Sandloom is a **configurable monolith**: one codebase and one image deploy as a
 single process or as a set of services, by configuration alone.
@@ -32,8 +32,8 @@ a separate, offline step (`sandloom migrate extract-module`).
 
 | Profile | File | Topology |
 | --- | --- | --- |
-| Monolith | `deploy/compose/monolith.yml` | `migrate`, then `app` (every module) plus `worker` and `beat`; one PostgreSQL database; Redis |
-| Microservices | `deploy/compose/microservices.yml` | an nginx gateway in front of one module per service, each with its own database and its own `migrate-<service>` one-shot, wired by `SERVICE_BINDINGS`, on the Streams bus |
+| Monolith | `deploy/docker-compose.yml` in an application, `deploy/compose/monolith.yml` in the framework | `migrate`, then `app` (every module) plus `worker` and `beat`; one PostgreSQL database; Redis |
+| Microservices | `deploy/compose/microservices.yml`, written by `sandloom add deploy` | an nginx gateway in front of one module per service, each with its own database and its own `migrate-<service>` one-shot, wired by `SERVICE_BINDINGS`, on the Streams bus |
 
 Both profiles run with `ENVIRONMENT=prod`, require `TWOFA_ENCRYPTION_KEY` and
 an explicit `BILLING_PROVIDER`, and start the app and worker only after their
@@ -53,7 +53,8 @@ migrate one-shot completed (`sandloom migrate upgrade-all --apply`,
 
 The authoritative description of both profiles (variables, sizing, gateway
 and IP trust, the extraction checklist) is `deploy/README.md` in the
-repository. The steps are in the [deployment guide](../guides/deployment.md).
+repository. The steps are in [Deploy an application](../guides/deployment.md) and
+[Split into services](../guides/split-into-services.md).
 
 ### How a split works
 
@@ -116,18 +117,10 @@ repository. The steps are in the [deployment guide](../guides/deployment.md).
 
 ### Moving a module into its own service
 
-1. Give it its own environment anchor, database and migrate one-shot, and
-   add it to `SANDLOOM_MODULES` of a new service.
-2. Bind its contracts in the callers' `SERVICE_BINDINGS` (and its own
-   bindings to what it calls), with RPC keys and `RPC_ALLOWED_CALLS`.
-3. Route its prefix in the gateway; give it a worker and beat if it has
-   tasks.
-4. If it already holds data in the shared database, move it offline with
-   `sandloom migrate extract-module` (dry run by default; fence, copy, verify,
-   cut over).
-
-The project skill `sandloom-split-deploy` and the runbook in `deploy/README.md`
-walk through each step.
+`sandloom add deploy` writes the service, its database and migrate one-shot, the
+bindings, the allowlist and the gateway routes: see
+[Split into services](../guides/split-into-services.md). A module that already
+holds data needs one more step, [moving its data](../guides/split-into-services.md#existing-data).
 
 ## What breaks it
 

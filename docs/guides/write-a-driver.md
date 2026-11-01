@@ -137,7 +137,7 @@ uv run sandloom test
 
 On a running application, `/diagnostics/infra` lists the installed driver packages and the
 driver of each instance. It needs `INTERNAL_API_TOKEN`
-([Operator commands](../operations/operator-reference.md)).
+([Operator reference](../operations/operator-reference.md)).
 
 ## Errors you may hit
 

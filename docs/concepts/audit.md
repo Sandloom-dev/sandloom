@@ -63,7 +63,7 @@ Audit is for committed actions. An authorization denial raises and rolls back
 its unit, so it is recorded by the structured deny log and the
 `access_denied_*` metrics instead ([Authorization](authorization.md)). The
 operator exports the audit trail with `sandloom security` (see the
-[runbook](../operations/runbook.md)).
+[operator reference](../operations/operator-reference.md#security-incident-runbook-database-leak-credential-leak-key-compromise)).
 
 ## What breaks it
 

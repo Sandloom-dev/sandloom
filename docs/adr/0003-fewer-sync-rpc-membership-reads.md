@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0003: Fewer synchronous RPC calls in split deployments — membership reads first
 
 - **Status:** Proposed

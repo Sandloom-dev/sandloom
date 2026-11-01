@@ -74,52 +74,89 @@ code = "Hack Nerd Font Mono"
 [project.plugins.section-index]
 
 [project.plugins.llmstxt]
-markdown_description = "Sandloom is a Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure. Public API: `sandloom.sdk`. Start with Learn; contributor guidance is optional context."
+markdown_description = "Sandloom is a Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure. Public API: `sandloom.sdk`. Start with Getting Started; contributor guidance is optional context."
 full_output = "llms-full.txt"
 
 [project.plugins.llmstxt.sections]
 Home = [
     "index.md",
-]
-Learn = [
-    "getting-started/index.md",
-    "getting-started/tutorial.md",
-    "getting-started/installation.md",
-    "getting-started/project-structure.md",
+    "changelog.md",
     "getting-started/help.md",
 ]
-Build = [
-    "guides/index.md",
-    "guides/generate.md",
-    "guides/module-context.md",
-    "guides/architecture-graph.md",
-    "guides/effect-deduplication.md",
-    "guides/session-revocation.md",
-    "guides/upgrading.md",
+"Getting Started" = [
+    "getting-started/index.md",
+    "getting-started/project-structure.md",
+    "getting-started/tutorial.md",
+    "getting-started/installation.md",
+    "concepts/glossary.md",
+]
+Modules = [
+    "concepts/modules.md",
     "guides/add-module.md",
-    "guides/customize-standard-module.md",
-    "guides/write-a-driver.md",
+    "concepts/units.md",
+    "concepts/multi-tenancy.md",
+    "concepts/data-conventions.md",
+    "concepts/migrations.md",
     "guides/write-migration.md",
     "guides/migrations.md",
+    "concepts/route-policy.md",
+    "concepts/authorization.md",
+    "guides/idempotent-write.md",
+    "guides/session-revocation.md",
+    "concepts/audit.md",
+    "concepts/between-modules.md",
+    "concepts/events.md",
     "guides/add-event.md",
     "guides/add-consumer.md",
     "guides/event-versioning.md",
+    "concepts/contracts.md",
     "guides/add-contract.md",
-    "guides/add-saga.md",
+    "concepts/projections.md",
     "guides/add-projection.md",
-    "guides/idempotent-write.md",
+    "concepts/sagas.md",
+    "guides/add-saga.md",
+    "concepts/background-tasks.md",
+    "guides/effect-deduplication.md",
     "guides/testing.md",
+    "guides/generate.md",
+    "guides/module-context.md",
+    "guides/architecture-graph.md",
+    "modules/index.md",
+    "modules/identity.md",
+    "getting-started/authentication.md",
+    "modules/tenancy.md",
+    "modules/billing.md",
+    "guides/customize-standard-module.md",
+    "guides/sso-setup.md",
+    "concepts/guarantees.md",
+    "concepts/write-admission.md",
+    "concepts/lifecycle.md",
+    "concepts/module-internals.md",
+]
+Infrastructure = [
+    "concepts/capabilities-and-infrastructure.md",
+    "infrastructure/configure.md",
+    "infrastructure/database.md",
+    "infrastructure/cache.md",
+    "infrastructure/event-bus.md",
+    "infrastructure/task-queue.md",
+    "infrastructure/object-store.md",
+    "infrastructure/notifications.md",
+    "guides/write-a-driver.md",
+    "infrastructure/own-capability.md",
+    "reference/driverkit.md",
+]
+Operate = [
+    "admin-console/index.md",
+    "operations/index.md",
+    "concepts/deployment.md",
     "guides/deployment.md",
     "guides/split-into-services.md",
     "guides/service-rpc.md",
-    "guides/sso-setup.md",
     "guides/loader-configuration.md",
-    "admin-console/index.md",
-    "guides/admin-operations.md",
-    "guides/admin.md",
-    "operations/index.md",
     "operations/runbook.md",
     "operations/operator-reference.md",
+    "guides/upgrading.md",
     "guides/upgrading-1.0.md",
 ]
 Reference = [
@@ -137,7 +174,6 @@ Reference = [
     "reference/sdk/sagas.md",
     "reference/sdk/projections.md",
     "reference/sdk/infra.md",
-    "reference/driverkit.md",
     "reference/sdk/security.md",
     "reference/sdk/errors.md",
     "reference/sdk/app.md",
@@ -158,51 +194,13 @@ Reference = [
     "reference/execution-planner.md",
     "reference/slo.md",
     "reference/dependencies.md",
-    "modules/index.md",
-    "modules/identity.md",
-    "getting-started/authentication.md",
-    "modules/tenancy.md",
-    "modules/billing.md",
-    "changelog.md",
-]
-Concepts = [
-    "concepts/index.md",
-    "concepts/glossary.md",
-    "concepts/modules.md",
-    "concepts/between-modules.md",
-    "concepts/data-conventions.md",
-    "concepts/module-internals.md",
-    "concepts/units.md",
-    "concepts/route-policy.md",
-    "concepts/events.md",
-    "concepts/contracts.md",
-    "concepts/write-admission.md",
-    "concepts/lifecycle.md",
-    "concepts/guarantees.md",
-    "concepts/multi-tenancy.md",
-    "concepts/authorization.md",
-    "concepts/projections.md",
-    "concepts/audit.md",
-    "concepts/sagas.md",
-    "concepts/background-tasks.md",
-    "concepts/capabilities-and-infrastructure.md",
-    "infrastructure/configure.md",
-    "infrastructure/database.md",
-    "infrastructure/cache.md",
-    "infrastructure/event-bus.md",
-    "infrastructure/task-queue.md",
-    "infrastructure/object-store.md",
-    "infrastructure/notifications.md",
-    "infrastructure/own-capability.md",
-    "concepts/migrations.md",
-    "concepts/deployment.md",
 ]
 Optional = [
     "contributing/index.md",
     "contributing/setup.md",
-    "contributing/website.md",
     "contributing/repository.md",
     "contributing/source-export.md",
+    "contributing/website.md",
     "contributing/versioning.md",
     "contributing/local-ci.md",
     "contributing/supply-chain.md",
@@ -219,6 +217,8 @@ Optional = [
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
     "adr/0011-driver-api.md",
+    "guides/admin-operations.md",
+    "guides/admin.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -239,9 +239,6 @@ permalink = true
 [project.markdown_extensions."pymdownx.details"]
 
 [project.markdown_extensions."pymdownx.superfences"]
-custom_fences = [
-    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
-]
 
 [project.markdown_extensions."pymdownx.tabbed"]
 alternate_style = true
@@ -368,30 +365,22 @@ Infrastructure = [
 ]
 
 [[project.nav]]
-Concepts = [
-    "concepts/index.md",
-    { "Deployment topologies" = "concepts/deployment.md" },
-]
-
-[[project.nav]]
-Build = [
-    "guides/index.md",
-    { "Upgrade an application" = "guides/upgrading.md" },
-    { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
-]
-
-[[project.nav]]
 "Admin Console" = "admin-console/index.md"
 
 [[project.nav]]
 Operate = [
     "operations/index.md",
-    { Deployment = "guides/deployment.md" },
-    { "Split an app into services" = "guides/split-into-services.md" },
+    { Topologies = "concepts/deployment.md" },
+    { Deploy = "guides/deployment.md" },
+    { "Split into services" = "guides/split-into-services.md" },
     { "Service RPC" = "guides/service-rpc.md" },
     { "Loader configuration" = "guides/loader-configuration.md" },
     { Runbook = "operations/runbook.md" },
-    { "Operator command reference" = "operations/operator-reference.md" },
+    { "Operator reference" = "operations/operator-reference.md" },
+    { Upgrade = [
+        { "Upgrade an application" = "guides/upgrading.md" },
+        { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
+    ] },
 ]
 
 [[project.nav]]

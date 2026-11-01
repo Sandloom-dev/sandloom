@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0002: The framework absorbs per-module boilerplate
 
 - **Status:** Accepted

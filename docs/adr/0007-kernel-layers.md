@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0007: Kernel layers and an acyclic kernel, enforced by import contracts
 
 - **Status:** Accepted

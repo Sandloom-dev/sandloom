@@ -189,5 +189,5 @@ for correction; confirmed successes are not sent again during recovery.
 
 ## Related reading
 
-- [Operator command reference](../operations/operator-reference.md)
+- [Operator reference](../operations/operator-reference.md)
 - [Extend the console](admin.md)

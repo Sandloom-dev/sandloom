@@ -1,15 +1,14 @@
 ---
-title: Operator command reference
+title: Operator reference
 description: Authentication, keys, incidents, backups, migrations, streams and operational command flags with dry-run and production safeguards.
 ---
 
-# Sandloom — Operations & Production Runbook
+# Operator reference
 
-Operational guidance for running Sandloom in production. Pairs with `AGENTS.md`
-(the engineering contract) and [deployment guide](../guides/deployment.md) (the
-compose profiles, required variables and sizing). Covers secrets, migrations,
-events/outbox operations, backups, data retention/PII, audit, and
-observability.
+Every operational command, flag, metric and alert: secrets, migrations, events,
+sagas, backups, incidents, retention, audit and observability. To find a procedure
+by situation, start with the [runbook](runbook.md). To set up production, see
+[Deploy an application](../guides/deployment.md).
 
 ## Secrets management
 
@@ -424,7 +423,7 @@ If anything changed the process logs ONE warning
 `sandloom_rpc_transport_fallback_total{reason}` and builds the shared RPC client on
 httpx — calls keep working at httpx's CPU cost; alert on the metric. Mixed-up
 responses are excluded independently of the client by the response binding
-(`docs/SERVICE_RPC.md`, "Response binding").
+([Response binding](../guides/service-rpc.md#response-binding)).
 
 The verified range is pinned in `pyproject.toml` and
 `packages/sandloom/pyproject.toml` and mirrored in
@@ -778,8 +777,8 @@ restore the interpreter's own behaviour exactly.
 - **Health**: `/health` (operational health, 503 when degraded),
   `/health/simple` (process liveness), `/ready` (health + required modules +
   required consumer subscriptions; topology shown only with the internal token),
-  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health)
-  and `/diagnostics/consumers` (token-gated). Results are cached for
+  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health),
+  `/diagnostics/consumers` and `/diagnostics/services` (token-gated). Results are cached for
   `HEALTH_CACHE_TTL_SECONDS` (default 3s) so anonymous probes cannot fan out
   infra checks.
 - **Client IP**: behind a proxy set `TRUST_PROXY_HEADERS=true` and

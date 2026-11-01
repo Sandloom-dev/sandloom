@@ -144,7 +144,7 @@ every **loaded** module. Concurrency defaults from the CPU quota
 
 Run exactly one `beat` per broker. A second one stands by: beat schedules
 only while it holds a fenced cache lease (`BEAT_LEASE_*`), scoped per
-service. See the deployment guide and `deploy/README.md` ("Beat singleton
+service. See `deploy/README.md` ("Beat singleton
 lease").
 
 **A module's first periodic task needs a beat.** A schedule

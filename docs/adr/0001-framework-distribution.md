@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0001: Framework distribution & packaging
 
 - **Status:** Accepted

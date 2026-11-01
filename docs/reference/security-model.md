@@ -459,9 +459,8 @@ There is exactly one internal-RPC authentication, the pair MAC of
 
 Normative statement: **a caller accepts a response only when it answers THE
 request it sent and is keyed by the provider the binding pins; the binding
-authenticates the response.** Mechanism and wire format:
-`docs/SERVICE_RPC.md`, "Response binding" (and the
-[Service RPC guide](../guides/service-rpc.md)).
+authenticates the response.** Mechanism:
+[Response binding](../guides/service-rpc.md#response-binding).
 
 | Threat | Outcome |
 | --- | --- |
@@ -862,7 +861,7 @@ same redaction. Production fails fast on a weak or placeholder `JWT_SECRET` /
 `BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`
 (every accepted risk is logged at each start and exported as
 `sandloom_accepted_risk_active{risk}`). See the
-[Operations runbook](../operations/runbook.md#secrets) for secret-manager
+[Secrets management](../operations/operator-reference.md#secrets-management) for secret-manager
 integration.
 
 No secret file enters an `sandloom new` application's image: its `.dockerignore`

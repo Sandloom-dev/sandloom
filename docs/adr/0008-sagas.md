@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0008: Sagas — a small orchestrator over the existing effect primitives
 
 - **Status:** Accepted (2026-10-25; phase 0 and phase 1 built)

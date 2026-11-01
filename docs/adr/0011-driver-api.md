@@ -1,4 +1,6 @@
 ---
+search:
+  exclude: true
 title: "ADR-0011: The driver API"
 ---
 

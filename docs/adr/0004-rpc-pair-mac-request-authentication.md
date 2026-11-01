@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0004: Internal RPC request authentication with per-pair HMAC keys
 
 - **Status:** Accepted (draft — awaiting the maintainers' sign-off).

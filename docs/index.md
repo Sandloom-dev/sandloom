@@ -84,7 +84,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
   authenticated unless it declares otherwise.
 - **Configuration decides where things run.** It selects which process loads which
   module and which backend each capability uses. Moving a running module's existing data
-  to its own database is a separate, [explicit step](guides/deployment.md#extracting-a-module-into-its-own-service).
+  to its own database is a separate, [explicit step](guides/split-into-services.md#existing-data).
 - **A machine checks the rules.** `sandloom check` and the startup checks enforce the
   boundaries and name the fix: `sandloom explain <code>`.
 

@@ -167,5 +167,5 @@ after any capacity change).
 
 ## Related reading
 
-- [Operations runbook](../operations/runbook.md)
+- [Runbook](../operations/runbook.md)
 - [Security model](security-model.md)

@@ -53,8 +53,8 @@ ops endpoints (`/metrics`, `/diagnostics/*`, `/contracts/*`, `/health`
 details) and never authenticates `/_sandloom/rpc`; `INTERNAL_ENDPOINTS_OPEN_IN_DEV`
 never opens it.
 
-`/ready` reports configured required remote bindings as degraded when their
-provider is unreachable. A binding can opt out with `"required": false`.
+An unreachable provider degrades only the calls that need it. `/ready` fails on it
+only when its binding sets `"required": true`; the default is `false`.
 
 ## Request authentication and idempotency
 
@@ -156,5 +156,5 @@ binding pins (`"service_id"`). Unbound or unkeyed replies are always refused;
 an unkeyed error answer (the provider could not authenticate the request)
 surfaces as `503 RemoteServiceUnavailable` with the provider's error code.
 Binding authenticates responses but is **not** a substitute for TLS/mTLS: run
-internal RPC over TLS or a trusted network. Details: `docs/SERVICE_RPC.md`
-("Response binding") and the [security model](../reference/security-model.md).
+internal RPC over TLS or a trusted network. See the
+[security model](../reference/security-model.md).

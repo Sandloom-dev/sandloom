@@ -160,8 +160,8 @@ infrastructure tables. See [Migrations](../concepts/migrations.md) and
 | `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 
-Runbooks: [Operations](../operations/runbook.md) and the
-[operator command reference](../operations/operator-reference.md).
+Procedures: the [runbook](../operations/runbook.md) and the
+[operator reference](../operations/operator-reference.md).
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
@@ -219,7 +219,7 @@ or extra schema operations and does not repair the application database.
 
 For incident tools (`security`, `backup`, `streams`, `outbox`, `sagas`, keys and
 projections), including scope, dry-run, JSON, batching and production-confirmation
-flags, use the [operator command reference](../operations/operator-reference.md).
+flags, use the [operator reference](../operations/operator-reference.md).
 Publishing the website is a separate [manual workflow](../contributing/website.md).
 
 ## Configuration tiers and accepted risks
@@ -361,5 +361,5 @@ is raw env).
   not placeholders. `SECRETS_DIR` (Docker/K8s file-based secrets — a setting
   may be supplied as a file named after its field).
 
-Operations runbook (secrets, backups, retention/PII, audit, observability):
-`docs/operations/operator-reference.md` and [Operations](../operations/runbook.md).
+Secrets, backups, retention, audit and observability: the
+[operator reference](../operations/operator-reference.md).
