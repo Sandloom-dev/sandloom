@@ -47,7 +47,7 @@ import sandloom.core.cli.image_secrets as _image_secrets
 import sandloom.core.cli.skills as _skills
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-_BUNDLED = ("identity", "tenancy", "billing")
+_BUNDLED = ("identity", "tenancy", "billing", "admin")
 
 #: Dev-tool pins for generated projects — the SAME versions the framework pins
 #: in its own dev extra (test_project asserts they stay in sync), so `sandloom check`,
@@ -287,6 +287,10 @@ API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 If you selected `--with identity`, follow the
 [authentication and email guide](https://sandloom.dev/docs/modules/standard/first-access-token/)
 to receive verification mail locally and obtain access/refresh tokens.
+
+If you selected `--with admin`, the
+[admin console guide](https://sandloom.dev/docs/admin-console/) shows how to create
+the first administrator and open the console at `http://127.0.0.1:8000/admin/`.
 
 ### Ports of the dev services
 
@@ -685,6 +689,8 @@ x-app-env: &app-env
   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
   # fake_psp_in_prod (comma-separated).
   SANDLOOM_ACCEPTED_RISKS: $${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+  # The optional admin console (sandloom-admin) is off in production by default.
+  ADMIN_CONSOLE_ENABLED: $${ADMIN_CONSOLE_ENABLED:-false}
   JWT_SECRET: $${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
   INTERNAL_API_TOKEN: $${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
 
@@ -996,9 +1002,11 @@ def _normalize_modules(with_batteries: list[str]) -> list[str]:
             raise ValueError(
                 f"unknown bundled module '{m}'; choose from {', '.join(_BUNDLED)}"
             )
-    # Preserve canonical order (identity, tenancy, billing); configuration
+    # The console signs in through identity.
+    chosen = {*with_batteries, *(["identity"] if "admin" in with_batteries else [])}
+    # Preserve canonical order (identity, tenancy, billing, admin); configuration
     # names an installed module by its `sandloom.modules` entry-point name.
-    return [m for m in _BUNDLED if m in with_batteries]
+    return [m for m in _BUNDLED if m in chosen]
 
 
 def _framework_backend(path: Path) -> Path:
@@ -1012,7 +1020,7 @@ def _sourced_names(bundled: list[str]) -> list[str]:
 
 
 #: The framework range a generated app depends on (0.x: one minor).
-FRAMEWORK_RANGE = ">=0.7.0a5,<0.8"
+FRAMEWORK_RANGE = ">=0.7.0a6,<0.8"
 
 
 def _framework_sources(

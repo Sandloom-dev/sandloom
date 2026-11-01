@@ -10,6 +10,9 @@
         the audit log of a time window as JSONL (sanitized metadata, no
         ``data``), e.g. for the incident record or as the off-site copy
         ``sandloom backup reconcile-security --audit-export`` reads
+    sandloom security grant-admin --email ADDRESS
+        make a registered user a platform administrator and mark their address
+        verified: how an application gets its first console operator
 
 Every command is DRY-RUN by default (targets / rows counted, nothing changed);
 ``--apply`` acts and needs ``--reason``; in production also
@@ -358,6 +361,32 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
+    """What happened, in one line; a missing user is the operator's next step."""
+    service = _service(core, SECURITY_CONTRACT)
+    user_id = await service.find_user_id(email)
+    if user_id is None:
+        raise SystemExit(
+            f"error: no user {email!r}: register them first (POST /auth/register)"
+        )
+    if not intent.apply:
+        return (
+            f"dry-run grant-admin: {email} ({user_id}) would become a platform "
+            "administrator; re-run with --apply --reason ..."
+        )
+    # A fresh key per run: granting again after a revocation must act, not replay.
+    await service.appoint_platform_admin(
+        user_id, intent.reason, intent.operator, operation_key=uuid.uuid4().hex
+    )
+    return f"grant-admin: {email} ({user_id}) is a platform administrator"
+
+
+def _cmd_grant(args: argparse.Namespace) -> int:
+    intent = operator_intent(args)
+    print(asyncio.run(grant_admin(_build_core(), args.email, intent)))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sandloom security", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -388,9 +417,17 @@ def main(argv: list[str] | None = None) -> int:
     exp.add_argument("--output", default=None, help="JSONL file to write")
     add_operator_arguments(exp)
 
+    grant = sub.add_parser(
+        "grant-admin", help="make a registered user a platform administrator"
+    )
+    grant.add_argument("--email", required=True, help="the user's address")
+    add_operator_arguments(grant)
+
     args = parser.parse_args(argv)
     if args.command == "audit-export":
         return _cmd_export(args)
+    if args.command == "grant-admin":
+        return _cmd_grant(args)
     if not 1 <= args.batch <= 1000:
         raise SystemExit("error: --batch must be between 1 and 1000")
     return _cmd_bulk(args)

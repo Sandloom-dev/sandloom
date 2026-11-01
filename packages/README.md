@@ -1,10 +1,11 @@
 # Sandloom distributions (ADR-0001)
 
-This directory defines the four publishable distributions Sandloom ships, per
+This directory defines the five publishable distributions Sandloom ships, per
 [ADR-0001](../docs/adr/0001-framework-distribution.md): the framework,
-`sandloom`, and three ecosystem module packages built the way a third party
+`sandloom`, and four ecosystem module packages built the way a third party
 ships a module. The source of truth stays in the monorepo tree (`src/sandloom`,
-`src/sandloom_identity`, `src/sandloom_tenancy`, `src/sandloom_billing`); each
+`src/sandloom_identity`, `src/sandloom_tenancy`, `src/sandloom_billing`,
+`src/sandloom_admin`); each
 package here builds a wheel and a self-contained source archive through the
 [shared Hatchling build hook](../tools/packaging/package_build.py), so **no
 source file moves** for packaging and the path-coupled tooling (architecture
@@ -15,9 +16,10 @@ checks, Alembic `env.py`, docker mounts, documentation imports) is undisturbed.
 | distribution | import package | depends on | extras | entry points |
 | --- | --- | --- | --- | --- |
 | `sandloom` | `sandloom`: the kernel (`sandloom.core`), the public SDK (`sandloom.sdk`), framework DTOs, guards and authz (`sandloom.shared`), the CLI and the composition root `sandloom.main` | third-party ranges only | `redis`, `celery`, `standard`, `fast`, `check`, `testing`, `sentry` | console script `sandloom` |
-| `sandloom-identity` | `sandloom_identity` (users, JWT, RBAC, 2FA, SSO) | `sandloom>=0.7.0a5,<0.8`, pyotp, authlib, qrcode, pillow, itsdangerous, email-validator | none | `sandloom.modules`: `identity = "sandloom_identity"` |
-| `sandloom-tenancy` | `sandloom_tenancy` (organizations, membership, invitations) | `sandloom>=0.7.0a5,<0.8`, email-validator | none | `sandloom.modules`: `tenancy = "sandloom_tenancy"` |
-| `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a5,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
+| `sandloom-identity` | `sandloom_identity` (users, JWT, RBAC, 2FA, SSO) | `sandloom>=0.7.0a6,<0.8`, pyotp, authlib, qrcode, pillow, itsdangerous, email-validator | none | `sandloom.modules`: `identity = "sandloom_identity"` |
+| `sandloom-tenancy` | `sandloom_tenancy` (organizations, membership, invitations) | `sandloom>=0.7.0a6,<0.8`, email-validator | none | `sandloom.modules`: `tenancy = "sandloom_tenancy"` |
+| `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a6,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
+| `sandloom-admin` | `sandloom_admin` (the prebuilt owner console, served at `/admin/`) | `sandloom>=0.7.0a6,<0.8` | none | `sandloom.modules`: `admin = "sandloom_admin"` |
 
 Extras of `sandloom`:
 
@@ -25,7 +27,8 @@ Extras of `sandloom`:
 | --- | --- | --- |
 | `redis` | `redis` | the Redis cache and the Redis Streams event bus |
 | `celery` | `celery[redis]` | the Celery task queue |
-| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a5,<0.8`) | the batteries-included set | <!-- sandloom-release -->
+| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a6,<0.8`) | the batteries-included set | <!-- sandloom-release -->
+| `admin` | `sandloom[redis,celery]`, `sandloom-admin`, `sandloom-identity` | the admin console; deliberately not in `standard`, because an installed module joins `sandloom.main` and a console is a decision |
 | `fast` | `redis[hiredis]`, `jsonschema-rs` | optional accelerators |
 | `check` | `PyYAML` | `sandloom check` (reads YAML manifests) |
 | `testing` | `pytest`, `pytest-asyncio`, `pytest-xdist` | the test kit (`sandloom.sdk.testing`, `sandloom test`) |
@@ -54,13 +57,15 @@ What the layout means:
   asyncpg) carries its reason in a comment. Exact versions live only in
   `uv.lock`.
 - **Versions are independent.** Each distribution versions on its own; the current
-  published alpha is 0.7.0a5 and the module packages depend on `sandloom>=0.7.0a5,<0.8` <!-- sandloom-release -->
+  published alpha is 0.7.0a6 and the module packages depend on `sandloom>=0.7.0a6,<0.8` <!-- sandloom-release -->
   ([versioning](../docs/contributing/versioning.md)).
 
 ## Editable development installs
 
 The root contributor environment installs every distribution in editable
-mode. Each distribution's `dev-mode-dirs` points at
+mode, except `sandloom-admin`: the framework's own composition stays the three
+standard modules, and pytest finds the package through `pythonpath`. Each
+distribution's `dev-mode-dirs` points at
 `packages/editable/<distribution>/`, which holds one symlink to its import
 package in `src/` (`packages/editable/sandloom-identity/sandloom_identity ->
 src/sandloom_identity`), so an editable install exposes exactly that
@@ -68,7 +73,7 @@ distribution's package.
 
 ## License files
 
-All four projects declare `license = "Apache-2.0"` and
+All five projects declare `license = "Apache-2.0"` and
 `license-files = ["LICENSE", "NOTICE"]` using PEP 639 metadata. Hatchling 1.27
 or newer includes the local files in source archives and in each wheel's
 `.dist-info/licenses/` directory.
@@ -76,7 +81,7 @@ or newer includes the local files in source archives and in each wheel's
 The root `LICENSE` and `NOTICE` are canonical. Every package keeps regular
 local copies so its source archive remains self-contained. The shared build
 hook rejects copies that differ from the root; when changing notices, update
-all four copies together. A wheel rebuilt from a standalone source archive
+all five copies together. A wheel rebuilt from a standalone source archive
 uses its included files and does not need the original repository. Public
 source selection is documented in the
 [source snapshot policy](../docs/contributing/source-export.md).
@@ -89,7 +94,7 @@ Run from the repository root. Nothing here publishes packages:
 # One distribution: sdist plus a wheel rebuilt from that sdist.
 uv build packages/sandloom
 
-# All four, the same script CI runs (.github/workflows/packages.yml).
+# All five, the same script CI runs (.github/workflows/packages.yml).
 uv run --locked python tools/packaging/check_package_distributions.py
 
 # Build and layering only (no network, no install).

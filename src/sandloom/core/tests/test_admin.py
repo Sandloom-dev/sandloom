@@ -190,6 +190,25 @@ def test_rejects_unsafe_or_incomplete_declarations(change: dict, message: str) -
         compile_resources(app, [("demo.catalog", [{**declaration, **change}])])
 
 
+def test_a_generated_single_file_api_is_the_module_s_own() -> None:
+    app, declaration = catalog()
+    for route in app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint and endpoint.__module__.startswith("demo.catalog.api"):
+            endpoint.__module__ = "demo.catalog.api"
+    assert compile_resources(app, [("demo.catalog", [declaration])])["resources"]
+
+
+def test_a_module_with_a_similar_name_is_not_the_owner() -> None:
+    app, declaration = catalog()
+    for route in app.routes:
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint and endpoint.__module__.startswith("demo.catalog.api"):
+            endpoint.__module__ = "demo.catalog.api_extra"
+    with pytest.raises(ValueError, match="not owned"):
+        compile_resources(app, [("demo.catalog", [declaration])])
+
+
 def test_foreign_module_cannot_admit_owners_routes() -> None:
     app, declaration = catalog()
     with pytest.raises(ValueError, match="not owned"):

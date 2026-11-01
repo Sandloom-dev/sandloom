@@ -255,3 +255,66 @@ async def test_security_contract_rejects_oversized_batches(
             [uuid4() for _ in range(1001)], "too many", "eve", "op-3"
         )
     assert info.value.status_code == 422
+
+
+async def test_appointing_the_first_admin_grants_verifies_and_audits(
+    sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession, test_user: User
+) -> None:
+    test_user.is_verified = False
+    await test_db.commit()
+    contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        assert await contract.find_user_id(test_user.email) == test_user.id
+        assert await contract.find_user_id("nobody@example.com") is None
+        granted = await contract.appoint_platform_admin(
+            test_user.id, "first administrator", "alice", "op-admin-1"
+        )
+    assert granted is True
+    await test_db.refresh(test_user)
+    assert test_user.is_verified is True
+    assert test_user.email_verified_at is not None
+    held = await test_db.execute(
+        text(
+            "SELECT r.code, r.is_system FROM user_roles ur "
+            "JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = :uid"
+        ),
+        {"uid": test_user.id},
+    )
+    assert [tuple(row) for row in held] == [("admin", True)]
+    trail = await _audit(test_db, test_user)
+    assert ("identity.user.platform_admin_granted", "operator") in [
+        (action, actor) for action, actor, _ in trail
+    ]
+
+
+async def test_appointing_twice_keeps_one_assignment(
+    sandloom_app: Any, test_db: AsyncSession, test_user: User
+) -> None:
+    contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        for key in ("op-admin-2", "op-admin-3"):
+            await contract.appoint_platform_admin(
+                test_user.id, "first administrator", "alice", key
+            )
+    count = await test_db.scalar(
+        text("SELECT count(*) FROM user_roles WHERE user_id = :uid"),
+        {"uid": test_user.id},
+    )
+    assert count == 1
+
+
+async def test_appointing_needs_a_user_and_a_reason(
+    sandloom_app: Any, test_db: AsyncSession, test_user: User
+) -> None:
+    contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        assert (
+            await contract.appoint_platform_admin(
+                uuid4(), "first administrator", "alice", "op-admin-4"
+            )
+            is False
+        )
+        with pytest.raises(Exception, match="reason and operator"):
+            await contract.appoint_platform_admin(
+                test_user.id, " ", "alice", "op-admin-5"
+            )

@@ -1,0 +1,46 @@
+[project]
+name = "sandloom-admin"
+version = "0.7.0a6"
+classifiers = ["Development Status :: 3 - Alpha"]
+description = "The admin console for Sandloom: a prebuilt web UI for the platform owner, with no Node or separate image."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Vasyl Cherniavskyi" }]
+requires-python = ">=3.11"
+# An ecosystem module like any third party's: a compatible framework range.
+# The console signs in through identity, a separate distribution, which the
+# `sandloom[admin]` extra and `sandloom new --with admin` add.
+dependencies = [
+    "sandloom>=0.7.0a6,<0.8",
+]
+
+[project.urls]
+Homepage = "https://sandloom.dev/"
+Documentation = "https://sandloom.dev/docs/"
+Repository = "https://github.com/Sandloom-dev/sandloom"
+Issues = "https://github.com/Sandloom-dev/sandloom/issues"
+Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-admin/CHANGELOG.md"
+
+# The module name and
+# its import path; SANDLOOM_MODULES may name it by either.
+[project.entry-points."sandloom.modules"]
+admin = "sandloom_admin"
+
+[build-system]
+requires = [
+    "hatchling>=1.27",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [
+    "../editable/sandloom-admin",
+]
+bypass-selection = true
+
+[tool.hatch.build.hooks.custom]
+path = "../../tools/packaging/package_build.py"
+
+[tool.sandloom.sources]
+"../../src/sandloom_admin" = "sandloom_admin"

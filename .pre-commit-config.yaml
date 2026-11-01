@@ -14,10 +14,11 @@ repos:
         # Compose overlays can use custom YAML tags; validate their syntax.
         args: [--unsafe]
     -   id: end-of-file-fixer
-        # Raw qualification artifacts are immutable and SHA256-manifested.
-        exclude: ^benchmarks/qualification/results/
+        # Raw qualification artifacts are immutable and SHA256-manifested; the
+        # packaged console is build output, checked against its source hash.
+        exclude: ^(benchmarks/qualification/results/|src/sandloom_admin/console/)
     -   id: trailing-whitespace
-        exclude: ^benchmarks/qualification/results/
+        exclude: ^(benchmarks/qualification/results/|src/sandloom_admin/console/)
 
 # Every tool hook is a LOCAL `uv run --locked` hook: it runs the exact ruff /
 # mypy / pytest versions pinned in pyproject.toml + uv.lock (the same
