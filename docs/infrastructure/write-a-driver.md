@@ -20,7 +20,7 @@ transaction and delivery guarantees and are not open to drivers
 ([why](database.md#the-relational-paradigm)).
 
 !!! note "Version"
-    This guide targets `sandloom==0.7.0a5`. <!-- sandloom-release -->
+    This guide targets `sandloom==0.7.0a6`. <!-- sandloom-release -->
     [`sandloom.driverkit`](driverkit.md) is included in this release.
 
 ## Prerequisites
@@ -65,7 +65,7 @@ The entry-point name is `<capability>.<driver>`, and its value is your class:
 [project]
 name = "sandloom-notify-file"
 version = "0.1.0"
-dependencies = ["sandloom>=0.7.0a5,<0.8"]
+dependencies = ["sandloom>=0.7.0a6,<0.8"]
 
 [project.entry-points."sandloom.drivers"]
 "notification.file" = "sandloom_notify_file.driver:FileNotifier"

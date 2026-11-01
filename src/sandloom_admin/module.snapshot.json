@@ -1,0 +1,10 @@
+{
+  "consumers": [],
+  "consumes": [],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "sandloom_admin",
+  "projections": [],
+  "sagas": []
+}

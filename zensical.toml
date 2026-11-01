@@ -148,6 +148,10 @@ Infrastructure = [
 ]
 Operate = [
     "admin-console/index.md",
+    "admin-console/add-your-module.md",
+    "admin-console/deploy.md",
+    "admin-console/declarations.md",
+    "admin-console/develop.md",
     "operate/index.md",
     "operate/topologies.md",
     "operate/deploy.md",
@@ -218,7 +222,6 @@ Optional = [
     "adr/0010-public-api-1.0.md",
     "adr/0011-driver-api.md",
     "admin-console/operations.md",
-    "admin-console/guide.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -365,7 +368,14 @@ Infrastructure = [
 ]
 
 [[project.nav]]
-"Admin Console" = "admin-console/index.md"
+"Admin Console" = [
+    { "What it is and how to run it" = "admin-console/index.md" },
+    { "Add your module" = "admin-console/add-your-module.md" },
+    { Deploy = "admin-console/deploy.md" },
+    { "Operator guide" = "admin-console/operations.md" },
+    { "Declaration reference" = "admin-console/declarations.md" },
+    { "Develop the console" = "admin-console/develop.md" },
+]
 
 [[project.nav]]
 Operate = [

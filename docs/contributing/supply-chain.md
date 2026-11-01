@@ -66,7 +66,7 @@ This is not a claim that every platform-specific resolution was tested.
 snyk code test .
 snyk test --file=admin/package.json --dev
 snyk test --file=admin/package.json
-# Export uv.lock with all groups/extras, excluding the four workspace packages.
+# Export uv.lock with all groups/extras, excluding the five workspace packages.
 # Evaluate markers, then install the resulting requirements in a clean environment.
 snyk test --file=/path/to/evaluated-requirements.txt --package-manager=pip \
   --command=/path/to/clean-env/bin/python

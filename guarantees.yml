@@ -6364,6 +6364,40 @@ capabilities:
   - src/sandloom/core/tests/test_observability_bundle.py::test_alerts_have_severity_and_runbook
   - src/sandloom/core/tests/test_observability_bundle.py::test_operations_alert_index_matches_rules
   - src/sandloom/core/tests/test_observability_bundle.py::test_promtool_rules_and_unit_tests
+- id: C-CONSOLE-01
+  statement: The sandloom-admin wheel carries the build of the current console source and no application
+    data, so an application serves it with neither Node nor a separate image.
+  sources:
+  - docs/admin-console/index.md
+  tests:
+  - tests/architecture/test_admin_console_package.py::test_the_packaged_console_is_built_from_the_current_source
+  - tests/architecture/test_admin_console_package.py::test_the_packaged_console_ships_no_application_data
+- id: C-CONSOLE-02
+  statement: The console is off in production unless ADMIN_CONSOLE_ENABLED is set, forbids foreign code
+    and framing, and never answers a missing asset with HTML.
+  sources:
+  - docs/admin-console/deploy.md
+  tests:
+  - src/sandloom_admin/tests/test_console.py::test_production_keeps_it_off_unless_enabled
+  - src/sandloom_admin/tests/test_console.py::test_the_entry_page_forbids_foreign_code
+  - src/sandloom_admin/tests/test_console.py::test_a_missing_file_is_not_answered_with_html
+- id: C-CONSOLE-03
+  statement: sandloom generate writes the console's manifest and refuses a declaration the application's
+    API does not support; a console that cannot show the manifest says why instead of breaking.
+  sources:
+  - docs/admin-console/add-your-module.md
+  tests:
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_a_bad_declaration_is_a_problem_not_a_crash
+  - src/sandloom_admin/tests/test_console.py::test_a_newer_manifest_version_is_refused
+  - src/sandloom_admin/tests/test_console.py::test_a_widget_this_console_lacks_is_refused
+- id: C-CONSOLE-04
+  statement: sandloom security grant-admin makes a registered user a platform administrator, verifies
+    the address, keeps one assignment when repeated and writes a required audit row.
+  sources:
+  - docs/admin-console/index.md
+  tests:
+  - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_the_first_admin_grants_verifies_and_audits
+  - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_twice_keeps_one_assignment
 - id: C-TEST-01
   statement: The sandloom.core.testing pytest plugin (-p sandloom.core.testing.plugin) loads .env.test before any
     settings import, honours a composition-root ini option and exposes the db/client/db_uow fixtures binding
@@ -7172,28 +7206,29 @@ removed:
   replaced_by: G-REVOKE-21
 
 issued:
-  C-GEN: 15
-  C-SDK: 6
-  C-DECL: 5
-  G-DECL: 7
-  C-SAGA: 3
-  G-SDK: 5
-  G-SAGA: 15
   C-AUTH: 9
+  C-CONSOLE: 4
+  C-DECL: 5
   C-DEPLOY: 9
   C-EFFECT: 2
   C-EVENT: 4
+  C-GEN: 15
   C-INFRA: 12
   C-MIGRATE: 9
   C-MODULE: 13
+  C-MSTORE: 4
   C-OBS: 8
   C-OPS: 14
   C-PROJ: 9
   C-RISK: 1
+  C-ROUTE: 3
   C-RPC: 5
+  C-SAGA: 3
+  C-SDK: 6
   C-SPLIT: 7
   C-TENANT: 10
   C-TEST: 15
+  C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
   G-AUTH: 19
@@ -7204,6 +7239,7 @@ issued:
   G-COMPAT: 7
   G-CONFIG: 8
   G-CONTRACT: 19
+  G-DECL: 7
   G-EFFECT: 5
   G-EVENT: 14
   G-GUARD: 3
@@ -7214,6 +7250,7 @@ issued:
   G-KERNEL: 13
   G-MIGRATE: 12
   G-MODULE: 19
+  G-MSTORE: 10
   G-OPCLASS: 7
   G-OPS: 22
   G-OUTBOX: 16
@@ -7221,18 +7258,16 @@ issued:
   G-REVOKE: 24
   G-RISK: 12
   G-RLS: 15
+  G-ROUTE: 5
   G-RPC: 33
+  G-SAGA: 15
+  G-SDK: 5
+  G-SENS: 7
   G-TASK: 5
   G-TENANT: 18
+  G-UNIT: 3
   G-UOW: 8
   G-WINDOW: 3
-  G-ROUTE: 5
-  C-ROUTE: 3
-  G-SENS: 7
-  G-UNIT: 3
-  C-UNIT: 2
-  G-MSTORE: 10
-  C-MSTORE: 4
 
 adr_sections:
   0005-effect-model.md:

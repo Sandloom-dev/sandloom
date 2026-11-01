@@ -10,7 +10,7 @@ prerequisite for shipping `sandloom` as a standalone package (see
 [ADR-0001](../../docs/adr/0001-framework-distribution.md), boundary
 remediation #2).
 
-The repository builds four distributions (`sandloom` and the module packages
+The repository builds five distributions (`sandloom` and the module packages
 `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing`); this directory is
 the workspace integration suite that depends on all of them.
 `test_package_distributions.py` (slow) wraps

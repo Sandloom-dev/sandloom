@@ -100,6 +100,20 @@ def _landed(
 
 CATALOGUE: tuple[ErrorCode, ...] = (
     _entry(
+        "SANDLOOM-T016",
+        "admin-manifest",
+        "test",
+        "the admin console's manifest is stale or cannot be compiled",
+        "run sandloom generate; if it reports a declaration, fix that admin.py",
+        """
+The admin console draws its screens from `<app>/shared/admin-manifest.json`,
+compiled from the `admin.py` declarations of every composed module and checked
+against the application's OpenAPI. `sandloom test` fails when the file differs
+from what the current declarations and routes compile to.
+""",
+        docs="docs/admin-console/add-your-module.md",
+    ),
+    _entry(
         "SANDLOOM-T015",
         "inspection-inputs",
         "test",

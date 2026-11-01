@@ -41,7 +41,7 @@ def test_every_distribution_installs_and_runs_alone() -> None:
     )
     output = done.stdout + done.stderr
     assert done.returncode == 0, output[-6000:]
-    assert "Import layering OK across 4 distributions" in output
+    assert "Import layering OK across 5 distributions" in output
     assert "lean sandloom OK" in output
     assert "standard set OK" in output
     assert "All package distribution checks passed." in output

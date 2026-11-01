@@ -13,6 +13,23 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a6] — 2026-11-01
+
+### Added
+
+- **The admin console is a package.** `sandloom-admin` carries the prebuilt console and
+  serves it at `/admin/`, with no Node or separate image. Add it with `sandloom new
+  --with admin` or `sandloom[admin]`. It is off in production until
+  `ADMIN_CONSOLE_ENABLED=true`, and `ADMIN_CONSOLE_DIST` serves your own build.
+- `sandloom generate` writes `<app>/shared/admin-manifest.json`, and `sandloom test`
+  fails when it is stale (SANDLOOM-T016).
+- `sandloom security grant-admin` creates an application's first platform
+  administrator, with a dry run and an audit record.
+
+### Fixed
+
+- The console no longer calls billing's API in an application without billing.
+
 ### CI
 
 - Wait for a newly created GitHub draft release to become visible in REST reads.

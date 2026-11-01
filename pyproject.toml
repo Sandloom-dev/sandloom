@@ -1,7 +1,7 @@
 # Development environment only; publish only packages/* (sandloom, sandloom-*).
 [project]
 name = "sandloom-dev"
-version = "0.7.0a5"
+version = "0.7.0a6"
 description = "Local development environment for the Sandloom monorepo"
 readme = "README.md"
 license = "Apache-2.0"
@@ -58,6 +58,9 @@ package = false
 [tool.uv.sources.sandloom]
 path = "packages/sandloom"
 editable = true
+
+[tool.uv.sources.sandloom-admin]
+path = "packages/sandloom-admin"
 
 [tool.uv.sources.sandloom-billing]
 path = "packages/sandloom-billing"
@@ -177,6 +180,9 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+# Importable for its own tests, but not installed: an installed module package joins
+# sandloom.main, and the framework's composition is the three standard modules.
+pythonpath = ["packages/editable/sandloom-admin"]
 testpaths = [
     "src",
     "tests/integration",

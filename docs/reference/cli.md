@@ -11,7 +11,7 @@ has `--help`.
 
 ## Context and declared architecture
 
-Available in `sandloom>=0.7.0a5,<0.8`. <!-- sandloom-release -->
+Available in `sandloom>=0.7.0a6,<0.8`. <!-- sandloom-release -->
 
 | Command | What it does |
 | --- | --- |
@@ -61,7 +61,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>]` | Generate a standalone, runnable application. The app depends on `sandloom[redis,celery]>=0.7.0a5,<0.8` plus `sandloom-<module>>=0.7.0a5,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>]` | Generate a standalone, runnable application. The app depends on `sandloom[redis,celery]>=0.7.0a6,<0.8` plus `sandloom-<module>>=0.7.0a6,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom add module <name>` | A new module under the app's `modules` package. It is discovered: nothing else to edit. |
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |
@@ -151,6 +151,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom projection list \| rebuild <name> [--tenant <id>]` | List registered projections and consumers; rebuild one from its source. |
 | `sandloom sagas list [--all] \| show <type> <id> \| retry <type> <id> \| park <type> <id> \| resolve <type> <id> --step S --as applied\|skipped` | Operate saga instances. Dry run unless `--apply --reason R` (prod: also `--confirm-production`). |
 | `sandloom security revoke-sessions \| force-password-reset (--all \| --tenant ORG \| --user ID) [--operation-id ID]` | Incident response: end every session of the targets, or require a password reset. Dry run unless `--apply --reason R` (prod: also `--confirm-production`); `--operation-id` resumes an interrupted run. |
+| `sandloom security grant-admin --email ADDRESS [--apply --reason R] [--confirm-production]` | Make a registered user a platform administrator and mark their address verified: how an application gets its first [console](../admin-console/index.md) operator. Dry run by default. |
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
 | `sandloom backup plan \| verify <dump> \| reconcile-security` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-cache restore. |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |

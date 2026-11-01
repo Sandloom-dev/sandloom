@@ -805,7 +805,9 @@ contention). Leave it unset to keep today's behaviour.
 
 ## Optional admin UI
 
-The [admin application](../admin/README.md) ships separately from the backend.
+An application gets the console from the `sandloom-admin` package, served at `/admin/`
+([Admin Console](../docs/admin-console/index.md)). This overlay is for working on the
+console from source: [the admin application](../admin/README.md) builds its own image.
 Add `docker-compose.admin.yml` to either profile and enable `--profile admin`.
 The default upstream is `http://app:2222`; for the split profile set
 `SANDLOOM_ADMIN_API_UPSTREAM=http://gateway:8080`. The admin port binds to loopback

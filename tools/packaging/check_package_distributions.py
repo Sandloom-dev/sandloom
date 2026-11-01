@@ -45,12 +45,14 @@ PACKAGES = (
     "sandloom-identity",
     "sandloom-tenancy",
     "sandloom-billing",
+    "sandloom-admin",
 )
 #: Module packages and their ``sandloom.modules`` entry-point names.
 MODULES = {
     "sandloom-identity": ("identity", "sandloom_identity"),
     "sandloom-tenancy": ("tenancy", "sandloom_tenancy"),
     "sandloom-billing": ("billing", "sandloom_billing"),
+    "sandloom-admin": ("admin", "sandloom_admin"),
 }
 SMOKE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
@@ -370,7 +372,7 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     _run(
         "uv", "pip", "install", "--python", str(_python(venv)),
         f"sandloom[standard] @ {kernel.resolve().as_uri()}",
-        *(str(w) for p, w in wheels.items() if p != "sandloom"),
+        *(str(w) for p, w in wheels.items() if p not in ("sandloom", "sandloom-admin")),
     )  # fmt: skip
     _run(
         str(_python(venv)),
@@ -381,6 +383,37 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
         "['sandloom_billing', 'sandloom_identity', 'sandloom_tenancy'], "
         "m.core.loaded_modules; "
         "print('standard set OK:', m.core.loaded_modules)",
+        cwd=temp,
+        env=_smoke_environment(),
+    )
+
+
+def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
+    """The console's wheel serves it with no build step, and only when installed."""
+    venv = temp / "admin"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(_python(venv)),
+        f"sandloom[admin] @ {wheels['sandloom'].resolve().as_uri()}",
+        *(str(wheels[name]) for name in ("sandloom-identity", "sandloom-admin")),
+    )
+    _run(
+        str(_python(venv)),
+        "-c",
+        "from pathlib import Path; import sandloom_admin; "
+        "console = Path(sandloom_admin.__file__).parent / 'console'; "
+        "assert (console / 'index.html').is_file(); "
+        "assert (console / 'third-party-licenses.txt').is_file(); "
+        "assert not (console / 'admin-manifest.json').exists(); "
+        "import sandloom.main as m; "
+        "assert m.core.loaded_modules == ['sandloom_admin', 'sandloom_identity'], "
+        "m.core.loaded_modules; "
+        "assert any(getattr(r, 'path', '') == '/admin/{path:path}' for r in m.app.routes); "
+        "print('admin console OK:', m.core.loaded_modules)",
         cwd=temp,
         env=_smoke_environment(),
     )
@@ -412,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_install:
             check_lean_install(temp, wheels["sandloom"])
             check_standard_install(temp, wheels)
+            check_admin_install(temp, wheels)
         if args.dist_dir is not None:
             if any(
                 hashlib.sha256(file.read_bytes()).hexdigest() != checksums[file.name]

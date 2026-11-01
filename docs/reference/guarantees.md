@@ -12,7 +12,7 @@ tests, `sandloom check` rules and import contracts that prove it. The ledger
 disappears, an entry deleted without a `removed:` record, or a new ADR section
 without an entry fails the build.
 
-**429 guarantees, 170 capabilities, 37 recorded gaps.**
+**429 guarantees, 174 capabilities, 37 recorded gaps.**
 
 Run exactly the enforcing tests (from the repository root):
 
@@ -849,6 +849,15 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-OBS-07</span> | GC tuning (GC_FREEZE_AFTER_STARTUP / GC_THRESHOLDS / GC_METRICS_ENABLED) freezes the startup heap and applies thresholds in gunicorn and Celery workers (entry points only, never create_app), with a pause histogram. | `sandloom/core/tests/test_gc_tuning.py::test_gc_settings_defaults`<br>`sandloom/core/tests/test_gc_tuning.py::test_post_worker_init_wraps_the_app_and_keeps_attributes`<br>`sandloom/core/tests/test_gc_tuning.py::test_celery_worker_init_freezes_in_the_parent`<br>`sandloom/core/tests/test_gc_tuning.py::test_gc_metrics_buffer_flushes_into_prometheus` |
 | <span class="sl-id">C-OBS-08</span> | The shipped alert/dashboard bundle references only existing metrics and labels, every alert has severity and a runbook entry matching docs/operate/operator-reference.md, and promtool rule tests pass. | `sandloom/core/tests/test_observability_bundle.py::test_every_referenced_metric_and_label_exists`<br>`sandloom/core/tests/test_observability_bundle.py::test_alerts_have_severity_and_runbook`<br>`sandloom/core/tests/test_observability_bundle.py::test_operations_alert_index_matches_rules`<br>`sandloom/core/tests/test_observability_bundle.py::test_promtool_rules_and_unit_tests` |
 
+### C-CONSOLE
+
+| Id | Statement | Enforced by |
+| --- | --- | --- |
+| <span class="sl-id">C-CONSOLE-01</span> | The sandloom-admin wheel carries the build of the current console source and no application data, so an application serves it with neither Node nor a separate image. | `tests/architecture/test_admin_console_package.py::test_the_packaged_console_is_built_from_the_current_source`<br>`tests/architecture/test_admin_console_package.py::test_the_packaged_console_ships_no_application_data` |
+| <span class="sl-id">C-CONSOLE-02</span> | The console is off in production unless ADMIN_CONSOLE_ENABLED is set, forbids foreign code and framing, and never answers a missing asset with HTML. | `sandloom_admin/tests/test_console.py::test_production_keeps_it_off_unless_enabled`<br>`sandloom_admin/tests/test_console.py::test_the_entry_page_forbids_foreign_code`<br>`sandloom_admin/tests/test_console.py::test_a_missing_file_is_not_answered_with_html` |
+| <span class="sl-id">C-CONSOLE-03</span> | sandloom generate writes the console's manifest and refuses a declaration the application's API does not support; a console that cannot show the manifest says why instead of breaking. | `sandloom/core/tests/test_generated_admin_manifest.py::test_a_bad_declaration_is_a_problem_not_a_crash`<br>`sandloom_admin/tests/test_console.py::test_a_newer_manifest_version_is_refused`<br>`sandloom_admin/tests/test_console.py::test_a_widget_this_console_lacks_is_refused` |
+| <span class="sl-id">C-CONSOLE-04</span> | sandloom security grant-admin makes a registered user a platform administrator, verifies the address, keeps one assignment when repeated and writes a required audit row. | `sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_the_first_admin_grants_verifies_and_audits`<br>`sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_twice_keeps_one_assignment` |
+
 ### C-TEST
 
 | Id | Statement | Enforced by |
@@ -1526,6 +1535,10 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-OBS-06</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Observability |
 | <span class="sl-id">C-OBS-07</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Garbage collector tuning |
 | <span class="sl-id">C-OBS-08</span> | docs/operate/operator-reference.md#Alerts |
+| <span class="sl-id">C-CONSOLE-01</span> | docs/admin-console/index.md |
+| <span class="sl-id">C-CONSOLE-02</span> | docs/admin-console/deploy.md |
+| <span class="sl-id">C-CONSOLE-03</span> | docs/admin-console/add-your-module.md |
+| <span class="sl-id">C-CONSOLE-04</span> | docs/admin-console/index.md |
 | <span class="sl-id">C-TEST-01</span> | docs/reference/testing.md |
 | <span class="sl-id">C-TEST-02</span> | docs/reference/cli.md<br>docs/reference/testing.md |
 | <span class="sl-id">C-TEST-03</span> | docs/reference/cli.md |

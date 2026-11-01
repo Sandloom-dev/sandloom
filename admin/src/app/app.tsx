@@ -57,7 +57,7 @@ export function App({ config }: { config: AdminConfig }) {
     <ConfigProvider config={config}>
       <ThemeProvider>
         <TooltipProvider delayDuration={300}>
-          <BrowserRouter>
+          <BrowserRouter basename={import.meta.env.BASE_URL}>
             <SessionRoot />
           </BrowserRouter>
           <Toaster />

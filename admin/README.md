@@ -20,7 +20,7 @@ and source records ship in `public/`.
 
 - **Operators:** [operator guide](../docs/admin-console/operations.md) — audience, permissions, common
   tasks, sessions, billing, errors, and current limits.
-- **Developers:** [developer guide](../docs/admin-console/guide.md) — generation pipeline, resource language,
+- **Developers:** [developer guide](../docs/admin-console/develop.md) — generation pipeline, resource language,
   module integration, deployment, and troubleshooting.
 - **In the panel:** open **Help** in the top bar for built-in English operator help.
 
@@ -172,7 +172,7 @@ the manifest on page reload. A deployed image can mount both the new manifest at
 specialized widgets require a frontend build. Module keys and resource names must
 be unique; declarations are an admission list, not a source of API permissions.
 
-The full declaration reference and example are in the [developer guide](../docs/admin-console/guide.md).
+The full declaration reference and example are in the [developer guide](../docs/admin-console/develop.md).
 
 ## Session and data boundaries
 

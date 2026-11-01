@@ -1,0 +1,15 @@
+{
+  "manifest_versions": [
+    1
+  ],
+  "source_sha256": "bb331b7c897234521c7f2dd3dc7e169f71c7490a610fce17cd4b9878f0c10ad4",
+  "widgets": [
+    "billing.customer",
+    "identity.account-safety",
+    "identity.directory",
+    "identity.role-permissions",
+    "identity.user-roles",
+    "tenancy.directory",
+    "tenancy.workspace"
+  ]
+}

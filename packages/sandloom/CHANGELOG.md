@@ -8,6 +8,14 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a6] — 2026-11-01
+
+### Added
+
+- `sandloom generate` writes the admin console's manifest, `sandloom security
+  grant-admin` creates the first administrator, and `sandloom new --with admin` and the
+  `sandloom[admin]` extra add the console.
+
 ## [0.7.0a5] — 2026-10-31
 
 - **Breaking infrastructure API:** migrate string capability declarations and

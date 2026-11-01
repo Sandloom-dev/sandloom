@@ -1,3 +1,4 @@
+import { useConfig } from '@/app/config-context';
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink } from 'lucide-react';
 import { api } from '@/api/client';
@@ -12,7 +13,9 @@ const CUSTOMER = /^cus_[A-Za-z0-9]+$/;
 
 export function useProviderInfo() {
   const subject = useSubject();
+  const { modules } = useConfig();
   return useQuery({
+    enabled: modules.has('billing'),
     queryKey: ['billing', subject, 'provider'],
     queryFn: ({ signal }) => client.get('/api/v1/platform/billing/provider', { signal }),
     staleTime: 60_000,
