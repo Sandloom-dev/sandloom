@@ -275,9 +275,9 @@ CACHE_URL=redis://...                   # the cache
 BROKER_URL=redis://...                  # the background task queue
 ```
 
-Each setting selects a **driver**, the piece of code that connects Sandloom to a
-backend. Pointing a setting at another server, or selecting another driver, changes no
-module code. You have now used both main parts of Sandloom: modules hold your product,
+Each setting configures a default **driver**, the piece of code that connects Sandloom to
+a backend. Pointing a setting at another server, or selecting another driver in `INFRA`,
+changes no module code. You have now used both main parts of Sandloom: modules hold your product,
 and drivers connect it to the outside world. See
 [what is included](../concepts/capabilities-and-infrastructure.md#what-is-included) and
 [how to write a driver](../guides/write-a-driver.md).

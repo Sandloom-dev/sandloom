@@ -26,7 +26,7 @@ Most choices come down to these two.
 | **Timing** | published after commit, handled later | runs during the call |
 | **Delivery** | at least once, so a consumer may see a duplicate; `@on` claims each event once | one call; a command is deduplicated by its idempotency key |
 | **Transaction** | atomic with the producer's write, through the outbox | runs in the provider's own unit, not atomic with the caller's |
-| **If the other side is down** | the event waits and is delivered later | the call fails with a 503 |
+| **If the other side is down** | the default `streams` bus delivers the event later, within [stream retention](events.md#poison-events-and-the-dead-letter-queue); the volatile `redis` and `memory` buses reach only live subscribers | the call fails with a 503 |
 | **Direction** | the producer does not know who listens | the caller names the provider |
 
 Prefer an event when the other module only needs to know something happened. Use a contract

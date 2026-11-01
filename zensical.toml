@@ -199,6 +199,7 @@ Concepts = [
 ]
 Optional = [
     "contributing/index.md",
+    "contributing/setup.md",
     "contributing/website.md",
     "contributing/repository.md",
     "contributing/source-export.md",

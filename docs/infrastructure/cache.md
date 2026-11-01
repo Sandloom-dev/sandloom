@@ -19,7 +19,7 @@ await cache().set("reports:last", "...", ttl_seconds=60)
 
 `cache(name="default")` returns these operations:
 
-- `get`, `set`, `add`, `delete`, `incr`;
+- `get`, `set`, `add`, `delete`, `incr`, `get_many`, `set_many`;
 - `compare_and_set`, `compare_and_delete`, behind the feature `cas`;
 - `incr_window`, `incr_many`, `set_nx_get`, `set_max`: one round trip on Redis and a portable
   fallback elsewhere.

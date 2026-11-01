@@ -45,9 +45,10 @@ cp .env.example .env
 
 The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
 `JWT_SECRET`. The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
-`/metrics`, internal RPC) stay closed (`404`) until you set
+`/metrics`) stay closed (`404`) until you set
 `INTERNAL_API_TOKEN` — or, for local development only,
-`INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. See the [Configuration Reference](../reference/configuration.md)
+`INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. Neither opens internal RPC, which takes
+its own [pair-MAC credentials](../guides/service-rpc.md). See the [Configuration Reference](../reference/configuration.md)
 for every setting, its default, and meaning.
 
 ## Start the test services

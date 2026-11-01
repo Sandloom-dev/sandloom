@@ -19,8 +19,8 @@ Nothing has to be installed first. `uvx` runs the published CLI: <!-- sandloom-r
 uvx --from "sandloom[standard]==0.7.0a5" sandloom new myapp --with identity,tenancy,billing
 ```
 
-Then continue with the [quickstart](index.md). `uv sync` inside the project installs
-the framework and the modules you chose.
+Then follow the [quickstart](index.md) from its `cd myapp` step. `uv sync` inside the
+project installs the framework and the modules you chose.
 
 ## The packages
 
