@@ -59,7 +59,7 @@ every query by the bound tenant. Table names start with the module name.
 test's `client` fixture shares one) would tie, and a "newest first" list would
 come back in any order. `default=new_id` gives time-ordered UUIDv7 ids. The
 list orders by `created_at`, then `id`
-([Timestamps, ids and list order](../concepts/modules.md#timestamps-ids-and-list-order)):
+([Timestamps, ids and list order](../concepts/data-conventions.md)):
 
 ```python
 --8<-- "docs/snippets/generated/module/demo/modules/board/models/item.py"

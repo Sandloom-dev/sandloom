@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block fonts %}
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family={{ config.theme.font.text | replace(' ', '+') }}:400,500,600,700&amp;display=fallback">
+  <link rel="preload" href="/assets/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <style>:root{--md-text-font:"{{ config.theme.font.text }}";--md-code-font:"{{ config.theme.font.code }}"}</style>
 {% endblock %}
 {% block extrahead %}

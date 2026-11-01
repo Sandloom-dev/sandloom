@@ -55,8 +55,6 @@ way they do, see the [concepts](../concepts/index.md).
 | [Service RPC](service-rpc.md) | Call contracts across processes. |
 | [Loader configuration](loader-configuration.md) | Control which modules a process loads. |
 | [SSO setup](sso-setup.md) | Configure Google, Microsoft or GitHub sign-in. |
-| [Admin UI for operators](admin-operations.md) | Run the platform-owner console. |
-| [Admin UI for developers](admin.md) | Extend the platform-owner console. |
 | [Operations](../operations/index.md) | Operating a deployment: overview. |
 | [Operations runbook](../operations/runbook.md) | Health, backups, secrets, incidents. |
 

@@ -1,0 +1,9 @@
+{
+  "upstream": "https://www.npmjs.com/package/@fontsource-variable/manrope",
+  "version": "5.3.0",
+  "license": "OFL-1.1, see ../brand/Manrope-OFL.txt",
+  "files_sha256": {
+    "manrope-latin-wght-normal.woff2": "a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972",
+    "manrope-latin-ext-wght-normal.woff2": "3911b66d9f2e005a4b989223405d0e5032619c668597ba467cc76a23c8fffcfb"
+  }
+}

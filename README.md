@@ -73,7 +73,7 @@ needed. After `uv sync`, run `uv run sandloom generate` to create snapshots,
 contract stubs and DTOs from the installed modules before testing or starting
 the app. See the
 [installation guide](docs/getting-started/installation.md) and
-[application options](docs/getting-started/building-a-product.md).
+[project structure](docs/getting-started/project-structure.md).
 
 The generated Compose profile uses ports 5432/6379 for development and
 5433/6380 for tests. If they are occupied, follow the port overrides in the
@@ -215,7 +215,7 @@ against the configured capabilities and features.
 The current production stack is **PostgreSQL + Redis**, with SMTP and local or
 shared-volume files. Switching backend technology requires an implemented driver
 with the required features; PostgreSQL is currently the only supported relational
-backend. See the [capability model and driver support matrix](docs/concepts/capabilities-and-infrastructure.md).
+backend. See the [infrastructure overview](docs/concepts/capabilities-and-infrastructure.md).
 
 ## From one process to services
 

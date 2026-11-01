@@ -6898,7 +6898,7 @@ capabilities:
     rows created in one transaction, the page size, the cap (422) and another tenant's empty list.
   sources:
   - docs/guides/add-module.md
-  - docs/concepts/modules.md#Timestamps, ids and list order
+  - docs/concepts/data-conventions.md#Timestamps, ids and list order
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_module_lists_items_capped_and_tenant_scoped
   - tests/sdk/test_sdk_generators.py::test_add_module_lists_newest_first_deterministically_in_one_transaction
@@ -6950,7 +6950,7 @@ capabilities:
     inserts list in creation order by created_at then id. sandloom docs describes them and the list-order recipe; the
     bundled modules'' chains migrate every such column to the clock_timestamp() default.'
   sources:
-  - docs/concepts/modules.md#Timestamps, ids and list order
+  - docs/concepts/data-conventions.md#Timestamps, ids and list order
   tests:
   - tests/sdk/test_sdk_columns.py::test_new_id_is_a_uuid7_stamped_with_the_current_millisecond
   - tests/sdk/test_sdk_columns.py::test_ids_of_a_burst_strictly_increase

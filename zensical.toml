@@ -26,6 +26,7 @@ name = "zensical"
 language = "en"
 features = [
     "navigation.instant",
+    "navigation.instant.prefetch",
     "navigation.tracking",
     "navigation.top",
     "navigation.indexes",
@@ -84,9 +85,7 @@ Learn = [
     "getting-started/index.md",
     "getting-started/tutorial.md",
     "getting-started/installation.md",
-    "getting-started/building-a-product.md",
-    "getting-started/authentication.md",
-    "getting-started/is-sandloom-for-me.md",
+    "getting-started/project-structure.md",
     "getting-started/help.md",
 ]
 Build = [
@@ -115,6 +114,7 @@ Build = [
     "guides/service-rpc.md",
     "guides/sso-setup.md",
     "guides/loader-configuration.md",
+    "admin-console/index.md",
     "guides/admin-operations.md",
     "guides/admin.md",
     "operations/index.md",
@@ -160,6 +160,7 @@ Reference = [
     "reference/dependencies.md",
     "modules/index.md",
     "modules/identity.md",
+    "getting-started/authentication.md",
     "modules/tenancy.md",
     "modules/billing.md",
     "changelog.md",
@@ -168,6 +169,9 @@ Concepts = [
     "concepts/index.md",
     "concepts/glossary.md",
     "concepts/modules.md",
+    "concepts/between-modules.md",
+    "concepts/data-conventions.md",
+    "concepts/module-internals.md",
     "concepts/units.md",
     "concepts/route-policy.md",
     "concepts/events.md",
@@ -182,6 +186,14 @@ Concepts = [
     "concepts/sagas.md",
     "concepts/background-tasks.md",
     "concepts/capabilities-and-infrastructure.md",
+    "infrastructure/configure.md",
+    "infrastructure/database.md",
+    "infrastructure/cache.md",
+    "infrastructure/event-bus.md",
+    "infrastructure/task-queue.md",
+    "infrastructure/object-store.md",
+    "infrastructure/notifications.md",
+    "infrastructure/own-capability.md",
     "concepts/migrations.md",
     "concepts/deployment.md",
 ]
@@ -234,7 +246,7 @@ custom_fences = [
 alternate_style = true
 
 [project.markdown_extensions."pymdownx.highlight"]
-anchor_linenums = true
+anchor_linenums = false
 
 [project.markdown_extensions."pymdownx.inlinehilite"]
 
@@ -252,80 +264,123 @@ emoji_generator = "zensical.extensions.emoji.to_svg"
 homepage = "/"
 
 [[project.nav]]
-Overview = "index.md"
+Intro = [
+    { Overview = "index.md" },
+    { "Release Notes" = "changelog.md" },
+    { "Contribution Guide" = "contributing/index.md" },
+    { Help = "getting-started/help.md" },
+]
 
 [[project.nav]]
-Learn = [
-    "getting-started/index.md",
+"Getting Started" = [
+    { Quickstart = "getting-started/index.md" },
+    { "Your project structure" = "getting-started/project-structure.md" },
     { "Tutorial: your first feature" = "getting-started/tutorial.md" },
     { Installation = "getting-started/installation.md" },
-    { "Building a product" = "getting-started/building-a-product.md" },
-    { "Authentication and email" = "getting-started/authentication.md" },
-    { "Is Sandloom for me?" = "getting-started/is-sandloom-for-me.md" },
-    { "Getting help" = "getting-started/help.md" },
+    { Glossary = "concepts/glossary.md" },
+]
+
+[[project.nav]]
+Modules = [
+    { "What a module is" = "concepts/modules.md" },
+    { "Create a module" = "guides/add-module.md" },
+    { Data = [
+        { "Units of work and db()" = "concepts/units.md" },
+        { Multi-tenancy = "concepts/multi-tenancy.md" },
+        { "Timestamps, ids and list order" = "concepts/data-conventions.md" },
+        { "How migrations work" = "concepts/migrations.md" },
+        { "Write a migration" = "guides/write-migration.md" },
+        { "Run migrations" = "guides/migrations.md" },
+    ] },
+    { "HTTP and access" = [
+        { "Route policy and sessions" = "concepts/route-policy.md" },
+        { "Authorization and billing subjects" = "concepts/authorization.md" },
+        { "Make a write idempotent" = "guides/idempotent-write.md" },
+        { "Revoke sessions" = "guides/session-revocation.md" },
+        { Audit = "concepts/audit.md" },
+    ] },
+    { "Between modules" = [
+        { "Choose how modules talk" = "concepts/between-modules.md" },
+        { Events = [
+            { "How events work" = "concepts/events.md" },
+            { "Add an event" = "guides/add-event.md" },
+            { "Consume an event" = "guides/add-consumer.md" },
+            { "Change an event payload (v1 → v2)" = "guides/event-versioning.md" },
+        ] },
+        { Contracts = [
+            { "How contracts work" = "concepts/contracts.md" },
+            { "Provide and call a contract" = "guides/add-contract.md" },
+        ] },
+        { Projections = [
+            { "How projections work" = "concepts/projections.md" },
+            { "Build a projection" = "guides/add-projection.md" },
+        ] },
+        { Sagas = [
+            { "How sagas work" = "concepts/sagas.md" },
+            { "Add a saga" = "guides/add-saga.md" },
+        ] },
+    ] },
+    { "Background work" = [
+        { "Background tasks" = "concepts/background-tasks.md" },
+        { "Deduplicate effects" = "guides/effect-deduplication.md" },
+    ] },
+    { Tooling = [
+        { "Testing modules" = "guides/testing.md" },
+        { "Generate contracts and snapshots" = "guides/generate.md" },
+        { "Module context for agents" = "guides/module-context.md" },
+        { "Explore the architecture graph" = "guides/architecture-graph.md" },
+    ] },
+    { "Standard modules" = [
+        { Overview = "modules/index.md" },
+        { Identity = "modules/identity.md" },
+        { "Get your first access token" = "getting-started/authentication.md" },
+        { Tenancy = "modules/tenancy.md" },
+        { Billing = "modules/billing.md" },
+        { "Customize a standard module" = "guides/customize-standard-module.md" },
+        { "SSO setup" = "guides/sso-setup.md" },
+    ] },
+    { "Guarantees in depth" = [
+        { "Guarantees and labels" = "concepts/guarantees.md" },
+        { "Write admission" = "concepts/write-admission.md" },
+        { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
+        { "Module internals" = "concepts/module-internals.md" },
+    ] },
+]
+
+[[project.nav]]
+Infrastructure = [
+    { Overview = "concepts/capabilities-and-infrastructure.md" },
+    { "Configure backends" = "infrastructure/configure.md" },
+    { "Interfaces and drivers" = [
+        { Database = "infrastructure/database.md" },
+        { Cache = "infrastructure/cache.md" },
+        { "Event bus" = "infrastructure/event-bus.md" },
+        { "Task queue" = "infrastructure/task-queue.md" },
+        { "Object store" = "infrastructure/object-store.md" },
+        { Notifications = "infrastructure/notifications.md" },
+    ] },
+    { Extend = [
+        { "Write a driver" = "guides/write-a-driver.md" },
+        { "Add your own capability" = "infrastructure/own-capability.md" },
+        { "Driver kit reference" = "reference/driverkit.md" },
+    ] },
 ]
 
 [[project.nav]]
 Concepts = [
     "concepts/index.md",
-    { Glossary = "concepts/glossary.md" },
-    { "Modules, levels and discovery" = "concepts/modules.md" },
-    { "Units of work and db()" = "concepts/units.md" },
-    { "Route policy and sessions" = "concepts/route-policy.md" },
-    { Events = "concepts/events.md" },
-    { Contracts = "concepts/contracts.md" },
-    { "Write admission" = "concepts/write-admission.md" },
-    { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
-    { "Guarantees and labels" = "concepts/guarantees.md" },
-    { Multi-Tenancy = "concepts/multi-tenancy.md" },
-    { "Authorization and billing subjects" = "concepts/authorization.md" },
-    { Projections = "concepts/projections.md" },
-    { Audit = "concepts/audit.md" },
-    { Sagas = "concepts/sagas.md" },
-    { "Background tasks" = "concepts/background-tasks.md" },
-    { "Capabilities and infrastructure" = "concepts/capabilities-and-infrastructure.md" },
-    { "Migrations model" = "concepts/migrations.md" },
     { "Deployment topologies" = "concepts/deployment.md" },
 ]
 
 [[project.nav]]
 Build = [
     "guides/index.md",
-    { "Modules and data" = [
-    { "Add a module" = "guides/add-module.md" },
-    { "Write a migration" = "guides/write-migration.md" },
-    { "Run migrations" = "guides/migrations.md" },
-    { "Generate contracts and snapshots" = "guides/generate.md" },
-    { "Testing modules" = "guides/testing.md" },
-] },
-    { "Events and contracts" = [
-    { "Add an event" = "guides/add-event.md" },
-    { "Consume an event" = "guides/add-consumer.md" },
-    { "Change an event payload (v1 → v2)" = "guides/event-versioning.md" },
-    { "Provide and call a contract" = "guides/add-contract.md" },
-    { "Add a saga" = "guides/add-saga.md" },
-    { "Build a projection" = "guides/add-projection.md" },
-] },
-    { "HTTP" = [
-    { "Make a write idempotent" = "guides/idempotent-write.md" },
-    { "Deduplicate effects" = "guides/effect-deduplication.md" },
-    { "Revoke sessions" = "guides/session-revocation.md" },
-] },
-    { "Extend" = [
-    { "Customize a standard module" = "guides/customize-standard-module.md" },
-    { "Write a driver" = "guides/write-a-driver.md" },
-    { "SSO setup" = "guides/sso-setup.md" },
-    { "Admin UI — developer guide" = "guides/admin.md" },
-] },
-    { "Inspect" = [
-    { "Module context for agents" = "guides/module-context.md" },
-    { "Explore the architecture graph" = "guides/architecture-graph.md" },
-] },
-    { "Upgrading" = [
     { "Upgrade an application" = "guides/upgrading.md" },
     { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
-] },
 ]
+
+[[project.nav]]
+"Admin Console" = "admin-console/index.md"
 
 [[project.nav]]
 Operate = [
@@ -334,7 +389,6 @@ Operate = [
     { "Split an app into services" = "guides/split-into-services.md" },
     { "Service RPC" = "guides/service-rpc.md" },
     { "Loader configuration" = "guides/loader-configuration.md" },
-    { "Admin UI — operator guide" = "guides/admin-operations.md" },
     { Runbook = "operations/runbook.md" },
     { "Operator command reference" = "operations/operator-reference.md" },
 ]
@@ -365,7 +419,6 @@ Reference = [
     { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
     { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
 ] },
-    { "Driver kit (sandloom.driverkit)" = "reference/driverkit.md" },
     { "Error catalogue" = "reference/error-codes.md" },
     { "Testing (copy-paste)" = "reference/testing.md" },
     { CLI = "reference/cli.md" },
@@ -378,18 +431,11 @@ Reference = [
     { "Execution planner" = "reference/execution-planner.md" },
     { SLOs = "reference/slo.md" },
     { "Dependency stack" = "reference/dependencies.md" },
-    { "Standard modules" = [
-    "modules/index.md",
-    { Identity = "modules/identity.md" },
-    { Tenancy = "modules/tenancy.md" },
-    { Billing = "modules/billing.md" },
-] },
-    { Changelog = "changelog.md" },
 ]
 
 [[project.nav]]
 Project = [
-    "contributing/index.md",
+    { "Set up the repository" = "contributing/setup.md" },
     { "Repository map and agent tooling" = "contributing/repository.md" },
     { "Source snapshot policy" = "contributing/source-export.md" },
     { "Branches and owner review" = "contributing/branches.md" },

@@ -17,7 +17,7 @@ collapsed box. The [glossary](glossary.md) defines every term in one line. The d
 
 | Concept | What it covers |
 | --- | --- |
-| [Modules, levels and discovery](modules.md) | atomic, isolated modules; what a module may import; the 29 beginner names; L1 / L2 / L3; how `define_module` discovers declarations |
+| [What a module is](modules.md) | atomic, isolated modules; what a module contains and may import |
 | [Units of Work and `db()`](units.md) | one transaction per unit, `db()`, lazy request units, ownership and child tasks, `open_uow()`, the outbox, `on_commit` |
 | [Route policy and sessions](route-policy.md) | deny by default, `public(reason=)`, the live session check, the commit-time re-check, risk at its source, idempotency modes B / S / X |
 | [Events](events.md) | typed `Event` classes, producers and views, `@on` consumers, at-least-once delivery, compatibility |
@@ -46,6 +46,6 @@ collapsed box. The [glossary](glossary.md) defines every term in one line. The d
 | --- | --- |
 | [Sagas](sagas.md) | cross-module processes with compensation |
 | [Background tasks](background-tasks.md) | Celery tasks, `run_async`, enqueue dedupe, beat |
-| [Capabilities and infrastructure](capabilities-and-infrastructure.md) | databases, caches, queues, object stores, the bus, drivers |
+| [Infrastructure](capabilities-and-infrastructure.md) | databases, caches, queues, object stores, the bus, drivers |
 | [Migrations model](migrations.md) | the core chain and per-module chains |
 | [Deployment topologies](deployment.md) | monolith and microservices by configuration |

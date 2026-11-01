@@ -1,6 +1,6 @@
 <dialog class="sl-site-menu" id="sl-site-menu" aria-labelledby="sl-menu-title">
   <div class="sl-menu-heading">
-    <a class="sl-brand" href="/" aria-label="Sandloom home">{% include "partials/site-logo.html" %}</a>
+    <a class="sl-brand" href="/" aria-label="Sandloom home" data-sandloom-menu-logo></a>
     <span class="sl-menu-title" id="sl-menu-title">Menu</span>
     <button type="button" class="sl-icon-button" data-sandloom-menu-close aria-label="Close navigation"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
   </div>
@@ -11,6 +11,7 @@
       {% include "partials/site-links.html" %}
     </nav>
     <p class="sl-menu-label">Documentation</p>
-    {% if is_docs %}{% include "partials/site-tree.html" %}{% else %}{{ navigation_tree | safe }}{% endif %}
+    {# theme.js copies the logo and, on docs pages, the sidebar tree when the menu opens. #}
+    {% if is_docs %}<div data-sandloom-menu-tree></div>{% else %}{{ navigation_tree | safe }}{% endif %}
   </div>
 </dialog>

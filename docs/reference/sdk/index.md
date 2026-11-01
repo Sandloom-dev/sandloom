@@ -91,4 +91,4 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 
 ## Levels
 
-Level 1 (declarative: `define_module` discovery, `module_router`, `Event`, `on`, `contract`, `command`, `Contract`, typed saga steps, `Projection`) is built only from level 2 (the primitives these pages list as advanced). The kernel (level 3) is never imported by a module. See [Modules, levels and discovery](../../concepts/modules.md).
+Level 1 (declarative: `define_module` discovery, `module_router`, `Event`, `on`, `contract`, `command`, `Contract`, typed saga steps, `Projection`) is built only from level 2 (the primitives these pages list as advanced). The kernel (level 3) is never imported by a module. See [Module internals](../../concepts/module-internals.md).

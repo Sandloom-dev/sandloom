@@ -182,9 +182,9 @@ def finalize_metadata(origin: str, *, public: bool) -> None:
     else:
         (SITE / "sitemap.xml").unlink(missing_ok=True)
         (SITE / "robots.txt").write_text("# Local preview; build with --site-url for publication.\nUser-agent: *\nDisallow: /\n")
-    # The unified sitemap is authoritative; Zensical's relative /docs/ sitemap is obsolete.
-    for filename in ("sitemap.xml", "sitemap.xml.gz"):
-        (SITE / "docs" / filename).unlink(missing_ok=True)
+    # The unified sitemap is the one for crawlers. Zensical's /docs/sitemap.xml stays: instant
+    # navigation reads it, and without it every link click reloads the page and the search index.
+    (SITE / "docs" / "sitemap.xml.gz").unlink(missing_ok=True)
 
 
 class SiteScripts(HTMLParser):
@@ -358,6 +358,23 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
     return 0
 
 
+class SiteHandler(http.server.SimpleHTTPRequestHandler):
+    """Answer a missing path with the site's 404 page, as the static host does."""
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        page = SITE / "404.html"
+        if code != http.HTTPStatus.NOT_FOUND or not page.is_file():
+            super().send_error(code, message, explain)
+            return
+        body = page.read_bytes()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("build", "serve"))
@@ -371,7 +388,7 @@ def main() -> int:
     host, port = args.dev_addr.rsplit(":", 1)
     if host not in {"127.0.0.1", "localhost", "::1"}:
         parser.error("The local preview binds loopback only")
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(SITE))
+    handler = functools.partial(SiteHandler, directory=str(SITE))
     with http.server.ThreadingHTTPServer((host, int(port)), handler) as server:
         print(f"Sandloom local preview: http://{args.dev_addr}", flush=True)
         server.serve_forever()

@@ -1,4 +1,4 @@
-# Changelog — Sandloom (framework + bundled modules)
+# Release Notes
 
 > Entries before Sandloom's first public alpha describe internal development of the
 > predecessor project. They are implementation history, not evidence of a

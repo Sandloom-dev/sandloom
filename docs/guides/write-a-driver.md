@@ -11,13 +11,13 @@ type: how-to
 with no change to business modules or to the kernel.
 
 **Use it** for a `notification` backend that Sandloom does not ship, such as an email
-API, or for a [capability of your own](#a-capability-of-your-own).
+API, or for a [capability of your own](../infrastructure/own-capability.md).
 
 **Do not use it** for business logic: that is a [module](add-module.md). A contract is
 public only with a conformance kit, so the `cache`, `objectstore` and `taskqueue`
 contracts are not available yet. The `database` and `eventbus` backends carry the
 transaction and delivery guarantees and are not open to drivers
-([why](../concepts/capabilities-and-infrastructure.md#the-relational-paradigm)).
+([why](../infrastructure/database.md#the-relational-paradigm)).
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a5`. <!-- sandloom-release -->
@@ -139,51 +139,6 @@ On a running application, `/diagnostics/infra` lists the installed driver packag
 driver of each instance. It needs `INTERNAL_API_TOKEN`
 ([Operator commands](../operations/operator-reference.md)).
 
-## A capability of your own
-
-A backend with no matching capability needs a contract of its own. Split the package in
-two, so a module can import the contract without the driver:
-
-```python title="vector_index/contracts.py"
---8<-- "docs/snippets/drivers/vector_index_contracts.py"
-```
-
-```python title="vector_index/driver.py"
---8<-- "docs/snippets/drivers/vector_index_driver.py"
-```
-
-```toml title="pyproject.toml"
-[project.entry-points."sandloom.capabilities"]
-vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
-
-[project.entry-points."sandloom.drivers"]
-"vector_index.memory" = "vector_index.driver:MemoryVectorIndex"
-```
-
-- **Selecting it:** `INFRA={"vector_index":{"default":{"driver":"memory"}}}`.
-- **Requiring it from a module:**
-  `CapabilityRequirement("vector_index", features=frozenset({"exact"}))` in
-  `define_module`. Startup then fails, without I/O, if it is missing.
-- **Calling it from a module:** the reference carries the type, as long as your package
-  ships a `py.typed` file. Without one, type checkers see `Any`.
-
-    ```python
-    from sandloom.sdk.infra import capability  # sandloom: advanced infra
-    from vector_index.contracts import VECTOR_INDEX
-
-    nearest = await capability(VECTOR_INDEX).nearest([1.0], limit=5)
-    ```
-
-- **What a module may import:** `vector_index.contracts`. Importing `vector_index.driver`
-  or its parent `vector_index`, which reaches the driver by attribute, fails
-  [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), because an entry point names
-  that module.
-- **In production:** `stability="experimental"` requires the accepted risk
-  `experimental_capability` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
-  Use `"stable"` when you keep the contract stable yourself.
-- **Reserved names:** the kernel defines `search`, `document_store`, `graph_store`,
-  `workflow`, `lock` and `secrets`, so a package cannot declare them.
-
 ## Errors you may hit
 
 | Error | Cause and fix |
@@ -197,7 +152,8 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
 
 ## Related
 
-- [Capabilities and infrastructure](../concepts/capabilities-and-infrastructure.md): capabilities, drivers and instances.
+- [Infrastructure](../concepts/capabilities-and-infrastructure.md): interfaces, drivers and instances.
+- [Add your own capability](../infrastructure/own-capability.md): a new kind of infrastructure.
 - [`sandloom.driverkit`](../reference/driverkit.md): every name it exports.
 - [Customize a standard module](customize-standard-module.md): what a notification driver can do for identity's mail.
 - [ADR-0011](../adr/0011-driver-api.md): why it works this way.

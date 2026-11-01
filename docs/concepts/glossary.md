@@ -18,7 +18,7 @@ Each term has one meaning across this documentation.
 | **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. |
 | **SDK** | `sandloom.sdk`, the public Python API for modules. Apart from the driver kit below, everything else in the framework is private. [Reference](../reference/sdk/index.md). |
 | **Driver kit** | `sandloom.driverkit`, the separate API for driver packages. Modules may not import it. [Reference](../reference/driverkit.md). |
-| **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules, and every other public name. An advanced import states its reason in a comment. [Modules](modules.md#the-beginner-tier). |
+| **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules, and every other public name. An advanced import states its reason in a comment. [Modules](module-internals.md#the-beginner-tier). |
 
 ## How modules talk
 
@@ -39,7 +39,7 @@ Each term has one meaning across this documentation.
 
 | Term | Meaning |
 | --- | --- |
-| **Capability** | A kind of infrastructure, named by what it does: `database`, `cache`, `objectstore`, `taskqueue`, `eventbus`, `notification`. [Capabilities](capabilities-and-infrastructure.md). |
+| **Capability** | A kind of infrastructure, also called an interface in these docs, named by what it does: `database`, `cache`, `objectstore`, `taskqueue`, `eventbus`, `notification`. [Infrastructure](capabilities-and-infrastructure.md). |
 | **Provider contract** | The abstract class every driver of a capability implements, such as `NotifierProvider`. Modules see its operations as a Protocol, such as `Notifier`. It is unrelated to a module [contract](contracts.md). |
 | **Capability reference** | A typed key to a capability, `CapabilityRef[VectorIndex]("vector_index.v1")`, for one that a package adds. |
 | **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration, and published as its own package, found by name, never inside a module. [Write a driver](../guides/write-a-driver.md). |

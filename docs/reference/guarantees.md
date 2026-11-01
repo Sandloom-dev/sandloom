@@ -1572,11 +1572,11 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-GEN-08</span> | docs/guides/add-module.md |
 | <span class="sl-id">C-GEN-09</span> | docs/concepts/background-tasks.md |
 | <span class="sl-id">C-GEN-10</span> | docs/getting-started/index.md |
-| <span class="sl-id">C-GEN-11</span> | docs/guides/add-module.md<br>docs/concepts/modules.md#Timestamps, ids and list order |
+| <span class="sl-id">C-GEN-11</span> | docs/guides/add-module.md<br>docs/concepts/data-conventions.md#Timestamps, ids and list order |
 | <span class="sl-id">C-GEN-12</span> | docs/getting-started/index.md |
 | <span class="sl-id">C-SDK-04</span> | tests/fixtures/specs/public-api-1.0-spec.md#2.5 Zero kernel reads |
 | <span class="sl-id">C-SDK-05</span> | tests/fixtures/specs/public-api-1.0-spec.md#2.5 Zero kernel reads |
-| <span class="sl-id">C-SDK-06</span> | docs/concepts/modules.md#Timestamps, ids and list order |
+| <span class="sl-id">C-SDK-06</span> | docs/concepts/data-conventions.md#Timestamps, ids and list order |
 | <span class="sl-id">C-GEN-13</span> | docs/getting-started/index.md |
 | <span class="sl-id">C-GEN-14</span> | examples/README.md |
 | <span class="sl-id">C-GEN-15</span> | docs/reference/cli.md |

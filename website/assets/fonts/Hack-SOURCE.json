@@ -5,18 +5,17 @@
     "Regular": {
       "url": "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/v3.5.1/patched-fonts/Hack/HackNerdFontMono-Regular.ttf",
       "source_sha256": "e5aeb58577a8acf2b42083e4a07ce48bd53116fdd868636403cadb5b547351be",
-      "web_sha256": "c98b225f3785013b90bba3f85845135c8f05d7a4aa2b0e1c3eba6d71e4641844"
+      "web_sha256": "d2886e32546645f427ff9a1c02be83fe4cfe826fcbb89de432a798aa74ea411b"
     },
     "Bold": {
       "url": "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/v3.5.1/patched-fonts/Hack/HackNerdFontMono-Bold.ttf",
       "source_sha256": "7c2c76c26ff80fb546798b204ae519335573417c969eb3142d202298722d3832",
-      "web_sha256": "4594d89bc83bc63410ec4174a6914851d7ec0cc3282524b9c820ed9495bc3674"
+      "web_sha256": "8c65dace9e9d691b6f3b552580106011cec257fe4c86faad0216eeb94bc31863"
     }
   },
   "fonttools_version": "4.68.0",
   "unicode_ranges": [
-    "U+0000-052F",
-    "U+1E00-1EFF",
+    "U+0000-00FF",
     "U+2000-206F",
     "U+2190-22FF",
     "U+2500-259F",
