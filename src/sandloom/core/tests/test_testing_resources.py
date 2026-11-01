@@ -56,7 +56,9 @@ def test_the_age_threshold_never_drops_below_a_day() -> None:
     assert resources.verdict(hours_old, now=NOW, max_age_days=0)[0] is False
 
 
-def test_scan_redis_disconnects_its_client_before_a_prune(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scan_redis_disconnects_its_client_before_a_prune(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The scan must not make the next prune see its own idle connection."""
 
     class _Pool:
