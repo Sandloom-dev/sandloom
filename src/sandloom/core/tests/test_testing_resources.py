@@ -56,6 +56,35 @@ def test_the_age_threshold_never_drops_below_a_day() -> None:
     assert resources.verdict(hours_old, now=NOW, max_age_days=0)[0] is False
 
 
+def test_scan_redis_disconnects_its_client_before_a_prune(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scan must not make the next prune see its own idle connection."""
+
+    class _Pool:
+        disconnected = False
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    class _Client:
+        def __init__(self) -> None:
+            self.connection_pool = _Pool()
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    client = _Client()
+    monkeypatch.setattr(resources, "_connect_redis", lambda _url: client)
+    monkeypatch.setattr(resources, "_clients_per_db", lambda _client: {})
+    monkeypatch.setattr(resources, "_database_count", lambda _client: 1)
+    monkeypatch.setattr(resources, "_headers", lambda _client, _indexes: [(0, "", "")])
+
+    assert resources.scan_redis("redis://example.test:6379/0") == []
+    assert client.closed and client.connection_pool.disconnected
+
+
 def _redis_url() -> str:
     values = workers.worker_env_values(BACKEND / ".env.test")
     url = os.environ.get("CACHE_URL") or values.get("CACHE_URL") or ""

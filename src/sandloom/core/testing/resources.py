@@ -273,6 +273,10 @@ def scan_redis(url: str, *, include_empty: bool = False) -> list[Resource]:
         return out
     finally:
         client.close()
+        # ``close()`` can return this scan connection to redis-py's pool.
+        # A following prune then sees that idle scanner as a live client and
+        # conservatively refuses to clean the very resource it just scanned.
+        client.connection_pool.disconnect()
 
 
 def _redis_index(resource: Resource) -> int:
