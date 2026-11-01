@@ -2603,6 +2603,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'check'", specifier = ">=6.0.2,<7" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'fast'", specifier = ">=5.2.1,<6" },
+    { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'admin'" },
     { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a5,<0.8" },
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a6,<0.8" },
