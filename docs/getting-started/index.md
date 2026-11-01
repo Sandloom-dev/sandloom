@@ -10,7 +10,7 @@ footer_previous:
 # Quickstart
 
 !!! note "Current alpha"
-    The current alpha is `0.7.0a6`. All four packages are available on <!-- sandloom-release -->
+    The current alpha is `0.7.0a6`. All five packages are available on <!-- sandloom-release -->
     [PyPI](https://pypi.org/project/sandloom/0.7.0a6/). The source is maintained in
     [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 

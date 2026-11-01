@@ -129,5 +129,5 @@ editable development installs.
 Until 2026-10-28 the framework shipped as eight distributions
 (`sandloom-framework`, `sandloom-shared`, three module packages,
 `sandloom-infra-redis`, `sandloom-infra-celery` and the `sandloom-platform`
-composition root). They became the four distributions listed above; see
+composition root). They became the distributions listed above; see
 [ADR-0001](../docs/adr/0001-framework-distribution.md) for the original design.

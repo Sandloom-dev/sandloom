@@ -29,13 +29,13 @@ PACKAGES = (
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?"
 VALID_VERSION = re.compile(VERSION + r"\Z")
 PIN = re.compile(
-    r"(?P<prefix>(?P<package>sandloom(?:-(?:identity|tenancy|billing|<module>))?)"
+    r"(?P<prefix>(?P<package>sandloom(?:-(?:identity|tenancy|billing|admin|<module>))?)"
     r"(?:\[[^]\n]+\])?(?:==|>=))(?P<version>" + VERSION + r")"
     r"(?P<upper>,<[0-9]+\.[0-9]+(?:\.[0-9]+)?)?"
 )
 PYPI = re.compile(
     r"(?P<prefix>(?:https://pypi\.org/project/"
-    r"(?P<package>sandloom(?:-(?:identity|tenancy|billing))?)/"
+    r"(?P<package>sandloom(?:-(?:identity|tenancy|billing|admin))?)/"
     r"|https://img\.shields\.io/badge/PyPI-))(?P<version>" + VERSION + r")"
 )
 MARKER = "<!-- sandloom-release -->"
@@ -120,7 +120,7 @@ def synchronized(
         r"(sync_release\.py --version )" + VERSION, lambda m: m[1] + value, text
     )
     text = re.sub(
-        r"(sandloom(?:-(?:identity|tenancy|billing))?-v)" + VERSION,
+        r"(sandloom(?:-(?:identity|tenancy|billing|admin))?-v)" + VERSION,
         lambda m: m[1] + value,
         text,
     )

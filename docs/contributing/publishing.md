@@ -6,7 +6,7 @@ Sandloom publishes five distributions through
 `sandloom-admin`.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current published alpha is `0.7.0a6` for all four packages. <!-- sandloom-release -->
+The current published alpha is `0.7.0a6` for all five packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 

@@ -74,7 +74,7 @@ standard = [
 ]
 admin = [
     "sandloom[redis,celery]",
-    "sandloom-admin>=0.7.0a5,<0.8",
+    "sandloom-admin>=0.7.0a6,<0.8",
     "sandloom-identity>=0.7.0a6,<0.8",
 ]
 fast = [

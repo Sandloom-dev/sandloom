@@ -1062,7 +1062,7 @@
       ]
     },
     {
-      "reason": "Four distribution metadata/readmes/licenses (sandloom and the standard module packages) and their editable install links.",
+      "reason": "Five distribution metadata/readmes/licenses (sandloom, the standard module packages and the admin console) and their editable install links.",
       "paths": [
         "packages/.gitignore",
         "packages/README.md",
