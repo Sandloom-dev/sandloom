@@ -205,7 +205,7 @@ stretches fallback jobs.
   containers (`sandloom_postgres_test`, `sandloom_redis_test`, `sandloom_redis_bench`) are
   never used.
 - The fresh services also satisfy the test harness's guards
-  ([Testing → Isolation guards](../guides/testing.md#isolation-guards)): their
+  ([Testing → Isolation guards](../modules/tooling/testing.md#isolation-guards)): their
   databases / Redis indexes are unmarked, so the run claims them (no
   `SANDLOOM_TEST_*` needed), and a stock `max_connections` of 100 affords the
   4 pinned xdist workers (`4 × 13`) plus the 40 the split conformance matrix

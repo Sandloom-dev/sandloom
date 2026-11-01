@@ -48,7 +48,7 @@ The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
 `/metrics`) stay closed (`404`) until you set
 `INTERNAL_API_TOKEN` — or, for local development only,
 `INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. Neither opens internal RPC, which takes
-its own [pair-MAC credentials](../guides/service-rpc.md). See the [Configuration Reference](../reference/configuration.md)
+its own [pair-MAC credentials](../operate/service-rpc.md). See the [Configuration Reference](../reference/configuration.md)
 for every setting, its default, and meaning.
 
 ## Start the test services
@@ -79,7 +79,7 @@ all with the framework's migrator (not raw Alembic):
 uv run sandloom migrate upgrade-all --apply
 ```
 
-See the [Migrations & Upgrades](../guides/migrations.md) guide for the full
+See the [Migrations & Upgrades](../modules/database/run-migrations.md) guide for the full
 model.
 
 ## Run the API
@@ -111,4 +111,4 @@ uv run sandloom new myapp --framework-source path --framework-path .
 
 `--framework-path` is the repository root, the directory containing `packages/`. To build
 wheels, see [package layout](https://github.com/Sandloom-dev/sandloom/tree/main/packages)
-and [publishing](../guides/publishing.md).
+and [publishing](publishing.md).

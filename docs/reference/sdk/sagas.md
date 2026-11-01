@@ -343,5 +343,5 @@ such input opts out per step with `check_args=False`.
 
 ## Examples and related guides
 
-- [Add a saga](../../guides/add-saga.md)
+- [Add a saga](../../modules/between/add-saga.md)
 - [Python API overview](index.md)

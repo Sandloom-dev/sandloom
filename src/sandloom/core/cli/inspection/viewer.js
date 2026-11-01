@@ -242,7 +242,7 @@ function inspection(item, kind='entity') {
   if(item.test_argv) target.append(button('Copy suggested module test',()=>copy(item.test_argv.map(shell).join(' '))));
   if(item.source_location) target.append(button('Copy source location',()=>copy(item.source_location.path+':'+item.source_location.line)));
   const details=el('details'); details.append(el('summary','Declaration evidence'),el('pre',json(witnesses.length?{...item,witnesses}:item))); target.append(details);
-  const doc=documentationLink('Read the documentation',item.docs||'https://sandloom.dev/docs/concepts/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/')); target.append(doc);
+  const doc=documentationLink('Read the documentation',item.docs||'https://sandloom.dev/docs/modules/'+(item.kind==='event'?'events/':item.kind==='contract'?'contracts/':item.id?.startsWith('saga:')?'sagas/':item.id?.startsWith('route:')?'lifecycle/':'modules/')); target.append(doc);
   syncSelection();
   byId('inspect-selection').hidden=false;
   drawDiagram(); stateURL();

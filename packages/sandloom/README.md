@@ -58,8 +58,8 @@ uv run sandloom explore
 map of one module's contracts, events and owned files. Both default to text;
 request JSON explicitly with `--format json`. `explore` opens an offline browser
 view with declared processes, interface impact and architecture comparisons.
-See [module maps](https://sandloom.dev/docs/guides/module-context/) and the
-[architecture explorer](https://sandloom.dev/docs/guides/architecture-graph/).
+See [module maps](https://sandloom.dev/docs/modules/tooling/module-context/) and the
+[architecture explorer](https://sandloom.dev/docs/modules/tooling/architecture-graph/).
 
 ## Alpha status
 

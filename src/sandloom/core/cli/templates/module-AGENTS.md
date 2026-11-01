@@ -28,10 +28,10 @@ To talk to another module:
   `x = Contract(M_NAME_V1)` from the generated `sandloom.shared.contracts` stub.
   `Contract(REF, optional=True).client()` is `None` only when the provider is
   not deployed: use it only where you have a correct answer without it.
-- **Read across modules:** a projection (`sandloom add projection`; docs: `concepts/projections.md`).
+- **Read across modules:** a projection (`sandloom add projection`; docs: `modules/between/projections.md`).
 - **A user's email or name:** `Contract(IDENTITY_CONTACT_V1).get_contact(user_id)`
   at send time (events carry no PII); never copy it into your tables.
-- **A process with undo:** a saga in `sagas.py` (`sandloom add saga <m> <name>`; docs: `concepts/sagas.md`).
+- **A process with undo:** a saga in `sagas.py` (`sandloom add saga <m> <name>`; docs: `modules/between/sagas.md`).
 - Reference other modules' rows by plain UUID: no cross-module foreign keys.
 
 ## Layout (discovered: nothing to register)
@@ -115,6 +115,6 @@ To talk to another module:
 - `uv run sandloom generate` after a declaration change (`sandloom test` never writes);
   `sandloom test <module>` while iterating, `--full` once at the end; no serial `pytest -q`.
 
-Docs: `concepts/modules.md`, `concepts/units.md`, `concepts/route-policy.md`,
-`concepts/events.md`, `concepts/contracts.md`, `concepts/authorization.md`;
+Docs: `modules/index.md`, `modules/database/units.md`, `modules/http/route-policy.md`,
+`modules/between/events.md`, `modules/between/contracts.md`, `modules/http/authorization.md`;
 every name `reference/sdk/index.md`; every code `reference/error-codes.md`.

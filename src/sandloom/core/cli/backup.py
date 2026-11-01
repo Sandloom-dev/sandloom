@@ -15,7 +15,7 @@
 
 The commands build the composition root (``SANDLOOM_COMPOSITION_ROOT``) to resolve
 the configured databases and modules but do NOT start its lifespan. See
-docs/operations/operator-reference.md → "Backups and restore" and
+docs/operate/operator-reference.md → "Backups and restore" and
 "Security incident runbook".
 """
 

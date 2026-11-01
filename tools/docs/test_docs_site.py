@@ -179,6 +179,16 @@ class DocumentationSiteTests(unittest.TestCase):
             self.assertNotIn("fonts.googleapis.com", html, page)
             self.assertNotIn("fonts.gstatic.com", html, page)
 
+    def test_pages_load_no_diagram_library(self) -> None:
+        self.assertEqual(
+            [
+                path
+                for path in SITE.rglob("*.html")
+                if 'class="mermaid"' in path.read_text()
+            ],
+            [],
+        )
+
     def test_brand_kit_matches_the_rendered_site(self) -> None:
         import struct
         import zipfile

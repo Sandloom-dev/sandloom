@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0008: Sagas — a small orchestrator over the existing effect primitives
 
 - **Status:** Accepted (2026-10-25; phase 0 and phase 1 built)
@@ -253,7 +258,7 @@ with an expiry on the row, a reclaim rule for expired leases, and it reopens
 exactly the races the lock closes (timer vs reply vs operator). The hold is
 bounded (≈ 1–2 s worst case, one connection per in-flight step, steps run off
 the request path), so the MVP keeps the single transaction and measures it:
-the benchmarks suite gets a saga rung, and `docs/operations/operator-reference.md` gets sizing
+the benchmarks suite gets a saga rung, and `docs/operate/operator-reference.md` gets sizing
 guidance (consumer concurrency × one connection). The two-transaction variant
 is reconsidered only if that measurement shows pool pressure.
 
@@ -614,7 +619,7 @@ hosting a saga module (§5), the advance consumer runs on the dev bus, and no
 "inline mode" exists that would skip the real path. `make_headers` +
 `client` + `saga_harness` are enough for any test.
 
-**Docs and agent rules.** `docs/concepts/sagas.md` opens with a decision
+**Docs and agent rules.** `docs/modules/between/sagas.md` opens with a decision
 tree (one module → plain UoW; fan-out without undo → choreography; several
 modules with undo → saga), then the countermeasure catalogue and recipes.
 `AGENTS.md` gets a short block of the rules an author (human or AI) must
@@ -641,7 +646,7 @@ guards user-visible intermediate states; a definition change is a new
   its command-log claim and update. The step also pays one Streams hop.
 - The runtime holds a pooled connection and an instance row lock for one step
   call, about 1–2 s worst case (§6 explains why that is kept). Sizing guidance
-  goes into `docs/operations/operator-reference.md`; a saga rung joins the benchmarks suite.
+  goes into `docs/operate/operator-reference.md`; a saga rung joins the benchmarks suite.
 - Module authors must write compensations that are idempotent and accept
   "nothing to undo". They must also make retriable steps unable to refuse.
   The structure checks and the test seam make the gap visible, not
@@ -654,7 +659,7 @@ guards user-visible intermediate states; a definition change is a new
 
 | Phase | Scope | Size |
 | --- | --- | --- |
-| **0: guidance** | `docs/concepts/sagas.md`: when choreography (A) suffices; the key-derivation rule; the countermeasure catalogue; "compensation is a command contract too". `sandloom.core.di.operation_key(*parts)` helper | S |
+| **0: guidance** | `docs/modules/between/sagas.md`: when choreography (A) suffices; the key-derivation rule; the countermeasure catalogue; "compensation is a command contract too". `sandloom.core.di.operation_key(*parts)` helper | S |
 | **1: MVP** | linear definitions with `step` and `local_step` (typed, §14); registration checks incl. argument names; core-chain tables with RLS (§2); `start_saga` / `saga_status`; nudge consumer without inbox; lease-guarded timer sweep; outcome classification and recovery rules §7 incl. resolve-before-compensate; parking; window check; the post-TTL retry rule; `sandloom sagas list/show/retry/park/resolve`; timeline output; metrics and trace linking; `saga_harness`; `sandloom add saga`; concept page and `AGENTS.md` block; a saga benchmark rung; the worked example **in an example app**, not in the bundled modules (below); split-conformance case | M |
 | **2: process manager** | `await_event` steps (correlation key column, `UNIQUE (saga_type, correlation_key)`); `sandloom sagas compensate`; per-version snapshot; owner-console timeline page | M |
 | **3: migrations** | org deletion → subscription cancel; evaluate moving billing's intent **reconciler** (not the request path) onto a saga with local PSP steps | M |
@@ -819,5 +824,5 @@ real flow needs them.
 
 ## Related reading
 
-- [Add a saga](../guides/add-saga.md)
-- [Saga concepts](../concepts/sagas.md)
+- [Add a saga](../modules/between/add-saga.md)
+- [Saga concepts](../modules/between/sagas.md)

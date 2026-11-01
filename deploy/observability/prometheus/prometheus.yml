@@ -1,7 +1,7 @@
 # Prometheus for the Sandloom observability overlay (deploy/docker-compose.observability.yml).
 #
 # /metrics is token-gated: the scrape sends METRICS_TOKEN (scrape-only, see
-# docs/operations/operator-reference.md → Observability) as X-Internal-Token, read from the
+# docs/operate/operator-reference.md → Observability) as X-Internal-Token, read from the
 # compose secret file. Under Gunicorn ONE scrape returns the aggregate of all
 # live workers (PROMETHEUS_MULTIPROC_DIR) — scrape the service, not workers.
 global:

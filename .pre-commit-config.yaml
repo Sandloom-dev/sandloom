@@ -88,7 +88,7 @@ repos:
     # commit. ``always_run`` also protects pushes containing non-Python backend
     # changes that still affect packaging, docs or the production image.
     # Refuses the shared default test database: SANDLOOM_TEST_DATABASE_URL must
-    # name this checkout's own (see the script / docs/guides/testing.md).
+    # name this checkout's own (see the script / docs/modules/tooling/testing.md).
     -   id: backend-full-tests
         name: backend-full-tests
         entry: tools/ci/unless_ci_passed.sh tools/checks/prepush_full_tests.sh

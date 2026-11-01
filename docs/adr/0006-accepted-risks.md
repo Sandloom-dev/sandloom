@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0006: One accepted-risks list instead of prod opt-out flags
 
 - **Status:** Accepted
@@ -85,7 +90,6 @@ missing schema now fails in every profile); `BILLING_GRANT_INTENTLESS_SUBSCRIPTI
 - Dev workflows that relied on soft schema validation or unsigned fake-PSP
   webhooks now fail loudly; tests sign webhooks with
   `sandloom_billing.psp.sign_stripe_payload`.
-- Upgrade steps: `docs/guides/upgrading-0.8.md`.
 
 ## Amendment (2026-10-25)
 

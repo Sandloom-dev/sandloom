@@ -65,7 +65,7 @@ def test_installed_driver_is_inside_the_verified_range(dist: str) -> None:
     installed = Version(metadata.version(dist))
     assert Version(low) <= installed < Version(high), (
         f"{dist} {installed} is outside the range the DB fast paths were "
-        f"verified for [{low}, {high}); follow docs/operations/operator-reference.md "
+        f"verified for [{low}, {high}); follow docs/operate/operator-reference.md "
         "'Upgrading asyncpg / SQLAlchemy' and then widen VERIFIED_DRIVER_RANGES "
         "and pyproject.toml together"
     )

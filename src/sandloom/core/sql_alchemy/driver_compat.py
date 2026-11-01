@@ -46,7 +46,7 @@ A failing probe never fails a request: it logs ONE warning, increments
 falls back to the plain path (a separate ``BEGIN`` + ``set_config``; a normal
 BEGIN for lazy reads; a transactional mark-delivered).
 
-Verified driver versions (``docs/operations/operator-reference.md`` →
+Verified driver versions (``docs/operate/operator-reference.md`` →
 "Upgrading asyncpg / SQLAlchemy"): :data:`VERIFIED_DRIVER_RANGES`,
 pinned in ``pyproject.toml``.
 """
@@ -66,7 +66,7 @@ logger = logging.getLogger("sandloom.db.driver_compat")
 
 #: Driver versions the fast paths were verified against: ``[low, high)``.
 #: Keep in sync with ``pyproject.toml`` (a test pins both together); raise the
-#: upper bound only after the procedure in ``docs/operations/operator-reference.md``.
+#: upper bound only after the procedure in ``docs/operate/operator-reference.md``.
 VERIFIED_DRIVER_RANGES: dict[str, tuple[str, str]] = {
     "asyncpg": ("0.32.0", "0.33"),
     "sqlalchemy": ("2.1.4", "2.2"),
@@ -414,7 +414,7 @@ def probe(name: str) -> DriverProbe:
         logger.warning(
             "DB driver internals changed (asyncpg %s, SQLAlchemy %s): %s; %s. "
             "Requests keep working on the plain path; "
-            "see docs/operations/operator-reference.md "
+            "see docs/operate/operator-reference.md "
             "'Upgrading asyncpg / SQLAlchemy'.",
             _installed("asyncpg"),
             _installed("sqlalchemy"),

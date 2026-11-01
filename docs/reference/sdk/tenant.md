@@ -102,5 +102,5 @@ Disable tenant enforcement for deliberate admin/system work.
 
 ## Examples and related guides
 
-- [Tenant isolation](../../concepts/multi-tenancy.md)
+- [Tenant isolation](../../modules/database/multi-tenancy.md)
 - [Python API overview](index.md)

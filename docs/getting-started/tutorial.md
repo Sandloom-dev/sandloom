@@ -80,8 +80,8 @@ flushes and never commits:
 - Before the write commits, the caller's session is checked again.
 
 Nothing of this is declared in the code. See
-[Route policy and sessions](../concepts/route-policy.md) and
-[Units of Work](../concepts/units.md).
+[Route policy and sessions](../modules/http/route-policy.md) and
+[Units of Work](../modules/database/units.md).
 
 Run the module's tests and the gates:
 
@@ -119,7 +119,7 @@ tenant lookups, so the table gets no separate `tenant_id` index:
 ```
 
 Once a revision has been applied anywhere, never edit it: add a new one with
-`uv run sandloom migrate new stats "<message>"` ([Write a migration](../guides/write-migration.md)).
+`uv run sandloom migrate new stats "<message>"` ([Write a migration](../modules/database/write-migration.md)).
 
 The use cases. The select needs no tenant filter: the bound tenant filters
 `TenantScoped` rows automatically.
@@ -167,11 +167,11 @@ handler. Make the handler count the item:
 - the consumer is durable: a redelivered event (same envelope id) is applied
   once;
 - stats never imports tasks: the view is checked against the producer's
-  schema instead ([Events](../concepts/events.md)).
+  schema instead ([Events](../modules/between/events.md)).
 
 The durable inbox deduplicates the same envelope during its configured
 retention window; separate event ids are separate occurrences
-([guarantees](../concepts/guarantees.md)). Test this through the real consumer
+([guarantees](../modules/guarantees/index.md)). Test this through the real consumer
 runtime. `deliver(..., times=2)` delivers the same event twice:
 
 ```python title="tasklist/modules/stats/tests/test_stats.py"
@@ -202,7 +202,7 @@ We declare the final shape before its first generation. `sandloom add contract`
 is useful for a generic scaffold, but it immediately snapshots its example
 methods; removing those methods afterwards is a breaking change, even before
 publication. Once callers use a contract, preserve its methods or introduce a
-new version ([contract evolution](../concepts/contracts.md)). Keep the generated
+new version ([contract evolution](../modules/between/contracts.md)). Keep the generated
 files; `sandloom test` checks them without writing them.
 
 The generated stub is:
@@ -231,7 +231,7 @@ item, and the generated read/list routes remain available:
   without the provider fails at startup instead of creating items unchecked;
 - in a monolith the call runs in-process; when stats runs as its own service
   the same line calls it over internal RPC
-  ([Contracts](../concepts/contracts.md)).
+  ([Contracts](../modules/between/contracts.md)).
 
 Replace `tasklist/modules/tasks/tests/test_tasks.py` with this complete file.
 It includes the test double and imports needed to test both quota answers:
@@ -242,7 +242,7 @@ It includes the test double and imports needed to test both quota answers:
 
 The counter follows the outbox asynchronously. This read-only quota is a
 contract example, not an atomic hard limit under concurrent requests; a strict
-quota needs a reservation/command design ([contracts](../concepts/contracts.md)).
+quota needs a reservation/command design ([contracts](../modules/between/contracts.md)).
 
 ## 7. Run every gate
 
@@ -279,8 +279,8 @@ Each setting configures a default **driver**, the piece of code that connects Sa
 a backend. Pointing a setting at another server, or selecting another driver in `INFRA`,
 changes no module code. You have now used both main parts of Sandloom: modules hold your product,
 and drivers connect it to the outside world. See
-[what is included](../concepts/capabilities-and-infrastructure.md#what-is-included) and
-[how to write a driver](../guides/write-a-driver.md).
+[what is included](../infrastructure/index.md#what-is-included) and
+[how to write a driver](../infrastructure/write-a-driver.md).
 
 ## If you are stuck
 
@@ -291,7 +291,8 @@ and drivers connect it to the outside world. See
 
 ## Next steps
 
-- [Concepts](../concepts/index.md): what the framework did in each step, and
-  its exact guarantees.
-- [How-to guides](../guides/index.md): one task each, such as a saga, a
-  projection or a migration.
+- [What a module is](../modules/index.md): what the framework did in each step,
+  and its exact guarantees.
+- [Choose how modules talk](../modules/between/index.md): events, contracts,
+  projections and sagas, and when to use each.
+- [Deploy an application](../operate/deploy.md): put it into production.

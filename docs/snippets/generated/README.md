@@ -1,7 +1,7 @@
 # Generated code included by the how-to guides
 
-These files are real output of the `sandloom add` generators. The how-to guides in
-`docs/guides/add-*.md` include them with pymdownx.snippets
+These files are real output of the `sandloom add` generators. The how-to guides
+include them with pymdownx.snippets
 (`--8<-- "docs/snippets/generated/<generator>/..."`). Do not edit them by
 hand: regenerate them instead. The directory is excluded from the site.
 

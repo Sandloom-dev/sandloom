@@ -113,7 +113,7 @@ CATALOGUE: tuple[ErrorCode, ...] = (
         "Exit 3 means strict source verification is unavailable. "
         "Generation explicitly writes files; review its diff. "
         "A verified source basis is not live topology.",
-        docs="docs/guides/module-context.md",
+        docs="docs/modules/tooling/module-context.md",
     ),
     # ------------------------------------------------------------------ checks
     _entry(
@@ -812,7 +812,7 @@ providers has no defined winner. Startup refuses a name INFRA selects when two
 packages publish it, or when a package publishes the name of a built-in driver.
 A built-in cannot be replaced silently: another behaviour is another name.
 """,
-        docs="docs/guides/write-a-driver.md",
+        docs="docs/infrastructure/write-a-driver.md",
     ),
     _landed(
         "SANDLOOM-B022",
@@ -827,7 +827,7 @@ which declares no `contract_version`, or which was written for another major ver
 A driver that cannot load cannot serve, so startup stops with the cause. An
 unselected package is never imported.
 """,
-        docs="docs/guides/write-a-driver.md",
+        docs="docs/infrastructure/write-a-driver.md",
     ),
     _landed(
         "SANDLOOM-B023",
@@ -862,7 +862,7 @@ distributions register, or that an installed package and an app-local module
 names both providers. An unrequested duplicate is reported only when an
 application asks for it.
 """,
-        "docs/concepts/modules.md",
+        "docs/modules/index.md",
     ),
     # --------------------------------------------------------------- runtime
     _entry(
@@ -1252,7 +1252,7 @@ passes, and refuses two services claiming the same route prefix, `/` or the
 root-level parameter paths (deploy those modules together, or give them
 distinct prefixes).
 """,
-        "docs/guides/split-into-services.md",
+        "docs/operate/split-into-services.md",
     ),
 )
 

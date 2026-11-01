@@ -36,7 +36,7 @@ an operator ``requeue`` of an old dead row), or a late duplicate would apply
 its effect twice; a ``D`` inside ``EVENT_STREAM_RETENTION_SECONDS`` + 1 day is
 refused unless ``--force`` (:mod:`sandloom.core.guarantee_windows`). The audit log
 is never purged by the framework (retention is a compliance policy; see
-docs/operations/operator-reference.md).
+docs/operate/operator-reference.md).
 
 ``groups`` / ``consumers`` are the observability side: per-group lag / pending,
 and the cross-service subscription inventory every consumer heartbeats into

@@ -564,7 +564,7 @@ def render(ledger: Ledger | None = None) -> str:
         lines.append(f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |")
     lines += [
         "", "## Related reading", "",
-        "- [Guarantee boundaries](../concepts/guarantees.md)",
+        "- [Guarantee boundaries](../modules/guarantees/index.md)",
         "- [Error catalogue](error-codes.md)",
         "",
     ]

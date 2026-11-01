@@ -290,7 +290,7 @@ def prepare(cls: type[Event]) -> SchemaValidator:
         except _event_wire.ShapeError as exc:
             raise EventDefinitionError(
                 f"{exc.where}: {exc.problem} (an event payload is plain data: "
-                "concepts/events.md, What an event field may be)",
+                "modules/between/events.md, What an event field may be)",
                 fix=exc.fix,
             ) from None
         _event_wire.self_check()

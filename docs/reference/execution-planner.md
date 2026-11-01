@@ -140,4 +140,4 @@ revision before making throughput claims.
 ## Related reading
 
 - [Data SDK](sdk/data.md)
-- [Transaction units](../concepts/units.md)
+- [Transaction units](../modules/database/units.md)

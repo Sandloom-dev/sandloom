@@ -44,8 +44,8 @@ test('documentation navigation accepts web URLs and rejects executable schemes',
       assert.equal(link.getAttribute('href'),null);
       assert.equal(link.getAttribute('aria-disabled'),'true');
     }
-    context.value='/docs/concepts/events/';
-    assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),'https://sandloom.dev/docs/concepts/events/');
+    context.value='/docs/modules/between/events/';
+    assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),'https://sandloom.dev/docs/modules/between/events/');
     context.value='https://example.test/module-docs/';
     assert.equal(vm.runInContext('documentationLink("Docs",value).href',context),context.value);
   } finally {dom.window.close();}

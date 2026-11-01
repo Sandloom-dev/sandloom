@@ -245,7 +245,7 @@ missing database fails instead of skipping). `S5_TEST_ROLE` overrides the
 cluster-wide app role when several runs share one PostgreSQL server; under
 xdist each worker suffixes it (`<role>_gw<N>`) and gets its own database and
 Redis indexes, as in the backend suite ([Testing → Isolation
-guards](../docs/guides/testing.md#isolation-guards); on a Redis with few
+guards](../docs/modules/tooling/testing.md#isolation-guards); on a Redis with few
 databases set `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`).
 
 Benchmarking a variant (from `benchmarks/`, `DATABASE_URL` = the OWNER DSN):

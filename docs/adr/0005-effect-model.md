@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0005: One effect model — guarantees, the dedupe record and the commit pipeline
 
 - **Status:** Accepted (amended 2026-10-24: durable HTTP guard, ambiguous
@@ -350,5 +355,5 @@ deterministic and structural, never a pattern lint:
 
 ## Related reading
 
-- [Deduplicate effects](../guides/effect-deduplication.md)
-- [Transaction units](../concepts/units.md)
+- [Deduplicate effects](../modules/background/effect-deduplication.md)
+- [Transaction units](../modules/database/units.md)

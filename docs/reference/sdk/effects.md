@@ -210,5 +210,5 @@ items 7-8). Stack it UNDER `@classmethod` / `@staticmethod`.
 
 ## Examples and related guides
 
-- [Deduplicate effects](../../guides/effect-deduplication.md)
+- [Deduplicate effects](../../modules/background/effect-deduplication.md)
 - [Python API overview](index.md)

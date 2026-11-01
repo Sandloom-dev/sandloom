@@ -86,4 +86,4 @@ resulting `main` revision. Source and deployment review remain visible.
 ## Related reading
 
 - [Contributor workflow](index.md)
-- [Package publishing](../guides/publishing.md)
+- [Package publishing](publishing.md)

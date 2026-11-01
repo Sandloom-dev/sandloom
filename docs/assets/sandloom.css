@@ -39,32 +39,6 @@
 }
 /* Mermaid diagrams use the site palette instead of the theme's default accent. */
 :root, [data-md-color-scheme="default"], [data-md-color-scheme="slate"] {
-  --md-mermaid-font-family: var(--md-text-font-family, inherit);
-  --md-mermaid-edge-color: var(--sl-muted);
-  --md-mermaid-node-bg-color: var(--sl-surface);
-  --md-mermaid-node-fg-color: var(--sl-ink);
-  --md-mermaid-label-bg-color: var(--sl-bg);
-  --md-mermaid-label-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-actor-bg-color: var(--sl-surface);
-  --md-mermaid-sequence-actor-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-actor-border-color: var(--sl-line);
-  --md-mermaid-sequence-actor-line-color: var(--sl-muted);
-  --md-mermaid-sequence-actorman-bg-color: var(--sl-surface);
-  --md-mermaid-sequence-actorman-line-color: var(--sl-muted);
-  --md-mermaid-sequence-box-bg-color: var(--sl-surface);
-  --md-mermaid-sequence-box-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-label-bg-color: var(--sl-surface);
-  --md-mermaid-sequence-label-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-loop-bg-color: var(--sl-surface);
-  --md-mermaid-sequence-loop-border-color: var(--sl-line);
-  --md-mermaid-sequence-loop-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-message-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-message-line-color: var(--sl-muted);
-  --md-mermaid-sequence-note-bg-color: var(--sl-code-bg);
-  --md-mermaid-sequence-note-border-color: var(--sl-line);
-  --md-mermaid-sequence-note-fg-color: var(--sl-ink);
-  --md-mermaid-sequence-number-bg-color: var(--sl-accent);
-  --md-mermaid-sequence-number-fg-color: var(--sl-bg);
 }
 /* Identifiers in reference tables (G-TENANT-01, SANDLOOM-B008) never break at their hyphens. */
 .md-typeset .sl-id { white-space: nowrap; }

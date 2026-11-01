@@ -214,7 +214,7 @@ def boot_diagnostics(root: str | None = None) -> list[str]:
             return [
                 f"error: {message}\n  fix: configure the deployment (.env), or "
                 "for the framework tree export the test env (.env.test / "
-                "SANDLOOM_TEST_*; docs/guides/testing.md)"
+                "SANDLOOM_TEST_*; docs/modules/tooling/testing.md)"
             ]
         return [
             error_codes.render(

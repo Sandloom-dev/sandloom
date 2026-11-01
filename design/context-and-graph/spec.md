@@ -6,8 +6,8 @@ the initial source-bundle proposal: context is a navigation map, and the agent
 reads implementation files itself. Historical research/acceptance records describe
 the earlier prototype; this file and the public guides describe current behavior.
 
-[Module map guide](../../docs/guides/module-context.md) ·
-[Graph guide](../../docs/guides/architecture-graph.md) ·
+[Module map guide](../../docs/modules/tooling/module-context.md) ·
+[Graph guide](../../docs/modules/tooling/architecture-graph.md) ·
 [CLI reference](../../docs/reference/cli.md) ·
 [Research](research.md) · [Acceptance records](evolution.md).
 

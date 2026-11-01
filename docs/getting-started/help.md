@@ -42,4 +42,4 @@ and follow the repository's
 ## Keep learning
 
 Start with the [quickstart](index.md) and the [tutorial](tutorial.md). For an existing
-application, use the [upgrade checklist](../guides/upgrading.md).
+application, use the [upgrade checklist](../operate/upgrade.md).

@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0001: Framework distribution & packaging
 
 - **Status:** Accepted
@@ -8,7 +13,7 @@
 !!! note "Historical design"
     This ADR records the original distribution design. The current four-package
     layout is documented in [Packages](https://github.com/Sandloom-dev/sandloom/blob/main/packages/README.md), and the release
-    procedure in [Publishing](../guides/publishing.md). Package names and layout
+    procedure in [Publishing](../contributing/publishing.md). Package names and layout
     examples below describe the design at the time of this decision.
 
 ## Context
@@ -222,7 +227,7 @@ distributable wheel via hatchling `force-include`):
   scheme `sandloom-<pkg>-vX.Y.Z`, and a Trusted-Publishing (OIDC, no-secrets) release
   workflow that fails closed until PyPI pending publishers exist. Operator steps
   for **claiming the PyPI names** and configuring pending publishers are in
-  `docs/guides/publishing.md` — these are the only steps that must be done by a
+  `docs/contributing/publishing.md` — these are the only steps that must be done by a
   human on pypi.org.
 - Intentionally deferred: the
   `sandloom-infra-smtp` meta-package (SMTP driver is stdlib-only), the `sandloom-infra-s3`

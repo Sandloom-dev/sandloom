@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0007: Kernel layers and an acyclic kernel, enforced by import contracts
 
 - **Status:** Accepted
@@ -242,4 +247,4 @@ layering change before the auth/config merge:
 ## Related reading
 
 - [Contributor map](../contributing/repository.md)
-- [Module boundaries](../concepts/modules.md)
+- [Module boundaries](../modules/index.md)

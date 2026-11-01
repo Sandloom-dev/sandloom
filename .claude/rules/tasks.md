@@ -33,4 +33,4 @@ paths:
   Per-tenant work binds its tenant with `bind_tenant(id)` (`sandloom.sdk.tenant`).
 - **Enqueue retries safely:**
   `taskqueue().enqueue(..., idempotency_key=...)` (`sandloom.sdk.infra`).
-- Concept: `docs/concepts/units.md` (task units).
+- Concept: `docs/modules/database/units.md` (task units).

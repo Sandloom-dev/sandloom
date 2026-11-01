@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0010: Public API 1.0 — one `sandloom.sdk` namespace, three API levels, derived declarations
 
 - **Status:** Proposed (2026-10-25, revision 6 after a fifth independent

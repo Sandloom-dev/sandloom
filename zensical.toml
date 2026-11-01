@@ -74,53 +74,90 @@ code = "Hack Nerd Font Mono"
 [project.plugins.section-index]
 
 [project.plugins.llmstxt]
-markdown_description = "Sandloom is a Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure. Public API: `sandloom.sdk`. Start with Learn; contributor guidance is optional context."
+markdown_description = "Sandloom is a Python backend framework for AI-driven development with enforced module boundaries and pluggable infrastructure. Public API: `sandloom.sdk`. Start with Getting Started; contributor guidance is optional context."
 full_output = "llms-full.txt"
 
 [project.plugins.llmstxt.sections]
 Home = [
     "index.md",
-]
-Learn = [
-    "getting-started/index.md",
-    "getting-started/tutorial.md",
-    "getting-started/installation.md",
-    "getting-started/project-structure.md",
+    "changelog.md",
     "getting-started/help.md",
 ]
-Build = [
-    "guides/index.md",
-    "guides/generate.md",
-    "guides/module-context.md",
-    "guides/architecture-graph.md",
-    "guides/effect-deduplication.md",
-    "guides/session-revocation.md",
-    "guides/upgrading.md",
-    "guides/add-module.md",
-    "guides/customize-standard-module.md",
-    "guides/write-a-driver.md",
-    "guides/write-migration.md",
-    "guides/migrations.md",
-    "guides/add-event.md",
-    "guides/add-consumer.md",
-    "guides/event-versioning.md",
-    "guides/add-contract.md",
-    "guides/add-saga.md",
-    "guides/add-projection.md",
-    "guides/idempotent-write.md",
-    "guides/testing.md",
-    "guides/deployment.md",
-    "guides/split-into-services.md",
-    "guides/service-rpc.md",
-    "guides/sso-setup.md",
-    "guides/loader-configuration.md",
+"Getting Started" = [
+    "getting-started/index.md",
+    "getting-started/project-structure.md",
+    "getting-started/tutorial.md",
+    "getting-started/installation.md",
+    "getting-started/glossary.md",
+]
+Modules = [
+    "modules/index.md",
+    "modules/create.md",
+    "modules/database/units.md",
+    "modules/database/multi-tenancy.md",
+    "modules/database/conventions.md",
+    "modules/database/migrations.md",
+    "modules/database/write-migration.md",
+    "modules/database/run-migrations.md",
+    "modules/http/route-policy.md",
+    "modules/http/authorization.md",
+    "modules/http/idempotent-write.md",
+    "modules/http/session-revocation.md",
+    "modules/http/audit.md",
+    "modules/between/index.md",
+    "modules/between/events.md",
+    "modules/between/add-event.md",
+    "modules/between/add-consumer.md",
+    "modules/between/event-versioning.md",
+    "modules/between/contracts.md",
+    "modules/between/add-contract.md",
+    "modules/between/projections.md",
+    "modules/between/add-projection.md",
+    "modules/between/sagas.md",
+    "modules/between/add-saga.md",
+    "modules/background/tasks.md",
+    "modules/background/effect-deduplication.md",
+    "modules/tooling/testing.md",
+    "modules/tooling/generate.md",
+    "modules/tooling/module-context.md",
+    "modules/tooling/architecture-graph.md",
+    "modules/standard/index.md",
+    "modules/standard/identity.md",
+    "modules/standard/first-access-token.md",
+    "modules/standard/tenancy.md",
+    "modules/standard/billing.md",
+    "modules/standard/customize.md",
+    "modules/standard/sso.md",
+    "modules/guarantees/index.md",
+    "modules/guarantees/write-admission.md",
+    "modules/guarantees/lifecycle.md",
+    "modules/guarantees/module-internals.md",
+]
+Infrastructure = [
+    "infrastructure/index.md",
+    "infrastructure/configure.md",
+    "infrastructure/database.md",
+    "infrastructure/cache.md",
+    "infrastructure/event-bus.md",
+    "infrastructure/task-queue.md",
+    "infrastructure/object-store.md",
+    "infrastructure/notifications.md",
+    "infrastructure/write-a-driver.md",
+    "infrastructure/own-capability.md",
+    "infrastructure/driverkit.md",
+]
+Operate = [
     "admin-console/index.md",
-    "guides/admin-operations.md",
-    "guides/admin.md",
-    "operations/index.md",
-    "operations/runbook.md",
-    "operations/operator-reference.md",
-    "guides/upgrading-1.0.md",
+    "operate/index.md",
+    "operate/topologies.md",
+    "operate/deploy.md",
+    "operate/split-into-services.md",
+    "operate/service-rpc.md",
+    "operate/loader-configuration.md",
+    "operate/runbook.md",
+    "operate/operator-reference.md",
+    "operate/upgrade.md",
+    "operate/upgrade-1.0.md",
 ]
 Reference = [
     "reference/index.md",
@@ -137,7 +174,6 @@ Reference = [
     "reference/sdk/sagas.md",
     "reference/sdk/projections.md",
     "reference/sdk/infra.md",
-    "reference/driverkit.md",
     "reference/sdk/security.md",
     "reference/sdk/errors.md",
     "reference/sdk/app.md",
@@ -158,51 +194,13 @@ Reference = [
     "reference/execution-planner.md",
     "reference/slo.md",
     "reference/dependencies.md",
-    "modules/index.md",
-    "modules/identity.md",
-    "getting-started/authentication.md",
-    "modules/tenancy.md",
-    "modules/billing.md",
-    "changelog.md",
-]
-Concepts = [
-    "concepts/index.md",
-    "concepts/glossary.md",
-    "concepts/modules.md",
-    "concepts/between-modules.md",
-    "concepts/data-conventions.md",
-    "concepts/module-internals.md",
-    "concepts/units.md",
-    "concepts/route-policy.md",
-    "concepts/events.md",
-    "concepts/contracts.md",
-    "concepts/write-admission.md",
-    "concepts/lifecycle.md",
-    "concepts/guarantees.md",
-    "concepts/multi-tenancy.md",
-    "concepts/authorization.md",
-    "concepts/projections.md",
-    "concepts/audit.md",
-    "concepts/sagas.md",
-    "concepts/background-tasks.md",
-    "concepts/capabilities-and-infrastructure.md",
-    "infrastructure/configure.md",
-    "infrastructure/database.md",
-    "infrastructure/cache.md",
-    "infrastructure/event-bus.md",
-    "infrastructure/task-queue.md",
-    "infrastructure/object-store.md",
-    "infrastructure/notifications.md",
-    "infrastructure/own-capability.md",
-    "concepts/migrations.md",
-    "concepts/deployment.md",
 ]
 Optional = [
     "contributing/index.md",
     "contributing/setup.md",
-    "contributing/website.md",
     "contributing/repository.md",
     "contributing/source-export.md",
+    "contributing/website.md",
     "contributing/versioning.md",
     "contributing/local-ci.md",
     "contributing/supply-chain.md",
@@ -219,6 +217,8 @@ Optional = [
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
     "adr/0011-driver-api.md",
+    "admin-console/operations.md",
+    "admin-console/guide.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -239,9 +239,6 @@ permalink = true
 [project.markdown_extensions."pymdownx.details"]
 
 [project.markdown_extensions."pymdownx.superfences"]
-custom_fences = [
-    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
-]
 
 [project.markdown_extensions."pymdownx.tabbed"]
 alternate_style = true
@@ -278,79 +275,79 @@ Intro = [
     { "Your project structure" = "getting-started/project-structure.md" },
     { "Tutorial: your first feature" = "getting-started/tutorial.md" },
     { Installation = "getting-started/installation.md" },
-    { Glossary = "concepts/glossary.md" },
+    { Glossary = "getting-started/glossary.md" },
 ]
 
 [[project.nav]]
 Modules = [
-    { "What a module is" = "concepts/modules.md" },
-    { "Create a module" = "guides/add-module.md" },
+    { "What a module is" = "modules/index.md" },
+    { "Create a module" = "modules/create.md" },
     { Data = [
-        { "Units of work and db()" = "concepts/units.md" },
-        { Multi-tenancy = "concepts/multi-tenancy.md" },
-        { "Timestamps, ids and list order" = "concepts/data-conventions.md" },
-        { "How migrations work" = "concepts/migrations.md" },
-        { "Write a migration" = "guides/write-migration.md" },
-        { "Run migrations" = "guides/migrations.md" },
+        { "Units of work and db()" = "modules/database/units.md" },
+        { Multi-tenancy = "modules/database/multi-tenancy.md" },
+        { "Timestamps, ids and list order" = "modules/database/conventions.md" },
+        { "How migrations work" = "modules/database/migrations.md" },
+        { "Write a migration" = "modules/database/write-migration.md" },
+        { "Run migrations" = "modules/database/run-migrations.md" },
     ] },
     { "HTTP and access" = [
-        { "Route policy and sessions" = "concepts/route-policy.md" },
-        { "Authorization and billing subjects" = "concepts/authorization.md" },
-        { "Make a write idempotent" = "guides/idempotent-write.md" },
-        { "Revoke sessions" = "guides/session-revocation.md" },
-        { Audit = "concepts/audit.md" },
+        { "Route policy and sessions" = "modules/http/route-policy.md" },
+        { "Authorization and billing subjects" = "modules/http/authorization.md" },
+        { "Make a write idempotent" = "modules/http/idempotent-write.md" },
+        { "Revoke sessions" = "modules/http/session-revocation.md" },
+        { Audit = "modules/http/audit.md" },
     ] },
     { "Between modules" = [
-        { "Choose how modules talk" = "concepts/between-modules.md" },
+        { "Choose how modules talk" = "modules/between/index.md" },
         { Events = [
-            { "How events work" = "concepts/events.md" },
-            { "Add an event" = "guides/add-event.md" },
-            { "Consume an event" = "guides/add-consumer.md" },
-            { "Change an event payload (v1 → v2)" = "guides/event-versioning.md" },
+            { "How events work" = "modules/between/events.md" },
+            { "Add an event" = "modules/between/add-event.md" },
+            { "Consume an event" = "modules/between/add-consumer.md" },
+            { "Change an event payload (v1 → v2)" = "modules/between/event-versioning.md" },
         ] },
         { Contracts = [
-            { "How contracts work" = "concepts/contracts.md" },
-            { "Provide and call a contract" = "guides/add-contract.md" },
+            { "How contracts work" = "modules/between/contracts.md" },
+            { "Provide and call a contract" = "modules/between/add-contract.md" },
         ] },
         { Projections = [
-            { "How projections work" = "concepts/projections.md" },
-            { "Build a projection" = "guides/add-projection.md" },
+            { "How projections work" = "modules/between/projections.md" },
+            { "Build a projection" = "modules/between/add-projection.md" },
         ] },
         { Sagas = [
-            { "How sagas work" = "concepts/sagas.md" },
-            { "Add a saga" = "guides/add-saga.md" },
+            { "How sagas work" = "modules/between/sagas.md" },
+            { "Add a saga" = "modules/between/add-saga.md" },
         ] },
     ] },
     { "Background work" = [
-        { "Background tasks" = "concepts/background-tasks.md" },
-        { "Deduplicate effects" = "guides/effect-deduplication.md" },
+        { "Background tasks" = "modules/background/tasks.md" },
+        { "Deduplicate effects" = "modules/background/effect-deduplication.md" },
     ] },
     { Tooling = [
-        { "Testing modules" = "guides/testing.md" },
-        { "Generate contracts and snapshots" = "guides/generate.md" },
-        { "Module context for agents" = "guides/module-context.md" },
-        { "Explore the architecture graph" = "guides/architecture-graph.md" },
+        { "Testing modules" = "modules/tooling/testing.md" },
+        { "Generate contracts and snapshots" = "modules/tooling/generate.md" },
+        { "Module context for agents" = "modules/tooling/module-context.md" },
+        { "Explore the architecture graph" = "modules/tooling/architecture-graph.md" },
     ] },
     { "Standard modules" = [
-        { Overview = "modules/index.md" },
-        { Identity = "modules/identity.md" },
-        { "Get your first access token" = "getting-started/authentication.md" },
-        { Tenancy = "modules/tenancy.md" },
-        { Billing = "modules/billing.md" },
-        { "Customize a standard module" = "guides/customize-standard-module.md" },
-        { "SSO setup" = "guides/sso-setup.md" },
+        { Overview = "modules/standard/index.md" },
+        { Identity = "modules/standard/identity.md" },
+        { "Get your first access token" = "modules/standard/first-access-token.md" },
+        { Tenancy = "modules/standard/tenancy.md" },
+        { Billing = "modules/standard/billing.md" },
+        { "Customize a standard module" = "modules/standard/customize.md" },
+        { "SSO setup" = "modules/standard/sso.md" },
     ] },
     { "Guarantees in depth" = [
-        { "Guarantees and labels" = "concepts/guarantees.md" },
-        { "Write admission" = "concepts/write-admission.md" },
-        { "Transaction and replay lifecycle" = "concepts/lifecycle.md" },
-        { "Module internals" = "concepts/module-internals.md" },
+        { "Guarantees and labels" = "modules/guarantees/index.md" },
+        { "Write admission" = "modules/guarantees/write-admission.md" },
+        { "Transaction and replay lifecycle" = "modules/guarantees/lifecycle.md" },
+        { "Module internals" = "modules/guarantees/module-internals.md" },
     ] },
 ]
 
 [[project.nav]]
 Infrastructure = [
-    { Overview = "concepts/capabilities-and-infrastructure.md" },
+    { Overview = "infrastructure/index.md" },
     { "Configure backends" = "infrastructure/configure.md" },
     { "Interfaces and drivers" = [
         { Database = "infrastructure/database.md" },
@@ -361,23 +358,10 @@ Infrastructure = [
         { Notifications = "infrastructure/notifications.md" },
     ] },
     { Extend = [
-        { "Write a driver" = "guides/write-a-driver.md" },
+        { "Write a driver" = "infrastructure/write-a-driver.md" },
         { "Add your own capability" = "infrastructure/own-capability.md" },
-        { "Driver kit reference" = "reference/driverkit.md" },
+        { "Driver kit reference" = "infrastructure/driverkit.md" },
     ] },
-]
-
-[[project.nav]]
-Concepts = [
-    "concepts/index.md",
-    { "Deployment topologies" = "concepts/deployment.md" },
-]
-
-[[project.nav]]
-Build = [
-    "guides/index.md",
-    { "Upgrade an application" = "guides/upgrading.md" },
-    { "Upgrading to Public API 1.0" = "guides/upgrading-1.0.md" },
 ]
 
 [[project.nav]]
@@ -385,13 +369,18 @@ Build = [
 
 [[project.nav]]
 Operate = [
-    "operations/index.md",
-    { Deployment = "guides/deployment.md" },
-    { "Split an app into services" = "guides/split-into-services.md" },
-    { "Service RPC" = "guides/service-rpc.md" },
-    { "Loader configuration" = "guides/loader-configuration.md" },
-    { Runbook = "operations/runbook.md" },
-    { "Operator command reference" = "operations/operator-reference.md" },
+    "operate/index.md",
+    { Topologies = "operate/topologies.md" },
+    { Deploy = "operate/deploy.md" },
+    { "Split into services" = "operate/split-into-services.md" },
+    { "Service RPC" = "operate/service-rpc.md" },
+    { "Loader configuration" = "operate/loader-configuration.md" },
+    { Runbook = "operate/runbook.md" },
+    { "Operator reference" = "operate/operator-reference.md" },
+    { Upgrade = [
+        { "Upgrade an application" = "operate/upgrade.md" },
+        { "Upgrading to Public API 1.0" = "operate/upgrade-1.0.md" },
+    ] },
 ]
 
 [[project.nav]]
@@ -442,7 +431,7 @@ Project = [
     { "Branches and owner review" = "contributing/branches.md" },
     { "Website publishing" = "contributing/website.md" },
     { "Versioning policy" = "contributing/versioning.md" },
-    { "Publishing packages" = "guides/publishing.md" },
+    { "Publishing packages" = "contributing/publishing.md" },
     { "CI profiles and minute budget" = "contributing/ci.md" },
     { "Local CI runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },

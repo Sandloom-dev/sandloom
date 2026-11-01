@@ -132,8 +132,7 @@ class SQLAlchemyDatabaseOptions(BaseModel):
                 "the instance option verify_roles was removed in 0.8: the "
                 "startup check that the application role cannot escape "
                 "Row-Level Security always runs on a tenant_rls instance — "
-                "drop the option and fix the role "
-                "(docs/guides/upgrading-0.8.md)"
+                "drop the option and fix the role"
             )
         return value
 

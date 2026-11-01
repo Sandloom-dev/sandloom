@@ -229,5 +229,5 @@ publish (same semantics and `sandloom check` marker as `publish_event`).
 
 ## Examples and related guides
 
-- [Publish and consume events](../../guides/add-event.md)
+- [Publish and consume events](../../modules/between/add-event.md)
 - [Python API overview](index.md)

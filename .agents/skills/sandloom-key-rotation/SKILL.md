@@ -68,5 +68,5 @@ secret store (`SECRETS_DIR` files), never in compose files.
    `sandloom security revoke-sessions --all --apply --reason "<incident>"`. In
    prod, add `--confirm-production`.
 
-Runbooks: `docs/reference/security-model.md`, `docs/operations/operator-reference.md`
+Runbooks: `docs/reference/security-model.md`, `docs/operate/operator-reference.md`
 (incident response), `deploy/README.md` (variables).

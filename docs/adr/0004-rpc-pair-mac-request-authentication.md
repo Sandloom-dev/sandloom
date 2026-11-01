@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0004: Internal RPC request authentication with per-pair HMAC keys
 
 - **Status:** Accepted (draft — awaiting the maintainers' sign-off).
@@ -573,5 +578,5 @@ migration path above is removed and the target state is the only state:
 
 ## Related reading
 
-- [Service RPC guide](../guides/service-rpc.md)
+- [Service RPC guide](../operate/service-rpc.md)
 - [Security model](../reference/security-model.md)

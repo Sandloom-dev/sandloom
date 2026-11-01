@@ -6,7 +6,7 @@ type: concept
 
 # Event bus
 
-The event bus carries [events](../concepts/events.md) between modules. Modules do not call it:
+The event bus carries [events](../modules/between/events.md) between modules. Modules do not call it:
 they publish with `await E(...).publish()` and consume with `@on`.
 
 Choose the driver with `EVENT_BUS_BACKEND`. The default, `auto`, chooses `streams` in production and `memory` elsewhere.

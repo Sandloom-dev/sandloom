@@ -164,7 +164,7 @@ class DatabaseConfig(BaseModel):
     # sandloom.core.sql_alchemy.tenant_rls (merged BEGIN) for the semantics. A
     # startup probe of the private driver internals it uses (driver_compat)
     # falls back to the two-message form, with a warning + metric, when an
-    # asyncpg / SQLAlchemy upgrade changed them (docs/operations/operator-reference.md).
+    # asyncpg / SQLAlchemy upgrade changed them (docs/operate/operator-reference.md).
     db_rls_merged_begin: bool = Field(
         default=True,
         alias="DB_RLS_MERGED_BEGIN",

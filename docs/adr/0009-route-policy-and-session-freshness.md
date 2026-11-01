@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0009: Route policy follows authority and effect — deny-by-default, live sessions, no route classes
 
 - **Status:** Accepted (2026-10-25; owner decisions in "Decisions recorded")

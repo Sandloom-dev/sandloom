@@ -285,7 +285,7 @@ API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 `.env.example` if you delete it), the tests read `.env.test`.
 
 If you selected `--with identity`, follow the
-[authentication and email guide](https://sandloom.dev/docs/getting-started/authentication/)
+[authentication and email guide](https://sandloom.dev/docs/modules/standard/first-access-token/)
 to receive verification mail locally and obtain access/refresh tokens.
 
 ### Ports of the dev services

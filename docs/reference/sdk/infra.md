@@ -786,5 +786,5 @@ twin of `CoreRuntime.taskqueue`; spec §2.2).
 
 ## Examples and related guides
 
-- [Infrastructure capabilities](../../concepts/capabilities-and-infrastructure.md)
+- [Infrastructure capabilities](../../infrastructure/index.md)
 - [Python API overview](index.md)

@@ -24,7 +24,7 @@ website renders this same changelog.
 ### Breaking changes
 
 This alpha changes infrastructure extension APIs. Review the
-[0.7.0a4 → 0.7.0a5 upgrade steps](https://sandloom.dev/docs/guides/upgrading/#upgrading-from-070a4-to-070a5)
+[0.7.0a4 → 0.7.0a5 upgrade steps](https://sandloom.dev/docs/operate/upgrade/#upgrading-from-070a4-to-070a5)
 before upgrading an application or a driver package.
 
 - Replace string-based `capability()` / `Capability()` declarations with typed
@@ -696,7 +696,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
   (`sandloom.core.migrations.migrations.migration_status`, read-only
   connections), Streams consumer groups (pending / lag) and RLS role /
   coverage checks. Exit `0` ok, `1` warnings, `2` failures; never prints a
-  secret. Runbook: `docs/operations/operator-reference.md` → Preflight and effective
+  secret. Runbook: `docs/operate/operator-reference.md` → Preflight and effective
   configuration.
 
 ### Added — supply-chain gates (review map A-30)
@@ -761,7 +761,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
     and the median calm-host client p99 from 48 ms to 12–14 ms.
   - `create_app` itself never touches the collector.
   - Restore the old behaviour with `GC_FREEZE_AFTER_STARTUP=false GC_THRESHOLDS=`.
-  - Details: `docs/design/gc-tuning-2026-10-23.md`, `docs/operations/operator-reference.md`
+  - Details: `docs/design/gc-tuning-2026-10-23.md`, `docs/operate/operator-reference.md`
     → *Garbage collector tuning*.
 - **New metrics** (`GC_METRICS_ENABLED`, default `true`, gunicorn workers):
   - `sandloom_gc_pause_seconds{generation}` (histogram)
@@ -828,7 +828,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
   session).
 - tenancy: `tenancy.membership.v1.list_member_user_ids` (additive read).
 - `OutboxStore.list_channel_since` (non-abstract; SQLAlchemy implements it).
-- docs/operations/operator-reference.md: "Backups & restore" rewritten with the restore order and
+- docs/operate/operator-reference.md: "Backups & restore" rewritten with the restore order and
   traffic gate; new "Security incident runbook" (database leak, credential
   leak, key compromise).
 
@@ -853,7 +853,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
 - New optional store / transport hooks with `None` defaults:
   `OutboxStore.oldest_pending_age_seconds()` and
   `MessageTransport.oldest_unacked_age_seconds()`.
-- `docs/operations/operator-reference.md`: metric reference and a suggested alert table. All new
+- `docs/operate/operator-reference.md`: metric reference and a suggested alert table. All new
   gauges are Gunicorn-multiprocess safe (`livesum` / `livemostrecent`); a test
   now requires a `live*` mode on every registered gauge.
 
@@ -1042,7 +1042,7 @@ versioned at 0.7.0 as an internal baseline (not published to PyPI), and `sandloo
 ### Upgrade notes (0.6.0 → 0.7.0)
 
 The historical 0.7 step-by-step guide is archived.
-For the current source API, use [Upgrading to Public API 1.0](https://sandloom.dev/docs/guides/upgrading-1.0/).
+For the current source API, use [Upgrading to Public API 1.0](https://sandloom.dev/docs/operate/upgrade-1.0/).
 In short:
 
 1. Run `sandloom-migrate upgrade-all --apply` — new core-chain revision
@@ -1634,7 +1634,7 @@ it is deprecated on arrival and will be removed in 0.7.0.
   New options `require_system_channel`, `verify_roles`, `system_url`.
 - **Migration:** add a revision calling `sandloom.core.orm.upgrade_tenant_rls(op,
   "<table>")` for every RLS table and move table ownership off the app role
-  (docs/concepts/multi-tenancy.md). Residual risk (documented, not fixed):
+  (docs/modules/database/multi-tenancy.md). Residual risk (documented, not fixed):
   SQL running as the app role can still set `sandloom.tenant_id` to another
   tenant — see the RLS threat model in docs/reference/security-model.md.
 

@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0003: Fewer synchronous RPC calls in split deployments — membership reads first
 
 - **Status:** Proposed
@@ -1270,5 +1275,5 @@ replays conflict. Provider money/subscription operations are not local row edits
 
 ## Related reading
 
-- [Current route policy](../concepts/route-policy.md)
-- [Contracts](../concepts/contracts.md)
+- [Current route policy](../modules/http/route-policy.md)
+- [Contracts](../modules/between/contracts.md)

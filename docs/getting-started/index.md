@@ -21,7 +21,7 @@ In an empty directory, generate an application from the published alpha:
 uvx --from "sandloom[standard]==0.7.0a5" sandloom new myapp --with identity,tenancy,billing
 ```
 
-This starter selects all three [standard modules](../modules/index.md). For a
+This starter selects all three [standard modules](../modules/standard/index.md). For a
 minimal backend, use
 `uvx --from "sandloom==0.7.0a5" sandloom new myapp --no-batteries --module notes`
 instead. That command already creates `notes`, so its printed steps add a
@@ -58,10 +58,10 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
     `CACHE_URL` / `BROKER_URL` in `.env`, and `SANDLOOM_TEST_DATABASE_URL` /
     `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. Pick ports
     below 32768, or use `127.0.0.1` in the URLs
-    ([why](../guides/testing.md#isolation-guards)). The generated `README.md` shows the
+    ([why](../modules/tooling/testing.md#isolation-guards)). The generated `README.md` shows the
     commands.
 
-For an app created with `--with identity`, follow [authentication and email](authentication.md)
+For an app created with `--with identity`, follow [authentication and email](../modules/standard/first-access-token.md)
 to receive verification mail locally and obtain access/refresh tokens.
 
 ## Next

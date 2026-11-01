@@ -531,7 +531,7 @@ rpc_auth_clock_skew_total = cast(
 )
 """Operational metrics (review map B-07, H-09, C-07, H-14).
 
-Alert thresholds: ``docs/operations/operator-reference.md`` → "Alerts".
+Alert thresholds: ``docs/operate/operator-reference.md`` → "Alerts".
 Multiprocess (Gunicorn) rules: a gauge one process owns
 (the relay leader, a group heartbeat) is
 ``livemostrecent``; a per-process quantity summed into the service total (pool

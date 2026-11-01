@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # ADR-0002: The framework absorbs per-module boilerplate
 
 - **Status:** Accepted
@@ -86,5 +91,5 @@ The framework owns this plumbing; modules declare, conventions derive.
 
 ## Related reading
 
-- [Module model](../concepts/modules.md)
-- [Testing harness](../guides/testing.md)
+- [Module model](../modules/index.md)
+- [Testing harness](../modules/tooling/testing.md)

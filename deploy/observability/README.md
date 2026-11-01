@@ -62,7 +62,7 @@ the rule files and import the dashboard JSON as they are — every query uses a
   (`--check` fails CI when they differ). Grafana's UI edits are not saved
   (`allowUiUpdates: false`).
 - **Alerts**: edit `prometheus/rules/sandloom-alerts.yml`; a new or renamed alert
-  also goes into the index in `docs/operations/operator-reference.md` → Alerts (same name and
+  also goes into the index in `docs/operate/operator-reference.md` → Alerts (same name and
   severity) and, when its behaviour matters, into
   `prometheus/tests/sandloom-rules.test.yml`.
 - **Validate**: `deploy/observability/check.sh` (Docker) and

@@ -14,12 +14,12 @@ The same code runs as a monolith or as separate services, chosen by configuratio
 
 <figure class="sl-architecture" aria-label="Sandloom architecture: business modules, contracts, kernel and infrastructure drivers">
   <div class="sl-architecture__modules">
-    <div class="sl-architecture__heading"><a href="concepts/modules/">Business modules</a><span>Your application code</span></div>
+    <div class="sl-architecture__heading"><a href="modules/">Business modules</a><span>Your application code</span></div>
     <div class="sl-architecture__peers">
       <div class="sl-architecture__module"><strong>Orders</strong><span>Order logic &amp; data</span></div>
       <div class="sl-architecture__connections">
-        <a href="concepts/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
-        <a href="concepts/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
+        <a href="modules/between/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
+        <a href="modules/between/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
       </div>
       <div class="sl-architecture__module"><strong>Catalog</strong><span>Product logic &amp; data</span></div>
     </div>
@@ -36,7 +36,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
   </div>
   <div class="sl-architecture__connector" aria-hidden="true"><span>resolve infrastructure capabilities</span></div>
   <div class="sl-architecture__drivers">
-    <div class="sl-architecture__heading"><a href="concepts/capabilities-and-infrastructure/">Drivers</a><span>Selected by configuration</span></div>
+    <div class="sl-architecture__heading"><a href="infrastructure/">Drivers</a><span>Selected by configuration</span></div>
     <p>Each driver connects the runtime to a concrete backend.</p>
     <div class="sl-architecture__backends">
       <div><span>Database · sqlalchemy</span><strong>PostgreSQL</strong></div>
@@ -60,16 +60,16 @@ The same code runs as a monolith or as separate services, chosen by configuratio
 
 <div class="grid cards" markdown>
 
--   :material-puzzle-outline: **[Write a module](guides/add-module.md)**
+-   :material-puzzle-outline: **[Write a module](modules/create.md)**
 
     Add a piece of your product: its tables, routes, events and tests.
 
 -   :material-connection: **[Connect a backend](infrastructure/configure.md)**
 
-    Choose a backend in the configuration, or [write a driver](guides/write-a-driver.md)
+    Choose a backend in the configuration, or [write a driver](infrastructure/write-a-driver.md)
     for a new one.
 
--   :material-tune: **[Change a standard module](guides/customize-standard-module.md)**
+-   :material-tune: **[Change a standard module](modules/standard/customize.md)**
 
     Adjust the ready-made identity, tenancy or billing modules.
 
@@ -84,7 +84,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
   authenticated unless it declares otherwise.
 - **Configuration decides where things run.** It selects which process loads which
   module and which backend each capability uses. Moving a running module's existing data
-  to its own database is a separate, [explicit step](guides/deployment.md#extracting-a-module-into-its-own-service).
+  to its own database is a separate, [explicit step](operate/split-into-services.md#existing-data).
 - **A machine checks the rules.** `sandloom check` and the startup checks enforce the
   boundaries and name the fix: `sandloom explain <code>`.
 
@@ -99,23 +99,23 @@ A module is what your product does. A driver is what it runs on.
 | **Imports** | `sandloom.sdk` | `sandloom.driverkit` |
 | **Found through** | your `modules` package or the `sandloom.modules` entry point | the `sandloom.drivers` entry point |
 | **Selected by** | `SANDLOOM_MODULES` | `INFRA` |
-| **Created with** | `sandloom add module <name>` | [your own package](guides/write-a-driver.md) |
+| **Created with** | `sandloom add module <name>` | [your own package](infrastructure/write-a-driver.md) |
 
-Modules talk to each other in two ways: [events](concepts/events.md) when something has
-happened, and typed [contracts](concepts/contracts.md) when one needs an answer now.
+Modules talk to each other in two ways: [events](modules/between/events.md) when something has
+happened, and typed [contracts](modules/between/contracts.md) when one needs an answer now.
 
 ## What do I write?
 
 | I want to | I write |
 | --- | --- |
-| add a product feature | a [module](guides/add-module.md) |
-| react to something another module did | an [event consumer](guides/add-consumer.md) |
-| ask another module for data now | a call to its [contract](guides/add-contract.md) |
-| run a process across modules, with undo | a [saga](guides/add-saga.md) |
-| show a list that spans modules | a [projection](guides/add-projection.md) |
-| change how identity, tenancy or billing behave | a [customization](guides/customize-standard-module.md) |
-| send notifications through a new service | a [driver](guides/write-a-driver.md) |
-| run a module as its own service | [configuration](guides/split-into-services.md), no module code |
+| add a product feature | a [module](modules/create.md) |
+| react to something another module did | an [event consumer](modules/between/add-consumer.md) |
+| ask another module for data now | a call to its [contract](modules/between/add-contract.md) |
+| run a process across modules, with undo | a [saga](modules/between/add-saga.md) |
+| show a list that spans modules | a [projection](modules/between/add-projection.md) |
+| change how identity, tenancy or billing behave | a [customization](modules/standard/customize.md) |
+| send notifications through a new service | a [driver](infrastructure/write-a-driver.md) |
+| run a module as its own service | [configuration](operate/split-into-services.md), no module code |
 
 ## Who it fits
 

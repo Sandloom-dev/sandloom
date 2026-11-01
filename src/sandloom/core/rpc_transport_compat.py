@@ -53,7 +53,7 @@ logger = logging.getLogger("sandloom.core.rpc_transport")
 
 #: aiohttp versions the transport's internals were verified against:
 #: ``[low, high)``. Keep in sync with ``pyproject.toml`` (a test pins both
-#: together); widen only after ``docs/operations/operator-reference.md``
+#: together); widen only after ``docs/operate/operator-reference.md``
 #: -> "Upgrading aiohttp".
 VERIFIED_AIOHTTP_RANGE: tuple[str, str] = ("3.14.5", "3.15")
 
@@ -333,7 +333,7 @@ def _report(result: TransportProbe) -> None:
     logger.warning(
         "aiohttp %s is not usable as the internal-RPC transport (%s): %s. "
         "Outbound RPC falls back to httpx (requests keep working); see "
-        "docs/operations/operator-reference.md 'Upgrading aiohttp'.",
+        "docs/operate/operator-reference.md 'Upgrading aiohttp'.",
         _installed(),
         result.reason,
         "; ".join(result.problems),

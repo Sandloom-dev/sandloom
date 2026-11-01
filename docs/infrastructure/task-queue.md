@@ -6,7 +6,7 @@ type: concept
 
 # Task queue
 
-A task queue runs work outside the request. [Background tasks](../concepts/background-tasks.md)
+A task queue runs work outside the request. [Background tasks](../modules/background/tasks.md)
 covers writing tasks; this page covers what is underneath.
 
 ## What a module calls
