@@ -87,6 +87,7 @@ x-common-env: &common-env
   # single-host local storage, shared by every process (not multi-host HA). A
   # demo without Stripe adds fake_psp_in_prod.
   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+  ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}
   # Shared Redis: cache + the Streams event bus every service publishes to and
   # consumes from. Celery brokers are per service (BROKER_URL per service).
   # Invariant: CACHE_URL is the SAME for every service — access-token

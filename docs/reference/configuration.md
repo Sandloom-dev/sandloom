@@ -277,6 +277,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `RATE_LIMIT_GLOBAL_REQUESTS` | `int` | `0` | Global per-client-IP request allowance per configured period; zero disables this additional fail-open floor. |
 | `RATE_LIMIT_GLOBAL_PERIOD_SECONDS` | `int` | `60` | Window length in seconds for the global per-client-IP request allowance. |
 | `RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES` | `list[str]` | `['/health', '/ready', '/metrics', '/_sandloom/']` | Request path prefixes excluded from the additional global rate limiter. |
+| `ADMIN_CONSOLE_ENABLED` | `bool | None` | `None` | Serve the admin console at /admin/; unset means on outside production and off in production. |
+| `ADMIN_CONSOLE_DIST` | `str | None` | `None` | Directory of a console you built yourself, served instead of the packaged one. |
 | `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS` | `bool` | `False` | Allow catalog-backed subscriptions created without a framework operation intent to grant access; default denies those new intentless grants. |
 | `BILLING_INTENT_RECONCILE_AFTER_MINUTES` | `int` | `30` | Minimum pending-intent age in minutes before periodic reconciliation looks up or expires its payment-provider operation. |
 | `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` | `int` | `5` | Failed reconciliation attempts per operation intent before leaving it for operator follow-up. |

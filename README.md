@@ -2,7 +2,7 @@
 
 **Python backend framework for AI-driven development.**
 
-[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a5-d7bd91)](https://pypi.org/project/sandloom/0.7.0a5/)
+[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a6-d7bd91)](https://pypi.org/project/sandloom/0.7.0a6/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -24,7 +24,7 @@ services with the same modules. Add identity, organizations or billing as needed
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
 
-> **Alpha:** `0.7.0a5` is available on PyPI. <!-- sandloom-release -->
+> **Alpha:** `0.7.0a6` is available on PyPI. <!-- sandloom-release -->
 > [Compatibility and stability](docs/contributing/versioning.md).
 
 ## Why Sandloom
@@ -55,7 +55,7 @@ the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->
 ```bash
-uvx --from "sandloom==0.7.0a5" sandloom new myapp --no-batteries --module notes
+uvx --from "sandloom==0.7.0a6" sandloom new myapp --no-batteries --module notes
 cd myapp
 uv sync
 uv run sandloom generate

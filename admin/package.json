@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build && node scripts/licenses.mjs && node scripts/check-bundle.mjs",
+    "package": "tsc --noEmit && SANDLOOM_ADMIN_BASE=/admin/ vite build && node scripts/licenses.mjs && node scripts/check-bundle.mjs && node scripts/package-console.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0 && node scripts/check-tokens.mjs",
     "test": "node --test scripts/dependency-compat.test.mjs && vitest run",

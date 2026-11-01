@@ -201,10 +201,10 @@ class _ResourceCompiler:
             raise ValueError("unsafe operation path")
         route = self.routes.get((binding.path, binding.method))
         endpoint_owner = getattr(getattr(route, "endpoint", None), "__module__", "")
-        expected_owner = self.owner + (
-            ".admin.api." if self.owner == "sandloom.core" else ".api."
-        )
-        if route is None or not endpoint_owner.startswith(expected_owner):
+        api = self.owner + (".admin.api" if self.owner == "sandloom.core" else ".api")
+        # A module's API is one api.py, as generated, or an api/ package.
+        owned = endpoint_owner == api or endpoint_owner.startswith(api + ".")
+        if route is None or not owned:
             raise ValueError(
                 f"{binding.path}: operation is not owned by {self.owner}.api"
             )

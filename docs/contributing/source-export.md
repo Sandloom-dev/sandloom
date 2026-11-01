@@ -22,7 +22,7 @@ The checker refuses missing paths, unreviewed additions inside public source
 roots, duplicate or unsafe paths, unapproved symlinks, backup
 files, local environments, private material and credential-shaped content.
 `.env.example` and `.env.test` are synthetic configurations, not production
-credentials. The explicit symlink exceptions are the four editable-install
+credentials. The explicit symlink exceptions are the five editable-install
 links `packages/editable/<distribution>/<package> -> ../../../src/<package>`
 (one per distribution: `sandloom`, `sandloom_identity`, `sandloom_tenancy`,
 `sandloom_billing`); each exact target must remain inside the reviewed source tree. Symlink

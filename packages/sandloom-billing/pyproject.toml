@@ -1,6 +1,6 @@
 [project]
 name = "sandloom-billing"
-version = "0.7.0a5"
+version = "0.7.0a6"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "Plans, subscriptions, credits and Stripe integration for Sandloom applications."
 readme = "README.md"
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # never an exact pin. Contract calls to other modules are bound at runtime
 # and use the consumer's own generated stubs: no module depends on another.
 dependencies = [
-    "sandloom>=0.7.0a5,<0.8",
+    "sandloom>=0.7.0a6,<0.8",
 ]
 
 [project.urls]

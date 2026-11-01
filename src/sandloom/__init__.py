@@ -138,7 +138,8 @@ def _cmd_new(argv: list[str]) -> int:
         dest="batteries",
         default="",
         help="comma-separated standard modules to install and load: "
-        "identity,tenancy,billing (the sandloom-<module> packages)",
+        "identity,tenancy,billing,admin (the sandloom-<module> packages; "
+        "admin brings identity)",
     )
     parser.add_argument(
         "--no-batteries",
@@ -155,7 +156,7 @@ def _cmd_new(argv: list[str]) -> int:
         default=None,
         help=(
             "override the framework dependency requirement string "
-            "(default: sandloom[redis,celery]>=0.7.0a5,<0.8; each --with module "
+            "(default: sandloom[redis,celery]>=0.7.0a6,<0.8; each --with module "
             "adds its sandloom-<module> package)"
         ),
     )

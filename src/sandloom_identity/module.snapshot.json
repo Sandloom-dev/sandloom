@@ -28,6 +28,8 @@
     {
       "database": null,
       "methods": [
+        "appoint_platform_admin",
+        "find_user_id",
         "list_user_ids",
         "require_password_reset",
         "revoke_sessions"

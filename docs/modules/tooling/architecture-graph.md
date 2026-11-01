@@ -9,7 +9,7 @@ event channels, consumers, projections and infrastructure requirements.
 This is a declared map, not production traffic or active RPC routing.
 
 !!! note "Package availability"
-    Available in `sandloom>=0.7.0a5,<0.8`. <!-- sandloom-release -->
+    Available in `sandloom>=0.7.0a6,<0.8`. <!-- sandloom-release -->
 
 ```bash
 uv run sandloom explore                  # generate, save HTML, open the browser

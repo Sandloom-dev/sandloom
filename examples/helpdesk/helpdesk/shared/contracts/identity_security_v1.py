@@ -13,7 +13,17 @@ from sandloom.core.descriptors.contract_refs import ContractRef
 
 
 class IdentitySecurityV1(Protocol):
-    """Bulk session revocation / forced password reset (``identity.security.v1``)."""
+    """Operator commands: sessions, password resets, the first platform admin."""
+
+    async def appoint_platform_admin(
+        self, user_id: UUID, reason: str, operator: str, operation_key: str
+    ) -> bool:
+        """Make the user a platform administrator and mark their address verified;
+        returns whether the user exists.
+        """
+
+    async def find_user_id(self, email: str) -> UUID | None:
+        """The id of the user with this address, or ``None``."""
 
     async def list_user_ids(self, after: UUID | None, limit: int) -> list[UUID]:
         """User ids in id order, strictly after ``after`` (keyset paging)."""

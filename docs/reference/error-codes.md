@@ -23,6 +23,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 
 | Code | Slug | Kind | What happened | Status |
 | --- | --- | --- | --- | --- |
+| [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | the admin console's manifest is stale or cannot be compiled | active |
 | [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
 | [`SANDLOOM-C001`](#sandloom-c001) | `module-boundaries` | check | a business module imports a sibling business module | active |
 | [`SANDLOOM-C002`](#sandloom-c002) | `framework-imports` | check | import outside the framework public API | active |
@@ -1133,6 +1134,23 @@ cursor executions from such a task are detected on a best-effort basis
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
+
+### SANDLOOM-T016
+
+**the admin console's manifest is stale or cannot be compiled**
+
+Slug: `admin-manifest` · kind: test · status: active
+
+**What happened and why it matters**
+
+The admin console draws its screens from `<app>/shared/admin-manifest.json`,
+compiled from the `admin.py` declarations of every composed module and checked
+against the application's OpenAPI. `sandloom test` fails when the file differs
+from what the current declarations and routes compile to.
+
+**Fix:** run sandloom generate; if it reports a declaration, fix that admin.py
+
+**More:** `docs/admin-console/add-your-module.md`
 
 ### SANDLOOM-T015
 

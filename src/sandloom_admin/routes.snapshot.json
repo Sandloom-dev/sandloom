@@ -1,0 +1,50 @@
+{
+  "format": 3,
+  "module": "sandloom_admin",
+  "routes": [
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/admin",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "the console's static files; every API it calls checks access",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/admin/admin-manifest.json",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "the console's static files; every API it calls checks access",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/admin/config.json",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "the console's static files; every API it calls checks access",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
+      "path": "/admin/{path:path}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "the console's static files; every API it calls checks access",
+        "session": "none"
+      }
+    }
+  ]
+}

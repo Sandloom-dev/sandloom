@@ -83,6 +83,20 @@ def test_with_batteries_orders_modules(tmp_path: Path) -> None:
     assert 'app_modules("shop.modules")' in asgi
 
 
+def test_the_console_brings_identity_and_stays_off_in_production(
+    tmp_path: Path,
+) -> None:
+    generate_project("shop", tmp_path, with_batteries=["admin"])
+    root = tmp_path / "shop"
+    assert 'BUNDLED: list[str] = ["identity", "admin"]' in _read(root, "shop/asgi.py")
+    project = _read(root, "pyproject.toml")
+    assert "sandloom-admin>=" in project
+    assert "sandloom-identity>=" in project
+    compose = _read(root, "deploy/docker-compose.yml")
+    assert "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}" in compose
+    assert "TWOFA_ENCRYPTION_KEY" in compose
+
+
 def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     tmp_path: Path,
 ) -> None:
@@ -92,15 +106,15 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("shop", tmp_path, with_batteries=["identity"])
     shop = tomllib.loads(_read(tmp_path / "shop", "pyproject.toml"))
     assert shop["project"]["dependencies"] == [
-        "sandloom[redis,celery]>=0.7.0a5,<0.8",
-        "sandloom-identity>=0.7.0a5,<0.8",
+        "sandloom[redis,celery]>=0.7.0a6,<0.8",
+        "sandloom-identity>=0.7.0a6,<0.8",
     ]
 
     # A minimal app depends on the kernel alone (+ its Redis/Celery drivers:
     # the generated compose runs redis and the Celery worker).
     generate_project("probe", tmp_path)
     probe = tomllib.loads(_read(tmp_path / "probe", "pyproject.toml"))
-    assert probe["project"]["dependencies"] == ["sandloom[redis,celery]>=0.7.0a5,<0.8"]
+    assert probe["project"]["dependencies"] == ["sandloom[redis,celery]>=0.7.0a6,<0.8"]
 
 
 def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
@@ -124,10 +138,10 @@ def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
         "custom",
         tmp_path,
         with_batteries=["identity"],
-        framework_req="sandloom==0.7.0a5",
+        framework_req="sandloom==0.7.0a6",
     )
     custom_pyproject = _read(tmp_path / "custom", "pyproject.toml")
-    assert '"sandloom==0.7.0a5"' in custom_pyproject
+    assert '"sandloom==0.7.0a6"' in custom_pyproject
 
 
 def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:

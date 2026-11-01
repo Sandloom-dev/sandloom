@@ -7,14 +7,24 @@ export interface AdminConfig {
   manifest: AdminManifest;
 }
 // Static same-origin bootstrap files, read before any API session exists.
-/* eslint-disable no-restricted-globals */
+const bootstrapFile = (name: string) =>
+  fetch(`${import.meta.env.BASE_URL}${name}`, { cache: 'no-store', credentials: 'omit' }); // eslint-disable-line no-restricted-globals
+
+// A server that serves the console says what is wrong; a static host just answers 404.
+async function failure(response: Response): Promise<string> {
+  const body: unknown = await response.json().catch(() => null);
+  return body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string'
+    ? body.detail
+    : 'Could not load the admin configuration';
+}
+
 export async function loadConfig(): Promise<AdminConfig> {
   const [response, manifestResponse] = await Promise.all([
-    fetch('/config.json', { cache: 'no-store', credentials: 'omit' }),
-    fetch('/admin-manifest.json', { cache: 'no-store', credentials: 'omit' }),
+    bootstrapFile('config.json'),
+    bootstrapFile('admin-manifest.json'),
   ]);
-  if (!response.ok || !manifestResponse.ok)
-    throw new Error('Could not load the admin configuration');
+  if (!manifestResponse.ok) throw new Error(await failure(manifestResponse));
+  if (!response.ok) throw new Error(await failure(response));
   const manifest = parseManifest(await manifestResponse.json());
   for (const r of manifest.resources)
     for (const name of [...r.show_widgets, ...r.edit_widgets])
@@ -43,4 +53,3 @@ export async function loadConfig(): Promise<AdminConfig> {
     },
   };
 }
-/* eslint-enable no-restricted-globals */

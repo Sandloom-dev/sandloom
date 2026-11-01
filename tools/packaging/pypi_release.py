@@ -15,7 +15,13 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-PACKAGES = ("sandloom", "sandloom-identity", "sandloom-tenancy", "sandloom-billing")
+PACKAGES = (
+    "sandloom",
+    "sandloom-identity",
+    "sandloom-tenancy",
+    "sandloom-billing",
+    "sandloom-admin",
+)
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 
 

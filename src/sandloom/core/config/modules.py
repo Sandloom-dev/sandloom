@@ -24,6 +24,24 @@ class ModulesConfig(BaseModel):
         ),
     )
 
+    # Admin console (the optional sandloom-admin package)
+    admin_console_enabled: bool | None = Field(
+        default=None,
+        alias="ADMIN_CONSOLE_ENABLED",
+        description=(
+            "Serve the admin console at /admin/; unset means on outside "
+            "production and off in production."
+        ),
+    )
+    admin_console_dist: str | None = Field(
+        default=None,
+        alias="ADMIN_CONSOLE_DIST",
+        description=(
+            "Directory of a console you built yourself, served instead of the "
+            "packaged one."
+        ),
+    )
+
     # Billing (Stripe)
     billing_provider: Literal["fake", "stripe"] = Field(
         default="fake",

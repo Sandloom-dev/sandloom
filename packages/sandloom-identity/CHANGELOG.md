@@ -7,6 +7,13 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a6] — 2026-11-01
+
+### Added
+
+- `identity.security.v1` gains `find_user_id` and `appoint_platform_admin`, behind
+  `sandloom security grant-admin`.
+
 ## [0.7.0a5] — 2026-10-31
 
 - Align the framework dependency floor with `sandloom>=0.7.0a5,<0.8`.

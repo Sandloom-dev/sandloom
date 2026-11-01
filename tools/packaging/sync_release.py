@@ -19,7 +19,13 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ("sandloom", "sandloom-identity", "sandloom-tenancy", "sandloom-billing")
+PACKAGES = (
+    "sandloom",
+    "sandloom-identity",
+    "sandloom-tenancy",
+    "sandloom-billing",
+    "sandloom-admin",
+)
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?"
 VALID_VERSION = re.compile(VERSION + r"\Z")
 PIN = re.compile(

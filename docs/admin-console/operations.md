@@ -190,4 +190,4 @@ for correction; confirmed successes are not sent again during recovery.
 ## Related reading
 
 - [Operator reference](../operate/operator-reference.md)
-- [Extend the console](guide.md)
+- [Develop the console](develop.md)

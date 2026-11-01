@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  // The Python package serves the console at /admin/; a standalone host serves it at the root.
+  base: process.env.SANDLOOM_ADMIN_BASE ?? '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

@@ -163,8 +163,81 @@
       }
     },
     "identity.security.v1": {
-      "hash": "3d286929be24c00e58dfd22316e088dd",
+      "hash": "434058398ebaf018bdbc1070b1fe4f28",
       "methods": {
+        "appoint_platform_admin": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "find_user_id": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "email",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "k": "scalar",
+                "t": "uuid"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
         "list_user_ids": {
           "idempotency_key": null,
           "kind": "read",

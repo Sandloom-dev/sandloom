@@ -19,7 +19,9 @@ For every module declared with L1 discovery (``define_module`` of
 - ``<module>/routes.snapshot.json``: the module's routes and their policy
   (a route that lost its authentication is incompatible, SANDLOOM-T001);
 - ``<module>/contracts.snapshot.json``: the describe documents of the
-  contracts it provides (a breaking change is incompatible, SANDLOOM-T004).
+  contracts it provides (a breaking change is incompatible, SANDLOOM-T004);
+- ``<shared>/admin-manifest.json``: the admin console's screens, when the
+  composition loads the console (SANDLOOM-T016).
 
 Every generated file is compared with the committed version **before
 anything is written**: an incompatible change fails and nothing is written
@@ -54,6 +56,7 @@ import sandloom.core.cli.inspection.generation as _inspection_generation
 import sandloom.core.cli.route_weakening as _route_weakening
 import sandloom.core.contract_compat as _contract_compat
 import sandloom.core.route_snapshots as _route_snapshots
+from sandloom.core.admin import compile_app
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.composition import load_composition_app
 from sandloom.core.contracts.schema_compatibility import (
@@ -64,6 +67,7 @@ from sandloom.core.module_api import contract_schema
 
 #: File name of a module's generated surface snapshot.
 MODULE_SNAPSHOT = "module.snapshot.json"
+ADMIN_MANIFEST = "admin-manifest.json"
 HEADER = _dto_copies.HEADER
 
 
@@ -532,6 +536,23 @@ def _contract_files(
     return out
 
 
+def _admin_manifest(app: Any, shared_dir: Path) -> list[Generated]:
+    """The console reads this file, so every process serves the same screens
+    whichever modules it hosts. Only a process that composes them all can write it."""
+    names = {entry.name for entry in app.state.app_manifest.modules}
+    if "sandloom_admin" not in names:
+        return []
+    item = Generated(shared_dir / ADMIN_MANIFEST, "", "SANDLOOM-T016")
+    try:
+        item.content = (
+            json.dumps(compile_app(app), ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        )
+    except (ValueError, KeyError, AttributeError, ImportError) as exc:
+        item.problems.append(f"admin declarations: {exc}")
+    return [item]
+
+
 def _selected(entry: Any, modules: Iterable[str] | None) -> bool:
     if modules is None:
         return True
@@ -603,6 +624,8 @@ def plan(
         out += _contract_files(
             entry, facade, shared_dir, shared_package, shared_packages, format_dto
         )
+    if modules is None:
+        out += _admin_manifest(app, shared_dir)
     return out
 
 
@@ -619,6 +642,7 @@ def _ensure_package(directory: Path, shared_dir: Path) -> None:
 
 #: The fix printed per incompatible-change code.
 _FIXES = {
+    "SANDLOOM-T016": "fix the admin.py declaration named above",
     "SANDLOOM-T001": "a weaker route policy is written only once approved: review "
     "it, then run `sandloom routes snapshot --write` (the snapshot diff records the "
     "approval)",

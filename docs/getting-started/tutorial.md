@@ -26,7 +26,7 @@ empty directory; no framework checkout is needed. It takes about twenty minutes.
 ## 1. Create the application
 
 ```bash
-uvx --from "sandloom==0.7.0a5" sandloom new tasklist --no-batteries --module tasks
+uvx --from "sandloom==0.7.0a6" sandloom new tasklist --no-batteries --module tasks
 cd tasklist
 uv sync
 uv run sandloom generate

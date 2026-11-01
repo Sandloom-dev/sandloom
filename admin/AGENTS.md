@@ -3,7 +3,7 @@
 The platform-owner console: React 19, TypeScript (strict), Vite, Radix
 primitives with Tailwind v4 design tokens, TanStack Query for all server
 state, and TanStack Table for grids. It is independent of the Python kernel.
-Full guide: `admin/README.md`, `docs/admin-console/guide.md` (developer) and
+Full guide: `admin/README.md`, `docs/admin-console/develop.md` (developer) and
 `docs/admin-console/operations.md` (operator).
 
 ## Rules
@@ -37,6 +37,11 @@ npm run build                                            # tsc + vite + license 
 npm run test:browser                                     # Playwright on the static build
 npm run format:check
 ```
+
+After changing anything the build uses, run `npm run package` and commit
+`src/sandloom_admin/console`: the wheel ships that copy, so applications need no Node, and
+a test fails when it no longer matches the source. The copy is served at `/admin/`, so
+paths go through `import.meta.env.BASE_URL`; API calls stay absolute.
 
 Stop the dev server before `npm ci` or any dependency change, then run
 `npm run dev -- --force`. Stale Vite pre-bundles cause duplicate-runtime hook
