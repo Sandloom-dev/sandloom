@@ -539,7 +539,7 @@ def _store_session_first(node: Any, secondaries: frozenset[str]) -> None:
 
 def _secondaries_commit_first(route: Any, policies: dict[str, RoutePolicy]) -> None:
     """``allow_multi_db_write``: the secondaries commit first, the write store
-    last (docs/concepts/write-admission.md rule 4), whatever the endpoint's
+    last (docs/modules/guarantees/write-admission.md rule 4), whatever the endpoint's
     parameter order. Session dependencies commit when FastAPI unwinds them,
     last solved first: the write store's session is moved to be solved
     before every secondary's (startup only; values bind by name, so the

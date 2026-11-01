@@ -505,5 +505,5 @@ A module the loader skipped, with the reason why.
 
 ## Examples and related guides
 
-- [Add a module](../../guides/add-module.md)
+- [Add a module](../../modules/create.md)
 - [Python API overview](index.md)

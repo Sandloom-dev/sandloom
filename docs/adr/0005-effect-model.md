@@ -355,5 +355,5 @@ deterministic and structural, never a pattern lint:
 
 ## Related reading
 
-- [Deduplicate effects](../guides/effect-deduplication.md)
-- [Transaction units](../concepts/units.md)
+- [Deduplicate effects](../modules/background/effect-deduplication.md)
+- [Transaction units](../modules/database/units.md)

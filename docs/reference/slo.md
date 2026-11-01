@@ -88,7 +88,7 @@ Why these numbers and not tighter ones:
   saturate around 310–360/s, ordinary (`W`) around 470/s in closed loop.
 - **Login** is dominated by the password hash on purpose. Its capacity
   (≈ 9/s on 2 vCPU) is a planning number: see `PASSWORD_HASH_PROFILE` in
-  `docs/operations/operator-reference.md` → Password hashing. Do not "fix" a login SLO by
+  `docs/operate/operator-reference.md` → Password hashing. Do not "fix" a login SLO by
   weakening the hash.
 - **Events**: the durable consumer's whole callback costs 13–15 ms under HTTP
   load; a pure drain without HTTP traffic reaches ≈ 510–520 events/s, but that
@@ -167,5 +167,5 @@ after any capacity change).
 
 ## Related reading
 
-- [Runbook](../operations/runbook.md)
+- [Runbook](../operate/runbook.md)
 - [Security model](security-model.md)

@@ -542,7 +542,7 @@ async def test_capability_replay_checks_at_startup() -> None:
 
 # --------------------------------------------------------------------------- #
 # allow_multi_db_write: secondaries commit first, the write store last
-# (docs/concepts/write-admission.md rule 4), whatever the parameter order
+# (docs/modules/guarantees/write-admission.md rule 4), whatever the parameter order
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 async def analytics(sandloom_app: FastAPI) -> AsyncIterator[list[str]]:

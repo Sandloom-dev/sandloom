@@ -7,8 +7,8 @@ import re
 from sandloom.core.cli.inspection.model import Doc, InspectionError, response
 from sandloom.core.cli.inspection.read import Reader
 
-LIFECYCLE = "https://sandloom.dev/docs/concepts/lifecycle/"
-SAGAS = "https://sandloom.dev/docs/concepts/sagas/"
+LIFECYCLE = "https://sandloom.dev/docs/modules/guarantees/lifecycle/"
+SAGAS = "https://sandloom.dev/docs/modules/between/sagas/"
 
 
 def catalog(reader: Reader, module: str | None = None) -> list[Doc]:

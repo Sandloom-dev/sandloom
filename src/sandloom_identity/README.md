@@ -2,7 +2,7 @@
 
 Модуль аутентификации, авторизации и управления пользователями Sandloom Framework
 (обязательный, `required=True`). Полное англоязычное описание:
-[`docs/modules/identity.md`](../../../docs/modules/identity.md).
+[`docs/modules/standard/identity.md`](../../../docs/modules/standard/identity.md).
 
 ## Возможности
 
@@ -89,7 +89,7 @@ GET    /auth/sso/me/linked
 Автопривязка по email — только если email подтверждён провайдером И локальный
 аккаунт подтверждён. Microsoft идентифицируется по `tid:oid` (email доверяется
 только с claim `xms_edov`), GitHub — только verified primary email. Настройка:
-[SSO setup](../../../docs/guides/sso-setup.md).
+[SSO setup](../../../docs/modules/standard/sso.md).
 
 ### Пользователи и роли (`/api/v1`)
 

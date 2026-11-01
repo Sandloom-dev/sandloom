@@ -96,7 +96,7 @@ FIX_TYPES = (
     "use str, int, float, bool, None, UUID, datetime, date, time, timedelta, "
     "Decimal, an Enum, a Literal, Any (an opaque JSON value), a BaseModel DTO, "
     "or X | None, list, tuple, set / frozenset (of scalars) and dict[str, ...] "
-    "of them (docs: concepts/events.md, What an event field may be)"
+    "of them (docs: modules/between/events.md, What an event field may be)"
 )
 _FIX_UNION = (
     'give every DTO branch a tag field (kind: Literal["a"]) and declare '

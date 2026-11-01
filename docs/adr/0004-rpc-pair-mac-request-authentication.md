@@ -578,5 +578,5 @@ migration path above is removed and the target state is the only state:
 
 ## Related reading
 
-- [Service RPC guide](../guides/service-rpc.md)
+- [Service RPC guide](../operate/service-rpc.md)
 - [Security model](../reference/security-model.md)

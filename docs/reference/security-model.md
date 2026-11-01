@@ -22,7 +22,7 @@ the concept page with the full detail.
   OWASP minimum production refuses to start unless `SANDLOOM_ACCEPTED_RISKS` lists
   `weak_password_hash` (logged on every start). A changed setting migrates users on their next
   successful login (re-hash in the same UoW, never blocking the login); see
-  `docs/operations/operator-reference.md` → *Password hashing*.
+  `docs/operate/operator-reference.md` → *Password hashing*.
 - **`token_type` discrimination.** Every access JWT must carry
   `token_type: "access"`; guards reject tokens without it, so a refresh token can
   never be used as an access token.
@@ -172,7 +172,7 @@ the concept page with the full detail.
   "Authority at commit" below). Each module's committed
   `routes.snapshot.json` (method, path, auth, policy; checked by
   `assert_route_snapshot`, SANDLOOM-T001) is the module's reviewed approval of
-  its routes' resolved policy. See [Route policy](../concepts/route-policy.md).
+  its routes' resolved policy. See [Route policy](../modules/http/route-policy.md).
 - **Emergency user block.** `block_user(user_id, reason=..., actor_id=...)` /
   `unblock_user(...)` (from `sandloom.sdk.security`) — for a compromised account
   that must stop NOW. The block is a `blocked` value of the same subject
@@ -214,11 +214,11 @@ the concept page with the full detail.
   required in production when identity is loaded; only outside production does
   an unset key fall back to one derived from `JWT_SECRET`.
 - **SSO.** OAuth2 with CSRF-protecting one-time state tokens stored in Redis with
-  a TTL. See the [SSO guide](../guides/sso-setup.md).
+  a TTL. See the [SSO guide](../modules/standard/sso.md).
 
 ## Authorization
 
-The composable [authz algebra](../concepts/authorization.md) (`require(...)`,
+The composable [authz algebra](../modules/http/authorization.md) (`require(...)`,
 `enforce(...)`) is the single enforcement path. Policies evaluate cheapest tier
 first (claims → resource → live), short-circuiting. RBAC roles/permissions are
 JWT claims contributed by identity; billing entitlements resolve via the
@@ -228,7 +228,7 @@ Every minted token records claim provenance in `claims_sources` /
 `claims_sources_failed`; a claim whose owner is in `claims_sources_failed` is
 treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
-[Claims contributors](../concepts/route-policy.md#token-claims).
+[Claims contributors](../modules/http/route-policy.md#token-claims).
 Contributors cannot override the identity claims (`sub`, `email`,
 `email_verified`, `token_type`).
 
@@ -460,7 +460,7 @@ There is exactly one internal-RPC authentication, the pair MAC of
 Normative statement: **a caller accepts a response only when it answers THE
 request it sent and is keyed by the provider the binding pins; the binding
 authenticates the response.** Mechanism:
-[Response binding](../guides/service-rpc.md#response-binding).
+[Response binding](../operate/service-rpc.md#response-binding).
 
 | Threat | Outcome |
 | --- | --- |
@@ -489,7 +489,7 @@ authenticates the response.** Mechanism:
 
 ## Tenant isolation
 
-[Fail-closed tenant scoping](../concepts/multi-tenancy.md): `TenantScoped` models
+[Fail-closed tenant scoping](../modules/database/multi-tenancy.md): `TenantScoped` models
 are auto-filtered to the bound tenant; the explicit helpers
 (`scoped`, `tenant_filter`, `current_tenant_id`) raise `MissingTenantError` if no
 tenant is bound. Deliberate cross-tenant access requires an explicit
@@ -772,7 +772,7 @@ IDEMPOTENCY_CACHE_INSTANCE=idempotency
 
 ## Idempotency
 
-[Idempotency guards](../concepts/route-policy.md#idempotency) de-duplicate retries on mutating
+[Idempotency guards](../modules/http/route-policy.md#idempotency) de-duplicate retries on mutating
 endpoints. Keys are scoped per caller and tenant; reservations carry an owner
 token and every transition is a compare-and-set; a response body is never
 replayed to an anonymous caller. Money/irreversible operations use
@@ -790,7 +790,7 @@ pending TTL as the failure backstop.
 
 ## Audit trail
 
-[`record_audit`](../concepts/audit.md) writes security-sensitive actions to
+[`record_audit`](../modules/http/audit.md) writes security-sensitive actions to
 `audit_log` in the current Unit of Work (commits iff the change commits). Keep PII
 out of `data`. Authorization **denials** are recorded via the structured deny log
 + `access_denied_*` metrics (a denied request rolls back, so it cannot be
@@ -828,7 +828,7 @@ audited).
 - **Internal RPC** (`/_sandloom/rpc/*`) is never opened by `INTERNAL_API_TOKEN` or
   `INTERNAL_ENDPOINTS_OPEN_IN_DEV`: it accepts only pair-MAC authenticated
   requests carrying a MAC-covered caller context (tenant, issue time within
-  `RPC_AUTH_MAX_SKEW_SECONDS`) — see [Service RPC](../guides/service-rpc.md)
+  `RPC_AUTH_MAX_SKEW_SECONDS`) — see [Service RPC](../operate/service-rpc.md)
   and the service trust model above.
   Both HTTP transports enforce `RPC_MAX_RESPONSE_BYTES` while reading a response.
   Automatic fallback to httpx ignores ambient proxy settings while retaining
@@ -861,7 +861,7 @@ same redaction. Production fails fast on a weak or placeholder `JWT_SECRET` /
 `BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`
 (every accepted risk is logged at each start and exported as
 `sandloom_accepted_risk_active{risk}`). See the
-[Secrets management](../operations/operator-reference.md#secrets-management) for secret-manager
+[Secrets management](../operate/operator-reference.md#secrets-management) for secret-manager
 integration.
 
 No secret file enters an `sandloom new` application's image: its `.dockerignore`

@@ -8,5 +8,5 @@ search:
 
 ## Related reading
 
-- [Upgrade an application](guides/upgrading.md)
+- [Upgrade an application](operate/upgrade.md)
 - [Versioning policy](contributing/versioning.md)

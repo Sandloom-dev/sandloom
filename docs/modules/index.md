@@ -1,46 +1,149 @@
 ---
-title: Modules
+title: What a module is
+description: A module is one Python package that owns one slice of the business. What it contains, how to create one, what it may import and how it talks to other modules.
+type: concept
 ---
 
-# Standard Modules
+# What a module is
 
-Sandloom publishes three ready-made modules for products that need accounts,
-organizations or payments. They follow the same rules as your own modules, and all three
-are optional: `--no-batteries` creates an application with none of them. Each is its own package: `sandloom-identity`,
-`sandloom-tenancy` and `sandloom-billing` (import packages `sandloom_identity`,
-`sandloom_tenancy`, `sandloom_billing`; all three with
-`pip install "sandloom[standard]"`). Each registers a `sandloom.modules` entry
-point whose name is its module name, depends on `sandloom>=0.7.0a5,<0.8` and on no
-other module, and follows the same isolation rules as a module you write yourself
-([Module packages](../concepts/module-internals.md#module-packages)). Load any subset via
-`SANDLOOM_MODULES` (`["identity", "tenancy"]`), or `sandloom new <app> --with
-identity,tenancy,billing`. Sandloom is in alpha, and so are these modules.
+A **module** is one Python package that owns one slice of the business: its tables,
+routes, events, contracts and tests. Orders, billing and notifications would each be a
+module.
 
-The **startup-critical** column is the module's `required` flag: when the module
-is loaded and fails to start, the process does not serve traffic. It does not mean
-your application must install the module. Authenticated routes need a token
-issuer, which is what identity provides.
+Modules are **atomic and isolated**: you can work inside one without reading or breaking
+any other. That is what keeps a change by a person or an agent contained to one package,
+and what lets one codebase run as a monolith or as separate services by configuration
+alone.
 
-To change how they behave, see [Customize a standard module](../guides/customize-standard-module.md).
+## What a module looks like
 
-| Module | Startup-critical | Provides | Publishes | Consumes |
-| --- | --- | --- | --- | --- |
-| [Identity](identity.md) | ✅ | `identity.claims.v1` (roles/permissions, critical), auth guards, token issuance | 15 `identity.*` events | every registered `<module>.claims.v1` at token mint |
-| [Tenancy](tenancy.md) | ❌ | `tenancy.membership.v1` (read-only), `tenancy.claims.v1` (`tenant_ids`, critical) | 9 `tenancy.*` events | — |
-| [Billing](billing.md) | ❌ | `billing.entitlements.v1`, `billing.credits.v1`, `billing.claims.v1`; access facts `subscription.active`, `organization.subscription.active` | 5 `billing.*` events | `tenancy.membership.v1` |
+```text
+<module>/
+  __init__.py      # register = define_module(__name__, version="0.1.0")
+  api.py           # router = module_router(): the routes
+  services.py      # use cases; db() is the session of the running unit
+  models/          # tables; their names start with <module>_
+  schemas.py       # pydantic request and response shapes (no ORM)
+  events.py        # Event classes of the module's own channels
+  consumers.py     # views of other modules' channels and @on handlers
+  contracts.py     # @contract providers
+  sagas.py         # sagas the module owns
+  projections.py   # read models the module builds
+  tasks.py         # background tasks
+  migrations/      # the module's own migration chain
+  tests/           # the module's tests
+```
 
-`<module>.claims.v1` contracts are registered automatically by
-`add_claims_contributor`; a token issuer in another process collects them over
-internal RPC when they are bound in `SERVICE_BINDINGS`.
+Only `__init__.py` is required. A larger module may make any of these a
+package; discovery walks it.
 
-Every service contract takes **no database session**: each call runs in the
-provider's own Unit of Work on the provider's database, identically in-process
-and over RPC. Command contracts (`billing.credits.v1.spend`) are idempotent on
-their operation key and are **not** atomic with the caller's transaction.
+Create one with `uv run sandloom add module <name>`; [Create a module](create.md)
+walks through it. The application finds the new package by itself, so nothing else needs
+editing.
 
-These modules talk to each other only through versioned events and service
-contracts — never direct imports — exactly like the
-[isolation rules](../concepts/modules.md) require. Your app calls their
-contracts through their stubs in `sandloom.shared.contracts` (shipped with
-`sandloom`, with the generated copies of their contract DTOs; `sandloom
-generate` also writes stubs and copies into the app's shared package).
+## What you get by default, and what you declare
+
+| You write | Sandloom does for you |
+| --- | --- |
+| `register = define_module(__name__)` in `__init__.py` | imports the module's conventional submodules and registers everything it finds there (routes, events, consumers, contracts, sagas, projections, tables) |
+| tables in `models/` (`TenantScoped` or `Base`) | adds them to the module's own migration chain; `sandloom migrate new` renders the revision with row-level security |
+| `router = module_router()` in `api.py` | prefix `/api/v1/<module>`, tags, authentication and tenant binding per route |
+| `class E(Event, channel="m.e.v1")` | registers the schema of your own channel, snapshots it, exports it for other repositories |
+| `@on(E)` | a durable consumer with exactly-once apply on the envelope id |
+| `@contract("m.x.v1")` | registers the provider; `sandloom generate` writes the typed stub and DTO copies callers import |
+| `Contract(REF)` at module level | derives the module's consumed contracts (`consumes`) |
+| nothing | the module list: an application loads every subpackage of `<app>.modules` that defines `register` |
+
+## What a module may import
+
+A business module and its tests import only:
+
+- public `sandloom.sdk` modules: the beginner names from `sandloom.sdk`, every other
+  name from its themed module (`sandloom.sdk.web`, `sandloom.sdk.data`, ...; see the
+  [Python API](../reference/sdk/index.md));
+- generated contract stubs and DTO copies (`sandloom.shared.contracts.*`, or
+  the application's shared package `<app>.shared` / `CONTRACT_DTO_PACKAGES`);
+- its own package.
+
+A module never imports another business module (an installed module package
+such as `sandloom_identity` included), a kernel internal, or a
+private `sandloom.sdk._*` layer. Any spelling counts: absolute, relative,
+`importlib`, `__import__`, `getattr` on a module, `sys.modules`. A module also
+never reaches a kernel handle by attribute (`.event_bus`, `.infra`,
+`.service_registry`, `request.app.state.core`, `.raw_client()`), and imports
+no backend SDK (Redis, boto3, Celery), driver or `sandloom.driverkit` directly:
+infrastructure comes from
+capabilities ([Capabilities and infrastructure](../infrastructure/index.md)).
+
+Business modules carry no function-local imports
+([SANDLOOM-C021](../reference/error-codes.md#sandloom-c021)); the one exception is a
+marked optional dependency (`# sandloom: optional-import <reason>`).
+
+## How modules talk to each other
+
+Through [events](between/events.md) when something has happened, and through
+[contracts](between/contracts.md) when one module needs an answer now, never through an import.
+[Choose how modules talk](between/index.md) compares every option.
+
+Other modules' rows are referenced by plain UUID, never by a foreign key. A contract call
+runs in the provider's own unit on the provider's database, locally or over internal RPC:
+local equals remote.
+
+## Conventions inside a module
+
+- **Layers.** SQLAlchemy and ORM models belong to `models/` and `services.py`
+  (or a `services/` package).
+  Routes (`api.py`) and `schemas.py` stay persistence-free: a route calls a
+  service and returns a pydantic DTO
+  ([SANDLOOM-C009](../reference/error-codes.md#sandloom-c009),
+  [SANDLOOM-C010](../reference/error-codes.md#sandloom-c010),
+  [SANDLOOM-C011](../reference/error-codes.md#sandloom-c011)).
+- **Event channels are versioned**: `<module>.<entity>.<verb>.vN`
+  ([Events](between/events.md)).
+- **Bound list endpoints**: cap `limit` with `Query(le=...)`.
+- **Ids and timestamps** come from the framework: `default=new_id` and
+  `created_at: Mapped[CreatedAt]` ([details](database/conventions.md)).
+- **Startup work** goes through `core.add_startup_task(fn)` in `setup`;
+  `critical=True` when the process must not serve traffic if it fails.
+
+## What breaks it
+
+| Code | What it catches |
+| --- | --- |
+| [SANDLOOM-C001](../reference/error-codes.md#sandloom-c001) | an import of another business module |
+| [SANDLOOM-C002](../reference/error-codes.md#sandloom-c002) | an import outside the public API |
+| [SANDLOOM-C003](../reference/error-codes.md#sandloom-c003), [SANDLOOM-C004](../reference/error-codes.md#sandloom-c004), [SANDLOOM-C005](../reference/error-codes.md#sandloom-c005) | a raw provider, a backend SDK, a kernel handle |
+| [SANDLOOM-C009](../reference/error-codes.md#sandloom-c009), [SANDLOOM-C010](../reference/error-codes.md#sandloom-c010), [SANDLOOM-C011](../reference/error-codes.md#sandloom-c011) | endpoints outside the api layer, ORM in endpoints, ORM in schemas |
+| [SANDLOOM-C021](../reference/error-codes.md#sandloom-c021) | a function-local import |
+| [SANDLOOM-B001](../reference/error-codes.md#sandloom-b001), [SANDLOOM-B006](../reference/error-codes.md#sandloom-b006) | a module that fails to load or registers something invalid |
+| [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009) | an advanced name in generated code or an example without a marker |
+
+`sandloom check --list-rules` lists every static rule; `sandloom test` runs them with
+the architecture tests and the import contracts.
+
+??? note "Guarantees, precisely"
+
+    - Imports are restricted to `sandloom.sdk` public modules, the DTO packages and
+      the module's own package (G-MODULE-02, G-MODULE-13).
+    - Discovery keeps today's plain-router rule; a refused module registers
+      nothing (G-MODULE-14, C-MODULE-04).
+    - L1 registration equals the hand-written L2 registration, and every L1
+      dependency is a public L2 name (G-SDK-03, G-SDK-05).
+    - Generated code and examples stay in the beginner tier (G-SDK-04).
+    - Importing `sandloom.sdk` reads no environment and performs no I/O (G-SDK-01).
+    - An application derives its module list (G-MODULE-19).
+
+    The ledger with the enforcing tests: [Guarantees & capabilities](../reference/guarantees.md).
+
+## Inspect before changing a module
+
+Use [module context](tooling/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](tooling/architecture-graph.md)
+to inspect contract/event connections. Both commands can be invoked by an agent
+and read their index without booting the app.
+
+## Go deeper
+
+- [Module internals](guarantees/module-internals.md): the beginner names, the API levels, discovery,
+  module packages and generated files.
+- [ADR-0002: the framework absorbs module boilerplate](../adr/0002-framework-absorbs-module-boilerplate.md)

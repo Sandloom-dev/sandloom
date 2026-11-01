@@ -123,14 +123,14 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | every `sandloom.sdk` name: signature, tier, example | `docs/reference/sdk/index.md`, `uv run sandloom docs <name>` |
 | every error code: why and the fix | `docs/reference/error-codes.md`, `uv run sandloom explain <code>` |
 | tests: every fixture, `as_user`, `deliver`, `published`, fakes (copy-paste) | `docs/reference/testing.md` |
-| concepts: modules, discovery, the three API levels | `docs/concepts/modules.md`, `docs/concepts/module-internals.md` |
-| units, `db()`, effects; one writer per request | `docs/concepts/units.md`, `docs/concepts/write-admission.md` |
-| typed events, views, consumers; contracts, stubs, `optional` | `docs/concepts/events.md`, `docs/concepts/contracts.md` |
-| route policy (model E), sessions, idempotency modes; per-route lifecycle | `docs/concepts/route-policy.md`, `docs/concepts/lifecycle.md` |
-| guarantees and labels; projections | `docs/concepts/guarantees.md`, `docs/concepts/projections.md` |
-| billing gates and `of=Account…`; sagas (cross-module processes with undo) | `docs/concepts/authorization.md`, `docs/concepts/sagas.md` |
+| concepts: modules, discovery, the three API levels | `docs/modules/index.md`, `docs/modules/guarantees/module-internals.md` |
+| units, `db()`, effects; one writer per request | `docs/modules/database/units.md`, `docs/modules/guarantees/write-admission.md` |
+| typed events, views, consumers; contracts, stubs, `optional` | `docs/modules/between/events.md`, `docs/modules/between/contracts.md` |
+| route policy (model E), sessions, idempotency modes; per-route lifecycle | `docs/modules/http/route-policy.md`, `docs/modules/guarantees/lifecycle.md` |
+| guarantees and labels; projections | `docs/modules/guarantees/index.md`, `docs/modules/between/projections.md` |
+| billing gates and `of=Account…`; sagas (cross-module processes with undo) | `docs/modules/http/authorization.md`, `docs/modules/between/sagas.md` |
 | deployment profiles; a module in microservices; the distributions | `deploy/AGENTS.md`, `deploy/README.md`, `packages/README.md` |
-| security model; operations runbook (secrets, backups, incidents) | `docs/reference/security-model.md`, `docs/operations/operator-reference.md` |
+| security model; operations runbook (secrets, backups, incidents) | `docs/reference/security-model.md`, `docs/operate/operator-reference.md` |
 | decisions (effect model, route policy, Public API 1.0, …) | `docs/adr/` |
 | procedures; context/graph before module changes: `sandloom-module-context` | `.claude/skills/sandloom-*`, `.claude/rules/` |
 | issue tracker, triage labels, domain docs | `CONTRIBUTING.md` |

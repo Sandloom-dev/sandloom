@@ -44,4 +44,4 @@ paths:
 - **Testing.** Fake a contract you call with `fake_contract(REF, impl)`.
   Prove local and remote calls match with `assert_contract_conformance`
   (`sandloom.sdk.testing`).
-- Concept: `docs/concepts/contracts.md`.
+- Concept: `docs/modules/between/contracts.md`.

@@ -62,7 +62,7 @@ an event and requiring `B` does **not** establish that this event invokes `B`,
 which method it invokes, the condition, or the order.
 
 Sandloom has richer, more reliable starting points: the
-[request lifecycle](../../docs/concepts/lifecycle.md) defines framework-owned
+[request lifecycle](../../docs/modules/guarantees/lifecycle.md) defines framework-owned
 commit/re-check/idempotency stages, and the
 [saga registry](../../src/sandloom/core/sagas/registry.py) retains definitions
 whose `describe()` data can expose ordered steps and compensation metadata.

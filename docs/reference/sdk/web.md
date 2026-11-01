@@ -767,5 +767,5 @@ Name the route's write store when it injects several writable sessions
 
 ## Examples and related guides
 
-- [Route policy](../../concepts/route-policy.md)
+- [Route policy](../../modules/http/route-policy.md)
 - [Python API overview](index.md)

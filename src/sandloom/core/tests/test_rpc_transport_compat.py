@@ -86,7 +86,7 @@ def test_installed_aiohttp_is_inside_the_verified_range() -> None:
     installed = Version(metadata.version("aiohttp"))
     assert Version(low) <= installed < Version(high), (
         f"aiohttp {installed} is outside the range the RPC transport was "
-        f"verified for [{low}, {high}); follow docs/operations/operator-reference.md 'Upgrading "
+        f"verified for [{low}, {high}); follow docs/operate/operator-reference.md 'Upgrading "
         "aiohttp' and then widen VERIFIED_AIOHTTP_RANGE and pyproject.toml together"
     )
 

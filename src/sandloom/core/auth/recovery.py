@@ -26,7 +26,7 @@ audit event per user decides whether the user is blocked (a block and an
 unblock at the same instant resolve to BLOCKED — the safe side), and every
 revocation still inside the mark lifetime is re-applied with the monotonic
 writer (a mark is never lowered). It is what ``sandloom backup reconcile-security``
-runs; the runbook (``docs/operations/operator-reference.md``) makes it a gate
+runs; the runbook (``docs/operate/operator-reference.md``) makes it a gate
 before traffic is admitted after a recovery.
 
 A ``blocked`` record whose newest audit event is an UNBLOCK (a snapshot older

@@ -4,7 +4,7 @@ Status: **design research; no implementation**. Reviewed 2026-10-30.
 Runtime baseline: `2fa0bc19c06b6c541664b80e781117f1b8d08591` (0.7.0a3).
 Website-only merge `1ed3562a35d9e0894ee293b5c69ce37bc106d70b` does not alter these runtime findings.
 
-Read [the proposed specification](spec.md) and [module map guide](../../docs/guides/module-context.md).
+Read [the proposed specification](spec.md) and [module map guide](../../docs/modules/tooling/module-context.md).
 The primary-source survey and repository inspection below are independent inputs.
 Recommendations in them are not assertions that Sandloom already provides these features.
 
@@ -164,7 +164,7 @@ while JSON carries typed graph relations and automation responses. This is an
 engineering proposal, not a measured tokenizer result. Retain semantic scope,
 freshness and omissions in every compact view; put repetitive hashes/provenance
 behind explicit full detail. Compare equivalent selected content before claiming
-any byte/token gain. The [module map guide](../../docs/guides/module-context.md) and
+any byte/token gain. The [module map guide](../../docs/modules/tooling/module-context.md) and
 [agent skill](../../.agents/skills/sandloom-module-context/SKILL.md) make the intended loop
 reviewable before commands exist.
 

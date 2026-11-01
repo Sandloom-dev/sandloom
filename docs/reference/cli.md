@@ -49,8 +49,8 @@ I/O failure, 2 usage (including an unknown graph module selector), 3 strict
 verification unavailable. JSON emits one versioned
 success/error envelope. Text errors leave stdout empty and explain on stderr.
 Inspection performs no app imports, prompts, network access, `.env` loading or
-implicit generation. See [module maps](../guides/module-context.md) and
-[graph semantics](../guides/architecture-graph.md).
+implicit generation. See [module maps](../modules/tooling/module-context.md) and
+[graph semantics](../modules/tooling/architecture-graph.md).
 
 `explore` runs `generate`, writes `.sandloom/cache/explore.html` atomically, prints
 its URL and opens the browser. `--no-generate` reads the saved index;
@@ -70,7 +70,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom add projection <module> <name>` | A projection skeleton. |
 | `sandloom add task <module> <name> [--periodic CRON]` | An idempotent task skeleton; `--periodic` adds its five-field cron beat schedule. |
 | `sandloom add skills [--force]` | Refresh the application's agent skills; preserve edited files unless `--force` is given. |
-| `sandloom add deploy <module>... [--service S] [--force]` / `--refresh` / `--check [--env-file F]` | Split into services: create (first run) or update the microservices profile and its gateway, derived from what the modules provide and consume; `--check` runs the split invariants (SANDLOOM-T014) and boots every service alone. [Split an app into services](../guides/split-into-services.md). |
+| `sandloom add deploy <module>... [--service S] [--force]` / `--refresh` / `--check [--env-file F]` | Split into services: create (first run) or update the microservices profile and its gateway, derived from what the modules provide and consume; `--check` runs the split invariants (SANDLOOM-T014) and boots every service alone. [Split an app into services](../operate/split-into-services.md). |
 | `sandloom docs [<name>] [--write \| --check]` | Print a public `sandloom.sdk` name's exact signature, tier and docstring; `--write` / `--check` refresh or verify the generated reference blocks. |
 | `sandloom explain <code> [--list \| --markdown]` | Explain an `SANDLOOM-xxxx` error code or a check rule: why, and the fix. |
 | `sandloom version` | Print the framework version. |
@@ -79,19 +79,19 @@ Code generators run `sandloom generate` last, so snapshots and stubs are current
 after scaffolding. `add deploy` validates deployment configuration; `add skills`
 refreshes agent instructions and does not run application generation.
 `sandloom add --root <path>` runs a generator against another project root. Each
-generator has a how-to: [Add a module](../guides/add-module.md),
-[Add an event](../guides/add-event.md),
-[Add a consumer](../guides/add-consumer.md),
-[Add a contract](../guides/add-contract.md),
-[Add a saga](../guides/add-saga.md),
-[Add a projection](../guides/add-projection.md).
+generator has a how-to: [Add a module](../modules/create.md),
+[Add an event](../modules/between/add-event.md),
+[Add a consumer](../modules/between/add-consumer.md),
+[Add a contract](../modules/between/add-contract.md),
+[Add a saga](../modules/between/add-saga.md),
+[Add a projection](../modules/between/add-projection.md).
 
 ## Tests and gates
 
 | Command | What it does |
 | --- | --- |
 | `sandloom generate [<module> ...] [--check] [--root ROOT]` | Writes every generated file: each module's `module.snapshot.json`, `routes.snapshot.json` and `contracts.snapshot.json`, the contract stubs and the DTO copies (`<shared>/contracts/<module>_dto.py`, a wire-shape copy of each provider DTO a contract signature names) and the exported event schemas. Every file is compared with the committed one first: an incompatible change (SANDLOOM-T001, T004, T005, T007, C012) fails and nothing is written. A weaker route policy is written only by `sandloom routes snapshot --write`. Module names keep those modules' files only. Loads the project's `.env.test` like `sandloom test`; generation does not apply migrations. Code generators run it last. `sandloom new` attempts it when dependencies are available; after `uv sync`, run it in the app environment. `--check` compares without writing; `--root` selects the application root. |
-| `sandloom test [<module>] [--full] [--no-gates] [-n N] [--plan] [--ci] [--seed N \| --no-shuffle]` | The gate: the module's tests first, then the fast suite in parallel (`-m "not slow" -n auto --dist loadfile`, `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`; `--full` includes slow tests), then ruff, ruff format, mypy, `sandloom check`, the architecture tests, `lint-imports` and the contract and route snapshots. A failing step names its code. It never writes a generated file: a stale one fails with "generated files are stale: run `sandloom generate`" and the list. `--ci` also runs `ruff check --no-fix`. The test steps run in a seeded random order (printed; `--seed N` replays it, `--no-shuffle` keeps file order): [Test isolation](../guides/testing.md#test-isolation). |
+| `sandloom test [<module>] [--full] [--no-gates] [-n N] [--plan] [--ci] [--seed N \| --no-shuffle]` | The gate: the module's tests first, then the fast suite in parallel (`-m "not slow" -n auto --dist loadfile`, `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`; `--full` includes slow tests), then ruff, ruff format, mypy, `sandloom check`, the architecture tests, `lint-imports` and the contract and route snapshots. A failing step names its code. It never writes a generated file: a stale one fails with "generated files are stale: run `sandloom generate`" and the list. `--ci` also runs `ruff check --no-fix`. The test steps run in a seeded random order (printed; `--seed N` replays it, `--no-shuffle` keeps file order): [Test isolation](../modules/tooling/testing.md#test-isolation). |
 | `sandloom check [--rules FILE] [--only rule,...] [--list-rules] [--boot]` | Static architecture analyzers against `./architecture_rules.yml` (exit `0` ok, `1` violations, `2` usage). `--boot` also builds the app through `create_app` and reports startup refusals and stale route snapshots. Outside this repository it needs `pip install "sandloom[check]"`. |
 | `sandloom routes snapshot [--write \| --check] [--module M]` | Each module's route snapshot (`routes.snapshot.json`: method, path, authentication, resolved policy). `--check` fails on a stale file (SANDLOOM-T001); after a route change run `--write` and review the diff. `sandloom generate` never writes a weaker policy (spec §5.8): `--write` is its explicit approval and names each weakening it approves. |
 | `sandloom routes reference` | Print the generated route reference. |
@@ -100,7 +100,7 @@ generator has a how-to: [Add a module](../guides/add-module.md),
 
 Never re-run a serial `pytest -q` after each fix; `sandloom test` runs the suite in
 parallel. The harness and its isolation guards are described in
-[Testing Modules](../guides/testing.md); every fixture in the
+[Testing Modules](../modules/tooling/testing.md); every fixture in the
 [testing reference](testing.md).
 
 ```bash
@@ -126,8 +126,8 @@ only (3.13 / 3.14: `-m "not slow"`); the pre-push hook runs everything.
 ## Migrations
 
 Each module owns its own chain; the core chain holds the shared
-infrastructure tables. See [Migrations](../concepts/migrations.md) and
-[Write a migration](../guides/write-migration.md).
+infrastructure tables. See [Migrations](../modules/database/migrations.md) and
+[Write a migration](../modules/database/write-migration.md).
 
 | Command | What it does |
 | --- | --- |
@@ -160,8 +160,8 @@ infrastructure tables. See [Migrations](../concepts/migrations.md) and
 | `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 
-Procedures: the [runbook](../operations/runbook.md) and the
-[operator reference](../operations/operator-reference.md).
+Procedures: the [runbook](../operate/runbook.md) and the
+[operator reference](../operate/operator-reference.md).
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
@@ -215,11 +215,11 @@ its new findings in the same change.
 `uv run sandloom migrate drift` builds a scratch database from the loaded
 module migration chains and compares it with the models. It reports missing
 or extra schema operations and does not repair the application database.
-`sandloom test` includes this check. See [migrations](../guides/migrations.md).
+`sandloom test` includes this check. See [migrations](../modules/database/run-migrations.md).
 
 For incident tools (`security`, `backup`, `streams`, `outbox`, `sagas`, keys and
 projections), including scope, dry-run, JSON, batching and production-confirmation
-flags, use the [operator reference](../operations/operator-reference.md).
+flags, use the [operator reference](../operate/operator-reference.md).
 Publishing the website is a separate [manual workflow](../contributing/website.md).
 
 ## Configuration tiers and accepted risks
@@ -264,7 +264,7 @@ is raw env).
   `MODULE_REQUIRED` (load failure aborts startup; when empty, every module
   listed EXPLICITLY in `SANDLOOM_MODULES` is required — list the required subset in
   `MODULE_REQUIRED` instead). See
-  [Loader Configuration](../guides/loader-configuration.md).
+  [Loader Configuration](../operate/loader-configuration.md).
 - **Services.** `SERVICE_BINDINGS` (strictly validated; `"required": true`
   makes `/ready` — never `/health` — fail while that peer is unreachable;
   `SERVICE_PROBE_TIMEOUT_SECONDS` caps each concurrent probe).
@@ -322,7 +322,7 @@ is raw env).
   `IDEMPOTENCY_CACHE_INSTANCE` (opt-in separate cache for idempotency
   records; empty = the security cache). Every authenticated route reads the
   session record live; there is no per-route revocation setting
-  ([Route policy](../concepts/route-policy.md)).
+  ([Route policy](../modules/http/route-policy.md)).
 - **Passwords.** `PASSWORD_HASH_CONCURRENCY` (argon2 pool; default
   min(4, CPUs)), `PASSWORD_HASH_PROFILE` (`strong` default = m=65536 KiB/t=3/p=4
   | `owasp_min` = m=19456/t=2/p=1 | `custom`) + `PASSWORD_HASH_TIME_COST` /
@@ -333,7 +333,7 @@ is raw env).
   OWASP argon2id minimum unless the risk `weak_password_hash` is accepted).
 - **Infrastructure.** `INFRA` (JSON declaring additional named infrastructure
   instances / driver overrides — see
-  [Capabilities & Infrastructure](../concepts/capabilities-and-infrastructure.md)),
+  [Capabilities & Infrastructure](../infrastructure/index.md)),
   `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` (default-engine pool
   sizing), `DB_POOL_PING_IDLE_SECONDS` (checkout ping only after that much
   idle time; no `pool_pre_ping`), `DB_POOL_OVERFLOW_LINGER_SECONDS` (overflow
@@ -362,4 +362,4 @@ is raw env).
   may be supplied as a file named after its field).
 
 Secrets, backups, retention, audit and observability: the
-[operator reference](../operations/operator-reference.md).
+[operator reference](../operate/operator-reference.md).

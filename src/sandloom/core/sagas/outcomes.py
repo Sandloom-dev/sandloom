@@ -212,7 +212,7 @@ PARK_REMEDIATIONS: Mapping[str, str] = {
 
 
 def remediation(reason: str | None) -> str:
-    return PARK_REMEDIATIONS.get(reason or "", "see docs/concepts/sagas.md")
+    return PARK_REMEDIATIONS.get(reason or "", "see docs/modules/between/sagas.md")
 
 
 __all__ = [

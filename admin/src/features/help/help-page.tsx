@@ -61,7 +61,7 @@ const SECTIONS: readonly (readonly [string, string])[] = [
   ],
 ];
 
-/** Built-in operator help; the full guide is docs/guides/admin-operations.md. */
+/** Built-in operator help; the full guide is docs/admin-console/operations.md. */
 export function HelpPage() {
   return (
     <div className="flex max-w-prose flex-col gap-4">

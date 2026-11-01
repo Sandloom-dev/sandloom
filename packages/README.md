@@ -40,7 +40,7 @@ What the layout means:
   `sandloom.main:app` composes every installed entry point when
   `SANDLOOM_MODULES` is unset, so `pip install "sandloom[standard]"` serves
   identity, tenancy and billing. The kernel names no module. See
-  [Modules](../docs/concepts/modules.md#module-packages).
+  [Modules](../docs/modules/index.md#module-packages).
 - **Modules do not depend on each other.** Contract calls are bound at
   runtime. `sandloom.shared` ships whole inside `sandloom`: `UserContext` in
   `subject.py`, the generated contract DTOs (including `UserContact` and

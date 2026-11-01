@@ -196,7 +196,7 @@ def _redis_item(url: str, roles: list[str]) -> PlanItem:
         restore.append(
             "queued Celery tasks newer than the snapshot are lost and older ones "
             "may run again: task effects need DB-atomic idempotency; re-enqueue "
-            "what is missing (docs/operations/operator-reference.md: "
+            "what is missing (docs/operate/operator-reference.md: "
             "uncertain task enqueues)"
         )
     if not security and not streams and all(r.startswith("cache:") for r in roles):

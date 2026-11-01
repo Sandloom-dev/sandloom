@@ -4,7 +4,7 @@ The root ``AGENTS.md`` is loaded into every agent session (Claude Code via
 ``CLAUDE.md``; Codex reads at most 32 KiB of instruction files). It stays a
 map: one rule, the non-negotiables with the check enforcing each, the golden
 path, an index and the intentional oddities. Detail lives in the nested
-contracts and ``docs/concepts/``. These tests are the ratchet: grow a
+contracts and ``docs/modules/``. These tests are the ratchet: grow a
 budget only together with an eval run (``benchmarks/dx``) showing it pays.
 """
 
@@ -45,7 +45,7 @@ def test_root_agents_md_is_a_map() -> None:
     assert lines <= ROOT_MAX_LINES and size <= ROOT_MAX_BYTES, (
         f"AGENTS.md is {lines} lines / {size} bytes (budget {ROOT_MAX_LINES} / "
         f"{ROOT_MAX_BYTES}). Move detail to a nested AGENTS.md or "
-        "docs/concepts/ and leave one index line."
+        "docs/modules/ and leave one index line."
     )
 
 

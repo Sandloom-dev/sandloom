@@ -68,10 +68,10 @@ Within a major version (`0.x` while pre-1.0, `x.y` thereafter):
 
 The framework, the `sandloom` distribution, has one release line (`0.6.0`,
 `0.7.0`, …), recorded in the [Changelog](../changelog.md) with an upgrade guide
-per breaking release (e.g. [Upgrading to 1.0](../guides/upgrading-1.0.md)).
+per breaking release (e.g. [Upgrading to 1.0](../operate/upgrade-1.0.md)).
 
 The module packages `sandloom-identity`, `sandloom-tenancy` and
-`sandloom-billing` (see [Publishing](../guides/publishing.md)) **version
+`sandloom-billing` (see [Publishing](publishing.md)) **version
 independently**, like any third-party module: each has its own version and
 changelog. The current published alpha is `0.7.0a5`; each module depends on a compatible framework range, <!-- sandloom-release -->
 `sandloom>=0.7.0a5,<0.8` (for a `0.x` framework the next minor is the next breaking

@@ -22,7 +22,7 @@ compatibility matrix and heavy scenarios run explicitly before release. See
 [CI profiles and minute budget](ci.md) for the exact split and commands.
 
 The [website publishing guide](website.md) covers the unified site, GitHub Pages
-and DNS setup separately from [package publishing](../guides/publishing.md).
+and DNS setup separately from [package publishing](publishing.md).
 
 ## Quality gates
 
@@ -38,7 +38,7 @@ uv run sandloom test --full                                   # once, at the end
 `sandloom test` runs the tests in parallel, then ruff, ruff format, mypy,
 `sandloom check`, the architecture tests, `lint-imports` and the contract and route
 snapshots; `sandloom test --plan` prints the steps. Do not re-run a serial
-`pytest -q` after each fix. See [Testing](../guides/testing.md) and the
+`pytest -q` after each fix. See [Testing](../modules/tooling/testing.md) and the
 [CLI reference](../reference/cli.md).
 
 `uv sync` installs the `dev` dependency group (ruff, mypy, pytest pinned exactly
@@ -71,7 +71,7 @@ runner before merging: `tools/ci/ci_local.sh <git-ref>` reproduces the CI jobs
 public `sandloom.sdk` modules, generated contract stubs and contract DTOs, and its
 own package. Never import one business module from another. AST-based
 architecture checks block violations (`sandloom check`, SANDLOOM-C001 / SANDLOOM-C002). See
-[Modules](../concepts/modules.md).
+[Modules](../modules/index.md).
 
 ## Adding a module — the golden path
 
@@ -82,7 +82,7 @@ uv run sandloom test <snake_case_name>
 
 The module is discovered: no `SANDLOOM_MODULES` or `testpaths` edit is needed. Then
 generate its migration in its own chain (`sandloom migrate new`) and replace the
-example domain. Full walkthrough: [Add a module](../guides/add-module.md) and
+example domain. Full walkthrough: [Add a module](../modules/create.md) and
 the [tutorial](../getting-started/tutorial.md).
 
 ## Documentation
@@ -116,6 +116,6 @@ release. Do not infer release readiness from an old benchmark or design note.
 - API layer: no `sqlalchemy` imports, no ORM models — DTOs + services that use `db()`.
 - Reference other modules' entities by plain UUID; no cross-module FKs.
 - Never call `db.commit()` / `db.rollback()` — the
-  [Unit of Work](../concepts/units.md) owns the boundary.
+  [Unit of Work](../modules/database/units.md) owns the boundary.
 - See [Versioning & Stability](versioning.md) for the public-API and
   event-schema compatibility policy.

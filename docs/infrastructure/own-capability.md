@@ -49,5 +49,5 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
 - **Reserved names:** the kernel defines `search`, `document_store`, `graph_store`,
   `workflow`, `lock` and `secrets`, so a package cannot declare them.
 
-See also [Write a driver](../guides/write-a-driver.md) and the
-[driver kit](../reference/driverkit.md).
+See also [Write a driver](write-a-driver.md) and the
+[driver kit](driverkit.md).

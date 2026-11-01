@@ -28,7 +28,7 @@ tests:
             exp_annotations:
               summary: "Outbox of sandloom/default: oldest undelivered event is 30s old"
               description: "Early warning for SandloomOutboxBacklogAgeing (the normal age is well under a second)."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
       - eval_time: 10m
         alertname: SandloomOutboxBacklogAgeing
         exp_alerts: []
@@ -39,7 +39,7 @@ tests:
             exp_annotations:
               summary: "Outbox of sandloom/default: oldest undelivered event is 2m 0s old"
               description: "Committed events are not reaching the broker: broker down (outbox_relay_circuit_open == 1), relay not running (outbox_relay_last_run_timestamp stale) or a backlog the relay cannot drain."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
       - eval_time: 11m
         alertname: SandloomOutboxRelayAbsent
         exp_alerts:
@@ -47,7 +47,7 @@ tests:
             exp_annotations:
               summary: "sandloom-norelay serves traffic but no process runs the outbox relay"
               description: "The age gauge is exported only by the relay. Check OUTBOX_RELAY_ENABLED (auto = prod only) and the Gunicorn relay leader election in the app logs."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
   - name: security cache errors page, other caches warn
     interval: 1m
@@ -64,7 +64,7 @@ tests:
             exp_annotations:
               summary: "sandloom: security cache errors 1/s"
               description: "The Redis holding revocation marks, blocks and idempotency records is unreachable or timing out: authenticated requests answer 503 (fail-closed) or skip revocation (fail-open)."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
       - eval_time: 6m
         alertname: SandloomCacheErrors
         exp_alerts:
@@ -72,7 +72,7 @@ tests:
             exp_annotations:
               summary: "sandloom: cache default errors 1/s"
               description: "Redis unreachable or timing out; rate limiting falls back to its fail-open / fail-closed policy."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
 
   - name: durable revocation pending — warning then page
     interval: 1m
@@ -90,7 +90,7 @@ tests:
             exp_annotations:
               summary: "sandloom: a durable revocation is pending for 1m 30s"
               description: "The identity replica answers /ready 503 (revocations_pending) until it drains. Fix the cache."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
       - eval_time: 3m
         alertname: SandloomRevocationPendingCritical
         exp_alerts:
@@ -98,7 +98,7 @@ tests:
             exp_annotations:
               summary: "sandloom: a durable revocation is pending for 6m 40s"
               description: "A revoked token may still be accepted wherever the cache is reachable."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
   - name: read availability fast burn pages, healthy traffic does not
     interval: 1m

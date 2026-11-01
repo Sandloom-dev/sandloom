@@ -209,31 +209,31 @@ DOC_GAPS: tuple[tuple[str, str, str], ...] = (
         "public signatures",
         "AGENTS.md cheat-sheet, docs/reference/sdk/index.md (sandloom docs)",
     ),
-    (r"sandloom/core/projections/", "projections", "docs/concepts/projections.md"),
+    (r"sandloom/core/projections/", "projections", "docs/modules/between/projections.md"),
     (
         r"sandloom/core/unit_of_work/versioning",
         "event versioning",
-        "skill sandloom-event-version-roll, docs/concepts/events.md",
+        "skill sandloom-event-version-roll, docs/modules/between/events.md",
     ),
     (
         r"sandloom/core/(eventing|consumers)/",
         "events and consumers",
-        "docs/concepts/events.md",
+        "docs/modules/between/events.md",
     ),
     (
         r"sandloom/core/unit_of_work/",
         "units, db() and effects",
-        "docs/concepts/units.md",
+        "docs/modules/database/units.md",
     ),
     (
         r"sandloom/core/(idempotency/|route_policy|route_markers)",
         "route policy and idempotency",
-        "docs/concepts/route-policy.md",
+        "docs/modules/http/route-policy.md",
     ),
     (
         r"sandloom/core/(tenant|orm|http/tenant)",
         "tenancy",
-        "docs/concepts/units.md",
+        "docs/modules/database/units.md",
     ),
     (
         r"sandloom/core/(archcheck|cli)/",
@@ -243,17 +243,17 @@ DOC_GAPS: tuple[tuple[str, str, str], ...] = (
     (
         r"sandloom/core/(loader|rpc|contract)",
         "contracts and bindings",
-        "docs/concepts/contracts.md",
+        "docs/modules/between/contracts.md",
     ),
     (
         r"sandloom/core/(config|auth|http)/",
         "settings, auth and http",
-        "docs/concepts/route-policy.md",
+        "docs/modules/http/route-policy.md",
     ),
     (
         r"sandloom/shared/",
         "authz and shared DTOs",
-        "docs/concepts/authorization.md",
+        "docs/modules/http/authorization.md",
     ),
     (r"sandloom/core/", "other kernel", "—"),
 )

@@ -42,7 +42,7 @@ Internal development milestone; this version was not published to PyPI.
 Distributions now follow the [Versioning & Stability](../../docs/contributing/versioning.md)
 policy. The change list since 0.6.0 is in [CHANGELOG.md](../../CHANGELOG.md)
 and the current source API upgrade steps are in
-[Upgrading to Public API 1.0](../../docs/guides/upgrading-1.0.md).
+[Upgrading to Public API 1.0](../../docs/operate/upgrade-1.0.md).
 
 ### Fixed
 - Source distributions include the package sources and build independently of the monorepo.

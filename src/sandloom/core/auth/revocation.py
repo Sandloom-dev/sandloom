@@ -321,7 +321,7 @@ async def apply_pending_revocation(payload: dict[str, Any]) -> None:
     raises :class:`~sandloom.core.eventing.delivery.PoisonEventError`: it is
     dead-lettered at once, logged CRITICAL and counted in
     ``auth_revocation_malformed_total``
-    (runbook: ``docs/operations/operator-reference.md``).
+    (runbook: ``docs/operate/operator-reference.md``).
     """
     user_id = payload.get("user_id") if isinstance(payload, dict) else None
     valid_after = payload.get("valid_after") if isinstance(payload, dict) else None

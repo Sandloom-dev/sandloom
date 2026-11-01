@@ -143,7 +143,7 @@ EXEMPT_PREFIXES = (
     "docs/reference/sdk/",
     "docs/reference/error-codes.md",
     # An old -> new mapping by design, and history.
-    "docs/guides/upgrading-1.0.md",
+    "docs/operate/upgrade-1.0.md",
     "docs/changelog.md",
 )
 EXEMPT_NAMES = {"CHANGELOG.md"}
@@ -256,7 +256,7 @@ def self_test() -> int:
             print(f"self-test FAIL: {text!r}: got {got}, expected {sorted(expected)}")
             failed += 1
     scope = {
-        "docs/concepts/events.md": True,
+        "docs/modules/between/events.md": True,
         "docs/adr/0009-x.md": False,
         "docs/design/spec.md": False,
         "docs/archive/old.md": False,

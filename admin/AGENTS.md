@@ -3,8 +3,8 @@
 The platform-owner console: React 19, TypeScript (strict), Vite, Radix
 primitives with Tailwind v4 design tokens, TanStack Query for all server
 state, and TanStack Table for grids. It is independent of the Python kernel.
-Full guide: `admin/README.md`, `docs/guides/admin.md` (developer) and
-`docs/guides/admin-operations.md` (operator).
+Full guide: `admin/README.md`, `docs/admin-console/guide.md` (developer) and
+`docs/admin-console/operations.md` (operator).
 
 ## Rules
 

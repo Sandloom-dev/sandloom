@@ -6,7 +6,7 @@ type: concept
 
 # Notifications
 
-Notifications send messages to people. Pair them with an [`@on` consumer](../concepts/events.md)
+Notifications send messages to people. Pair them with an [`@on` consumer](../modules/between/events.md)
 to notify when something happens.
 
 ## What a module calls
@@ -39,4 +39,4 @@ Sends email through an SMTP server. Set `NOTIFIER_BACKEND=smtp` and the `SMTP_*`
 the [configuration reference](../reference/configuration.md#notifications). It supports the
 channel `email`.
 
-To send through another service, [write a driver](../guides/write-a-driver.md).
+To send through another service, [write a driver](write-a-driver.md).

@@ -98,5 +98,5 @@ def apply_async(
 
 ## Examples and related guides
 
-- [Background tasks](../../concepts/background-tasks.md)
+- [Background tasks](../../modules/background/tasks.md)
 - [Python API overview](index.md)

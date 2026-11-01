@@ -1,5 +1,5 @@
 # Sandloom alert rules — the single source of truth for alert expressions and
-# thresholds. docs/operations/operator-reference.md → "Alerts" indexes every alert here by name
+# thresholds. docs/operate/operator-reference.md → "Alerts" indexes every alert here by name
 # and severity (alert → runbook); src/sandloom/core/tests/
 # test_observability_bundle.py keeps the two in sync and checks every metric
 # named here exists in the kernel's registry.
@@ -28,7 +28,7 @@ groups:
             (outbox_relay_circuit_open == 1), relay not running
             (outbox_relay_last_run_timestamp stale) or a backlog the relay
             cannot drain.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
       - alert: SandloomOutboxBacklogAgeingWarning
         expr: max by (job, database) (sandloom_outbox_oldest_pending_age_seconds) > 10
@@ -38,7 +38,7 @@ groups:
         annotations:
           summary: "Outbox of {{ $labels.job }}/{{ $labels.database }}: oldest undelivered event is {{ $value | humanizeDuration }} old"
           description: Early warning for SandloomOutboxBacklogAgeing (the normal age is well under a second).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
       - alert: SandloomOutboxRelayAbsent
         expr: >-
@@ -53,7 +53,7 @@ groups:
             The age gauge is exported only by the relay. Check
             OUTBOX_RELAY_ENABLED (auto = prod only) and the Gunicorn relay
             leader election in the app logs.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
       - alert: SandloomOutboxDeadLettered
         expr: sum by (job) (increase(outbox_dead_total[15m])) > 0
@@ -62,7 +62,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: outbox rows dead-lettered after exhausting OUTBOX_RELAY_MAX_ATTEMPTS"
           description: Inspect with `sandloom outbox list-dead`, fix the cause, then `sandloom outbox requeue`.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
   - name: sandloom-consumers
     rules:
@@ -77,7 +77,7 @@ groups:
             A consumer is down, failing or too slow; stream retention
             (EVENT_STREAM_RETENTION_SECONDS) will drop what it has not read.
             Check `sandloom streams consumers` and the handler's failures.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
       - alert: SandloomEventDeliverySlow
         expr: >-
@@ -92,7 +92,7 @@ groups:
           description: >-
             Compare the outbox age (producer side) and the group's oldest
             unacked age (consumer side) to locate the lag.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomConsumerFailures
         expr: sum by (job, consumer) (rate(sandloom_event_consumer_events_failed_total[5m])) > 0
@@ -102,7 +102,7 @@ groups:
         annotations:
           summary: "Consumer {{ $labels.consumer }} keeps failing deliveries"
           description: Redeliveries pile up; poison entries end in `<channel>.dlq` (`sandloom streams dlq-list`).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
       - alert: SandloomStreamsDeadLettered
         expr: sum by (job, stream) (increase(sandloom_streams_messages_dlq_total[15m])) > 0
@@ -111,7 +111,7 @@ groups:
         annotations:
           summary: "{{ $labels.stream }}: entries dead-lettered after the delivery budget"
           description: Inspect with `sandloom streams dlq-list`; replay a fixed entry with `sandloom streams dlq-replay` (targeted at its group).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#events-outbox-relay-and-dead-letters
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
   - name: sandloom-database
     rules:
@@ -125,7 +125,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: pool {{ $labels.database }}/{{ $labels.pool }} at {{ $value | humanizePercentage }}"
           description: Raise DB_POOL_SIZE / DB_MAX_OVERFLOW (mind PostgreSQL max_connections), or find long transactions.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomDbCheckoutsQueueing
         expr: max_over_time(sum by (job, database, pool) (sandloom_db_pool_checkout_waiters)[5m:]) > 0
@@ -135,7 +135,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: requests wait for a {{ $labels.database }}/{{ $labels.pool }} connection"
           description: Write p99 grows; DB_POOL_TIMEOUT turns the wait into 500s next.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
   - name: sandloom-security
     rules:
@@ -149,7 +149,7 @@ groups:
             The Redis holding revocation marks, blocks and idempotency records
             is unreachable or timing out: authenticated requests answer 503
             (fail-closed) or skip revocation (fail-open).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
 
       - alert: SandloomCacheErrors
         expr: sum by (job, exported_instance) (rate(sandloom_cache_operation_errors_total{exported_instance!="security"}[5m])) > 0.1
@@ -158,7 +158,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: cache {{ $labels.exported_instance }} errors {{ $value | humanize }}/s"
           description: Redis unreachable or timing out; rate limiting falls back to its fail-open / fail-closed policy.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
 
       - alert: SandloomRevocationCheckSlow
         expr: >-
@@ -171,7 +171,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: p99 revocation check {{ $value | humanizeDuration }}"
           description: Every authenticated request pays it; check the security Redis (latency, appendfsync).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
 
       - alert: SandloomRevocationsDeferred
         expr: sum by (job) (increase(auth_revocation_deferred_total[5m])) > 0
@@ -180,7 +180,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: token revocations waiting for the durable applier"
           description: The post-commit revocation write failed after retries (cache outage); identity's sessions@tokens_revoked applies them.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationApplierFailing
         expr: sum by (job) (increase(auth_revocation_applier_failures_total[10m])) > 0
@@ -190,7 +190,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: the durable revocation applier cannot write marks"
           description: Revoked tokens may still be accepted. Fix the security cache; the event is redelivered until written.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationImmediateRefused
         expr: sum by (job) (increase(auth_revocation_immediate_refused_total[5m])) > 0
@@ -199,7 +199,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: security changes refused (503) — revocation mark not writable"
           description: require_immediate revocations could not write their mark before commit; the cache is unreachable.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationCorruptMark
         expr: sum by (job) (increase(auth_revocation_corrupt_mark_total[15m])) > 0
@@ -208,7 +208,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: unparsable revocation marks (users locked out until next login)"
           description: Some writer stored an invalid mark; investigate the writer.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationPending
         expr: max by (job) (auth_revocation_pending_seconds) > 60
@@ -217,7 +217,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: a durable revocation is pending for {{ $value | humanizeDuration }}"
           description: The identity replica answers /ready 503 (revocations_pending) until it drains. Fix the cache.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationPendingCritical
         expr: max by (job) (auth_revocation_pending_seconds) > 300
@@ -226,7 +226,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: a durable revocation is pending for {{ $value | humanizeDuration }}"
           description: A revoked token may still be accepted wherever the cache is reachable.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationMalformed
         expr: sum by (job) (increase(auth_revocation_malformed_total[5m])) > 0
@@ -237,7 +237,7 @@ groups:
           description: >-
             Find the producer (`sandloom streams dlq-list core.auth.tokens_revoked.v1`),
             revoke the user by hand, drop the entry only after the producer is fixed.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#secrets-management
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomIdempotencyPersistFailures
         expr: sum by (job) (increase(sandloom_idempotency_terminal_persist_failures_total[15m])) > 0
@@ -246,7 +246,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: idempotency terminal records lost"
           description: A completed operation's marker was not stored; a later retry may re-execute it. Effects that must be exactly-once need durable_inbox.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomMultiStorePartialCommit
         expr: sum by (job, route, store) (increase(sandloom_multi_store_partial_commit_total[15m])) > 0
@@ -255,7 +255,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: {{ $labels.route }} left {{ $labels.store }} committed after a later commit failed"
           description: An allow_multi_db_write request committed a secondary store, then its write store's commit failed (best-effort 1PC). A client retry with the same Idempotency-Key converges it; without one the secondary's write is an orphan. The uow.partial_commit warning names the failing store.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomTenantRlsNonTenantViolations
         expr: sum by (job) (increase(sandloom_tenant_rls_non_tenant_violations_total[15m])) > 0
@@ -264,7 +264,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: statements outside a non_tenant_statements() allowlist"
           description: Code ran a statement on a table the scope does not list; find it in the logs and fix the allowlist or the code.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
   - name: sandloom-edge
     rules:
@@ -275,7 +275,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: rate limiter has no cache answer ({{ $labels.outcome }})"
           description: open = limits not enforced; closed = endpoints answer 503.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: Sandloom429Spike
         expr: sum by (job, route) (rate(sandloom_rate_limit_rejected_total[5m])) > 1
@@ -284,7 +284,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: {{ $value | humanize }} 429/s on {{ $labels.route }}"
           description: Abuse or a too-tight limit; with untrusted forwarding every client may share a proxy's bucket.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomProxyHeadersUntrusted
         expr: sum by (job) (increase(sandloom_http_untrusted_forwarded_headers_total[1h])) > 0
@@ -293,7 +293,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: X-Forwarded-For received while TRUST_PROXY_HEADERS is off"
           description: Rate limits key on the proxy's address. Set TRUST_PROXY_HEADERS=true + TRUSTED_PROXY_IPS, or strip the header at the edge.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomTargetDown
         expr: up == 0
@@ -303,7 +303,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }} {{ $labels.instance }}: /metrics not scrapable"
           description: The process is down, or METRICS_TOKEN does not match (the endpoint answers 404).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#observability
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#observability
 
   - name: sandloom-rpc
     rules:
@@ -318,7 +318,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }} → {{ $labels.peer }}: p99 RPC {{ $value | humanizeDuration }}"
           description: A provider service is slow.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomRpcTimeouts
         expr: sum by (job, peer) (rate(sandloom_rpc_client_request_duration_seconds_count{outcome="timeout"}[5m])) > 0
@@ -328,7 +328,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }} → {{ $labels.peer }}: RPC calls time out"
           description: A timed-out command may have committed at the provider; callers retry with the same operation key.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomRpcAuthClockSkew
         expr: sum by (job, caller) (increase(sandloom_rpc_auth_clock_skew_total[15m])) > 0
@@ -337,7 +337,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: requests from {{ $labels.caller }} beyond half the RPC auth window"
           description: Caller and provider clocks disagree; beyond RPC_AUTH_MAX_SKEW_SECONDS calls are refused. Fix NTP.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
       - alert: SandloomRpcResponseBindingRejected
         expr: sum by (job, reason) (increase(sandloom_rpc_response_binding_rejected_total[15m])) > 0
@@ -346,7 +346,7 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: RPC responses rejected ({{ $labels.reason }})"
           description: A response not bound to its request was discarded (mixed-up connection, misconfigured keys or tampering).
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#alerts
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#alerts
 
   - name: sandloom-sagas
     rules:
@@ -359,7 +359,7 @@ groups:
           description: >-
             A parked saga instance never moves without an operator. `sandloom sagas
             list`, then `sandloom sagas show <type> <id>` prints why and what to do.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#sagas
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#sagas
 
   - name: sandloom-runtime
     rules:
@@ -374,4 +374,4 @@ groups:
         annotations:
           summary: "{{ $labels.job }}: full GC p99 pause {{ $value | humanizeDuration }}"
           description: Every in-flight request stalls for it. Check GC_FREEZE_AFTER_STARTUP and heap growth.
-          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operations/operator-reference.md#garbage-collector-tuning
+          runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#garbage-collector-tuning

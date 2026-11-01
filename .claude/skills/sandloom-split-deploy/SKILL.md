@@ -7,7 +7,7 @@ description: Move Sandloom modules into their own services in the microservices 
 
 The code does not change; the topology does. One command does the wiring, in
 an `sandloom new` app (from its root) and in the framework (from the repository root). The
-guide is `docs/guides/split-into-services.md`; inside an app, run
+guide is `docs/operate/split-into-services.md`; inside an app, run
 `uv run sandloom docs recipe split`.
 
 ## Steps

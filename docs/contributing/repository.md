@@ -80,7 +80,7 @@ docs/                       # docs site sources; archive/ = legacy and Russian
 admin/                      # platform-owner console (React + Vite)
 ```
 
-See [Capabilities & Infrastructure](../concepts/capabilities-and-infrastructure.md)
+See [Capabilities & Infrastructure](../infrastructure/index.md)
 for the plugin layer and [Versioning & Stability](versioning.md) for what is
 public.
 
@@ -122,7 +122,7 @@ MCP servers are registered for Copilot (`.vscode/mcp.json`) and Claude Code
 
 ## Inspect before changing a module
 
-Use [module context](../guides/module-context.md) to gather scoped rules, SDK and
-wire interfaces, and the [declared architecture graph](../guides/architecture-graph.md)
+Use [module context](../modules/tooling/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../modules/tooling/architecture-graph.md)
 to inspect contract/event connections. Both commands can be invoked by an agent
 and read their index without booting the app.

@@ -198,5 +198,5 @@ without relying on access to the maintainer's security dashboard.
 
 - [Supply-chain checks](supply-chain.md)
 - [CI profiles and required checks](ci.md)
-- [Publishing packages](../guides/publishing.md)
+- [Publishing packages](publishing.md)
 - [Versioning policy](versioning.md)

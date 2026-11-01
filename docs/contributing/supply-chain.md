@@ -192,4 +192,4 @@ No production authorization, secret validation or security gate was relaxed.
 ## Related reading
 
 - [Contributor workflow](index.md)
-- [Package publishing](../guides/publishing.md)
+- [Package publishing](publishing.md)

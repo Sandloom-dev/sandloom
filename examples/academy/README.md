@@ -85,4 +85,4 @@ uv run uvicorn academy.asgi:app --reload
 ```
 
 The advance consumer and the timer sweep run in the app process, in dev
-exactly as in prod. See [sagas](../../docs/concepts/sagas.md) in the framework repository.
+exactly as in prod. See [sagas](../../docs/modules/between/sagas.md) in the framework repository.

@@ -47,7 +47,7 @@ def _seed_test_env() -> None:
         print(
             f"sandloom tests: settings from {env_test.name} (no .env needed). Start "
             "the test services first: docker compose -f deploy/compose/test.yml "
-            "up -d --wait (docs/guides/testing.md)",
+            "up -d --wait (docs/modules/tooling/testing.md)",
             file=sys.stderr,
         )
 

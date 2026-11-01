@@ -71,5 +71,5 @@ See `sandloom.core.migrations.alembic_support.run_module_migrations`.
 
 ## Examples and related guides
 
-- [Run migrations](../../guides/migrations.md)
+- [Run migrations](../../modules/database/run-migrations.md)
 - [Python API overview](index.md)

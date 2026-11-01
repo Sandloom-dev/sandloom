@@ -494,31 +494,31 @@ def render_module(module: ModuleType) -> str:
             out += _entry(name, getattr(module, name))
     guides = {
         "app": ("Application quickstart", "getting-started/index.md"),
-        "module": ("Add a module", "guides/add-module.md"),
-        "web": ("Route policy", "concepts/route-policy.md"),
-        "data": ("Units and transactions", "concepts/units.md"),
-        "tenant": ("Tenant isolation", "concepts/multi-tenancy.md"),
-        "events": ("Publish and consume events", "guides/add-event.md"),
-        "effects": ("Deduplicate effects", "guides/effect-deduplication.md"),
-        "tasks": ("Background tasks", "concepts/background-tasks.md"),
-        "contracts": ("Provide and call a contract", "guides/add-contract.md"),
-        "authz": ("Authorization policies", "concepts/authorization.md"),
-        "sagas": ("Add a saga", "guides/add-saga.md"),
-        "projections": ("Build a projection", "guides/add-projection.md"),
+        "module": ("Add a module", "modules/create.md"),
+        "web": ("Route policy", "modules/http/route-policy.md"),
+        "data": ("Units and transactions", "modules/database/units.md"),
+        "tenant": ("Tenant isolation", "modules/database/multi-tenancy.md"),
+        "events": ("Publish and consume events", "modules/between/add-event.md"),
+        "effects": ("Deduplicate effects", "modules/background/effect-deduplication.md"),
+        "tasks": ("Background tasks", "modules/background/tasks.md"),
+        "contracts": ("Provide and call a contract", "modules/between/add-contract.md"),
+        "authz": ("Authorization policies", "modules/http/authorization.md"),
+        "sagas": ("Add a saga", "modules/between/add-saga.md"),
+        "projections": ("Build a projection", "modules/between/add-projection.md"),
         "infra": (
             "Infrastructure capabilities",
-            "concepts/capabilities-and-infrastructure.md",
+            "infrastructure/index.md",
         ),
-        "security": ("Revoke sessions", "guides/session-revocation.md"),
+        "security": ("Revoke sessions", "modules/http/session-revocation.md"),
         "errors": ("Error catalogue", "reference/error-codes.md"),
-        "migrations": ("Run migrations", "guides/migrations.md"),
-        "tooling": ("Generate contracts and snapshots", "guides/generate.md"),
+        "migrations": ("Run migrations", "modules/database/run-migrations.md"),
+        "tooling": ("Generate contracts and snapshots", "modules/tooling/generate.md"),
     }
     key = module.__name__.removeprefix("sandloom.sdk.")
     if key.startswith("testing"):
         example = ("Testing examples and fixtures", "reference/testing.md")
     else:
-        example = guides.get(key, ("Create a module", "guides/add-module.md"))
+        example = guides.get(key, ("Create a module", "modules/create.md"))
     out += ["## Examples and related guides", ""]
     for label, target in [example, ("Python API overview", "reference/sdk/index.md")]:
         link = Path(
@@ -603,7 +603,7 @@ def render_index(modules: list[ModuleType]) -> str:
         "`Event`, `on`, `contract`, `command`, `Contract`, typed saga steps, "
         "`Projection`) is built only from level 2 (the primitives these pages "
         "list as advanced). The kernel (level 3) is never imported by a module. "
-        "See [Module internals](../../concepts/module-internals.md).",
+        "See [Module internals](../../modules/guarantees/module-internals.md).",
         "",
     ]
     return "\n".join(out).rstrip() + "\n"

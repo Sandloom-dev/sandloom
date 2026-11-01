@@ -490,8 +490,7 @@ def removed_setting_problem(removed: RemovedSetting, raw: object) -> tuple[str, 
         f" and {removed.name}={raw} is no longer supported" if fatal else ""
     )
     return (
-        f"{lead}: {removed.hint}; drop it from the environment "
-        "(docs/guides/upgrading-0.8.md)",
+        f"{lead}: {removed.hint}; drop it from the environment",
         fatal,
     )
 

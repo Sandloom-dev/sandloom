@@ -31,7 +31,7 @@ schema-validated; an unknown driver, instance or option
 fails startup. The `sqlalchemy` option `tenant_rls: true` turns on
 PostgreSQL row-level security for that instance, with `system_url` /
 `require_system_channel` for its system channel (see
-[Multi-tenancy](../concepts/multi-tenancy.md)). PostgreSQL URLs always name their driver:
+[Multi-tenancy](../modules/database/multi-tenancy.md)). PostgreSQL URLs always name their driver:
 `postgresql+asyncpg://` for the app; migrations derive
 `postgresql+psycopg2://` from it. Never rely on a bare `postgresql://`.
 
@@ -58,4 +58,4 @@ async def latest_report(
 ```
 
 Every setting is in the [configuration reference](../reference/configuration.md). See also
-[what is included](../concepts/capabilities-and-infrastructure.md#what-is-included).
+[what is included](index.md#what-is-included).

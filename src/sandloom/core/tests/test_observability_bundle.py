@@ -3,7 +3,7 @@
 Every metric a Grafana panel or a Prometheus rule names must be registered by
 the kernel with the labels the query uses — a renamed metric or label fails
 here instead of silently blanking a dashboard or never firing an alert. The
-alert index in docs/operations/operator-reference.md must list exactly the shipped alerts with
+alert index in docs/operate/operator-reference.md must list exactly the shipped alerts with
 their severities, and the committed dashboards must be what the generator
 produces. ``deploy/observability/check.sh`` adds promtool (config, rules, rule
 unit tests) on top; it runs in CI's deploy-profiles job.
@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[4]
 OBS = REPO / "deploy" / "observability"
 RULES = sorted((OBS / "prometheus" / "rules").glob("*.yml"))
 DASHBOARDS = sorted((OBS / "grafana" / "dashboards").glob("*.json"))
-OPERATIONS = REPO / "docs" / "operations" / "operator-reference.md"
+OPERATIONS = REPO / "docs" / "operate" / "operator-reference.md"
 
 pytestmark = pytest.mark.skipif(
     not OBS.is_dir(), reason="deploy/observability not in this checkout"
@@ -244,7 +244,7 @@ def test_operations_alert_index_matches_rules() -> None:
     shipped = {r["alert"]: r["labels"]["severity"] for r in _alert_rules()}
     documented = _documented_alerts()
     assert documented == shipped, (
-        "docs/operations/operator-reference.md → Alerts must list every shipped alert with its "
+        "docs/operate/operator-reference.md → Alerts must list every shipped alert with its "
         f"severity.\nonly in rules: {sorted(shipped.keys() - documented.keys())}"
         f"\nonly in docs: {sorted(documented.keys() - shipped.keys())}"
         f"\nseverity differs: "

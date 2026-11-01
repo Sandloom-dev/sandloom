@@ -873,7 +873,7 @@ A built-in cannot be replaced silently: another behaviour is another name.
 
 **Fix:** uninstall all but one package; to change a built-in's behaviour, publish another driver name and select it in INFRA
 
-**More:** `docs/guides/write-a-driver.md`
+**More:** `docs/infrastructure/write-a-driver.md`
 
 ### SANDLOOM-B022
 
@@ -891,7 +891,7 @@ unselected package is never imported.
 
 **Fix:** fix or reinstall the package named in the message, or select another driver
 
-**More:** `docs/guides/write-a-driver.md`
+**More:** `docs/infrastructure/write-a-driver.md`
 
 ### SANDLOOM-B023
 
@@ -929,7 +929,7 @@ application asks for it.
 
 **Fix:** uninstall the package or remove (rename) the local module; with two installed packages, uninstall one of them
 
-**More:** `docs/concepts/modules.md`
+**More:** `docs/modules/index.md`
 
 ## Runtime errors
 
@@ -1146,7 +1146,7 @@ Context and graph read a generated index without booting the app. Missing/change
 
 **Fix:** read the diagnostic kind; select valid inputs, adjust the budget or explicitly run sandloom generate
 
-**More:** `docs/guides/module-context.md`
+**More:** `docs/modules/tooling/module-context.md`
 
 ### SANDLOOM-T001
 
@@ -1378,7 +1378,7 @@ distinct prefixes).
 
 **Fix:** `sandloom add deploy --refresh` re-derives the generated blocks (services, bindings, RPC_ALLOWED_CALLS, databases, gateway routes) from what the modules provide and consume; a problem outside them (a shared setting set per service, an issuer-only key elsewhere) is fixed by hand in x-common-env / the service's anchor
 
-**More:** `docs/guides/split-into-services.md`
+**More:** `docs/operate/split-into-services.md`
 
 ## Related reading
 

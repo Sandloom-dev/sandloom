@@ -783,5 +783,5 @@ raises when called.
 
 ## Examples and related guides
 
-- [Provide and call a contract](../../guides/add-contract.md)
+- [Provide and call a contract](../../modules/between/add-contract.md)
 - [Python API overview](index.md)

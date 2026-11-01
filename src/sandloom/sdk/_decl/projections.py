@@ -328,7 +328,7 @@ class Projection:
                 "re-reads the owner's state when the version is absent (for "
                 "tenancy.member_*.v1: member_event_action from "
                 "sandloom.shared.membership), or project an event whose "
-                "version is required (docs: concepts/projections.md)",
+                "version is required (docs: modules/between/projections.md)",
             )
 
     # -- the L2 form ------------------------------------------------------------

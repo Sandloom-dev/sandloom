@@ -29,4 +29,4 @@ paths:
   - It runs the core chain on every hosting database, then each module's chain
     on its own database.
   - Migrations run as a one-shot, never inside the app.
-- Concept: `docs/concepts/units.md` (tables and RLS).
+- Concept: `docs/modules/database/units.md` (tables and RLS).

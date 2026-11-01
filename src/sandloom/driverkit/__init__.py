@@ -3,7 +3,7 @@
 A business module may not import this package (SANDLOOM-C004), and the kernel
 never does. A contract joins it only with a kit in :mod:`sandloom.driverkit.testing`.
 A driver states its ``contract_version``; another major version is refused at load
-(SANDLOOM-B022). Guide: ``docs/guides/write-a-driver.md``.
+(SANDLOOM-B022). Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
 from sandloom.core.descriptors import HealthResult

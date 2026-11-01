@@ -71,4 +71,4 @@ Anything else is breaking and needs `.v2`; on the same `.vN` it fails
 - Never edit v1's class in place.
 - Delivery has no ordering guarantee. Order by a per-aggregate `version`
   field, not by arrival.
-- Concept: `docs/concepts/events.md`.
+- Concept: `docs/modules/between/events.md`.

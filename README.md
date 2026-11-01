@@ -112,8 +112,8 @@ uv run sandloom explore
 interfaces and owned file locations. Both default to compact text, with explicit
 `--format json` for structured data. `explore` generates and opens an offline
 browser view of the same declared architecture, including processes and impact.
-See [module maps](docs/guides/module-context.md) and the
-[architecture explorer](docs/guides/architecture-graph.md).
+See [module maps](docs/modules/tooling/module-context.md) and the
+[architecture explorer](docs/modules/tooling/architecture-graph.md).
 
 ## See architecture checks in action
 
@@ -138,7 +138,7 @@ sandloom check: 1 architecture violation(s)
 <!-- readme:boundary-output:end -->
 
 The command exits with code 1. Cross-module work goes through
-[contracts](docs/concepts/contracts.md) or [events](docs/concepts/events.md).
+[contracts](docs/modules/between/contracts.md) or [events](docs/modules/between/events.md).
 Remove the temporary file and check again:
 
 <!-- readme:boundary-cleanup:start -->
@@ -184,9 +184,9 @@ database transaction; the outbox makes the event available for delivery after
 commit. The model uses `TenantScoped` for the bound tenant. Application code
 does not commit the session itself.
 
-See [units of work](docs/concepts/units.md),
-[tenant isolation](docs/concepts/multi-tenancy.md) and
-[guarantees and their conditions](docs/concepts/guarantees.md).
+See [units of work](docs/modules/database/units.md),
+[tenant isolation](docs/modules/database/multi-tenancy.md) and
+[guarantees and their conditions](docs/modules/guarantees/index.md).
 
 ## How Sandloom works
 
@@ -198,7 +198,7 @@ interfaces. After changing a model, create its migration with
 Generated apps include agent instructions. `sandloom docs <name>` shows an SDK
 signature and example; `sandloom explain <code>` explains a failed check.
 See the [SDK reference](docs/reference/sdk/index.md),
-[testing guide](docs/reference/testing.md) and [module model](docs/concepts/modules.md).
+[testing guide](docs/reference/testing.md) and [module model](docs/modules/index.md).
 
 ## Change infrastructure without rewriting modules
 
@@ -215,7 +215,7 @@ against the configured capabilities and features.
 The current production stack is **PostgreSQL + Redis**, with SMTP and local or
 shared-volume files. Switching backend technology requires an implemented driver
 with the required features; PostgreSQL is currently the only supported relational
-backend. See the [infrastructure overview](docs/concepts/capabilities-and-infrastructure.md).
+backend. See the [infrastructure overview](docs/infrastructure/index.md).
 
 ## From one process to services
 
@@ -226,7 +226,7 @@ connect the same module code in either topology.
 Moving a module's existing data into its own database is a separate **offline
 migration** with `sandloom migrate extract-module`. Deployment still requires
 configuration, credentials and operations. See the
-[deployment model](docs/concepts/deployment.md) and [deployment profiles](deploy/README.md).
+[deployment model](docs/operate/topologies.md) and [deployment profiles](deploy/README.md).
 
 ## Explore
 
@@ -247,7 +247,7 @@ Sandloom is in alpha. See [stability](docs/contributing/versioning.md) and the
 [changelog](CHANGELOG.md) for compatibility and changes. Events use
 **at-least-once delivery**; durable consumers deduplicate by envelope ID within
 the documented retention conditions. Review the
-[guarantee boundaries](docs/concepts/guarantees.md) and
+[guarantee boundaries](docs/modules/guarantees/index.md) and
 [security model](docs/reference/security-model.md) for your application.
 
 For framework development, start with [AGENTS.md](AGENTS.md) and

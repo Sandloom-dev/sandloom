@@ -11,7 +11,7 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 ## [0.7.0a5] — 2026-10-31
 
 - **Breaking infrastructure API:** migrate string capability declarations and
-  registration callbacks using the [a4 → a5 guide](https://sandloom.dev/docs/guides/upgrading/#upgrading-from-070a4-to-070a5).
+  registration callbacks using the [a4 → a5 guide](https://sandloom.dev/docs/operate/upgrade/#upgrading-from-070a4-to-070a5).
 - Include runtime container hardening, backup-identifier quoting, safe viewer
   links and the updated architecture explorer. Generate applications with
   `sandloom[redis,celery]>=0.7.0a5,<0.8`.
@@ -100,7 +100,7 @@ Internal development milestone; this version was not published to PyPI.
 Distributions now follow the [Versioning & Stability](../../docs/contributing/versioning.md)
 policy. The change list since 0.6.0 is in [CHANGELOG.md](../../CHANGELOG.md)
 and the current source API upgrade steps are in
-[Upgrading to Public API 1.0](../../docs/guides/upgrading-1.0.md).
+[Upgrading to Public API 1.0](../../docs/operate/upgrade-1.0.md).
 
 ### Fixed
 - Atomic task-enqueue deduplication, local/RPC read memo parity, missing-path architecture validation, testing fixture export, and scaffold RLS/name validation.

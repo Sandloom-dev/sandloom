@@ -247,4 +247,4 @@ layering change before the auth/config merge:
 ## Related reading
 
 - [Contributor map](../contributing/repository.md)
-- [Module boundaries](../concepts/modules.md)
+- [Module boundaries](../modules/index.md)

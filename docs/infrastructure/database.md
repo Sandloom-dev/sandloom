@@ -11,11 +11,11 @@ The database is your system of record: it backs the unit of work, the outbox and
 ## What a module calls
 
 `db()` is the session of the running unit on the module's database
-([Units of work](../concepts/units.md)). A named database is
+([Units of work](../modules/database/units.md)). A named database is
 `Annotated[AsyncSession, Database("x")]` in a route, or `open_uow("x")` in a block. Each
 database has its own unit and its own outbox, and no transaction spans two of them. A route
 that writes to several needs `writes(...)` or `allow_multi_db_write(...)`
-([Write admission](../concepts/write-admission.md)).
+([Write admission](../modules/guarantees/write-admission.md)).
 
 ## Drivers
 
@@ -27,7 +27,7 @@ name its driver, `postgresql+asyncpg://`; never rely on a bare `postgresql://`.
 | Option | Meaning |
 | --- | --- |
 | `url` | the connection URL; falls back to `DATABASE_URL` |
-| `tenant_rls` | turns on PostgreSQL row-level security ([Multi-tenancy](../concepts/multi-tenancy.md)) |
+| `tenant_rls` | turns on PostgreSQL row-level security ([Multi-tenancy](../modules/database/multi-tenancy.md)) |
 | `system_url` | the separate login role for framework cross-tenant work; needs `tenant_rls` |
 | `require_system_channel` | fails startup when no system channel is configured |
 

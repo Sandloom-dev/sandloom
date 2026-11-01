@@ -134,7 +134,7 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("docs/concepts/contracts.md", {"docs"}),
+        ("docs/modules/between/contracts.md", {"docs"}),
         ("tools/docs/docs_site.py", {"docs"}),
         ("website/index.html", {"docs"}),
         (".github/branch-protection.json", set()),

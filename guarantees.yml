@@ -24,7 +24,7 @@ guarantees:
   statement: An ORM read, update or delete against a TenantScoped model with no tenant bound (and not
     inside unscoped()) raises MissingTenantError instead of running cross-tenant.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_no_tenant_bound_fails_closed
@@ -34,7 +34,7 @@ guarantees:
   statement: Once a tenant is bound, ORM SELECT, bulk UPDATE and bulk DELETE on a TenantScoped model are
     automatically filtered to that tenant's rows only.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_automatic_filtering_to_bound_tenant
@@ -45,7 +45,7 @@ guarantees:
     subqueries, select_from and Session.get (an identity-map hit is re-checked against the bound tenant):
     unbound they fail closed, bound they return only the bound tenant''s rows.'
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_unbound_reach_into_tenant_table_fails_closed
@@ -56,7 +56,7 @@ guarantees:
   statement: An ORM object insert of a TenantScoped model inherits the bound tenant, fails with MissingTenantError
     when none is bound, and fails with TenantMismatchError when it names a different tenant_id.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_inherits_bound_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_insert_without_tenant_fails_closed
@@ -66,7 +66,7 @@ guarantees:
     and bulk-by-primary-key UPDATEs on a TenantScoped model raise UnsafeTenantOperationError; they are
     only allowed inside explicit unscoped().
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_bulk_insert_requires_explicit_system_scope
   - src/sandloom/core/tests/test_tenant_isolation.py::test_bulk_update_cannot_change_tenant_id
@@ -77,7 +77,7 @@ guarantees:
     query) against a recognised TenantScoped table under a bound tenant are refused with UnsafeTenantOperationError
     when they cannot be safely scoped.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_infra_review_20261022.py::test_core_tenant_table_statements_cannot_escape_bound_scope
   - src/sandloom/core/tests/test_infra_review_20261022.py::test_mixed_orm_and_core_alias_cannot_read_another_tenant
@@ -85,7 +85,7 @@ guarantees:
   statement: The explicit helpers scoped(), tenant_filter() and current_tenant_id() raise MissingTenantError
     when no tenant is bound, and scoped() restricts results to the bound tenant.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_explicit_scoped_is_fail_closed
@@ -96,7 +96,7 @@ guarantees:
     capture a tenant, a pooled connection never carries a previous request''s tenant criteria, and declaring
     a new TenantScoped model invalidates the guard''s memoised table set.'
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_criteria_prebuilt.py::test_compiled_cache_does_not_capture_the_tenant
   - src/sandloom/core/tests/test_tenant_criteria_prebuilt.py::test_previous_requests_tenant_never_leaks_on_one_connection
@@ -105,7 +105,7 @@ guarantees:
   statement: Queries that touch no TenantScoped table run normally with no tenant bound (the guard fails
     closed only on tenant tables).
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_non_tenant_query_without_tenant_still_works
   - src/sandloom/core/tests/test_tenant_guard_early_exit.py::test_bound_tenant_non_tenant_statement_gets_no_criteria
@@ -114,7 +114,7 @@ guarantees:
     a tenant outside the token''s tenant_id/org_id claim or tenant_ids allowlist is refused with 403,
     and a header inside the allowlist selects that tenant.'
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_header_cannot_override_token_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_header_can_select_tenant_from_token_allowlist
@@ -123,7 +123,7 @@ guarantees:
   statement: A signed tenant_ids claim containing a malformed entry fails every request with 400 'invalid
     tenant id' (never memoised, no string-membership shortcut).
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_malformed_signed_tenant_ids_entry_is_400_on_every_request
   - src/sandloom/core/tests/test_tenant_isolation.py::test_tenant_ids_memo_is_bounded
@@ -133,7 +133,7 @@ guarantees:
     reaching the request boundary also answers 400 'tenant context required' (never a bare 500, never the internal
     message).
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - tests/fixtures/specs/public-api-1.0-spec.md#4.2 Route kinds
   tests:
   - tests/integration/test_request_boundaries.py::test_a_missing_tenant_at_the_boundary_is_the_tenant_scope_400
@@ -143,7 +143,7 @@ guarantees:
   statement: TenantScope rejects a revoked access token (401) before selecting a tenant from its claims,
     so a stale tenant_ids grant cannot keep selecting a tenant after revocation.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revoked_token_is_rejected_by_every_framework_guard
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_idempotency_and_tenant_scope_ignore_non_access_bearers
@@ -152,7 +152,7 @@ guarantees:
     the canonical tenant, and an X-Tenant-Id selector or token tenant naming another tenant is refused
     with 403.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_requires_canonical_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_binds_canonical_tenant
@@ -164,7 +164,7 @@ guarantees:
   statement: With TENANCY_MODE=single, request UoWs, worker/script UoWs and contract read scopes bind
     the canonical tenant automatically, and only for their own extent.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_runtime_scope_binds_canonical_tenant
   - src/sandloom/core/tests/test_open_uow.py::test_single_tenant_scope_bound_only_inside
@@ -174,7 +174,7 @@ guarantees:
     tenant_id without TenantScoped, unless listed in tenant_scope_exempt with a written reason; a stale
     exemption or one without a reason fails.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - tests/architecture/test_tenant_scoped_models_rule.py::test_fixture_violations_detected
   - tests/architecture/test_tenant_scoped_models_rule.py::test_rule_runs_in_sandloom_check_and_honours_exemptions
@@ -186,7 +186,7 @@ guarantees:
     exec_driver_sql, including deferred lambdas/generators) unless it executes inside an explicit unscoped()
     block; declaration-time defaults are exempt.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_tenant_sql_requires_explicit_system_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_deferred_sql_does_not_inherit_creation_scope
@@ -202,7 +202,7 @@ guarantees:
     row with the same key, and raises TenantMismatchError when the row's tenant_id differs from the bound
     tenant; monotonic_update is scoped to the bound tenant.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
@@ -238,7 +238,7 @@ guarantees:
   sources:
   - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_bypass_setting_cannot_read_other_tenants
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_bypass_setting_cannot_write_other_tenants
@@ -264,7 +264,7 @@ guarantees:
   sources:
   - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_verification_refuses_superuser_app_role
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_verification_refuses_owner_and_member
@@ -279,7 +279,7 @@ guarantees:
   statement: 'The role check cannot be switched off: the former verify_roles database option is refused
     at startup, and a hardened NOSUPERUSER NOBYPASSRLS role passes.'
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_removed_verify_roles_option_is_refused
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_verification_accepts_hardened_roles
@@ -288,7 +288,7 @@ guarantees:
     and the <table>_tenant_isolation policy, is idempotent, and disable_tenant_rls reverts it; the tenant
     setting SQL is parameterised.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls.py::test_migration_helper_emits_policy_through_op
   - src/sandloom/core/tests/test_tenant_rls.py::test_disable_reverts_policy
@@ -301,7 +301,7 @@ guarantees:
     transaction.
   sources:
   - docs/reference/security-model.md#The system channel (privileged work)
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_channel_reaches_all_tenants_and_is_audited
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_session_tenant_scoped_and_rollback
@@ -323,7 +323,7 @@ guarantees:
     the database provider exposes no system engine; the app role cannot SET ROLE to the system role.'
   sources:
   - docs/reference/security-model.md#SQL paths available to business-module code
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - tests/architecture/test_system_channel_unreachable.py::test_module_import_of_system_channel_is_flagged
   - tests/architecture/test_system_channel_unreachable.py::test_system_channel_not_in_public_core_api
@@ -387,7 +387,7 @@ guarantees:
     cache — listing every reason.
   sources:
   - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_default_production_config_is_refused_with_every_reason
   - src/sandloom/core/tests/test_production_profile.py::test_each_trust_layer_is_required
@@ -434,7 +434,7 @@ guarantees:
     with ProductionProfileError on the same process or when identity cannot be read.
   sources:
   - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_infra_review_20261022.py::test_strict_profile_checks_physical_redis_identity
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_runtime_attests_the_idempotency_redis_process
@@ -458,7 +458,7 @@ guarantees:
     when set while revocation marks stay in the security cache.
   sources:
   - docs/reference/security-model.md#Security-critical vs best-effort cache
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_cache_instance
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_revocation_marks_stay_in_the_security_cache
@@ -477,7 +477,7 @@ guarantees:
   statement: A Unit of Work commits when its body succeeds and rolls back (dispatching no outbox rows)
     when the body raises any exception, HTTPException included.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list
   tests:
   - src/sandloom/core/tests/test_open_uow.py::test_commit_then_dispatch
@@ -488,7 +488,7 @@ guarantees:
   statement: Every framework UoW dependency (DbSession, Database(name), get_db) is declared with scope="function",
     so the request transaction commits (and its on-commit hooks run) before the response is sent.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   tests:
   - src/sandloom/core/tests/test_uow_commits_before_response.py::test_dbsession_and_database_markers_use_function_scope
   - src/sandloom/core/tests/test_uow_commits_before_response.py::test_every_framework_get_db_dependency_declares_function_scope
@@ -497,7 +497,7 @@ guarantees:
   statement: Only the UnitOfWorkContract issues COMMIT and only the commit pipeline owners reach its stages;
     business modules never call db.commit()/db.rollback() (uow-boundary rule).
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list
   tests:
   - tests/architecture/test_commit_pipeline.py::test_only_the_uow_contract_commits_an_async_session
@@ -521,7 +521,7 @@ guarantees:
     and before_commit checks registered inside it, while those of surviving savepoints and the parent
     stay live.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list
   tests:
   - src/sandloom/core/tests/test_savepoint_tracking.py::test_rolled_back_savepoint_kills_its_token_and_survivors_live
@@ -533,8 +533,8 @@ guarantees:
     database= raise instead of guessing, and an explicit database= deterministically selects that database's
     UoW (each database owns its own outbox).
   sources:
-  - docs/concepts/units.md
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/database/units.md
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_review_fixes_v2.py::test_resolve_scoped_session_ambiguous_without_database
   - src/sandloom/core/tests/test_review_fixes_v2.py::test_resolve_scoped_session_single_database
@@ -546,7 +546,7 @@ guarantees:
   statement: Two named databases are independent engines with independent UoWs; there is no shared COMMIT
     across them (no distributed transaction).
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#1. Vocabulary
   tests:
   - src/sandloom/core/tests/test_infra_multi_database.py::test_two_databases_are_independent_and_both_work
@@ -557,7 +557,7 @@ guarantees:
   statement: The default-database UoW binds the single-tenant canonical tenant only inside the UoW and
     a tenant-scope failure on enter rolls the UoW back.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   tests:
   - src/sandloom/core/tests/test_open_uow.py::test_single_tenant_scope_bound_only_inside
   - src/sandloom/core/tests/test_open_uow.py::test_tenant_scope_failure_on_enter_rolls_back
@@ -818,7 +818,7 @@ guarantees:
   statement: Inside a UoW, publish_event writes the event to outbox_messages in the same transaction;
     a rollback discards the row and nothing is published.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_uow_outbox.py::test_publish_event_enqueues_to_outbox_in_same_transaction
@@ -829,7 +829,7 @@ guarantees:
     only required=False publishes straight to the bus (at-most-once), and required=False inside a UoW
     still uses the outbox.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_uow_outbox.py::test_publish_event_outside_uow_raises
@@ -840,7 +840,7 @@ guarantees:
   statement: 'In module code every best-effort downgrade (publish_event / publish_event_versions / record_audit
     with required=False) must carry a ''# sandloom: best-effort <reason>'' marker or sandloom check fails.'
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - tests/architecture/test_best_effort_effects_rule.py::test_fixture_violations_are_flagged_and_marked_calls_pass
@@ -853,7 +853,7 @@ guarantees:
     written, so an event the bus would reject is refused to the caller instead of being committed to the
     outbox.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_infra_hardening.py::test_preflight_rejects_oversized_payload
@@ -870,7 +870,7 @@ guarantees:
   statement: The dispatched envelope id equals the outbox row id and stays the same across post-commit
     dispatch and relay redeliveries.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_uow_outbox.py::test_committed_events_marked_delivered_after_dispatch
@@ -879,7 +879,7 @@ guarantees:
   statement: The channel suffix is authoritative for the schema version (.v2 -> schema_version "v2"),
     so the outbox row and the dispatched envelope never disagree.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   tests:
   - src/sandloom/core/tests/test_review_fixes_v2.py::test_normalize_schema_version_derives_from_channel_suffix
 - id: G-OUTBOX-07
@@ -908,7 +908,7 @@ guarantees:
 - id: G-OUTBOX-09
   statement: One UoW's own post-commit dispatch is sequential in emission order.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_uow_outbox.py::test_post_commit_dispatch_preserves_unit_of_work_order
   - src/sandloom/core/tests/test_pipelined_dispatch.py::test_queued_uows_go_out_in_one_ordered_batch
@@ -917,9 +917,9 @@ guarantees:
     OUTBOX_RELAY_MAX_ATTEMPTS is dead-lettered (dead_at set, outbox_dead_total) instead of retried forever;
     a dead row can be requeued to pending.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
-  - 'docs/operations/operator-reference.md#Events: outbox relay and dead letters'
+  - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_failed_publish_defers_retry_with_backoff
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_relay_backoff_grows_and_is_capped
@@ -973,7 +973,7 @@ guarantees:
     is an implementation detail, not a guarantee: one poison row delays its channel until it is dead-lettered.)'
   sources:
   - docs/adr/0005-effect-model.md#1. Vocabulary
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_projections.py::test_consumer_applies_and_is_monotonic_and_idempotent
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_null_stored_version_is_updatable
@@ -994,7 +994,7 @@ guarantees:
   statement: on_commit callbacks run only after the UoW commits, never on rollback, never twice; a failing
     callback is logged and never fails the committed request; outside a UoW the callback runs at once.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_on_commit.py::test_runs_after_commit_only
@@ -1013,7 +1013,7 @@ guarantees:
     first failing check rolls the UoW back and propagates; outside a UoW the check runs at once; the testing
     run_on_commit seam runs before_commit checks first.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list
   tests:
   - src/sandloom/core/tests/test_before_commit.py::test_checks_run_in_order_after_the_handler_and_before_commit
@@ -1052,7 +1052,7 @@ guarantees:
     event_id) in the handler''s own UoW: the first claim returns True, a duplicate returns False, and
     a handler''s own constraint violation is never read as a duplicate.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#2. The dedupe record — one primitive
   tests:
   - src/sandloom/core/tests/test_durable_inbox_claim.py::test_duplicate_claim_is_skipped
@@ -1063,7 +1063,7 @@ guarantees:
   statement: A durable=True consumer dedupes redeliveries by the DB claim on the envelope id and never
     touches the cache inbox.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_streams_event_bus.py::test_durable_consumer_dedupes_redelivery_without_cache_inbox
@@ -1073,7 +1073,7 @@ guarantees:
     open on a cache error (the effect stays at-least-once).
   sources:
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_transport.py::test_consumer_inbox_dedupes_on_event_id
   - src/sandloom/core/tests/test_transport.py::test_consumer_inbox_fails_open_on_cache_error
@@ -1090,7 +1090,7 @@ guarantees:
   statement: A command contract's dedupe record is claimed in the provider's own UoW and commits iff the
     effect commits, so a retry after a crash following COMMIT replays the stored result and never re-executes.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   - docs/adr/0005-effect-model.md#4a. Ambiguous COMMIT
   tests:
@@ -1100,7 +1100,7 @@ guarantees:
   statement: Concurrent duplicates of a command execute exactly once; a duplicate that outwaits CONTRACT_DB_LOCK_TIMEOUT_MS
     gets 503 ContractCallInProgress.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_concurrent_duplicates_execute_exactly_once
@@ -1110,7 +1110,7 @@ guarantees:
   statement: Reusing a command idempotency key with other arguments raises ContractIdempotencyConflict
     (409), locally and over RPC.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_same_key_other_arguments_conflicts_locally_and_over_rpc
   - src/sandloom/core/tests/test_service_rpc.py::test_command_contract_is_deduped_by_the_framework_locally_and_over_rpc
@@ -1121,7 +1121,7 @@ guarantees:
     then runs afresh and may succeed), the semantics of a client retry after a failure; the unanswered attempt
     keeps the caller's request in doubt (G-UNIT-02).
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_failed_command_leaves_no_record_and_retry_executes
   - tests/integration/test_durable_command_idempotency.py::test_provider_killed_mid_command_does_not_block_the_retry
@@ -1129,7 +1129,7 @@ guarantees:
   statement: Local and RPC calls of a command share one dedupe namespace/record (a remote retry of a local
     call replays).
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#Context
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_local_and_rpc_share_one_record
@@ -1138,7 +1138,7 @@ guarantees:
   statement: 'A command result larger than 256 KiB is stored as a non-replayable marker: a repeat raises
     ContractResultNotReplayable (409) and the method is never re-run.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_oversized_result_is_never_reexecuted
@@ -1148,7 +1148,7 @@ guarantees:
     by taking over the expired record), an in-flight claim past its TTL is never taken over, and purge
     never deletes a concurrently taken-over record.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#2. The dedupe record — one primitive
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_expired_record_is_taken_over_and_purged
@@ -1158,7 +1158,7 @@ guarantees:
   statement: A command contract must name its mandatory idempotency_key argument at registration and commits
     its own UoW.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_contract_must_name_its_idempotency_key
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key
@@ -1167,7 +1167,7 @@ guarantees:
     to the cache, fail-closed: a cache outage raises ContractIdempotencyUnavailable (503) and the method
     does not run; the fallback follows IDEMPOTENCY_CACHE_INSTANCE.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_command_contract_fails_closed_when_the_store_is_down
@@ -1176,7 +1176,7 @@ guarantees:
   statement: 'Cache-form idempotency_guard replays a successful response (same status/body, Idempotent-Replay:
     true) without re-running the endpoint.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_replays_successful_response
@@ -1185,7 +1185,7 @@ guarantees:
   statement: A retry while the first request is pending gets 409; the pending reservation has a short
     TTL that is renewed while the request runs and self-heals if the request dies.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_pending_request_conflicts
@@ -1196,7 +1196,7 @@ guarantees:
   statement: After a failed attempt (error response or unhandled exception) the key is released so a retry
     reserves afresh; the error response is sent before the release.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_failed_attempt_allows_retry
@@ -1206,7 +1206,7 @@ guarantees:
   statement: Reusing an Idempotency-Key with a different request body gets 422 (cache and durable forms);
     a missing key is rejected.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#2. The dedupe record — one primitive
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_rejects_key_reused_with_different_body
@@ -1216,7 +1216,7 @@ guarantees:
   statement: 'Every cache-guard transition is a compare-and-set on the reserving request''s owner token:
     an expired owner can neither release nor finalise over a retry''s reservation.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_idempotency_cas.py::test_redis_cas_primitives
@@ -1227,7 +1227,7 @@ guarantees:
     anonymous caller never gets a stored body replayed (status only).
   sources:
   - docs/reference/security-model.md#Idempotency
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_never_replays_across_tenants
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_anonymous_retry_is_deduped_without_body_replay
@@ -1238,7 +1238,7 @@ guarantees:
     success marker (never re-executed, body not preserved); a corrupt record is discarded instead of blocking
     the key.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_large_response_returns_full_body_stores_marker
   - src/sandloom/core/tests/test_idempotency_record_format.py::test_an_old_reader_replays_a_new_record_status_only_never_re_executes
@@ -1247,7 +1247,7 @@ guarantees:
   statement: With fail_closed=True a cache outage answers 503 (never a possible duplicate); the default
     fail-open guard lets the request through.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_fail_closed_returns_503_on_cache_outage
@@ -1258,7 +1258,7 @@ guarantees:
     it with the response: a retry replays the stored response and the effect runs once; a rolled-back
     request leaves no record; a returned 4xx is replayed; a returned 5xx is never replayed.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#2. The dedupe record — one primitive
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
@@ -1297,7 +1297,7 @@ guarantees:
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves the idempotency guard
     before its authenticating dependency.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_guard_order.py::test_guard_in_route_dependencies_before_param_auth_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_guard_param_before_auth_param_is_refused
@@ -1316,8 +1316,8 @@ guarantees:
     them (with task-enqueue dedupe and the command cache fallback); revocation marks never move, and the
     strict profile refuses an idempotency instance that is not its own durable Redis.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/index.md#What you get by default, and what you declare
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_default_keeps_guard_records_in_the_security_cache
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_reserve_replay_conflict_release_use_the_idempotency_instance
@@ -1354,7 +1354,7 @@ guarantees:
     replayed within dedupe_ttl_seconds), including parallel retries; the replay window expires after the
     TTL.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_successful_retries_publish_one_real_message
@@ -1365,7 +1365,7 @@ guarantees:
   statement: Reusing an enqueue idempotency key with other arguments fails with 409; keys are tenant-scoped
     and the payload is snapshotted before reserving.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_key_cannot_be_reused_for_other_arguments
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_tenants_do_not_share_enqueue_keys
@@ -1375,8 +1375,8 @@ guarantees:
     an ambiguous broker send keeps the key pending (503 task_enqueue_uncertain, never republished) until
     reconciled; deterministic send/serialisation errors release the reservation.'
   sources:
-  - docs/concepts/background-tasks.md
-  - docs/operations/operator-reference.md#Uncertain task enqueues
+  - docs/modules/background/tasks.md
+  - docs/operate/operator-reference.md#Uncertain task enqueues
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_unavailable_store_prevents_publish
@@ -1387,8 +1387,8 @@ guarantees:
   statement: run_async runs task coroutines on one persistent event loop per worker process (fresh after
     fork, engines disposed on it at shutdown) and refuses to run inside a running loop.
   sources:
-  - docs/concepts/background-tasks.md
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/background/tasks.md
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_async_runner.py::test_sequential_calls_share_one_persistent_loop
   - src/sandloom/core/tests/test_async_runner.py::test_inherited_loop_is_replaced_after_fork
@@ -1399,7 +1399,7 @@ guarantees:
     subscribes no result consumer), the worker prefetches one message, and acks_late stays a per-task
     opt-in.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_worker_reliability_defaults
   - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
@@ -1440,7 +1440,7 @@ guarantees:
     consumers of two modules (or of one module in two services) get distinct groups and each receives
     every event, while replicas of one service share the group.'
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_same_consumer_name_in_two_modules_gets_two_groups
   - src/sandloom/core/tests/test_streams_split_identity.py::test_same_name_in_two_services_each_receive_every_event
@@ -1450,7 +1450,7 @@ guarantees:
     is reused by another module, or when the group is already owned by another module / database (sandloom:group-owner
     fingerprint); consumer names are unique across event and projection consumers.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_duplicate_group_in_one_process_fails_startup
   - src/sandloom/core/tests/test_streams_split_identity.py::test_explicit_group_reused_by_other_module_fails_startup
@@ -1461,7 +1461,7 @@ guarantees:
     still attempted, transient failures retried within CONSUMER_STARTUP_TIMEOUT_SECONDS), and /ready fails
     while a required live subscription is lost; required=False consumers never delay startup or readiness.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_consumer_runtime.py::test_lifespan_aborts_when_required_consumer_cannot_start
   - src/sandloom/core/tests/test_consumer_runtime.py::test_ready_endpoint_rejects_unavailable_required_consumer
@@ -1471,7 +1471,7 @@ guarantees:
   statement: A consumer subscription whose task dies is restarted by the supervised runtime, and a permanent
     subscription contract error is not retried forever.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_consumer_runtime.py::test_runtime_restarts_a_subscription_whose_task_dies
   - src/sandloom/core/tests/test_consumer_runtime.py::test_permanent_subscription_contract_error_is_not_retried_forever
@@ -1480,7 +1480,7 @@ guarantees:
   statement: 'Each consumer delivery runs async (session, envelope) in a UoW: commit on success; a handler
     error leaves the delivery for redelivery (rollback).'
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_start_event_consumers_wires_and_delivers
   - src/sandloom/core/tests/test_streams_event_bus.py::test_failed_handler_leaves_message_for_redelivery
@@ -1492,7 +1492,7 @@ guarantees:
   statement: A consumer with dead_letter=False retries a failing delivery forever with capped backoff
     instead of dead-lettering it, while default consumers are dead-lettered after the bus's delivery budget.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_in_memory_bus_retries_a_never_dead_letter_consumer_forever
@@ -1503,7 +1503,7 @@ guarantees:
   statement: A handler raising PoisonEventError (public in sandloom.core.di) is dead-lettered at once, even
     on a dead_letter=False consumer.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_in_memory_bus_dead_letters_poison_immediately
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_malformed_revocation_is_dead_lettered_at_once
@@ -1512,7 +1512,7 @@ guarantees:
   statement: bind_tenant_from="<field>" binds the payload's tenant for the handler; consumers otherwise
     never inherit the publisher's tenant context.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_bind_tenant_from_binds_the_envelope_tenant
   - src/sandloom/core/tests/test_inmemory_bus_delivery.py::test_consumer_does_not_inherit_publisher_tenant
@@ -1520,7 +1520,7 @@ guarantees:
   statement: start_from (earliest | latest | timestamp) picks where a NEW group starts and is validated
     together with group=.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_start_from_and_group_are_validated
   - src/sandloom/core/tests/test_streams_split_identity.py::test_start_from_latest_skips_history
@@ -1530,8 +1530,8 @@ guarantees:
     via XAUTOCLAIM, dead-letters an entry to <channel>.dlq after exactly the max deliveries, and acks
     the source only after the DLQ append succeeded.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
-  - 'docs/operations/operator-reference.md#Events: outbox relay and dead letters'
+  - docs/modules/index.md#What you get by default, and what you declare
+  - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_transport.py::test_unacked_message_is_redelivered
   - src/sandloom/core/tests/test_transport.py::test_reclaim_advances_server_scan_cursor
@@ -1541,7 +1541,7 @@ guarantees:
   statement: A DLQ replay is targeted at the group that dead-lettered the entry; other groups ack-skip
     it (Streams and memory transports).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
@@ -1550,7 +1550,7 @@ guarantees:
   statement: Streams are trimmed by age (EVENT_STREAM_RETENTION_SECONDS) and optionally by length (EVENT_STREAM_MAXLEN)
     on publish.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_trims_entries_older_than_retention
   - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_caps_stream_length
@@ -1558,8 +1558,8 @@ guarantees:
   statement: Re-registering an identical event schema is a no-op, while a breaking change (new required
     field or removed required field on the same version) fails registration / module load.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
-  - docs/concepts/events.md#Changing an event
+  - docs/modules/index.md#What you get by default, and what you declare
+  - docs/modules/between/events.md#Changing an event
   tests:
   - src/sandloom/core/tests/test_core_event_schemas.py::test_re_register_idempotent
   - src/sandloom/core/tests/test_schema_compat.py::test_add_required_field_same_version_rejected
@@ -1578,7 +1578,7 @@ guarantees:
   statement: record_audit writes the audit_log row in the current UoW, so it commits iff the business
     change commits.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Audit trail
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
@@ -1593,7 +1593,7 @@ guarantees:
     an audit store it raises AuditUnavailableError; required=False is skipped silently (best-effort, marker
     required in module code).'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_record_audit_outside_uow_raises_by_default
@@ -1610,7 +1610,7 @@ guarantees:
     is not "access" (e.g. a refresh token or a token without token_type), so it can never act as an access
     token.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - tests/integration/test_review_hardening.py::test_guard_rejects_token_without_access_type
@@ -1619,7 +1619,7 @@ guarantees:
 - id: G-AUTH-02
   statement: An access token without iat or exp is rejected (401 at the guard).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_decode_requires_iat
@@ -1671,7 +1671,7 @@ guarantees:
     in processes holding only public keys.
   sources:
   - docs/reference/security-model.md#Authentication
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_verify_only_process_cannot_mint
   - tests/split_conformance/test_split_conformance.py::test_identity_issues_asymmetric_tokens
@@ -1717,7 +1717,7 @@ guarantees:
     as <module>.claims.v1; a failing critical contributor, local or remote, aborts minting with ClaimsUnavailable
     (503), the first critical failure in registration order winning.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_runs_in_its_own_uow_and_is_exposed
@@ -1729,7 +1729,7 @@ guarantees:
     only when that module is in claims_sources and not in claims_sources_failed, otherwise the fact is
     unknown and escalates to a live check.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_claims_provenance_always_stamped
@@ -1747,7 +1747,7 @@ guarantees:
     through refresh; recency (step-up) checks read auth_time, never iat, so a refreshed token with a fresh
     iat is not 'recent'.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom_identity/tests/services/test_reauth_auth_time.py::test_fresh_iat_with_old_auth_time_is_not_recent
   - src/sandloom_identity/tests/services/test_reauth_auth_time.py::test_refresh_carries_auth_time_unchanged
@@ -1789,7 +1789,7 @@ guarantees:
     hash, same cache/SQL steps) whether or not the e-mail has an account, so neither response nor timing
     reveals account existence.
   sources:
-  - docs/modules/identity.md#Behaviour API clients must know
+  - docs/modules/standard/identity.md#Behaviour API clients must know
   tests:
   - src/sandloom_identity/tests/services/test_login_timing_equalizer.py::test_wrong_password_and_unknown_email_do_identical_work
   - src/sandloom_identity/tests/services/test_login_timing_equalizer.py::test_unknown_email_submits_to_the_password_pool_once
@@ -1801,7 +1801,7 @@ guarantees:
   sources:
   - docs/reference/security-model.md#Authentication
   - docs/reference/cli.md
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_twofa_key_is_mandatory_in_prod
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_twofa_key_registers_a_critical_refusal
@@ -1812,7 +1812,7 @@ guarantees:
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
     token with 401 'Token has been revoked'.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_token_issued_earlier_in_the_same_second_is_revoked
@@ -1823,7 +1823,7 @@ guarantees:
     whose clock runs ahead is still revoked, while an issuer that ran the issuance check (ensure_user_not_blocked)
     and tokens minted later in the revoking request are stamped past it.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_skew_margin_rejects_tokens_from_an_issuer_clock_running_ahead
@@ -1834,7 +1834,7 @@ guarantees:
     concurrent revocations of one subject all succeed and end at the maximum; a security cache with neither
     set_max nor cas is refused for revocation writes.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_never_moves_backwards
@@ -1845,7 +1845,7 @@ guarantees:
   statement: 'revoke_user_tokens_on_commit writes the mark only after the UoW commits: a rolled-back change
     never revokes (logs out) the user.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom_tenancy/tests/test_security_hardening.py::test_rolled_back_member_removal_skips_the_post_commit_revocation
@@ -1856,7 +1856,7 @@ guarantees:
     commit time + skew) revokes tokens minted between the early mark and the commit, and a commit slower
     than the skew also revokes the request's own tokens (counted auth_revocation_remark_overtook_floor_total).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_immediate_and_corrupt.py::test_immediate_revocation_writes_the_mark_before_commit
@@ -1869,7 +1869,7 @@ guarantees:
     tenancy member removal/leave, role change, ownership transfer (both parties), org deletion; identity
     role revocation, password change/reset, deactivation; block_user.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom_tenancy/tests/test_role_change_revocation.py::test_role_change_revokes_the_members_tokens
@@ -1887,7 +1887,7 @@ guarantees:
     write is counted (auth_revocation_deferred_total) and identity''s durable consumer sessions@tokens_revoked
     applies it idempotently without ever lowering a newer mark.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_revocation_is_persisted_in_the_uow_for_the_durable_applier
@@ -1910,7 +1910,7 @@ guarantees:
     shorter than the access lifetime); a token older than the verifier's mark TTL is rejected (fail closed
     on lifetime drift) and /ready fails on ACCESS_TOKEN_EXPIRE_MINUTES drift between services.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_outlives_other_services_tokens_by_default
@@ -1922,7 +1922,7 @@ guarantees:
     token of the subject on every authenticated route (one live GET, counted); the issuance check repairs it
     to now + skew, never deleting or lowering a readable record, and a revocation overwrites a corrupt record.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
@@ -1936,7 +1936,7 @@ guarantees:
     elsewhere): closed answers 503 on every authenticated route (the block cannot be confirmed, no copy answers);
     open accepts with a warning.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
@@ -1950,7 +1950,7 @@ guarantees:
     live with one GET, so a revocation applies on the very next request in every process; several guards on
     one request share the one lookup.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
@@ -1966,7 +1966,7 @@ guarantees:
     (replacing revocation_at_commit()); it re-reads the caller's subject-state record live there, so a revocation
     or block written during the request answers 401 with nothing committed (also for named-database units).
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/reference/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
@@ -2068,7 +2068,7 @@ guarantees:
     including ones minted after the block, with 401 ''Account blocked'' (WWW-Authenticate: Bearer
     error="invalid_token", as G-REVOKE-21).'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
@@ -2083,7 +2083,7 @@ guarantees:
     and writes the block value of the subject-state record LAST (after audit, immediate revocation and event);
     a cache outage raises BlockUnavailableError (503) and the audit rolls back.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
@@ -2095,7 +2095,7 @@ guarantees:
     with after:<now+skew> by compare-and-set only after its unit of work commits (on_commit); a rolled-back
     or failed unblock leaves the user blocked.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
@@ -2108,7 +2108,7 @@ guarantees:
     no refresh rotation, SSO state not consumed), answering 401 'Account blocked'; a cache outage follows
     AUTH_REVOCATION_FAIL_CLOSED.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Operation classes (normative)
   tests:
@@ -2124,7 +2124,7 @@ guarantees:
     and core.auth.user_blocked.v1 is published, whose identity consumer revokes every refresh token, so
     lifting the block requires a fresh login.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/api/test_emergency_block.py::test_block_ends_sessions_on_commit
@@ -2174,7 +2174,7 @@ guarantees:
     readable; responses, OpenAPI and session behaviour are unchanged, and a marker bound to a parameter of
     another dependency is never pruned.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -2431,7 +2431,7 @@ guarantees:
     or a missing contract is 501, an unreachable owner is 503; an indeterminate branch never yields allow through
     Or/Not.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
@@ -2444,7 +2444,7 @@ guarantees:
   statement: require(...) evaluates the cheapest tier first (claims -> resource -> live) and short-circuits;
     a claims-only policy such as require(Subscribed(of=Account.user())) opens no DB session and does no I/O.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authorization
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
@@ -2455,7 +2455,7 @@ guarantees:
   statement: SubscriptionActive(of=...) and Credits(n, of=...) (of= required) are live and authoritative, resolved
     through the owner's contract (local, or the SERVICE_BINDINGS RPC proxy when remote).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#What must stay strict (always a live RPC / local call)
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
@@ -2467,7 +2467,7 @@ guarantees:
     binds it in SERVICE_BINDINGS gets the same decision as the monolith, with the declarative ClaimRule
     travelling over RPC (describe, cached).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/integration/test_access_facts_split.py::test_entitled_subscription_same_decision_in_split
   - tests/integration/test_access_facts_split.py::test_owner_settings_drive_the_remote_claim_rule
@@ -2477,7 +2477,7 @@ guarantees:
   statement: 'Live adapters are consumer-side configuration: a registered adapter overrides the owner''s
     contract, and registering one on the provider side warns.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/integration/test_shared_authz_review.py::test_registered_adapter_overrides_contract
   - tests/integration/test_shared_authz_review.py::test_provider_side_live_adapter_registration_warns
@@ -2549,7 +2549,7 @@ guarantees:
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator
     counts once marked @authenticates.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_guard_order.py::test_guard_in_route_dependencies_before_param_auth_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_guard_param_before_auth_param_is_refused
@@ -2892,7 +2892,7 @@ guarantees:
   sources:
   - docs/reference/cli.md
   - docs/reference/security-model.md#Secrets
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - tests/integration/test_resilience_config.py::test_stripe_provider_requires_keys
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_rejects_explicit_fake_psp_unless_opted_in
@@ -2964,7 +2964,7 @@ guarantees:
     succeeds whatever the balance, including a negative one left by a refund or dispute reversal (a positive spend
     still needs cover). A negative amount is refused (422) and a grant of 0 stays refused.'
   sources:
-  - docs/modules/billing.md
+  - docs/modules/standard/billing.md
   tests:
   - src/sandloom_billing/tests/test_credits.py::TestCreditIdempotencyHardening::test_a_zero_spend_is_recorded_and_idempotent
   - src/sandloom_billing/tests/test_credits.py::TestCreditIdempotencyHardening::test_a_zero_spend_needs_no_prior_billing_customer
@@ -2975,8 +2975,8 @@ guarantees:
     the provider module's database (never the caller's session, which is restored afterwards); a read
     contract's transaction is always rolled back and a command contract commits its own UoW.
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_local_call_runs_in_providers_own_uow_on_its_own_database
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key
@@ -2987,8 +2987,8 @@ guarantees:
     effect, adds/modifies ORM objects or runs raw DML raises ReadContractWriteError (in its own UoW and
     inside a shared read scope) and its writes never persist.
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_read_contract_cannot_publish
   - tests/integration/test_read_contract_writes.py::test_read_contract_write_fails_loudly
@@ -2997,8 +2997,8 @@ guarantees:
   statement: A command contract must name a mandatory idempotency-key argument at registration, and a
     call with an empty key is refused (ContractIdempotencyKeyMissing) before any UoW opens.
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_contract_must_name_its_idempotency_key
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key
@@ -3007,8 +3007,8 @@ guarantees:
     at registration (and by the architecture test), and a session passed by a caller, positionally or
     by keyword, is 422 ContractArgumentError before any UoW opens, locally and over RPC.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_caller_session_is_an_argument_error
   - src/sandloom/core/tests/test_service_rpc.py::test_a_session_taking_provider_is_refused_at_registration
@@ -3019,8 +3019,8 @@ guarantees:
     a @contract_method, an unannotated or non-wire-type parameter/return, or *args/**kwargs; a local provider
     exposes only its contract methods (private members and unknown names raise AttributeError).
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_non_portable_contracts_are_rejected_at_registration
   - src/sandloom/core/tests/test_contract_parity.py::test_local_provider_exposes_only_contract_methods
@@ -3031,8 +3031,8 @@ guarantees:
     kwargs, missing arguments, positional-only by keyword, keyword-only positionally and arguments failing
     annotation validation are 422 ContractArgumentError both ways.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_contract_parity.py::test_rpc_type_fidelity
@@ -3044,8 +3044,8 @@ guarantees:
     of the hash seed; a Contract(REF) caller receives each DTO as the class its generated stub names (the
     generated copy, G-CONTRACT-19) on both paths, every field set as read off the wire.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_rpc_type_fidelity
   - tests/sdk/test_sdk_contract_dtos.py::test_a_caller_receives_the_copy_equal_to_the_providers_value
@@ -3063,8 +3063,8 @@ guarantees:
     decodes it into a loaded generated copy of it, else as plain data, and never imports a module named by
     the peer.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_module_contract_with_own_package_dto_is_accepted
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_a_function_local_dto_is_refused
@@ -3080,8 +3080,8 @@ guarantees:
     with the same status, detail, headers (e.g. Retry-After) and code locally AND over RPC; a domain 401/403
     stays 401/403 over RPC, never a 503.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Errors
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Errors
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_domain_403_over_rpc_is_not_a_503
   - src/sandloom/core/tests/test_contract_parity.py::test_retry_after_header_survives_rpc
@@ -3091,8 +3091,8 @@ guarantees:
   statement: An unknown method or contract at a remote provider surfaces at the caller as 501 ServiceUnavailableInDeployment
     (an unknown method on a local provider is AttributeError).
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Errors
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Errors
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_unknown_method_at_provider_is_501
   - src/sandloom/core/tests/test_contract_parity.py::test_local_provider_exposes_only_contract_methods
@@ -3101,8 +3101,8 @@ guarantees:
     provider failure — 500 locally, 503 RemoteServiceUnavailable code=provider_error remotely — and is
     never masked as the endpoint's 404 method_not_found or 422 binding error.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Errors
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Errors
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_rpc_errors_inside_provider_are_not_masked_as_404_or_422
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
@@ -3111,7 +3111,7 @@ guarantees:
     or bound in SERVICE_BINDINGS: a missing required one raises ContractBindingError (startup aborts),
     a missing optional one only warns, and the shipped modules declare what they consume.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - deploy/README.md#How the split works
   tests:
   - src/sandloom/core/tests/test_consumes_preflight.py::test_missing_required_consumed_contract_aborts_startup
@@ -3124,8 +3124,8 @@ guarantees:
     connection (READ COMMITTED, always rolled back) that never sees the caller's uncommitted writes; a
     failing call discards the shared transaction and nested/concurrent calls fall back to their own UoW.
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_read_scope.py::test_calls_in_a_scope_share_one_connection
   - src/sandloom/core/tests/test_contract_read_scope.py::test_scope_never_sees_the_callers_uncommitted_writes
@@ -3136,8 +3136,8 @@ guarantees:
     for the request, each hit is an independent copy, the memo is keyed by the bound tenant, any command
     call (local or remote) clears it, and the HTTP boundary never inherits another request's memo.
   sources:
-  - docs/concepts/contracts.md
-  - docs/concepts/contracts.md#Local equals remote
+  - docs/modules/between/contracts.md
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_read_scope.py::test_memo_serves_repeats_and_a_command_invalidates_it
   - src/sandloom/core/tests/test_contract_parity.py::test_external_changes_and_command_invalidation_have_same_read_policy
@@ -3148,8 +3148,8 @@ guarantees:
     contract call succeeds even with DB_POOL_SIZE=1, and contract connections carry lock_timeout (CONTRACT_DB_LOCK_TIMEOUT_MS)
     so a contract waiting on its caller's row lock fails fast instead of deadlocking.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_contract_pool.py::test_nested_contract_call_with_request_pool_size_one_succeeds
   - src/sandloom/core/tests/test_contract_pool.py::test_without_the_contract_pool_the_nested_call_starves
@@ -3162,9 +3162,9 @@ guarantees:
     wire value, local equals remote and codec 1 equals codec 2 when fully typed (properties), and an int
     beyond 64 bits crosses RPC tagged (bigint) so local still equals remote.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_contract_codec_v2.py::test_server_answers_typed_only_for_the_accepted_contract_hash
   - src/sandloom/core/tests/test_contract_codec_v2.py::test_new_client_new_server_uses_typed_codec
@@ -3178,7 +3178,7 @@ guarantees:
   statement: Every shipped contract (tenancy.membership.v1, billing.entitlements.v1, billing.credits.v1,
     billing.facts.v1, *.claims.v1) gives identical results and errors locally and over RPC under assert_contract_conformance.
   sources:
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom_tenancy/tests/test_contract_conformance.py::test_tenancy_contracts_conform
   - src/sandloom_billing/tests/test_contract_conformance.py::test_billing_contracts_conform
@@ -3188,8 +3188,8 @@ guarantees:
   statement: Read contracts keep no idempotency record on either path, and the RPC layer adds no dedupe
     record of its own (commands share the contract runtime's single record).
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_reads_persist_no_idempotency_record
   - src/sandloom/core/tests/test_contract_parity.py::test_command_dedupe_is_shared_bounded_and_size_capped
@@ -3205,7 +3205,7 @@ guarantees:
     else through one JSON round trip; a result already of the stub''s class, or naming no model / Enum, is not
     converted. The provider receives its own class for a copy the caller passes, on both paths.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'docs/adr/0010-public-api-1.0.md#Note (2026-10-28): contract DTOs authored in the provider, generated into the DTO package'
   tests:
   - tests/sdk/test_sdk_contract_dtos.py::test_a_caller_receives_the_copy_equal_to_the_providers_value
@@ -3222,7 +3222,7 @@ guarantees:
     test, dev and --ci alike, only checks and fails on a stale file, listing it under "generated files are
     stale: run `sandloom generate`".'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_committed_module_snapshots_match_registered_contracts
@@ -3237,7 +3237,7 @@ guarantees:
     parameter, a changed position/kind/idempotency key and a narrowed parameter or incompatible result
     type, and passes additive changes (new methods, optional parameters/fields, widened parameter types).
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_additive_changes_are_compatible
@@ -3261,7 +3261,7 @@ guarantees:
     provider''s live describe document with the provider module''s snapshot (found in its package without
     importing it): an incompatible provider fails /ready with contract_incompatible, an additive one passes.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_fails_on_an_incompatible_provider
@@ -3271,7 +3271,7 @@ guarantees:
   statement: ContractRequirement(name, methods=(...)) narrows the compatibility check to the methods the
     consumer calls, so breaks in other methods do not fail /ready.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_methods_the_consumer_does_not_call_do_not_fail_ready
@@ -3280,7 +3280,7 @@ guarantees:
   statement: CONTRACT_COMPAT_CHECK=strict aborts startup on a reachable incompatible provider, ready only
     logs at startup (and fails /ready), and off restores reachability-only readiness.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_startup_check_strict_raises_ready_only_logs
@@ -3302,7 +3302,7 @@ guarantees:
     response-binding key (committed test vectors pin the schedule).'
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Key schedule
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_both_sides_derive_the_same_directional_pair_key
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_request_key_is_domain_separated_from_the_response_binding_key
@@ -3338,7 +3338,7 @@ guarantees:
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Errors
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_malformed_headers_and_tags_are_refused
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_non_canonical_tag_encoding_is_refused
@@ -3409,8 +3409,8 @@ guarantees:
     header on an RPC request is 400 rpc_unsigned_tenant, and the proxy propagates the caller's bound tenant
     inside the MACed context.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_rpc_server_rebinds_tenant_only_from_verified_context
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_x_tenant_id_is_refused_on_the_mac_path
@@ -3420,7 +3420,7 @@ guarantees:
     caller not allowed the contract/method gets 403 rpc_caller_forbidden at the provider; between real
     processes the ops token alone opens no contract and a caller is held to its own bindings.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade
   - docs/reference/security-model.md#Service-to-service trust (internal RPC)
   tests:
@@ -3433,7 +3433,7 @@ guarantees:
     refuses to start, and the shipped microservices profile's allowlist equals the one derived from its
     bindings.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/reference/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_every_bound_contract_must_be_allowed_for_the_caller
@@ -3473,7 +3473,7 @@ guarantees:
     and a caller never sends a call it cannot MAC: an unpinned binding or a provider without a published
     X25519 key fails 503 rpc_auth_unavailable with nothing sent.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)
   tests:
@@ -3485,8 +3485,8 @@ guarantees:
   statement: A process with SERVICE_BINDINGS refuses to start without its own RPC_DH_PRIVATE_KEY, a provider
     without one refuses every RPC call (unkeyed), and a monolith with no bindings needs no RPC keys.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Provider endpoint
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Provider endpoint
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_caller_with_bindings_needs_its_own_x25519_key
@@ -3501,7 +3501,7 @@ guarantees:
     Ed25519 signing seed.'
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation
-  - docs/guides/service-rpc.md#Response binding
+  - docs/operate/service-rpc.md#Response binding
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_startup_refuses_unusable_configurations
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_startup_refuses_a_dh_key_that_is_the_signing_seed
@@ -3513,9 +3513,9 @@ guarantees:
     rpc_caller_forbidden, rpc_replay_unavailable) and every unkeyed error answer surfaces at the caller
     as 503 RemoteServiceUnavailable carrying the provider's code, never as the provider's 401/403.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Errors
-  - docs/guides/service-rpc.md#Errors
+  - docs/operate/service-rpc.md#Errors
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_auth_failures_are_503_at_the_caller_with_a_stable_code
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_proxy_of_an_unlisted_caller_gets_503
@@ -3525,8 +3525,8 @@ guarantees:
     unkeyed, forged or other-service responses are rejected (never returned as a result, even under concurrency
     with random faults).
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Response binding
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Response binding
   - docs/reference/security-model.md#Response binding — threat model
   tests:
   - src/sandloom/core/tests/test_rpc_response_binding.py::test_peer_returning_a_stale_response_of_another_call
@@ -3551,7 +3551,7 @@ guarantees:
     only for a caller whose request MAC verified, and answers others (e.g. the 413 body cap) with the
     nonce alone, unkeyed; unverified callers never churn the key cache.
   sources:
-  - docs/guides/service-rpc.md#Response binding
+  - docs/operate/service-rpc.md#Response binding
   - docs/reference/security-model.md#Response binding — threat model
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)
   tests:
@@ -3564,7 +3564,7 @@ guarantees:
     pool and is a retryable transport error; a peer that always answers another call yields 503, never
     a result.
   sources:
-  - docs/guides/service-rpc.md#Response binding
+  - docs/operate/service-rpc.md#Response binding
   tests:
   - src/sandloom/core/tests/test_rpc_response_binding.py::test_a_rejected_response_discards_the_connection_pool
   - src/sandloom/core/tests/test_rpc_response_binding.py::test_a_peer_that_always_answers_another_call_is_503_never_a_result
@@ -3574,8 +3574,8 @@ guarantees:
     classes, pass the same fault-injection, pair-MAC and contract-conformance suites, and send pair-MACed
     requests with the tenant context.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transports.py::test_request_on_the_wire_is_pair_maced_with_tenant_context
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
@@ -3585,8 +3585,8 @@ guarantees:
   statement: A response larger than RPC_MAX_RESPONSE_BYTES is 502 RemoteServiceBadResponse and is never
     retried.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transports.py::test_oversized_response_is_502_and_not_retried
 - id: G-RPC-25
@@ -3594,9 +3594,9 @@ guarantees:
     as a replay; a signed command is re-signed and executes once), a second failure or an unreachable
     peer is 503, and a timeout is 503 documenting that the call may have committed.
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_rpc_proxy_retries_transport_errors_under_a_fresh_nonce
   - src/sandloom/core/tests/test_rpc_transports.py::test_peer_closing_mid_response_twice_is_503
@@ -3607,8 +3607,8 @@ guarantees:
     warns once, increments sandloom_rpc_transport_fallback_total and rebuilds the shared client on httpx, which
     serves calls; the pyproject pin equals VERIFIED_AIOHTTP_RANGE.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transport_compat.py::test_a_failing_probe_warns_once_counts_and_falls_back_to_httpx
   - src/sandloom/core/tests/test_rpc_transport_compat.py::test_startup_probe_failure_rebuilds_the_shared_client_on_httpx
@@ -3619,7 +3619,7 @@ guarantees:
     cancellation, parse error or unsolicited byte closes it, so a half-read or stray response never reaches
     the next call.'
   sources:
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transports.py::test_unsolicited_bytes_never_reach_the_next_call
   - src/sandloom/core/tests/test_rpc_transports.py::test_cancellation_mid_call_discards_the_connection
@@ -3633,7 +3633,7 @@ guarantees:
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)
-  - docs/guides/service-rpc.md#Provider endpoint
+  - docs/operate/service-rpc.md#Provider endpoint
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_downgrades_are_refused
   - src/sandloom/core/tests/test_service_rpc.py::test_rpc_server_hides_itself_from_a_request_without_credentials
@@ -3674,7 +3674,7 @@ guarantees:
 - id: G-RPC-32
   statement: HEAD on the status route /_sandloom/rpc/<contract> is 405 (never served under a GET MAC).
   sources:
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Second review (independent, 2026-10-21)
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_head_on_the_status_route_is_not_served
@@ -3692,8 +3692,8 @@ guarantees:
     dynamic importlib/sys.modules/getattr spellings, in the framework tree and in an app's modules package);
     a violation fails sandloom check and the architecture suite.
   sources:
-  - docs/concepts/modules.md#What a module may import
-  - docs/concepts/modules.md#How modules talk to each other
+  - docs/modules/index.md#What a module may import
+  - docs/modules/index.md#How modules talk to each other
   tests:
   - tests/architecture/test_module_boundaries.py::test_module_has_no_forbidden_imports
   - tests/architecture/test_module_boundaries.py::test_analyzer_detects_violations_in_fixture_modules
@@ -3705,7 +3705,7 @@ guarantees:
     facade, module_api, descriptors, orm, projections) plus sandloom.shared.* and its own package; any other
     sandloom.core.* import (settings, drivers, _internal, …) is a framework-imports violation.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
   - tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
@@ -3718,7 +3718,7 @@ guarantees:
     are forbidden to business modules via architecture_rules.yml forbidden_patterns; modules import the
     package itself.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
   rules:
@@ -3731,7 +3731,7 @@ guarantees:
     (incl. reflective getattr spellings) are rejected; only the public verbs (publish_event, register_event_consumer,
     cache(), capability(), get_service()) are allowed.'
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_no_kernel_handle_access.py::test_module_has_no_kernel_handle_access
   - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_kernel_handles
@@ -3743,7 +3743,7 @@ guarantees:
   statement: Business modules never call a capability's raw_client() / raw_backend() escape hatch (direct
     or reflective); a call fails sandloom check.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - tests/architecture/test_no_raw_provider_usage.py::test_module_has_no_raw_provider_usage
   - tests/architecture/test_no_raw_provider_usage.py::test_analyzer_detects_raw_call
@@ -3755,7 +3755,7 @@ guarantees:
     the legacy globals (get_db/get_event_bus from sandloom.core, get_cache from sandloom.core.di) or the infra-internal
     modules (sandloom.core._internal, eventing.event_bus, storage, drivers, sql_alchemy.models).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - tests/architecture/test_no_legacy_infra_imports.py::test_module_has_no_legacy_infra_imports
   - tests/architecture/test_no_legacy_infra_imports.py::test_analyzer_detects_legacy_infra_import
@@ -3765,7 +3765,7 @@ guarantees:
   statement: Business-module code never calls db.commit() / db.rollback(); the Unit of Work owns the transaction
     boundary and a call fails sandloom check.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   tests:
   - tests/architecture/test_no_uow_boundary_breaks.py::test_module_does_not_break_uow_boundary
   - tests/architecture/test_no_uow_boundary_breaks.py::test_analyzer_detects_boundary_break
@@ -3776,8 +3776,8 @@ guarantees:
     incl. aliased calls and **kwargs splats) needs a ''# sandloom: best-effort <reason>'' marker on the call,
     else sandloom check fails; guaranteed calls are never flagged.'
   sources:
-  - docs/concepts/units.md
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/database/units.md
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/architecture/test_best_effort_effects_rule.py::test_fixture_violations_are_flagged_and_marked_calls_pass
   - tests/architecture/test_best_effort_effects_rule.py::test_aliased_effects_and_kwargs_splat_are_flagged
@@ -3789,7 +3789,7 @@ guarantees:
   statement: 'get_core() is async: an unawaited direct call in module code is flagged by sandloom check, while
     awaited calls and Depends(get_core) pass.'
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_get_core_await_rule.py::test_unawaited_direct_calls_are_flagged
   - tests/architecture/test_get_core_await_rule.py::test_awaited_calls_and_depends_are_fine
@@ -3800,7 +3800,7 @@ guarantees:
   statement: HTTP endpoints (router decorators) of a business module live only in its own api/ layer,
     judged relative to the module root (an api/ directory above the module does not exempt it).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/architecture/test_no_endpoints_outside_api_layer.py::test_no_endpoints_outside_api_layer
   - tests/architecture/test_no_endpoints_outside_api_layer.py::test_analyzer_flags_endpoint_outside_api_layer
@@ -3812,7 +3812,7 @@ guarantees:
   statement: API endpoints of a business module do not leak ORM models (no ORM types in endpoint signatures/returns;
     they return pydantic DTOs), and the legacy ORM_LEAKAGE_BASELINE is empty and may only shrink.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/contributing/repository.md#Things that look wrong but are intentional
   tests:
   - tests/architecture/test_api_no_orm_leakage.py::test_api_no_orm_leakage_in_endpoints
@@ -3825,7 +3825,7 @@ guarantees:
   statement: A business module's schemas/ (package or single schemas.py) never import SQLAlchemy or the
     module's models (absolute, relative or any models spelling).
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/architecture/test_schemas_no_orm_imports.py::test_business_module_schemas_do_not_import_orm
   - tests/architecture/test_schemas_no_orm_imports.py::test_analyzer_detects_every_models_spelling
@@ -3855,7 +3855,7 @@ guarantees:
     constructing module.'
   sources:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_define_module.py::test_conventions_mount_router_and_register_schemas
   - src/sandloom/core/tests/test_define_module.py::test_identical_schema_reregistration_is_idempotent_breaking_still_raises
@@ -3871,7 +3871,7 @@ guarantees:
     only the documented ContractBindingError for required consumed contracts may refuse, and any startup/registration
     coupling or error logged at startup fails the boot.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - src/sandloom_identity/tests/test_module_wiring.py::test_module_boots_alone
   - src/sandloom_tenancy/tests/test_module_wiring.py::test_module_boots_alone
@@ -3886,7 +3886,7 @@ guarantees:
   statement: 'Module tables never go in the core migration chain (infra-only: outbox/audit/consumer_inbox/contract_command_log);
     each module''s tables live in exactly one module chain and the chains are disjoint.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/contributing/repository.md#Repository map
   tests:
   - tests/integration/test_migrations_per_chain.py::test_core_chain_owns_only_infra_tables
@@ -3895,7 +3895,7 @@ guarantees:
 - id: G-MODULE-17
   statement: Modules reference other modules' entities by plain UUID — no cross-module foreign keys.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   gap: 'convention only: no sandloom check rule or test rejects a ForeignKey from one module''s table to another
     module''s table prefix'
   gap_size: M
@@ -3905,7 +3905,7 @@ guarantees:
     <= 8 non-blank lines with a declarative define_module register.'
   sources:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_module_generation.py::test_add_module_boilerplate_is_minimal
   - src/sandloom/core/tests/test_module_generation.py::test_add_module_register_is_declarative
@@ -3917,7 +3917,7 @@ guarantees:
   sources:
   - docs/adr/0007-kernel-layers.md#Decision
   - docs/adr/0007-kernel-layers.md#The map (top → bottom)
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_kernel_import_contracts.py::test_kernel_import_contracts_are_kept
   import_contracts:
@@ -3961,7 +3961,7 @@ guarantees:
     or ''- cold: <reason>''; a cycle break is not a category and no kernel file is exempt.'
   sources:
   - docs/adr/0007-kernel-layers.md#Function-local imports
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_lint_suppression_ratchet.py::test_kernel_function_local_imports_state_their_category
 - id: G-KERNEL-06
@@ -3980,7 +3980,7 @@ guarantees:
     the allowlisted relational surface (orm, tenant, di, sql_alchemy/, projections/upsert, migrations/,
     drivers) may, and eventing never imports the relational implementation.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
   - tests/architecture/test_relational_paradigm_boundary.py::test_kernel_has_no_runtime_sqlalchemy_import
@@ -4002,7 +4002,7 @@ guarantees:
     business modules: it is a forbidden infra module, absent from the public core API, and the database
     provider exposes no system engine.'
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - tests/architecture/test_system_channel_unreachable.py::test_system_channel_modules_are_forbidden_infra_modules
   - tests/architecture/test_system_channel_unreachable.py::test_system_channel_not_in_public_core_api
@@ -4014,7 +4014,7 @@ guarantees:
   statement: 'sandloom.shared stays module-agnostic: it never imports a business module (absolute or relative),
     so it cannot become a transitive coupling channel.'
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
   - tests/architecture/test_shared_purity.py::test_shared_does_not_import_business_modules
@@ -4044,7 +4044,7 @@ guarantees:
     root sandloom.main composes whatever module packages are installed (their sandloom.modules entry points),
     and the kernel factory alone builds a working app.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0001-framework-distribution.md#Boundary remediations required before the split
   - docs/adr/0001-framework-distribution.md#4. Assembly
   tests:
@@ -4055,7 +4055,7 @@ guarantees:
     only inside sandloom.core.drivers/**; concrete drivers are imported only by the composition layer (app_factory,
     _internal.db_provider), and the public DI surface / ops health imports no concrete driver.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0007-kernel-layers.md#Principles
   tests:
   - tests/architecture/test_infra_constructed_only_in_drivers.py::test_no_backend_construction_outside_drivers
@@ -4069,7 +4069,7 @@ guarantees:
     and the sandloom.core.testing harness.'
   sources:
   - docs/adr/0007-kernel-layers.md#The default-registry fallback was dropped
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_di_get_db.py::test_get_db_surfaces_missing_registry
   - src/sandloom/core/tests/test_ledger_runtime_pins.py::test_capability_surfaces_raise_without_a_bound_registry
@@ -4077,8 +4077,8 @@ guarantees:
   statement: A driver returning a provider that does not implement its capability's contract class is
     refused with ProviderContractError (also for an explicit contract mismatch at resolve time).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_capabilities.py::test_wrong_provider_contract_raises
   - src/sandloom/core/tests/test_capabilities.py::test_resolve_explicit_contract_mismatch_raises
@@ -4086,7 +4086,7 @@ guarantees:
   statement: require_capability(..., features={...}) raises FeatureUnsupportedError when the configured
     driver does not advertise a requested feature, and an unknown feature name is refused.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_capabilities.py::test_resolve_unsupported_feature_raises
   - src/sandloom/core/tests/test_capabilities.py::test_resolve_unknown_feature_raises
@@ -4096,7 +4096,7 @@ guarantees:
     secrets) without a registered driver raises ExperimentalCapabilityError (also via the facade), with
     the precise error kept for an unknown instance.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_extra_capabilities.py::test_experimental_without_driver_raises_experimental_error
   - src/sandloom/core/tests/test_extra_capabilities.py::test_experimental_configured_with_unregistered_driver_raises
@@ -4107,7 +4107,7 @@ guarantees:
     requirement that is unknown / unconfigured / missing a feature fails the module load, an optional
     one only warns.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_module_capabilities.py::test_preflight_fails_for_unsupported_feature
   - src/sandloom/core/tests/test_module_capabilities.py::test_preflight_unknown_capability_raises
@@ -4121,7 +4121,7 @@ guarantees:
     a new INFRA instance without a driver, or options failing the capability''s config schema are refused
     with a clear error.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_registry.py::test_unknown_driver_raises
   - src/sandloom/core/tests/test_infra_registry.py::test_unknown_instance_raises
@@ -4176,7 +4176,7 @@ guarantees:
     must differ from INTERNAL_API_TOKEN; dev keeps short values working.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Secrets management
+  - docs/operate/operator-reference.md#Secrets management
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_prod_rejects_weak_or_placeholder_jwt_secret
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_prod_validates_internal_and_metrics_tokens
@@ -4187,7 +4187,7 @@ guarantees:
     a stronger choice is not reported.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Preflight and effective configuration
+  - docs/operate/operator-reference.md#Preflight and effective configuration
   tests:
   - src/sandloom/core/tests/test_config_tiers.py::test_prod_override_is_reported_loud_and_explicit
   - src/sandloom/core/tests/test_config_tiers.py::test_stronger_choice_is_not_an_override
@@ -4279,7 +4279,7 @@ guarantees:
   statement: In prod the log notifier advertises no delivery channel features, so a CapabilityRequirement('notification',
     features={'email'}) fails, unless log_notifier_in_prod is accepted.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   tests:
   - src/sandloom/core/tests/test_notifications.py::test_log_driver_advertises_no_delivery_features_in_prod
@@ -4309,7 +4309,7 @@ guarantees:
     weak parameters only warn.
   sources:
   - docs/reference/cli.md
-  - 'docs/operations/operator-reference.md#Password hashing: work factor & capacity planning'
+  - 'docs/operate/operator-reference.md#Password hashing: work factor & capacity planning'
   tests:
   - src/sandloom/core/tests/test_password_hash_config.py::test_prod_refuses_weak_parameters_with_a_fix
   - src/sandloom/core/tests/test_password_hash_config.py::test_prod_accepts_presets_and_the_explicit_opt_out
@@ -4328,7 +4328,7 @@ guarantees:
     is accepted.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Database migrations
+  - docs/operate/operator-reference.md#Database migrations
   gap: No test exercises the unversioned_ddl_repair gate in sandloom/core/cli/migrate.py (only ensure-outbox
     dry-run / dev apply are tested).
   gap_size: S
@@ -4336,7 +4336,7 @@ guarantees:
   statement: Production startup refuses a command dedupe TTL below the retry horizon (GuaranteeWindowError
     naming [command_dedupe_below_retry_horizon]) unless that risk is accepted; dev only warns.
   sources:
-  - docs/concepts/units.md#Effects that wait for the commit, checks that run before it
+  - docs/modules/database/units.md#Effects that wait for the commit, checks that run before it
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   tests:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_production_refuses_and_names_the_risk
@@ -4345,8 +4345,8 @@ guarantees:
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
-  - docs/operations/operator-reference.md#Database migrations
+  - docs/modules/index.md#What you get by default, and what you declare
+  - docs/operate/operator-reference.md#Database migrations
   tests:
   - tests/integration/test_migrations_per_chain.py::test_chains_are_disjoint_and_cover_all_orm_tables
   - tests/integration/test_migrations_per_chain.py::test_chains_reproduce_orm_schema_exactly
@@ -4356,7 +4356,7 @@ guarantees:
     single required database requirement, else default; optional requirements never host it, and several
     required instances without default fail unless migrations_database is set.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_database_instances_single_target
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_optional_database_never_hosts_chain
@@ -4364,7 +4364,7 @@ guarantees:
 - id: G-MIGRATE-03
   statement: Two modules resolving to the same migrations_chain key fail the run / module load.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_chain_collision_detected
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_loader_rejects_colliding_chain
@@ -4373,7 +4373,7 @@ guarantees:
     seconds (must be positive) and logs the holder''s pid / application_name.'
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Database migrations
+  - docs/operate/operator-reference.md#Database migrations
   tests:
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_migration_lock_serialises_concurrent_runs
   - src/sandloom/core/tests/test_ops_cli.py::test_lock_wait_names_the_holder_and_honours_the_timeout
@@ -4383,7 +4383,7 @@ guarantees:
     consumer_inbox, contract_command_log, http_idempotency_log); module tables never go in it.
   sources:
   - docs/contributing/repository.md#Repository map
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/integration/test_migrations_per_chain.py::test_core_chain_owns_only_infra_tables
   gap: 'Doc drift: AGENTS.md lists four core tables (outbox/audit/consumer_inbox/contract_command_log)
@@ -4394,7 +4394,7 @@ guarantees:
     in prod without --force (prod uses upgrade-core).
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Database migrations
+  - docs/operate/operator-reference.md#Database migrations
   tests:
   - src/sandloom/core/tests/test_migrations_multidb.py::test_ensure_outbox_dry_run_is_noop
   gap: The prod refusal of ensure-outbox --apply without --force (cli/migrate.py) is untested.
@@ -4425,7 +4425,7 @@ guarantees:
   statement: sandloom migrate resolves the module set through the composition root (SANDLOOM_COMPOSITION_ROOT) and
     upgrade-all exits non-zero on failure, including a database stamped at a non-head revision.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_cli_uses_composition_root_module_set
@@ -4435,7 +4435,7 @@ guarantees:
   statement: Module chains are applied in a deterministic order honouring declared dependencies; a dependency
     cycle or a missing dependency of a required module is fatal.
   sources:
-  - docs/operations/operator-reference.md#Database migrations
+  - docs/operate/operator-reference.md#Database migrations
   tests:
   - src/sandloom/core/tests/test_migrations_ordering.py::test_order_is_deterministic_and_respects_dependencies
   - src/sandloom/core/tests/test_migrations_ordering.py::test_cycle_is_fatal
@@ -4444,7 +4444,7 @@ guarantees:
   statement: Migrations derive an explicit postgresql+psycopg2:// URL from the app's asyncpg URL (to_sync_url,
     idempotent, mapping asyncpg ssl= to libpq sslmode=).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_migrations_multidb.py::test_to_sync_url_is_explicit_and_idempotent
   - src/sandloom/core/tests/test_migrations_multidb.py::test_to_sync_url_translates_asyncpg_ssl_to_sslmode
@@ -4453,7 +4453,7 @@ guarantees:
     and takes over on release/death, a holder that lost its token stops at once, a cache outage keeps
     scheduling only until a local deadline, and beat refuses to start without a CAS-capable cache.'
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_beat_lease.py::test_second_beat_stands_by_and_takes_over_after_release
@@ -4475,7 +4475,7 @@ guarantees:
   statement: 'Peers never feed /health (liveness); a down peer fails only /ready and only when its SERVICE_BINDINGS
     entry is required: true, with concurrent, capped, authenticated probes.'
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Probes (liveness vs readiness)
   tests:
   - src/sandloom/core/tests/test_split_readiness.py::test_down_peer_does_not_fail_health_or_ready_by_default
@@ -4497,7 +4497,7 @@ guarantees:
     heartbeat written on the worker timer is stale; every deploy profile's worker uses it and is sized
     from the CPU quota.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_worker.py::test_heartbeat_freshness
@@ -4555,7 +4555,7 @@ guarantees:
     process.'
   sources:
   - docs/reference/testing.md
-  - docs/guides/testing.md#Test isolation
+  - docs/modules/tooling/testing.md#Test isolation
   tests:
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_1_a_test_builds_its_own_app
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_2_the_next_test_gets_the_previous_runtime_back
@@ -4570,7 +4570,7 @@ guarantees:
     in prod.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Preflight and effective configuration
+  - docs/operate/operator-reference.md#Preflight and effective configuration
   tests:
   - src/sandloom/core/tests/test_ops_cli.py::test_redaction_is_recursive_and_masks_url_credentials
   - src/sandloom/core/tests/test_ops_cli.py::test_show_secrets_is_refused_in_prod
@@ -4580,7 +4580,7 @@ guarantees:
     command) unless --apply --reason, require exactly one target, and in prod also --confirm-production.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise)
+  - docs/operate/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise)
   tests:
   - src/sandloom/core/tests/test_security_cli.py::test_dry_run_counts_targets_and_calls_no_command
   - src/sandloom/core/tests/test_security_cli.py::test_cli_requires_exactly_one_target_and_a_reason_to_apply
@@ -4591,8 +4591,8 @@ guarantees:
   statement: Logs (structured extras and free-text messages), exception descriptions and Sentry events
     are scrubbed of secrets/PII before emission.
   sources:
-  - docs/operations/operator-reference.md#Observability
-  - docs/operations/operator-reference.md#Data retention & PII
+  - docs/operate/operator-reference.md#Observability
+  - docs/operate/operator-reference.md#Data retention & PII
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_log_extras_redacted_by_substring
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_free_text_messages_are_scrubbed
@@ -4603,7 +4603,7 @@ guarantees:
     except issuer-only keys, token lifetimes, INTERNAL_API_TOKEN, notifier/SMTP, BILLING_DENY_ON_PAST_DUE)
     and CACHE_URL are identical in every process.'
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Config parity invariants
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_security_relevant_settings_identical_across_processes
@@ -4612,7 +4612,7 @@ guarantees:
   statement: The microservices gateway never routes /_sandloom, /diagnostics or /metrics, re-resolves services
     through Docker DNS, and caps bodies at the app upload limit.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Gateway and client IPs (X-Forwarded-For)
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_gateway_never_exposes_internal_surfaces
@@ -4622,7 +4622,7 @@ guarantees:
   statement: Each app/worker process waits for its one-shot migrate service (sandloom migrate upgrade-all --apply,
     depends_on service_completed_successfully) against its own database before starting.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Migrations (one-shot `migrate` services)
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
@@ -4631,7 +4631,7 @@ guarantees:
   statement: Every set of periodic tasks in a deploy profile is scheduled by exactly one beat, and modules
     with periodic tasks are discovered by it.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_every_periodic_task_set_has_exactly_one_beat
@@ -4640,7 +4640,7 @@ guarantees:
   statement: sandloom backup verify fails when the restore fails, a chain is behind its head, or orphan rows
     exist, always dropping its scratch database; destructive operator paths in prod need --confirm-production.
   sources:
-  - docs/operations/operator-reference.md#Backups & restore
+  - docs/operate/operator-reference.md#Backups & restore
   tests:
   - src/sandloom/core/tests/test_backup_cli.py::test_verify_fails_when_a_chain_is_behind_its_head
   - src/sandloom/core/tests/test_backup_cli.py::test_verify_fails_when_the_restore_fails
@@ -4651,8 +4651,8 @@ guarantees:
     block and revocation marks from durable records so no blocked user is re-enabled and no newer mark
     in the cache is lowered.
   sources:
-  - 'docs/operations/operator-reference.md#Restoring: the order, and the traffic gate'
-  - docs/operations/operator-reference.md#Backups & restore
+  - 'docs/operate/operator-reference.md#Restoring: the order, and the traffic gate'
+  - docs/operate/operator-reference.md#Backups & restore
   tests:
   - src/sandloom/core/tests/test_security_recovery.py::test_stale_snapshot_after_block_does_not_reenable_the_user
   - src/sandloom/core/tests/test_security_recovery.py::test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted
@@ -4662,7 +4662,7 @@ guarantees:
   statement: The production image (deploy/docker/Dockerfile) builds from the locked uv.lock and runs as a non-root
     user.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - tests/architecture/test_ledger_static_pins.py::test_backend_image_is_locked_and_non_root
 - id: G-OPS-21
@@ -4685,7 +4685,7 @@ guarantees:
     exclusions; the app-split job exports the app's own build context with Docker and finds no secret
     file, and the smoke builds the service image from that context and finds none in it.
   sources:
-  - docs/guides/split-into-services.md
+  - docs/operate/split-into-services.md
   - docs/reference/security-model.md
   tests:
   - src/sandloom/core/tests/test_image_secrets.py::test_dockerignore_rules_follow_docker
@@ -5175,7 +5175,7 @@ guarantees:
     what the provider''s class does, in python and JSON mode, and reads accepted payloads to the same data.
     Contract wire dumps use each field''s wire name (by_alias), so an aliased DTO round-trips.'
   sources:
-  - docs/concepts/contracts.md
+  - docs/modules/between/contracts.md
   - 'docs/adr/0010-public-api-1.0.md#Note (2026-10-28): contract DTOs authored in the provider, generated into the DTO package'
   tests:
   - tests/sdk/test_sdk_contract_dtos.py::test_a_dto_the_copy_cannot_carry_is_refused_with_its_path
@@ -5239,7 +5239,7 @@ capabilities:
   statement: A model opts into fail-closed tenant scoping by inheriting sandloom.core.orm.TenantScoped, which
     declares the tenant_id column and registers it with the ORM guard.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_automatic_filtering_to_bound_tenant
   - src/sandloom/core/tests/test_tenant_guard_cache.py::test_new_tenant_model_invalidates_caches
@@ -5248,7 +5248,7 @@ capabilities:
   statement: Endpoints bind the request tenant with the TenantScope() dependency (configurable header
     and claim keys, required or optional), and workers/scripts bind one with bind_tenant(id).
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_header_can_select_tenant_from_token_allowlist
   - src/sandloom/core/tests/test_tenant_isolation.py::test_automatic_filtering_to_bound_tenant
@@ -5260,7 +5260,7 @@ capabilities:
     `with unscoped():` block (including bulk-by-PK updates), and logs a one-time warning when used with
     no tenant on an RLS database.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_unscoped_sees_all_tenants
@@ -5270,7 +5270,7 @@ capabilities:
   statement: Single-tenant deployments run with TENANCY_MODE=single plus SINGLE_TENANT_ID, binding that
     canonical tenant everywhere as a strict special case of the same isolation model.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_mode_binds_canonical_tenant
   - src/sandloom/core/tests/test_open_uow.py::test_single_tenant_scope_bound_only_inside
@@ -5282,7 +5282,7 @@ capabilities:
     tenant_rls=true (installing the per-transaction sandloom.tenant_id hook and advertising the tenant_rls
     feature) plus enable_tenant_rls/disable_tenant_rls in module migrations.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   - docs/reference/security-model.md#Tenant RLS threat model
   tests:
   - src/sandloom/core/tests/test_tenant_rls.py::test_driver_option_installs_hook
@@ -5321,7 +5321,7 @@ capabilities:
   statement: A deliberately global table with a tenant_id column can be exempted from the tenant-scoped-models
     rule via tenant_scope_exempt in architecture_rules.yml with a written reason.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - tests/architecture/test_tenant_scoped_models_rule.py::test_rule_runs_in_sandloom_check_and_honours_exemptions
   rules:
@@ -5330,7 +5330,7 @@ capabilities:
   statement: publish_event_versions dual-publishes one event on several channel versions (.v1 + .v2) through
     the outbox, re-exported from sandloom.core.di, so a channel can be rolled without starving live readers.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_event_versions_is_reexported_for_modules
   - src/sandloom/core/tests/test_streams_split_identity.py::test_dual_publish_does_not_warn_about_starvation
@@ -5343,7 +5343,7 @@ capabilities:
     name=...) with options group=, start_from=, bind_tenant_from=, dead_letter=, durable=, required=,
     all forwarded by the di helper through one signature.
   sources:
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_module_registration_applies_event_consumer
   - src/sandloom/core/tests/test_event_consumers.py::test_register_event_consumer_has_one_signature
@@ -5352,7 +5352,7 @@ capabilities:
   statement: sandloom streams inventory reports live consumers per channel version (flagging starved versions)
     and per-group lag/pending, used to decide when a .v1 reader is gone.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_inventory_lists_live_consumers_and_flags_starved_versions
   - src/sandloom/core/tests/test_streams_split_identity.py::test_group_lag_and_pending_are_reported
@@ -5362,7 +5362,7 @@ capabilities:
     its app from the taskqueue capability and imports <pkg>.tasks plus setup_periodic_tasks of every loaded
     module.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_worker.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
@@ -5373,7 +5373,7 @@ capabilities:
     transaction while still running before_commit checks then on_commit callbacks, and capture required
     audits.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list
   tests:
   - src/sandloom/core/tests/test_before_commit.py::test_testing_run_on_commit_runs_the_before_commit_checks_first
@@ -5403,7 +5403,7 @@ capabilities:
     with public keys only.'
   sources:
   - docs/reference/security-model.md#Authentication
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_prints_a_usable_pair
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_writes_secrets_dir_files
@@ -5414,7 +5414,7 @@ capabilities:
     block / unblock / status / revoke-sessions endpoints (Idempotency-Key, audited, operator cannot block
     themself); the `sandloom security` incident CLI is area F.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/api/test_user_safety.py::test_block_status_unblock_round_trip
@@ -5426,7 +5426,7 @@ capabilities:
     of a rotated token revokes the whole family, a benign replay within the grace window is 409, concurrent
     refreshes yield one winner.'
   sources:
-  - docs/modules/identity.md#Behaviour API clients must know
+  - docs/modules/standard/identity.md#Behaviour API clients must know
   tests:
   - src/sandloom_identity/tests/services/test_refresh_rotation.py::test_refresh_rotates_within_family
   - src/sandloom_identity/tests/services/test_refresh_rotation.py::test_reusing_rotated_token_revokes_whole_family
@@ -5437,7 +5437,7 @@ capabilities:
     SubscriptionActive, Credits, Entitled; the billing atoms take a required of=) as the single enforcement
     path.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   - docs/reference/security-model.md#Authorization
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
@@ -5450,7 +5450,7 @@ capabilities:
     replaces revocation_at_commit()) and before_commit(callback) as reusable kernel hooks; the re-check runs
     before the COMMIT of every committing unit of the request and is automatic on writes and writing GETs.
   sources:
-  - docs/concepts/units.md
+  - docs/modules/database/units.md
   - docs/reference/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -5522,7 +5522,7 @@ capabilities:
     unbound ones identically or with an explicit 404/501/503 (never a 500 or a different 2xx), on both
     transports.'
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
   - tests/split_conformance/test_split_conformance.py::test_subset_conforms_to_monolith
@@ -5533,8 +5533,8 @@ capabilities:
     proxy, otherwise a generated RPC proxy is returned (reused until the binding changes), and with neither
     it raises ServiceNotFound so consumers degrade explicitly.'
   sources:
-  - docs/concepts/deployment.md
-  - docs/guides/service-rpc.md#Resolution order
+  - docs/operate/topologies.md
+  - docs/operate/service-rpc.md#Resolution order
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_core_get_service_prefers_local_over_remote_binding
   - src/sandloom/core/tests/test_service_rpc.py::test_get_service_degrades_explicitly_when_unavailable
@@ -5544,7 +5544,7 @@ capabilities:
   statement: Every bundled module subset (and each module alone through create_app + lifespan) boots and
     becomes ready, refusing only with the documented ContractBindingError for a required consumed contract.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
   - src/sandloom/core/tests/test_module_subset.py::test_each_single_module_subset_is_ready
@@ -5556,7 +5556,7 @@ capabilities:
   statement: 'Remote peers never feed /health; a down peer fails /ready only for a binding marked "required":
     true, and required probes run concurrently, each capped at SERVICE_PROBE_TIMEOUT_SECONDS.'
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Probes (liveness vs readiness)
   tests:
   - src/sandloom/core/tests/test_split_readiness.py::test_required_peer_down_fails_ready_but_never_health
@@ -5577,8 +5577,8 @@ capabilities:
     (identity binds the remote claims contracts), derives RPC_ALLOWED_CALLS from those bindings, and every
     service keys its responses with callers pinning providers.
   sources:
-  - docs/concepts/deployment.md
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
+  - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
@@ -5589,8 +5589,8 @@ capabilities:
   statement: A token issuer deployed alone collects other modules' claims over RPC through their <module>.claims.v1
     binding; a critical remote contributor failure aborts minting with 503.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
-  - docs/concepts/deployment.md
+  - docs/modules/index.md#What you get by default, and what you declare
+  - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_identity_alone_collects_remote_claims
   - src/sandloom/core/tests/test_contract_runtime.py::test_critical_remote_contributor_failure_is_503
@@ -5599,8 +5599,8 @@ capabilities:
     (fallback, for egress proxies); both serve calls, including TLS to a self-signed peer trusted via
     SSL_CERT_FILE.'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transports.py::test_rpc_transport_setting_selects_the_shared_client
   - src/sandloom/core/tests/test_rpc_transport_compat.py::test_the_fallback_client_serves_calls
@@ -5609,8 +5609,8 @@ capabilities:
   statement: The aiohttp client keeps a bounded per-peer keep-alive pool (RPC_POOL_MAX_CONNECTIONS, waits
     bounded by the call timeout and observed) with idle eviction after RPC_POOL_IDLE_SECONDS.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Transport & performance
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_rpc_transports.py::test_keep_alive_connection_is_reused
   - src/sandloom/core/tests/test_rpc_transports.py::test_pool_is_bounded_per_peer_and_waits_are_observed
@@ -5621,8 +5621,8 @@ capabilities:
     (with RPC_SERVICE_KEYS / RPC_SERVICE_DH_KEYS entries) that validates as a working configuration, and
     `--purpose rpc-dh` emits the X25519 pair only (optionally into --out-dir).'
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Request authentication and idempotency
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Request authentication and idempotency
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_keys_generate_rpc_validates
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_keys_generate_rpc_dh
@@ -5638,8 +5638,8 @@ capabilities:
     an app prove a contract answers identically locally and through a generated proxy (in-process ASGI
     or a real aiohttp/httpx socket), also under the pair MAC.
   sources:
-  - docs/concepts/contracts.md
-  - docs/guides/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md
+  - docs/operate/service-rpc.md#Local == remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_contract_conformance_holds_under_service_mac
@@ -5649,7 +5649,7 @@ capabilities:
     adds a capability. A driver package can do so for the contracts sandloom.driverkit publishes and for
     capabilities of its own.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_multi_database.py::test_custom_non_sqlalchemy_database_driver
   - src/sandloom/core/tests/test_extra_capabilities.py::test_plugin_adds_capability_and_driver
@@ -5659,7 +5659,7 @@ capabilities:
     only when INFRA selects them, so load order does not matter and an unselected package runs no code.
     A selected name with two providers, or one that cannot be used, stops startup (SANDLOOM-B021, B022).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0001-framework-distribution.md#2. Package graph (monorepo + uv workspace, N wheels, independent
     versions)
   tests:
@@ -5673,7 +5673,7 @@ capabilities:
   statement: With no extra config one default instance per capability is synthesized from the flat settings;
     the INFRA JSON env var adds named instances or overrides drivers/options.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_config.py::test_defaults_synthesized_for_every_capability
   - src/sandloom/core/tests/test_infra_config.py::test_infra_overlay_adds_named_instance
@@ -5683,8 +5683,8 @@ capabilities:
   statement: Several databases run at once as independent engines/pools, each with its own UoW and its
     own transactional outbox; with several active sessions the target database must be named (database=...).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
-  - docs/concepts/units.md
+  - docs/infrastructure/index.md
+  - docs/modules/database/units.md
   tests:
   - src/sandloom/core/tests/test_infra_multi_database.py::test_two_databases_are_independent_and_both_work
   - src/sandloom/core/tests/test_post_commit_dispatcher.py::test_marks_are_coalesced_into_one_update_per_database
@@ -5694,7 +5694,7 @@ capabilities:
   statement: 'Endpoints resolve infrastructure by logical name through DI: Annotated[AsyncSession, Database("analytics")]
     for a named database and Capability(cap, Contract, name) for any capability.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_uow_commits_before_response.py::test_dbsession_and_database_markers_use_function_scope
   - src/sandloom/core/tests/test_async_dependencies.py::test_dependency_factories_are_async
@@ -5707,7 +5707,7 @@ capabilities:
     contracts, marked stability=experimental, registered at bootstrap without a core driver; a plugin
     supplies the driver.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_extra_capabilities.py::test_extra_capabilities_are_specs
   - src/sandloom/core/tests/test_extra_capabilities.py::test_extra_capabilities_are_marked_experimental
@@ -5718,7 +5718,7 @@ capabilities:
     logging the raw recipient; no delivery features advertised in prod unless opted in) and with NOTIFIER_BACKEND=smtp
     for email (STARTTLS verifies the certificate; login without TLS refused in prod).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_notifications.py::test_default_resolves_to_log_notifier
   - src/sandloom/core/tests/test_notifications.py::test_log_notifier_never_logs_the_raw_recipient
@@ -5728,7 +5728,7 @@ capabilities:
   statement: 'The object store is key-addressed (put(key, data, content_type)/get/delete/url): callers
     pass a logical key + bytes, never a host path; traversal and symlink escapes out of the root are rejected.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_hardening.py::test_objectstore_roundtrip
   - src/sandloom/core/tests/test_infra_hardening.py::test_objectstore_rejects_traversal
@@ -5737,14 +5737,14 @@ capabilities:
   statement: The cache capability is operation-based (get/set/add/delete/incr, cas compare_and_set/compare_and_delete,
     fused incr_window/incr_many/set_nx_get/set_max) and never hands modules a raw client.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_hardening.py::test_cache_provider_operations
 - id: C-INFRA-10
   statement: /diagnostics/infra reports configured capabilities, instances, stability, registered drivers
     and per-instance health (registry.describe()).
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_infra_registry.py::test_describe_snapshot
   - src/sandloom/core/tests/test_capabilities.py::test_describe_includes_capabilities
@@ -5757,7 +5757,7 @@ capabilities:
   statement: core.capability(cap, name) is the universal accessor and core.require_capability also enforces
     features; the typed sugar (cache/database/objectstore/taskqueue/notifier) routes through it.
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_capabilities.py::test_facade_capability_and_require_capability
   - src/sandloom/core/tests/test_infra_registry.py::test_resolves_and_caches_instances
@@ -5767,7 +5767,7 @@ capabilities:
     (no SQLAlchemy call in the kernel hooks), and the SQLAlchemy driver implements both and advertises write_admission.
     Verified on PostgreSQL/SQLAlchemy only.'
   sources:
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   - docs/adr/0010-public-api-1.0.md#5. One writer per request
   tests:
   - src/sandloom/core/tests/test_relational_driver_contract.py::test_the_lazy_unit_needs_the_lazy_uow_contract
@@ -5779,7 +5779,7 @@ capabilities:
     versioned event channels, TenantScoped example, declarative register), namespace-portable, refusing
     bad names and overwrites.'
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_module_generation.py::test_add_module_generates_a_compliant_parseable_skeleton
   - src/sandloom/core/tests/test_module_generation.py::test_add_module_refuses_bad_names_and_overwrites
@@ -5789,7 +5789,7 @@ capabilities:
     and lint pass out of the box.
   sources:
   - docs/adr/0001-framework-distribution.md#5. Scaffold mechanics (`sandloom new`)
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_project.py::test_generate_minimal_project
   - src/sandloom/core/tests/test_project.py::test_generated_project_passes_its_own_tests
@@ -5817,7 +5817,7 @@ capabilities:
   sources:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Consequences
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_define_module.py::test_frame_inference_and_setup_hook
   - src/sandloom/core/tests/test_define_module.py::test_explicit_router_and_events_override_discovery
@@ -5827,7 +5827,7 @@ capabilities:
     against an architecture_rules.yml manifest (framework or app), exiting 0 ok / 1 violations / 2 usage.
   sources:
   - docs/reference/cli.md
-  - docs/concepts/modules.md#What a module may import
+  - docs/modules/index.md#What a module may import
   tests:
   - tests/architecture/test_archcheck_library.py::test_rule_ids_are_stable
   - tests/architecture/test_archcheck_library.py::test_cli_help_lists_every_rule
@@ -5850,7 +5850,7 @@ capabilities:
   statement: SANDLOOM_MODULES selects the module subset a process loads; every subset boots and becomes ready
     on its own, a blacklisted module is excluded, and a subset whose only module failed is not ready.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
@@ -5887,7 +5887,7 @@ capabilities:
     location is a clear error.'
   sources:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_run_module_migrations.py::test_conventions
   - src/sandloom/core/tests/test_run_module_migrations.py::test_explicit_overrides
@@ -5922,7 +5922,7 @@ capabilities:
     own chain (its migrations/, version table and database), for app modules via SANDLOOM_COMPOSITION_ROOT;
     an unknown module fails cleanly.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - tests/integration/test_migration_revision_cli.py::test_revision_autogenerate_and_upgrade_for_app_module
   - tests/integration/test_migration_revision_cli.py::test_revision_unknown_module_fails_cleanly
@@ -5957,7 +5957,7 @@ capabilities:
   statement: A module's migrations/env.py is the one-liner run_module_migrations(__file__), deriving package,
     table prefix and version table by convention with explicit overrides.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_run_module_migrations.py::test_conventions
   - src/sandloom/core/tests/test_run_module_migrations.py::test_explicit_overrides
@@ -5968,7 +5968,7 @@ capabilities:
     back (tombstones block resurrection, and a tombstone purge never deletes one between an apply's
     watermark check and its write, as the apply holds the watermark row FOR SHARE until it commits).
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_null_stored_version_is_updatable
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_tombstone_prevents_old_rebuild_from_resurrecting_deleted_entity
@@ -5978,7 +5978,7 @@ capabilities:
   statement: 'Projection rows carry tenant_id: monotonic_upsert requires it and raises TenantMismatchError
     if it differs from the bound tenant; updates are scoped to the bound tenant.'
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_upsert_requires_tenant_and_never_crosses_tenants
   - src/sandloom/core/tests/test_projection_upsert_guards.py::test_update_is_scoped_to_bound_tenant
@@ -5986,7 +5986,7 @@ capabilities:
   statement: sandloom projection list | rebuild <name> [--tenant <id>] rebuilds a projection from source modules'
     read contracts, running startup tasks only (no consumers, no relay).
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_projections.py::test_rebuild_cli_does_not_start_consumers_or_relay
@@ -5997,7 +5997,7 @@ capabilities:
   statement: monotonic_upsert(insert_only=...) seeds columns this source does not own on INSERT and never
     touches them on UPDATE.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   gap: No test (framework or examples) uses insert_only; a unit test proving INSERT seeds and UPDATE preserves
     the column is missing.
   gap_size: S
@@ -6006,7 +6006,7 @@ capabilities:
     (durable consumers namespaced by the module) and a ProjectionRebuilder; a consumer for an unknown
     projection or a duplicate registration is rejected.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - src/sandloom/core/tests/test_projections.py::test_registry_register_and_duplicate
   - src/sandloom/core/tests/test_projections.py::test_module_registration_rejects_consumer_for_unknown_projection
@@ -6017,7 +6017,7 @@ capabilities:
     keeps a denormalised field correct when a source event races a projection insert, and the projection
     is served by one query.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - examples/projecthub/projecthub/modules/taskboard/tests/test_projection.py::test_project_update_racing_a_task_insert_is_not_lost
   - examples/projecthub/projecthub/modules/taskboard/tests/test_projection.py::test_project_update_waits_for_an_uncommitted_task_insert
@@ -6028,7 +6028,7 @@ capabilities:
     (put_if_newer / tombstone_if_newer, refused otherwise) and is read by View(...); the in-memory document_store
     driver (memory) advertises conditional_write and tenant_native and passes the conformance kit.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   - tests/fixtures/specs/public-api-1.0-spec.md#6.4 Projection convergence model
   tests:
   - tests/sdk/test_sdk_projection_ops.py::test_a_store_projection_converges_and_reads_skip_tombstones
@@ -6040,8 +6040,8 @@ capabilities:
     tenants the projection holds, rebuild_entity("<tenant>:<aggregate>") one aggregate, rebuild_from may name (contract,
     method); blue_green=True runs in place (no 1.0 store swaps an alias) and says so in the result.
   sources:
-  - docs/concepts/projections.md
-  - docs/guides/add-projection.md
+  - docs/modules/between/projections.md
+  - docs/modules/between/add-projection.md
   tests:
   - src/sandloom/core/tests/test_projections.py::test_rebuild_cli_does_not_start_consumers_or_relay
   - tests/sdk/test_sdk_projection_ops.py::test_rebuild_entity_applies_one_aggregate_and_checks_its_ref
@@ -6081,7 +6081,7 @@ capabilities:
     store fails.
   sources:
   - docs/adr/0010-public-api-1.0.md#6. Guarantees as a lattice, labels derived from mechanisms (amends ADR-0005)
-  - docs/concepts/capabilities-and-infrastructure.md
+  - docs/infrastructure/index.md
   tests:
   - src/sandloom/core/tests/test_projection_kernel.py::test_the_memory_document_store_passes_the_conformance_kit
   - src/sandloom/core/tests/test_projection_kernel.py::test_the_conformance_kit_catches_a_store_without_the_version_guard
@@ -6091,7 +6091,7 @@ capabilities:
     outbox rows and returns them to pending (the admin API requeue is audited atomically and idempotent).
   sources:
   - docs/reference/cli.md
-  - 'docs/operations/operator-reference.md#Events: outbox relay and dead letters'
+  - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_requeue_dead_returns_rows_to_pending
   - src/sandloom/core/tests/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
@@ -6100,7 +6100,7 @@ capabilities:
     cadence and on demand by sandloom outbox purge.
   sources:
   - docs/reference/cli.md
-  - 'docs/operations/operator-reference.md#Events: outbox relay and dead letters'
+  - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_outbox_relay_batch.py::test_retention_purge_deletes_only_old_delivered_rows
   - src/sandloom/core/tests/test_outbox_relay_purge_cadence.py::test_purge_runs_on_a_time_cadence_not_a_tick_count
@@ -6112,7 +6112,7 @@ capabilities:
     dead letters, the replay targeted at the group that dead-lettered the entry.
   sources:
   - docs/reference/cli.md
-  - 'docs/operations/operator-reference.md#Events: outbox relay and dead letters'
+  - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
@@ -6140,7 +6140,7 @@ capabilities:
     backup verify <dump> restores a dump into a scratch database and checks it against code heads.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Backups & restore
+  - docs/operate/operator-reference.md#Backups & restore
   tests:
   - src/sandloom/core/tests/test_backup_cli.py::test_plan_covers_databases_and_security_redis_without_secrets
   - src/sandloom/core/tests/test_backup_cli.py::test_verify_passes_for_a_current_restore_and_drops_the_scratch_db
@@ -6151,7 +6151,7 @@ capabilities:
     retention as a coverage gap.
   sources:
   - docs/reference/cli.md
-  - 'docs/operations/operator-reference.md#Restoring: the order, and the traffic gate'
+  - 'docs/operate/operator-reference.md#Restoring: the order, and the traffic gate'
   tests:
   - src/sandloom/core/tests/test_security_recovery.py::test_audit_export_restores_blocks_a_restored_database_lost
   - src/sandloom/core/tests/test_security_recovery.py::test_newest_record_wins_and_a_tie_is_blocked
@@ -6162,7 +6162,7 @@ capabilities:
     password login until reset.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise)
+  - docs/operate/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise)
   tests:
   - src/sandloom/core/tests/test_security_cli.py::test_apply_all_users_in_keyed_batches
   - src/sandloom/core/tests/test_security_cli.py::test_tenant_targets_page_through_membership
@@ -6173,7 +6173,7 @@ capabilities:
     (env / dotenv / secrets_dir / default).
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Preflight and effective configuration
+  - docs/operate/operator-reference.md#Preflight and effective configuration
   tests:
   - src/sandloom/core/tests/test_ops_cli.py::test_effective_config_reports_sources
   - src/sandloom/core/tests/test_ops_cli.py::test_config_dump_cli
@@ -6182,7 +6182,7 @@ capabilities:
     consumer lag, RLS, strict profile) exiting 0 ok / 1 warnings / 2 failures, rejecting unknown sections.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Preflight and effective configuration
+  - docs/operate/operator-reference.md#Preflight and effective configuration
   tests:
   - src/sandloom/core/tests/test_ops_cli.py::test_doctor_exit_codes
   - src/sandloom/core/tests/test_ops_cli.py::test_doctor_reports_each_section_and_exit_code
@@ -6193,7 +6193,7 @@ capabilities:
     files, refusing to overwrite existing files and writing private keys with private permissions.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Secrets management
+  - docs/operate/operator-reference.md#Secrets management
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_prints_a_usable_pair
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_writes_secrets_dir_files
@@ -6203,8 +6203,8 @@ capabilities:
   statement: Migration status compares each database's applied revisions with the code heads and reports
     unreachable databases without leaking secrets.
   sources:
-  - docs/operations/operator-reference.md#Database migrations
-  - docs/operations/operator-reference.md#Preflight and effective configuration
+  - docs/operate/operator-reference.md#Database migrations
+  - docs/operate/operator-reference.md#Preflight and effective configuration
   tests:
   - src/sandloom/core/tests/test_ops_cli.py::test_migration_status_compares_applied_with_code_heads
   - src/sandloom/core/tests/test_ops_cli.py::test_migration_status_reports_unreachable_databases_without_secrets
@@ -6220,7 +6220,7 @@ capabilities:
   statement: SECRETS_DIR supplies any setting as a file named after its field (Docker/K8s file-based secrets).
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Secrets management
+  - docs/operate/operator-reference.md#Secrets management
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_secrets_dir_reads_file
 - id: C-RISK-01
@@ -6235,7 +6235,7 @@ capabilities:
   statement: deploy/compose/monolith.yml runs every module in one app process plus worker and beat
     on one database, every process env validating, with an explicit BILLING_PROVIDER.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Profiles
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_every_process_env_validates
@@ -6246,7 +6246,7 @@ capabilities:
     each with its own database and migrate one-shot, wired by SERVICE_BINDINGS that are exactly the consumed-but-not-local
     contracts, with RPC allowlists derived from the bindings.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
@@ -6275,7 +6275,7 @@ capabilities:
   statement: The image serves via gunicorn + maintained uvicorn workers with a cgroup-aware default worker
     count (WEB_CONCURRENCY overrides) and LB-safe keep-alive.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Sizing
   tests:
   - src/sandloom/core/tests/test_gunicorn_conf.py::test_gunicorn_worker_count_honours_cgroup_quota
@@ -6285,7 +6285,7 @@ capabilities:
     and logging init is idempotent across create_app calls.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Observability
+  - docs/operate/operator-reference.md#Observability
   tests:
   - src/sandloom/core/tests/test_observability.py::test_log_as_json_follows_environment
   - src/sandloom/core/tests/test_observability.py::test_json_formatter_emits_structured_line
@@ -6295,7 +6295,7 @@ capabilities:
   statement: Prometheus RED metrics are recorded per request, every safe_inc name resolves to a defined
     metric, and gauges declare a multiprocess mode so they render under gunicorn.
   sources:
-  - docs/operations/operator-reference.md#Operational metrics
+  - docs/operate/operator-reference.md#Operational metrics
   - deploy/README.md#Multiworker metrics and shutdown
   tests:
   - src/sandloom/core/tests/test_observability.py::test_red_metrics_recorded_on_request
@@ -6306,7 +6306,7 @@ capabilities:
   statement: Outbox oldest-pending age (ignoring delivered/dead rows, refreshed even while the broker
     circuit is open) and Streams oldest-unacked age per group are exported.
   sources:
-  - docs/operations/operator-reference.md#Operational metrics
+  - docs/operate/operator-reference.md#Operational metrics
   tests:
   - src/sandloom/core/tests/test_operational_metrics.py::test_outbox_oldest_pending_age_ignores_delivered_and_dead
   - src/sandloom/core/tests/test_operational_metrics.py::test_relay_tick_refreshes_age_while_the_broker_circuit_is_open
@@ -6316,7 +6316,7 @@ capabilities:
   statement: Pool, rate-limiter, revocation-check, RPC-client and consumer latency metrics are exported
     per mode/peer/outcome.
   sources:
-  - docs/operations/operator-reference.md#Operational metrics
+  - docs/operate/operator-reference.md#Operational metrics
   tests:
   - src/sandloom/core/tests/test_operational_metrics.py::test_pool_sampler_reports_checked_out_idle_and_capacity
   - src/sandloom/core/tests/test_operational_metrics.py::test_rate_limiter_counts_rejections_and_cache_outages
@@ -6327,7 +6327,7 @@ capabilities:
     to a no-op span and body exceptions propagate unchanged.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Observability
+  - docs/operate/operator-reference.md#Observability
   tests:
   - src/sandloom/core/tests/test_tracing.py::test_tracing_stays_off_without_tracing_url
   - src/sandloom/core/tests/test_tracing.py::test_tracing_is_configured_from_settings
@@ -6337,7 +6337,7 @@ capabilities:
   statement: SENTRY_DSN enables error reporting (no-op when unset) with a before_send scrubber.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Observability
+  - docs/operate/operator-reference.md#Observability
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_sentry_before_send_scrubs_event
   gap: No test asserts Sentry init is a no-op without SENTRY_DSN / initialises with it.
@@ -6348,7 +6348,7 @@ capabilities:
     with a pause histogram.
   sources:
   - docs/reference/cli.md
-  - docs/operations/operator-reference.md#Garbage collector tuning
+  - docs/operate/operator-reference.md#Garbage collector tuning
   tests:
   - src/sandloom/core/tests/test_gc_tuning.py::test_gc_settings_defaults
   - src/sandloom/core/tests/test_gc_tuning.py::test_post_worker_init_wraps_the_app_and_keeps_attributes
@@ -6356,9 +6356,9 @@ capabilities:
   - src/sandloom/core/tests/test_gc_tuning.py::test_gc_metrics_buffer_flushes_into_prometheus
 - id: C-OBS-08
   statement: The shipped alert/dashboard bundle references only existing metrics and labels, every alert
-    has severity and a runbook entry matching docs/operations/operator-reference.md, and promtool rule tests pass.
+    has severity and a runbook entry matching docs/operate/operator-reference.md, and promtool rule tests pass.
   sources:
-  - docs/operations/operator-reference.md#Alerts
+  - docs/operate/operator-reference.md#Alerts
   tests:
   - src/sandloom/core/tests/test_observability_bundle.py::test_every_referenced_metric_and_label_exists
   - src/sandloom/core/tests/test_observability_bundle.py::test_alerts_have_severity_and_runbook
@@ -6418,7 +6418,7 @@ capabilities:
   statement: '`celery -A sandloom.core.worker worker|beat` boots the composition root and imports <pkg>.tasks
     (and setup_periodic_tasks) of every LOADED module only, skipping modules without tasks.'
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_worker.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
@@ -6430,7 +6430,7 @@ capabilities:
     rejecting a non-Celery taskqueue and a composition root without a core; importing sandloom.core.worker
     has no side effects.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_worker.py::test_worker_honours_taskqueue_instance_env
   - src/sandloom/core/tests/test_worker.py::test_non_celery_taskqueue_is_rejected
@@ -6440,7 +6440,7 @@ capabilities:
   statement: Worker concurrency defaults from the CPU quota (capped, never the host CPU count) with WORKER_CONCURRENCY
     overrides validated.
   sources:
-  - docs/concepts/deployment.md
+  - docs/operate/topologies.md
   - deploy/README.md#Sizing
   tests:
   - src/sandloom/core/tests/test_worker.py::test_default_concurrency_follows_cpu_quota_and_is_capped
@@ -6451,7 +6451,7 @@ capabilities:
   statement: run_async runs task coroutines on one persistent loop per worker process (fresh after fork,
     refused inside a running loop), draining the dispatcher and disposing engines on that loop at shutdown.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_async_runner.py::test_sequential_calls_share_one_persistent_loop
   - src/sandloom/core/tests/test_async_runner.py::test_inherited_loop_is_replaced_after_fork
@@ -6461,7 +6461,7 @@ capabilities:
   statement: Celery tasks store no result by default and the worker prefetches one message (reliability
     defaults); enqueue never subscribes a result consumer.
   sources:
-  - docs/concepts/modules.md#What you get by default, and what you declare
+  - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_worker_reliability_defaults
   - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
@@ -6470,7 +6470,7 @@ capabilities:
   statement: The beat lease is scoped per service (replicas of one service share it, separate services
     do not) and wraps only this app's scheduler; the worker boot runs the tenant RLS role verification.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_beat_lease.py::test_lease_scope_separates_services_and_shares_replicas
@@ -6747,7 +6747,7 @@ capabilities:
     <service>-worker / <service>-beat pair.
   sources:
   - deploy/README.md
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
@@ -6768,7 +6768,7 @@ capabilities:
     (to the service whose routes match the bare prefix) and location /shop/, never an unbounded location /shop,
     so /shopping stays with a root-level /{slug} service.
   sources:
-  - docs/guides/split-into-services.md
+  - docs/operate/split-into-services.md
   - deploy/README.md
   tests:
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_first_deploy_creates_the_profile_gateway_and_init_script
@@ -6793,7 +6793,7 @@ capabilities:
     position, bare and suffixed - requiring the upstream to be the service whose app routes match the path
     (Starlette matching, the most literal route winning).
   sources:
-  - docs/guides/split-into-services.md
+  - docs/operate/split-into-services.md
   - deploy/AGENTS.md
   tests:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
@@ -6812,7 +6812,7 @@ capabilities:
     extensions inside it whether or not it created the database, so a concurrent caller never returns (and
     migrates) before the database is complete.
   sources:
-  - docs/guides/split-into-services.md
+  - docs/operate/split-into-services.md
   - deploy/README.md
   tests:
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_a_missing_database_is_created_once_with_its_extensions
@@ -6859,7 +6859,7 @@ capabilities:
   statement: The TenantScoped mixin declares no plain tenant_id index on a table whose primary key, unique constraint
     or unique index leads with tenant_id (that key serves the lookups), and keeps it otherwise.
   sources:
-  - docs/concepts/multi-tenancy.md
+  - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_model_indexes_migrated.py::test_tenant_index_is_dropped_when_a_unique_key_leads_with_tenant_id
 - id: C-GEN-08
@@ -6867,7 +6867,7 @@ capabilities:
     SANDLOOM_MODULES lists, the monolith profile; an sandloom new app discovers it) and, in the framework tree, gives its
     tests the kit's fixtures (client, published recording) through a one-line conftest.
   sources:
-  - docs/guides/add-module.md
+  - docs/modules/create.md
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_module_in_the_framework_tree_is_wired_and_gets_the_kit
 - id: C-GEN-09
@@ -6875,7 +6875,7 @@ capabilities:
     reject_on_worker_lost, run_async with an open_uow block) that passes the app's static gates, registers a
     periodic one in the module's setup_periodic_tasks, and wires the beat or prints the step.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_task_writes_an_idempotent_task_and_its_schedule
   - tests/sdk/test_sdk_generators.py::test_a_fully_generated_app_passes_the_static_gates
@@ -6897,8 +6897,8 @@ capabilities:
     one transaction do not tie - and the list orders by created_at then id), and a test that covers the order of
     rows created in one transaction, the page size, the cap (422) and another tenant's empty list.
   sources:
-  - docs/guides/add-module.md
-  - docs/concepts/data-conventions.md#Timestamps, ids and list order
+  - docs/modules/create.md
+  - docs/modules/database/conventions.md#Timestamps, ids and list order
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_module_lists_items_capped_and_tenant_scoped
   - tests/sdk/test_sdk_generators.py::test_add_module_lists_newest_first_deterministically_in_one_transaction
@@ -6950,7 +6950,7 @@ capabilities:
     inserts list in creation order by created_at then id. sandloom docs describes them and the list-order recipe; the
     bundled modules'' chains migrate every such column to the clock_timestamp() default.'
   sources:
-  - docs/concepts/data-conventions.md#Timestamps, ids and list order
+  - docs/modules/database/conventions.md#Timestamps, ids and list order
   tests:
   - tests/sdk/test_sdk_columns.py::test_new_id_is_a_uuid7_stamped_with_the_current_millisecond
   - tests/sdk/test_sdk_columns.py::test_ids_of_a_burst_strictly_increase
@@ -7010,7 +7010,7 @@ capabilities:
     requirements (SubscriptionActive / Credits the entitlements contract, Entitled the fact owner's facts.v1,
     Subscribed billing.facts.v1, OrgRole the membership contract).
   sources:
-  - docs/concepts/authorization.md
+  - docs/modules/http/authorization.md
   tests:
   - tests/sdk/test_sdk_discovery.py::test_route_policies_add_the_contracts_their_atoms_call
 - id: C-MODULE-11
@@ -7028,7 +7028,7 @@ capabilities:
     and a requested name with two providers (two installed packages, or an installed package and a local module)
     is refused before anything loads (SANDLOOM-B020), naming both and the fix.'
   sources:
-  - docs/concepts/modules.md
+  - docs/modules/index.md
   - docs/reference/error-codes.md#sandloom-b020
   tests:
   - src/sandloom/core/tests/test_module_names.py::test_module_name_is_the_entry_point_name_else_the_last_segment
@@ -7062,7 +7062,7 @@ capabilities:
     apply_async, s), so a task module type-checks under strict mypy with no project override; cron() builds a
     beat schedule from a five-field expression.
   sources:
-  - docs/concepts/background-tasks.md
+  - docs/modules/background/tasks.md
   tests:
   - tests/sdk/test_sdk_generators.py::test_a_fully_generated_app_passes_the_static_gates
 - id: C-MIGRATE-09
@@ -7070,7 +7070,7 @@ capabilities:
     configured database at head (--against-database keeps that comparison) and loads the project's .env.test like
     sandloom test.
   sources:
-  - docs/guides/write-migration.md
+  - docs/modules/database/write-migration.md
   tests:
   - tests/integration/test_migration_revision_cli.py::test_new_autogenerates_against_a_scratch_database
 - id: C-PROJ-09
@@ -7078,7 +7078,7 @@ capabilities:
     binds that tenant; a source whose version field is optional or which lacks the tenant field is refused at
     definition time with the alternative.
   sources:
-  - docs/concepts/projections.md
+  - docs/modules/between/projections.md
   tests:
   - tests/sdk/test_sdk_projections.py::test_a_source_names_its_tenant_field
   - tests/sdk/test_sdk_projections.py::test_an_optional_version_is_refused_with_the_alternative
@@ -7086,8 +7086,8 @@ capabilities:
   statement: tenancy.member_added / member_removed / member_role_changed .v2 (tenant_id, required per-membership
     version) are dual-published with v1, and billing.subscription.*.v1 carry the catalog plan in data.plan.
   sources:
-  - docs/modules/tenancy.md
-  - docs/modules/billing.md
+  - docs/modules/standard/tenancy.md
+  - docs/modules/standard/billing.md
   tests:
   - src/sandloom_tenancy/tests/test_registration_surface.py::test_registration_surface_is_pinned
   - src/sandloom_billing/tests/test_entitlement_intentless.py::test_subscription_events_carry_whether_the_subscription_grants

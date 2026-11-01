@@ -2,7 +2,7 @@
 
 For changes to the framework kernel itself. Module authors never need this file: their
 contract is `src/sandloom/AGENTS.md`. The module rules still apply here wherever kernel code
-acts like a module (units, effects, tenancy). Concepts: `docs/concepts/index.md`; every check
+acts like a module (units, effects, tenancy). Concepts: `docs/modules/index.md`; every check
 and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its source).
 
 ## Layers and imports (ADR-0007)

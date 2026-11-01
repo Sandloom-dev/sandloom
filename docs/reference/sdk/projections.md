@@ -752,5 +752,5 @@ tasks: Annotated[ProjectionView[TaskRow], View("board.tasks", TaskRow)]
 
 ## Examples and related guides
 
-- [Build a projection](../../guides/add-projection.md)
+- [Build a projection](../../modules/between/add-projection.md)
 - [Python API overview](index.md)

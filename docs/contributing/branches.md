@@ -79,4 +79,4 @@ file alone is not evidence that GitHub enforces the rule.
 Merging a PR does not publish packages or deploy the website. PyPI publication
 requires a release tag or an explicit manual run and owner approval in the
 `pypi` environment. Documentation builds produce CI artifacts. See
-[Publishing](../guides/publishing.md) for the release configuration and upload controls.
+[Publishing](publishing.md) for the release configuration and upload controls.

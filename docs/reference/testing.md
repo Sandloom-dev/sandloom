@@ -14,7 +14,7 @@ generated contract stubs and DTOs, and their own package (`sandloom check` rule
 - Every name and exact signature: [`sandloom.sdk.testing`](sdk/testing.md), the
   fixtures of [`sandloom.sdk.testing.plugin`](sdk/testing/plugin.md).
 - Running the suites, your own database and Redis, the isolation guards:
-  [Testing modules](../guides/testing.md).
+  [Testing modules](../modules/tooling/testing.md).
 
 ## The kit at a glance
 
@@ -65,7 +65,7 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   with `sandloom test --seed <seed>` or `pytest --sandloom-shuffle=<seed>` (the plugin
   `-p sandloom.core.testing.shuffle`); `sandloom test --no-shuffle` keeps file order.
   A test must pass alone and in any order:
-  [Test isolation](../guides/testing.md#test-isolation).
+  [Test isolation](../modules/tooling/testing.md#test-isolation).
 - **Never re-run a serial `pytest -q` after each fix.** The parallel run is
   several times faster.
 - **Use your own test resources** on a shared machine: export
@@ -82,7 +82,7 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
 | a unit test without a database | `recording_uow()` (helper) | records `.events` and `.audits` in memory |
 | the cache (idempotency, rate limits, the subject record) | `sandloom_cache` | the `default` cache on the test Redis, flushed first |
 | the app or its core | `sandloom_app`, `sandloom_core` | session-scoped |
-| a saga run with faked contracts | `saga_harness` | see [Sagas](../concepts/sagas.md) |
+| a saga run with faked contracts | `saga_harness` | see [Sagas](../modules/between/sagas.md) |
 
 The plugin also provides `db_engine` (refuses a database whose name lacks
 `test`), `ambient_uow`, `revoked_tokens`, `scratch_database`,
@@ -118,7 +118,7 @@ async def test_requires_auth(client) -> None:
   `tenant=False` mints a token without a tenant.
 - **Idempotency.** A write without an `Idempotency-Key` header runs normally.
   Send the header to test a retry: the automatic guard replays the status
-  only (mode S, see [Route policy](../concepts/route-policy.md)). A money
+  only (mode S, see [Route policy](../modules/http/route-policy.md)). A money
   write without the header answers `428`
   ([SANDLOOM-R010](error-codes.md#sandloom-r010)).
 - **Membership.** A route that checks organization membership needs a real
@@ -327,7 +327,7 @@ incompatible change fails before anything is written ([SANDLOOM-T004](error-code
 ## Route policy, boot and registration
 
 Every route is authenticated unless it declares `public(reason=...)`
-([Route policy](../concepts/route-policy.md)). The resolved policy of every
+([Route policy](../modules/http/route-policy.md)). The resolved policy of every
 route is recorded in the module's snapshot and checked by `sandloom test`
 ([SANDLOOM-T001](error-codes.md#sandloom-t001)).
 
@@ -385,4 +385,4 @@ the harness or a check unless marked.
 - **Webhooks.** Sign test payloads with `sandloom_billing.psp.sign_stripe_payload`
   (the default PSP outside production rejects unsigned webhooks).
 - **Never pass a session to another task** in a test either: a child task
-  opens its own unit with `open_uow()` ([Units](../concepts/units.md)).
+  opens its own unit with `open_uow()` ([Units](../modules/database/units.md)).

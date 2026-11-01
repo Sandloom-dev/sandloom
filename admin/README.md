@@ -18,9 +18,9 @@ and source records ship in `public/`.
 
 ## Documentation
 
-- **Operators:** [operator guide](../docs/guides/admin-operations.md) — audience, permissions, common
+- **Operators:** [operator guide](../docs/admin-console/operations.md) — audience, permissions, common
   tasks, sessions, billing, errors, and current limits.
-- **Developers:** [developer guide](../docs/guides/admin.md) — generation pipeline, resource language,
+- **Developers:** [developer guide](../docs/admin-console/guide.md) — generation pipeline, resource language,
   module integration, deployment, and troubleshooting.
 - **In the panel:** open **Help** in the top bar for built-in English operator help.
 
@@ -84,7 +84,7 @@ security settings. Browser acceptance tests build and serve the static app too.
   pending intents; follow-up actions are limited to the APIs explicitly admitted
   by the backend declarations.
 
-See the [operator guide](../docs/guides/admin-operations.md) for command conditions
+See the [operator guide](../docs/admin-console/operations.md) for command conditions
 and current limits. This capability list is not a claim of production readiness.
 
 ## Deployment and topology
@@ -172,7 +172,7 @@ the manifest on page reload. A deployed image can mount both the new manifest at
 specialized widgets require a frontend build. Module keys and resource names must
 be unique; declarations are an admission list, not a source of API permissions.
 
-The full declaration reference and example are in the [developer guide](../docs/guides/admin.md).
+The full declaration reference and example are in the [developer guide](../docs/admin-console/guide.md).
 
 ## Session and data boundaries
 
@@ -235,7 +235,7 @@ The bundled console requires the platform `admin` role from identity. It exposes
 global customers, organizations and users; subscriptions, catalog and credit
 operations; refund/dispute state, webhook journal and intents; audit metadata and
 per-API health. Organization membership alone is insufficient. The operator guide
-in `docs/guides/admin-operations.md` is the behavioral reference.
+in `docs/admin-console/operations.md` is the behavioral reference.
 
 Credit adjustments have DB-atomic idempotency and required audit. Monetary refunds,
 invoices and subscription changes remain in the separately authenticated Stripe
