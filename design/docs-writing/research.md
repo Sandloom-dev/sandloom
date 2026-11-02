@@ -326,6 +326,30 @@ Measured in this checkout: `events.md` about 3,780 words, first code at line 42,
 - "What a module may import" lists every banned spelling; a short allow-list suffices here, with spellings moved to the check reference.
 - "Conventions inside a module" is lookup; link it. "Inspect before changing a module" belongs in tooling or the agent contract.
 
+## Entry pages
+
+Added after the owner rejected an Overview that passed every check. The first pass studied concepts and recipes, not entry pages, and the entry anatomy written from it had no evidence behind it. Sources retrieved 2026-11-02; each page's opening and headings were read, not the whole page.
+
+| Page | First thing the reader meets | Toward trying it |
+| --- | --- | --- |
+| [Flutter home](https://flutter.dev/) | "Build for any screen", then one sentence of benefit | "Get started" at once; each of three benefits offers "Try it in DartPad", in the browser with no install |
+| [Flutter docs](https://docs.flutter.dev/) | Cards by need, then "New to Flutter?" | Set up, then a learning pathway; a list for readers coming from other platforms |
+| [Flutter architecture](https://docs.flutter.dev/resources/architectural-overview) | Its own long page under Resources, not on either entry page | Not an entry point |
+| [Rails](https://rubyonrails.org/) | A promise aimed at agents, "from PROMPT to IPO", code easy for agents to write and for humans to review | Companies as proof, then guides |
+| [Supabase docs](https://supabase.com/docs) | One sentence, then an Agent Prompt tab beside the CLI commands: text to paste into an agent | The prompt installs, inspects the project and suggests next steps |
+| [Encore.ts](https://encore.dev/docs/ts) | Title, one-line subtitle, definition, then "Instead of stitching together Terraform, YAML…" | "New to Encore?" pointing to the quickstart, before "What you get" |
+| [Convex](https://docs.convex.dev/understanding/) | Definition by comparison with React, a diagram | A section "For human and AI generated code" |
+| [Svelte](https://svelte.dev/docs/svelte/overview) | Sentence, code, sentence | Shortest page surveyed |
+| [Next.js](https://nextjs.org/docs) | "What is Next.js?" | "Copy for LLM" on the page |
+| [Temporal](https://docs.temporal.io/) | "Build applications that never fail" | SDK icons, then a definition |
+| [Laravel](https://laravel.com/docs/13.x) | Meet Laravel, then "Why Laravel?", on the installation page | A "Getting Started Using AI" section, with its agent tooling |
+| [Lovable](https://docs.lovable.dev/introduction/welcome) | What it lets you build, in plain words | "Start building for free", then who it is for |
+
+- **Common:** a short promise first, an action within the first screen, depth on other pages. None of the entry pages above carries its architecture diagram with several layers on the opening screen except Convex, whose diagram is three tiers.
+- **Agents:** Supabase, Next.js, Rails, Laravel and Convex now address agents directly on or near the entry page. Copyable prompts are recent practice; I found no measurement of them.
+- **Disagreement with the owner's choice, recorded:** among these pages only Encore's second paragraph names the pain, and "Why Temporal?" does so on a separate page. Opening an entry page on problems is the owner's decision. **Inference:** it suits Sandloom, whose value is in failures the reader wants to avoid, and whose readers include people who have not yet met those failures in their own code.
+- **Why the last version failed, Inference:** the page was compliant, long, hedged and showed no benefit. Rule lists catch defects and do not produce desire, so the skill now requires one message, three first screens, captured proof, a look at the render and the owner's choice.
+
 ## Reader jobs (jobs to be done)
 
 Added on the owner's question whether the method belongs in the skill. Sources retrieved 2026-11-02.

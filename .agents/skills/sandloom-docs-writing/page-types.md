@@ -4,14 +4,16 @@ Follow your type's order. Each page holds one type; a concept may end with a sho
 
 ## Entry page
 
-For a reader deciding whether to try Sandloom, or choosing where to go. It explains nothing in depth and links out.
+For a reader who arrived from a link and may leave in seconds: a developer, a vibe coder, or an agent that has never seen Sandloom. The page makes them want to try it and tells them how. At most three screens at 1280×900; architecture, principles and reference tables live on their own pages.
 
-1. **Problem.** One or two sentences in the reader's words, with no Sandloom term.
-2. **Contract.** What Sandloom is and what it promises, every clause true on every path.
-3. **Picture or smallest example.** Real code from a tested file, enough to show the idea in one screen. One sentence on what happens when it fails, linked to the concept page that walks through it.
-4. **Primary path.** One next step for a newcomer, then a short choice for a reader who already has an application.
-5. **Choosing tables.** "I want to … I write …": each row is a reader's job and a link.
-6. **Fit.** Flat bullets for who it suits and who it does not.
+1. **The problems.** First on the page, in the reader's words, with no Sandloom term: failures they have had or fear.
+2. **The promise.** One sentence, the page's one message.
+3. **Try it.** On the first screen: one primary action, and a prompt the reader pastes into their agent, with exact commands, stating what they need installed.
+4. **Proof.** Real output or the shortest real code that shows the promise working.
+5. **What it does about each problem.** Problem and answer side by side, each linked one level deeper.
+6. **Fit and next.** Flat bullets on who it suits and who it does not, then a few links.
+
+Models: [Rails](https://rubyonrails.org/) for a promise aimed at agents, [Supabase](https://supabase.com/docs) for the agent prompt, [Flutter](https://flutter.dev/) for the promise and its try-it action, [Encore.ts](https://encore.dev/docs/ts) for "instead of …", [Svelte](https://svelte.dev/docs/svelte/overview) for sentence, code, sentence.
 
 ## Concept
 
@@ -26,6 +28,8 @@ For a reader learning an idea, away from the keyboard. Noun-phrase title, never 
 7. **What you get and declare (C9).** At most 5 ± 1 rows, after the example; the rest links to Reference.
 8. **What breaks it (C10).** Top error codes, plain symptom first.
 9. **Go deeper (C11).** How-to, recipes, reference, ADR. Guarantee ids and internals sit here, while the promises themselves stay in the contract.
+
+Models: [Why Temporal?](https://docs.temporal.io/evaluate/why-temporal), [React state](https://react.dev/learn/state-a-components-memory), [Rust ownership](https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html).
 
 Numbered procedures and full option lists belong on other pages; link them. A value the reader's reasoning depends on (a 30 s handler timeout) stays, linked to its setting (C12).
 
@@ -62,6 +66,8 @@ For a reader with a business problem who knows the concepts. A how-to does one f
 6. **When to use, trade-offs, pitfalls (R6).** One or two pitfalls with the `SANDLOOM-*` code that fires.
 7. **Variation (R7).** Monolith versus split, only if behaviour differs.
 8. **Related (R8).** At most 3–5 links.
+
+Model: [Temporal Polling](https://docs.temporal.io/design-patterns/polling).
 
 ## Reference
 
