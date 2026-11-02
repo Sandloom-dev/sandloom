@@ -125,7 +125,7 @@ and 13 new ones, 10 in SQLite (three high) and 3 in libstdc++. Debian has no fix
 any of them, even in unstable. The review records each one, listed under
 `amendments`, as `open_no_identified_framework_path`. The SQLite advisories need
 attacker-supplied SQL or database files, FTS, R-Tree or session input.
-The framework at runtime opens only an in-memory SQLite self-test with fixed
+At runtime the framework opens only an in-memory SQLite self-test with fixed
 statements. Keep a `sqlite` `DATABASE_URL` out of production.
 
 The three high conclusions are:
@@ -186,8 +186,8 @@ names are explicitly non-security uses.
 
 The repeat Code scan reports **370 results** (eight high, 72 medium, 290 low),
 with zero ignores and no new rule/file pairs. The high results are the eight
-explicit local build/benchmark secret placeholders. The ledger accounts for
-every original finding; SQL identifier composition and the `data` extraction
+explicit local build/benchmark secret placeholders. Every original finding
+is accounted for in the ledger; SQL identifier composition and the `data` extraction
 filter still produce scanner warnings despite the attack regressions passing.
 
 A Code scan of `main` on 2026-11-02 reports **378 results** (eight high, 78 medium,
@@ -203,7 +203,7 @@ route authentication labels, and local tools intentionally reading paths or
 executing project commands chosen by their operator. Benchmark/DX and local CI
 tools execute project code and are **not sandboxes for hostile repositories**.
 Review those trust boundaries again if a tool becomes a remotely callable service.
-No production authorization, secret validation or security gate was relaxed.
+No production security check was relaxed.
 
 ## Related reading
 
