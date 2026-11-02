@@ -326,6 +326,21 @@ Measured in this checkout: `events.md` about 3,780 words, first code at line 42,
 - "What a module may import" lists every banned spelling; a short allow-list suffices here, with spellings moved to the check reference.
 - "Conventions inside a module" is lookup; link it. "Inspect before changing a module" belongs in tooling or the agent contract.
 
+## Reader jobs (jobs to be done)
+
+Added on the owner's question whether the method belongs in the skill. Sources retrieved 2026-11-02.
+
+- [Christensen Institute](https://www.christenseninstitute.org/theory/jobs-to-be-done/): a job is the progress a person tries to make in particular circumstances; people "hire" a product for it.
+- [GitLab](https://handbook.gitlab.com/handbook/product/ux/jobs-to-be-done/), drawing on Kalbach: job statements follow Verb + Object + Clarifier and come in levels, from a main job through small jobs to micro-jobs.
+- [Intercom](https://www.intercom.com/blog/using-job-stories-design-features-ui-ux/): user stories tie implementation to motivation and ignore context, situations and anxieties. Job stories frame the situation first.
+- [GOV.UK content guidance](https://www.gov.uk/guidance/content-design/user-needs), the closest published use for content: every piece of content meets a valid user need, written as As a / I need / So that, with optional When and Because, in the users' own words, from evidence such as analytics and support data. Content designers are not user researchers.
+- [Nielsen Norman Group](https://www.nngroup.com/articles/personas-jobs-be-done/): jobs and well-made personas are compatible.
+- Temporal's Markdown pages ask agents to pass a `jtb` job-to-be-done parameter to their retrieval API, so at least one docs team models the reader's job as data.
+
+I found no documentation style guide among those surveyed that names jobs to be done as its method. Diátaxis's how-to page makes the nearest point, that how-tos serve user goals. No source measures its effect on documentation.
+
+**Inference.** Diátaxis says what kind of page to write; a job says for whom, at what moment, and what to cut. Both are needed, and a job statement gives C2's problem, the title and the cold-read question from one line. Adopted: one job story per page, kept in front matter; jobs as a cut test; job levels loosely matching entry page and concept, how-to and recipe, reference. Not adopted: interviews, outcome scoring, forces diagrams and job canvases. Sandloom has too few users for them, so its job statements are hypotheses until issues and the DX eval support them.
+
 ## What could not be verified
 
 - **The fetch tool's summariser invented content.** On [How Temporal works](https://docs.temporal.io/encyclopedia/architecture/how-temporal-works) it produced a money-transfer example, a crash walkthrough and a code sample that are not on the page. So I downloaded raw text or Markdown for the pages cited and checked quotations and outlines against that. Rules from Microsoft, Cloudflare, Supabase, Next.js, Temporal and Encore were read raw. Other rows were summarised first and spot-checked by search, so a detail may still be off.
@@ -335,6 +350,7 @@ Measured in this checkout: `events.md` about 3,780 words, first code at line 42,
   - O'Reilly Python Cookbook returned 403, so the classic Problem / Solution / Discussion form is not cited as evidence.
   - `docs.temporal.io/design-patterns/saga` does not exist at that path; Temporal's saga guidance was not read beyond the Distributed Transaction index.
   - The Zensical proposal ZAP-009 redirects to a roadmap; its content was not readable.
+  - Klement's job-story article on jtbd.info did not download and the HBR article is paywalled, so neither is cited for its content.
   - No published account by Stripe of its writing process was found beyond the Markdoc post.
 - **Stale strategy claims not re-checked and not relied on:** Mintlify's 66% traffic figure, the Ahrefs llms.txt figure, the Gloaguen percentage-point deltas (only the abstract was read), and the statement that Django does not execute its doc code.
 - **Sample testing:** verified only for rustdoc, the Rust Cookbook, and FastAPI's test directories (existence, not contents). I did not establish whether Stripe, Temporal, Encore, Cloudflare or Laravel test their samples.

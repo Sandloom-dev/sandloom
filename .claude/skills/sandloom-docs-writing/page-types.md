@@ -2,9 +2,20 @@
 
 Follow your type's order. Each page holds one type; a concept may end with a short "use it" section linking to the how-to. Bold names are slots, not headings: write a heading that means something alone, such as "What breaks an event".
 
+## Entry page
+
+For a reader deciding whether to try Sandloom, or choosing where to go. It explains nothing in depth and links out.
+
+1. **Problem.** One or two sentences in the reader's words, with no Sandloom term.
+2. **Contract.** What Sandloom is and what it promises, every clause true on every path.
+3. **Picture or smallest example.** Real code from a tested file, enough to show the idea in one screen. One sentence on what happens when it fails, linked to the concept page that walks through it.
+4. **Primary path.** One next step for a newcomer, then a short choice for a reader who already has an application.
+5. **Choosing tables.** "I want to … I write …": each row is a reader's job and a link.
+6. **Fit.** Flat bullets for who it suits and who it does not.
+
 ## Concept
 
-For a reader learning an idea, away from the keyboard. Noun-phrase title, never Overview, Introduction or How it works (C1). Problem and contract open the page with no heading of their own, and small slots fold together to stay within 6 `##` sections.
+For a reader learning an idea, away from the keyboard. Noun-phrase title, never Introduction or How it works (C1). Problem and contract open the page with no heading of their own, and small slots fold together to stay within 6 `##` sections.
 
 1. **Problem (C2).** One or two sentences with a concrete failure or need, and no Sandloom term: "A service commits an order and crashes before telling billing." A page on a sub-topic whose parent page already states the problem may open on the definition.
 2. **Contract (C3–C4).** One self-contained paragraph: what it is and what is promised, in checkable words (the outbox row commits with the change or not at all; delivered at least once; not ordered). It reads correctly with the title removed. Every term in it is defined there or linked. At most two new terms per sentence.
@@ -41,7 +52,7 @@ For a working reader doing one framework operation. Title is a bare infinitive: 
 
 ## Cookbook recipe
 
-For a reader with a business problem who knows the concepts. A how-to does one framework operation; a recipe combines several. Recipes are independent of each other, and the index groups them by problem domain with one line each (R9).
+For a reader with a business problem who knows the concepts. A how-to does one framework operation; a recipe combines several. Each recipe answers one job. Recipes are independent of each other, and the index groups them by problem domain with one line each (R9).
 
 1. **Title (R1).** The reader's task in their words: "Stop a duplicate webhook from charging twice", not "Using `@on` with durable inbox".
 2. **Problem (R2).** One or two sentences with a concrete situation.

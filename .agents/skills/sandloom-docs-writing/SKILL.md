@@ -9,14 +9,17 @@ Rule ids (C1, S4, …) match [the research](../../../design/docs-writing/researc
 
 ## Steps
 
-1. **Fix the page's one job.** Choose the type with two questions: does the reader act or learn; are they acquiring a skill or applying one? Set `type:` in front matter to `concept`, `tutorial`, `how-to` or `reference`; a recipe and a troubleshooting page use the nearest one. Done when you can state the job in one sentence.
-2. **Map what cites the page.** Search `src/`, `docs/`, `guarantees.yml` and the `AGENTS.md` files for its path and headings. A cited heading stays, or its citations change with it. Text of another type moves to its target page first, then leaves a link. Done when every removal has a destination and every citation still resolves.
-3. **Read the code the page describes.** Trace each promise to its source or test, along its failure paths too: "if and only if" is a claim about every path. Run what the page tells the reader to run, and the tests behind its samples. Done when each claim has a place you saw it true. A claim the page needs and no test covers gets an experiment and a follow-up task for the missing test; a claim you cannot confirm is reported, not written. Where page and code disagree, report it with both locations.
-4. **Name the reader's starting point.** They know FastAPI and SQLAlchemy and have never met an outbox. List each Sandloom term the page uses in your handover, with where the reader meets its definition. Use [the glossary](../../../docs/getting-started/glossary.md) names; a missing term joins the glossary in the same change.
-5. **Draft from the anatomy.** Open [page-types.md](page-types.md) and follow the section for your type, in its order.
-6. **Check every rule.** Go through Style and Code below and the type's rules, line by line. Done when each rule is met or the handover states why the page breaks it.
-7. **Run a cold read.** Give the finished page to a subagent with no other context, and ask: what problem does this solve, what exactly is promised, what happens on a crash or a duplicate, what would you do next? Fix the page wherever an answer is wrong or missing.
-8. **Run the gates.** Each of these must pass; report what they said.
+1. **Write the reader's job.** Set `job:` in front matter: "When <situation>, I want <progress>, so I can <outcome>." The situation names a moment in the reader's work, with no Sandloom term; the progress is verb + object; the outcome is what they can do afterwards. A job you have no evidence for (an issue, a DX eval failure, a question someone asked) is a hypothesis, and the handover says so. Done when one sentence holds the whole page; a second job gets its own page.
+
+   The job then drives the page: the situation becomes the opening, the progress becomes the title, what the reader fears going wrong becomes the failure walk and the boundaries, and a section that serves none of it moves or goes.
+2. **Choose the type from the job.** Does the reader act or learn; are they acquiring a skill or applying one? Set `type:` to `entry`, `concept`, `tutorial`, `how-to` or `reference`; a recipe and a troubleshooting page use the nearest one.
+3. **Map what cites the page.** Search `src/`, `docs/`, `guarantees.yml` and the `AGENTS.md` files for its path and headings. A cited heading stays, or its citations change with it. Text of another type moves to its target page first, then leaves a link. Done when every removal has a destination and every citation still resolves.
+4. **Read the code the page describes.** Trace each promise to its source or test, along its failure paths too: "if and only if" is a claim about every path, and "cannot", "always" and "never" are claims about every opt-out. Run what the page tells the reader to run, and the tests behind its samples. Done when each claim has a place you saw it true. A claim the page needs and no test covers gets an experiment and a follow-up task for the missing test; a claim you cannot confirm is reported, not written. Where page and code disagree, report it with both locations.
+5. **Name the reader's starting point.** They know FastAPI and SQLAlchemy and have never met an outbox. List each Sandloom term the page uses in your handover, with where the reader meets its definition. Use [the glossary](../../../docs/getting-started/glossary.md) names; a missing term joins the glossary in the same change.
+6. **Draft from the anatomy.** Open [page-types.md](page-types.md) and follow the section for your type, in its order.
+7. **Check every rule.** Go through Style and Code below and the type's rules, line by line. Done when each rule is met or the handover states why the page breaks it.
+8. **Run a cold read.** Give the subagent the finished page and its `job:` line, with no other context, and ask: can you now reach that outcome, what problem does this solve, what exactly is promised, what happens on a crash or a duplicate, what would you do next? Fix the page wherever an answer is wrong or missing.
+9. **Run the gates.** Each of these must pass; report what they said.
    ```bash
    uv run --extra docs python tools/docs/docs_site.py build
    ```
@@ -36,12 +39,12 @@ Every page, every type. Numbers are defaults you may break with a reason. Banned
 - **S4–S5.** One idea per sentence, under 26 words. Paragraphs of 3–5 sentences; the first sentence carries the point.
 - **S6.** One word per concept across all pages. Where glossary and code differ (event id, envelope id), pick one and report the other.
 - **S7.** Write the noun where "this", "it" or "that" could point at two things.
-- **S8.** Banned: simply, just, easy, easily, quick, obviously, robust, powerful.
-- **S9.** Banned outside changelogs and upgrade guides: currently, now, new, soon, latest.
+- **S8.** Banned where they describe the reader's task or praise the product: simply, just, easy, easily, quick, obviously, robust, powerful. "Easy to get wrong" stays.
+- **S9.** Banned in the sense of time, outside changelogs and upgrade guides: currently, now, new, soon, latest. "New to Sandloom?" stays.
 - **S10.** Write about the subject, and refer to other text by link. Phrases such as "this page explains", "as above" and "below" go.
 - **S11.** Headings: specific, sentence case, under 70 characters, meaningful read alone. At most three levels on a concept page.
 - **S13.** 5 ± 1 items in a list or table group, and at most 6 `##` sections on a concept page. Lookup tables are exempt.
-- **S14.** Admonitions for what would change the outcome and is not needed to succeed. The first sentence is the impact. Facts the reader needs stay in body text.
+- **S14.** Admonitions for what would change the outcome and is not needed to succeed. The first sentence is the impact. Facts the reader needs stay in body text; an entry page may put its primary path in one admonition.
 - **S15.** Compare with something technical the reader knows: a `WHERE` clause, a Django signal. At most one story analogy per page, followed by the literal claim.
 - **A1–A3.** The contract paragraph and each boundary are accurate when retrieved alone. Every other section names its subject. Use exact identifiers, verbatim messages and literal output.
 - **A8.** Spend words on what a FastAPI-trained reader or agent would get wrong: the framework commits, a module never imports a sibling, a delivery can repeat.
