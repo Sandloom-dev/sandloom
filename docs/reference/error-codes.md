@@ -96,7 +96,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-T006`](#sandloom-t006) | `migration-drift` | test | the models differ from the head of their migration chain | active |
 | [`SANDLOOM-T007`](#sandloom-t007) | `contract-stub-stale` | test | a generated contract stub is out of date | active |
 | [`SANDLOOM-T008`](#sandloom-t008) | `public-api-baseline` | test | the public API surface or a reference block changed | active |
-| [`SANDLOOM-T009`](#sandloom-t009) | `beginner-tier` | test | generated code or an example uses an advanced name without a marker | active |
+| [`SANDLOOM-T009`](#sandloom-t009) | `beginner-tier` | test | a module imports an advanced sandloom.sdk name without a marker | active |
 | [`SANDLOOM-T010`](#sandloom-t010) | `periodic-tasks-need-a-beat` | test | a module with periodic tasks has no beat in a deploy profile | active |
 | [`SANDLOOM-T011`](#sandloom-t011) | `route-index` | test | the route dispatch index disagrees with the linear scan, or one bucket holds half the routes | active |
 | [`SANDLOOM-T012`](#sandloom-t012) | `redundant-index` | test | a plain index duplicates the leading column(s) of a unique key | active |
@@ -1296,13 +1296,13 @@ public_api_baseline.json records every public name and signature (spec §2.1 rul
 
 ### SANDLOOM-T009
 
-**generated code or an example uses an advanced name without a marker**
+**a module imports an advanced sandloom.sdk name without a marker**
 
 Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 29 beginner names (spec §2.2).
+Generators and examples teach the 29 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
 

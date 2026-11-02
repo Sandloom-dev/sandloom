@@ -38,6 +38,7 @@ import json
 import keyword
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1381,24 +1382,50 @@ def _parser() -> argparse.ArgumentParser:
     skills.add_argument(
         "--force", action="store_true", help="overwrite a skill file you edited"
     )
+    skills.add_argument(
+        "--agents",
+        default=None,
+        help="comma-separated coding agents to install for: "
+        + ", ".join(a.key for a in _skills.CODING_AGENTS)
+        + " (default: the application's recorded choice)",
+    )
+    skills.add_argument(
+        "--choose",
+        action="store_true",
+        help="ask again which agents to install for (at a terminal)",
+    )
     return parser
 
 
-def add_skills(root: Path, where: Layout, *, force: bool = False) -> list[Path]:
-    """``sandloom add skills``: the app's agent skills (``sandloom new`` writes them
-    too); a skill file that differs is kept unless ``force``."""
+def add_skills(
+    root: Path,
+    where: Layout,
+    *,
+    force: bool = False,
+    agents: Sequence[str] | None = None,
+) -> list[Path]:
+    """``sandloom add skills``: the app's agent files (``sandloom new`` writes them
+    too) for ``agents`` (default: the recorded choice): the skills in each
+    agent's folder and the module-author contract. A file the framework wrote
+    is updated; a file you edited is kept unless ``force``."""
     app = where.modules_package.split(".", 1)[0]
     if not app or where.framework_tree:
         raise GeneratorError(
             "the framework tree has its own skills (.claude/skills); "
             "`sandloom add skills` is for an `sandloom new` application"
         )
-    written, kept = _skills.write_skills(root, app, force=force)
+    if agents is None:
+        agents = _skills.load_record(root)[0] or list(_skills.DEFAULT_AGENTS)
+    modules = where.modules_dir.resolve().relative_to(root.resolve()).as_posix()
+    written, kept = _skills.write_skills(
+        root, app, agents, modules=modules, force=force
+    )
     if kept:
         names = ", ".join(str(p.relative_to(root)) for p in kept)
+        updated = f"wrote {len(written)} file(s), " if written else ""
         raise GeneratorError(
-            f"kept {names}: it differs from the framework's version; "
-            "`sandloom add skills --force` overwrites it"
+            f"{updated}kept {names}: you edited it; `sandloom add skills --force` "
+            "replaces it with the framework's version"
         )
     return written
 
@@ -1406,7 +1433,13 @@ def add_skills(root: Path, where: Layout, *, force: bool = False) -> list[Path]:
 def _run(args: argparse.Namespace) -> tuple[list[Path], str | None]:
     where = layout(args.root)
     if args.what == "skills":
-        return add_skills(args.root, where, force=args.force), None
+        agents = _skills.choose_agents(
+            args.root,
+            args.agents,
+            interactive=_skills.stdin_is_interactive(),
+            reask=args.choose,
+        )
+        return add_skills(args.root, where, force=args.force, agents=agents), None
     if args.what == "task":
         return add_task(args.module, args.name, where, periodic=args.periodic)
     if args.what == "module":
@@ -1440,6 +1473,8 @@ def main(argv: list[str] | None = None) -> int:
     for path in created:
         print(f"  {path}")
     if args.what == "skills":
+        record = _skills.load_record(args.root)[0] or []
+        print(f"agents: {', '.join(record)} ({_skills.RECORD})")
         print("" if created else "the app's skills are up to date")
         return 0
     if any(p.name.endswith(".new") for p in created):

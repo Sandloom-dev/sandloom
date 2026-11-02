@@ -61,7 +61,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>]` | Generate a standalone, runnable application. The app depends on `sandloom[redis,celery]>=0.7.0a6,<0.8` plus `sandloom-<module>>=0.7.0a6,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../modules/tooling/agent-tooling.md)); at a terminal it asks, with the installed ones marked. The app depends on `sandloom[redis,celery]>=0.7.0a6,<0.8` plus `sandloom-<module>>=0.7.0a6,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom add module <name>` | A new module under the app's `modules` package. It is discovered: nothing else to edit. |
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |
@@ -69,7 +69,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom add saga <module> <name>` | A saga with a typed command step, plus tests. |
 | `sandloom add projection <module> <name>` | A projection skeleton. |
 | `sandloom add task <module> <name> [--periodic CRON]` | An idempotent task skeleton; `--periodic` adds its five-field cron beat schedule. |
-| `sandloom add skills [--force]` | Refresh the application's agent skills; preserve edited files unless `--force` is given. |
+| `sandloom add skills [--agents <a>,<b>] [--choose] [--force]` | Write the application's agent files for its coding agents: the skills in each agent's folder and the module-author contract. It updates a file it wrote earlier and keeps a file you edited unless `--force`. `--agents` or `--choose` changes the recorded choice in `.sandloom/agent-files.json`. |
 | `sandloom add deploy <module>... [--service S] [--force]` / `--refresh` / `--check [--env-file F]` | Split into services: create (first run) or update the microservices profile and its gateway, derived from what the modules provide and consume; `--check` runs the split invariants (SANDLOOM-T014) and boots every service alone. [Split an app into services](../operate/split-into-services.md). |
 | `sandloom docs [<name>] [--write \| --check]` | Print a public `sandloom.sdk` name's exact signature, tier and docstring; `--write` / `--check` refresh or verify the generated reference blocks. |
 | `sandloom explain <code> [--list \| --markdown]` | Explain an `SANDLOOM-xxxx` error code or a check rule: why, and the fix. |
@@ -77,7 +77,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 Code generators run `sandloom generate` last, so snapshots and stubs are current
 after scaffolding. `add deploy` validates deployment configuration; `add skills`
-refreshes agent instructions and does not run application generation.
+refreshes the agent files and does not run application generation.
 `sandloom add --root <path>` runs a generator against another project root. Each
 generator has a how-to: [Add a module](../modules/create.md),
 [Add an event](../modules/between/add-event.md),

@@ -1166,9 +1166,11 @@ reports breaking changes.
         "SANDLOOM-T009",
         "beginner-tier",
         "test",
-        "generated code or an example uses an advanced name without a marker",
+        "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 29 beginner names (spec §2.2).",
+        "Generators and examples teach the 29 beginner names (spec §2.2), and an "
+        "application's modules keep to them: the `schema & deploy` step of "
+        "`sandloom test` reports an advanced import that has no marker.",
     ),
     _entry(
         "SANDLOOM-T010",
