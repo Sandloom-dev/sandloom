@@ -62,6 +62,7 @@ class Result:
 
 
 def load(scenario: str) -> dict[str, Any]:
+    """The scenario at a path, or by name in design/docs-writing/evals."""
     path = Path(scenario)
     if not path.exists():
         path = EVALS / f"{scenario}.json"
@@ -70,6 +71,7 @@ def load(scenario: str) -> dict[str, Any]:
 
 
 def git(*args: str) -> str:
+    """Run git in the repository; its stdout."""
     return subprocess.run(  # noqa: S603 -- fixed git subcommands, no shell
         ["git", *args],  # noqa: S607 -- git from PATH, as the other docs tools
         cwd=ROOT,
@@ -80,6 +82,7 @@ def git(*args: str) -> str:
 
 
 def _copy_tree(dest: Path, exclude: list[str]) -> None:
+    """Copy tracked and untracked files to ``dest``, minus the ``exclude`` prefixes."""
     listed = git("ls-files", "--cached", "--others", "--exclude-standard", "-z")
     for rel in filter(None, listed.split("\0")):
         src = ROOT / rel
@@ -91,6 +94,7 @@ def _copy_tree(dest: Path, exclude: list[str]) -> None:
 
 
 def _take_skills(dest: Path, ref: str) -> None:
+    """Replace the docs skills in ``dest`` with the ones at commit ``ref``."""
     for skills in SKILL_DIRS:
         for old in (dest / skills).glob(f"{SKILL_PREFIX}*"):
             shutil.rmtree(old)
@@ -103,6 +107,7 @@ def _take_skills(dest: Path, ref: str) -> None:
 
 
 def _scrub(dest: Path, scrub: dict[str, list[str]]) -> None:
+    """Remove the ``scrub`` patterns from each named file in ``dest``."""
     for rel, patterns in scrub.items():
         path = dest / rel
         if not path.exists():
@@ -114,6 +119,7 @@ def _scrub(dest: Path, scrub: dict[str, list[str]]) -> None:
 
 
 def _leaks(dest: Path, phrases: list[str]) -> list[str]:
+    """``path: phrase`` for each ``leaks`` phrase in a text file of ``dest``."""
     found = []
     for path in dest.rglob("*"):
         if path.suffix not in {".md", ".json", ".html", ".txt", ".yml", ".toml"}:
@@ -124,6 +130,7 @@ def _leaks(dest: Path, phrases: list[str]) -> list[str]:
 
 
 def prepare(data: dict[str, Any], dest: Path, skills_ref: str | None) -> int:
+    """Build the blind copy at ``dest``; 1 when a leak survives."""
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
@@ -157,12 +164,14 @@ def prose(markdown: str) -> str:
 
 
 def front_matter(markdown: str) -> set[str]:
+    """The keys of the page's front matter."""
     match = _FRONT.match(markdown)
     block = match.group(1) if match else ""
     return {m.group(1) for m in re.finditer(r"^([\w-]+):", block, re.M)}
 
 
 def grade(data: dict[str, Any], page: Path) -> list[Result]:
+    """The scenario's mechanical checks on a written page."""
     checks = data.get("checks", {})
     markdown = page.read_text(encoding="utf-8")
     body = prose(markdown)
@@ -200,6 +209,7 @@ def grade(data: dict[str, Any], page: Path) -> list[Result]:
 
 
 def _lint(page: Path) -> Result:
+    """The prose lint, strict, on the page."""
     linter = ROOT / "tools" / "docs" / "docs_prose_lint.py"
     if not linter.exists():
         return Result("prose lint", False, "tools/docs/docs_prose_lint.py is missing")
@@ -213,6 +223,7 @@ def _lint(page: Path) -> Result:
 
 
 def report(data: dict[str, Any], results: list[Result]) -> int:
+    """Print the results and the judge questions; 1 when a check failed."""
     for r in results:
         print(f"{'PASS' if r.ok else 'FAIL'}  {r.check}: {r.detail}")
     print(f"\nJudge questions (reference page: {data['page']} at {data['reference']}):")
@@ -222,11 +233,13 @@ def report(data: dict[str, Any], results: list[Result]) -> int:
 
 
 def _expect(ok: bool, what: str) -> None:
+    """Exit with a self-test failure when ``ok`` is false."""
     if not ok:
         raise SystemExit(f"self-test failed: {what}")
 
 
 def self_test() -> int:
+    """Check prose counting and front matter keys on a sample page."""
     sample = (
         "---\ntitle: X\njob: j\n---\n\n# Title\n\n"
         "One two three [link](modules/x.md).\n\n"
@@ -246,6 +259,7 @@ def self_test() -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Run ``prepare``, ``grade`` or the self-test."""
     if argv == ["--self-test"]:
         return self_test()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

@@ -63,6 +63,7 @@ class Version:
 
     @classmethod
     def load(cls, spec: str) -> Version:
+        """Read ``LABEL=PATH`` or a bare path; drop front matter, waivers and icons."""
         label, sep, path = spec.partition("=")
         if not sep:
             label, path = Path(spec).stem, spec
@@ -71,6 +72,7 @@ class Version:
 
 
 def prose_words(text: str) -> int:
+    """Words outside fenced code."""
     return len(_FENCED.sub("", text).split())
 
 
@@ -81,6 +83,7 @@ def blocks(text: str) -> list[str]:
 
 
 def render(text: str) -> str:
+    """Markdown to HTML with the site's extensions."""
     html_text: str = markdown.markdown(
         text, extensions=EXTENSIONS, extension_configs=EXTENSION_CONFIGS
     )
@@ -88,6 +91,7 @@ def render(text: str) -> str:
 
 
 def _cell(title: str, note: str, text: str) -> str:
+    """One version's column: a header with title and note, then the page."""
     return (
         f"<section><header><h2>{html.escape(title)}</h2>"
         f"<p>{html.escape(note)}</p></header>"
@@ -96,11 +100,13 @@ def _cell(title: str, note: str, text: str) -> str:
 
 
 def page_layout(versions: list[Version]) -> str:
+    """One column per version, the whole page in each."""
     cells = [_cell(v.label, f"~{prose_words(v.text)} words", v.text) for v in versions]
     return f'<main style="--cols:{len(versions)}">{"".join(cells)}</main>'
 
 
 def block_layout(versions: list[Version]) -> str:
+    """One row per block, the versions side by side; a missing block is marked."""
     split = [blocks(v.text) for v in versions]
     rows = []
     for i in range(max(len(b) for b in split)):
@@ -114,6 +120,7 @@ def block_layout(versions: list[Version]) -> str:
 
 
 def blind(versions: list[Version], seed: int | None) -> tuple[list[Version], str]:
+    """Relabel the versions A, B, C ... in a shuffled order; the versions and key."""
     order = versions[:]
     random.Random(seed).shuffle(order)  # noqa: S311 - shuffles labels, not secrets
     key = []
@@ -126,6 +133,7 @@ def blind(versions: list[Version], seed: int | None) -> tuple[list[Version], str
 def build(
     out: Path, specs: list[str], *, by_block: bool, hide: bool, seed: int | None
 ) -> None:
+    """Write the comparison page to ``out``, and its key beside it when blind."""
     versions = [Version.load(s) for s in specs]
     if hide:
         versions, key = blind(versions, seed)
@@ -167,6 +175,7 @@ a{color:inherit;text-decoration-color:var(--tipline)}
 
 
 def self_test() -> int:
+    """Check parsing, rendering and blind labels; 1 on a failure."""
     text = "---\ntitle: x\n---\n# T\n\nIntro.\n\n## One\n\nA b.\n\n## Two\n\nC.\n"
     v = Version("v", Path("v.md"), _NOISE.sub("", _FRONT_MATTER.sub("", text)))
     order, key = blind([Version("a", Path("a"), ""), Version("b", Path("b"), "")], 1)
@@ -186,6 +195,7 @@ def self_test() -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Parse the arguments and write the page, or run the self-test."""
     if argv == ["--self-test"]:
         return self_test()
     parser = argparse.ArgumentParser(description="Compare docs page versions.")

@@ -62,6 +62,7 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertIn("docs/getting-started/tutorial.md", selected)
 
     def test_prose_lint_scans_the_repository_docs(self) -> None:
+        """The lint covers the hand-written pages, skips generated ones, and passes."""
         from tools.docs import docs_generated, docs_prose_lint
 
         self.assertEqual(docs_prose_lint.ROOT, REPO)

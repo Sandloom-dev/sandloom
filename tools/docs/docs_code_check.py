@@ -111,6 +111,7 @@ class Hit:
     message: str
 
     def render(self) -> str:
+        """The hit as ``path:line: RULE message``."""
         return f"{self.path}:{self.line}: {self.rule} {self.message}"
 
 
@@ -125,10 +126,12 @@ class _Block:
 
     @property
     def code(self) -> str:
+        """The block's text, dedented."""
         return textwrap.dedent("\n".join(t for _, t in self.body))
 
     @property
     def includes(self) -> list[tuple[int, str]]:
+        """(line, target) of each include in the block."""
         return _includes(self.body)[0]
 
     @property
@@ -173,6 +176,7 @@ def _waivers_before(lines: list[str], idx: int) -> frozenset[str]:
 
 
 def _front_matter_end(lines: list[str]) -> int:
+    """The index of the first line after the front matter; 0 without one."""
     if not lines or lines[0].strip() != "---":
         return 0
     return next((i + 1 for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
@@ -212,6 +216,7 @@ def blocks(text: str) -> list[_Block]:
 
 
 def _syntax_error(code: str) -> SyntaxError | None:
+    """The SyntaxError of ``ast.parse(code)``, or None."""
     try:
         ast.parse(code)
     except SyntaxError as exc:
@@ -285,9 +290,11 @@ def resolve_import(module: str, name: str | None) -> str | None:
 
 
 def _cached(resolve: Resolver) -> Resolver:
+    """``resolve`` with each (module, name) resolved once."""
     cache: dict[tuple[str, str | None], str | None] = {}
 
     def run(module: str, name: str | None) -> str | None:
+        """Resolve through the cache."""
         key = (module, name)
         if key not in cache:
             cache[key] = resolve(module, name)
@@ -303,6 +310,7 @@ def _target(root: Path, spec: str) -> tuple[Path, str]:
 
 
 def _include_error(root: Path, spec: str) -> str | None:
+    """D3: why an include's file, range or section fails; None when it resolves."""
     if re.match(r"^[a-z]+://", spec):
         return None
     path, selector = _target(root, spec)
@@ -337,7 +345,10 @@ def _include_error(root: Path, spec: str) -> str | None:
 def _check_block(
     rel: str, block: _Block, root: Path, resolve: Resolver, hits: list[Hit]
 ) -> None:
+    """D3 on the block's includes, then the Python rules; hits go to ``hits``."""
+
     def add(line: int, rule: str, message: str) -> None:
+        """Record a hit unless the block waives its rule."""
         if rule not in block.waived:
             hits.append(Hit(rel, line, rule, message))
 
@@ -399,6 +410,7 @@ def check_generated(rel: str, text: str, resolve: Resolver) -> list[Hit]:
     lines = text.splitlines()
 
     def add(line: int, rule: str, message: str) -> None:
+        """Record a D1 or D2 hit as a docstring example's."""
         if rule in ("D1", "D2"):
             hits.append(Hit(rel, line, rule, f"docstring example: {message}"))
 
@@ -436,6 +448,7 @@ def in_scope(rel: str, text: str | None = None) -> bool:
 
 
 def tracked_files(root: Path) -> list[str]:
+    """The tracked files under docs/, or every docs/**/*.md outside git."""
     try:
         out = subprocess.run(
             ["git", "ls-files", "-z", "docs"],  # noqa: S607 - git from PATH, as CI has it
@@ -453,6 +466,7 @@ def tracked_files(root: Path) -> list[str]:
 
 
 def _read(path: Path) -> str | None:
+    """The file's text, or None when it cannot be read."""
     try:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -496,6 +510,7 @@ def scan_paths(root: Path, args: list[str], resolve: Resolver) -> list[Hit]:
 
 
 def counts(hits: Iterable[Hit]) -> dict[str, dict[str, int]]:
+    """Hits per (file, rule), sorted."""
     out: dict[str, dict[str, int]] = {}
     for h in hits:
         rules = out.setdefault(h.path, {})
@@ -504,6 +519,7 @@ def counts(hits: Iterable[Hit]) -> dict[str, dict[str, int]]:
 
 
 def load_baseline(path: Path) -> dict[str, dict[str, int]]:
+    """The baseline counts per (file, rule); empty when the file is missing."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -559,6 +575,7 @@ def lowered(
 
 
 def _fake_resolve(module: str, name: str | None) -> str | None:
+    """A resolver over a fixed set of names, for the self-tests."""
     known = {"sandloom.sdk": {"db", "on", "Event"}, "sandloom.sdk.web": set()}
     if module not in known:
         return f"cannot import {module} (ModuleNotFoundError)"
@@ -568,6 +585,7 @@ def _fake_resolve(module: str, name: str | None) -> str | None:
 
 
 def _self_test_rules(root: Path) -> int:
+    """Failures of the rule cases, against the files under ``root``."""
     py = "```python\n{}\n```\n"
     long = "a = 1\nb = 2\nc = 3\nd = 4"
     cases: dict[str, list[str]] = {
@@ -638,6 +656,7 @@ def _self_test_rules(root: Path) -> int:
 
 
 def _self_test_files(root: Path) -> None:
+    """Write the files the include cases name under ``root``."""
     snippets = root / "docs" / "snippets"
     snippets.mkdir(parents=True)
     (snippets / "a.py").write_text(
@@ -651,6 +670,7 @@ def _self_test_files(root: Path) -> None:
 
 
 def _self_test_scope() -> int:
+    """Failures of in_scope and Hit.render."""
     failed = 0
     scope = {
         ("docs/index.md", "# Sandloom\n"): True,
@@ -680,6 +700,7 @@ def _self_test_scope() -> int:
 
 
 def _self_test_baseline() -> int:
+    """Failures of compare, lowered and the D4-only baseline round trip."""
     failed = 0
     base = {"a.md": {"D4": 2}, "b.md": {"D4": 1}}
     cur = {"a.md": {"D4": 3}, "c.md": {"D1": 1}}
@@ -703,6 +724,7 @@ def _self_test_baseline() -> int:
 
 
 def _self_test_generated() -> int:
+    """Failures of check_generated: signatures skipped, examples checked."""
     page = (
         "# x\n\n### `f`\n\n```python\ndef f(a) -> None\n```\n\n"
         "**Example:**\n\n```python\nfrom sandloom.sdk import nope\n```\n\n"
@@ -716,6 +738,7 @@ def _self_test_generated() -> int:
 
 
 def self_test() -> int:
+    """Run every self-test; 0 when all pass."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _self_test_files(root)
@@ -726,6 +749,7 @@ def self_test() -> int:
 
 
 def _summary(hits: list[Hit]) -> None:
+    """Print hits per rule, then the 15 files with the most."""
     for rule, n in sorted(Counter(h.rule for h in hits).items()):
         print(f"{n:6d}  {rule}")
     print()
@@ -734,6 +758,7 @@ def _summary(hits: list[Hit]) -> None:
 
 
 def _strict(args: list[str], summary: bool) -> int:
+    """Check the named paths with no baseline; 1 on any hit."""
     hits = scan_paths(ROOT, args, _cached(resolve_import))
     for h in hits:
         print(h.render())
@@ -752,6 +777,7 @@ def _strict(args: list[str], summary: bool) -> int:
 
 
 def _ratchet(hits: list[Hit], baseline: dict[str, dict[str, int]]) -> int:
+    """Fail on a count above the baseline; report the counts that dropped."""
     over, dropped = compare(counts(hits), baseline)
     for path, rule, n, b in over:
         for h in hits:
@@ -778,6 +804,7 @@ def _ratchet(hits: list[Hit], baseline: dict[str, dict[str, int]]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Run the mode the arguments name; the ratchet by default."""
     if "--self-test" in argv:
         return self_test()
     if importlib.util.find_spec("sandloom") is None and (ROOT / "src").is_dir():

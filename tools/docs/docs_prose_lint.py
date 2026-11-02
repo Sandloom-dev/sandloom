@@ -251,6 +251,7 @@ class Hit:
     message: str
 
     def render(self) -> str:
+        """The hit as ``path:line: RULE message``."""
         return f"{self.path}:{self.line}: {self.rule} {self.message}"
 
 
@@ -259,6 +260,7 @@ def _keep_lines(repl: str | Callable[[re.Match[str]], str]) -> Callable[..., str
     cleaned as one paragraph still splits back into its source lines."""
 
     def sub(m: re.Match[str]) -> str:
+        """Replace the match, then append the newlines it spanned."""
         new = repl(m) if callable(repl) else m.expand(repl)
         return new + "\n" * m.group(0).count("\n")
 
@@ -292,6 +294,7 @@ def clean(text: str) -> str:
 
 
 def _words(text: str) -> int:
+    """Words with a letter or digit in them; a bare symbol is not one."""
     return sum(1 for w in text.split() if any(c.isalnum() for c in w))
 
 
@@ -325,14 +328,17 @@ class _Page:
 
     @property
     def s9_exempt(self) -> bool:
+        """Changelog and upgrade pages are exempt from S9."""
         name = Path(self.rel).name.lower()
         return any(word in name for word in S9_EXEMPT_NAMES)
 
     @property
     def s13_exempt(self) -> bool:
+        """Reference pages are exempt from S13."""
         return self.rel.startswith("docs/reference/") or self.page_type == "reference"
 
     def add(self, line: int, rule: str, message: str) -> None:
+        """Record a hit on this page."""
         self.hits.append(Hit(self.rel, line, rule, message))
 
 
@@ -362,10 +368,12 @@ def _check_words(page: _Page, text: str, line_of: Callable[[int], int]) -> None:
 
 
 def _check_paragraph(page: _Page, lines: list[tuple[int, str]]) -> None:
+    """S4, the word rules and P6-P8 on one paragraph; its words count to W1."""
     text = clean("\n".join(t for _, t in lines))
     starts = [n for n, _ in lines]
 
     def line_of(offset: int) -> int:
+        """The source line of an offset into the cleaned paragraph."""
         return starts[min(text.count("\n", 0, offset), len(starts) - 1)]
 
     raw = " ".join(t for _, t in lines).strip()
@@ -384,6 +392,7 @@ def _check_paragraph(page: _Page, lines: list[tuple[int, str]]) -> None:
 
 
 def _opener(sentence: str) -> str:
+    """The sentence's first word, lowercased, for P7."""
     words = re.findall(r"[A-Za-z']+", sentence)
     return words[0].lower() if words else ""
 
@@ -411,12 +420,14 @@ def _check_rhythm(
 
 
 def _visible_heading(text: str) -> str:
+    """A heading as rendered: no attribute list, link target or backticks."""
     text = re.sub(r"\{\s*:?\s*[#.][^}]*\}\s*$", "", text)
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     return text.replace("`", "").strip()
 
 
 def _is_title_case(text: str) -> bool:
+    """Whether a heading of four or more words is in Title Case (S11)."""
     words = clean(text).split()
     if len(words) < 4:
         return False
@@ -436,6 +447,7 @@ def _is_title_case(text: str) -> bool:
 
 
 def _check_heading(page: _Page, lineno: int, text: str) -> None:
+    """S11 and the word rules on one heading."""
     visible = _visible_heading(text)
     if len(visible) > MAX_HEADING_CHARS:
         limit = f"(max {MAX_HEADING_CHARS})"
@@ -446,10 +458,12 @@ def _check_heading(page: _Page, lineno: int, text: str) -> None:
 
 
 def _at(lineno: int) -> Callable[[int], int]:
+    """A line_of that maps every offset to ``lineno``."""
     return lambda _offset: lineno
 
 
 def _ends_sentence(text: str) -> bool:
+    """Whether a line ends a sentence, for K3; comments and markup ignored."""
     text = re.sub(r"<!--.*?-->", "", text).rstrip().rstrip("*_)\"'`")
     return text.endswith((".", ":", "?", "!"))
 
@@ -469,6 +483,7 @@ def _front_matter(page: _Page, lines: list[str]) -> int:
 
 
 def _waivers(lines: list[str]) -> dict[int, set[str]]:
+    """The rules each line's ``prose-ok`` comments waive."""
     waivers: dict[int, set[str]] = {}
     for lineno, line in enumerate(lines, 1):
         for w in _WAIVER.finditer(line):
@@ -482,6 +497,7 @@ class _Scanner:
     fences (K3) and the list stack (S13)."""
 
     def __init__(self, page: _Page) -> None:
+        """Start before the first body line: no paragraph, list or fence open."""
         self.page = page
         self.para: list[tuple[int, str]] = []
         self.lists: list[_List] = []
@@ -492,11 +508,13 @@ class _Scanner:
         self.pending_lookup = False
 
     def flush(self) -> None:
+        """Lint the open paragraph and start a new one."""
         if self.para:
             _check_paragraph(self.page, self.para)
         self.para = []
 
     def close_lists(self, indent: int) -> None:
+        """Close the lists indented at or past ``indent``; S13 on each."""
         while self.lists and self.lists[-1].indent >= indent:
             done = self.lists.pop()
             if (
@@ -513,10 +531,12 @@ class _Scanner:
                 )
 
     def finish(self) -> None:
+        """Lint the last paragraph and close every open list."""
         self.flush()
         self.close_lists(0)
 
     def line(self, lineno: int, line: str) -> None:
+        """Feed one source line to the scanner."""
         stripped = line.strip()
         if self.fence is not None:
             self._in_fence(line, self.fence)
@@ -533,6 +553,7 @@ class _Scanner:
             self._content(lineno, line, stripped)
 
     def _in_fence(self, line: str, fence: tuple[str, int]) -> None:
+        """Close the fence on its closing line; code inside is not linted."""
         m = _FENCE.match(line)
         if (
             m
@@ -544,6 +565,7 @@ class _Scanner:
             self.prev_kind, self.prev_text, self.prev_blank = "fence", "", False
 
     def _content(self, lineno: int, line: str, stripped: str) -> None:
+        """Route a content line: fence, heading, title, table, list item or prose."""
         indent = len(line) - len(line.lstrip())
         item = _ITEM.match(line)
         heading = _HEADING.match(line) if indent < 4 else None
@@ -587,10 +609,12 @@ class _Scanner:
             self._seen("item" if continued else "prose", stripped)
 
     def _seen(self, kind: str, text: str) -> None:
+        """Remember the last significant line for K3; it ends a pending lookup."""
         self.prev_kind, self.prev_text = kind, text
         self.pending_lookup = False
 
     def _fence_open(self, lineno: int, m: re.Match[str]) -> None:
+        """Open a fence; K3 when no sentence, heading or tab title comes before it."""
         self.flush()
         ok = self.prev_kind in ("heading", "tab") or (
             self.prev_kind in ("prose", "item") and _ends_sentence(self.prev_text)
@@ -600,6 +624,7 @@ class _Scanner:
         self.fence = (m.group(2)[0], len(m.group(2)))
 
     def _item(self, lineno: int, item: re.Match[str]) -> None:
+        """Start a list item: count it in its list (S13) and open its paragraph."""
         self.flush()
         indent, bullet = len(item.group(1)), item.group(2) in "-*+"
         lists = self.lists
@@ -654,6 +679,7 @@ def in_scope(rel: str, text: str | None = None) -> bool:
 
 
 def tracked_files(root: Path) -> list[str]:
+    """The tracked files under docs/, or every docs/**/*.md outside git."""
     try:
         out = subprocess.run(
             ["git", "ls-files", "-z", "docs"],  # noqa: S607 - git from PATH, as CI has it
@@ -671,6 +697,7 @@ def tracked_files(root: Path) -> list[str]:
 
 
 def _read(path: Path) -> str | None:
+    """The file's text, or None when it cannot be read."""
     try:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -714,6 +741,7 @@ def scan_paths(root: Path, args: list[str]) -> list[Hit]:
 
 
 def counts(hits: Iterable[Hit]) -> dict[str, dict[str, int]]:
+    """Hits per (file, rule), sorted."""
     out: dict[str, dict[str, int]] = {}
     for h in hits:
         rules = out.setdefault(h.path, {})
@@ -722,6 +750,7 @@ def counts(hits: Iterable[Hit]) -> dict[str, dict[str, int]]:
 
 
 def load_baseline(path: Path) -> dict[str, dict[str, int]]:
+    """The baseline counts per (file, rule); empty when the file is missing."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -730,6 +759,7 @@ def load_baseline(path: Path) -> dict[str, dict[str, int]]:
 
 
 def write_baseline(path: Path, table: dict[str, dict[str, int]]) -> None:
+    """Write the counts as the baseline, zeros dropped."""
     table = {p: {r: n for r, n in rules.items() if n} for p, rules in table.items()}
     data = {
         "schema": 1,
@@ -772,6 +802,7 @@ def lowered(
 
 
 def _self_test_rules() -> int:
+    """Failures of the rule cases, plus those of the other self-tests."""
     long = " ".join(["word"] * 27) + "."
     cases: dict[str, list[str]] = {
         # S4
@@ -884,6 +915,7 @@ def _self_test_rules() -> int:
 
 
 def _self_test_hook() -> int:
+    """Failures of hook_target on sample PostToolUse events."""
     page = str(ROOT / "docs" / "x.md")
     cases = {
         json.dumps({"tool_input": {"file_path": page}}): "docs/x.md",
@@ -901,6 +933,7 @@ def _self_test_hook() -> int:
 
 
 def _self_test_exemptions() -> int:
+    """Failures of the S9 and S13 exemptions, in_scope and Hit.render."""
     failed = 0
     exempt: dict[tuple[str, str], list[str]] = {
         ("docs/reference/cli.md", "Items:\n\n" + "- i\n" * 8): [],
@@ -941,6 +974,7 @@ def _self_test_exemptions() -> int:
 
 
 def _self_test_baseline() -> int:
+    """Failures of compare, lowered and the baseline round trip."""
     failed = 0
     base = {"a.md": {"S4": 2, "S8": 1}, "b.md": {"K3": 1}}
     cur = {"a.md": {"S4": 3}, "c.md": {"S9": 1}}
@@ -964,12 +998,14 @@ def _self_test_baseline() -> int:
 
 
 def self_test() -> int:
+    """Run every self-test; 0 when all pass."""
     failed = _self_test_rules()
     print("self-test:", "FAIL" if failed else "ok")
     return 1 if failed else 0
 
 
 def _summary(hits: list[Hit]) -> None:
+    """Print hits per rule, then the 15 files with the most."""
     for rule, n in sorted(Counter(h.rule for h in hits).items()):
         print(f"{n:6d}  {rule}")
     print()
@@ -978,6 +1014,7 @@ def _summary(hits: list[Hit]) -> None:
 
 
 def _strict(args: list[str], summary: bool) -> int:
+    """Lint the named paths with no baseline; 1 on any hit."""
     hits = scan_paths(ROOT, args)
     for h in hits:
         print(h.render())
@@ -995,6 +1032,7 @@ def _strict(args: list[str], summary: bool) -> int:
 
 
 def _ratchet(hits: list[Hit], baseline: dict[str, dict[str, int]]) -> int:
+    """Fail on a count above the baseline; report the counts that dropped."""
     over, dropped = compare(counts(hits), baseline)
     for path, rule, n, b in over:
         for h in hits:
@@ -1038,6 +1076,7 @@ def hook_target(event: str, root: Path = ROOT) -> str | None:
 
 
 def _hook() -> int:
+    """Lint the page a PostToolUse event edited; 2 with the hits on stderr."""
     rel = hook_target(sys.stdin.read())
     if rel is None or not (ROOT / rel).is_file():
         return 0
@@ -1064,6 +1103,7 @@ def _hook() -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Run the mode the arguments name; the ratchet by default."""
     if "--self-test" in argv:
         return self_test()
     if "--hook" in argv:
