@@ -163,5 +163,5 @@ sandloom migrate upgrade-all --apply
 - [Modules](index.md): the isolation rule and discovery.
 - [Units of Work and `db()`](database/units.md).
 - [Route policy](http/route-policy.md): the defaults every route gets.
-- [Testing modules](tooling/testing.md).
+- [Testing modules](../toolchain/testing.md).
 - [Tutorial](../getting-started/tutorial.md): a module built step by step.

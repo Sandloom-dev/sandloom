@@ -91,6 +91,16 @@ Home = [
     "getting-started/installation.md",
     "getting-started/glossary.md",
 ]
+Toolchain = [
+    "toolchain/index.md",
+    "toolchain/generators.md",
+    "toolchain/generate.md",
+    "toolchain/agent-tooling.md",
+    "toolchain/module-context.md",
+    "toolchain/architecture-graph.md",
+    "toolchain/checks.md",
+    "toolchain/testing.md",
+]
 Modules = [
     "modules/index.md",
     "modules/create.md",
@@ -118,14 +128,6 @@ Modules = [
     "modules/between/add-saga.md",
     "modules/background/tasks.md",
     "modules/background/effect-deduplication.md",
-    "modules/tooling/index.md",
-    "modules/tooling/generators.md",
-    "modules/tooling/generate.md",
-    "modules/tooling/agent-tooling.md",
-    "modules/tooling/module-context.md",
-    "modules/tooling/architecture-graph.md",
-    "modules/tooling/checks.md",
-    "modules/tooling/testing.md",
     "modules/standard/index.md",
     "modules/standard/identity.md",
     "modules/standard/first-access-token.md",
@@ -288,6 +290,24 @@ Intro = [
 ]
 
 [[project.nav]]
+Toolchain = [
+    { "The toolchain" = "toolchain/index.md" },
+    { Start = [
+        { Generators = "toolchain/generators.md" },
+        { "Generate contracts and snapshots" = "toolchain/generate.md" },
+    ] },
+    { Work = [
+        { "Agent tooling" = "toolchain/agent-tooling.md" },
+        { "Module context for agents" = "toolchain/module-context.md" },
+        { "Explore the architecture graph" = "toolchain/architecture-graph.md" },
+    ] },
+    { Check = [
+        { Checks = "toolchain/checks.md" },
+        { "Testing modules" = "toolchain/testing.md" },
+    ] },
+]
+
+[[project.nav]]
 Modules = [
     { "What a module is" = "modules/index.md" },
     { "Add a module" = "modules/create.md" },
@@ -330,22 +350,6 @@ Modules = [
     { "Background work" = [
         { "Background tasks" = "modules/background/tasks.md" },
         { "Deduplicate effects" = "modules/background/effect-deduplication.md" },
-    ] },
-    { Toolchain = [
-        { "The toolchain" = "modules/tooling/index.md" },
-        { Start = [
-            { Generators = "modules/tooling/generators.md" },
-            { "Generate contracts and snapshots" = "modules/tooling/generate.md" },
-        ] },
-        { Work = [
-            { "Agent tooling" = "modules/tooling/agent-tooling.md" },
-            { "Module context for agents" = "modules/tooling/module-context.md" },
-            { "Explore the architecture graph" = "modules/tooling/architecture-graph.md" },
-        ] },
-        { Check = [
-            { Checks = "modules/tooling/checks.md" },
-            { "Testing modules" = "modules/tooling/testing.md" },
-        ] },
     ] },
     { "Standard modules" = [
         { Overview = "modules/standard/index.md" },

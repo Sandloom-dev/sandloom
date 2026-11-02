@@ -340,6 +340,7 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
         shutil.copy2(REPO / filename, SITE / filename)
     # Static hosts serve /404.html for any missing path, not only under /docs/.
     shutil.copy2(SITE / "docs" / "404.html", SITE / "404.html")
+    write_redirects(SITE / "docs")
     broken = broken_links(SITE)
     if broken:
         for page, target in broken:
@@ -356,6 +357,43 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
     )
     print(f"Unified site ready in {SITE}: / and /docs/")
     return 0
+
+
+#: Pages that moved, ``{old directory URL: new one}`` under /docs/. A static host
+#: has no server redirects, so each old URL gets a page that forwards to the new.
+MOVED_PAGES: dict[str, str] = {
+    f"modules/tooling/{old}": f"toolchain/{new}"
+    for old, new in {
+        "": "",
+        "generators/": "generators/",
+        "generate/": "generate/",
+        "agent-tooling/": "agent-tooling/",
+        "module-context/": "module-context/",
+        "architecture-graph/": "architecture-graph/",
+        "checks/": "checks/",
+        "testing/": "testing/",
+    }.items()
+}
+
+
+def write_redirects(docs_site: Path) -> list[Path]:
+    """Write a forwarding page at each moved page's old URL (``MOVED_PAGES``)."""
+    written: list[Path] = []
+    for old, new in MOVED_PAGES.items():
+        target = f"/docs/{new}"
+        page = docs_site / old / "index.html"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            f"<title>Moved</title><link rel=\"canonical\" href=\"{target}\">"
+            f"<meta http-equiv=\"refresh\" content=\"0; url={target}\">"
+            '<meta name="robots" content="noindex"></head>'
+            f"<body><p>This page moved to <a href=\"{target}\">{target}</a>.</p>"
+            "</body></html>\n",
+            encoding="utf-8",
+        )
+        written.append(page)
+    return written
 
 
 class SiteHandler(http.server.SimpleHTTPRequestHandler):

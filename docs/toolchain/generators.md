@@ -20,14 +20,14 @@ A generator writes the starting code for one piece of a Sandloom application, in
 | Command | Writes |
 | --- | --- |
 | `sandloom new <app>` | The application: `pyproject.toml` with pinned dev tools, `AGENTS.md`, the [skills](agent-tooling.md) for the agents you choose, a sample module, deploy and CI files |
-| `sandloom add module <m>` | A module package (`__init__.py`, `models/`, `schemas.py`, `events.py`, `services.py`, `api.py`), its [migration](../database/migrations.md) chain and a test |
-| `sandloom add event <m> <Name>` | An [event](../between/events.md) class in `events.py`: `NoteArchived` in `notes` gets the channel `notes.note.archived.v1` |
-| `sandloom add contract <m> <name>` | A [contract](../between/contracts.md), the call one module answers for others, with one read and one command, and the stub callers import |
+| `sandloom add module <m>` | A module package (`__init__.py`, `models/`, `schemas.py`, `events.py`, `services.py`, `api.py`), its [migration](../modules/database/migrations.md) chain and a test |
+| `sandloom add event <m> <Name>` | An [event](../modules/between/events.md) class in `events.py`: `NoteArchived` in `notes` gets the channel `notes.note.archived.v1` |
+| `sandloom add contract <m> <name>` | A [contract](../modules/between/contracts.md), the call one module answers for others, with one read and one command, and the stub callers import |
 | `sandloom add consumer <m> <channel>` | A handler in `consumers.py` that reacts to another module's event |
-| `sandloom add saga <m> <name>` | A [saga](../between/sagas.md), a process across modules with undo, and the contract it calls |
-| `sandloom add projection <m> <name>` | A [projection](../between/projections.md), a table built from other modules' events, with its migration |
-| `sandloom add task <m> <name>` | A [background task](../background/tasks.md) in `tasks.py`; `--periodic "<cron>"` schedules it |
-| `sandloom add deploy <m> --service <name>` | The microservices profile and gateway, with the module in its own service ([Split into services](../../operate/split-into-services.md)) |
+| `sandloom add saga <m> <name>` | A [saga](../modules/between/sagas.md), a process across modules with undo, and the contract it calls |
+| `sandloom add projection <m> <name>` | A [projection](../modules/between/projections.md), a table built from other modules' events, with its migration |
+| `sandloom add task <m> <name>` | A [background task](../modules/background/tasks.md) in `tasks.py`; `--periodic "<cron>"` schedules it |
+| `sandloom add deploy <m> --service <name>` | The microservices profile and gateway, with the module in its own service ([Split into services](../operate/split-into-services.md)) |
 | `sandloom add skills` | The agent files for the application's coding agents, updated to this version ([Agent tooling](agent-tooling.md#keep-the-skills-current)) |
 
 `uv run sandloom add <generator> --help` lists each one's options.
@@ -79,5 +79,5 @@ A generator writes a starting point; the feature's logic, fields and tests are y
 
 - [The toolchain](index.md): where generators sit in the loop of a change.
 - [Generate contracts and snapshots](generate.md): what `sandloom generate` writes and when it refuses.
-- [Add a module](../create.md): the module generator step by step.
-- [CLI reference](../../reference/cli.md): every flag.
+- [Add a module](../modules/create.md): the module generator step by step.
+- [CLI reference](../reference/cli.md): every flag.

@@ -45,7 +45,7 @@ myapp/
 | `myapp/shared/`, each module's `module.snapshot.json` and `routes.snapshot.json`, `.sandloom/inspection.json` | `sandloom generate`. Commit them and never edit them by hand |
 
 `sandloom test` checks the generated files and never writes them. If it reports them out
-of date, run [`sandloom generate`](../modules/tooling/generate.md).
+of date, run [`sandloom generate`](../toolchain/generate.md).
 
 ## What comes from the framework
 

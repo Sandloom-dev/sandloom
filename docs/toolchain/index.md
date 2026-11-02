@@ -24,7 +24,7 @@ Sandloom puts three kinds of tools around every change. [Generators](generators.
 
 ## One change through the loop
 
-Start: in an application named `demo`, a generator adds an [event](../between/events.md), a message other modules can react to, to the `notes` module.
+Start: in an application named `demo`, a generator adds an [event](../modules/between/events.md), a message other modules can react to, to the `notes` module.
 
 ```bash
 uv run sandloom add event notes NoteArchived --field note_id:UUID
@@ -56,6 +56,6 @@ The checks prove the structure; whether a feature does what you meant is for you
 
 ## Go deeper
 
-- [Error codes](../../reference/error-codes.md): every code, with its cause and fix.
-- [CLI reference](../../reference/cli.md): every command and flag.
-- [Tutorial: your first feature](../../getting-started/tutorial.md): the loop on a real feature.
+- [Error codes](../reference/error-codes.md): every code, with its cause and fix.
+- [CLI reference](../reference/cli.md): every command and flag.
+- [Tutorial: your first feature](../getting-started/tutorial.md): the loop on a real feature.

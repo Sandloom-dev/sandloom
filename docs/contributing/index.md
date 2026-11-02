@@ -38,7 +38,7 @@ uv run sandloom test --full                                   # once, at the end
 `sandloom test` runs the tests in parallel, then ruff, ruff format, mypy,
 `sandloom check`, the architecture tests, `lint-imports` and the contract and route
 snapshots; `sandloom test --plan` prints the steps. Do not re-run a serial
-`pytest -q` after each fix. See [Testing](../modules/tooling/testing.md) and the
+`pytest -q` after each fix. See [Testing](../toolchain/testing.md) and the
 [CLI reference](../reference/cli.md).
 
 `uv sync` installs the `dev` dependency group (ruff, mypy, pytest pinned exactly

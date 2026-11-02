@@ -58,7 +58,7 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
     `CACHE_URL` / `BROKER_URL` in `.env`, and `SANDLOOM_TEST_DATABASE_URL` /
     `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the tests. Pick ports
     below 32768, or use `127.0.0.1` in the URLs
-    ([why](../modules/tooling/testing.md#isolation-guards)). The generated `README.md` shows the
+    ([why](../toolchain/testing.md#isolation-guards)). The generated `README.md` shows the
     commands.
 
 For an app created with `--with identity`, follow [authentication and email](../modules/standard/first-access-token.md)

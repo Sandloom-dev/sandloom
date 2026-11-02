@@ -113,8 +113,8 @@ uv run sandloom explore
 interfaces and owned file locations. Both default to compact text, with explicit
 `--format json` for structured data. `explore` generates and opens an offline
 browser view of the same declared architecture, including processes and impact.
-See [module maps](docs/modules/tooling/module-context.md) and the
-[architecture explorer](docs/modules/tooling/architecture-graph.md).
+See [module maps](docs/toolchain/module-context.md) and the
+[architecture explorer](docs/toolchain/architecture-graph.md).
 
 ## See architecture checks in action
 

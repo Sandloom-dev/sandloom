@@ -4555,7 +4555,7 @@ guarantees:
     process.'
   sources:
   - docs/reference/testing.md
-  - docs/modules/tooling/testing.md#Test isolation
+  - docs/toolchain/testing.md#Test isolation
   tests:
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_1_a_test_builds_its_own_app
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_2_the_next_test_gets_the_previous_runtime_back

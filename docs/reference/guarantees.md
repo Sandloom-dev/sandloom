@@ -1383,7 +1383,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-OPS-07</span> | docs/reference/testing.md |
 | <span class="sl-id">G-OPS-08</span> | docs/reference/testing.md |
 | <span class="sl-id">G-OPS-09</span> | docs/reference/testing.md |
-| <span class="sl-id">G-OPS-10</span> | docs/reference/testing.md<br>docs/modules/tooling/testing.md#Test isolation |
+| <span class="sl-id">G-OPS-10</span> | docs/reference/testing.md<br>docs/toolchain/testing.md#Test isolation |
 | <span class="sl-id">G-OPS-11</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Preflight and effective configuration |
 | <span class="sl-id">G-OPS-12</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise) |
 | <span class="sl-id">G-OPS-13</span> | docs/operate/operator-reference.md#Observability<br>docs/operate/operator-reference.md#Data retention & PII |

@@ -20,10 +20,10 @@ A broken framework rule carries a code such as `SANDLOOM-C001`, and `uv run sand
 | --- | --- | --- |
 | `SANDLOOM-C…` | `sandloom check` reads the code, without running it | `C001`: a module imports another module |
 | `SANDLOOM-B…` | The application refuses to start; `sandloom check --boot` starts it to find these | `B008`: a route is neither authenticated nor declared public |
-| `SANDLOOM-R…` | A request or a job fails at runtime | `R002`: database work outside a [unit](../database/units.md), the block that owns the transaction |
+| `SANDLOOM-R…` | A request or a job fails at runtime | `R002`: database work outside a [unit](../modules/database/units.md), the block that owns the transaction |
 | `SANDLOOM-T…` | `sandloom test` or `sandloom generate` | `T005`: an event's fields changed in a way its readers cannot follow |
 
-A code is never reused. [Error codes](../../reference/error-codes.md) lists every one with its cause and fix.
+A code is never reused. [Error codes](../reference/error-codes.md) lists every one with its cause and fix.
 
 ## A failure, from the check to the fix
 
@@ -51,7 +51,7 @@ A code is never reused. [Error codes](../../reference/error-codes.md) lists ever
     Modules are atomic and isolated: each one can be deployed as its own service.
     ```
 
-    Its `Fix:` lines name the replacement: an [event](../between/events.md) or a [contract](../between/contracts.md), the two ways one module reaches another.
+    Its `Fix:` lines name the replacement: an [event](../modules/between/events.md) or a [contract](../modules/between/contracts.md), the two ways one module reaches another.
 4. The agent makes that change and runs the check again until it prints `sandloom check: OK`.
 
 ## What sandloom test runs
@@ -96,6 +96,6 @@ The checks prove the structure, not the behaviour: whether a feature does what y
 
 ## Go deeper
 
-- [Error codes](../../reference/error-codes.md): every code with its cause and fix.
+- [Error codes](../reference/error-codes.md): every code with its cause and fix.
 - [Testing modules](testing.md): the fixtures and helpers for your module's tests.
 - [The toolchain](index.md): where the checks sit in the loop of a change.
