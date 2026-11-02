@@ -284,7 +284,7 @@ Intro = [
 [[project.nav]]
 Modules = [
     { "What a module is" = "modules/index.md" },
-    { "Create a module" = "modules/create.md" },
+    { "Add a module" = "modules/create.md" },
     { Data = [
         { "Units of work and db()" = "modules/database/units.md" },
         { Multi-tenancy = "modules/database/multi-tenancy.md" },

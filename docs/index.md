@@ -1,6 +1,8 @@
 ---
 title: Overview
-description: Sandloom is a Python backend framework built from isolated modules and swappable drivers. What it is, its principles, who it fits and where to start.
+description: Sandloom is a Python backend framework built from isolated modules and swappable drivers. What problem it solves, what its code looks like, who it fits and where to start.
+type: entry
+job: When I am deciding whether to try a backend framework for a product with several business domains, I want to see what problem it solves and what its code looks like, so I can decide whether to start the quickstart.
 footer_next:
   title: Quickstart
   url: getting-started/
@@ -8,9 +10,15 @@ footer_next:
 
 # Sandloom
 
-**A Python backend framework for AI-driven development.** You write your product as
-isolated **modules**; **drivers** connect them to PostgreSQL, Redis and other backends.
-The same code runs as a monolith or as separate services, chosen by configuration.
+In a backend with several business domains, one feature soon reaches into another's
+tables, and a crash between saving a change and telling the rest of the system loses the
+message. Changing anything then means reading everything, for a person or a coding agent.
+
+**Sandloom is a Python backend framework for AI-driven development:** people and coding
+agents change the code together, and machine checks enforce the rules. You write your
+product as isolated **modules** on FastAPI and SQLAlchemy, and work on one at a time.
+**Drivers** connect them to PostgreSQL, Redis and other backends. The same code runs as a
+monolith or as separate services, chosen by configuration.
 
 <figure class="sl-architecture" aria-label="Sandloom architecture: business modules, contracts, kernel and infrastructure drivers">
   <div class="sl-architecture__modules">
@@ -23,7 +31,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
       </div>
       <div class="sl-architecture__module"><strong>Catalog</strong><span>Product logic &amp; data</span></div>
     </div>
-    <div class="sl-architecture__batteries"><span>Optional modules, same boundaries</span><span>Identity · Tenancy · Billing</span></div>
+    <div class="sl-architecture__batteries"><span>Standard modules, same boundaries</span><span>Identity · Tenancy · Billing</span></div>
   </div>
   <div class="sl-architecture__connector" aria-hidden="true"><span>use the public SDK</span></div>
   <div class="sl-architecture__kernel">
@@ -52,7 +60,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
 
 !!! tip "Start here"
     New to Sandloom? Start with the **[quickstart](getting-started/index.md)**:
-    create your own application, add a module, run the gates and start the API.
+    create your own application, add a module, run the checks and start the API.
     Then follow **[Tutorial: your first feature](getting-started/tutorial.md)**
     to connect two modules with an event and a typed contract.
 
@@ -60,7 +68,7 @@ The same code runs as a monolith or as separate services, chosen by configuratio
 
 <div class="grid cards" markdown>
 
--   :material-puzzle-outline: **[Write a module](modules/create.md)**
+-   :material-puzzle-outline: **[Add a module](modules/create.md)**
 
     Add a piece of your product: its tables, routes, events and tests.
 
@@ -71,17 +79,39 @@ The same code runs as a monolith or as separate services, chosen by configuratio
 
 -   :material-tune: **[Change a standard module](modules/standard/customize.md)**
 
-    Adjust the ready-made identity, tenancy or billing modules.
+    Adjust the identity, tenancy or billing modules.
 
 </div>
 
-## The principles
+## Two modules, one event
+
+The `tasks` module saves a task and publishes an event in the same transaction:
+
+```python title="tasks/services.py"
+--8<-- "examples/tutorial/tasklist/modules/tasks/services.py:14:19"
+```
+
+The `stats` module reacts without importing `tasks`. It declares its own view of the
+event's fields:
+
+```python title="stats/consumers.py"
+--8<-- "examples/tutorial/tasklist/modules/stats/consumers.py:consumer"
+```
+
+The event commits with the task, so on the production event bus a crash right after the
+commit does not lose it. A repeated delivery does not count the task twice, because the
+consumer records the event's id in the same transaction as its effect. A consumer that
+fails is retried, and one that keeps failing is parked for repair.
+[Events and consumers](modules/between/events.md) covers the details.
+
+## Design principles
 
 - **A module stands alone.** It imports only the public SDK and generated contracts,
-  never another module. You or a coding agent can change one without reading the rest.
-- **The framework owns what is easy to get wrong.** Transactions, access checks and
-  reliable event delivery are built in, so a module cannot skip them: a route is
-  authenticated unless it declares otherwise.
+  never another module. You or a coding agent can change one by reading it and the contracts it calls.
+- **The framework owns what is easy to get wrong.** It commits the transaction, authenticates
+  each route unless the route declares `public(reason=...)`, and delivers events through an
+  outbox. Weakening a default takes a visible line of code. Which resources a user may touch
+  is yours to declare with [`require`](modules/http/authorization.md).
 - **Configuration decides where things run.** It selects which process loads which
   module and which backend each capability uses. Moving a running module's existing data
   to its own database is a separate, [explicit step](operate/split-into-services.md#existing-data).
@@ -117,7 +147,7 @@ happened, and typed [contracts](modules/between/contracts.md) when one needs an 
 | send notifications through a new service | a [driver](infrastructure/write-a-driver.md) |
 | run a module as its own service | [configuration](operate/split-into-services.md), no module code |
 
-## Who it fits
+## Who Sandloom fits
 
 **A good fit:**
 
@@ -131,7 +161,7 @@ happened, and typed [contracts](modules/between/contracts.md) when one needs an 
 - an existing application whose internals cannot become isolated modules;
 - a team that does not want to follow the module rules and run the checks in CI.
 
-## For coding agents
+## Docs for coding agents
 
 The short always-loaded map is the repository's `AGENTS.md`, and
 <a href="llms.txt"><code>llms.txt</code></a> is a machine-readable index of this site. Every

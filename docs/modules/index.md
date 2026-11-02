@@ -37,7 +37,7 @@ alone.
 Only `__init__.py` is required. A larger module may make any of these a
 package; discovery walks it.
 
-Create one with `uv run sandloom add module <name>`; [Create a module](create.md)
+Create one with `uv run sandloom add module <name>`; [Add a module](create.md)
 walks through it. The application finds the new package by itself, so nothing else needs
 editing.
 
