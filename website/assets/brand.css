@@ -158,3 +158,12 @@ html.sl-menu-open { overflow: hidden; }
 
 /* Approved caracal lockup: outlined letters follow the shared theme colour. */
 .sl-brand-logo { display: block; width: 144px; height: 30px; flex-shrink: 0; }
+
+/* Cards sit in two columns on every screen wider than a phone. The theme's
+   16rem minimum dropped them to one column where both sidebars are open
+   (about 1220-1290px) and below 1000px, and to three at some widths. */
+@media screen and (min-width: 30em) {
+  .md-typeset .grid.cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
