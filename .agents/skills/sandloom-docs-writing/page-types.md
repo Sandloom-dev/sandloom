@@ -4,14 +4,14 @@ Follow your type's order. Each page holds one type; a concept may end with a sho
 
 ## Entry page
 
-For a reader who arrived from a link and may leave in seconds: a developer, a vibe coder, or an agent that has never seen Sandloom. The page makes them want to try it and tells them how. At most three screens at 1280×900; architecture, principles and reference tables live on their own pages.
+For a reader who has never heard of Sandloom: a developer, a vibe coder or an agent. It answers four questions, plainly and in this order, each one complete enough to stand on its own.
 
-1. **The problems.** First on the page, in the reader's words, with no Sandloom term: failures they have had or fear.
-2. **The promise.** One sentence, the page's one message.
-3. **Try it.** On the first screen: one primary action, and a prompt the reader pastes into their agent, with exact commands, stating what they need installed.
-4. **Proof.** Real output or the shortest real code that shows the promise working.
-5. **What it does about each problem.** Problem and answer side by side, each linked one level deeper.
-6. **Fit and next.** Flat bullets on who it suits and who it does not, then a few links.
+1. **What is it?** Say it in concrete words: what you write, what the framework gives you, what it is built on. A reader who stops here can tell a colleague what it is. A slogan does not count.
+2. **Which problems does it solve?** Each problem named in the reader's words, followed at once by how Sandloom solves it, with the mechanism named and one proof where you have it. State what it does not solve.
+3. **How do you work with it?** The workflow as numbered steps with the real commands.
+4. **Where do I look next?** A table from what the reader wants to where to go.
+
+Architecture diagrams, principles and reference tables live on their own pages.
 
 Models: [Rails](https://rubyonrails.org/) for a promise aimed at agents, [Supabase](https://supabase.com/docs) for the agent prompt, [Flutter](https://flutter.dev/) for the promise and its try-it action, [Encore.ts](https://encore.dev/docs/ts) for "instead of …", [Svelte](https://svelte.dev/docs/svelte/overview) for sentence, code, sentence.
 

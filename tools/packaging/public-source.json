@@ -511,6 +511,7 @@
         "docs/adr/0010-public-api-1.0.md",
         "docs/adr/0011-driver-api.md",
         "docs/adr/index.md",
+        "docs/architecture.md",
         "docs/assets/sandloom-mark.svg",
         "docs/assets/sandloom.css",
         "docs/changelog.md",

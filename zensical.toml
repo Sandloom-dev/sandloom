@@ -80,6 +80,7 @@ full_output = "llms-full.txt"
 [project.plugins.llmstxt.sections]
 Home = [
     "index.md",
+    "architecture.md",
     "changelog.md",
     "getting-started/help.md",
 ]
@@ -267,6 +268,7 @@ homepage = "/"
 [[project.nav]]
 Intro = [
     { Overview = "index.md" },
+    { "How Sandloom works" = "architecture.md" },
     { "Release Notes" = "changelog.md" },
     { "Contribution Guide" = "contributing/index.md" },
     { Help = "getting-started/help.md" },
