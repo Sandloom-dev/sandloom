@@ -1,0 +1,129 @@
+name: Snyk monitor
+
+# Sends snapshots of what main ships to the Snyk organization, which re-tests
+# them daily against new advisories and alerts from there. Not a PR gate:
+# fork PRs get no secrets; PR gates stay pip-audit and dependency-review, plus
+# the Snyk GitHub integration's own PR checks (npm, Dockerfile base images,
+# Snyk Code). This workflow covers what that integration cannot see:
+# - python: every dependency group and extra of uv.lock (Snyk's native uv
+#   support skips both), built by tools/checks/snyk_python_env.sh;
+# - images: the built runtime images, OS packages included.
+# Needs the `snyk` environment (main only): secret SNYK_TOKEN (a service
+# account token) and variable SNYK_ORG (the organization slug or id).
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "uv.lock"
+      - "pyproject.toml"
+      - "packages/*/pyproject.toml"
+      - "deploy/docker/Dockerfile"
+      - "admin/Dockerfile"
+      - "admin/package-lock.json"
+      - "tools/checks/snyk_python_env.sh"
+      - ".github/workflows/snyk.yml"
+  schedule:
+    # Weekly rebuild: the backend base image is a tag and picks up patches.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snyk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SNYK_CLI_VERSION: "1.1308.3"
+  SNYK_CLI_SHA256: "5f323f45885341ea1473639859271925912ece82a2f77bc146bb4468f9838840"
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: snyk
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+      - name: Install Snyk CLI
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/snyk" "https://downloads.snyk.io/cli/v${SNYK_CLI_VERSION}/snyk-linux"
+          echo "${SNYK_CLI_SHA256}  $RUNNER_TEMP/snyk" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/snyk"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Build the scanned environment
+        run: tools/checks/snyk_python_env.sh "$RUNNER_TEMP/snyk-python"
+      - name: Monitor Python dependencies
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: >-
+          snyk monitor
+          --org="${{ vars.SNYK_ORG }}"
+          --file="$RUNNER_TEMP/snyk-python/requirements.txt"
+          --package-manager=pip
+          --command="$RUNNER_TEMP/snyk-python/venv/bin/python"
+          --project-name="sandloom/python (all groups and extras)"
+          --remote-repo-url="https://github.com/${{ github.repository }}"
+          --target-reference="${{ github.ref_name }}"
+          --project-environment=backend
+          --project-lifecycle=production
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: snyk
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: .
+            dockerfile: deploy/docker/Dockerfile
+            target: production
+            environment: backend
+          - name: admin
+            context: admin
+            dockerfile: admin/Dockerfile
+            target: ""
+            environment: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          pull: true
+          push: false
+          load: true
+          tags: sandloom-${{ matrix.name }}:snyk
+      - name: Install Snyk CLI
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/snyk" "https://downloads.snyk.io/cli/v${SNYK_CLI_VERSION}/snyk-linux"
+          echo "${SNYK_CLI_SHA256}  $RUNNER_TEMP/snyk" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/snyk"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Monitor ${{ matrix.name }} image
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: >-
+          snyk container monitor "sandloom-${{ matrix.name }}:snyk"
+          --org="${{ vars.SNYK_ORG }}"
+          --file="${{ matrix.dockerfile }}"
+          --project-name="sandloom/${{ matrix.name }}-image"
+          --target-reference="${{ github.ref_name }}"
+          --project-environment="${{ matrix.environment }}"
+          --project-lifecycle=production
