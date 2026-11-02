@@ -113,7 +113,7 @@ To talk to another module:
   `await deliver(NoteCreated(...), times=2)` drives the real consumer runtime;
   `with fake_contract(STATS_QUOTA_V1, Fake()):`; `fake_access_fact(name, value)`.
 - `uv run sandloom generate` after a declaration change (`sandloom test` never writes);
-  `sandloom test <module>` while iterating, `--full` once at the end; no serial `pytest -q`.
+  `sandloom test <module>` (its tests, then the fast suite and every gate); `--full` at the end.
 
 Docs: `modules/index.md`, `modules/database/units.md`, `modules/http/route-policy.md`,
 `modules/between/events.md`, `modules/between/contracts.md`, `modules/http/authorization.md`;

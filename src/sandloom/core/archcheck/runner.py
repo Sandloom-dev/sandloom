@@ -69,102 +69,30 @@ class Violation:
         return f"{self.location(root)}: {self.severity}[{tag}]: {self.message}"
 
 
-#: Rule id -> one-line rationale + fix (printed by ``sandloom check``).
-RULES: dict[str, str] = {
-    "module-boundaries": (
-        "a business module imports a sibling module — talk through versioned "
-        "events (publish_event / register_event_consumer) or a service-registry "
-        "contract (core.get_service), never a direct import"
-    ),
-    "framework-imports": (
-        "import outside the framework public API — use sandloom.core.{di, facade, "
-        "module_api, descriptors, orm, projections} and sandloom.shared.* only"
-    ),
-    "raw-provider": (
-        "provider escape hatch (raw_client/raw_backend/raw) — use the portable "
-        "capability surface (cache.get/set, taskqueue.enqueue, ...)"
-    ),
-    "infra-imports": (
-        "infra-internal module, legacy global or raw backend SDK imported — use "
-        "DbSession / Database(name) / di.cache() / publish_event / Capability"
-    ),
-    "kernel-handles": (
-        "kernel handle reached by attribute (core.event_bus / core.infra / "
-        "core.service_registry / app.state.core) — publish_event, "
-        "register_event_consumer, core.cache()/database()/capability() and "
-        "core.get_service(...) are the module surface"
-    ),
-    "uow-boundary": (
-        "db.commit()/db.rollback() in module code — the UoW owns the "
-        "transaction; use flush() and begin_nested()"
-    ),
-    "best-effort-effects": (
-        "publish_event / record_audit downgraded to best-effort (required=False: "
-        "a direct bus publish with no outbox, or a skipped audit row) without a "
-        "`# sandloom: best-effort <reason>` marker — drop required=False and run the "
-        "call inside a Unit of Work, or justify the downgrade on the call"
-    ),
-    "get-core-await": (
-        "direct get_core(request) call not awaited — get_core is async since "
-        "0.6.0: `await get_core(request)`, or the sync "
-        "`core_from_request(request)`; Depends(get_core) is unchanged"
-    ),
-    "endpoints-outside-api": (
-        "HTTP endpoint outside the module's api/ layer — move it into api/"
-    ),
-    "orm-leakage": (
-        "ORM model / SQLAlchemy in an endpoint file — map to pydantic DTOs in "
-        "services and keep persistence out of api/"
-    ),
-    "schema-orm-imports": (
-        "schemas/ imports ORM models or SQLAlchemy — keep DTOs persistence-free"
-    ),
-    "contract-dtos": (
-        "a contract signature names a DTO of the module's own package that has "
-        "no generated copy in the shared DTO package (callers import the copy) "
-        "— run `sandloom generate`"
-    ),
-    "test-imports": (
-        "module test imports outside its whitelist (public API, sandloom.shared, "
-        "the test API sandloom.core.testing / contract_testing, its own package) — "
-        "a kernel internal or ANOTHER business module; use sandloom.core.testing: "
-        "the plugin fixtures (client, db, make_headers, ...), "
-        "make_user_headers, bind_test_uow, sandloom.core.orm.Base, and other "
-        "modules' contracts / events instead of their code"
-    ),
-    "tenant-scoped-models": (
-        "an ORM model / Core Table has a tenant-like column (tenant_id, "
-        "organization_id, org_id, workspace_id) but does not inherit "
-        "TenantScoped — the ORM tenant guard never filters it, so one "
-        "forgotten where(organization_id == ...) leaks across tenants; "
-        "declare it `class X(TenantScoped, Base)` (drop the own column) and "
-        "ship enable_tenant_rls(op, <table>), or list a deliberate global "
-        "table under tenant_scope_exempt in architecture_rules.yml with a reason"
-    ),
-    "unsafe-tenant-sql": (
-        "runtime text(), exec_driver_sql or Core __table__ access can bypass "
-        "the tenant ORM guard — use ORM entities, or explicit unscoped() "
-        "for trusted system work (PostgreSQL RLS remains enforced)"
-    ),
-    "event-schema-channels": (
-        "publish_event names a channel the module registers no schema for — "
-        "add it with its JSON schema to the module's events.EVENT_SCHEMAS"
-    ),
-    "guard-order": (
-        "an idempotency_guard / tenant-dependent require(...) gate is declared "
-        "before the authentication / TenantScope() it needs — declare it after "
-        "them (decorator dependencies run before endpoint parameters)"
-    ),
-    "consumed-contracts": (
-        "get_service names a contract the module does not declare — add "
-        'ContractRequirement("<name>", required=...) to define_module(..., '
-        "consumes=[...])"
-    ),
-    "db-dependency-scope": (
-        'Depends(get_db...) without scope="function" commits after the response '
-        '— declare scope="function" or use DbSession from sandloom.core.di'
-    ),
-}
+#: The rules ``sandloom check`` enforces, by id. The one-liner each prints is the
+#: error catalogue's title and fix (:func:`_catalogue_line`).
+_CHECK_RULE_IDS: tuple[str, ...] = (
+    "module-boundaries",
+    "framework-imports",
+    "raw-provider",
+    "infra-imports",
+    "kernel-handles",
+    "uow-boundary",
+    "best-effort-effects",
+    "get-core-await",
+    "endpoints-outside-api",
+    "orm-leakage",
+    "schema-orm-imports",
+    "contract-dtos",
+    "test-imports",
+    "tenant-scoped-models",
+    "unsafe-tenant-sql",
+    "event-schema-channels",
+    "guard-order",
+    "consumed-contracts",
+    "db-dependency-scope",
+)
+RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
 #: The Public API 1.0 checks (:mod:`sandloom.core.archcheck.api10_rules`).
 API10_RULES: dict[str, str] = {
@@ -215,6 +143,17 @@ def _planned(rule: str) -> bool:
 #: ``sandloom check``. Clearing ``planned`` for the code activates it.
 PENDING_RULES: dict[str, str] = {k: v for k, v in API10_RULES.items() if _planned(k)}
 RULES.update({k: v for k, v in API10_RULES.items() if k not in PENDING_RULES})
+
+
+def _catalogue_line(rule: str, fallback: str) -> str:
+    """The one-liner ``sandloom check`` prints: the catalogue's title and fix,
+    so the check, ``sandloom explain`` and the error-code page say one thing."""
+    entry = error_codes.lookup(rule)
+    return f"{entry.title} — {entry.fix}" if entry else fallback
+
+
+RULES.update({k: _catalogue_line(k, v) for k, v in RULES.items()})
+PENDING_RULES.update({k: _catalogue_line(k, v) for k, v in PENDING_RULES.items()})
 
 #: Inline waiver: ``# sandloom: allow <rule-id|code> <reason>`` on the reported line.
 _WAIVER = re.compile(r"#\s*sandloom:\s*allow\s+(\S+)\s+\S")

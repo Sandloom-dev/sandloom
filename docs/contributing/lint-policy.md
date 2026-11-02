@@ -42,6 +42,7 @@ including the kernel's `sandloom/core/migrations` package, is linted.
 Fix the finding when you can. When the code is deliberately the way it is,
 suppress the one code on the one line and say why:
 
+<!-- code-ok: D1 fragment, one except clause -->
 ```python
 except Exception:  # noqa: BLE001 - metrics must never break startup
     pass

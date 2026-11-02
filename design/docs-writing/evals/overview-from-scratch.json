@@ -1,0 +1,110 @@
+{
+  "name": "overview-from-scratch",
+  "about": "Rewrite Overview from scratch with the brief and writing skills, against the page the owner approved in 79a4d26.",
+  "page": "docs/index.md",
+  "start_from": "846aed9",
+  "reference": "79a4d26",
+  "exclude": [
+    ".codex/",
+    ".opencode/",
+    "tests/",
+    "benchmarks/",
+    ".tm/",
+    "design/docs-writing/briefs/",
+    "design/docs-writing/blind-tests/",
+    "design/docs-writing/evals/"
+  ],
+  "scrub": {
+    ".claude/skills/sandloom-docs-brief/SKILL.md": [
+      "\\nModels: \\[the positioning\\].*?\\n"
+    ],
+    ".agents/skills/sandloom-docs-brief/SKILL.md": [
+      "\\nModels: \\[the positioning\\].*?\\n"
+    ],
+    "design/docs-writing/positioning.md": [
+      ", while writing Overview \\(see \\[its brief\\]\\(briefs/overview\\.md\\)\\) and in the rounds after it",
+      " As written on Overview: .*?without a rewrite\\.",
+      " On Overview: \".*?\"",
+      "\\n\\nOverview carries the first five\\.",
+      "\\nOverview stays as approved; these lead on the pages written after it\\.\\n"
+    ],
+    ".claude/skills/sandloom-docs-writing/page-types/entry.md": [
+      "\\n- \\[Overview\\]\\(.*?never for its sentences\\."
+    ],
+    ".agents/skills/sandloom-docs-writing/page-types/entry.md": [
+      "\\n- \\[Overview\\]\\(.*?never for its sentences\\."
+    ]
+  },
+  "leaks": [
+    "Why agents need a framework",
+    "isolated from other parts of the product",
+    "Your backend stays quick to change as it grows, runs reliably",
+    "breaks things it never read",
+    "can't hold the whole system in mind",
+    "hard edge cases an agent rarely thinks about",
+    "The agent has to design the architecture"
+  ],
+  "stages": [
+    {
+      "skill": "sandloom-docs-brief",
+      "request": "Rewrite the Overview page, docs/index.md, from scratch.",
+      "stop": "Do every step up to the point where the skill asks the owner something, write the files it names with your proposals, and stop. Reply with the files you wrote and your numbered questions, each with its default.",
+      "answers": {
+        "purpose": "The reader wants to try Sandloom: with an agent they paste the prompt, without one they open the quickstart. Architecture, concepts and Reference stay on their own pages.",
+        "audience": "developer, vibe-coder and agent at once; level new; no Sandloom term on the page, not even 'modules'.",
+        "pains": "Pick a reasonable number of the strongest pains and advantages that join into one argument, grouped by a shared cause; leave the rest to deeper pages. The owner: there can be many, choose the strongest that combine logically.",
+        "promise": "Three outcomes: stays quick to change as it grows, runs reliably, and splits from one application into services without a rewrite.",
+        "core idea": "Use the owner's meaning in a natural sentence: the business logic is atomic, isolated from the other parts of the product and from the infrastructure.",
+        "cards": "How Sandloom works (architecture.md); the examples on GitHub; the standard modules with the admin console; Reference.",
+        "agent prompt": "No starter flags: point the agent at the getting-started page and the AGENTS.md it generates, and have it run uv run sandloom test before it says done.",
+        "tabs": "Two tabs in the green Start here block: 'With your coding agent' first, then 'Yourself', in prose.",
+        "anything else": "Take your default.",
+        "argument": "Pick a reasonable number of the strongest pains and advantages that join into one argument, grouped by a shared cause; leave the rest to deeper pages. The owner: there can be many, choose the strongest that combine logically."
+      }
+    },
+    {
+      "skill": "sandloom-docs-writing",
+      "request": "Write docs/index.md from the closed brief in design/docs-writing/briefs/overview.md.",
+      "stop": "Nobody reviews blocks live: write each block, check it against the brief, go on. Skip the build and the browser; run sandloom-docs-review steps 1 to 3. Reply with the page and its prose word count."
+    }
+  ],
+  "checks": {
+    "max_prose_words": 550,
+    "front_matter": [
+      "job",
+      "purpose",
+      "type",
+      "audience",
+      "level"
+    ],
+    "absent_terms": [
+      "module",
+      "modules",
+      "gate",
+      "gates",
+      "contract",
+      "contracts",
+      "outbox",
+      "kernel",
+      "driver",
+      "drivers",
+      "agentic"
+    ],
+    "present_phrases": [
+      "AI-driven development",
+      "llms.txt",
+      "sandloom test"
+    ],
+    "lint_strict": true
+  },
+  "judge": [
+    "After the first paragraph, does a newcomer know what Sandloom is and why they would want it?",
+    "Would a developer who uses coding agents recognise the pains as their own, and believe the page's answer to them?",
+    "Is every claim one a reader can believe without knowing Sandloom, and none oversold?",
+    "Can an agent and a person each start from the page, and do they know what they will have afterwards?",
+    "Does a complete outsider understand every sentence, without deep technical detail?",
+    "Would a visitor building any kind of product, not only the one in an example, see their own backend in the page?",
+    "Does the prose read as written by a person: no forced threes, staged contrasts, repeated shapes or model words?",
+    "Read beside the other pages: which would make a newcomer most likely to try Sandloom, and why, in two sentences."
+  ]
+}

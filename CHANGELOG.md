@@ -13,6 +13,28 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **Skills for your coding agents.** `sandloom new` asks which coding agents the
+  project uses, with the installed ones marked, and writes the skills where each
+  reads them: `.claude/skills` (Claude Code), `.agents/skills` (Codex, Gemini CLI,
+  Cursor, Copilot, OpenCode, Amp, Devin Desktop), `.kiro/skills` (Kiro), plus
+  `CLAUDE.md` / `GEMINI.md` pointers. `--agents claude,codex` chooses without a
+  prompt. The choice is kept in `.sandloom/agent-files.json`.
+- An `sandloom new` app gets the module-author contract in `<app>/modules/AGENTS.md`.
+- The `schema & deploy` step of `sandloom test` reports an advanced `sandloom.sdk`
+  import without a marker in an application's modules (SANDLOOM-T009).
+
+### Changed
+
+- `sandloom add skills` replaces the agent files it wrote earlier with the
+  installed version's, and keeps only the files you edited (`--force` replaces
+  those too). `--agents` and `--choose` change which agents it writes for. Run it
+  once after upgrading: files written before this version are treated as edited.
+- `sandloom check` prints the error catalogue's text for each rule, naming the
+  1.0 API (`Event.publish()`, `@on`, `Contract(REF)`), the same text as
+  `sandloom explain`.
+
 ## [0.7.0a6] — 2026-11-01
 
 ### Added

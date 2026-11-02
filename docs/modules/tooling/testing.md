@@ -408,40 +408,9 @@ own suite; a missing seam belongs in `sandloom.sdk.testing`.
 
 ## The quality gates
 
-One command runs everything, with one summary and a non-zero exit when any
-step fails (each failing step names its `sandloom explain` code):
-
-```bash
-sandloom test                 # fast parallel suite (-m "not slow" -n auto) + static gates
-sandloom test billing         # billing's own tests first, then the same
-sandloom test --full          # the full parallel suite (slow tests included) + gates
-sandloom test --no-gates      # tests only;  sandloom test --plan prints the steps
-```
-
-The static gates are `ruff check`, `ruff format --check`, `mypy`, `sandloom check`,
-the architecture tests, `lint-imports` (when the project has a
-`.importlinter`) and the contract and route snapshot checks (SANDLOOM-T004 /
-SANDLOOM-T001). Pre-commit runs the fast ones on every commit.
-
-Applications run the same isolation rules with the `sandloom check` CLI
-(generated projects wire it into CI and pre-commit):
-
-```bash
-sandloom check                                   # ./architecture_rules.yml
-sandloom check --rules path/to/architecture_rules.yml
-sandloom check --only module-boundaries,orm-leakage
-sandloom check --list-rules
-```
-
-Each rule has an `SANDLOOM-Cnnn` code and `sandloom explain <code>`;
-`sandloom check --list-rules` lists them, and the
-[error catalogue](../../reference/error-codes.md) explains each. A violation
-prints as `path:N: error[SANDLOOM-Cnnn rule]: message`; waive one deliberately on
-its line with `# sandloom: allow <rule-id> <reason>`. Exit status `0` clean, `1`
-violations, `2` bad manifest / usage. It is purely static: no application
-import, no environment needed. `sandloom check --boot` additionally builds the app
-through `create_app` (no server) and reports every startup refusal (SANDLOOM-B0xx)
-and stale route snapshots in the same format.
+`sandloom test` runs the static checks after the tests. [Checks](checks.md)
+explains what each one verifies, the error codes they print, and how to run
+`sandloom check` on its own.
 
 ## Inspect before changing a module
 

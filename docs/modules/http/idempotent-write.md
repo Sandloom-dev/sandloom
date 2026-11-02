@@ -91,6 +91,7 @@ and reviewed with your change. On a sensitive write (`money`, `admin`,
 
 `no_idempotency(reason=)` removes the automatic guard from a write:
 
+<!-- code-ok: D1 fragment, a route decorator without its handler -->
 ```python
 from sandloom.sdk.web import no_idempotency
 
@@ -109,6 +110,7 @@ route is a weaker policy: `sandloom generate` and `sandloom test` report it
 An explicit `idempotency_guard` replaces the automatic one and keeps all its
 options:
 
+<!-- code-ok: D1 fragment, a route decorator without its handler -->
 ```python
 from fastapi import Depends
 from sandloom.sdk.web import idempotency_guard

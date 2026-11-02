@@ -33,6 +33,7 @@ server. Server 422 field errors are mapped back to the generated form.
 
 An explicit record command looks like this:
 
+<!-- code-ok: D1 fragment, one entry of the manifest dict -->
 ```python
 "actions": [{
     "name": "publish",

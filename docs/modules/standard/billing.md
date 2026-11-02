@@ -275,6 +275,7 @@ Every billing atom states whose account it checks with the required `of=`
 (`Account` from `sandloom.sdk.authz`); an atom without it is refused at startup
 (SANDLOOM-B017). There is no default and no inference from the bound tenant.
 
+<!-- code-ok: D1 fragment, route decorators without their handlers -->
 ```python
 from fastapi import Depends
 
