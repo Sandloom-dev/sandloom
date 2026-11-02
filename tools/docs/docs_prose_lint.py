@@ -58,6 +58,12 @@ Usage::
     python3 tools/docs/docs_prose_lint.py --summary          # counts per rule and file
     python3 tools/docs/docs_prose_lint.py --update-baseline  # lower counts that dropped
     python3 tools/docs/docs_prose_lint.py --self-test
+    uv run python tools/docs/docs_prose_lint.py --hook       # a Claude Code hook
+
+``--hook`` reads a PostToolUse event on stdin, and when the edited file is a
+page in scope runs this lint and ``docs_code_check.py`` on it, strictly. Hits go
+to stderr with exit 2, so the agent sees them in the same turn; anything else
+exits 0. The sandloom-docs-writing skill registers it in its frontmatter.
 
 Standard library only; exit 1 on a hit (strict) or a count above its baseline.
 """
@@ -874,7 +880,24 @@ def _self_test_rules() -> int:
         if got != sorted(expected):
             print(f"self-test FAIL: {text!r}: got {got}, expected {sorted(expected)}")
             failed += 1
-    return failed + _self_test_exemptions() + _self_test_baseline()
+    return failed + _self_test_exemptions() + _self_test_baseline() + _self_test_hook()
+
+
+def _self_test_hook() -> int:
+    page = str(ROOT / "docs" / "x.md")
+    cases = {
+        json.dumps({"tool_input": {"file_path": page}}): "docs/x.md",
+        json.dumps({"tool_input": {"file_path": str(ROOT / "README.md")}}): None,
+        json.dumps({"tool_input": {"file_path": "/elsewhere/docs/x.md"}}): None,
+        json.dumps({"tool_input": {}}): None,
+        "not json": None,
+    }
+    failed = 0
+    for event, expected in cases.items():
+        if (got := hook_target(event)) != expected:
+            print(f"self-test FAIL: hook {event!r}: got {got}, expected {expected}")
+            failed += 1
+    return failed
 
 
 def _self_test_exemptions() -> int:
@@ -997,9 +1020,54 @@ def _ratchet(hits: list[Hit], baseline: dict[str, dict[str, int]]) -> int:
     return 0
 
 
+def hook_target(event: str, root: Path = ROOT) -> str | None:
+    """The page a PostToolUse event edited, when this lint covers it."""
+    try:
+        data = json.loads(event)
+    except json.JSONDecodeError:
+        return None
+    tool_input = data.get("tool_input") if isinstance(data, dict) else None
+    path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(path, str):
+        return None
+    try:
+        rel = Path(path).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+    return rel if in_scope(rel) else None
+
+
+def _hook() -> int:
+    rel = hook_target(sys.stdin.read())
+    if rel is None or not (ROOT / rel).is_file():
+        return 0
+    text = _read(ROOT / rel) or ""
+    report = [h.render() for h in lint_text(rel, text)]
+    code = subprocess.run(  # noqa: S603 - this interpreter, a fixed script
+        [sys.executable, str(ROOT / "tools/docs/docs_code_check.py"), rel],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if code.returncode == 1:
+        report += [ln for ln in code.stdout.splitlines() if ln.startswith(rel)]
+    if not report:
+        return 0
+    print(
+        "\n".join(report)
+        + "\nFix the hits in the text you changed (tells.md, style.md), or waive the"
+        " line with its reason; leave the others unless the task is about them.",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def main(argv: list[str]) -> int:
     if "--self-test" in argv:
         return self_test()
+    if "--hook" in argv:
+        return _hook()
     args = [a for a in argv if not a.startswith("--")]
     if args:
         return _strict(args, "--summary" in argv)

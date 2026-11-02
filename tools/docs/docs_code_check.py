@@ -22,7 +22,12 @@ Rules:
 
 Scanned: the pages of ``docs_prose_lint.py`` (tracked ``docs/**/*.md`` except
 ``docs/adr/**``, ``docs/design/**``, ``docs/archive/**`` and generated pages:
-their code is fixed in the docstrings and generators they come from).
+their code is fixed in the docstrings and generators they come from). The SDK
+reference (``docs/reference/sdk/**``) is checked as ``docs_reference.py``
+renders it: its signature blocks (under a ``###`` / ``####`` name heading) are
+fragments by construction, and every other Python block, a docstring example,
+must pass D1 and D2. A hit names the rendered page; the fix goes in the
+docstring.
 
 Waiver: ``<!-- code-ok: <rule>[,<rule>] <reason> -->`` on the line directly
 before the fence (or before a bare include line); further HTML comment lines may
@@ -382,6 +387,41 @@ def check_text(
     return hits
 
 
+def _is_signature(lines: list[str], block: _Block) -> bool:
+    """A block docs_reference.py writes under a name heading: a signature."""
+    before = [t for t in lines[: block.line - 1] if t.strip()]
+    return bool(before) and before[-1].startswith(("### `", "#### `"))
+
+
+def check_generated(rel: str, text: str, resolve: Resolver) -> list[Hit]:
+    """D1 and D2 on the docstring examples of a rendered SDK reference page."""
+    hits: list[Hit] = []
+    lines = text.splitlines()
+
+    def add(line: int, rule: str, message: str) -> None:
+        if rule in ("D1", "D2"):
+            hits.append(Hit(rel, line, rule, f"docstring example: {message}"))
+
+    for block in blocks(text):
+        if block.lang in PYTHON_LANGS and not _is_signature(lines, block):
+            _check_python(block, resolve, add)
+    return hits
+
+
+def sdk_reference_hits(resolve: Resolver) -> list[Hit]:
+    """Render the SDK reference as docs_reference.py does, and check its examples."""
+    for path in (ROOT, ROOT / "tools" / "docs"):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    importlib.import_module("tools.docs.gen_config_reference")  # settings defaults
+    reference = importlib.import_module("docs_reference")
+    hits: list[Hit] = []
+    for path, text in reference.sdk_pages().items():
+        rel = path.relative_to(ROOT).as_posix()
+        hits += check_generated(rel, text, resolve)
+    return hits
+
+
 def in_scope(rel: str, text: str | None = None) -> bool:
     """Whether a repository-relative POSIX path is a page this check covers."""
     if not rel.startswith("docs/") or not rel.endswith(".md"):
@@ -662,12 +702,25 @@ def _self_test_baseline() -> int:
     return failed
 
 
+def _self_test_generated() -> int:
+    page = (
+        "# x\n\n### `f`\n\n```python\ndef f(a) -> None\n```\n\n"
+        "**Example:**\n\n```python\nfrom sandloom.sdk import nope\n```\n\n"
+        "```python\nx = (\n```\n"
+    )
+    got = sorted(h.rule for h in check_generated("docs/r.md", page, _fake_resolve))
+    if got != ["D1", "D2"]:
+        print(f"self-test FAIL: generated page: got {got}, expected ['D1', 'D2']")
+        return 1
+    return 0
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _self_test_files(root)
         failed = _self_test_rules(root)
-    failed += _self_test_scope() + _self_test_baseline()
+    failed += _self_test_scope() + _self_test_baseline() + _self_test_generated()
     print("self-test:", "FAIL" if failed else "ok")
     return 1 if failed else 0
 
@@ -740,7 +793,8 @@ def main(argv: list[str]) -> int:
     args = [a for a in argv if not a.startswith("--")]
     if args:
         return _strict(args, "--summary" in argv)
-    hits = scan(ROOT, tracked_files(ROOT), _cached(resolve_import))
+    resolve = _cached(resolve_import)
+    hits = scan(ROOT, tracked_files(ROOT), resolve) + sdk_reference_hits(resolve)
     if "--summary" in argv:
         _summary(hits)
         return 0

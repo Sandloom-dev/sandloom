@@ -1,6 +1,12 @@
 ---
 name: sandloom-docs-writing
 description: Write or rewrite a Sandloom documentation page under docs/, a README or landing text — entry, concept, tutorial, how-to, cookbook recipe, reference, troubleshooting — from its job, purpose, audience and level to a finished draft. Use when asked to write, rewrite or restructure a page, explain a concept, add a recipe or clean up Reference.
+hooks:
+  PostToolUse:
+    - matcher: "Edit|Write"
+      hooks:
+        - type: command
+          command: 'cd "${CLAUDE_PROJECT_DIR}" && uv run --quiet python tools/docs/docs_prose_lint.py --hook'
 ---
 
 # Write a Sandloom docs page
@@ -30,7 +36,7 @@ References beside this file: [style.md](style.md) (style, MECE structure, code),
    ```bash
    uv run python tools/docs/docs_code_check.py <page>
    ```
-   Done when both exit 0 and no tier 1 or tier 2 tell remains without a waiver and its reason.
+   While this skill is loaded, a hook runs both on every page you edit and shows you the hits in the same turn. Done when both exit 0 and no tier 1 or tier 2 tell remains without a waiver and its reason.
 8. **Hand it to review.** Run [sandloom-docs-review](../sandloom-docs-review/SKILL.md) on the page. A finding it returns is fixed by changing words, not adding them: a gap is filled one link deeper, and a sentence you add costs one you remove, so run steps 6 and 7 again on every block you touched. Done when the review is clean or each remaining finding is in the handover with its reason.
 
 The handover lists the page's job, purpose, audience and level, each Sandloom term it uses with its home, every claim you could not confirm, the variants and who picked them, and the review's verdicts.
