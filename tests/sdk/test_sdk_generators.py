@@ -586,3 +586,11 @@ def test_migration_drift_names_the_module_and_the_fix(tmp_path: Path) -> None:
     assert "probe.modules.notes: models differ from the migration chain head" in out
     assert "[SANDLOOM-T006]" in out and "add_column" in out
     assert 'sandloom migrate new probe.modules.notes "<message>"' in out
+
+
+def test_add_help_lists_deploy(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        add.main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "deploy" in out.split("positional arguments:")[0]
+    assert "sandloom add deploy --help" in out

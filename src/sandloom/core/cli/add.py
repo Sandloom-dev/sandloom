@@ -1368,6 +1368,12 @@ def _parser() -> argparse.ArgumentParser:
         metavar="CRON",
         help='a beat schedule, e.g. "0 3 * * *" (minute hour dom month dow)',
     )
+    # Listed for --help only: main() hands ``deploy`` to its own parser.
+    sub.add_parser(
+        "deploy",
+        add_help=False,
+        help="split the app into services (`sandloom add deploy --help`)",
+    )
     skills = sub.add_parser(
         "skills",
         help="write the app's agent skills (.claude/skills, .agents/skills)",
@@ -1420,7 +1426,12 @@ def main(argv: list[str] | None = None) -> int:
     rest = list(sys.argv[1:] if argv is None else argv)
     if rest[:1] == ["deploy"]:  # its own argument parser (sandloom add deploy --help)
         return _deploy.main(rest[1:])
-    args = _parser().parse_args(rest)
+    parser = _parser()
+    args, extra = parser.parse_known_args(rest)
+    if args.what == "deploy":  # after --root: sandloom add --root . deploy …
+        return _deploy.main(extra)
+    if extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
     try:
         created, note = _run(args)
     except GeneratorError as exc:
