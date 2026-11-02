@@ -286,11 +286,10 @@
       "P6": 4
     },
     "docs/modules/tooling/testing.md": {
-      "P12": 1,
       "P6": 6,
       "P8": 1,
       "S13": 1,
-      "S4": 24
+      "S4": 23
     },
     "docs/operate/deploy.md": {
       "P12": 1,

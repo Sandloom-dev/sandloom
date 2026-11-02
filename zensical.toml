@@ -118,10 +118,14 @@ Modules = [
     "modules/between/add-saga.md",
     "modules/background/tasks.md",
     "modules/background/effect-deduplication.md",
-    "modules/tooling/testing.md",
+    "modules/tooling/index.md",
+    "modules/tooling/generators.md",
     "modules/tooling/generate.md",
+    "modules/tooling/agent-tooling.md",
     "modules/tooling/module-context.md",
     "modules/tooling/architecture-graph.md",
+    "modules/tooling/checks.md",
+    "modules/tooling/testing.md",
     "modules/standard/index.md",
     "modules/standard/identity.md",
     "modules/standard/first-access-token.md",
@@ -327,11 +331,21 @@ Modules = [
         { "Background tasks" = "modules/background/tasks.md" },
         { "Deduplicate effects" = "modules/background/effect-deduplication.md" },
     ] },
-    { Tooling = [
-        { "Testing modules" = "modules/tooling/testing.md" },
-        { "Generate contracts and snapshots" = "modules/tooling/generate.md" },
-        { "Module context for agents" = "modules/tooling/module-context.md" },
-        { "Explore the architecture graph" = "modules/tooling/architecture-graph.md" },
+    { Toolchain = [
+        { "The toolchain" = "modules/tooling/index.md" },
+        { Start = [
+            { Generators = "modules/tooling/generators.md" },
+            { "Generate contracts and snapshots" = "modules/tooling/generate.md" },
+        ] },
+        { Work = [
+            { "Agent tooling" = "modules/tooling/agent-tooling.md" },
+            { "Module context for agents" = "modules/tooling/module-context.md" },
+            { "Explore the architecture graph" = "modules/tooling/architecture-graph.md" },
+        ] },
+        { Check = [
+            { Checks = "modules/tooling/checks.md" },
+            { "Testing modules" = "modules/tooling/testing.md" },
+        ] },
     ] },
     { "Standard modules" = [
         { Overview = "modules/standard/index.md" },
