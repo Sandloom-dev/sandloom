@@ -4,6 +4,8 @@
     {
       "reason": "Agent procedures for supported public workflows.",
       "paths": [
+        ".agents/skills/sandloom-docs-writing/SKILL.md",
+        ".agents/skills/sandloom-docs-writing/page-types.md",
         ".agents/skills/sandloom-event-version-roll/SKILL.md",
         ".agents/skills/sandloom-extract-module/SKILL.md",
         ".agents/skills/sandloom-key-rotation/SKILL.md",
@@ -19,6 +21,8 @@
         ".claude/rules/migrations.md",
         ".claude/rules/tasks.md",
         ".claude/rules/tests.md",
+        ".claude/skills/sandloom-docs-writing/SKILL.md",
+        ".claude/skills/sandloom-docs-writing/page-types.md",
         ".claude/skills/sandloom-event-version-roll/SKILL.md",
         ".claude/skills/sandloom-extract-module/SKILL.md",
         ".claude/skills/sandloom-key-rotation/SKILL.md",
