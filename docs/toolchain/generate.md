@@ -7,7 +7,7 @@ description: When to run sandloom generate, what it writes, how to check for dri
 
 Run generation after installing a fresh app's dependencies and after editing a
 module's declarations. It reads the application composition and writes files;
-it does not apply database migrations. See the [quickstart](../../getting-started/index.md).
+it does not apply database migrations. See the [quickstart](../getting-started/index.md).
 
 ```bash
 uv sync
@@ -50,10 +50,10 @@ names, for example `uv run sandloom generate notes`.
 Generation validates compatibility before writing. A breaking event or
 contract change needs a new version, coordinated consumers and a rollout;
 repeating the command or deleting a baseline is not a rollout strategy.
-Read [event versioning](../between/event-versioning.md),
-[contracts](../between/contracts.md) and the named error's explanation.
+Read [event versioning](../modules/between/event-versioning.md),
+[contracts](../modules/between/contracts.md) and the named error's explanation.
 
 A new, unpublished tutorial contract should be authored in its intended final
-form before its first generation. The [tutorial](../../getting-started/tutorial.md)
+form before its first generation. The [tutorial](../getting-started/tutorial.md)
 does this explicitly. Database changes are separate: write a revision with
 `sandloom migrate new`, then apply it with `sandloom migrate upgrade-all --apply`.

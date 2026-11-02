@@ -99,4 +99,4 @@ These docs are served in a form an agent reads directly. <a href="/docs/llms.txt
 
 - [The toolchain](index.md): where agent tooling sits in the loop of a change.
 - [Module maps for agents](module-context.md) and [Explore the architecture graph](architecture-graph.md).
-- [CLI reference](../../reference/cli.md): every command and flag.
+- [CLI reference](../reference/cli.md): every command and flag.

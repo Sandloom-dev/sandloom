@@ -137,8 +137,8 @@ the architecture tests and the import contracts.
 
 ## Inspect before changing a module
 
-Use [module context](tooling/module-context.md) to gather scoped rules, SDK and
-wire interfaces, and the [declared architecture graph](tooling/architecture-graph.md)
+Use [module context](../toolchain/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../toolchain/architecture-graph.md)
 to inspect contract/event connections. Both commands can be invoked by an agent
 and read their index without booting the app.
 

@@ -104,4 +104,4 @@ reason with the new one: check the diff for lost reasons before committing.
 ## Related reading
 
 - [Contributor workflow](index.md)
-- [Quality gates](../modules/tooling/testing.md)
+- [Quality gates](../toolchain/testing.md)

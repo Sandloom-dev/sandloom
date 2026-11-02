@@ -206,4 +206,4 @@ commit it with the stub and the DTO copy.
   equals remote.
 - [Service RPC](../../operate/service-rpc.md): calling a provider in another service.
 - [Add a saga](add-saga.md): command steps with compensation.
-- [Testing modules](../tooling/testing.md).
+- [Testing modules](../../toolchain/testing.md).

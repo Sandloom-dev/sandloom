@@ -8,16 +8,16 @@ Each module owns a `tests/` directory. Tests run against a real PostgreSQL
 (from `.env.test`) through the real application. They are not mocked. The
 harness (env loading, schema, sessions, HTTP client, tokens) belongs to the
 **framework**, not to each module: it ships as the `sandloom.sdk.testing.plugin`
-pytest plugin ([ADR-0002](../../adr/0002-framework-absorbs-module-boilerplate.md)).
+pytest plugin ([ADR-0002](../adr/0002-framework-absorbs-module-boilerplate.md)).
 
 This page explains how to run the tests and how the harness behaves. Every
 fixture and helper, with copy-paste examples, is in the
-[testing reference](../../reference/testing.md); exact signatures are in
-[`sandloom.sdk.testing`](../../reference/sdk/testing.md) or `sandloom docs <name>`.
+[testing reference](../reference/testing.md); exact signatures are in
+[`sandloom.sdk.testing`](../reference/sdk/testing.md) or `sandloom docs <name>`.
 
 For the general test workflow, use this guide; for copy-paste fixtures, use
-[Testing reference](../../reference/testing.md); for exact public helper signatures,
-use [`sandloom.sdk.testing`](../../reference/sdk/testing.md).
+[Testing reference](../reference/testing.md); for exact public helper signatures,
+use [`sandloom.sdk.testing`](../reference/sdk/testing.md).
 
 ## First run on a fresh checkout
 
@@ -147,7 +147,7 @@ The beginner kit is `client`, `as_user`, `published`, `deliver`,
 `fake_contract` and `fake_access_fact`. The rest of the harness (`db`,
 `real_uow_client`, `db_uow`, `ambient_uow`, `sandloom_cache`, `scratch_database`,
 the migration, revocation and RPC helpers) is listed with examples in the
-[testing reference](../../reference/testing.md). Two behaviours matter for
+[testing reference](../reference/testing.md). Two behaviours matter for
 every test:
 
 - **`client` never commits.** Every request runs on the test's one `db`

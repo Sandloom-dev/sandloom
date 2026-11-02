@@ -46,9 +46,9 @@ uv run sandloom graph
 refreshes contracts, snapshots and `.sandloom/inspection.json`. Cold `graph`
 and `context MODULE` read that saved model; they never regenerate implicitly.
 
-`add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../modules/tooling/agent-tooling.md#keep-the-skills-current) has the details.
-See [module maps](../modules/tooling/module-context.md) and the
-[architecture explorer](../modules/tooling/architecture-graph.md) for formats and freshness.
+`add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../toolchain/agent-tooling.md#keep-the-skills-current) has the details.
+See [module maps](../toolchain/module-context.md) and the
+[architecture explorer](../toolchain/architecture-graph.md) for formats and freshness.
 
 For a breaking event payload, use [dual-publish versioning](../modules/between/event-versioning.md).
 The [Public API 1.0 migration](upgrade-1.0.md) is a specific historical source

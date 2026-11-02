@@ -1160,7 +1160,7 @@ Context and graph read a generated index without booting the app. Missing/change
 
 **Fix:** read the diagnostic kind; select valid inputs, adjust the budget or explicitly run sandloom generate
 
-**More:** `docs/modules/tooling/module-context.md`
+**More:** `docs/toolchain/module-context.md`
 
 ### SANDLOOM-T001
 

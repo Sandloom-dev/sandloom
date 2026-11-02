@@ -127,7 +127,7 @@ from what the current declarations and routes compile to.
         "Exit 3 means strict source verification is unavailable. "
         "Generation explicitly writes files; review its diff. "
         "A verified source basis is not live topology.",
-        docs="docs/modules/tooling/module-context.md",
+        docs="docs/toolchain/module-context.md",
     ),
     # ------------------------------------------------------------------ checks
     _entry(

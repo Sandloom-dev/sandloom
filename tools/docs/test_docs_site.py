@@ -48,8 +48,11 @@ class ArticleLinks(HTMLParser):
 class DocumentationSiteTests(unittest.TestCase):
     def test_documentation_articles_offer_a_next_internal_page(self) -> None:
         for page in SITE.rglob("index.html"):
+            text = page.read_text()
+            if 'http-equiv="refresh"' in text:
+                continue  # a forwarding page of a moved page (docs_site.MOVED_PAGES)
             links = ArticleLinks()
-            links.feed(page.read_text())
+            links.feed(text)
             with self.subTest(page=page):
                 self.assertTrue(links.links, "article has no internal onward link")
 
@@ -198,6 +201,15 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertNotIn("Status at hand-off H0", overview)
         self.assertNotIn("NotImplementedError", overview)
         self.assertIn("sandloom docs", overview)
+
+    def test_a_moved_page_forwards_from_its_old_url(self) -> None:
+        """Each old URL in MOVED_PAGES forwards to a page that exists."""
+        from tools.docs.docs_site import MOVED_PAGES
+
+        for old, new in MOVED_PAGES.items():
+            page = (SITE / old / "index.html").read_text(encoding="utf-8")
+            self.assertIn(f"url=/docs/{new}", page, old)
+            self.assertTrue((SITE / new / "index.html").is_file(), new)
 
     def test_instant_navigation_has_its_sitemap(self) -> None:
         # Without it every link click reloads the page and rebuilds the search index.

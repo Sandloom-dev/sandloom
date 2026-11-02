@@ -272,19 +272,19 @@
       "S13": 1,
       "S4": 9
     },
-    "docs/modules/tooling/architecture-graph.md": {
+    "docs/toolchain/architecture-graph.md": {
       "P6": 9,
       "S4": 2
     },
-    "docs/modules/tooling/generate.md": {
+    "docs/toolchain/generate.md": {
       "P6": 1,
       "S4": 1
     },
-    "docs/modules/tooling/module-context.md": {
+    "docs/toolchain/module-context.md": {
       "P12": 1,
       "P6": 4
     },
-    "docs/modules/tooling/testing.md": {
+    "docs/toolchain/testing.md": {
       "P6": 6,
       "P8": 1,
       "S13": 1,
