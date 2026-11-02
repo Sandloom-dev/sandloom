@@ -39,8 +39,9 @@ this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
   modules consume and do not provide locally, plus `<module>.claims.v1` on the
   issuer for every claims contributor (`"critical": false` iff the
   contributor is non-critical).
-- **Probes.** Peers never feed `/health` (liveness). Only `"required": true`
-  bindings feed `/ready`.
+- **Probes.** `/health/simple` is process liveness; `/health` (diagnostics) and
+  `/ready` answer 503 when degraded. Peers never feed `/health`; only
+  `"required": true` bindings feed `/ready`.
 - **The gateway** re-resolves services through Docker DNS and never routes
   `/_sandloom`, `/diagnostics` or `/metrics`.
 - **Every module route prefix is routed** to its owning service by the

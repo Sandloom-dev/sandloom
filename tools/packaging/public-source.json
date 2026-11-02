@@ -35,6 +35,7 @@
       "paths": [
         ".claude/rules/contracts.md",
         ".claude/rules/migrations.md",
+        ".claude/rules/module-api.md",
         ".claude/rules/tasks.md",
         ".claude/rules/tests.md",
         ".claude/skills/sandloom-docs-brief/SKILL.md",

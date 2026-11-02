@@ -44,7 +44,7 @@ To talk to another module:
   `created_at: Mapped[CreatedAt]` (`clock_timestamp()`), so a list ordered by
   `created_at, id` never ties; `schemas.py`: pydantic only (C011); `services.py`:
   SQLAlchemy through `db()`; `api.py`: `router = module_router()` and routes
-  with pydantic DTOs (C009, C010).
+  with pydantic DTOs (C009, C010), no error handlers (app-wide).
 - `migrations/`: the module's own chain. `sandloom migrate new <m> "<message>"`
   autogenerates a revision, with RLS for each new `TenantScoped` table
   (against a scratch database). `tasks.py`: `sandloom add task <m> <name>`.
@@ -65,8 +65,9 @@ To talk to another module:
    idempotency (status replay on `Idempotency-Key`) and risk are derived and
    recorded in the route snapshot (SANDLOOM-T001). Deviations are advanced
    (`sandloom.sdk.web`): `no_idempotency`, `replay_safe`, `sensitive`, `at_commit`.
-3. **Tenant rows inherit `TenantScoped`** (C014) and their migration enables
-   RLS. Raw SQL on tenant tables needs `unscoped()` (C015, C024).
+3. **Tenant rows inherit `TenantScoped`** (C014), `organization_id` / `org_id` tables
+   included (a deliberately global one: `tenant_scope_exempt` with a reason), and
+   their migration enables RLS. Raw SQL on tenant tables needs `unscoped()` (C015, C024).
 4. **Events:** channel `<module>.<event>.vN`, wire-typed fields, one producer
    per channel (SANDLOOM-B015). The same `.vN` may only gain an optional field
    (SANDLOOM-T005); a view must match its producer (C025).
@@ -83,9 +84,8 @@ To talk to another module:
 
 ## Rules no check enforces yet (get these right yourself)
 
-- **Per-organization data is tenant data:** `TenantScoped`, even when you
-  would name the column `organization_id`. A deliberately global table goes
-  under `tenant_scope_exempt` with a reason.
+- **A row owned through another tenant row is tenant data:** `TenantScoped` on it
+  too, even with no `organization_id` column (C014 sees only tenant-like columns).
 - **Effects outside a durable consumer need their own dedupe** in the same
   unit: a UNIQUE `operation_key(...)` on the effect's row, or
   `durable_inbox("<m>@<x>").claim(db(), id)` (`sandloom.sdk.effects`).
