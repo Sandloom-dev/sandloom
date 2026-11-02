@@ -68,7 +68,9 @@ class DocumentationSiteTests(unittest.TestCase):
         selected = [
             rel
             for rel in docs_prose_lint.tracked_files(REPO)
-            if docs_prose_lint.in_scope(rel, (REPO / rel).read_text())
+            if docs_prose_lint.in_scope(rel)
+            and (text := docs_prose_lint._read(REPO / rel)) is not None
+            and docs_prose_lint.in_scope(rel, text)
         ]
         self.assertIn("docs/index.md", selected)
         self.assertIn("docs/getting-started/tutorial.md", selected)
