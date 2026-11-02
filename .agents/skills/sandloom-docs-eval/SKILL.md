@@ -24,9 +24,12 @@ A rule that reads well can still make pages worse. So each change to a docs skil
    ```bash
    python3 tools/docs/docs_skill_eval.py grade <scenario> <copy>/<page>
    ```
-   Then render the change's page, the baseline's and the reference (`git show <reference>:<page>`) side by side, blind:
+   Then write the reference page to a file and render it beside the change's page and the baseline's, blind:
    ```bash
-   uv run python tools/docs/docs_compare.py <scratchpad>/judge.html --blind change=<copy>/<page> base=<base>/<page> reference=<reference-file>
+   git show <reference>:<page> > <scratchpad>/reference.md
+   ```
+   ```bash
+   uv run python tools/docs/docs_compare.py <scratchpad>/judge.html --blind change=<copy>/<page> base=<base>/<page> reference=<scratchpad>/reference.md
    ```
    Give three judge subagents, in parallel, the three pages as A, B and C in the order of the key, and the printed judge questions: a score from 1 to 10 per question with one line of evidence, and a ranking with two sentences on why. No judge sees the skill or the key. Done when every page has mechanical results and three judges' scores.
 5. **Log and decide.** Add a row to the results log: the date, the scenario, what changed, the mechanical results, each judge's mean per page and the spread between judges, and what the agents said got in their way. Keep the change when it has no new mechanical failure and its mean beats the baseline's by more than the judges' spread, or at least two of three judges rank it above the baseline; otherwise revert it, or fix it and run again. What the agents report as unclear is a finding for the skill, whatever the score.
