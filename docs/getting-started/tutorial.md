@@ -15,9 +15,8 @@ You build `tasklist`, a small multi-tenant application with two modules:
   item.
 
 Generators create the packages and boilerplate; you fill in complete domain
-files. All the code on this page is included from the finished application in the
-repository, `examples/tutorial/`, so you can compare your files
-with it at any point.
+files. All the code on this page comes from the finished application in
+`examples/tutorial/`, so you can compare your files with it at any point.
 
 **You need:** Python 3.11 or later (3.12 recommended),
 [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker with Compose. Start in an
@@ -73,9 +72,9 @@ flushes and never commits:
 
 - `module_router()` (in `api.py`) authenticates every route, binds the tenant
   and mounts the routes under `/api/v1/tasks`.
-- The write commits before the response is sent, with the event in the same
-  transaction (the outbox): the event is published if and only if the item
-  is stored.
+- The write commits before the response is sent. The event commits in the same
+  transaction (the outbox), so it is published if and only if the item is
+  stored.
 - A retried `POST` with the same `Idempotency-Key` is not executed twice.
 - Before the write commits, the caller's session is checked again.
 
@@ -152,9 +151,9 @@ being changed.
 uv run sandloom add consumer stats tasks.item.created.v1
 ```
 
-The generator reads the producer's schema and writes a **view** of the event
-(the stats module's own class for a channel it does not own) and an empty
-handler. Make the handler count the item:
+The generator reads the producer's schema and writes an empty handler and a
+**view** of the event. A view is the stats module's own class for a channel it
+does not own. Make the handler count the item:
 
 ```python title="tasklist/modules/stats/consumers.py"
 --8<-- "examples/tutorial/tasklist/modules/stats/consumers.py"
@@ -177,6 +176,8 @@ runtime. `deliver(..., times=2)` delivers the same event twice:
 ```python title="tasklist/modules/stats/tests/test_stats.py"
 --8<-- "examples/tutorial/tasklist/modules/stats/tests/test_stats.py"
 ```
+
+Regenerate the files the new consumer changes, then run the stats tests:
 
 ```bash
 uv run sandloom generate
@@ -252,9 +253,9 @@ uv run sandloom test --full
 ```
 
 `sandloom generate` writes the contract stub, the event schemas and the module
-snapshots after a compatibility check (`sandloom add` already ran it after each
-generator); `sandloom test --full` runs the whole suite in parallel, ruff,
-format, mypy, `sandloom check`, and checks those files without writing them.
+snapshots after a compatibility check; `sandloom add` already ran it after each
+generator. `sandloom test --full` runs the whole suite in parallel with ruff,
+format, mypy and `sandloom check`, and checks those files without writing them.
 Commit the generated files with your code.
 
 Run the application:
