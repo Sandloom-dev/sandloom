@@ -49,8 +49,9 @@ uv run sandloom test --full                      # once, at the end: full parall
   add` runs it last). **`sandloom test` is the gate, never writes:** ruff, format, mypy, `sandloom
   check`, architecture tests, `lint-imports`, API baseline, generated files. No serial `pytest -q`.
 - Use your own test DB and Redis on a shared machine: `SANDLOOM_TEST_DATABASE_URL`,
-  `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL`, `SANDLOOM_TEST_OWNER`; a run refuses
-  a database or Redis index another run owns, and names the owner.
+  `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL`, `SANDLOOM_TEST_OWNER`. The owner is the
+  checkout (or `SANDLOOM_TEST_OWNER`): a run refuses another owner's resources, but two runs
+  in one checkout share them, so concurrent runs each set their own.
 - Changing an AGENTS.md, a rule or skill, a generator or the public API? Re-run the DX eval
   (`benchmarks/dx/README.md`; `run_eval.py triggers` says when).
 

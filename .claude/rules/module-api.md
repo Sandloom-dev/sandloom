@@ -1,7 +1,5 @@
 ---
-paths:
-  - "src/sandloom_*/**"
-  - "examples/*/*/modules/**"
+paths: ["src/sandloom_*/**", "src/*/{api,schemas,services,events,consumers,contracts,sagas,projections,tasks}.py", "src/*/{models,tests,migrations}/**", "examples/*/*/modules/**"]
 ---
 ## Public API cheat-sheet (`sandloom.sdk`; any other signature: `uv run sandloom docs <name>`)
 
