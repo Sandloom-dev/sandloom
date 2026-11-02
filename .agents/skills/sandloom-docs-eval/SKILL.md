@@ -15,8 +15,9 @@ A rule that reads well can still make pages worse. So each change to a docs skil
    python3 tools/docs/docs_skill_eval.py prepare <scenario> <scratchpad>/eval-<scenario>
    ```
    ```bash
-   python3 tools/docs/docs_skill_eval.py prepare <scenario> <scratchpad>/base-<scenario> --skills-ref HEAD
+   python3 tools/docs/docs_skill_eval.py prepare <scenario> <scratchpad>/base-<scenario> --skills-ref <before>
    ```
+   `<before>` is the commit the skills had before your change: `HEAD` while the change is uncommitted, otherwise the commit you started from (`git merge-base HEAD origin/main` on a branch). With `HEAD` after committing, both copies hold the changed skill and the comparison measures nothing.
    It refuses a copy where a phrase of the approved page survives; remove the leak from the skill or scrub it in the scenario, and prepare again.
 3. **Run the stages.** For each stage, start a fresh subagent in the copy with: the isolation rules (work only in the copy; never read the repository, `~/.claude`, the site or GitHub), the stage's skill, its `request` and its `stop`. When it stops with questions, answer each from the scenario's `answers` by topic and say who answers: "the operator, from the owner's recorded decisions". Never present an answer as the owner's live approval. A question no answer covers goes to the owner, and the answer joins the scenario. Run the baseline copy the same way. Done when each copy holds its page.
 4. **Grade.** Run the mechanical checks on each page:
