@@ -13,8 +13,20 @@ PYTHON_VERSION="3.12"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${1:-$ROOT/snyk-out}"
+# OUT is wiped on every run: accept only a directory this script created
+# (it carries MARKER) or one that is new or empty.
+MARKER=".snyk-python-env"
+if [[ -L "$OUT" || (-e "$OUT" && ! -d "$OUT") ]]; then
+  echo "OUT must be a directory: $OUT" >&2
+  exit 2
+fi
+if [[ -d "$OUT" && ! -f "$OUT/$MARKER" && -n "$(ls -A "$OUT")" ]]; then
+  echo "OUT is not empty and was not created by this script: $OUT" >&2
+  exit 2
+fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
+touch "$OUT/$MARKER"
 
 cd "$ROOT"
 # Workspace packages are the project itself, not PyPI requirements.
