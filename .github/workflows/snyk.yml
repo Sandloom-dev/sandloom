@@ -10,6 +10,8 @@ name: Snyk monitor
 # - images: the built runtime images, OS packages included.
 # Needs the `snyk` environment (main only): secret SNYK_TOKEN (a service
 # account token) and variable SNYK_ORG (the organization slug or id).
+# Project attributes (environment, lifecycle) are set once in the Snyk UI:
+# setting them from `monitor` needs a role above Org Collaborator.
 on:
   push:
     branches: ["main"]
@@ -80,8 +82,6 @@ jobs:
           --project-name="sandloom/python (all groups and extras)"
           --remote-repo-url="https://github.com/${{ github.repository }}"
           --target-reference="${{ github.ref_name }}"
-          --project-environment=backend
-          --project-lifecycle=production
 
   images:
     runs-on: ubuntu-latest
@@ -95,12 +95,10 @@ jobs:
             context: .
             dockerfile: deploy/docker/Dockerfile
             target: production
-            environment: backend
           - name: admin
             context: admin
             dockerfile: admin/Dockerfile
             target: ""
-            environment: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Docker Buildx
@@ -130,5 +128,3 @@ jobs:
           --file="${{ matrix.dockerfile }}"
           --project-name="sandloom/${{ matrix.name }}-image"
           --target-reference="${{ github.ref_name }}"
-          --project-environment="${{ matrix.environment }}"
-          --project-lifecycle=production
