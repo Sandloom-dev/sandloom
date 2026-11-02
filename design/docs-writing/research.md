@@ -348,7 +348,7 @@ Added after the owner rejected an Overview that passed every check. The first pa
 - **Common:** a short promise first, an action within the first screen, depth on other pages. None of the entry pages above carries its architecture diagram with several layers on the opening screen except Convex, whose diagram is three tiers.
 - **Agents:** Supabase, Next.js, Rails, Laravel and Convex now address agents directly on or near the entry page. Copyable prompts are recent practice; I found no measurement of them.
 - **Disagreement with the owner's choice, recorded:** among these pages only Encore's second paragraph names the pain, and "Why Temporal?" does so on a separate page. Opening an entry page on problems is the owner's decision. **Inference:** it suits Sandloom, whose value is in failures the reader wants to avoid, and whose readers include people who have not yet met those failures in their own code.
-- **Why the last version failed, Inference:** the page was compliant, long, hedged and showed no benefit. Rule lists catch defects and do not produce desire, so the skill now requires one message, three first screens, captured proof, a look at the render and the owner's choice.
+- **Why the last version failed, Inference:** the page was compliant, long, hedged and showed no benefit. Rule lists catch defects and do not produce desire, so the skill now requires one message, captured proof, a look at the render and the owner's choice.
 
 ## Reader jobs (jobs to be done)
 
