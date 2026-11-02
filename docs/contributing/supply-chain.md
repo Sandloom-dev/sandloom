@@ -120,6 +120,14 @@ remain open. An absent systemd daemon is distinguished from an installed
 systemd library; optional SQLite and Perl components and architecture-specific
 paths are checked separately. Severity alone never authorizes an exception.
 
+The first Snyk monitor run on 2026-11-02 reported **80 advisories**: the 67 above
+and 13 new ones, 10 in SQLite (three high) and 3 in libstdc++. Debian has no fix for
+any of them, even in unstable. The review records each one, listed under
+`amendments`, as `open_no_identified_framework_path`. The SQLite advisories need
+attacker-supplied SQL or database files, FTS, R-Tree or session input.
+The framework at runtime opens only an in-memory SQLite self-test with fixed
+statements. Keep a `sqlite` `DATABASE_URL` out of production.
+
 The three high conclusions are:
 
 - **attr:** the affected `getfattr`/`setfattr` utilities are absent. The executable
@@ -181,6 +189,14 @@ with zero ignores and no new rule/file pairs. The high results are the eight
 explicit local build/benchmark secret placeholders. The ledger accounts for
 every original finding; SQL identifier composition and the `data` extraction
 filter still produce scanner warnings despite the attack regressions passing.
+
+A Code scan of `main` on 2026-11-02 reports **378 results** (eight high, 78 medium,
+292 low). The ledger's `amendments` entry records the eight new ones:
+- a throwaway password in the admin package smoke test;
+- an OpenCode SDK HTTP call that Snyk misreads as SQL;
+- two more operator-selected paths in a docs test.
+
+None needs a code change or an ignore.
 
 The other findings include synthetic test credentials, negative security tests,
 route authentication labels, and local tools intentionally reading paths or

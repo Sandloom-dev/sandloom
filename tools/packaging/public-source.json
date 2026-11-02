@@ -68,6 +68,7 @@
       "paths": [
         ".github/CODEOWNERS",
         ".github/actions/bench-tools/action.yml",
+        ".github/assets/scanned-by-snyk.webp",
         ".github/branch-protection.json",
         ".github/copilot-instructions.md",
         ".github/pull_request_template.md",
@@ -81,7 +82,8 @@
         ".github/workflows/full-validation.yml",
         ".github/workflows/packages.yml",
         ".github/workflows/pages.yml",
-        ".github/workflows/release.yml"
+        ".github/workflows/release.yml",
+        ".github/workflows/snyk.yml"
       ]
     },
     {
@@ -2383,6 +2385,7 @@
         "tools/checks/prepush_full_tests.sh",
         "tools/checks/run-tests-with-report.sh",
         "tools/checks/snyk-audit-2026-10-31.json",
+        "tools/checks/snyk_python_env.sh",
         "tools/checks/start-test-db.sh",
         "tools/checks/start-test-services.sh",
         "tools/checks/stop-test-db.sh",

@@ -5,6 +5,7 @@
 [![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a6-d7bd91)](https://pypi.org/project/sandloom/0.7.0a6/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
+[![Known Vulnerabilities](https://snyk.io/test/github/Sandloom-dev/sandloom/badge.svg)](https://snyk.io/test/github/Sandloom-dev/sandloom)
 
 ## Keep shipping features. Keep architecture under control.
 
@@ -253,6 +254,11 @@ the documented retention conditions. Review the
 For framework development, start with [AGENTS.md](AGENTS.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerability reporting and its current
 availability are described in [SECURITY.md](SECURITY.md).
+
+Dependencies, container images and code are monitored by Snyk through its
+[Secure Developer Program](https://snyk.io/open-source/).
+
+<a href="https://snyk.io/test/github/Sandloom-dev/sandloom"><img src=".github/assets/scanned-by-snyk.webp" alt="Scanned by Snyk" width="200"></a>
 
 ## License
 
