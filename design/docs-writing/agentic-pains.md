@@ -1,0 +1,36 @@
+# The pains of agentic development that Sandloom closes
+
+Status: **draft for the owner's approval; no page text depends on it yet.** Sources retrieved 2026-11-02.
+Input for Overview. The owner's framing: Sandloom is designed for agentic development, so the page starts from the pains of that work.
+
+Text marked **Inference** is mine. "Closes" reports the mechanism, checked in the code, the generated app or the error catalogue. Nothing here measures how often Sandloom prevents a failure: the DX eval's product suite has footgun probes for these classes, and no results from it are stored in this repository.
+
+## The thread
+
+**Inference.** A rule written in a prompt or `AGENTS.md` is a request, and an agent can miss or ignore it. Sandloom moves the rules that matter into code: defaults the agent gets without asking, and checks that fail. That is the one message the pains below support.
+
+## Pains
+
+| # | Pain | Evidence | What Sandloom does | Strength |
+| --- | --- | --- | --- | --- |
+| 1 | Instructions are requests. The agent misses or ignores them. | The SaaStr founder on Replit's agent: no way to [enforce a code freeze](https://incidentdatabase.ai/reports/5578/). [Gloaguen et al.](https://arxiv.org/abs/2602.11988): context files do not generally raise success. | `sandloom check` and startup checks fail on boundary, transaction and route rules, each with a code (captured: C001, C006, exit 1). | Enforced for the rules checks cover; `src/sandloom/AGENTS.md` lists those no check enforces yet |
+| 2 | The agent changes one place and breaks another it never read. | [DORA 2025](https://cloud.google.com/blog/products/ai-machine-learning/announcing-the-2025-dora-report): more change volume brings instability without strong foundations; loosely coupled teams gain. | Modules cannot import each other. Contract and event snapshots fail on a breaking change (T004, T005, T007). | Enforced |
+| 3 | Every session starts from zero. | [Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents): each new session begins with no memory of what came before. Our baseline experiment: 167k-257k tokens per feature, and every agent read kernel source. | `sandloom new` writes a 53-line `AGENTS.md`, `CLAUDE.md` and skills. `sandloom context` and `graph` map a module. Ordinary modules need 29 SDK names. | Helps; the baseline predates these changes and has not been re-measured |
+| 4 | What nobody asked for does not get written: login checks, tenant isolation. | [Veracode 2025](https://www.veracode.com/press-release/ai-generated-code-poses-major-security-risks-in-nearly-half-of-all-development-tasks-veracode-research-reveals/): vulnerabilities in 45% of cases across 100+ models. | A route is authenticated unless it declares `public(reason=)` (B008). `TenantScoped` filters rows and migrations write the RLS policy. | Default for these two classes; not a general security scan |
+| 5 | Retries and crashes corrupt data: a double charge, a lost event. | Our footgun probes, one class of production incident each. No external figure found. | The framework owns the transaction, the outbox, durable consumer dedupe and idempotency on mutating routes. | Default; effects outside a durable consumer need their own dedupe, and no check enforces that yet |
+| 6 | "Almost right": it looks done and it is not. | [Stack Overflow 2025](https://survey.stackoverflow.co/2025/ai): 66% cite this as the top frustration, 45% say debugging AI code takes longer. 46% distrust accuracy, 33% trust it. | One gate, `sandloom test`. Errors carry a code, a fix and `sandloom explain`. Test kit drives the real consumer runtime. | Catches framework mistakes, not wrong business logic |
+| 7 | Each feature reinvents the last one's plumbing. | [GitClear](https://www.gitclear.com/ai_assistant_code_quality_2025_research), a vendor: refactoring fell from 25% to under 10% of changed lines from 2021 to 2024, clones rose from 8.3% to 12.3%. Correlation. | `sandloom add` generators, the kernel, drivers behind capabilities, standard identity, tenancy and billing modules. | Helps |
+| 8 | Code arrives faster than a person can review it. | **Inference** from pains 2 and 6; DORA calls AI an amplifier of what a team already has. | Changes stay inside one module. Route and contract snapshots show policy changes in the diff. `sandloom graph` and `explore` show the links. | Helps; unmeasured |
+
+## What Sandloom does not close
+
+- An agent with production credentials can still destroy data. Migrations are a dry run without `--apply`, but Sandloom does not sandbox an agent. The Replit incident is pain 1, not a promise about this class.
+- Wrong business logic that passes its tests.
+- General application vulnerabilities outside routes, sessions and tenancy.
+- Whether agents go faster at all. [METR](https://metr.org/blog/2026-02-24-uplift-update/) calls its newer data an unreliable signal, and its 2025 slowdown figure predates current tools, so the page should not cite either.
+
+## Open
+
+- These are secondary evidence and vendor reports, mostly from 2025. Veracode and GitClear sell related products.
+- Before any number goes on a public page: run the product suite, paid, for Sandloom's own figures.
+- `SANDLOOM-C001`'s fix text names stale API (task `check-messages-stale`), and it would appear in any proof shown.
