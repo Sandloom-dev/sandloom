@@ -611,6 +611,31 @@ def test_generated_project_passes_its_own_lint(tmp_path: Path, module: str) -> N
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_generated_project_limits_function_complexity(tmp_path: Path) -> None:
+    """A tangled function fails the generated gate, in module code but not tests."""
+    import subprocess
+
+    generate_project("shop", tmp_path, sample_module="orders")
+    root = tmp_path / "shop"
+    branches = "".join(f"    if value == {n}:\n        return {n}\n" for n in range(11))
+    tangled = f"def tangled(value: int) -> int:\n{branches}    return value\n"
+    module = root / "shop" / "modules" / "orders"
+    (module / "tangled.py").write_text(tangled)
+    (module / "tests" / "test_tangled.py").write_text(tangled)
+    proc = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-fix", "--no-cache", "."],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if "No module named ruff" in proc.stderr:
+        pytest.skip("ruff not installed")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "C901" in proc.stdout
+    assert "orders/tangled.py" in proc.stdout
+    assert "test_tangled.py" not in proc.stdout
+
+
 def test_generated_app_activates_the_test_plugin(tmp_path: Path) -> None:
     """Apps get the harness from `-p sandloom.sdk.testing.plugin`, not conftests."""
     generate_project("probe", tmp_path, sample_module="gadgets")
