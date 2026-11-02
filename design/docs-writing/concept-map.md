@@ -8,7 +8,7 @@ Built with `sandloom-docs-concepts` steps 1–4. Sources, in order: the public n
 
 ## Learning path
 
-1. `new`: Application, Module, Module isolation, Kernel, Check, Generator, Agent tooling, Deployment topology
+1. `new`: Application, Module, Module isolation, Toolchain, Check, Generator, Agent tooling, Deployment topology
 2. `first-app`: Module layout, Gate, SDK and beginner names, Model, Unit of work, Authenticated route, Tenant scoping, Migration, Module communication, Event, Consumer, Generated files, Contract, Test kit, Capability, Driver, Standard module
 3. `building`: Route policy, Authorization policy, Outbox and inbox, After-commit effect, Command, Idempotent write, Effect deduplication, Billing gate, Audit record, Event versioning, Projection, Saga, Background task, Row-level security, Session revocation, Instance, Module context, Architecture graph, Standard-module customization, Admin console, Write admission, Request lifecycle, Guarantee and label
 4. `operating`: Deploy profile, Operations, Service split, Service RPC, Preflight, Dead letters and replay, Keys and secrets, Backup and restore, Upgrade, Data extraction, Incident response, Driver authoring
@@ -24,13 +24,14 @@ Folded names are listed in Plain words after "Folds:" so every beginner-tier nam
 | Application | — (root) | — | new | getting-started/project-structure.md | your backend project. Folds: glossary *Application*, *Composition root* (`create_app`, "How the application starts"), `sandloom new` output |
 | Module | Application | Application: a module is one slice of an application | new | modules/index.md | a part of the product (owner's Naming). Folds: glossary *Module* |
 | Module isolation | Module | Module: the rule is about what a module may reach | new | modules/index.md#what-a-module-may-import | each part of the product is closed off from the others and from the infrastructure. Folds: "modules never import each other", plain-UUID references to other modules' rows, C001/C002/C005/C013/C021 |
-| Kernel | Application | Module: the kernel is what runs the modules and is reached only through them | new | architecture.md | the framework runs the hard parts for you: transactions, access checks, message delivery. Folds: glossary *Kernel* |
-| Check | Application | Module isolation: the first rule a check enforces is isolation, and a check is explained by the rule it holds | new | reference/error-codes.md | a broken rule fails an automated check that says how to fix it. Folds: `sandloom check`, `sandloom explain`, error-code families C/B/R/T, startup refusals |
-| Generator | Application | Module: generators write modules and their parts | new | reference/cli.md#project-and-code | the agent starts every feature from the same correct shape. Folds: `sandloom new`, `sandloom add module\|event\|contract\|consumer\|saga\|projection\|task\|deploy` |
-| Agent tooling | Application | Generator: `sandloom new` writes it; Check: it tells the agent which check means done | new | — (no page explains it yet; see Gaps) | project rules that tell the agent how to work, and a page-sized map instead of the whole codebase. Folds: generated `AGENTS.md`/`CLAUDE.md`, skills (`sandloom add skills`), `llms.txt` |
+| Kernel | Application | Module: the kernel is what runs the modules and is reached only through them | operating (owner, 2026-11-02) | architecture.md | the framework runs the hard parts for you: transactions, access checks, message delivery. Folds: glossary *Kernel* |
+| Toolchain | Application | Module: the toolchain writes, guides and checks modules | new | modules/tooling/index.md | generators give the agent a start, project rules tell it how to work, checks stop it on a broken rule. Folds: the loop start → work → check (owner, 2026-11-02) |
+| Check | Toolchain | Module isolation: the first rule a check enforces is isolation, and a check is explained by the rule it holds | new | modules/tooling/checks.md | a broken rule fails an automated check that says how to fix it. Folds: `sandloom check`, `sandloom explain`, error-code families C/B/R/T, startup refusals |
+| Generator | Toolchain | Module: generators write modules and their parts | new | modules/tooling/generators.md | the agent starts every feature from the same correct shape. Folds: `sandloom new`, `sandloom add module\|event\|contract\|consumer\|saga\|projection\|task\|deploy` |
+| Agent tooling | Toolchain | Generator: `sandloom new` writes it; Check: it tells the agent which check means done | new | modules/tooling/agent-tooling.md (own page: owner, 2026-11-02) | project rules that tell the agent how to work, and a page-sized map instead of the whole codebase. Folds: generated `AGENTS.md`/`CLAUDE.md`, skills (`sandloom add skills`), `llms.txt` |
 | Deployment topology | Application | Module: a topology says which process loads which module | new | operate/topologies.md | start as one application, split into services later without rewriting code. Folds: glossary *Monolith, microservices* |
 | Module layout | Module | Module: the layout is a module's files; Generator: `sandloom add module` writes it | first-app | modules/index.md#what-a-module-looks-like | every part has the same files in the same places. Folds: `define_module`, discovery (detail in modules/guarantees/module-internals.md#discovery), `models`/`schemas`/`services`/`api` split (C009–C011) |
-| Gate | Check | Check: a gate is a check that `sandloom test` runs | first-app | modules/tooling/testing.md#the-quality-gates | "done" means one command passed. Folds: glossary *Gate*, `sandloom test`, `--full`, generated-file drift |
+| Gate | Check | Check: a gate is a check that `sandloom test` runs | first-app | modules/tooling/checks.md | "done" means one command passed. Folds: glossary *Gate*, `sandloom test`, `--full`, generated-file drift |
 | SDK and beginner names | Module isolation | Module isolation: the SDK is the one thing from the framework a module may import | first-app | modules/guarantees/module-internals.md#the-beginner-tier | one short list of framework names a part may use. Folds: glossary *SDK*, *Beginner names, advanced names*, `# sandloom: advanced <reason>` (T009), `sandloom docs` |
 | Model | Module | Module layout: tables live in `models/`; SDK and beginner names: `Base`, `new_id`, `CreatedAt` come from it | first-app | modules/database/conventions.md (covers ids and timestamps only; see Gaps) | a table the part owns. Folds: `Base`, `new_id`, `CreatedAt`, list order by `created_at, id` |
 | Unit of work | Kernel | Model: a unit is the transaction around writes to a module's tables; Kernel: the kernel owns the commit | first-app | modules/database/units.md | a change saves completely or not at all. Folds: `db()`, glossary *Unit (of work)*, no `commit()` (C006), R002, `open_uow` (advanced) |
@@ -106,10 +107,10 @@ Two homes (the same concept explained on two or more pages):
 
 No home (a concept no page explains):
 
-- **Agent tooling** (generated `AGENTS.md`, skills, `sandloom add skills`, `llms.txt`): only a file-tree line in getting-started/project-structure.md and the prompt on index.md. Fix: a `first-app` concept page, or a section of project-structure.md.
+- **Agent tooling** (generated `AGENTS.md`, skills, `sandloom add skills`, `llms.txt`): only a file-tree line in getting-started/project-structure.md and the prompt on index.md. Fix: a `first-app` concept page, or a section of project-structure.md. **Fixed 2026-11-02:** a home page in the Toolchain section (modules/tooling/).
 - **Kernel**: only the figure on architecture.md and a glossary line. Fix: a paragraph on architecture.md that the glossary links to.
-- **Check** (the four families, what "enforced" means): the intro of reference/error-codes.md and one bullet in architecture.md#design-principles. Fix: a short concept section, probably on architecture.md, linked from the glossary's *Gate*.
-- **Generator**: reference/cli.md#project-and-code lists the commands; no page explains what a generator writes and why the agent starts from it. Fix: a section in getting-started/project-structure.md or modules/create.md.
+- **Check** (the four families, what "enforced" means): the intro of reference/error-codes.md and one bullet in architecture.md#design-principles. Fix: a short concept section, probably on architecture.md, linked from the glossary's *Gate*. **Fixed 2026-11-02:** a home page in the Toolchain section (modules/tooling/).
+- **Generator**: reference/cli.md#project-and-code lists the commands; no page explains what a generator writes and why the agent starts from it. Fix: a section in getting-started/project-structure.md or modules/create.md. **Fixed 2026-11-02:** a home page in the Toolchain section (modules/tooling/).
 - **Model** (`Base`, declaring a table): modules/database/conventions.md covers ids, timestamps and order only; `Base` appears in the tutorial and multi-tenancy.md. Fix: a "Declare a table" section in conventions.md.
 - **Data extraction**: no page; three short mentions (operate/split-into-services.md#existing-data, modules/database/migrations.md#moving-a-modules-data, operate/topologies.md#moving-a-module-into-its-own-service); the procedure exists only in the `sandloom-extract-module` skill. Fix: an operate how-to.
 - **Key rotation** (part of Keys and secrets): the steps are bullets in reference/security-model.md#authentication and the `sandloom-key-rotation` skill; operator-reference.md covers loading secrets, not rotating. Fix: an operate how-to.
@@ -117,7 +118,7 @@ No home (a concept no page explains):
 
 Structure:
 
-- **Children of `Application` mix criteria**: what you write (Module), what runs it (Kernel), tooling (Check, Generator, Agent tooling), infrastructure (Capability), deployment (Deployment topology) and an activity (Operations). Proposed fix: a `Toolchain` concept over Check, Generator and Agent tooling (see Questions).
+- **Children of `Application` mix criteria**: what you write (Module), what runs it (Kernel), tooling (Check, Generator, Agent tooling), infrastructure (Capability), deployment (Deployment topology) and an activity (Operations). Proposed fix: a `Toolchain` concept over Check, Generator and Agent tooling (see Questions). **Fixed 2026-11-02:** the owner approved Toolchain.
 - **Children of `Module` mix criteria**: parts of a module (Module layout, Model, Authenticated route, Background task), a rule (Module isolation) and a kind of module (Standard module). Proposed fix: move Standard module under Application, or accept it as "a module you install instead of write".
 
 ## Questions for the owner
@@ -127,3 +128,11 @@ Structure:
 3. **Outbox home.** I chose modules/database/units.md (publishing is atomic with the write) over modules/between/events.md (delivery and dead letters). Which page owns the outbox?
 4. **Agent tooling as a concept.** I listed the generated `AGENTS.md`, skills and `llms.txt` as one `new` concept with no home yet. The other reading treats them as part of the project structure, not a concept. Should it get its own page?
 5. **A `Toolchain` node.** Adding one concept over Check, Generator and Agent tooling would make the root's children split by one criterion; I left it out to keep the tree flat. Add it?
+
+### Answered by the owner, 2026-11-02
+
+- 2: Kernel is an `operating` concept; `new` pages say "the framework takes on the hard parts" and keep the word off.
+- 4: Agent tooling gets its own page: modules/tooling/agent-tooling.md.
+- 5: Yes: a Toolchain section grouped by the agent's loop (Start, Work, Check), with an overview at modules/tooling/index.md.
+
+Questions 1 and 3 are still open.
