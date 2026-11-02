@@ -16,7 +16,7 @@ Run from the app root. Every step must pass before work is done.
 
    ```bash
    uv run sandloom generate        # after a declaration change (snapshots, stubs)
-   uv run sandloom test <module>   # while iterating
+   uv run sandloom test <module>   # its tests first, then the fast suite and gates
    uv run sandloom test            # once, at the end: the whole app
    ```
 

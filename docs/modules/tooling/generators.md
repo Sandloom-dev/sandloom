@@ -19,7 +19,7 @@ A generator writes the starting code for one piece of a Sandloom application, in
 <!-- lookup -->
 | Command | Writes |
 | --- | --- |
-| `sandloom new <app>` | The application: `pyproject.toml` with pinned dev tools, `AGENTS.md`, the [skills](agent-tooling.md), a sample module, deploy and CI files |
+| `sandloom new <app>` | The application: `pyproject.toml` with pinned dev tools, `AGENTS.md`, the [skills](agent-tooling.md) for the agents you choose, a sample module, deploy and CI files |
 | `sandloom add module <m>` | A module package (`__init__.py`, `models/`, `schemas.py`, `events.py`, `services.py`, `api.py`), its [migration](../database/migrations.md) chain and a test |
 | `sandloom add event <m> <Name>` | An [event](../between/events.md) class in `events.py`: `NoteArchived` in `notes` gets the channel `notes.note.archived.v1` |
 | `sandloom add contract <m> <name>` | A [contract](../between/contracts.md), the call one module answers for others, with one read and one command, and the stub callers import |
@@ -28,7 +28,7 @@ A generator writes the starting code for one piece of a Sandloom application, in
 | `sandloom add projection <m> <name>` | A [projection](../between/projections.md), a table built from other modules' events, with its migration |
 | `sandloom add task <m> <name>` | A [background task](../background/tasks.md) in `tasks.py`; `--periodic "<cron>"` schedules it |
 | `sandloom add deploy <m> --service <name>` | The microservices profile and gateway, with the module in its own service ([Split into services](../../operate/split-into-services.md)) |
-| `sandloom add skills` | The agent skills that are missing ([Agent tooling](agent-tooling.md#keep-the-skills-current)) |
+| `sandloom add skills` | The agent files for the application's coding agents, updated to this version ([Agent tooling](agent-tooling.md#keep-the-skills-current)) |
 
 `uv run sandloom add <generator> --help` lists each one's options.
 

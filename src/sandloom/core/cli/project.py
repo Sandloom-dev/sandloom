@@ -39,6 +39,7 @@ import keyword
 import re
 import secrets
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 from string import Template
 
@@ -253,8 +254,9 @@ gate names the account it checks, `require(Subscribed(of=Account.user()))` or
 
 How-tos with tested code: `uv run sandloom docs recipes`. What you can call:
 `uv run sandloom docs contracts`, `... events`, `... <contract or channel>`.
-Skills (`.claude/skills`): sandloom-new-module, sandloom-quality-gates,
-sandloom-event-version-roll, sandloom-split-deploy, sandloom-module-context.
+Skills ($skill_dirs): sandloom-module-context, sandloom-new-module,
+sandloom-quality-gates, sandloom-event-version-roll, sandloom-split-deploy.
+Every module follows the contract in `$app/modules/AGENTS.md`.
 Before changing a module: `uv run sandloom context <name>`; discover connections
 with `uv run sandloom graph <name> --hops 1`. Refresh: `sandloom add skills`.
 
@@ -1076,8 +1078,12 @@ def generate_project(
     framework_req: str | None = None,
     framework_source: str | None = None,
     framework_path: Path | None = None,
+    agents: Sequence[str] = _skills.DEFAULT_AGENTS,
 ) -> list[Path]:
-    """Generate a standalone Sandloom application; returns created file paths."""
+    """Generate a standalone Sandloom application; returns created file paths.
+
+    ``agents`` (keys of :data:`sandloom.core.cli.skills.CODING_AGENTS`) decides
+    which skill folders and instruction pointers the application gets."""
     if not _NAME_RE.fullmatch(app) or keyword.iskeyword(app):
         raise ValueError(
             "app name must be snake_case starting with a letter (e.g. 'helpdesk')"
@@ -1141,10 +1147,9 @@ def generate_project(
 
     files: dict[str, str] = {
         # The agent map: the 1.0 commands and the beginner names.
-        "AGENTS.md": _AGENTS_HEADER.substitute(ctx),
-        "CLAUDE.md": "@AGENTS.md\n",
-        # The framework's procedures for this app's paths (sandloom add skills).
-        **_skills.skill_files(app),
+        "AGENTS.md": _AGENTS_HEADER.substitute(
+            ctx, skill_dirs=", ".join(f"`{d}`" for d in _skills.skill_dirs(agents))
+        ),
         "pyproject.toml": _PYPROJECT.substitute(ctx) + source_config,
         "README.md": _README.substitute(ctx),
         ".gitignore": _GITIGNORE,
@@ -1177,6 +1182,11 @@ def generate_project(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         created.append(path)
+    # The agent files: skills where each chosen agent reads them, the
+    # module-author contract for every module, and the record that lets
+    # `sandloom add skills` update them later.
+    written, _ = _skills.write_skills(root, app, agents, modules=f"{app}/modules")
+    created.extend([*written, root / _skills.RECORD])
 
     # Sample business module under <app>/modules/<sample> (Public API 1.0).
     where = _add.Layout(
