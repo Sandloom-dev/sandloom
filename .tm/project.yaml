@@ -1,0 +1,6 @@
+# This repository's project in tm, written by
+# `tm project use`. Committed on purpose: it is what lets
+# the CLI and the claim hook agree on which project this
+# checkout means, instead of each guessing.
+version: 1
+project: 01a19962-854b-7f12-9932-99aebe4b8fb1  # sandloom

@@ -1,6 +1,8 @@
 ---
 title: Overview
-description: Sandloom is a Python backend framework built from isolated modules and swappable drivers. What it is, its principles, who it fits and where to start.
+description: Sandloom is a Python backend framework designed for AI-driven development. What it is, which problems it solves, how, and where to look next.
+type: entry
+job: When I hear about Sandloom, I want to know what it is, which problems it solves and how, so I can decide whether to look further and where.
 footer_next:
   title: Quickstart
   url: getting-started/
@@ -8,131 +10,60 @@ footer_next:
 
 # Sandloom
 
-**A Python backend framework for AI-driven development.** You write your product as
-isolated **modules**; **drivers** connect them to PostgreSQL, Redis and other backends.
-The same code runs as a monolith or as separate services, chosen by configuration.
+**Sandloom is a Python backend framework designed for AI-driven development.** You can write the code by hand, but the framework is built for coding agents: generators give them a starting point, project rules tell them how to work, and automated checks stop them when they break a rule. Your backend stays quick to change as it grows, runs reliably, and can scale from a single application to microservices without a rewrite.
 
-<figure class="sl-architecture" aria-label="Sandloom architecture: business modules, contracts, kernel and infrastructure drivers">
-  <div class="sl-architecture__modules">
-    <div class="sl-architecture__heading"><a href="modules/">Business modules</a><span>Your application code</span></div>
-    <div class="sl-architecture__peers">
-      <div class="sl-architecture__module"><strong>Orders</strong><span>Order logic &amp; data</span></div>
-      <div class="sl-architecture__connections">
-        <a href="modules/between/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
-        <a href="modules/between/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
-      </div>
-      <div class="sl-architecture__module"><strong>Catalog</strong><span>Product logic &amp; data</span></div>
-    </div>
-    <div class="sl-architecture__batteries"><span>Optional modules, same boundaries</span><span>Identity · Tenancy · Billing</span></div>
-  </div>
-  <div class="sl-architecture__connector" aria-hidden="true"><span>use the public SDK</span></div>
-  <div class="sl-architecture__kernel">
-    <a class="sl-architecture__sdk" href="reference/sdk/"><span>Public SDK</span><code>sandloom.sdk</code></a>
-    <div class="sl-architecture__runtime">
-      <div class="sl-architecture__heading"><strong>Kernel</strong><span>Provided by Sandloom</span></div>
-      <div class="sl-architecture__guarantees"><span>Transactions</span><span>Access checks</span><span>Outbox &amp; inbox</span><span>Local / RPC routing</span></div>
-      <p>Each application or service runs its own kernel.</p>
-    </div>
-  </div>
-  <div class="sl-architecture__connector" aria-hidden="true"><span>resolve infrastructure capabilities</span></div>
-  <div class="sl-architecture__drivers">
-    <div class="sl-architecture__heading"><a href="infrastructure/">Drivers</a><span>Selected by configuration</span></div>
-    <p>Each driver connects the runtime to a concrete backend.</p>
-    <div class="sl-architecture__backends">
-      <div><span>Database · sqlalchemy</span><strong>PostgreSQL</strong></div>
-      <div><span>Cache</span><strong>Redis</strong></div>
-      <div><span>Events · streams</span><strong>Redis Streams</strong></div>
-      <div><span>Files · local</span><strong>Disk / volume</strong></div>
-      <div><span>Tasks · celery</span><strong>Celery</strong></div>
-      <div><span>Email</span><strong>SMTP</strong></div>
-    </div>
-  </div>
-  <figcaption>One modular application. The same module code in a monolith or separate services.</figcaption>
-</figure>
+## Why agents need a framework
+
+Coding agents write features quickly, but that speed fades as a backend grows. In [a study of GitHub projects adopting Cursor](https://arxiv.org/abs/2511.04427), the gain lasted two months, while code complexity rose 41% and stayed there. Each feature tangles the code a little more. An agent can't hold the whole system in mind, so it misses connected code and breaks things it never read. Agents working in parallel collide. Rules written in a prompt are only requests.
+
+Sandloom keeps your business logic atomic, isolated from other parts of the product and from the infrastructure. Automated checks hold those boundaries, however large the backend gets. An agent only has to understand the part it is changing, several agents can work side by side, and a broken rule fails a check instead of slipping through.
 
 !!! tip "Start here"
-    New to Sandloom? Start with the **[quickstart](getting-started/index.md)**:
-    create your own application, add a module, run the gates and start the API.
-    Then follow **[Tutorial: your first feature](getting-started/tutorial.md)**
-    to connect two modules with an event and a typed contract.
 
-**Already have an application?** Pick what you need next:
+    === "With your coding agent"
+
+        Tell your agent what to build and point it at the docs. It needs Python 3.11+, uv and Docker.
+
+        ```text
+        Build this backend with Sandloom: <what my product does>
+
+        Follow https://sandloom.dev/docs/getting-started/index.md to create the project,
+        then follow the AGENTS.md it generates.
+        Before you say it is done, run: uv run sandloom test
+        ```
+
+    === "Yourself"
+
+        New to Sandloom? The **[quickstart](getting-started/index.md)** takes you from an empty folder to a backend running on your machine, with its tests and checks passing.
+
+        Then follow **[Tutorial: your first feature](getting-started/tutorial.md)**. Step by step, you build a small task list: statistics count each new task, and the task list asks them whether the quota allows another.
+
+Agents can read these docs directly: <a href="llms.txt"><code>llms.txt</code></a> is the index, and every page is also served as Markdown when you append `index.md` to its URL.
+
+## Who Sandloom fits
+
+Sandloom fits a backend with several business areas that people and coding agents keep changing. It suits a product that needs each customer's data kept separate, access control and reliable events, and that may later split into services.
+
+It is probably not for a tiny endpoint or a short script, where the structure is more work than it saves. The same goes for an existing application that can't be divided into separate parts, and for a team that doesn't want to follow the rules and run the checks in CI.
+
+## Where to look next
 
 <div class="grid cards" markdown>
 
--   :material-puzzle-outline: **[Write a module](modules/create.md)**
+-   :material-sitemap-outline: **[How Sandloom works](architecture.md)**
 
-    Add a piece of your product: its tables, routes, events and tests.
+    See how the parts fit together, and which piece you write for each need.
 
--   :material-connection: **[Connect a backend](infrastructure/configure.md)**
+-   :material-application-outline: **[Examples](https://github.com/Sandloom-dev/sandloom/tree/main/examples)**
 
-    Choose a backend in the configuration, or [write a driver](infrastructure/write-a-driver.md)
-    for a new one.
+    Read real applications: a minimal app, a SaaS with billing, a process with rollback.
 
--   :material-tune: **[Change a standard module](modules/standard/customize.md)**
+-   :material-puzzle-outline: **[Standard modules](modules/standard/index.md)**
 
-    Adjust the ready-made identity, tenancy or billing modules.
+    Add ready-made identity, tenancy and billing, and an [admin console](admin-console/index.md).
+
+-   :material-book-open-outline: **[Reference](reference/index.md)**
+
+    Look up a name, a command or an error.
 
 </div>
-
-## The principles
-
-- **A module stands alone.** It imports only the public SDK and generated contracts,
-  never another module. You or a coding agent can change one without reading the rest.
-- **The framework owns what is easy to get wrong.** Transactions, access checks and
-  reliable event delivery are built in, so a module cannot skip them: a route is
-  authenticated unless it declares otherwise.
-- **Configuration decides where things run.** It selects which process loads which
-  module and which backend each capability uses. Moving a running module's existing data
-  to its own database is a separate, [explicit step](operate/split-into-services.md#existing-data).
-- **A machine checks the rules.** `sandloom check` and the startup checks enforce the
-  boundaries and name the fix: `sandloom explain <code>`.
-
-## Modules and drivers
-
-A module is what your product does. A driver is what it runs on.
-
-| | Module | Driver |
-| --- | --- | --- |
-| **What it is** | one slice of the business, such as orders or billing | a connection to a backend, such as Redis or SMTP |
-| **Who uses it** | your product's users, through routes | modules, through the SDK; they never name the driver |
-| **Imports** | `sandloom.sdk` | `sandloom.driverkit` |
-| **Found through** | your `modules` package or the `sandloom.modules` entry point | the `sandloom.drivers` entry point |
-| **Selected by** | `SANDLOOM_MODULES` | `INFRA` |
-| **Created with** | `sandloom add module <name>` | [your own package](infrastructure/write-a-driver.md) |
-
-Modules talk to each other in two ways: [events](modules/between/events.md) when something has
-happened, and typed [contracts](modules/between/contracts.md) when one needs an answer now.
-
-## What do I write?
-
-| I want to | I write |
-| --- | --- |
-| add a product feature | a [module](modules/create.md) |
-| react to something another module did | an [event consumer](modules/between/add-consumer.md) |
-| ask another module for data now | a call to its [contract](modules/between/add-contract.md) |
-| run a process across modules, with undo | a [saga](modules/between/add-saga.md) |
-| show a list that spans modules | a [projection](modules/between/add-projection.md) |
-| change how identity, tenancy or billing behave | a [customization](modules/standard/customize.md) |
-| send notifications through a new service | a [driver](infrastructure/write-a-driver.md) |
-| run a module as its own service | [configuration](operate/split-into-services.md), no module code |
-
-## Who it fits
-
-**A good fit:**
-
-- a backend with several business domains that people and coding agents change over time;
-- a product that needs tenant isolation, access control and reliable events;
-- a modular monolith that may later split into services.
-
-**Probably not:**
-
-- a tiny endpoint or a short script, where the module structure is more work than it saves;
-- an existing application whose internals cannot become isolated modules;
-- a team that does not want to follow the module rules and run the checks in CI.
-
-## For coding agents
-
-The short always-loaded map is the repository's `AGENTS.md`, and
-<a href="llms.txt"><code>llms.txt</code></a> is a machine-readable index of this site. Every
-page is also served as Markdown: append `index.md` to its URL.

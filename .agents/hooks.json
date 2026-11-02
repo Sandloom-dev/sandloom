@@ -1,0 +1,41 @@
+{
+  "tm": {
+    "PreToolUse": [
+      {
+        "matcher": "^(write_to_file|replace_file_content|multi_replace_file_content)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/require-tm-claim.sh agy pre-tool-use"
+          }
+        ]
+      },
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/report-bash-writes.sh agy pre-tool-use"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/report-bash-writes.sh agy post-tool-use"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./hooks/tm-hook.sh agy session-start"
+      }
+    ]
+  }
+}

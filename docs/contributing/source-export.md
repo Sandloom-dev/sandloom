@@ -25,7 +25,7 @@ files, local environments, private material and credential-shaped content.
 credentials. The explicit symlink exceptions are the five editable-install
 links `packages/editable/<distribution>/<package> -> ../../../src/<package>`
 (one per distribution: `sandloom`, `sandloom_identity`, `sandloom_tenancy`,
-`sandloom_billing`); each exact target must remain inside the reviewed source tree. Symlink
+`sandloom_billing`, `sandloom_admin`); each exact target must remain inside the reviewed source tree. Symlink
 ancestors are refused. The credential scanner is a narrow backstop; review code changes
 and the source's provenance separately.
 

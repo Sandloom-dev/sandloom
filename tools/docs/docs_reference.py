@@ -518,7 +518,7 @@ def render_module(module: ModuleType) -> str:
     if key.startswith("testing"):
         example = ("Testing examples and fixtures", "reference/testing.md")
     else:
-        example = guides.get(key, ("Create a module", "modules/create.md"))
+        example = guides.get(key, ("Add a module", "modules/create.md"))
     out += ["## Examples and related guides", ""]
     for label, target in [example, ("Python API overview", "reference/sdk/index.md")]:
         link = Path(

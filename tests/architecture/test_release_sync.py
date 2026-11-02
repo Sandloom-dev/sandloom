@@ -84,6 +84,23 @@ def test_coordinated_bump_updates_all_metadata_and_next_breaking_bound(tmp_path)
     assert sync.upper_bound("1.2.3") == "2.0"
 
 
+def test_every_distribution_name_is_synchronized(tmp_path):
+    source(tmp_path)
+    (tmp_path / "docs").mkdir()
+    for name in sync.PACKAGES:
+        p = tmp_path / "docs" / f"{name}.md"
+        p.write_text(
+            f"{name}>=0.7.0a1,<0.8\n"
+            f"https://pypi.org/project/{name}/0.7.0a1/\n"
+            f"{name}-v0.7.0a1\n"
+        )
+        assert sync.changes(tmp_path, "0.7.0a3", coordinated=True)[p] == (
+            f"{name}>=0.7.0a3,<0.8\n"
+            f"https://pypi.org/project/{name}/0.7.0a3/\n"
+            f"{name}-v0.7.0a3\n"
+        )
+
+
 @pytest.mark.parametrize("value", ["../0.7.0", "0.7", "0.7.0+local", "0.7.0\n"])
 def test_invalid_release_version_cannot_generate_edits(tmp_path, value):
     with pytest.raises(ValueError, match="Invalid release version"):

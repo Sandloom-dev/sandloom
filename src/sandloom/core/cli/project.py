@@ -184,15 +184,18 @@ force-exclude = true
 extend-exclude = ["$app/modules/*/migrations"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "C4", "UP"]
+select = ["E", "F", "I", "B", "C4", "UP", "C901"]
 ignore = ["B008"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 # Framework imports are grouped like first-party (matching sandloom add output).
 known-first-party = ["sandloom", "$app"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["E501"]
+"**/tests/**" = ["E501", "C901"]
 
 [tool.mypy]
 strict = true

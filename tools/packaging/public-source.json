@@ -4,6 +4,8 @@
     {
       "reason": "Agent procedures for supported public workflows.",
       "paths": [
+        ".agents/skills/sandloom-docs-writing/SKILL.md",
+        ".agents/skills/sandloom-docs-writing/page-types.md",
         ".agents/skills/sandloom-event-version-roll/SKILL.md",
         ".agents/skills/sandloom-extract-module/SKILL.md",
         ".agents/skills/sandloom-key-rotation/SKILL.md",
@@ -19,6 +21,8 @@
         ".claude/rules/migrations.md",
         ".claude/rules/tasks.md",
         ".claude/rules/tests.md",
+        ".claude/skills/sandloom-docs-writing/SKILL.md",
+        ".claude/skills/sandloom-docs-writing/page-types.md",
         ".claude/skills/sandloom-event-version-roll/SKILL.md",
         ".claude/skills/sandloom-extract-module/SKILL.md",
         ".claude/skills/sandloom-key-rotation/SKILL.md",
@@ -507,6 +511,7 @@
         "docs/adr/0010-public-api-1.0.md",
         "docs/adr/0011-driver-api.md",
         "docs/adr/index.md",
+        "docs/architecture.md",
         "docs/assets/sandloom-mark.svg",
         "docs/assets/sandloom.css",
         "docs/changelog.md",
@@ -1062,7 +1067,7 @@
       ]
     },
     {
-      "reason": "Four distribution metadata/readmes/licenses (sandloom and the standard module packages) and their editable install links.",
+      "reason": "Five distribution metadata/readmes/licenses (sandloom, the standard module packages and the admin console) and their editable install links.",
       "paths": [
         "packages/.gitignore",
         "packages/README.md",
@@ -2584,14 +2589,35 @@
     "docs/GUIDES_EVENTS_AND_HEALTH.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
     "docs/LOADER_CONFIGURATION_EXAMPLES.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
     "docs/SSO_SETUP.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
-    "SOURCE_EXPORT.json": "Generated local snapshot receipt; exclude from subsequent source selection."
+    "SOURCE_EXPORT.json": "Generated local snapshot receipt; exclude from subsequent source selection.",
+    ".agents/.tm-skills.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/.tm-skills.pi.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/hooks.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/.tm-skills.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source."
   },
   "exclude_trees": {
     "benchmarks/native": "Throwaway native/Rust/compiler experiments; not used by runtime, tests or public CI.",
     "benchmarks/deps_cg": "Obsolete dependency comparison stand depends on a removed private fixture and backend layout.",
     "private": "Archived project history, research, raw runs, competitor snapshots, local state and internal release planning.",
     "landing": "Obsolete local landing-page preparation; the canonical site is website/.",
-    "scripts": "Legacy local helpers outside the supported tools/ tree."
+    "scripts": "Legacy local helpers outside the supported tools/ tree.",
+    ".agents/hooks": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/hooks": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-consolidate": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-fleet": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-implement": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-memory": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-plan": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".agents/skills/tm-review": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-consolidate": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-fleet": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-implement": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-memory": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-plan": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/skills/tm-review": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source."
   },
   "symlinks": {
     "packages/editable/sandloom/sandloom": "../../../src/sandloom",

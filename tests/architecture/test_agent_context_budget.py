@@ -39,7 +39,9 @@ def _read(rel: str) -> str:
 
 
 def test_root_agents_md_is_a_map() -> None:
-    text = _read("AGENTS.md")
+    # `tm setup` owns its marked block and rewrites it whole; the always-loaded
+    # budget below still counts it.
+    text = re.sub(r"\n*<!-- tm -->.*?<!-- /tm -->", "", _read("AGENTS.md"), flags=re.S)
     lines = len(text.splitlines())
     size = len(text.encode())
     assert lines <= ROOT_MAX_LINES and size <= ROOT_MAX_BYTES, (

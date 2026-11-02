@@ -8,6 +8,10 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+### Changed
+
+- `sandloom new` applications enable ruff `C901` with a complexity limit of 10, outside tests.
+
 ## [0.7.0a6] — 2026-11-01
 
 ### Added
