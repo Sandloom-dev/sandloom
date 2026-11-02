@@ -30,7 +30,7 @@ References beside this file: [style.md](style.md) (style, MECE structure, code),
    ```bash
    uv run python tools/docs/docs_code_check.py docs/<page>.md
    ```
-   Done when both exit 0 and no tier 1 or tier 2 tell remains.
+   Done when both exit 0 and no tier 1 or tier 2 tell remains without a waiver and its reason.
 8. **Hand it to review.** Run [sandloom-docs-review](../sandloom-docs-review/SKILL.md) on the page. A finding it returns is fixed by changing words, not adding them: a gap is filled one link deeper, and a sentence you add costs one you remove, so run steps 6 and 7 again on every block you touched. Done when the review is clean or each remaining finding is in the handover with its reason.
 
 The handover lists the page's job, purpose, audience and level, each Sandloom term it uses with its home, every claim you could not confirm, the variants and who picked them, and the review's verdicts.

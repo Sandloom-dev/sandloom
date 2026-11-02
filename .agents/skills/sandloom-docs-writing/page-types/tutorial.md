@@ -9,4 +9,4 @@ For a beginner learning by doing, one path from start to finish.
 - **T3.** Every step ends in visible output, shown literally in a fenced block.
 - **T4.** One path. Explanation is a sentence and a link.
 - **T5.** Step headings give full context, so a reader landing mid-page knows where they are.
-- **T6.** CI runs it end to end (`tools/smoke/tutorial_check.py`, `tools/smoke/quickstart_check.py`).
+- **T6.** CI runs it end to end: `tools/smoke/tutorial_check.py` for the tutorial; the quickstart has its own check, `tools/smoke/quickstart_check.py`.
