@@ -120,6 +120,14 @@ remain open. An absent systemd daemon is distinguished from an installed
 systemd library; optional SQLite and Perl components and architecture-specific
 paths are checked separately. Severity alone never authorizes an exception.
 
+The first Snyk monitor run on 2026-11-02 reported **80 advisories**: the 67 above
+and 13 new ones, 10 in SQLite (three high) and 3 in libstdc++. Debian has no fix for
+any of them, even in unstable. The review records each one, listed under
+`amendments`, as `open_no_identified_framework_path`. The SQLite advisories need
+attacker-supplied SQL or database files, FTS, R-Tree or session input.
+The framework at runtime opens only an in-memory SQLite self-test with fixed
+statements. Keep a `sqlite` `DATABASE_URL` out of production.
+
 The three high conclusions are:
 
 - **attr:** the affected `getfattr`/`setfattr` utilities are absent. The executable
