@@ -132,6 +132,10 @@
       "status": "fixed",
       "rationale": "The profiler bind-mount directory remains private (0700); Docker runs under the invoking UID/GID instead of chmod 0777. The regression verifies both and a real container writes under that identity.",
       "evidence": "benchmarks/tests/test_harness_dataset.py"
+    },
+    "sdk_http_call": {
+      "status": "false_positive",
+      "rationale": "The flagged call is the OpenCode SDK's HTTP client (api.session.get) receiving a session id from the OpenCode event bus; no SQL is built or executed. The plugin is written by `tm setup` and is not part of the public source export."
     }
   },
   "additional_fix": {
@@ -5135,5 +5139,109 @@
     "packages": "Four wheel/sdist pairs built; isolated base/standard installs, CLI and RPC smokes pass",
     "site": "Strict unified site build and 14 published-site tests pass",
     "containers": "Both admin proxy topologies pass before/after Alpine backports; nonroot/read-only and internal route denial preserved"
-  }
+  },
+  "amendments": [
+    {
+      "date": "2026-11-02",
+      "source_tree": "20d61dc1f3cec174a3d241bc64481fa924bf603a",
+      "cli": "snyk 1.1308.3",
+      "sarif_sha256": "aabe87b3646fff264d8c4ef0da292827df31e304fa478e5d80afd277aa0bba73",
+      "results": 378,
+      "severity": {
+        "note": 292,
+        "warning": 78,
+        "error": 8
+      },
+      "ignored": 0,
+      "new_rule_file_pairs": 2,
+      "review": "Every other rule/file pair is within the baseline counts. The new results are a throwaway smoke-test password (already `noqa: S105`), an SDK HTTP call misread as SQL, and two more operator-selected test paths in an already-reviewed file. No code change and no scanner ignore.",
+      "code": [
+        {
+          "id": "code-385",
+          "rule": "javascript/Sqli",
+          "severity": "warning",
+          "path": ".opencode/plugins/tm.ts",
+          "line": 144,
+          "symbol": "start",
+          "source_sha256": "5d688ba78273cce1e97d37095cbb28d81915e1037bec238ac29152a6f4a37028",
+          "disposition": "sdk_http_call"
+        },
+        {
+          "id": "code-386",
+          "rule": "python/NoHardcodedPasswords",
+          "severity": "warning",
+          "path": "tools/smoke/admin_package_check.py",
+          "line": 39,
+          "symbol": "<module>",
+          "source_sha256": "e43440d3b0a4130c9f957167dd13edaa5b14eca11c4388c5368e5b8a669e61fe",
+          "disposition": "fixture"
+        },
+        {
+          "id": "code-387",
+          "rule": "python/NoHardcodedPasswords",
+          "severity": "warning",
+          "path": "tools/smoke/admin_package_check.py",
+          "line": 280,
+          "symbol": "run_scenario",
+          "source_sha256": "e43440d3b0a4130c9f957167dd13edaa5b14eca11c4388c5368e5b8a669e61fe",
+          "disposition": "fixture"
+        },
+        {
+          "id": "code-388",
+          "rule": "python/NoHardcodedPasswords",
+          "severity": "warning",
+          "path": "tools/smoke/admin_package_check.py",
+          "line": 284,
+          "symbol": "run_scenario",
+          "source_sha256": "e43440d3b0a4130c9f957167dd13edaa5b14eca11c4388c5368e5b8a669e61fe",
+          "disposition": "fixture"
+        },
+        {
+          "id": "code-389",
+          "rule": "python/NoHardcodedPasswords",
+          "severity": "warning",
+          "path": "tools/smoke/admin_package_check.py",
+          "line": 300,
+          "symbol": "run_scenario",
+          "source_sha256": "e43440d3b0a4130c9f957167dd13edaa5b14eca11c4388c5368e5b8a669e61fe",
+          "disposition": "fixture"
+        },
+        {
+          "id": "code-390",
+          "rule": "python/NoHardcodedPasswords",
+          "severity": "warning",
+          "path": "tools/smoke/admin_package_check.py",
+          "line": 306,
+          "symbol": "run_scenario",
+          "source_sha256": "e43440d3b0a4130c9f957167dd13edaa5b14eca11c4388c5368e5b8a669e61fe",
+          "disposition": "fixture"
+        },
+        {
+          "id": "code-391",
+          "rule": "python/PT/test",
+          "severity": "note",
+          "path": "tools/docs/test_docs_site.py",
+          "line": 94,
+          "symbol": "test_every_sdk_table_link_lands_on_its_own_heading",
+          "source_sha256": "cf45326f125322525d84acc4b80206d4a478e244353968b36ecf6e53df8ba946",
+          "disposition": "operator_path"
+        },
+        {
+          "id": "code-392",
+          "rule": "python/PT/test",
+          "severity": "note",
+          "path": "tools/docs/test_docs_site.py",
+          "line": 171,
+          "symbol": "test_instant_navigation_has_its_sitemap",
+          "source_sha256": "cf45326f125322525d84acc4b80206d4a478e244353968b36ecf6e53df8ba946",
+          "disposition": "operator_path"
+        }
+      ],
+      "summary": {
+        "false_positive": 1,
+        "intentional_test_fixture": 5,
+        "trusted_operator_input": 2
+      }
+    }
+  ]
 }

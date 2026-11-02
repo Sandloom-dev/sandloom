@@ -182,6 +182,14 @@ explicit local build/benchmark secret placeholders. The ledger accounts for
 every original finding; SQL identifier composition and the `data` extraction
 filter still produce scanner warnings despite the attack regressions passing.
 
+A Code scan of `main` on 2026-11-02 reports **378 results** (eight high, 78 medium,
+292 low). The ledger's `amendments` entry records the eight new ones:
+- a throwaway password in the admin package smoke test;
+- an OpenCode SDK HTTP call that Snyk misreads as SQL;
+- two more operator-selected paths in a docs test.
+
+None needs a code change or an ignore.
+
 The other findings include synthetic test credentials, negative security tests,
 route authentication labels, and local tools intentionally reading paths or
 executing project commands chosen by their operator. Benchmark/DX and local CI
