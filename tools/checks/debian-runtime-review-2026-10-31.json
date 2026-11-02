@@ -20,7 +20,7 @@
     "open_unused_tool": 15,
     "under_investigation": 3,
     "open_live_library": 2,
-    "open_no_identified_framework_path": 12,
+    "open_no_identified_framework_path": 25,
     "open_operator_configuration": 3,
     "privilege_mitigation_required": 7,
     "not_affected_architecture": 1,
@@ -2870,6 +2870,549 @@
       ],
       "manual_review_required": true,
       "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GCC14-22119290",
+      "cve": "CVE-2026-114690",
+      "severity": "low",
+      "source_package": "gcc-14",
+      "baseline_binary_version": "14.2.0-19",
+      "affected_functionality": "libstdc++ parallel-mode search reads past an undersized buffer.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "libstdc++6 14.2.0-19 is installed and linked by greenlet, frozenlist and Pillow's bundled libavif. Parallel mode is compiled in with _GLIBCXX_PARALLEL and needs OpenMP: libgomp is not installed and no binary in the image links it. Native callers are not exhaustively traced.",
+      "recommended_remediation": "Keep OpenMP and parallel-mode extensions out of the runtime; reassess if libgomp appears; install the stable libstdc++ update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "14.2.0-19"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-114690"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-114690",
+        "https://github.com/search?type=Code&q=%22CVE-2026-114690%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-114690%22",
+        "https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=c1f32b67510f6f9998deadaef5090b6663adb979",
+        "https://bugzilla.redhat.com/show_bug.cgi?id=2478652"
+      ],
+      "debian_record_sha256": "1a2f0a2164c6bbb224b8aff106155628257fcf4bfcf2aaec1784263d3599a36a",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GCC14-22119319",
+      "cve": "CVE-2026-114691",
+      "severity": "low",
+      "source_package": "gcc-14",
+      "baseline_binary_version": "14.2.0-19",
+      "affected_functionality": "libstdc++ std::vector<bool> size computation wraps for very large element counts.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "libstdc++6 14.2.0-19 is installed and linked by greenlet, frozenlist and Pillow's bundled libavif. The affected code is a header template compiled into each extension, so a libstdc++6 update alone does not change those binaries. No framework path passes user-controlled counts to a native vector<bool>; native callers are not exhaustively traced.",
+      "recommended_remediation": "Pick up rebuilt extension wheels and the stable libstdc++ update when available; do not route unbounded user sizes into native containers.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "14.2.0-19"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-114691"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-114691",
+        "https://github.com/search?type=Code&q=%22CVE-2026-114691%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-114691%22",
+        "https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=2fd8866591b5aea7098835f80ab7e176382175ae",
+        "https://bugzilla.redhat.com/show_bug.cgi?id=2478508"
+      ],
+      "debian_record_sha256": "8721e0eb0afd1418b5fc8684ae553caaabf2b5c4453559562a4339f91c26729e",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-GCC14-22119276",
+      "cve": "CVE-2026-115455",
+      "severity": "low",
+      "source_package": "gcc-14",
+      "baseline_binary_version": "14.2.0-19",
+      "affected_functionality": "libstdc++ extraction of a bitset from a wide-character stream overflows a stack buffer.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "libstdc++6 14.2.0-19 is installed and linked by greenlet, frozenlist and Pillow's bundled libavif. The affected operator is a header template; no framework path feeds wide-character streams into native bitset extraction. Native callers are not exhaustively traced.",
+      "recommended_remediation": "Pick up rebuilt extension wheels and the stable libstdc++ update when available.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "14.2.0-19"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-115455"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-115455",
+        "https://github.com/search?type=Code&q=%22CVE-2026-115455%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-115455%22",
+        "https://gcc.gnu.org/cgit/gcc/commit/?id=5d419c69ce2e6b86d7da75f18736904885674219",
+        "https://bugzilla.redhat.com/show_bug.cgi?id=2562933"
+      ],
+      "debian_record_sha256": "8bda432da08c57b37984f306e783a4f134c989261302a5c1b165e9617951690f",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119060",
+      "cve": "CVE-2026-119371",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite CTE chains bypass SQLITE_LIMIT_EXPR_DEPTH and exhaust the stack in selectExpander().",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Core SQLite path, present in every build. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119371"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119371",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119371%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119371%22",
+        "https://sqlite.org/bugs/info/2026-10-04T04:58:58Z",
+        "https://sqlite.org/src/info/f54730871303e655",
+        "https://github.com/sqlite/sqlite/commit/e6ff280c839fdfc7418fd5add12e8f32702a17fb"
+      ],
+      "debian_record_sha256": "9eda0fcb1fb12161641d07cc5e683be1c7665e7794058074070f9a8158d7f5c5",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119076",
+      "cve": "CVE-2026-119372",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite FTS3/FTS4 snippet() with OR and NEAR reads freed position lists (ENABLE_FTS3_PARENTHESIS).",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The library is built with ENABLE_FTS3, ENABLE_FTS4 and ENABLE_FTS3_PARENTHESIS. No framework code creates or queries FTS tables. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119372"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119372",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119372%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119372%22",
+        "https://sqlite.org/bugs/info/2026-08-17T09:18:24Z",
+        "https://sqlite.org/src/info/e4635c4153",
+        "https://github.com/sqlite/sqlite/commit/a87bd2471a9c0606e78d3c3678bcd9cecaa0e731"
+      ],
+      "debian_record_sha256": "4277d2c7b46acea5d2d2f643bb5c135c7aeeb06d395bd8219f36fb04d8b172d2",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119065",
+      "cve": "CVE-2026-119373",
+      "severity": "high",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite FTS5 detail=none prefix doclist merge overflows a heap buffer.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The library is built with ENABLE_FTS5. No framework code creates or queries FTS5 tables. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119373"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119373",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119373%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119373%22",
+        "https://sqlite.org/bugs/info/2026-08-04T08:49:27Z",
+        "https://sqlite.org/src/info/a7f8c92f62",
+        "https://github.com/sqlite/sqlite/commit/e1c9934f9f11a499029abb020ea715a08970da80"
+      ],
+      "debian_record_sha256": "116cdc1cd75790d340daad040162420925ac13b6ac2a5c6db776d5d37067ed78",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119091",
+      "cve": "CVE-2026-119374",
+      "severity": "high",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite FTS5 secure-delete writes past a leaf page for a corrupted index.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The library is built with ENABLE_FTS5 and SECURE_DELETE; exploitation needs a crafted database file. No framework code uses FTS5. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119374"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119374",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119374%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119374%22",
+        "https://sqlite.org/src/info/9cd4f9e920",
+        "https://github.com/sqlite/sqlite/commit/d9de6eedbe918c074c7556400fa21df5960704d9"
+      ],
+      "debian_record_sha256": "93e6643aedff40cbf6b03fe6eb58085466004b928a41f31379efdb33eca4c02d",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119068",
+      "cve": "CVE-2026-119375",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite reads uninitialized page-cache memory from a WAL file with an undersized page size.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Core SQLite path; exploitation needs a crafted database and WAL file. The self-test database is in memory and has no WAL. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119375"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119375",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119375%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119375%22",
+        "https://sqlite.org/bugs/info/2026-08-17T15:54:41Z",
+        "https://sqlite.org/src/info/f9b4ee369557c36c",
+        "https://github.com/sqlite/sqlite/commit/e5bf119821f25be1d7f10ef0a2edbe175289166e"
+      ],
+      "debian_record_sha256": "998a293b9fa74d0a77c85de796a079f9d0a2863a538a8c8c49af1ea8e774b1cc",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119094",
+      "cve": "CVE-2026-119376",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite chained COLLATE operators bypass the expression depth limit and exhaust the stack.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Core SQLite path, present in every build. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119376"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119376",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119376%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119376%22",
+        "https://sqlite.org/bugs/info/2026-10-04T04:50:56Z",
+        "https://sqlite.org/src/info/252c0b7bf5a727d2",
+        "https://github.com/sqlite/sqlite/commit/d54522a5b832422ab893a1e9fa7a99ab314ea4e2"
+      ],
+      "debian_record_sha256": "823da861a92bad26adc8c74a58ae10e943d88c2b0bd0dd9b846768d2e6beab4e",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119059",
+      "cve": "CVE-2026-119377",
+      "severity": "low",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite authorizer is consulted only for the first table of a shared USING column in RIGHT/FULL JOIN.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Only matters where sqlite3_set_authorizer() restricts reads of untrusted SQL. No framework code installs a SQLite authorizer. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119377"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119377",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119377%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119377%22",
+        "https://sqlite.org/bugs/info/2026-07-05T08:15:45Z",
+        "https://sqlite.org/src/info/bbd69ce274620008",
+        "https://github.com/sqlite/sqlite/commit/7ff247c5b9ead3ad8a69c26d3fd264878e127237",
+        "https://sqlite.org/src/info/2cb22877683680c1",
+        "https://github.com/sqlite/sqlite/commit/5694c3bb2a6a40770ecd2f65910eea756734dfd8"
+      ],
+      "debian_record_sha256": "f8faf18cc3e4484819f1adb7b4d02314f1159f2ce7ba3d05bb497fe33c6bcf0d",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119077",
+      "cve": "CVE-2026-119378",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite R-Tree uses freed nodes when the %_node shadow table is altered.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The library is built with ENABLE_RTREE; exploitation needs a crafted database. No framework code uses R-Tree tables. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119378"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119378",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119378%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119378%22",
+        "https://sqlite.org/src/info/6a9e1415659f9e75",
+        "https://github.com/sqlite/sqlite/commit/d21bd37c7cfc1b85b17a6703555f0926b6236e04"
+      ],
+      "debian_record_sha256": "729e6ec97a556d00faecfe302101060cb5d83d27b694a3ac54db7d91fe61f5c3",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119098",
+      "cve": "CVE-2026-119379",
+      "severity": "high",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite session sqlite3changeset_apply() overflows a heap mask for a repeated table with more columns.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "The library is built with ENABLE_SESSION and exports sqlite3changeset_apply and _v2. Python's sqlite3 module does not expose the session API and no framework or dependency caller is identified; native/FFI callers are not exhaustively traced.",
+      "recommended_remediation": "Do not apply untrusted changesets; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119379"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119379",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119379%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119379%22",
+        "https://sqlite.org/bugs/info/2026-08-16T10:15:25Z",
+        "https://sqlite.org/src/info/3f57024aecea0f3b",
+        "https://github.com/sqlite/sqlite/commit/64459c87cc702d600704fb77ee40ca1782398a52"
+      ],
+      "debian_record_sha256": "6394db840745dba6176a83e46b8b3ac44b329dd37a1a5fcee55496f9cd5200a5",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
+    },
+    {
+      "id": "SNYK-DEBIAN13-SQLITE3-22119069",
+      "cve": "CVE-2026-119591",
+      "severity": "medium",
+      "source_package": "sqlite3",
+      "baseline_binary_version": "3.46.1-7+deb13u2",
+      "affected_functionality": "SQLite count(*) over a large multi-row VALUES view exhausts the stack while freeing expressions.",
+      "assessment_status": "open_no_identified_framework_path",
+      "assessment": "Core SQLite path, present in every build. Sandloom production data is PostgreSQL. At runtime SQLite runs only an in-memory SQLAlchemy self-test with fixed statements (sql_alchemy/driver_compat.py); no framework path accepts SQL text or SQLite database files from users.",
+      "recommended_remediation": "Do not open attacker-supplied SQLite databases or execute untrusted SQL through SQLite in this image; keep a sqlite DATABASE_URL out of production; install the stable SQLite update when Debian ships one.",
+      "debian_stable": {
+        "release": "trixie",
+        "status": "open",
+        "repository_versions": {
+          "trixie": "3.46.1-7+deb13u2"
+        },
+        "fixed_version": null,
+        "urgency": "not yet assigned",
+        "no_dsa_reason": "Minor issue",
+        "next_point_update": false
+      },
+      "debian_unstable_reference_only": {
+        "status": "open",
+        "fixed_version": null,
+        "warning": "Reference evidence only; do not install unstable binaries into the stable runtime."
+      },
+      "primary_sources": [
+        "https://security-tracker.debian.org/tracker/CVE-2026-119591"
+      ],
+      "upstream_references_linked_by_debian": [
+        "https://github.com/advisories?query=CVE-2026-119591",
+        "https://github.com/search?type=Code&q=%22CVE-2026-119591%22",
+        "https://github.com/search?type=Issues&q=%22CVE-2026-119591%22",
+        "https://sqlite.org/bugs/info/2026-10-04T05:34:47Z",
+        "https://sqlite.org/src/info/ab621a3e11ee4acc",
+        "https://github.com/sqlite/sqlite/commit/eff50a067c55f972909e7780e506e91382d08de2"
+      ],
+      "debian_record_sha256": "423e09b396296fe85e672cfc08736198ffb3a12501998fc58ba4838b930badc4",
+      "verification_predicates": [],
+      "manual_review_required": true,
+      "automatic_scanner_ignore_authorized": false
     }
   ],
   "verification_predicates": {
@@ -3037,5 +3580,37 @@
     }
   },
   "review_base_commit": "453f7bf6bdb4f2af1ac2717d47a85d29159db960",
-  "baseline_image_id": "sha256:cd03ca02aa542aac04e0c13b21698043a990159df357123ca5228ab5f127663d"
+  "baseline_image_id": "sha256:cd03ca02aa542aac04e0c13b21698043a990159df357123ca5228ab5f127663d",
+  "amendments": [
+    {
+      "review_date": "2026-11-02",
+      "image": "sandloom-backend:snyk (deploy/docker/Dockerfile, target production)",
+      "platform": "linux/arm64",
+      "reason": "Advisories first reported by Snyk monitor after the baseline review; none has a Debian stable or unstable fix.",
+      "tracker_snapshot": {
+        "url": "https://security-tracker.debian.org/tracker/data/json",
+        "sha256": "d385fd6f39089e909651eae7ceae45ef74107c3f7bd95771a35e8294833ce472"
+      },
+      "image_evidence": [
+        "SQLite 3.46.1 compile options include ENABLE_FTS3, ENABLE_FTS3_PARENTHESIS, ENABLE_FTS4, ENABLE_FTS5, ENABLE_RTREE, ENABLE_SESSION and SECURE_DELETE.",
+        "libsqlite3.so.0 is linked only by CPython's _sqlite3 module; sqlite3changeset_apply_v3 is absent.",
+        "libstdc++6 14.2.0-19 is linked by greenlet, frozenlist and Pillow's libavif; libgomp is not installed."
+      ],
+      "findings": [
+        "SNYK-DEBIAN13-GCC14-22119290",
+        "SNYK-DEBIAN13-GCC14-22119319",
+        "SNYK-DEBIAN13-GCC14-22119276",
+        "SNYK-DEBIAN13-SQLITE3-22119060",
+        "SNYK-DEBIAN13-SQLITE3-22119076",
+        "SNYK-DEBIAN13-SQLITE3-22119065",
+        "SNYK-DEBIAN13-SQLITE3-22119091",
+        "SNYK-DEBIAN13-SQLITE3-22119068",
+        "SNYK-DEBIAN13-SQLITE3-22119094",
+        "SNYK-DEBIAN13-SQLITE3-22119059",
+        "SNYK-DEBIAN13-SQLITE3-22119077",
+        "SNYK-DEBIAN13-SQLITE3-22119098",
+        "SNYK-DEBIAN13-SQLITE3-22119069"
+      ]
+    }
+  ]
 }
