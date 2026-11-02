@@ -2,7 +2,7 @@
 
 Every page, every type. Rule ids (C1, S4, …) match [the research](../../../design/docs-writing/research.md), which holds the evidence and the disagreements; read it when a rule seems wrong for a page. Numbers are defaults you may break with a reason. Banned words and limits apply to prose; an identifier such as `start_from="latest"` is exempt.
 
-The rules a script can check run in `tools/docs/docs_prose_lint.py` (S4, S8, S9, S11, S13, K3); a justified exception is waived on its line with `<!-- prose-ok: <rule> <reason> -->`. The rest need a reader: the writer while drafting, and the rule reviewer in [sandloom-docs-review](../sandloom-docs-review/SKILL.md).
+The rules a script can check run in `tools/docs/docs_prose_lint.py` (S4, S8, S9, S11, S13, K3, the tells P6–P9 and P12, and W1, the entry word cap); a justified exception is waived on its line with `<!-- prose-ok: <rule> <reason> -->`. The rest need a reader: the writer while drafting, and the rule reviewer in [sandloom-docs-review](../sandloom-docs-review/SKILL.md).
 
 ## Style
 

@@ -2,7 +2,7 @@
 
 Status: **approved by the owner, 2026-11-02.**
 
-Fields follow April Dunford's components as adopted in [research.md](research.md#positioning), plus the core idea and naming. Owner answers were relayed and translated; quotes mark the owner's words. Text marked **Inference** is mine.
+Fields follow April Dunford's components as adopted in [research.md](../research.md#positioning), plus the core idea and naming. Owner answers were relayed and translated; quotes mark the owner's words. Text marked **Inference** is mine.
 
 ## Category
 
