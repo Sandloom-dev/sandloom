@@ -1014,12 +1014,15 @@ def _summary(hits: list[Hit]) -> None:
 
 
 def _strict(args: list[str], summary: bool) -> int:
-    """Lint the named paths with no baseline; 1 on any hit."""
+    """Lint the named paths with no baseline; 1 on any hit or a missing path."""
     hits = scan_paths(ROOT, args)
+    missing = [arg for arg in args if not Path(arg).resolve().exists()]
     for h in hits:
         print(h.render())
     if summary:
         _summary(hits)
+    if missing:
+        return 1  # scan_paths named each on stderr; a page not linted is no pass
     if hits:
         print(
             f"\n{len(hits)} prose-style hit(s) (docs-writing skill, Style and "
@@ -1091,6 +1094,10 @@ def _hook() -> int:
     )
     if code.returncode == 1:
         report += [ln for ln in code.stdout.splitlines() if ln.startswith(rel)]
+    elif code.returncode != 0:  # the check could not run (2: sandloom not importable)
+        report += code.stderr.strip().splitlines() or [
+            f"docs_code_check.py exited {code.returncode}"
+        ]
     if not report:
         return 0
     print(

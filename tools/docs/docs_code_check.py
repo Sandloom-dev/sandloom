@@ -758,12 +758,15 @@ def _summary(hits: list[Hit]) -> None:
 
 
 def _strict(args: list[str], summary: bool) -> int:
-    """Check the named paths with no baseline; 1 on any hit."""
+    """Check the named paths with no baseline; 1 on any hit or a missing path."""
     hits = scan_paths(ROOT, args, _cached(resolve_import))
+    missing = [arg for arg in args if not Path(arg).resolve().exists()]
     for h in hits:
         print(h.render())
     if summary:
         _summary(hits)
+    if missing:
+        return 1  # scan_paths named each on stderr; a page not checked is no pass
     if hits:
         print(
             f"\n{len(hits)} docs-code hit(s). Fix each (D4: move the code into a "
