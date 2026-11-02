@@ -85,6 +85,7 @@
 .sl-nav a[aria-current] { box-shadow: 0 2px 0 var(--sl-accent); }
 .sl-icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 7px; color: var(--sl-ink); background: transparent; cursor: pointer; }
 .sl-icon-button:hover { background: var(--sl-code-bg); }
+.sl-repo + .sl-theme { margin-left: -24px; }
 .sl-menu { display: none; }
 .sl-sun { display: none; }
 [data-sandloom-theme="dark"] .sl-sun { display: block; }
@@ -139,10 +140,12 @@ html.sl-menu-open { overflow: hidden; }
   .sl-nav { display: none; }
   .sl-header-inner { min-height: 64px; padding: 0 24px; gap: 20px; }
   .sl-header-search { margin-left: auto; }
+  .sl-repo + .sl-theme { margin-left: -16px; }
   .sl-menu-heading { min-height: 64px; }
 }
 @media (max-width: 640px) {
   .sl-header-inner { padding: 0 16px; gap: 12px; }
+  .sl-repo + .sl-theme { margin-left: -8px; }
   .sl-brand { font-size: 21px; gap: 8px; }
   .sl-brand img { width: 27px; height: 27px; }
   .sl-header-search { flex: 0 0 36px; min-width: 36px; }
