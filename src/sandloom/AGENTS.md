@@ -84,6 +84,8 @@ To talk to another module:
 
 ## Rules no check enforces yet (get these right yourself)
 
+- **A row owned through another tenant row is tenant data:** `TenantScoped` on it
+  too, even with no `organization_id` column (C014 sees only tenant-like columns).
 - **Effects outside a durable consumer need their own dedupe** in the same
   unit: a UNIQUE `operation_key(...)` on the effect's row, or
   `durable_inbox("<m>@<x>").claim(db(), id)` (`sandloom.sdk.effects`).

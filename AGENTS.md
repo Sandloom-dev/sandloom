@@ -30,7 +30,7 @@ module may import: `src/sandloom/AGENTS.md`.
 | endpoints in `api`, SQLAlchemy only in `models`/`services`, pure `schemas`; no backend SDK or raw client | `sandloom check` C009–C011, C003, C004 |
 | the public surface and the beginner tier (kernel work) | SANDLOOM-T008, SANDLOOM-T009, `lint-imports` |
 
-Rules **no check enforces yet** (effect dedupe in tasks and commands, `.v2`
+Rules **no check enforces yet** (rows owned through a tenant row, effect dedupe in tasks and commands, `.v2`
 dual-publish, security revocation, commands as saga steps; agents skip them most): `src/sandloom/AGENTS.md`.
 
 ## Golden path (run from the repository root)

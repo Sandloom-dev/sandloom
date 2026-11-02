@@ -8,8 +8,9 @@ description: Create a new Sandloom business module (sandloom add module, migrate
 1. **Read the module-author contract first.**
    - In the framework tree, that is `src/sandloom/AGENTS.md`.
    - In an `sandloom new` app, it is the project's `AGENTS.md`.
-   - Its "Rules no check enforces yet" list matters most: effects outside a
-     durable consumer need their own dedupe, a breaking event change is a
+   - Its "Rules no check enforces yet" list matters most: a row owned through
+     another tenant row is `TenantScoped`, effects outside a durable consumer
+     need their own dedupe, a breaking event change is a
      dual-published `.v2`, a command is a saga step. No gate catches those.
 2. **Generate** from the repository root (framework tree) or from the app root:
 
