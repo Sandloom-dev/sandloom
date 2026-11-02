@@ -11,12 +11,12 @@ Each step returns findings as `file:line rule — problem → fix`, problems onl
 
 ## Steps
 
-1. **Lint.** Run both linters on the page alone, strictly:
+1. **Lint.** Run both linters on the page alone, strictly; `<page>` is its path, such as `docs/index.md` or `README.md`:
    ```bash
-   uv run python tools/docs/docs_prose_lint.py docs/<page>.md
+   uv run python tools/docs/docs_prose_lint.py <page>
    ```
    ```bash
-   uv run python tools/docs/docs_code_check.py docs/<page>.md
+   uv run python tools/docs/docs_code_check.py <page>
    ```
    A hit is fixed, or waived on its line with its reason (`<!-- prose-ok: <rule> <reason> -->`, `<!-- code-ok: <rule> <reason> -->`). Done when both exit 0.
 2. **Two reviewers.** Start two subagents in parallel, each with the page, its front matter and brief, and only its rules:

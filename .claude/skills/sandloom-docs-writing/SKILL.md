@@ -29,12 +29,12 @@ References beside this file: [style.md](style.md) (style, MECE structure, code),
    ```
    Pick per block. When the owner is present, show the comparison and the owner picks; otherwise give the comparison, the brief and the type's file to three judge subagents in parallel, each picking the best variant of each block with one line of reason, and take the majority. Assemble the picked blocks and rewrite their joints so the page reads as one. A pick chooses an approach, not final words: steps 6 and 7 still edit it. Other pages get one draft. Show, with real output you captured by running it, what an adjective would only claim. Done when every block is picked and the assembled page is saved.
 6. **Subtract.** For each block, sentence and list item, ask what the reader loses without it, and whether the purpose still holds without it. Cut what loses nothing, even where the anatomy names a slot for it. Merge list items that give the same answer (M4). Done when every remaining piece has an answer.
-7. **Edit the language.** Mark every tell from [tells.md](tells.md) on the page, strongest first, and rewrite each paragraph that has one around its point. Run the linters on the page alone:
+7. **Edit the language.** Mark every tell from [tells.md](tells.md) on the page, strongest first, and rewrite each paragraph that has one around its point. Run the linters on the page alone, by its path (`docs/index.md`, `README.md`):
    ```bash
-   uv run python tools/docs/docs_prose_lint.py docs/<page>.md
+   uv run python tools/docs/docs_prose_lint.py <page>
    ```
    ```bash
-   uv run python tools/docs/docs_code_check.py docs/<page>.md
+   uv run python tools/docs/docs_code_check.py <page>
    ```
    While this skill is loaded, a hook runs both on every page you edit and shows you the hits in the same turn. Done when both exit 0 and no tier 1 or tier 2 tell remains without a waiver and its reason.
 8. **Hand it to review.** Run [sandloom-docs-review](../sandloom-docs-review/SKILL.md) on the page. A finding it returns is fixed by changing words, not adding them: a gap is filled one link deeper, and a sentence you add costs one you remove, so run steps 6 and 7 again on every block you touched. Done when the review is clean or each remaining finding is in the handover with its reason.
