@@ -790,6 +790,10 @@ def test_generated_project_ships_the_agent_contract(tmp_path: Path) -> None:
         assert f"`{name}`" in agents, name
     assert "probe/modules" in agents
     assert (root / "CLAUDE.md").read_text() == "@AGENTS.md\n"
+    # One module-author contract covers every module, not a copy per module.
+    contract = (root / "probe" / "modules" / "AGENTS.md").read_text()
+    assert contract.startswith("<!-- sandloom:module-contract")
+    assert (root / "probe" / "modules" / "CLAUDE.md").read_text() == "@AGENTS.md\n"
     assert not (root / "probe" / "modules" / "gadgets" / "AGENTS.md").exists()
 
 
@@ -797,7 +801,7 @@ def test_generated_project_ships_the_app_skills(tmp_path: Path) -> None:
     """``sandloom new`` writes the app's agent skills for Claude Code and other
     agents, rewritten for the app; the map names them in one line
     (ledger C-GEN-13)."""
-    from sandloom.core.cli.skills import APP_SKILLS, SKILL_DIRS
+    from sandloom.core.cli.skills import APP_SKILLS, DEFAULT_AGENTS, skill_dirs
 
     generate_project("probe", tmp_path)
     root = tmp_path / "probe"
@@ -806,7 +810,7 @@ def test_generated_project_ships_the_app_skills(tmp_path: Path) -> None:
     assert "graph --module" not in agents
     for name in APP_SKILLS:
         assert name in agents
-        for directory in SKILL_DIRS:
+        for directory in skill_dirs(DEFAULT_AGENTS):
             text = (root / directory / name / "SKILL.md").read_text()
             assert text.startswith(f"---\nname: {name}\n")
             assert "<app>" not in text
@@ -831,3 +835,119 @@ def test_sandloom_add_skills_refreshes_an_existing_app(tmp_path: Path) -> None:
     assert skill.read_text().endswith("my note\n")
     assert add_main(["--root", str(root), "skills", "--force"]) == 0
     assert skill.read_text() == original
+
+
+def test_sandloom_new_writes_the_folders_of_the_chosen_agents(tmp_path: Path) -> None:
+    from sandloom.core.cli.skills import load_record
+
+    generate_project("probe", tmp_path, agents=["claude", "kiro", "gemini"])
+    root = tmp_path / "probe"
+    assert (root / ".claude/skills/sandloom-new-module/SKILL.md").is_file()
+    assert (root / ".kiro/skills/sandloom-new-module/SKILL.md").is_file()
+    assert (root / ".agents/skills/sandloom-new-module/SKILL.md").is_file()  # gemini
+    assert (root / "GEMINI.md").read_text() == "@AGENTS.md\n"
+    agents, files = load_record(root)
+    assert agents == ["claude", "gemini", "kiro"]
+    assert "probe/modules/AGENTS.md" in files
+    assert (
+        "`.claude/skills`, `.agents/skills`, `.kiro/skills`"
+        in (root / "AGENTS.md").read_text()
+    )
+
+
+def test_sandloom_add_skills_updates_what_it_wrote_and_keeps_edits(
+    tmp_path: Path,
+) -> None:
+    """An upgrade changes a skill the framework wrote: it is replaced. A skill
+    you edited is kept until ``--force``."""
+    import hashlib
+    import json
+
+    from sandloom.core.cli.add import main as add_main
+    from sandloom.core.cli.skills import RECORD
+
+    generate_project("probe", tmp_path)
+    root = tmp_path / "probe"
+    outdated = root / ".claude/skills/sandloom-new-module/SKILL.md"
+    current = outdated.read_text()
+    old = current + "\nfrom an earlier version\n"
+    outdated.write_text(old)
+    record = json.loads((root / RECORD).read_text())
+    record["files"][".claude/skills/sandloom-new-module/SKILL.md"] = hashlib.sha256(
+        old.encode()
+    ).hexdigest()
+    (root / RECORD).write_text(json.dumps(record))
+    assert add_main(["--root", str(root), "skills"]) == 0
+    assert outdated.read_text() == current
+
+
+def test_sandloom_add_skills_adds_an_agent(tmp_path: Path) -> None:
+    from sandloom.core.cli.add import main as add_main
+    from sandloom.core.cli.skills import load_record
+
+    generate_project("probe", tmp_path, agents=["claude"])
+    root = tmp_path / "probe"
+    assert not (root / ".agents").exists()
+    assert add_main(["--root", str(root), "skills", "--agents", "claude,codex"]) == 0
+    assert (root / ".agents/skills/sandloom-new-module/SKILL.md").is_file()
+    assert load_record(root)[0] == ["claude", "codex"]
+    # The recorded choice is the default next time.
+    (root / ".agents/skills/sandloom-new-module/SKILL.md").unlink()
+    assert add_main(["--root", str(root), "skills"]) == 0
+    assert (root / ".agents/skills/sandloom-new-module/SKILL.md").is_file()
+
+
+def test_agents_are_detected_and_asked() -> None:
+    from sandloom.core.cli.skills import choose_agents, detect_agents
+
+    def which(name: str) -> str | None:
+        return "/usr/bin/codex" if name == "codex" else None
+
+    found = detect_agents(which=which, home=Path("/nonexistent"))
+    assert found == {"codex": "codex"}
+    shown: list[str] = []
+    answers = iter(["nope", "1, kiro"])
+    chosen = choose_agents(
+        None,
+        None,
+        interactive=True,
+        detect=lambda: found,
+        read=lambda _prompt: next(answers),
+        write=shown.append,
+    )
+    assert chosen == ["claude", "kiro"]
+    assert any("[x]" in line and "Codex" in line for line in shown)
+    assert any("unknown agent" in line for line in shown)
+    # Enter keeps the detected ones; without a terminal they are used as is.
+    assert choose_agents(
+        None, None, interactive=True, detect=lambda: found, read=lambda _p: ""
+    ) == ["codex"]
+    assert choose_agents(None, None, interactive=False, detect=lambda: {}) == [
+        "claude",
+        "codex",
+    ]
+    assert choose_agents(None, "kiro", interactive=False) == ["kiro"]
+
+
+def test_an_unmarked_advanced_import_fails_the_app_gate(tmp_path: Path) -> None:
+    """SANDLOOM-T009 holds in an application, not only in the framework's
+    generators: the ``schema & deploy`` step of ``sandloom test`` reports it."""
+    from sandloom.core.testing.static_checks import beginner_tier_problems
+
+    generate_project("probe", tmp_path, sample_module="gadgets")
+    root = tmp_path / "probe"
+    services = root / "probe" / "modules" / "gadgets" / "services.py"
+    assert beginner_tier_problems(root) == []
+    services.write_text(
+        services.read_text() + "\nfrom sandloom.sdk.web import DbSession\n"
+    )
+    problems = beginner_tier_problems(root)
+    assert len(problems) == 1
+    assert "probe/modules/gadgets/services.py:" in problems[0]
+    assert "DbSession" in problems[0] and "SANDLOOM-T009" in problems[0]
+    services.write_text(
+        services.read_text().replace(
+            "import DbSession", "import DbSession  # sandloom: advanced a typed dep"
+        )
+    )
+    assert beginner_tier_problems(root) == []

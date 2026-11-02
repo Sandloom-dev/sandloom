@@ -175,7 +175,22 @@ def _cmd_new(argv: list[str]) -> int:
             "packages/) for --framework-source path"
         ),
     )
+    skills = _static_import("sandloom.core.cli.skills")
+    parser.add_argument(
+        "--agents",
+        default=None,
+        help="comma-separated coding agents to write skills for: "
+        + ", ".join(a.key for a in skills.CODING_AGENTS)
+        + " (default: asked at a terminal, else the installed ones)",
+    )
     args = parser.parse_args(argv)
+    try:
+        agents = skills.choose_agents(
+            None, args.agents, interactive=skills.stdin_is_interactive()
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     batteries: list[str] = []
     if not args.no_batteries and args.batteries:
@@ -190,6 +205,7 @@ def _cmd_new(argv: list[str]) -> int:
             framework_req=args.framework_req,
             framework_source=args.framework_source,
             framework_path=args.framework_path,
+            agents=agents,
         )
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -197,6 +213,10 @@ def _cmd_new(argv: list[str]) -> int:
 
     root = args.dir / args.app
     print(f"Created application '{args.app}' ({len(created)} files) at {root}")
+    print(
+        f"Agent skills for: {', '.join(agents)} "
+        "(change with `uv run sandloom add skills --choose`)"
+    )
     # The generated files (snapshots, schemas, stubs): the app's own CI gate
     # (`sandloom test --ci`) only checks them, so a fresh app must carry them.
     problem = project.write_generated_files(root)
@@ -223,13 +243,15 @@ def main() -> None:  # noqa: C901
         "add",
         add_help=False,
         help="generate code: module, event, contract, consumer, saga, "
-        "projection, task, deploy",
+        "projection, task, deploy, skills",
     )
     sub.add_parser(
         "check", add_help=False, help="run architecture (module isolation) checks"
     )
     sub.add_parser(
-        "explain", add_help=False, help="explain an SANDLOOM-xxxx error code"
+        "explain",
+        add_help=False,
+        help="explain an error code: SANDLOOM-C001, C001 or a rule id",
     )
     sub.add_parser(
         "docs", add_help=False, help="the sandloom.sdk reference: sandloom docs <name>"

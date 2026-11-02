@@ -46,7 +46,7 @@ uv run sandloom graph
 refreshes contracts, snapshots and `.sandloom/inspection.json`. Cold `graph`
 and `context MODULE` read that saved model; they never regenerate implicitly.
 
-`add skills` writes missing skills and names each skill that differs from the new version, whether you edited it or it is out of date. [Keep the skills current](../modules/tooling/agent-tooling.md#keep-the-skills-current) shows how to update them.
+`add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../modules/tooling/agent-tooling.md#keep-the-skills-current) has the details.
 See [module maps](../modules/tooling/module-context.md) and the
 [architecture explorer](../modules/tooling/architecture-graph.md) for formats and freshness.
 

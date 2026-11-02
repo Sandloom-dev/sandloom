@@ -14,6 +14,9 @@ framework's own tests:
 * :func:`periodic_beat_problems` (SANDLOOM-T010): every module with periodic tasks
   that a deploy profile serves has exactly one beat, a worker on that beat's
   broker, and no two beats share a broker.
+* :func:`beginner_tier_problems` (SANDLOOM-T009): a module imports a
+  ``sandloom.sdk`` name outside the beginner tier without a
+  ``# sandloom: advanced <reason>`` marker on the line.
 * the split profile (``deploy/compose/microservices.yml``, SANDLOOM-T014):
   the invariants of :func:`sandloom.core.testing.deploy_profile.profile_problems`
   (shared settings, issuer-only keys, a database and migrate one-shot per
@@ -38,6 +41,8 @@ if TYPE_CHECKING:
     from sqlalchemy import MetaData
 
 import sandloom.core.testing.deploy_profile as _deploy_profile
+from sandloom.core.archcheck import api10_rules
+from sandloom.core.archcheck.manifest import ManifestError, load_rules
 from sandloom.core.composition import load_composition_core
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.tasks.periodic import PERIODIC_HOOK, has_periodic_tasks
@@ -255,13 +260,44 @@ def deploy_profiles(root: Path) -> list[Path]:
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# SANDLOOM-T009: the beginner tier, in the application's modules
+# --------------------------------------------------------------------------- #
+
+
+def beginner_tier_problems(root: Path) -> list[str]:
+    """Every advanced ``sandloom.sdk`` import in the modules ``root``'s
+    ``architecture_rules.yml`` names that has no marker (SANDLOOM-T009)."""
+    rules_file = root / "architecture_rules.yml"
+    spec = importlib.util.find_spec("sandloom.sdk")
+    if not rules_file.is_file() or spec is None or spec.origin is None:
+        return []
+    if (root / "src" / "sandloom" / "sdk").is_dir():
+        return []  # the framework tree: its standard modules are not taught code
+    try:
+        modules = load_rules(rules_file).modules_path
+    except ManifestError:
+        return []  # sandloom check reports a broken manifest
+    beginner = api10_rules.beginner_names(Path(spec.origin).parent)
+    problems: list[str] = []
+    for py in api10_rules.iter_python([modules]):
+        shown = py.relative_to(root) if py.is_relative_to(root) else py
+        for found in api10_rules.find_beginner_tier_problems(py, beginner):
+            line, _, message = found.partition(": ")
+            number = line.removeprefix("Line ")
+            problems.append(f"{shown}:{number}: {message} (SANDLOOM-T009)")
+    return problems
+
+
 def all_problems(
     root: Path, core: Any = None, warnings: list[str] | None = None
 ) -> list[str]:
     """Every problem of the step; ``warnings`` (when given) collects the
     split profile's warnings (SANDLOOM-T003: a module no service deploys)."""
     core = core if core is not None else load_composition_core()
-    problems = chain_problems(core) + redundant_index_problems()
+    problems = (
+        chain_problems(core) + redundant_index_problems() + beginner_tier_problems(root)
+    )
     profiles = deploy_profiles(root)
     if profiles and importlib.util.find_spec("yaml") is None:
         profiles = []  # PyYAML (the check extra) is not installed
@@ -304,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "KNOWN_REDUNDANT",
     "all_problems",
+    "beginner_tier_problems",
     "chain_problems",
     "deploy_profiles",
     "has_periodic_tasks",

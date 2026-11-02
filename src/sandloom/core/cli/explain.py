@@ -26,7 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sandloom explain", description="Explain a framework error code"
     )
-    parser.add_argument("code", nargs="?", help="SANDLOOM-xxxx code or check rule id")
+    parser.add_argument(
+        "code",
+        nargs="?",
+        help="a code: SANDLOOM-C001, C001 (prefix optional) or a check rule id",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--list", action="store_true", help="list every code")
     mode.add_argument(
