@@ -443,7 +443,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
     "ci.yml:docker-build": "dbc55b0fec74fd68",
     "ci.yml:admin-contracts": "9b7305c14b201ec3",
-    "docs.yml:build": "27a1b2fda90627c1",
+    "docs.yml:build": "78d8bd064fcb5ee4",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
 
