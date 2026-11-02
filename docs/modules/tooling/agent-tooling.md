@@ -93,7 +93,7 @@ To install for another agent, or stop installing for one, pass the new list, `uv
 
 ## The docs, for agents
 
-These docs are served in a form an agent reads directly. <a href="../../../llms.txt"><code>llms.txt</code></a> lists the documentation pages, and `llms-full.txt` holds them all in one file. Append `index.md` to a page's URL to get it as Markdown.
+These docs are served in a form an agent reads directly. <a href="/docs/llms.txt"><code>llms.txt</code></a> lists the documentation pages, and `llms-full.txt` holds them all in one file. Append `index.md` to a page's URL to get it as Markdown.
 
 ## Go deeper
 

@@ -182,6 +182,7 @@ def contract_files(modules: str, agents: Sequence[str]) -> dict[str, str]:
 
 
 def _digest(text: str) -> str:
+    """The SHA-256 hex digest the record keeps for a file's content."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -195,6 +196,7 @@ def load_record(root: Path) -> tuple[list[str] | None, dict[str, str]]:
 
 
 def save_record(root: Path, agents: Sequence[str], hashes: dict[str, str]) -> Path:
+    """Write :data:`RECORD`: the agents in catalogue order and each file's hash."""
     path = root / RECORD
     path.parent.mkdir(parents=True, exist_ok=True)
     keys = [a.key for a in agents_by_key(agents)]
@@ -273,6 +275,7 @@ def ask_agents(
 
 
 def _choice(answer: str) -> list[str]:
+    """Agent keys from an answer of numbers and names; raises on an unknown one."""
     keys: list[str] = []
     for part in (p.strip().lower() for p in answer.split(",") if p.strip()):
         if part.isdigit() and 1 <= int(part) <= len(CODING_AGENTS):
