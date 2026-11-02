@@ -16,6 +16,12 @@ OUT="${1:-$ROOT/snyk-out}"
 # OUT is wiped on every run: accept only a directory this script created
 # (it carries MARKER) or one that is new or empty.
 MARKER=".snyk-python-env"
+# `link/` and `link/.` resolve through a symlink, which -L would not see.
+while [[ "$OUT" == ?*/ || "$OUT" == */. ]]; do
+  OUT="${OUT%/}"
+  OUT="${OUT%/.}"
+done
+OUT="${OUT:-/}"
 if [[ -L "$OUT" || (-e "$OUT" && ! -d "$OUT") ]]; then
   echo "OUT must be a directory: $OUT" >&2
   exit 2
