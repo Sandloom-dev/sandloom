@@ -1,0 +1,373 @@
+{
+  "schema": 1,
+  "note": "Hits per (file, rule) of tools/docs/docs_prose_lint.py. Entries only shrink: lower them with --update-baseline, never raise them by hand.",
+  "counts": {
+    "docs/admin-console/declarations.md": {
+      "P6": 1,
+      "S4": 1
+    },
+    "docs/admin-console/deploy.md": {
+      "S4": 1
+    },
+    "docs/admin-console/develop.md": {
+      "P6": 5,
+      "S4": 2
+    },
+    "docs/admin-console/index.md": {
+      "S4": 1
+    },
+    "docs/admin-console/operations.md": {
+      "P6": 5,
+      "P9": 1,
+      "S4": 4
+    },
+    "docs/contributing/branches.md": {
+      "P6": 1,
+      "S9": 1
+    },
+    "docs/contributing/ci-performance-research.md": {
+      "P6": 3,
+      "P7": 1,
+      "S4": 1
+    },
+    "docs/contributing/ci.md": {
+      "P12": 1,
+      "P6": 4,
+      "S4": 12
+    },
+    "docs/contributing/dependency-security-audit.md": {
+      "P6": 2,
+      "P9": 4,
+      "S4": 1
+    },
+    "docs/contributing/index.md": {
+      "P6": 2,
+      "P9": 5,
+      "S4": 3
+    },
+    "docs/contributing/lint-policy.md": {
+      "P9": 5,
+      "S4": 6
+    },
+    "docs/contributing/local-ci.md": {
+      "P6": 3,
+      "P9": 25,
+      "S4": 24,
+      "S9": 1
+    },
+    "docs/contributing/publishing.md": {
+      "P6": 6,
+      "S4": 2
+    },
+    "docs/contributing/repository.md": {
+      "P9": 5
+    },
+    "docs/contributing/setup.md": {
+      "P6": 1,
+      "P9": 3
+    },
+    "docs/contributing/source-export.md": {
+      "P12": 1,
+      "P6": 2,
+      "S4": 2
+    },
+    "docs/contributing/supply-chain.md": {
+      "P6": 4,
+      "P7": 1,
+      "P9": 2,
+      "S4": 3
+    },
+    "docs/contributing/versioning.md": {
+      "P12": 1,
+      "P9": 8,
+      "S4": 5
+    },
+    "docs/getting-started/help.md": {
+      "S9": 1
+    },
+    "docs/getting-started/index.md": {
+      "S4": 2
+    },
+    "docs/getting-started/tutorial.md": {
+      "P6": 1,
+      "P8": 1,
+      "S4": 1
+    },
+    "docs/index.md": {
+      "P6": 3,
+      "P8": 1,
+      "S4": 3
+    },
+    "docs/infrastructure/database.md": {
+      "P6": 1,
+      "S4": 3
+    },
+    "docs/infrastructure/index.md": {
+      "P6": 1,
+      "S4": 3
+    },
+    "docs/infrastructure/own-capability.md": {
+      "K3": 2
+    },
+    "docs/infrastructure/write-a-driver.md": {
+      "P8": 1
+    },
+    "docs/modules/background/effect-deduplication.md": {
+      "P6": 1,
+      "P7": 1
+    },
+    "docs/modules/background/tasks.md": {
+      "P6": 1,
+      "P7": 1,
+      "S4": 8
+    },
+    "docs/modules/between/add-consumer.md": {
+      "K3": 2,
+      "S4": 3
+    },
+    "docs/modules/between/add-contract.md": {
+      "S4": 6
+    },
+    "docs/modules/between/add-event.md": {
+      "S4": 2
+    },
+    "docs/modules/between/add-projection.md": {
+      "S4": 8
+    },
+    "docs/modules/between/add-saga.md": {
+      "P6": 1,
+      "S4": 6
+    },
+    "docs/modules/between/contracts.md": {
+      "P6": 5,
+      "P7": 1,
+      "P8": 1,
+      "S4": 21
+    },
+    "docs/modules/between/event-versioning.md": {
+      "S4": 4
+    },
+    "docs/modules/between/events.md": {
+      "P6": 6,
+      "P8": 2,
+      "S4": 19
+    },
+    "docs/modules/between/projections.md": {
+      "P6": 4,
+      "P8": 1,
+      "S4": 13
+    },
+    "docs/modules/between/sagas.md": {
+      "P6": 2,
+      "P7": 1,
+      "S13": 3,
+      "S4": 10
+    },
+    "docs/modules/create.md": {
+      "P6": 3,
+      "S4": 4
+    },
+    "docs/modules/database/conventions.md": {
+      "S4": 2
+    },
+    "docs/modules/database/migrations.md": {
+      "P6": 2,
+      "S4": 4
+    },
+    "docs/modules/database/multi-tenancy.md": {
+      "K3": 1,
+      "P6": 1,
+      "P9": 5,
+      "S4": 7
+    },
+    "docs/modules/database/run-migrations.md": {
+      "P7": 1,
+      "S4": 3
+    },
+    "docs/modules/database/units.md": {
+      "P6": 1,
+      "S4": 7
+    },
+    "docs/modules/database/write-migration.md": {
+      "P6": 1,
+      "S4": 7
+    },
+    "docs/modules/guarantees/index.md": {
+      "P6": 1,
+      "S4": 4
+    },
+    "docs/modules/guarantees/lifecycle.md": {
+      "P6": 1,
+      "S4": 5
+    },
+    "docs/modules/guarantees/module-internals.md": {
+      "P7": 1,
+      "S4": 8
+    },
+    "docs/modules/guarantees/write-admission.md": {
+      "P6": 2,
+      "S4": 4
+    },
+    "docs/modules/http/audit.md": {
+      "K3": 1
+    },
+    "docs/modules/http/authorization.md": {
+      "K3": 1,
+      "P6": 4,
+      "S4": 5
+    },
+    "docs/modules/http/idempotent-write.md": {
+      "P6": 1,
+      "S13": 1,
+      "S4": 7,
+      "S8": 2
+    },
+    "docs/modules/http/route-policy.md": {
+      "K3": 1,
+      "P6": 5,
+      "P7": 3,
+      "S13": 1,
+      "S4": 16
+    },
+    "docs/modules/http/session-revocation.md": {
+      "P12": 1
+    },
+    "docs/modules/index.md": {
+      "P6": 2,
+      "S4": 2
+    },
+    "docs/modules/standard/billing.md": {
+      "P6": 5,
+      "P8": 1,
+      "P9": 15,
+      "S13": 1,
+      "S4": 23,
+      "S8": 1
+    },
+    "docs/modules/standard/customize.md": {
+      "K3": 2,
+      "P8": 1
+    },
+    "docs/modules/standard/first-access-token.md": {
+      "P6": 1,
+      "P7": 1
+    },
+    "docs/modules/standard/identity.md": {
+      "P12": 1,
+      "P6": 5,
+      "P9": 20,
+      "S13": 1,
+      "S4": 12
+    },
+    "docs/modules/standard/index.md": {
+      "P6": 1,
+      "P9": 3,
+      "S4": 2
+    },
+    "docs/modules/standard/sso.md": {
+      "P9": 4,
+      "S4": 3
+    },
+    "docs/modules/standard/tenancy.md": {
+      "P9": 11,
+      "S13": 1,
+      "S4": 9
+    },
+    "docs/modules/tooling/architecture-graph.md": {
+      "P6": 9,
+      "S4": 2
+    },
+    "docs/modules/tooling/generate.md": {
+      "P6": 1,
+      "S4": 1
+    },
+    "docs/modules/tooling/module-context.md": {
+      "P12": 1,
+      "P6": 4
+    },
+    "docs/modules/tooling/testing.md": {
+      "P12": 1,
+      "P6": 6,
+      "P8": 1,
+      "S13": 1,
+      "S4": 24
+    },
+    "docs/operate/deploy.md": {
+      "P12": 1,
+      "P6": 2,
+      "S13": 1
+    },
+    "docs/operate/loader-configuration.md": {
+      "P6": 1,
+      "P9": 1,
+      "S4": 4
+    },
+    "docs/operate/operator-reference.md": {
+      "P6": 6,
+      "P8": 1,
+      "P9": 59,
+      "S11": 1,
+      "S13": 3,
+      "S4": 65
+    },
+    "docs/operate/service-rpc.md": {
+      "P6": 1,
+      "P9": 10,
+      "S4": 9,
+      "S8": 1
+    },
+    "docs/operate/split-into-services.md": {
+      "P6": 3,
+      "S4": 5
+    },
+    "docs/operate/topologies.md": {
+      "P6": 2,
+      "S4": 7
+    },
+    "docs/operate/upgrade-1.0.md": {
+      "P6": 2
+    },
+    "docs/reference/cli.md": {
+      "P12": 1,
+      "P6": 5,
+      "P7": 1,
+      "P9": 16,
+      "S4": 13
+    },
+    "docs/reference/dependencies.md": {
+      "P9": 11,
+      "S4": 14,
+      "S8": 1,
+      "S9": 2
+    },
+    "docs/reference/event-contracts.md": {
+      "P12": 1,
+      "P7": 1,
+      "P9": 8,
+      "S4": 2
+    },
+    "docs/reference/execution-planner.md": {
+      "P6": 5,
+      "P9": 1,
+      "S4": 4
+    },
+    "docs/reference/security-model.md": {
+      "P12": 1,
+      "P6": 13,
+      "P7": 1,
+      "P8": 5,
+      "P9": 72,
+      "S11": 1,
+      "S4": 94
+    },
+    "docs/reference/slo.md": {
+      "P6": 2,
+      "P9": 9,
+      "S4": 6
+    },
+    "docs/reference/testing.md": {
+      "P6": 3,
+      "S4": 7
+    }
+  }
+}

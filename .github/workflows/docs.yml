@@ -31,6 +31,13 @@ jobs:
           python3 tools/docs/docs_stale_symbols.py --self-test
           python3 tools/docs/docs_stale_symbols.py
 
+      # The mechanical style rules of the docs-writing skill (S4, S8, S9, S11,
+      # S13, K3) fail here; a ratchet baseline holds the existing hits (stdlib only).
+      - name: Prose lint
+        run: |
+          python3 tools/docs/docs_prose_lint.py --self-test
+          python3 tools/docs/docs_prose_lint.py
+
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -46,6 +53,14 @@ jobs:
         run: |
           uv sync --locked --all-extras
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # Python in the docs parses (D1), its sandloom imports resolve (D2), every
+      # --8<-- include resolves (D3), and a block over 3 lines comes from a tested
+      # file (D4, ratchet baseline). D2 imports the code, so it runs in the uv env.
+      - name: Docs code check
+        run: |
+          uv run --locked python tools/docs/docs_code_check.py --self-test
+          uv run --locked python tools/docs/docs_code_check.py
 
       - name: Build docs (strict)
         run: python3 tools/docs/docs_site.py build

@@ -28,6 +28,8 @@ Pain 1 is the result the reader feels; pains 2 to 4 are why agents get there; th
 | 11 | Each feature reinvents the last one's plumbing. | [GitClear](https://www.gitclear.com/ai_assistant_code_quality_2025_research), a vendor: refactoring fell from 25% to under 10% of changed lines from 2021 to 2024, clones rose from 8.3% to 12.3%. Correlation, and He et al. found no significant effect on duplicate lines. | `sandloom add` generators, the kernel, drivers behind capabilities, standard identity, tenancy and billing modules. | Helps |
 | 12 | Code arrives faster than a person can review it. | **Inference** from pains 6 and 10; DORA calls AI an amplifier of what a team already has. | Changes stay inside one module. Route and contract snapshots show policy changes in the diff. `sandloom graph` and `explore` show the links. | Helps; unmeasured |
 
+| 13 | Moving from a monolith to microservices means rewriting: calls between parts become network calls, shared tables become separate databases, and the product stalls while it happens. Not specific to agents. | The owner added it on 2026-11-02. Fowler, [MonolithFirst](https://martinfowler.com/bliki/MonolithFirst.html), and Newman, *Monolith to Microservices* (2019), describe the split as a long incremental migration. Not re-read this session. | Modules talk only through contracts and events, so a call between two modules becomes RPC by configuration (`SANDLOOM_MODULES`, `SERVICE_BINDINGS`), with the same code. Each module owns its tables and migration chain. `sandloom add deploy` derives the services, and `sandloom migrate extract-module` moves a module's existing data to its own database. | Code: by configuration, no rewrite. Data: a separate offline step, planned, fenced and verified, not a switch |
+
 ## What Sandloom does not close
 
 - Most decay inside one module: Sandloom limits how modules depend on each other and how complex one function is, not how tangled a module becomes.
@@ -41,5 +43,5 @@ Pain 1 is the result the reader feels; pains 2 to 4 are why agents get there; th
 - These are secondary evidence and vendor reports, mostly from 2025. Veracode and GitClear sell related products.
 - Before any number goes on a public page: run the product suite, paid, for Sandloom's own figures. Its tasks `p3_add_module_n2` and `p4_add_module_n7` compare the cost of adding the 2nd module and the 7th, the direct test of pain 1.
 - He et al. studied open-source projects adopting one tool, and its findings may not carry over to other agents or to closed teams. Velocity figures were not checked per horizon beyond the paper's summary.
-- The owner added pains 2, 3 and 4 on 2026-11-02; ask before treating the list as closed.
+- The owner added pains 2, 3, 4 and 13 on 2026-11-02 and closed the positioning's list at six: rows 1–5 and 13 ([positioning.md](positioning.md)). The other rows are background a page may draw on.
 - `SANDLOOM-C001`'s fix text names stale API (task `check-messages-stale`), and it would appear in any proof shown.

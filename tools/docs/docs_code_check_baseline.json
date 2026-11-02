@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "note": "D4 hits (inline Python blocks of more than 3 lines) per file of tools/docs/docs_code_check.py. Entries only shrink: lower them with --update-baseline, never raise them by hand.",
+  "counts": {
+    "docs/admin-console/add-your-module.md": {
+      "D4": 1
+    },
+    "docs/admin-console/declarations.md": {
+      "D4": 1
+    },
+    "docs/infrastructure/configure.md": {
+      "D4": 1
+    },
+    "docs/infrastructure/index.md": {
+      "D4": 1
+    },
+    "docs/infrastructure/notifications.md": {
+      "D4": 1
+    },
+    "docs/infrastructure/write-a-driver.md": {
+      "D4": 1
+    },
+    "docs/modules/background/tasks.md": {
+      "D4": 3
+    },
+    "docs/modules/between/add-projection.md": {
+      "D4": 1
+    },
+    "docs/modules/between/add-saga.md": {
+      "D4": 1
+    },
+    "docs/modules/between/contracts.md": {
+      "D4": 3
+    },
+    "docs/modules/between/event-versioning.md": {
+      "D4": 4
+    },
+    "docs/modules/between/events.md": {
+      "D4": 1
+    },
+    "docs/modules/between/projections.md": {
+      "D4": 2
+    },
+    "docs/modules/between/sagas.md": {
+      "D4": 3
+    },
+    "docs/modules/database/conventions.md": {
+      "D4": 1
+    },
+    "docs/modules/database/multi-tenancy.md": {
+      "D4": 4
+    },
+    "docs/modules/database/units.md": {
+      "D4": 2
+    },
+    "docs/modules/guarantees/module-internals.md": {
+      "D4": 1
+    },
+    "docs/modules/guarantees/write-admission.md": {
+      "D4": 1
+    },
+    "docs/modules/http/audit.md": {
+      "D4": 1
+    },
+    "docs/modules/http/authorization.md": {
+      "D4": 1
+    },
+    "docs/modules/http/idempotent-write.md": {
+      "D4": 3
+    },
+    "docs/modules/http/route-policy.md": {
+      "D4": 1
+    },
+    "docs/modules/standard/billing.md": {
+      "D4": 1
+    },
+    "docs/modules/standard/customize.md": {
+      "D4": 1
+    },
+    "docs/reference/event-contracts.md": {
+      "D4": 1
+    },
+    "docs/reference/execution-planner.md": {
+      "D4": 1
+    },
+    "docs/reference/testing.md": {
+      "D4": 10
+    }
+  }
+}

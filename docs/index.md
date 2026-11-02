@@ -14,9 +14,11 @@ footer_next:
 
 ## Why agents need a framework
 
-Coding agents write features quickly, but that speed fades as a backend grows. In [a study of GitHub projects adopting Cursor](https://arxiv.org/abs/2511.04427), the gain lasted two months, while code complexity rose 41% and stayed there. Each feature tangles the code a little more. An agent can't hold the whole system in mind, so it misses connected code and breaks things it never read. Agents working in parallel collide. Rules written in a prompt are only requests.
+Coding agents write features quickly, but that speed fades as a backend grows. In [a study of GitHub projects adopting Cursor](https://arxiv.org/abs/2511.04427), the gain lasted two months, while code complexity rose 41% and stayed there. The agent has to design the architecture, remember it and obey rules nothing enforces, so in a big project it misses what depends on what. Each change reaches into other parts, so every feature costs more than the last and agents working in parallel collide. Rules written in a prompt are only requests.
 
 Sandloom keeps your business logic atomic, isolated from other parts of the product and from the infrastructure. Automated checks hold those boundaries, however large the backend gets. An agent only has to understand the part it is changing, several agents can work side by side, and a broken rule fails a check instead of slipping through.
+
+Sandloom also handles the hard edge cases an agent rarely thinks about, from security to failures halfway through a change. They are built into the framework, so the agent does not have to remember them.
 
 !!! tip "Start here"
 
@@ -29,7 +31,7 @@ Sandloom keeps your business logic atomic, isolated from other parts of the prod
 
         Follow https://sandloom.dev/docs/getting-started/index.md to create the project,
         then follow the AGENTS.md it generates.
-        Before you say it is done, run: uv run sandloom test
+        Finish only when `uv run sandloom test` prints `sandloom test: OK`.
         ```
 
     === "Yourself"

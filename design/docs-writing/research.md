@@ -365,6 +365,10 @@ I found no documentation style guide among those surveyed that names jobs to be 
 
 **Inference.** Diátaxis says what kind of page to write; a job says for whom, at what moment, and what to cut. Both are needed, and a job statement gives C2's problem, the title and the cold-read question from one line. Adopted: one job story per page, kept in front matter; jobs as a cut test; job levels loosely matching entry page and concept, how-to and recipe, reference. Not adopted: interviews, outcome scoring, forces diagrams and job canvases. Sandloom has too few users for them, so its job statements are hypotheses until issues and the DX eval support them.
 
+## Positioning
+
+Added on 2026-11-02, after the blind test showed that the core idea and the alternatives come only from the owner. April Dunford's *Obviously Awesome* (2019) builds positioning from five components, in this order: competitive alternatives, unique attributes, value, best-fit customers, market category. Adopted as the fields of `positioning.md`, plus the core idea and naming, which Overview showed the pages need. Not verified against the book's text in this session; the components are as widely summarised.
+
 ## What could not be verified
 
 - **The fetch tool's summariser invented content.** On [How Temporal works](https://docs.temporal.io/encyclopedia/architecture/how-temporal-works) it produced a money-transfer example, a crash walkthrough and a code sample that are not on the page. So I downloaded raw text or Markdown for the pages cited and checked quotations and outlines against that. Rules from Microsoft, Cloudflare, Supabase, Next.js, Temporal and Encore were read raw. Other rows were summarised first and spot-checked by search, so a detail may still be off.

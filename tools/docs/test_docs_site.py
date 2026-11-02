@@ -61,6 +61,36 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertIn("AGENTS.md", selected)
         self.assertIn("docs/getting-started/tutorial.md", selected)
 
+    def test_prose_lint_scans_the_repository_docs(self) -> None:
+        from tools.docs import docs_generated, docs_prose_lint
+
+        self.assertEqual(docs_prose_lint.ROOT, REPO)
+        selected = [
+            rel
+            for rel in docs_prose_lint.tracked_files(REPO)
+            if docs_prose_lint.in_scope(rel, (REPO / rel).read_text())
+        ]
+        self.assertIn("docs/index.md", selected)
+        self.assertIn("docs/getting-started/tutorial.md", selected)
+        self.assertNotIn("docs/reference/sdk/web.md", selected)
+        snippets = docs_generated.SNIPPETS.relative_to(REPO).as_posix() + "/"
+        self.assertIn(snippets, docs_prose_lint.GENERATED_PREFIXES)
+        self.assertEqual(docs_prose_lint.self_test(), 0)
+        self.assertEqual(docs_prose_lint.main([]), 0)
+
+    def test_docs_code_check_scans_the_prose_lint_pages(self) -> None:
+        from tools.docs import docs_code_check, docs_prose_lint
+
+        self.assertEqual(docs_code_check.ROOT, REPO)
+        self.assertEqual(
+            docs_code_check.EXEMPT_PREFIXES, docs_prose_lint.EXEMPT_PREFIXES
+        )
+        self.assertEqual(
+            docs_code_check.GENERATED_PREFIXES, docs_prose_lint.GENERATED_PREFIXES
+        )
+        self.assertEqual(docs_code_check.self_test(), 0)
+        self.assertEqual(docs_code_check.main([]), 0)
+
     def test_every_setting_has_a_source_description(self) -> None:
         from sandloom.core.config.settings import Settings
 
