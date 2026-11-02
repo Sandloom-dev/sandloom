@@ -114,10 +114,12 @@ def test_path_scoped_rules_are_short_and_scoped() -> None:
         assert len(text.splitlines()) <= RULES_MAX_LINES, rule.name
 
 
-def test_root_map_embeds_the_shipped_api_cheatsheet() -> None:
+def test_module_rule_embeds_the_shipped_api_cheatsheet() -> None:
     """The signature cheat-sheet agents read instead of the kernel is one text:
-    the root AGENTS.md carries it verbatim, ``sandloom new`` appends the same file."""
-    assert API_CHEATSHEET_PATH.read_text(encoding="utf-8") in _read("AGENTS.md"), (
-        "AGENTS.md's Public API cheat-sheet drifted from "
-        "sandloom/core/cli/templates/api-cheatsheet.md: edit the template, copy it over"
+    the module-paths rule carries it verbatim (Claude Code loads it with a
+    module file), and ``sandloom new`` appends the same file to an app's AGENTS.md."""
+    rule = ".claude/rules/module-api.md"
+    assert API_CHEATSHEET_PATH.read_text(encoding="utf-8") in _read(rule), (
+        f"{rule} drifted from sandloom/core/cli/templates/api-cheatsheet.md: "
+        "edit the template, copy it over"
     )

@@ -6,7 +6,6 @@ description: Create a business module in this Sandloom app (sandloom add module,
 # Create a module in <app>
 
 1. **Read `AGENTS.md` first** (the map). The rules no gate catches:
-   - a row of one organization is `TenantScoped`;
    - an effect outside a durable consumer needs its own dedupe;
    - a breaking event change is a dual-published `.v2` (skill
      `sandloom-event-version-roll`);
