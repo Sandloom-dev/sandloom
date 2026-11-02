@@ -31,7 +31,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C004`](#sandloom-c004) | `infra-imports` | check | infra-internal module, legacy global or backend SDK imported | active |
 | [`SANDLOOM-C005`](#sandloom-c005) | `kernel-handles` | check | kernel handle reached by attribute in module code | active |
 | [`SANDLOOM-C006`](#sandloom-c006) | `uow-boundary` | check | db.commit() / db.rollback() in module code | active |
-| [`SANDLOOM-C007`](#sandloom-c007) | `best-effort-effects` | check | publish_event / record_audit downgraded to best-effort without a marker | active |
+| [`SANDLOOM-C007`](#sandloom-c007) | `best-effort-effects` | check | an event publish or record_audit downgraded to best-effort without a marker | active |
 | [`SANDLOOM-C008`](#sandloom-c008) | `get-core-await` | check | get_core(request) called without await | active |
 | [`SANDLOOM-C009`](#sandloom-c009) | `endpoints-outside-api` | check | HTTP endpoint outside the module's api/ layer | active |
 | [`SANDLOOM-C010`](#sandloom-c010) | `orm-leakage` | check | ORM model / SQLAlchemy in an endpoint file | active |
@@ -41,7 +41,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C014`](#sandloom-c014) | `tenant-scoped-models` | check | a per-tenant table is not TenantScoped | active |
 | [`SANDLOOM-C015`](#sandloom-c015) | `unsafe-tenant-sql` | check | runtime raw SQL / Core table access can bypass the tenant guard | active |
 | [`SANDLOOM-C016`](#sandloom-c016) | `route-operation-class` | check | a route declares no ADR-0003 operation class (retired) | retired (never reused) |
-| [`SANDLOOM-C017`](#sandloom-c017) | `event-schema-channels` | check | publish_event names a channel the module registers no schema for | active |
+| [`SANDLOOM-C017`](#sandloom-c017) | `event-schema-channels` | check | an event is published on a channel the module registers no schema for | active |
 | [`SANDLOOM-C018`](#sandloom-c018) | `guard-order` | check | a guard or tenant-dependent gate is declared before what it needs | active |
 | [`SANDLOOM-C019`](#sandloom-c019) | `consumed-contracts` | check | get_service names a contract the module does not declare in consumes= | active |
 | [`SANDLOOM-C020`](#sandloom-c020) | `db-dependency-scope` | check | Depends(get_db) without scope="function" | active |
@@ -76,7 +76,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
-| [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), publish_event or record_audit ran outside a Unit of Work | active |
+| [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
 | [`SANDLOOM-R003`](#sandloom-r003) | `event-schema-missing` | runtime | an event was published on a channel with no registered schema | active |
 | [`SANDLOOM-R004`](#sandloom-r004) | `event-payload-invalid` | runtime | an event payload does not match its channel's schema | active |
 | [`SANDLOOM-R005`](#sandloom-r005) | `service-unavailable-in-deployment` | runtime | a contract is neither provided locally nor bound remotely | active |
@@ -116,14 +116,10 @@ Slug: `module-boundaries` · kind: check · status: active
 Modules are atomic and isolated: each one can be deployed as its own service.
 An import of another business module (any spelling: absolute, relative,
 importlib) couples the two at the code level, so the second module would have
-to ship in every process that loads the first.
+to ship in every process that loads the first. A module-level Contract(...)
+reference declares the dependency (consumes= is derived).
 
-Fix: publish an Event subclass and react to it with an @on(EventClass)
-consumer in the other module, or call its public sync contract through
-Contract(X_Y_V1) (the generated reference in sandloom.shared.contracts); the
-module-level reference declares the dependency (consumes= is derived).
-
-**Fix:** talk through a typed event (an sandloom.sdk.events Event subclass, published with publish_event and consumed with @on(...)) or a typed contract (Contract(X_Y_V1) from sandloom.sdk.contracts); never import the other module
+**Fix:** publish an Event subclass (`await NoteCreated(...).publish()`) and react to it with @on(NoteCreated) in the other module, or call its contract through Contract(X_Y_V1) from the generated sandloom.shared.contracts stub; never import the other module
 
 **More:** `AGENTS.md#the-one-rule-that-matters`
 
@@ -170,7 +166,7 @@ the drivers construct every backend. `sandloom.driverkit` and a driver package's
 own module are blocked too: a module asks for a capability, and a package's
 `contracts` module is what it may import.
 
-**Fix:** use DbSession / Database(name) / di.cache() / publish_event / Capability
+**Fix:** use db() or Database(name) for tables, cache() / notifier() / capability() from sandloom.sdk.infra for infrastructure, and Event.publish() for events
 
 ### SANDLOOM-C005
 
@@ -203,7 +199,7 @@ later rolled back.
 
 ### SANDLOOM-C007
 
-**publish_event / record_audit downgraded to best-effort without a marker**
+**an event publish or record_audit downgraded to best-effort without a marker**
 
 Slug: `best-effort-effects` · kind: check · status: active
 
@@ -357,7 +353,7 @@ Retired. A static rule for ADR-0003 operation classes was planned and dropped: t
 
 ### SANDLOOM-C017
 
-**publish_event names a channel the module registers no schema for**
+**an event is published on a channel the module registers no schema for**
 
 Slug: `event-schema-channels` · kind: check · status: active
 
@@ -950,7 +946,7 @@ the model and the route that hit it.
 
 ### SANDLOOM-R002
 
-**db(), publish_event or record_audit ran outside a Unit of Work**
+**db(), an event publish or record_audit ran outside a Unit of Work**
 
 Slug: `unit-of-work-required` · kind: runtime · status: active
 

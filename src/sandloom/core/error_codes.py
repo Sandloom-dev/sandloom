@@ -135,20 +135,16 @@ from what the current declarations and routes compile to.
         "module-boundaries",
         "check",
         "a business module imports a sibling business module",
-        "talk through a typed event (an sandloom.sdk.events Event subclass, "
-        "published with publish_event and consumed with @on(...)) or a typed "
-        "contract (Contract(X_Y_V1) from sandloom.sdk.contracts); never import the "
-        "other module",
+        "publish an Event subclass (`await NoteCreated(...).publish()`) and "
+        "react to it with @on(NoteCreated) in the other module, or call its "
+        "contract through Contract(X_Y_V1) from the generated "
+        "sandloom.shared.contracts stub; never import the other module",
         """
 Modules are atomic and isolated: each one can be deployed as its own service.
 An import of another business module (any spelling: absolute, relative,
 importlib) couples the two at the code level, so the second module would have
-to ship in every process that loads the first.
-
-Fix: publish an Event subclass and react to it with an @on(EventClass)
-consumer in the other module, or call its public sync contract through
-Contract(X_Y_V1) (the generated reference in sandloom.shared.contracts); the
-module-level reference declares the dependency (consumes= is derived).
+to ship in every process that loads the first. A module-level Contract(...)
+reference declares the dependency (consumes= is derived).
 """,
         "AGENTS.md#the-one-rule-that-matters",
     ),
@@ -185,7 +181,8 @@ layer. Use the operations of the capability contract instead.
         "infra-imports",
         "check",
         "infra-internal module, legacy global or backend SDK imported",
-        "use DbSession / Database(name) / di.cache() / publish_event / Capability",
+        "use db() or Database(name) for tables, cache() / notifier() / capability() "
+        "from sandloom.sdk.infra for infrastructure, and Event.publish() for events",
         """
 Modules know infrastructure only by logical name. Backend SDKs (boto3, motor,
 neo4j, ...), the legacy globals and the infra-internal packages are blocked;
@@ -226,7 +223,7 @@ later rolled back.
         "SANDLOOM-C007",
         "best-effort-effects",
         "check",
-        "publish_event / record_audit downgraded to best-effort without a marker",
+        "an event publish or record_audit downgraded to best-effort without a marker",
         "drop required=False and run inside a Unit of Work, or justify it with "
         "`# sandloom: best-effort <reason>` on the call",
         """
@@ -363,7 +360,7 @@ exemption (no matching table any more) also fails.
         "SANDLOOM-C017",
         "event-schema-channels",
         "check",
-        "publish_event names a channel the module registers no schema for",
+        "an event is published on a channel the module registers no schema for",
         "declare the event as an Event subclass in the module's events.py "
         "(its channel and schema are derived), or fix the channel name",
         """
@@ -896,7 +893,7 @@ the model and the route that hit it.
         "SANDLOOM-R002",
         "unit-of-work-required",
         "runtime",
-        "db(), publish_event or record_audit ran outside a Unit of Work",
+        "db(), an event publish or record_audit ran outside a Unit of Work",
         "call it inside a request handler, a contract method, an @on consumer "
         "or a task; elsewhere open a unit with `async with open_uow(...)` "
         "(sandloom.sdk.data)",
