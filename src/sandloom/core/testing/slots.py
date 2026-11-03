@@ -86,7 +86,10 @@ class Slot:
     connection: Any = None
 
     def release(self) -> None:
-        for url in self.claimed_redis:
+        # Only while this run still holds the slot's lock: once it is lost,
+        # another run may hold the same slot (same owner, same indexes).
+        claimed = () if slot_lost(self) else self.claimed_redis
+        for url in claimed:
             with contextlib.suppress(Exception):  # gone or taken over: prune's job
                 _resources().release_redis(url, self.owner)
         self.claimed_redis = ()

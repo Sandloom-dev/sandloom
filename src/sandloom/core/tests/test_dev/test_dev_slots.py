@@ -410,6 +410,32 @@ def test_a_released_slot_hands_back_its_redis_indexes(
             client.close()
 
 
+def test_a_slot_that_lost_its_lock_leaves_the_redis_indexes_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the lock is lost another run may hold the same slot, with the same
+    owner and indexes: the old process must not empty them at exit."""
+    released: list[str] = []
+    monkeypatch.setattr(
+        slots,
+        "_resources",
+        lambda: mock.Mock(release_redis=lambda u, _o: released.append(u)),
+    )
+    slot = slots.Slot(
+        number=2,
+        database_url="postgresql://x/y",
+        owner="m:/repo#2",
+        claimed_redis=("redis://h/7",),
+    )
+    monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: True)
+    slot.release()
+    assert released == []
+    slot.claimed_redis = ("redis://h/7",)
+    monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: False)
+    slot.release()
+    assert released == ["redis://h/7"]
+
+
 def test_the_controller_releases_its_slot_at_exit(
     monkeypatch: pytest.MonkeyPatch, checkout: tuple[Path, str], tmp_path: Path
 ) -> None:
