@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import socket
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -173,12 +175,76 @@ def test_invite_creates_and_prints_a_fragment_link(run: Any) -> None:
     assert create[3] == "first administrator"
 
 
-def test_the_link_uses_this_checkouts_dev_run_port(run: Any, tmp_path: Path) -> None:
-    (tmp_path / ".sandloom" / "run").mkdir(parents=True)
-    (tmp_path / ".sandloom" / "run" / "app.json").write_text(json.dumps({"port": 8123}))
+def _run_file(root: Path, pid: int, port: int) -> None:
+    (root / ".sandloom" / "run").mkdir(parents=True, exist_ok=True)
+    record = {
+        "pid": pid,
+        "host": socket.gethostname(),
+        "port": port,
+        "url": f"http://127.0.0.1:{port}",
+    }
+    (root / ".sandloom" / "run" / "dev-run.json").write_text(json.dumps(record))
+
+
+def test_the_link_uses_this_checkouts_dev_run_port(
+    run: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "shop"\n')
+    _run_file(tmp_path, os.getpid(), 8123)
+    # From a subdirectory too: the checkout root holds the run file.
+    (tmp_path / "src" / "shop").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path / "src" / "shop")
     code, out, _ = run(_Security(), "create", "--email", "o@example.com", "--invite")
     assert code == 0
     assert "http://127.0.0.1:8123/admin/set-password#token=" in out
+
+
+def test_a_dead_dev_run_file_is_ignored(run: Any, tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "shop"\n')
+    _run_file(tmp_path, 2**22 + 12345, 8123)
+    code, out, _ = run(_Security(), "create", "--email", "o@example.com", "--invite")
+    assert code == 0
+    assert "http://127.0.0.1:8000/admin/set-password#token=" in out
+
+
+def test_a_password_that_was_not_set_prints_no_token(run: Any) -> None:
+    class _Refusing(_Security):
+        async def set_password_with_token(
+            self, token: str, new_password: str, key: str
+        ) -> bool:
+            raise ContractCallError("Invalid or expired token", status_code=400)
+
+    security = _Refusing()
+    code, out, err = run(
+        security,
+        "create",
+        "--email",
+        "owner@example.com",
+        "--password-stdin",
+        stdin=GOOD + "\n",
+    )
+    assert code == 1
+    assert TOKEN not in out + err
+    assert "set-password#" not in out + err
+    assert "The password was not set (Invalid or expired token)" in err
+    assert "uv run sandloom admin invite --email owner@example.com" in err
+
+
+def test_an_inactive_account_is_taken_over_by_the_contract(run: Any) -> None:
+    """The CLI leaves reactivation to identity's take-over; it still mints."""
+    squatter = _account(admin_role=False, verified=False)
+    squatter.is_active = False
+    security = _Security(owner_at_example_com=squatter)
+    code, out, _ = run(
+        security,
+        "create",
+        "--email",
+        "owner@example.com",
+        "--invite",
+        "--take-over",
+    )
+    assert code == 0, out
+    assert security.names() == ["take_over", "mint"]
 
 
 def test_if_missing_exits_zero_only_for_an_existing_admin(run: Any) -> None:
@@ -245,7 +311,9 @@ def test_production_needs_apply_confirm_and_reason(
     assert code == 0
     assert security.calls[0][3] == "go-live"
     # The console is off in production by default: the frontend's reset page.
-    assert f"https://app.example.com/auth/reset-password?token={TOKEN}" in out
+    # The token stays in the fragment there too.
+    assert f"https://app.example.com/auth/reset-password#token={TOKEN}" in out
+    assert "?token=" not in out
 
 
 def test_production_invite_needs_frontend_url(

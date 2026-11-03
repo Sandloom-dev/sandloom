@@ -14,6 +14,7 @@ from sandloom.core.module_api._spec import (
     CONTRACT_SPEC_ATTR,
     SESSION_PARAM_NAMES,
     ContractMethodSpec,
+    undigested_names,
 )
 from sandloom.core.unit_of_work.risk import RISK_ATTR as _RISK_ATTR
 from sandloom.core.unit_of_work.risk import RISKS as _RISKS
@@ -63,6 +64,26 @@ def _direct_command_target(
         )
     name, database = found.pop()
     return core, database, name
+
+
+def _check_undigested(spec: ContractMethodSpec, func: Any) -> None:
+    """The secret arguments :func:`undigested` marked on ``func`` are its own
+    domain parameters, never the key or its scope (checked at decoration)."""
+    names = undigested_names(func)
+    if not names:
+        return
+    where = getattr(func, "__qualname__", repr(func))
+    if spec.kind != "command":
+        raise ValueError(f"{where}: undigested() applies to command contracts only")
+    parameters = inspect.signature(func).parameters
+    for name in names:
+        if name not in parameters or name in {"cls", "self", *SESSION_PARAM_NAMES}:
+            raise ValueError(f"{where}: undigested {name!r} is not a parameter")
+        if name == spec.idempotency_key or name in spec.idempotency_scope:
+            raise ValueError(
+                f"{where}: {name!r} is the idempotency key or part of its scope; "
+                "it cannot be left out of the digest"
+            )
 
 
 @overload
@@ -162,6 +183,7 @@ def contract_method(  # noqa: C901
     def decorate(func: _F) -> _F:
         if not inspect.iscoroutinefunction(func):
             raise TypeError(f"@contract_method requires an async function: {func!r}")
+        _check_undigested(spec, func)
         if idempotency_key is not None and (
             idempotency_key not in inspect.signature(func).parameters
         ):

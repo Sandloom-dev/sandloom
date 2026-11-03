@@ -17,7 +17,11 @@ from sandloom.core.loader.plugin_loader import (
     ModuleRegistrationError,
     _invoke_register,
 )
-from sandloom.core.module_api import ModuleRegistrationConflict, contract_method
+from sandloom.core.module_api import (
+    ModuleRegistrationConflict,
+    contract_method,
+    undigested,
+)
 
 ForeignDTO = create_model("ForeignDTO", __module__="app.payments.dto", count=(int, ...))
 
@@ -562,3 +566,63 @@ async def test_unrolled_authority_boundary_matches_the_scope_helpers() -> None:
     finally:
         for var, token in reversed(tokens):
             var.reset(token)
+
+
+# ------------------------------------- undigested secrets (first-run review) --
+
+
+class SecretLedger:
+    _calls: list[str] = []
+
+    @classmethod
+    @contract_method(command=True, idempotency_key="operation_key")
+    @undigested("secret")
+    async def set_secret(cls, secret: str, operation_key: str) -> int:
+        cls._calls.append(secret)
+        return len(cls._calls)
+
+
+def test_undigested_names_are_checked_at_decoration() -> None:
+    async def spend(customer_id: str, operation_key: str) -> None:
+        pass
+
+    for names, match in (
+        (("missing",), "not a parameter"),
+        (("operation_key",), "idempotency key"),
+        (("customer_id",), "idempotency key or part of its scope"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            contract_method(
+                command=True,
+                idempotency_key="operation_key",
+                idempotency_scope=("customer_id",),
+            )(undigested(*names)(spend))
+    with pytest.raises(ValueError, match="command contracts only"):
+        contract_method(undigested("customer_id")(spend))
+
+
+@pytest.mark.asyncio
+async def test_no_stored_record_depends_on_an_undigested_secret(
+    fallback_core: CoreFacade, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cache reservation (and the durable log: same digest) is taken
+    over the other arguments only: another secret under the same key
+    replays instead of conflicting, and no stored value carries the secret
+    or a digest that depends on it."""
+    from sandloom.core import effects
+    from sandloom.core.idempotency import cache_store as idempotency_cache_store
+
+    SecretLedger._calls.clear()
+    fallback_core.register_service("secret.review.v1", SecretLedger)
+    contract = fallback_core.get_service("secret.review.v1")
+    assert await contract.set_secret("first-Secret-1", "key-1") == 1
+    assert await contract.set_secret("other-Secret-2", "key-1") == 1
+    assert SecretLedger._calls == ["first-Secret-1"]
+    store = idempotency_cache_store.cache()
+    stored = repr(store.store)
+    assert "key-1" in stored or store.store  # the reservation is there
+    with_secret = effects.args_digest(
+        {"secret": "first-Secret-1", "operation_key": "key-1"}
+    )
+    assert "first-Secret-1" not in stored
+    assert with_secret not in stored

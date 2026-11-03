@@ -160,6 +160,10 @@ from sandloom.core.module_api._spec import (
 )
 from sandloom.core.module_api._spec import session_parameters as session_parameters
 
+# Not in ``__all__``: a kernel hook for first-party modules (identity's
+# set-password command), not part of the public API.
+from sandloom.core.module_api._spec import undigested as undigested
+
 __all__ = [
     "DEFAULT_CONTRACT_DTO_PACKAGES",
     "contract_dto_problems",

@@ -207,6 +207,31 @@ async def test_granting_an_unverified_account_is_refused_take_over_is_not(
     ).status_code == 200
 
 
+async def test_taking_over_a_deactivated_account_reactivates_it(
+    sandloom_app: Any,
+    async_client: AsyncClient,
+    test_db: AsyncSession,
+    make_user: Any,
+) -> None:
+    """Never an administrator without a password and a link: the take-over
+    reactivates the account, so the link it mints works."""
+    squatter = await make_user(
+        "owner@example.com", password="Squatter-Passw0rd!", verified=False, active=False
+    )
+    contract = _security(sandloom_app)
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        assert await contract.take_over_platform_admin(
+            squatter.id, REASON, OPERATOR, "t-inactive"
+        )
+    await test_db.refresh(squatter)
+    assert squatter.is_active is True
+    token = await _mint(sandloom_app, test_db, squatter.id)
+    assert token and (await _reset(async_client, token)).status_code == 204
+    assert (
+        await _login(async_client, "owner@example.com", NEW_PASSWORD)
+    ).status_code == 200
+
+
 async def test_setup_state_tells_whether_an_admin_exists(
     sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession
 ) -> None:
@@ -258,6 +283,28 @@ async def test_the_command_log_holds_no_token_or_password(
         user = await session.scalar(select(User).where(User.id == user_id))
         assert user is not None and user.hashed_password is not None
         assert await AuthService.averify_password(NEW_PASSWORD, user.hashed_password)
+
+
+async def test_no_stored_record_depends_on_the_password(
+    sandloom_app: Any, sandloom_core: Any, real_uow_client: AsyncClient, db_engine: Any
+) -> None:
+    """The token and the password are left out of the stored args digest:
+    the same operation key with another password replays the first result
+    (a digest over the password would refuse it as a conflict)."""
+    contract = sandloom_core.get_service(SECURITY_SERVICE_V1)
+    user_id = await contract.create_platform_admin(
+        "owner@example.com", "First Admin", REASON, OPERATOR, "op-digest-1"
+    )
+    token = await contract.set_password_token(user_id)
+    assert token
+    assert await contract.set_password_with_token(token, NEW_PASSWORD, "op-digest-2")
+    other = "Another-Admin-Passw0rd!"
+    assert await contract.set_password_with_token("x.y.z", other, "op-digest-2")
+    async with async_sessionmaker(db_engine)() as session:
+        user = await session.scalar(select(User).where(User.id == user_id))
+        assert user is not None and user.hashed_password is not None
+        assert await AuthService.averify_password(NEW_PASSWORD, user.hashed_password)
+        assert not await AuthService.averify_password(other, user.hashed_password)
 
 
 async def test_two_concurrent_creates_make_one_user(

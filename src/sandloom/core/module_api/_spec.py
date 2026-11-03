@@ -13,6 +13,9 @@ import sandloom.core._internal.db_provider as _db_provider
 
 #: Attribute a :func:`contract_method` stamps on the wrapped function.
 CONTRACT_SPEC_ATTR = "__sandloom_contract__"
+#: Attribute :func:`undigested` stamps on a command's function: the
+#: parameters left out of its stored args digest.
+UNDIGESTED_ATTR = "__sandloom_undigested__"
 #: Parameter names treated as an (injected / caller-passed) database session.
 SESSION_PARAM_NAMES = frozenset({"db", "session"})
 
@@ -42,6 +45,43 @@ class ContractMethodSpec:
     @property
     def readonly(self) -> bool:
         return self.kind == "read"
+
+
+def undigested(*names: str) -> Callable[[Any], Any]:
+    """Keep the secret arguments ``names`` of a command out of every stored
+    record: its args digest (the durable command log and the cache
+    reservation) is taken over the other arguments only.
+
+    For a single-use secret the caller never repeats under one key (a reset
+    token, a password set through it). The same key with another value of an
+    undigested argument therefore REPLAYS instead of being refused as a
+    conflict: use a fresh key per attempt. Stack it on the function with
+    ``@command`` (either order); the idempotency key and the
+    ``idempotency_scope`` arguments cannot be undigested.
+    """
+    if not names or any(not isinstance(n, str) or not n for n in names):
+        raise ValueError("undigested() needs the names of the secret parameters")
+    if len(set(names)) != len(names):
+        raise ValueError("undigested() names a parameter twice")
+
+    def mark(func: Any) -> Any:
+        setattr(func, UNDIGESTED_ATTR, tuple(names))
+        return func
+
+    return mark
+
+
+def undigested_names(func: Any) -> tuple[str, ...]:
+    """The secret parameters :func:`undigested` marked on ``func``."""
+    return tuple(getattr(func, UNDIGESTED_ATTR, ()) or ())
+
+
+def digested_arguments(func: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """``arguments`` without ``func``'s undigested (secret) ones."""
+    secret = undigested_names(func)
+    if not secret:
+        return arguments
+    return {k: v for k, v in arguments.items() if k not in secret}
 
 
 def contract_spec(method: Any) -> ContractMethodSpec | None:

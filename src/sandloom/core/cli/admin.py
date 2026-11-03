@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import ipaddress
 import json
 import sys
 import uuid
@@ -38,6 +37,8 @@ from urllib.parse import quote
 
 from sandloom.core.admin import compile_app
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
+from sandloom.core.cli.dev import commands as _dev_commands
+from sandloom.core.cli.dev.identity import project_root
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
@@ -49,8 +50,6 @@ SECURITY_CONTRACT = "identity.security.v1"
 DEV_BASE_URL = "http://127.0.0.1:8000"
 #: ``FRONTEND_URL``'s default: a frontend dev server, not this app's console.
 _FRONTEND_DEFAULT = "http://localhost:3000"
-#: Files ``sandloom dev run`` keeps for this checkout (``{"port": N}``).
-RUN_DIR = Path(".sandloom") / "run"
 #: How often the prompt asks before giving up.
 PROMPT_ATTEMPTS = 3
 
@@ -92,40 +91,26 @@ def _intent(args: argparse.Namespace, default_reason: str) -> _Intent:
     return _Intent(operator=f"cli:{operator}", reason=reason or default_reason)
 
 
-def _unspecified(host: str) -> bool:
-    """A listen-on-every-interface address, which a browser cannot open."""
-    try:
-        return ipaddress.ip_address(host).is_unspecified
-    except ValueError:
-        return False
-
-
 def _dev_run_base(root: Path) -> str | None:
-    """The URL of this checkout's ``sandloom dev run``, from its run files."""
-    directory = root / RUN_DIR
-    if not directory.is_dir():
+    """The URL of this checkout's live ``sandloom dev run`` (its run file;
+    one whose process is gone is ignored)."""
+    data = _dev_commands.live_run(root)
+    if data is None:
         return None
-    files = sorted(
-        (f for f in directory.iterdir() if f.suffix == ".json" and f.is_file()),
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
-    )
-    for file in files:
-        try:
-            data = json.loads(file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        if isinstance(data.get("url"), str) and data["url"].startswith("http"):
-            return str(data["url"]).rstrip("/")
-        port = data.get("port")
-        if isinstance(port, int) and 0 < port < 65536:
-            host = data.get("host") if isinstance(data.get("host"), str) else None
-            if not host or _unspecified(host):
-                host = "127.0.0.1"
-            return f"http://{host}:{port}"
+    url = data.get("url")
+    if isinstance(url, str) and url.startswith("http"):
+        return url.rstrip("/")
+    port = data.get("port")
+    if isinstance(port, int) and 0 < port < 65536:
+        return f"http://127.0.0.1:{port}"
     return None
+
+
+def _checkout_root() -> Path:
+    """The app's checkout: the nearest directory above the working directory
+    holding ``pyproject.toml`` (``sandloom dev run`` writes its run files
+    there), else the working directory."""
+    return project_root(Path.cwd())
 
 
 def _frontend_url() -> str | None:
@@ -144,8 +129,10 @@ def _console_enabled() -> bool:
 def link_for(token: str, email: str = "") -> str:
     """Where the set-password link points.
 
-    The console page reads the token (and the address it pre-fills) from the
-    URL fragment, which no server or proxy log records.
+    The token (and the address the console pre-fills) is always in the URL
+    fragment, which a browser never sends: no server, proxy or referrer log
+    records it. A custom frontend serving ``/auth/reset-password`` reads it
+    from ``location.hash`` (``docs/admin-console/index.md``).
     """
     frontend = _frontend_url()
     if _console_enabled():
@@ -156,7 +143,7 @@ def link_for(token: str, email: str = "") -> str:
                     "error: set FRONTEND_URL (where this app is served) so the "
                     "link points at the right host"
                 )
-            base = _dev_run_base(Path.cwd()) or DEV_BASE_URL
+            base = _dev_run_base(_checkout_root()) or DEV_BASE_URL
         fragment = f"token={token}" + (f"&email={quote(email)}" if email else "")
         return f"{base}/admin/set-password#{fragment}"
     if frontend is None:
@@ -165,8 +152,8 @@ def link_for(token: str, email: str = "") -> str:
             "FRONTEND_URL to a frontend that serves /auth/reset-password, or "
             "enable the console"
         )
-    # The same page the reset emails open.
-    return f"{frontend}/auth/reset-password?token={token}"
+    # The page the reset emails open, with the token in the fragment.
+    return f"{frontend}/auth/reset-password#token={token}"
 
 
 def _check_link_target() -> None:
@@ -373,8 +360,13 @@ async def create_admin(
             service, "set_password_with_token", token, password, _key("password")
         )
     except ContractCallError as exc:
-        print(f"The password was not set ({exc.detail}).", file=sys.stderr)
-        _print_link(email, token, created=done)
+        # No link here: the user did not ask for one (--invite), and a
+        # terminal's scrollback is no place for a usable token.
+        print(
+            f"{done} The password was not set ({exc.detail}). A set-password "
+            f"link: uv run sandloom admin invite --email {email}",
+            file=sys.stderr,
+        )
         return 1
     print(f"{done} {email} can sign in at {_sign_in_hint()}")
     return 0

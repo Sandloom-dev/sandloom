@@ -72,6 +72,14 @@ registered it first would keep their password.
 While no administrator exists, the sign-in page and the application's startup log
 show the `admin create` command.
 
+With the console off, as in production by default, the link opens your own frontend
+instead: `FRONTEND_URL/auth/reset-password#token=...`. The token is in the URL
+fragment, which the browser never sends to a server: no access log records it.
+Your reset page must read the token from `location.hash`, send it in the body of
+`POST /auth/reset-password`, and then remove it from the address bar with
+`history.replaceState`. Identity's own reset emails still put the token in the query
+string (`?token=`). A page that serves both reads either.
+
 ## Add it to an existing application
 
 ```bash

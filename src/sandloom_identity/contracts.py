@@ -25,9 +25,10 @@ address) leaves the account with no usable password and a pending
 set-password link; ``set_password_token`` mints that link. The command takes
 no password and returns no token, because a command's result is stored for
 replay; the read that mints is never stored. ``set_password_with_token``
-sets the password a terminal prompt read through identity's reset path: its
-stored record is a digest over the single-use token and the password plus a
-boolean, never either value.
+sets the password a terminal prompt read through identity's reset path: the
+token and the password are ``undigested``, so its stored record (command log
+or cache reservation) holds a digest over the operation key alone and a
+boolean; nothing stored depends on either secret, not even as a hash.
 
 Not part of any user-facing API: a caller needs the contract locally (the CLI
 runs in identity's process) or an ``RPC_ALLOWED_CALLS`` grant.
@@ -45,7 +46,7 @@ from sqlalchemy import delete, exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.core.module_api import contract_session
+from sandloom.core.module_api import contract_session, undigested
 from sandloom.sdk import command, contract, record_audit
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.security import is_user_blocked
@@ -245,8 +246,11 @@ async def _create_admin(
 async def _take_over(user: User, *, reason: str, operator: str, key: str) -> None:
     db = contract_session()
     # Whoever registered the address first loses every way in: the password,
-    # a second factor, linked sign-in providers and every session.
+    # a second factor, linked sign-in providers and every session. A
+    # deactivated account is reactivated: the administrator it becomes must
+    # be able to use the link (never an admin without a password and a link).
     user.hashed_password = None
+    user.is_active = True
     _require_set_password(user)
     if not user.is_verified:
         user.is_verified = True
@@ -351,12 +355,17 @@ class SecurityOperationsContract:
         """Make an existing account a platform administrator and take it from
         whoever holds it: the password, second factor, linked providers and
         sessions end, the address counts as verified and a set-password link
-        is pending. Returns whether the user exists."""
+        is pending; a deactivated account is reactivated. 409 for a blocked
+        account (nothing changes). Returns whether the user exists."""
         _check_batch([user_id], reason, operator)
         db = contract_session()
         user = await db.get(User, user_id)
         if user is None:
             return False
+        if await is_user_blocked(user.id):
+            raise HTTPException(
+                409, "the account is blocked: unblock it first, then take it over"
+            )
         await _take_over(user, reason=reason, operator=operator, key=operation_key)
         return True
 
@@ -390,13 +399,15 @@ class SecurityOperationsContract:
         return True
 
     @command(idempotency_key="operation_key")
+    @undigested("token", "new_password")
     async def set_password_with_token(
         self, token: str, new_password: str, operation_key: str
     ) -> bool:
         """Set a password through identity's reset path (the terminal prompt
         of ``sandloom admin create``). 400 for a used or expired token, 422 for
-        a password the policy refuses. The stored record holds a digest over
-        the single-use token and the password, and ``True``."""
+        a password the policy refuses. Neither secret is in the stored record:
+        it holds a digest over ``operation_key`` alone and ``True`` (use a
+        fresh key per attempt)."""
         db = contract_session()
         await AuthService.reset_password(token, new_password, db, actor=EventActor())
         return True
