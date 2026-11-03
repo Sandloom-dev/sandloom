@@ -11,10 +11,11 @@ the CLI, never something to add here. The steps:
 2. every line ``sandloom new`` prints under "Next steps", verbatim and in order
    (``sandloom.core.cli.project.QUICKSTART`` is their one source, and the docs
    are tested against it):
-   ``cd``, ``uv sync``, ``uv run sandloom generate``, the dev services,
-   ``uv run sandloom add module <m>``,
+   ``cd``, ``uv sync``, ``uv run sandloom generate``, the dev services
+   (``uv run sandloom dev up``), ``uv run sandloom add module <m>``,
    ``uv run sandloom test`` (every step must PASS), ``uv run sandloom migrate
-   upgrade-all --apply`` and ``uv run uvicorn <app>.asgi:app --reload``;
+   upgrade-all --apply`` and ``uv run sandloom dev run`` (with ``--port`` set
+   to a free port);
    right after ``uv sync``, the app's ``sandloom`` must be this checkout (the
    live tree of the editable sources, or files byte-identical to it): a
    stale cached build of the same version fails here;
@@ -29,7 +30,10 @@ the CLI, never something to add here. The steps:
    verifies installed package versions and bytes, and refuses editable imports.
 
 Services. Without ``--postgres-url`` the dev-services line runs as printed
-(``docker compose ... up -d --wait``, the generated compose file). With it
+(``uv run sandloom dev up``: the generated compose file, ports chosen for
+this app, its ``.env`` block and ``.env.test.local`` written; afterwards the
+script stops those services with ``sandloom dev down --all --volumes
+--force``). With it
 (CI, a shared machine) that line is replaced by the given servers: a fresh
 database ``<db-prefix>_dev`` for the app (dropped and recreated, so the
 migrations run on an empty database), ``<db-prefix>_test`` for the test
@@ -85,6 +89,8 @@ class Runner:
             self.env["UV_NO_SOURCES"] = "true"
         self.cwd = Path.cwd()
         self.server: subprocess.Popen[bytes] | None = None
+        #: The quickstart started `sandloom dev` services: stopped at the end.
+        self.dev_services = False
         self.base_url = ""
         self.module = ""
 
@@ -255,8 +261,11 @@ class Runner:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
-        # uvicorn reads UVICORN_* for every CLI option: the line stays verbatim
+        # uvicorn reads UVICORN_* for every CLI option: the line stays verbatim;
+        # `sandloom dev run` takes the port as an argument.
         env = {**self.env, "UVICORN_PORT": str(port), "UVICORN_HOST": "127.0.0.1"}
+        if command.startswith("uv run sandloom dev run"):
+            command = f"{command} --port {port} --no-reload"
         print(f"$ {command}   (in {self.cwd}, UVICORN_PORT={port})", flush=True)
         self.server = subprocess.Popen(  # noqa: S602 - the documented quickstart line, verbatim
             command, shell=True, cwd=self.cwd, env=env, start_new_session=True
@@ -380,24 +389,36 @@ class Runner:
             )
         finally:
             self.stop_server()
+            self.stop_dev_services()
+
+    def stop_dev_services(self) -> None:
+        """Stop and delete what ``sandloom dev up`` started for this app."""
+        if not self.dev_services:
+            return
+        command = "uv run sandloom dev down --all --volumes --force"
+        print(f"$ {command}   (in {self.cwd})", flush=True)
+        subprocess.run(  # noqa: S602 - fixed command
+            command, shell=True, cwd=self.cwd, env=self.env, check=False
+        )
 
     def do_line(self, line: str) -> None:
         """One printed quickstart line (its comment stripped)."""
         if line.startswith("cd "):
             self.cwd = (self.cwd / shlex.split(line)[1]).resolve()
             self.timings.append((line, 0.0, "PASS"))
-        elif line.startswith("docker compose"):
+        elif line.startswith("docker compose") or line == "uv run sandloom dev up":
             if self.args.postgres_url:
                 self.step(f"{line} (given servers)", self.provided_services)
             else:
                 self.step(line, self.sh, line)
+                self.dev_services = line.startswith("uv run sandloom dev")
             # Not a quickstart line: a fresh app passes its own CI gate.
             self.step(
                 "(fresh app, extra) uv run sandloom test --ci",
                 self.sh,
                 "uv run sandloom test --ci",
             )
-        elif "uvicorn" in line:
+        elif "uvicorn" in line or line.startswith("uv run sandloom dev run"):
             self.step(line, self.serve, line)
             self.step("authenticated round trip", self.round_trip, self.module)
             self.stop_server()

@@ -1,0 +1,718 @@
+"""``sandloom dev`` without Docker: identity, state, locks, ports, the ``.env``
+block, refusals, CI and the one-line connection error.
+
+The run against real containers (two checkouts, ``dev up`` from both at
+once) is the end-to-end probe recorded on the dev-command task.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import multiprocessing
+import os
+import socket
+import stat
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from sandloom.core import error_codes
+from sandloom.core.cli import dev as dev_cli
+from sandloom.core.cli.dev import commands, envfile, errors, identity, locks, ports
+from sandloom.core.cli.dev.state import (
+    CheckoutRow,
+    State,
+    load_registry,
+    load_state,
+    save_registry,
+    save_state,
+)
+from sandloom.core.cli.project import generate_project
+from sandloom.core.testing.machine import machine_id
+
+# --------------------------------------------------------------------------- #
+# Fixtures
+# --------------------------------------------------------------------------- #
+
+
+def _git(cwd: Path, *args: str) -> None:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, env=env)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Nothing here may touch the real ``~/.sandloom``."""
+    monkeypatch.setenv("SANDLOOM_HOME", str(tmp_path / "home"))
+
+
+@pytest.fixture
+def environ(tmp_path: Path) -> dict[str, str]:
+    """The process environment with a private ``~/.sandloom``, not in CI."""
+    env = {k: v for k, v in os.environ.items() if k not in {"CI", "DOCKER_HOST"}}
+    env["SANDLOOM_HOME"] = str(tmp_path / "home")
+    return env
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A git repository holding a minimal app, with one commit."""
+    root = tmp_path / "shop"
+    (root / "deploy").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "shop"\n')
+    (root / ".env.example").write_text(
+        "ENVIRONMENT=dev\nJWT_SECRET=change_me\n" + envfile.empty_block()
+    )
+    (root / ".gitignore").write_text(".env\n.env.test.local\n.sandloom/\n")
+    (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "add", ".")
+    _git(
+        root,
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+    )
+    return root
+
+
+@pytest.fixture
+def worktree(repo: Path, tmp_path: Path) -> Path:
+    path = tmp_path / "shop-wt"
+    _git(repo, "worktree", "add", "-q", str(path), "-b", "feature")
+    return path
+
+
+def _ctx(root: Path, environ: dict[str, str]) -> commands.Context:
+    return commands.Context(
+        identity=identity.resolve(root, environ),
+        environ=environ,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+
+
+def _text(stream: Any) -> str:
+    return str(stream.getvalue())
+
+
+def _state(ctx: commands.Context) -> State:
+    return State(
+        repository=str(ctx.identity.repository),
+        project=ctx.identity.project,
+        machine=ctx.identity.machine,
+        ports={
+            "db": 24001,
+            "redis": 24002,
+            "postgres_test": 24003,
+            "redis_test": 24004,
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Identity and state
+# --------------------------------------------------------------------------- #
+
+
+def test_a_worktree_shares_the_repository_state_but_not_the_database(
+    repo: Path, worktree: Path, environ: dict[str, str]
+) -> None:
+    main = identity.resolve(repo, environ)
+    wt = identity.resolve(worktree / "deploy", environ)
+    assert main.repository == wt.repository
+    assert main.state_dir == wt.state_dir == main.repository / "sandloom"
+    assert main.project == wt.project and main.project.startswith("shop-")
+    assert main.main and not wt.main
+    assert main.database == "shop"
+    assert wt.database == f"shop_{wt.checkout_hash}"
+    assert main.test_database != wt.test_database
+    assert wt.root == worktree.resolve()
+
+
+def test_git_dir_from_a_hook_is_ignored(
+    repo: Path, worktree: Path, environ: dict[str, str]
+) -> None:
+    hooked = {**environ, "GIT_DIR": str(repo / ".git"), "GIT_WORK_TREE": str(repo)}
+    assert identity.resolve(worktree, hooked).checkout == worktree.resolve()
+
+
+def test_outside_git_the_state_lives_in_the_project(
+    tmp_path: Path, environ: dict[str, str]
+) -> None:
+    root = tmp_path / "plain"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "plain-app"\n')
+    found = identity.resolve(root, environ)
+    assert not found.git and found.main
+    assert found.state_dir == root.resolve() / ".sandloom"
+    assert found.app == "plain_app" and found.project.startswith("plain-app-")
+
+
+def test_the_machine_id_is_created_once(environ: dict[str, str]) -> None:
+    first = machine_id(environ)
+    assert first == machine_id(environ)
+    assert len(first) == 12
+    assert (Path(environ["SANDLOOM_HOME"]) / "machine-id").is_file()
+
+
+def test_the_state_round_trips(tmp_path: Path) -> None:
+    state = State(repository="/r", project="p-1", machine="m", ports={"db": 1})
+    state.checkouts["/r/a"] = CheckoutRow("/r/a", "p", 1, 2, "sandloom_test_x", 5.0)
+    save_state(tmp_path, state)
+    assert load_state(tmp_path) == state
+    save_registry(tmp_path, {24001: "/r"})
+    assert load_registry(tmp_path) == {24001: "/r"}
+
+
+def test_redis_indexes_are_allocated_per_checkout() -> None:
+    state = State(repository="/r", project="p", machine="m")
+    assert commands.allocate_indexes(state, "/r", main=True) == (1, 2)
+    state.checkouts["/r"] = CheckoutRow("/r", "p", 1, 2, "t")
+    assert commands.allocate_indexes(state, "/w", main=False) == (3, 4)
+    assert commands.allocate_indexes(state, "/r", main=True) == (1, 2)
+
+
+def test_a_copied_repository_gets_new_services(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    copied = _state(ctx)
+    copied.repository = str(repo.parent)  # exists: a `cp -r` source
+    copied.project = "shop-000000"
+    found = commands.reconcile(ctx, copied, commands.UpOptions())
+    assert found.project == ctx.identity.project and not found.ports
+
+
+# --------------------------------------------------------------------------- #
+# Locks
+# --------------------------------------------------------------------------- #
+
+
+def _hold(path: str, log: str, label: str, seconds: float) -> None:
+    with locks.FileLock(Path(path), out=io.StringIO(), poll=0.05):
+        with open(log, "a") as handle:
+            handle.write(f"{label} start\n")
+        time.sleep(seconds)
+        with open(log, "a") as handle:
+            handle.write(f"{label} end\n")
+
+
+def test_two_processes_are_serialised_by_the_lock(tmp_path: Path) -> None:
+    lock, log = tmp_path / "dev.lock", tmp_path / "log"
+    spawn = multiprocessing.get_context("spawn")
+    first = spawn.Process(target=_hold, args=(str(lock), str(log), "a", 1.0))
+    first.start()
+    deadline = time.monotonic() + 30
+    while not log.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    second = spawn.Process(target=_hold, args=(str(lock), str(log), "b", 0.1))
+    second.start()
+    first.join(30)
+    second.join(30)
+    assert log.read_text().splitlines() == ["a start", "a end", "b start", "b end"]
+
+
+def test_a_waiter_names_the_holder_then_proceeds(tmp_path: Path) -> None:
+    lock = tmp_path / "dev.lock"
+    holding = threading.Event()
+    release = threading.Event()
+
+    def hold() -> None:
+        with locks.FileLock(lock, command="sandloom dev up", out=io.StringIO()):
+            holding.set()
+            release.wait(10)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    holding.wait(10)
+    out = io.StringIO()
+    threading.Timer(0.5, release.set).start()
+    with locks.FileLock(lock, out=out, poll=0.05):
+        pass
+    thread.join(10)
+    assert "sandloom dev up" in out.getvalue()
+    assert str(os.getpid()) in out.getvalue()
+
+
+def _hold_forever(path: str, ready: str) -> None:
+    import fcntl
+
+    fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    # The record names a process that is gone (as when a dead holder's child
+    # inherited the open file and keeps the lock).
+    record = {"pid": 2**22 + 12345, "host": socket.gethostname(), "heartbeat": 0}
+    os.write(fd, json.dumps(record).encode())
+    Path(ready).write_text("ok")
+    time.sleep(60)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl")
+def test_a_dead_holder_is_taken_over(tmp_path: Path) -> None:
+    lock, ready = tmp_path / "dev.lock", tmp_path / "ready"
+    spawn = multiprocessing.get_context("spawn")
+    stuck = spawn.Process(target=_hold_forever, args=(str(lock), str(ready)))
+    stuck.start()
+    try:
+        deadline = time.monotonic() + 30
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        out = io.StringIO()
+        taken = locks.FileLock(lock, out=out, poll=0.05, timeout=10)
+        with taken:
+            assert taken.took_over
+            assert locks.read_holder(lock)["pid"] == os.getpid()
+        assert "taking over" in out.getvalue()
+    finally:
+        stuck.kill()
+        stuck.join()
+
+
+def test_a_live_holder_is_never_taken_over(tmp_path: Path) -> None:
+    lock = tmp_path / "dev.lock"
+    with locks.FileLock(lock, out=io.StringIO()):
+        waiter = locks.FileLock(lock, out=io.StringIO(), poll=0.05, timeout=1)
+        with pytest.raises(TimeoutError, match=str(os.getpid())):
+            waiter.acquire()
+
+
+def test_a_second_up_waits_for_the_first(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    calls: list[str] = []
+    monkeypatch.setattr(commands._docker, "check_docker", lambda env: None)
+    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state: [])
+
+    def finish(ctx: Any, state: State, options: Any) -> int:
+        calls.append("finish")
+        return 0
+
+    monkeypatch.setattr(commands, "_finish_up", finish)
+    holding, release = threading.Event(), threading.Event()
+
+    def first() -> None:
+        with ctx.repo_lock("sandloom dev up"):
+            holding.set()
+            release.wait(10)
+            calls.append("first done")
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    holding.wait(10)
+    threading.Timer(0.5, release.set).start()
+    assert commands.up(ctx, commands.UpOptions(pull=False)) == 0
+    thread.join(10)
+    assert calls == ["first done", "finish"]
+    assert "waiting for another `sandloom dev up`" in _text(ctx.err)
+
+
+# --------------------------------------------------------------------------- #
+# Ports
+# --------------------------------------------------------------------------- #
+
+
+def test_ports_skip_the_registry_and_taken_ports() -> None:
+    first = list(ports.candidates("shop-abc123"))[:3]
+    chosen = ports.choose_ports(
+        "shop-abc123",
+        ["db", "redis"],
+        reserved={first[0]},
+        is_free=lambda p: p != first[1],
+    )
+    assert chosen["db"] == first[2]
+    assert all(ports.LOW <= p <= ports.HIGH for p in chosen.values())
+    assert len(set(chosen.values())) == 2
+
+
+def test_a_taken_sticky_port_is_reassigned_and_every_checkout_rewritten(
+    repo: Path,
+    worktree: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    with socket.socket() as squatter:
+        squatter.bind(("127.0.0.1", 0))
+        squatter.listen()
+        taken = squatter.getsockname()[1]
+        state.ports["db"] = taken
+        for root in (repo, worktree):
+            c = _ctx(root, environ)
+            commands.write_checkout_files(c, state, commands.checkout_row(c, state))
+        ctx.state_dir.mkdir(parents=True, exist_ok=True)
+        (ctx.state_dir / commands.STATE_COMPOSE).write_text("services: {}\n")
+        monkeypatch.setattr(commands._docker.Compose, "states", lambda self: {})
+        needed = commands.ports_needed(ctx, state)
+        assert needed == ["db"]
+        assert commands.assign_ports(ctx, state, needed) is True
+        commands._rewrite_checkouts(ctx, state, needed)
+    new = state.ports["db"]
+    assert new != taken
+    for root in (repo, worktree):
+        block = envfile.read_block((root / ".env").read_text())
+        assert f"127.0.0.1:{new}/" in block["DATABASE_URL"]
+    assert load_registry(ctx.home)[new] == str(ctx.identity.repository)
+    assert taken not in load_registry(ctx.home)
+    assert "Restart running app servers" in _text(ctx.err)
+
+
+def test_a_running_service_keeps_its_port(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    with socket.socket() as ours:
+        ours.bind(("127.0.0.1", 0))
+        state.ports["db"] = ours.getsockname()[1]
+        ctx.state_dir.mkdir(parents=True, exist_ok=True)
+        (ctx.state_dir / commands.STATE_COMPOSE).write_text("services: {}\n")
+        monkeypatch.setattr(
+            commands._docker.Compose, "states", lambda self: {"db": "running"}
+        )
+        assert commands.ports_needed(ctx, state) == []
+
+
+# --------------------------------------------------------------------------- #
+# The .env block and .env.test.local
+# --------------------------------------------------------------------------- #
+
+_VALUES = {
+    "DATABASE_URL": "postgresql+asyncpg://sandloom:sandloom@127.0.0.1:24001/shop",
+    "CACHE_URL": "redis://127.0.0.1:24002/1",
+    "BROKER_URL": "redis://127.0.0.1:24002/2",
+}
+
+
+def test_the_block_is_rewritten_keeping_user_lines_and_mode(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "# mine\nJWT_SECRET=s3cret\n"
+        + envfile.render_block({**_VALUES, "DATABASE_URL": "postgresql://old"})
+        + "MY_FLAG=1\n"
+    )
+    env.chmod(0o600)
+    assert envfile.write_env_block(env, _VALUES)
+    text = env.read_text()
+    assert text.startswith("# mine\nJWT_SECRET=s3cret\n")
+    assert text.endswith("MY_FLAG=1\n")
+    assert envfile.read_block(text) == _VALUES
+    assert "postgresql://old" not in text
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert not envfile.write_env_block(env, _VALUES)  # unchanged: not rewritten
+
+
+def test_a_file_without_the_block_gets_it_and_old_urls_are_commented(
+    tmp_path: Path,
+) -> None:
+    from dotenv import dotenv_values
+
+    env = tmp_path / ".env"
+    env.write_text("DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:5432/x\nA=1\n")
+    envfile.write_env_block(env, _VALUES)
+    lines = env.read_text().splitlines()
+    assert lines[0].startswith("# (moved into the sandloom dev block below) ")
+    assert "A=1" in lines
+    assert dotenv_values(env)["DATABASE_URL"] == _VALUES["DATABASE_URL"]
+    once = env.read_text()
+    envfile.write_env_block(env, _VALUES)
+    assert env.read_text() == once
+
+
+def test_a_symlinked_env_is_written_through_the_link(tmp_path: Path) -> None:
+    target = tmp_path / "shared.env"
+    target.write_text("A=1\n")
+    target.chmod(0o640)
+    link = tmp_path / ".env"
+    link.symlink_to(target)
+    envfile.write_env_block(link, _VALUES)
+    assert link.is_symlink()
+    assert envfile.read_block(target.read_text()) == _VALUES
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+def test_a_new_worktree_gets_a_seeded_env(
+    repo: Path, worktree: Path, environ: dict[str, str]
+) -> None:
+    assert not (worktree / ".env").exists()
+    ctx = _ctx(worktree, environ)
+    state = _state(ctx)
+    row = commands.checkout_row(ctx, state)
+    notes = commands.write_checkout_files(ctx, state, row)
+    env = (worktree / ".env").read_text()
+    assert any("from .env.example" in note for note in notes)
+    assert "ENVIRONMENT=dev" in env
+    secret = next(ln for ln in env.splitlines() if ln.startswith("JWT_SECRET="))
+    assert secret != "JWT_SECRET=change_me" and len(secret.split("=", 1)[1]) == 64
+    assert stat.S_IMODE((worktree / ".env").stat().st_mode) == 0o600
+    block = envfile.read_block(env)
+    assert block["DATABASE_URL"].endswith(f"/{ctx.identity.database}")
+    assert ctx.identity.database != "shop"
+    local = (worktree / ".env.test.local").read_text()
+    assert f"/{ctx.identity.test_database}\n" in local
+
+
+def test_localhost_is_never_written(
+    repo: Path, environ: dict[str, str], tmp_path: Path
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.write_checkout_files(ctx, state, commands.checkout_row(ctx, state))
+    for name in (".env", ".env.test.local"):
+        text = (repo / name).read_text()
+        assert "localhost" not in text and "127.0.0.1" in text, name
+    generate_project("probe", tmp_path, framework_source="pypi")
+    app = tmp_path / "probe"
+    for name in (".env", ".env.example", ".env.test", "deploy/docker-compose.dev.yml"):
+        assert "localhost" not in (app / name).read_text(), name
+
+
+def test_a_remote_docker_host_is_used_for_the_urls(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, {**environ, "DOCKER_HOST": "tcp://10.0.0.7:2376"})
+    state = _state(ctx)
+    urls = commands.checkout_urls(ctx, state, commands.checkout_row(ctx, state))
+    assert "@10.0.0.7:24001/" in urls["DATABASE_URL"]
+
+
+# --------------------------------------------------------------------------- #
+# Refusals
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def no_services(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No service answers: only the pid files and the state tell who is busy."""
+
+    def down(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("connection refused")
+
+    for name in ("sessions", "advisory_holders", "redis_clients"):
+        monkeypatch.setattr(commands._services, name, down)
+
+
+def test_down_refuses_while_other_checkouts_are_active(
+    repo: Path, worktree: Path, environ: dict[str, str], no_services: None
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    other = commands.checkout_row(_ctx(worktree, environ), state)
+    other.last_up = time.time() - 3600
+    save_state(ctx.state_dir, state)
+    with pytest.raises(commands.DevError, match=str(worktree.resolve())) as refused:
+        commands.down(ctx, all_=False, volumes=False, force=False)
+    assert "--all" in str(refused.value)
+    other.last_up = time.time() - 2 * commands.ACTIVE_SECONDS
+    assert commands._down_refusal(ctx, state, all_=False, force=False) is None
+
+
+def test_down_and_reset_refuse_while_this_checkout_runs_the_app(
+    repo: Path, environ: dict[str, str], no_services: None
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    marker = commands.run_file(repo)
+    marker.parent.mkdir(parents=True)
+    record = {"pid": os.getpid(), "host": socket.gethostname(), "url": "http://x"}
+    marker.write_text(json.dumps(record))
+    with pytest.raises(commands.DevError, match="dev run"):
+        commands.reset(ctx, force=False)
+    with pytest.raises(commands.DevError, match="--force"):
+        commands.down(ctx, all_=True, volumes=False, force=False)
+    assert commands._down_refusal(ctx, state, all_=True, force=True) is None
+
+
+def test_volumes_need_all_and_a_confirmation(
+    repo: Path, environ: dict[str, str], no_services: None
+) -> None:
+    ctx = _ctx(repo, environ)
+    save_state(ctx.state_dir, _state(ctx))
+    with pytest.raises(commands.DevError, match="needs --all"):
+        commands.down(ctx, all_=False, volumes=True, force=False)
+    with pytest.raises(commands.DevError, match="confirm"):
+        commands.down(ctx, all_=True, volumes=True, force=False)
+
+
+def test_a_second_dev_run_answers_already_running(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    marker = commands.run_file(repo)
+    marker.parent.mkdir(parents=True)
+    record = {
+        "pid": os.getpid(),
+        "host": socket.gethostname(),
+        "url": "http://127.0.0.1:8123",
+    }
+    marker.write_text(json.dumps(record))
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert "already running at http://127.0.0.1:8123" in _text(ctx.out)
+
+
+def test_a_taken_app_port_names_a_free_one() -> None:
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        with pytest.raises(commands.DevError, match="is in use") as refused:
+            commands.app_port(str(port))
+    assert "--port auto" in str(refused.value)
+    assert ports.port_free(commands.app_port("auto"))
+
+
+# --------------------------------------------------------------------------- #
+# CI, Docker missing
+# --------------------------------------------------------------------------- #
+
+
+def test_ci_with_test_services_is_a_no_op(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    env = {"CI": "true", "SANDLOOM_TEST_DATABASE_URL": "postgresql://ci/t"}
+    assert dev_cli.main(["up"], environ=env) == 0
+    assert "CI provides the services" in capsys.readouterr().out
+    assert dev_cli.main(["up"], environ={"CI": "true"}) == 1
+    assert "SANDLOOM_TEST_DATABASE_URL" in capsys.readouterr().err
+    assert dev_cli.main(["down"], environ=env) == 1
+
+
+def test_no_docker_is_one_line(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(commands._docker.shutil, "which", lambda name: None)
+    assert dev_cli.main(["up"], environ=environ) == 1
+    err = capsys.readouterr().err.strip().splitlines()
+    assert len(err) == 1 and err[0].startswith("error: Docker is not reachable")
+
+
+# --------------------------------------------------------------------------- #
+# The one-line connection error
+# --------------------------------------------------------------------------- #
+
+_REFUSED = 'connection to server at "127.0.0.1", port 5432 failed: Connection refused'
+
+
+def test_connection_failures_become_one_line() -> None:
+    import psycopg2  # type: ignore[import-untyped]
+    import redis
+
+    line = errors.connection_failure(psycopg2.OperationalError(_REFUSED))
+    assert line == (
+        "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
+        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+    )
+    rd = redis.exceptions.ConnectionError(
+        "Error 61 connecting to 127.0.0.1:6379. Connection refused."
+    )
+    assert "cannot reach Redis at 127.0.0.1:6379" in (
+        errors.connection_failure(rd) or ""
+    )
+    assert errors.connection_failure(ValueError("nope")) is None
+
+
+def test_a_wrapped_asyncpg_refusal_is_recognised() -> None:
+    from sqlalchemy.exc import OperationalError
+
+    refused = ConnectionRefusedError(61, "Connect call failed ('127.0.0.1', 24817)")
+
+    class FakeAsyncpg(Exception):
+        pass
+
+    FakeAsyncpg.__module__ = "asyncpg.exceptions"
+    line = None
+    try:
+        try:
+            raise FakeAsyncpg("boom") from refused
+        except FakeAsyncpg as inner:
+            raise OperationalError("SELECT 1", {}, inner) from inner
+    except OperationalError as exc:
+        line = errors.connection_failure(exc)
+    assert line is not None
+    assert "PostgreSQL at 127.0.0.1:24817 (connection refused)" in line
+
+
+@pytest.mark.subprocess_probe
+def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
+    tmp_path: Path,
+) -> None:
+    """A real command against a closed port: one line, or the traceback."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("SANDLOOM_", "DATABASE_URL", "CACHE_URL", "BROKER_URL"))
+    }
+    env.update(
+        DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/x",
+        CACHE_URL="redis://127.0.0.1:2/0",
+        BROKER_URL="redis://127.0.0.1:2/1",
+        JWT_SECRET="x" * 64,
+        ENVIRONMENT="dev",
+        SANDLOOM_HOME=str(tmp_path / "home"),
+    )
+    entry = "import sys; from sandloom import main; main()"
+
+    def run(*args: str, **extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-c", entry, *args],
+            cwd=tmp_path,
+            env={**env, **extra},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+
+    quiet = run("outbox", "list-dead")
+    assert quiet.returncode == 1
+    errors_ = [ln for ln in quiet.stderr.splitlines() if "[INFO]" not in ln]
+    errors_ = [ln for ln in errors_ if "[WARNING]" not in ln]
+    assert errors_ == [
+        "error: cannot reach PostgreSQL at 127.0.0.1:1 (connection refused). "
+        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+    ]
+    for loud in (
+        run("--debug", "outbox", "list-dead"),
+        run("outbox", "list-dead", SANDLOOM_DEBUG="1"),
+    ):
+        assert loud.returncode == 1
+        assert "Traceback (most recent call last)" in loud.stderr
+        assert "[SANDLOOM-R014]" not in loud.stderr
+
+
+def test_the_error_code_is_catalogued() -> None:
+    entry = error_codes.get(errors.CODE)
+    assert entry.kind == "runtime" and "sandloom dev up" in entry.fix
+
+
+def test_an_exported_url_that_differs_from_the_block_is_warned(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text(envfile.render_block(_VALUES))
+    out = io.StringIO()
+    drift = errors.warn_env_drift(
+        tmp_path, {"DATABASE_URL": "postgresql://elsewhere/x"}, out
+    )
+    assert drift == ["DATABASE_URL"]
+    assert "the exported value wins" in out.getvalue()

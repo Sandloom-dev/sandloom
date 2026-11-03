@@ -29,7 +29,7 @@ uvx --from "sandloom==0.7.0a7" sandloom new tasklist --no-batteries --module tas
 cd tasklist
 uv sync
 uv run sandloom generate
-docker compose -f deploy/docker-compose.dev.yml up -d --wait   # Postgres and Redis
+uv run sandloom dev up     # Postgres and Redis in Docker, and their URLs in .env
 ```
 
 `sandloom new` writes a complete application: `tasklist/asgi.py` (the
@@ -262,13 +262,13 @@ Run the application:
 
 ```bash
 uv run sandloom migrate upgrade-all --apply
-uv run uvicorn tasklist.asgi:app --reload       # http://localhost:8000/docs
+uv run sandloom dev run                         # http://127.0.0.1:8000/docs
 ```
 
 ## 8. See where the infrastructure comes from
 
 Your modules called `db()` and never named a database engine. The backend is chosen in
-`.env`:
+`.env` (`sandloom dev up` wrote these three lines into its marked block):
 
 ```text
 DATABASE_URL=postgresql+asyncpg://...   # the database

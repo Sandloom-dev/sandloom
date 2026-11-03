@@ -20,6 +20,8 @@ from sandloom.core.testing.workers import apply_test_overrides, apply_worker_env
 
 #: The test environment file every Sandloom project carries.
 ENV_FILE = ".env.test"
+#: This checkout's test servers, written by ``sandloom dev up`` (gitignored).
+LOCAL_ENV_FILE = ".env.test.local"
 
 
 class MissingTestEnvError(RuntimeError):
@@ -42,7 +44,8 @@ def find_env_file(starts: Iterable[Path]) -> Path | None:
 def load_test_env(
     starts: Iterable[Path], *, warn_if_late: bool = False, create_database: bool = True
 ) -> Path:
-    """Load the nearest ``.env.test`` into ``os.environ`` (override=True).
+    """Load the nearest ``.env.test`` into ``os.environ`` (override=True),
+    then the ``.env.test.local`` beside it (override=False).
 
     ``override=True`` so a leftover shell value (a dev ``DATABASE_URL``) never
     masks the test configuration; an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
@@ -73,6 +76,13 @@ def load_test_env(
             stacklevel=2,
         )
     load_dotenv(dotenv_path=path, override=True)
+    # This checkout's test servers (``sandloom dev up``): only next to the
+    # .env.test found, never walking up (a worktree nested in the main
+    # checkout must not read the main checkout's file); an exported
+    # SANDLOOM_TEST_* (or a held test-run slot's) wins.
+    local = path.parent / LOCAL_ENV_FILE
+    if local.is_file():
+        load_dotenv(dotenv_path=local, override=False)
     # Small pools for a test process unless configured (connection budget).
     apply_test_pool_profile()
     # Explicit SANDLOOM_TEST_<VAR> overrides win over the file (parallel suites).
@@ -83,4 +93,10 @@ def load_test_env(
     return path
 
 
-__all__ = ["ENV_FILE", "MissingTestEnvError", "find_env_file", "load_test_env"]
+__all__ = [
+    "ENV_FILE",
+    "LOCAL_ENV_FILE",
+    "MissingTestEnvError",
+    "find_env_file",
+    "load_test_env",
+]

@@ -54,6 +54,7 @@ from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixt
     test_engine,
     user_headers,
 )
+from sandloom.core.testing.slots import acquire_test_slot
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -95,10 +96,14 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> Generator[None, int,
 def pytest_load_initial_conftests(
     early_config: pytest.Config, parser: pytest.Parser, args: list[str]
 ) -> None:
-    """Load ``.env.test`` before any conftest imports the framework."""
+    """Take this run's test-run slot, then load ``.env.test`` — both before
+    any conftest imports the framework."""
     starts = [Path(str(early_config.rootpath))]
     for arg in args:
         candidate = Path(str(arg).split("::", 1)[0])
         if not str(arg).startswith("-") and candidate.exists():
             starts.append(candidate)
+    # Plain pytest: the controller takes the slot (xdist workers and the
+    # steps of `sandloom test` find it held). Kept until the process exits.
+    acquire_test_slot(starts)
     load_test_env(starts, warn_if_late=True)

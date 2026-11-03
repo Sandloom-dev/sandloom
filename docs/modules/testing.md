@@ -43,6 +43,22 @@ uv run sandloom test
 `.env.example` is the template for running the **app** (`uvicorn`, `celery`,
 `sandloom migrate`). Copying it to `.env` does not change the tests.
 
+### In an app: `sandloom dev up`
+
+An app made by `sandloom new` gets its test services from `uv run sandloom dev up`.
+That command writes `.env.test.local` next to `.env.test`. The file is not
+committed and names this repository's test servers.
+
+- The plugin reads `.env.test.local` right after `.env.test`, and only from
+  the same folder. An exported `SANDLOOM_TEST_*` still wins.
+- Each test run takes a free *slot* before it touches a database. The first
+  run uses `sandloom_test_<checkout hash>`. A second run in the same checkout
+  uses the same name with `_2`, and gets its own Redis indexes too.
+- `sandloom test` holds its slot for all its steps. A plain `pytest` takes one
+  in the controller process.
+- CI and an exported `SANDLOOM_TEST_DATABASE_URL` or `SANDLOOM_TEST_OWNER` take
+  no slot: the run uses exactly what you set.
+
 ### Your own database and Redis (shared machines)
 
 `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` win
@@ -105,7 +121,8 @@ What the plugin does:
 - **Loads `.env.test` first.** The nearest `.env.test` walking up from the
   pytest rootdir (then from the test paths) is loaded with `override=True` in
   `pytest_load_initial_conftests`, before any conftest or test module can
-  read the settings. No file found is a clear usage error.
+  read the settings. The `.env.test.local` beside it follows, without
+  overriding. No file found is a clear usage error.
 - **Boots the app** through the composition root (`SANDLOOM_COMPOSITION_ROOT`, else
   the `sandloom_composition_root` ini option, else `sandloom.main`), which also
   registers every loaded module's models.
@@ -237,8 +254,10 @@ The harness protects concurrent runs on one machine from each other:
 
 - **Resource ownership.** Every test database carries an owner marker (its
   comment, `sandloom-test-owner:<owner>`) and every test Redis index the key
-  `sandloom:test:owner`. The owner is `SANDLOOM_TEST_OWNER`, else the checkout root (one
-  per git worktree). An unmarked resource is claimed by the first run (a
+  `sandloom:test:owner`. The owner is `SANDLOOM_TEST_OWNER` when set, otherwise
+  `<machine id>:<checkout root>` (one per git worktree). A marker from an older
+  version holds only the checkout root and still counts as this checkout's.
+  An unmarked resource is claimed by the first run (a
   database the harness creates is stamped on creation); one marked by another
   owner aborts the session before any test runs (exit code 4, nothing
   truncated or flushed), under xdist for every worker's `_gw<N>` copy too.
