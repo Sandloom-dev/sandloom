@@ -36,6 +36,7 @@ Imports nothing from the framework (safe before the settings snapshot).
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import os
 import socket
@@ -323,6 +324,9 @@ def acquire_test_slot(
         )
     if environ is None:
         _held = slot
+        # `sandloom test` and a plain pytest controller hold the slot until
+        # they exit; then it hands its Redis indexes back (also after a failure).
+        atexit.register(release_test_slot)
     return slot
 
 

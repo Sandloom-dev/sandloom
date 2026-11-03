@@ -299,6 +299,26 @@ def test_affordable_workers_count_own_and_free_indexes_without_claiming(
         client.close()
 
 
+def test_affordable_workers_divide_own_and_free_indexes_by_the_bases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The arithmetic on a fixed snapshot (the live server changes meanwhile)."""
+
+    class Client:
+        def close(self) -> None:
+            pass
+
+    snapshot = {"owner": ([3, 4], [5, 6, 7]), "stranger": ([], [5, 6, 7])}
+    monkeypatch.setattr(resources, "_connect_redis", lambda _url: Client())
+    monkeypatch.setattr(
+        resources, "_claimable_indexes", lambda _c, _bases, owner: snapshot[owner]
+    )
+    urls = ["redis://h:6379/1", "redis://h:6379/2"]  # two bases share the indexes
+    assert resources.affordable_redis_workers(urls, "owner") == 5 // 2
+    assert resources.affordable_redis_workers(urls, "stranger") == 3 // 2
+    assert resources.affordable_redis_workers([], "owner") == 0
+
+
 @pytest.mark.parametrize(("room", "expected"), [(8, 6), (3, 3), (1, 0), (0, 0)])
 def test_auto_workers_fall_back_when_redis_indexes_are_short(
     monkeypatch: pytest.MonkeyPatch,

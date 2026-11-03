@@ -14,6 +14,7 @@ import textwrap
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
@@ -402,7 +403,27 @@ def test_a_released_slot_hands_back_its_redis_indexes(
     for url in claimed:
         client = redis.Redis.from_url(url)
         try:
-            assert client.get(ownership.REDIS_OWNER_KEY) is None
-            assert client.dbsize() == 0
+            # Another run may claim the index right after the release: only
+            # this slot's marker must be gone.
+            assert client.get(ownership.REDIS_OWNER_KEY) != slot.owner.encode()
         finally:
             client.close()
+
+
+def test_the_controller_releases_its_slot_at_exit(
+    monkeypatch: pytest.MonkeyPatch, checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    """`sandloom test` and a plain pytest controller never call release: the
+    slot registers it for process exit."""
+    registered: list[Any] = []
+    monkeypatch.setattr(slots.atexit, "register", registered.append)
+    monkeypatch.setattr(slots, "_held", None)
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    monkeypatch.setattr(slots.os, "environ", env)
+    slot = slots.acquire_test_slot([root], cwd=root, announce=False)
+    try:
+        assert slot is not None
+        assert registered == [slots.release_test_slot]
+    finally:
+        slots.release_test_slot()

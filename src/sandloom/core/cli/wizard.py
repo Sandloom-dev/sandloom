@@ -633,16 +633,15 @@ class SetupRunner:
             for stream, sink in ((proc.stdout, None), (proc.stderr, errors))
             if stream is not None
         ]
-        started: list[threading.Thread] = []
         try:
             for reader in readers:
                 reader.start()
-                started.append(reader)
             code, cancelled = self._wait(proc)
         except KeyboardInterrupt:  # Ctrl-C before the wait began
             code, cancelled = self._stop(proc), True
-        for reader in started:
-            reader.join()
+        for reader in readers:
+            if reader.ident is not None:  # started, even if start() was interrupted
+                reader.join()
         line.finish(ok=code == 0 and not cancelled)
         if cancelled:
             return "cancelled"
