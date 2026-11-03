@@ -349,6 +349,10 @@ def _main() -> None:  # noqa: C901
     if args.command == "new":
         raise SystemExit(_cmd_new(rest))
     if args.command == "add":
+        # `add deploy` builds the app to derive the profile: like `generate`,
+        # it needs settings, not services (a new app has no URLs before
+        # `sandloom dev up`).
+        _load_test_env_for_authoring(create_database=False)
         raise SystemExit(_static_import("sandloom.core.cli.add").main(rest))
     if args.command == "check":
         raise SystemExit(_static_import("sandloom.core.cli.check").main(rest))
