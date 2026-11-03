@@ -19,7 +19,7 @@ the platform `admin` role.
 Create an application with the console. It brings identity, which handles sign-in:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a8" sandloom new myapp --with admin,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a9" sandloom new myapp --with admin,tenancy,billing
 cd myapp
 uv sync
 uv run sandloom generate
