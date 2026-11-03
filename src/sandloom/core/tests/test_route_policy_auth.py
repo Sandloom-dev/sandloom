@@ -197,6 +197,7 @@ def test_bundled_public_routes_are_exactly_the_reviewed_set() -> None:
     from sandloom.main import app
 
     expected = {
+        ("GET", "/api/v1/identity/setup-state"),
         ("GET", "/auth/health"),
         ("POST", "/auth/login"),
         ("POST", "/auth/logout"),

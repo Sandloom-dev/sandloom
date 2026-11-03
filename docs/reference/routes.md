@@ -90,6 +90,7 @@ Every route of the batteries platform: who may call it (`auth`) and its resolved
 
 | Method | Path | Auth | Policy |
 |---|---|---|---|
+| GET | `/api/v1/identity/setup-state` | public | effect=read, idempotency=none, public_reason=first-run hint: tells only whether an administrator exists, session=none |
 | GET | `/api/v1/permissions` | authenticated | effect=read, idempotency=none, risk={'admin': ['sandloom.shared.authz.deps.require.<locals>._claims_guard']}, session=live, re-check if a unit writes |
 | POST | `/api/v1/permissions` | authenticated | audit=automatic, effect=write, idempotency=automatic S, risk={'admin': ['sandloom.shared.authz.deps.require.<locals>._claims_guard']}, session=live, re-check before commit, write_store=default |
 | GET | `/api/v1/roles` | authenticated | effect=read, idempotency=none, risk={'admin': ['sandloom.shared.authz.deps.require.<locals>._claims_guard']}, session=live, re-check if a unit writes |

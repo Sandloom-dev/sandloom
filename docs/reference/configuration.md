@@ -240,6 +240,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CACHE_MAX_CONNECTIONS` | `int` | `64` | Maximum connections in the default Redis cache pool; callers wait within CACHE_POOL_TIMEOUT_SECONDS when the pool is busy. |
 | `CACHE_POOL_TIMEOUT_SECONDS` | `float` | `1.0` | Maximum seconds a Redis cache operation waits for a pooled connection before failing. |
 | `CACHE_RETRY_ATTEMPTS` | `int` | `1` | Retries of Redis cache commands after connection errors. Command timeouts are never retried. |
+| `NOTIFIER_LOG_LINKS` | `bool` | `False` | The log notifier also logs the links an email carries (verification, password reset), marked [dev only], so a dev app without SMTP can follow them. Refused with ENVIRONMENT=prod unless SANDLOOM_ACCEPTED_RISKS lists log_links_in_prod. |
 | `JWT_PRIVATE_KEY` | `str | None` | `None` | Issuer-only PEM private key for asymmetric access-token signing; its public key must be published under JWT_KID. |
 | `JWT_PUBLIC_KEYS` | `dict[str, str]` | `{}` | JSON map of key IDs to PEM public keys used to verify asymmetric access tokens in every service. |
 | `MAX_SESSION_DAYS` | `int` | `30` | Absolute session lifetime in days; refreshing a token does not extend this deadline. |
