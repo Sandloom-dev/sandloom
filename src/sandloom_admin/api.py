@@ -109,11 +109,18 @@ async def admin_manifest() -> JSONResponse:
 
 @router.get("/config.json", include_in_schema=False)
 async def console_config() -> JSONResponse:
-    """Every section the manifest declares: composition already selected them."""
+    """Every section the manifest declares: composition already selected them.
+
+    ``development`` (outside production only) lets the console keep its
+    session across a reload of the tab (sessionStorage) and show the local
+    sign-in hints; production keeps sessions in memory and says nothing."""
     modules = [m for m in _usable_manifest()["modules"] if m != "core"]
     if "identity" not in modules:
         raise HTTPException(503, "The admin console needs the identity module.")
-    return _json({"modules": modules})
+    payload: dict[str, Any] = {"modules": modules}
+    if settings.environment.value != "prod":
+        payload["development"] = True
+    return _json(payload)
 
 
 @router.get("/{path:path}", include_in_schema=False)

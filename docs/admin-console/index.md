@@ -40,9 +40,11 @@ Run this in the application's directory and type the password twice when asked:
 uv run sandloom admin create --email you@example.com
 ```
 
-Open [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) and sign in. The
-address counts as verified, so you don't need a mail server yet. The command is
-recorded in the audit log.
+Open `/admin/` on the address the app answers on and sign in: with the commands above
+that is [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/); `sandloom dev run`
+prints its own address. The address counts as verified, so you don't need a mail server
+yet. The command is recorded in the audit log, and so is the password it sets
+(`identity.user.password_set`).
 
 If no one can type the password, for example an agent or a CI job runs the setup,
 ask for a link instead:
@@ -61,6 +63,7 @@ is no flag that takes the password itself, so it never lands in your shell histo
 
 | Situation | Command |
 | --- | --- |
+| Forgot which address is an administrator | `uv run sandloom admin list` |
 | Forgot the password, or the link expired | `uv run sandloom admin invite --email you@example.com` |
 | A verified user should become an administrator | `uv run sandloom security grant-admin --email them@example.com --apply --reason "..."` |
 | Someone else registered your address first | `uv run sandloom admin create --email you@example.com --invite --take-over` |
@@ -71,6 +74,27 @@ registered it first would keep their password.
 
 While no administrator exists, the sign-in page and the application's startup log
 show the `admin create` command.
+
+Outside production, a failed sign-in names two more commands. `admin list` shows
+which addresses are administrators and which of them have a password; `admin invite`
+gives one a new password. In production it needs `--confirm-production --reason "..."`. It then
+writes an audit record and masks the addresses unless you add `--show-emails`.
+
+Whoever can run the CLI on a server can read the database anyway: the command grants
+no new access. What it adds in production is an audit trail, and addresses kept out
+of shell history and CI logs.
+
+## Sessions
+
+The console keeps its tokens in the tab's memory and never in cookies or
+localStorage. In production, reloading or closing the tab signs you out.
+
+Outside production the console also keeps the session in the tab's sessionStorage:
+a reload keeps you signed in, and closing the tab still signs you out. The trade-off
+is that a script injected into the page could read the stored refresh token, which
+memory alone hides. That risk is fine for a development app on your own machine and
+never for production. The server tells the console its mode (`/admin/config.json`),
+and production never stores the session.
 
 With the console off, as in production by default, the link opens your own frontend
 instead: `FRONTEND_URL/auth/reset-password#token=...`. The token is in the URL

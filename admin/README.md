@@ -176,11 +176,15 @@ The full declaration reference and example are in the [developer guide](../docs/
 
 ## Session and data boundaries
 
-Access and refresh tokens live only in memory, never localStorage or
-sessionStorage. localStorage holds only per-operator preferences (theme,
-density, visible columns, saved views) and is optional. Reloading/closing the tab
-requires login; tabs do not share refresh tokens. Login supports the existing
-password/OTP flow; SSO UI is not part of this version.
+Access and refresh tokens live in memory, never in localStorage. In production
+they live in memory only, and reloading or closing the tab requires login.
+Outside production `/admin/config.json` says `"development": true`. The console
+then also keeps the session in the tab's sessionStorage. A reload keeps it, and
+closing the tab ends it. Tabs do not share refresh tokens.
+
+localStorage holds only per-operator preferences (theme, density, visible
+columns, saved views) and is optional. Login supports the existing password/OTP
+flow; SSO UI is not part of this version.
 
 Refresh is proactive and single-flight. A revoked/blocked token's HTTP 401
 clears local authority and requires login; it is not silently refreshed.

@@ -83,9 +83,45 @@ async function readResponse(response: Response): Promise<unknown> {
   return body;
 }
 
-/** Memory-only credentials; one refresh per session, no automatic replay of mutations. */
+/** Where a development console keeps its session across a reload of the tab. */
+const SESSION_KEY = 'sandloom-admin-session';
+
+function storedSession(raw: string | null): StoredSession | undefined {
+  if (!raw) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object') return undefined;
+    const r = value as Record<string, unknown>;
+    if (
+      typeof r.subject !== 'string' ||
+      !Array.isArray(r.roles) ||
+      !r.roles.every((role) => typeof role === 'string') ||
+      typeof r.access !== 'string' ||
+      typeof r.refresh !== 'string' ||
+      typeof r.expiresAt !== 'number'
+    )
+      return undefined;
+    return {
+      subject: r.subject,
+      roles: r.roles,
+      access: r.access,
+      refresh: r.refresh,
+      expiresAt: r.expiresAt,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Credentials in memory; one refresh per session, no automatic replay of
+ * mutations. Outside production (`keepAcrossReloads(true)`) the session is
+ * also kept in this tab's sessionStorage, so a reload keeps it; closing the
+ * tab ends it. Never localStorage.
+ */
 export class ApiClient {
   private session?: StoredSession;
+  private storage?: Storage;
   private generation = 0;
   private refreshing?: Promise<void>;
   private requests = new Set<AbortController>();
@@ -109,9 +145,40 @@ export class ApiClient {
   private changed() {
     for (const listener of this.listeners) listener();
   }
+  /** True outside production: a reload of this tab keeps the session. */
+  get keepsAcrossReloads(): boolean {
+    return this.storage !== undefined;
+  }
+  /**
+   * Outside production, keep the session in this tab's sessionStorage and
+   * take back the one a reload left there; in production, drop any stored one.
+   */
+  keepAcrossReloads(keep: boolean) {
+    const storage = window.sessionStorage;
+    if (!keep) {
+      this.storage = undefined;
+      storage.removeItem(SESSION_KEY);
+      return;
+    }
+    this.storage = storage;
+    const restored = storedSession(storage.getItem(SESSION_KEY));
+    if (!restored) {
+      storage.removeItem(SESSION_KEY);
+      return;
+    }
+    this.generation++;
+    this.session = restored;
+    this.changed();
+  }
+  private persist() {
+    if (!this.storage) return;
+    if (this.session) this.storage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    else this.storage.removeItem(SESSION_KEY);
+  }
   clear() {
     this.generation++;
     this.session = undefined;
+    this.persist();
     this.refreshing = undefined;
     for (const request of this.requests) request.abort();
     this.requests.clear();
@@ -138,6 +205,7 @@ export class ApiClient {
       refresh: pair.refresh_token,
       expiresAt: Date.now() + pair.expires_in * 1000,
     };
+    this.persist();
   }
   async login(data: Schema<'LoginIn'>, requiredRole?: string) {
     if (this.session) this.clear();

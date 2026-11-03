@@ -38,6 +38,25 @@ function useNoAdminYet(): boolean {
   return none;
 }
 
+/**
+ * Outside production, after a failed sign-in: the commands that show which
+ * addresses are administrators and give one a new password. Production
+ * keeps the plain error (it says nothing about accounts).
+ */
+function AccountHint({ email }: { email: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md bg-surface-muted p-3 text-xs">
+      <p className="text-fg-muted">
+        Forgot which address or password? In the app&apos;s directory:
+      </p>
+      <code className="font-mono break-all">uv run sandloom admin list</code>
+      <code className="font-mono break-all">
+        {`uv run sandloom admin invite --email ${email || 'you@example.com'}`}
+      </code>
+    </div>
+  );
+}
+
 interface Credentials {
   email: string;
   password: string;
@@ -150,6 +169,7 @@ export function LoginPage() {
               }}
             >
               {error && <Alert message={error} />}
+              {error && api.keepsAcrossReloads && <AccountHint email={email.trim()} />}
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor={ids.email}>Email</Label>
                 <Input
@@ -191,7 +211,9 @@ export function LoginPage() {
           </Card>
         )}
         <p className="text-xs text-fg-subtle">
-          Sessions live in this tab only: reloading or closing it signs you out.
+          {api.keepsAcrossReloads
+            ? 'Development: reloading keeps you signed in; closing the tab signs you out.'
+            : 'Sessions live in this tab only: reloading or closing it signs you out.'}
         </p>
       </div>
     </main>

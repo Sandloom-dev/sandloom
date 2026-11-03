@@ -151,6 +151,23 @@ async def test_the_manifest_comes_from_the_application(
     response = await client.get("/admin/admin-manifest.json")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+    assert (await client.get("/admin/config.json")).json() == {
+        "modules": ["identity"],
+        "development": True,
+    }
+
+
+async def test_production_config_does_not_say_development(
+    client: AsyncClient,
+    application_package: tuple[Path, str],
+    config: SimpleNamespace,
+) -> None:
+    """``development`` lets the console keep a session across a reload and
+    show local hints; production keeps sessions in memory only."""
+    package, _ = application_package
+    _manifest(package)
+    config.environment = SimpleNamespace(value="prod")
+    config.admin_console_enabled = True
     assert (await client.get("/admin/config.json")).json() == {"modules": ["identity"]}
 
 
