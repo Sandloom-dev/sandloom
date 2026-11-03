@@ -13,6 +13,12 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **Choosing coding agents is a checklist.** `sandloom new` and `sandloom add skills
+  --choose` show the agents with the installed ones checked: arrows move, space
+  checks, Enter confirms. Where single keys cannot be read, the typed answer stays.
+
 ## [0.7.0a7] — 2026-11-03
 
 ### Added
