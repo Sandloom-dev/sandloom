@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a7] — 2026-11-03
+
 ### Added
 
 - **Skills for your coding agents.** `sandloom new` asks which coding agents the
@@ -27,6 +29,8 @@ website renders this same changelog.
 
 ### Changed
 
+- Applications from `sandloom new` and the examples limit function complexity
+  (ruff `C901`, threshold 10, outside tests), as the framework does.
 - `sandloom add skills` replaces the agent files it wrote earlier with the
   installed version's, and keeps only the files you edited (`--force` replaces
   those too). `--agents` and `--choose` change which agents it writes for. Run it
@@ -34,6 +38,27 @@ website renders this same changelog.
 - `sandloom check` prints the error catalogue's text for each rule, naming the
   1.0 API (`Event.publish()`, `@on`, `Contract(REF)`), the same text as
   `sandloom explain`.
+
+### Fixed
+
+- `sandloom add --help` lists `deploy`, and `sandloom add --root . deploy --help`
+  reaches the deploy options.
+- The `sandloom[admin]` extra requires the current `sandloom-admin` version; it
+  pointed at `0.7.0a5`, which was never published.
+
+### Security
+
+- The admin console's runtime image upgrades expat to 2.10.0 (four advisories,
+  one high).
+- The 13 Debian advisories new since the runtime baseline (sqlite3, gcc-14) are
+  reviewed and recorded; Debian ships no fix for any of them.
+
+### Documentation
+
+- The docs sections follow one path: Getting Started, Develop with AI, Modules
+  (with the batteries), Infrastructure, Admin Console, Deploy and operate,
+  Advanced, Reference, Contribute. Old URLs forward to the new pages.
+- New pages: the toolchain, generators, agent tooling and checks.
 
 ## [0.7.0a6] — 2026-11-01
 
