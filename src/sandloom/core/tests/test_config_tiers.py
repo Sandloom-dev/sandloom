@@ -221,18 +221,33 @@ def test_stronger_choice_is_not_an_override() -> None:
     assert tiers.active_overrides(cfg) == []
 
 
-def test_dev_opt_in_is_logged_at_info(caplog: pytest.LogCaptureFixture) -> None:
+def test_the_generated_dev_default_is_logged_at_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``sandloom new`` writes INTERNAL_ENDPOINTS_OPEN_IN_DEV=true into the dev
+    ``.env``: an override nobody chose by hand, so it is DEBUG, not a line
+    every command prints (a weaker dev choice made by hand stays at INFO)."""
     cfg = _settings(ENVIRONMENT="dev", INTERNAL_ENDPOINTS_OPEN_IN_DEV="true")
     log = logging.getLogger("sandloom.test.config_tiers")
-    with caplog.at_level(logging.INFO, logger="sandloom.test.config_tiers"):
+    with caplog.at_level(logging.DEBUG, logger="sandloom.test.config_tiers"):
         found = tiers.log_overrides(cfg, log)
     assert [(o.setting, o.profile) for o in found] == [
         ("INTERNAL_ENDPOINTS_OPEN_IN_DEV", "dev")
     ]
-    assert {r.levelno for r in caplog.records} == {logging.INFO}
+    assert {r.levelno for r in caplog.records} == {logging.DEBUG}
     # Never honoured in prod, so it is not an override there.
     prod = _settings(ENVIRONMENT="prod", INTERNAL_ENDPOINTS_OPEN_IN_DEV="true")
     assert tiers.active_overrides(prod) == []
+
+
+def test_dev_opt_in_is_logged_at_info(caplog: pytest.LogCaptureFixture) -> None:
+    """A weaker choice made by hand outside prod is reported at INFO."""
+    chosen = _settings(ENVIRONMENT="dev", SMTP_USE_TLS="false")
+    log = logging.getLogger("sandloom.test.config_tiers")
+    with caplog.at_level(logging.DEBUG, logger="sandloom.test.config_tiers"):
+        found = tiers.log_overrides(chosen, log)
+    assert [(o.setting, o.profile) for o in found] == [("SMTP_USE_TLS", "dev")]
+    assert {r.levelno for r in caplog.records} == {logging.INFO}
 
 
 # ------------------------------------------------------- accepted risks ----

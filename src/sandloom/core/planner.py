@@ -685,7 +685,7 @@ def register_prepared(
     registry = facade.__dict__.setdefault(DECLARED_OPERATIONS_ATTR, {})
     for plan in plans:
         registry[plan.operation.name] = (module, plan.operation)
-        _log.info(
+        _log.debug(
             "declared operation %s (%s): %s executor — %s",
             plan.operation.name,
             module,

@@ -10,17 +10,19 @@ installed ``sandloom.modules`` entry point.
 """
 
 import asyncio
+import html
 import logging
 import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
@@ -118,6 +120,26 @@ async def _capability_health(
         return cast(HealthResult, await provider.health())
     except Exception as exc:  # noqa: BLE001 - any provider failure is a failed probe
         return HealthResult(status="fail", details={"error": str(exc)})
+
+
+async def report_unreachable_database(core_facade: CoreFacade) -> None:
+    """Development: say once, in one line, that the database cannot be
+    reached (the dev services are stopped) and how to start it. The app
+    still starts: a request answers 503 until the database is back."""
+    result = await _capability_health(core_facade, "database")
+    if result.status == "ok":
+        return
+    where = ""
+    with suppress(ValueError):
+        parts = urlsplit(settings.database_url)
+        if parts.hostname:
+            where = f" at {parts.hostname}" + (f":{parts.port}" if parts.port else "")
+    logging.getLogger("sandloom.app").warning(
+        "cannot reach PostgreSQL%s: start the dev services with "
+        "`uv run sandloom dev up` (`uv run sandloom dev run` starts them too)   "
+        "[SANDLOOM-R014]",
+        where,
+    )
 
 
 class ConfigurationError(SystemExit):
@@ -259,6 +281,12 @@ def create_app(
     application.state.consumer_runtime = consumer_runtime
 
     _register_health_checks(core_facade, infra)
+    if settings.environment.value == "dev":
+
+        async def report_unreachable_dev_database() -> None:
+            await report_unreachable_database(core_facade)
+
+        core_facade.add_startup_task(report_unreachable_dev_database, phase="post")
 
     application.router.lifespan_context = _make_lifespan(
         application, core_facade, module_summary, consumer_runtime
@@ -267,6 +295,7 @@ def create_app(
     _install_ops_endpoints(application, core_facade)
 
     _platform.install(application, core_facade)
+    _install_start_page(application)
     _validate_and_index_routes(application)
     return application
 
@@ -825,6 +854,81 @@ def _install_ops_endpoints(application: FastAPI, core_facade: CoreFacade) -> Non
         """Prometheus metrics exposition endpoint."""
         data = render_metrics()
         return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
+_START_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto;
+  padding: 0 1rem; color: #1f1d1a; background: #faf8f5; }}
+@media (prefers-color-scheme: dark) {{ body {{ color: #ece8e1; background: #1c1a17; }}
+  a {{ color: #e0b07a; }} }}
+code {{ font-size: 0.9em; }}
+</style></head><body>
+<h1>{title}</h1>
+<p>The app is running. This page is served outside production only.</p>
+<ul>
+{links}
+</ul>
+<p>Next:</p>
+<ul>
+{commands}
+</ul>
+</body></html>
+"""
+
+
+def _install_start_page(application: FastAPI) -> None:
+    """``GET /`` outside production, unless the app routes ``/`` itself: the
+    address ``sandloom dev run`` prints answers with links to the console,
+    the API docs and ``/health`` instead of a 404. Production leaves ``/``
+    unrouted."""
+    if settings.is_prod:
+        return
+    for route in application.routes:
+        if getattr(route, "path", None) == "/" and "GET" in (
+            getattr(route, "methods", None) or ()
+        ):
+            return
+    # The console is whatever serves /admin/ (the kernel names no module).
+    console = any(
+        str(getattr(route, "path", "")).startswith("/admin")
+        for route in application.routes
+    )
+    links = []
+    if console:
+        links.append('<li><a href="/admin/">The admin console</a> (/admin/)</li>')
+    if settings.docs_exposed:
+        links.append('<li><a href="/docs">The API docs</a> (/docs)</li>')
+    links.append('<li><a href="/health">Health</a> (/health)</li>')
+    commands = []
+    if console:
+        commands.append(
+            "<li><code>uv run sandloom admin create --email you@example.com</code>"
+            " (the first administrator; <code>uv run sandloom admin list</code> "
+            "shows them)</li>"
+        )
+    commands += [
+        "<li><code>uv run sandloom add module notes</code> (a module)</li>",
+        "<li><code>uv run sandloom test</code> (tests and every gate)</li>",
+    ]
+    page = _START_PAGE.format(
+        title=html.escape(application.title),
+        links="\n".join(links),
+        commands="\n".join(commands),
+    )
+
+    @application.get(
+        "/",
+        include_in_schema=False,
+        dependencies=[
+            _route_policy.public(reason="development start page (never in production)")
+        ],
+    )
+    async def start_page() -> HTMLResponse:
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 def _requested_modules(application: FastAPI) -> list[str]:

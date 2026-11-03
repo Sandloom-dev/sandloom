@@ -182,7 +182,13 @@ def test_every_platform_route_is_authenticated_or_public() -> None:
         if not getattr(r, "sandloom_module", None)
     }
     publics = {k for k, p in kernel.items() if p.auth == "public"}
-    assert {path for _m, path in publics} == {"/health/simple", "/health", "/ready"}
+    # "/" is the start page outside production (never in production).
+    assert {path for _m, path in publics} == {
+        "/",
+        "/health/simple",
+        "/health",
+        "/ready",
+    }
     for (method, path), policy in kernel.items():
         if path.startswith(("/diagnostics/", "/contracts/")) or path == "/metrics":
             assert policy.auth == "service", (method, path)

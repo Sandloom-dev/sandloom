@@ -160,7 +160,7 @@ def define_module(
         if setup is not None:
             setup(core)
 
-        core.logger.info("%s module registered", short)
+        core.logger.debug("%s module registered", short)
         return _descriptors.ModuleDescriptor(
             name=descriptor_name,
             version=version,

@@ -7,6 +7,7 @@ from contextlib import AbstractContextManager
 from time import perf_counter
 
 import sandloom.core.observability.metrics as _metrics
+import sandloom.core.observability.unreachable as _unreachable
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult, ModuleDescriptor
 from sandloom.core.facade import CoreFacade
@@ -28,6 +29,20 @@ logger = logging.getLogger("sandloom.core.lifecycle")
 
 class CriticalStartupError(RuntimeError):
     """A critical startup task failed: the application must not start."""
+
+
+def _log_task_failure(
+    group_name: str, t_name: str, exc: Exception, *, critical: bool
+) -> None:
+    """A best-effort task that cannot reach PostgreSQL / Redis (the dev
+    services are stopped): one WARNING line with the advice, the traceback at
+    DEBUG. Any other failure keeps its traceback."""
+    unreachable = None if critical else _unreachable.unreachable(exc)
+    if unreachable is None:
+        logger.error("Startup task failed (%s:%s)", group_name, t_name, exc_info=exc)
+        return
+    logger.warning("Startup task skipped (%s:%s): %s", group_name, t_name, unreachable)
+    logger.debug("Startup task %s:%s failed", group_name, t_name, exc_info=exc)
 
 
 async def run_startup(core: CoreFacade) -> None:  # noqa: C901
@@ -84,7 +99,7 @@ async def run_startup(core: CoreFacade) -> None:  # noqa: C901
                 _inc_metric(core, "startup_task_cancelled")
                 raise  # cancellation must always propagate
             except Exception as exc:
-                logger.exception("Startup task failed (%s:%s)", group_name, t_name)
+                _log_task_failure(group_name, t_name, exc, critical=critical)
                 _inc_metric(core, "startup_task_failures")
                 # A failed critical task means the process must not serve
                 # traffic — fail the lifespan instead of degrading silently.

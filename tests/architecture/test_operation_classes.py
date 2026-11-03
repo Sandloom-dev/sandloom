@@ -40,6 +40,8 @@ from sandloom.shared.authz import current_context
 #: credential (the internal / metrics token). Fixed: they do not depend on the
 #: loaded modules. ``(auth, effect)``.
 KERNEL_OPS: dict[tuple[str, str], tuple[str, str]] = {
+    # The start page: outside production only (these tests run outside it).
+    ("GET", "/"): ("public", "read"),
     ("GET", "/health/simple"): ("public", "read"),
     ("GET", "/health"): ("public", "read"),
     ("GET", "/ready"): ("public", "read"),

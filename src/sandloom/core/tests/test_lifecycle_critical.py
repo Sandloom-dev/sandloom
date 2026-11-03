@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi import APIRouter, FastAPI
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleDescriptor, ModuleLoadSummary
+from sandloom.core.exceptions import DatabaseUnavailable
 from sandloom.core.facade import CoreFacade
 from sandloom.core.lifecycle import CriticalStartupError, run_startup
 from sandloom.core.loader.plugin_loader import (
@@ -188,3 +191,29 @@ def test_loaded_descriptor_routes_still_included() -> None:
         importlib.import_module = orig_import  # type: ignore[assignment]
     assert [d.name for d in summary.loaded] == ["sandloom.good"]
     assert any("/mod-ok" in getattr(r, "path", "") for r in core.app.router.routes)
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_backend_in_a_startup_task_is_one_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A best-effort task that cannot reach PostgreSQL: one WARNING line with
+    the R014 advice, no traceback (DEBUG keeps it); the app goes on."""
+    core = CoreFacade(app=FastAPI())
+
+    async def needs_the_database() -> None:
+        try:
+            raise ConnectionRefusedError(61, "Connect call failed ('127.0.0.1', 23470)")
+        except ConnectionRefusedError as exc:
+            raise DatabaseUnavailable("Database temporarily unavailable") from exc
+
+    core.add_startup_task(needs_the_database)
+    with caplog.at_level(logging.DEBUG, logger="sandloom.core.lifecycle"):
+        await run_startup(core)
+    loud = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(loud) == 1
+    message = loud[0].getMessage()
+    assert "needs_the_database" in message
+    assert "cannot reach PostgreSQL at 127.0.0.1:23470" in message
+    assert "uv run sandloom dev up" in message and "\n" not in message
+    assert loud[0].exc_info is None

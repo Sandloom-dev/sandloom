@@ -835,18 +835,31 @@ def active_overrides(cfg: Any) -> list[Override]:
     return out + _risk_overrides(cfg, prof)
 
 
+#: Weaker values ``sandloom new`` itself writes into the dev ``.env``: an
+#: override nobody chose by hand is not news on every command (DEBUG).
+GENERATED_DEV_DEFAULTS: dict[str, object] = {"INTERNAL_ENDPOINTS_OPEN_IN_DEV": True}
+
+
 def log_overrides(
     cfg: Any, log: logging.Logger, overrides: list[Override] | None = None
 ) -> list[Override]:
     """Log every active override once at startup; returns them.
 
     WARNING in prod, and for accepted risks everywhere; INFO for a deliberate
-    weaker choice outside prod.
+    weaker choice outside prod; DEBUG for a generated dev default
+    (:data:`GENERATED_DEV_DEFAULTS`).
     """
     found = active_overrides(cfg) if overrides is None else overrides
     for item in found:
         loud = _is_prod(cfg) or item.kind != "weaker"
-        log.log(logging.WARNING if loud else logging.INFO, item.message())
+        level = logging.WARNING if loud else logging.INFO
+        if (
+            not loud
+            and item.setting in GENERATED_DEV_DEFAULTS
+            and item.value == GENERATED_DEV_DEFAULTS[item.setting]
+        ):
+            level = logging.DEBUG
+        log.log(level, item.message())
     return found
 
 

@@ -49,7 +49,7 @@ async def test_composition_root_registers_the_tenancy_operation(
     and logs the executor and the reason."""
     assert _prepare_tasks(sandloom_core), "tenancy registers its declared operations"
     monkeypatch.setattr(settings, "planner_optimized_executor", optimized)
-    with caplog.at_level(logging.INFO, logger="sandloom.core.planner"):
+    with caplog.at_level(logging.DEBUG, logger="sandloom.core.planner"):
         await _run_prepare_tasks(sandloom_core)
     lines = [
         r.getMessage() for r in caplog.records if r.name == "sandloom.core.planner"
@@ -112,7 +112,7 @@ async def test_unsupported_operation_is_general_with_the_reason_logged(
     before = len(_prepare_tasks(sandloom_core))
     ModuleAPI(sandloom_core).register_operations(op)
     task, _critical = _prepare_tasks(sandloom_core)[before]
-    with caplog.at_level(logging.INFO, logger="sandloom.core.planner"):
+    with caplog.at_level(logging.DEBUG, logger="sandloom.core.planner"):
         await task()
     msg = next(
         r.getMessage() for r in caplog.records if "t.org.labelled" in r.getMessage()
