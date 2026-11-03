@@ -191,7 +191,9 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
 ## Audit actions
 
 `identity.login.locked`, `identity.refresh_token.reuse_detected`,
-`identity.password.reset`, `identity.password.changed`,
+`identity.password.reset` (the user's own reset link),
+`identity.user.password_set` (an operator's set-password link),
+`identity.admin.listed` (`admin list` in production), `identity.password.changed`,
 `identity.user.deactivated`, `identity.role.assigned`, `identity.role.revoked`,
 `identity.twofa.enabled`, `identity.twofa.disabled`,
 `identity.twofa.backup_codes_regenerated`, `identity.sso.linked`,

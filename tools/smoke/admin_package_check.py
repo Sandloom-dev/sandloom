@@ -291,8 +291,8 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
             cwd=app_dir, env=env, capture_output=True, text=True, check=False,
         )
         expect(
-            missing.returncode != 0 and "register" in missing.stderr,
-            "an unknown address names the next step",
+            missing.returncode != 0 and "sandloom admin create" in missing.stderr,
+            "an unknown address names the next step (admin create)",
         )
         unverified = subprocess.run(  # noqa: S603 - fixed command
             [*grant, "--email", admin, "--apply", "--reason", "first admin"],

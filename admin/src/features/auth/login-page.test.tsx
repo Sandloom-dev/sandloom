@@ -131,3 +131,33 @@ describe('LoginPage sign-in steps', () => {
     expect(screen.queryByLabelText('Two-factor code')).toBeNull();
   });
 });
+
+describe('LoginPage outside production', () => {
+  it('says a reload keeps the session and, after a failed sign-in, how to find the account', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ has_admin: true });
+    vi.spyOn(api, 'keepsAcrossReloads', 'get').mockReturnValue(true);
+    vi.spyOn(api, 'login').mockRejectedValue(new HttpError('Incorrect email or password', 401));
+    render(<LoginPage />);
+    expect(screen.getByText(/reloading keeps you signed in/)).toBeVisible();
+    expect(screen.queryByText(/admin list/)).toBeNull();
+    signIn('owner@example.com', 'nope');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect email or password');
+    expect(screen.getByText('uv run sandloom admin list')).toBeVisible();
+    expect(
+      screen.getByText('uv run sandloom admin invite --email owner@example.com'),
+    ).toBeVisible();
+  });
+
+  it('production keeps the session in this tab only and the plain error', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ has_admin: true });
+    vi.spyOn(api, 'keepsAcrossReloads', 'get').mockReturnValue(false);
+    vi.spyOn(api, 'login').mockRejectedValue(new HttpError('Incorrect email or password', 401));
+    render(<LoginPage />);
+    expect(
+      screen.getByText('Sessions live in this tab only: reloading or closing it signs you out.'),
+    ).toBeVisible();
+    signIn('owner@example.com', 'nope');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect email or password');
+    expect(screen.queryByText(/admin list/)).toBeNull();
+  });
+});

@@ -13,6 +13,7 @@ not the methods, properties or validators (the provider's own).
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -30,6 +31,18 @@ class AccountStanding(BaseModel):
     is_platform_admin: bool
     email_verified: bool
     is_active: bool
+
+
+@dto_copy("sandloom_identity.schemas.operator:PlatformAdmin")
+class PlatformAdmin(BaseModel):
+    """A platform administrator as ``sandloom admin list`` shows it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    email: str
+    password_set: bool
+    is_active: bool
+    last_login_at: datetime | None = None
 
 
 @dto_copy("sandloom_identity.schemas.contact:UserContact")

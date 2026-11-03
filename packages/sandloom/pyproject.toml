@@ -127,3 +127,8 @@ paths = [
     "sandloom/AGENTS.md",
     "sandloom/CLAUDE.md",
 ]
+
+# Local builds (`uvx --from packages/sandloom`) rebuild when the sources change,
+# not only when this file does.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "../../src/sandloom/**/*" }, { file = "../../migrations/core/**/*" }]

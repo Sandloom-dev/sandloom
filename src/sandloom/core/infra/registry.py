@@ -479,7 +479,7 @@ class InfraRegistry:
                     name, instance_cfg, registration, provider
                 )
             self._providers[cache_key] = provider
-            logger.info(
+            logger.debug(
                 "[infra] built %s/%s via driver %s",
                 capability,
                 name,

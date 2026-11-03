@@ -241,7 +241,8 @@ export function DataTable<T>({
             {status === 'success' && (data?.length ?? 0) === 0 && empty}
           </div>
         )}
-        {pagination && status !== 'error' && (
+        {/* Shown once rows exist: placed under the loading rows, it would jump down (layout shift). */}
+        {pagination && status === 'success' && (
           <Pagination {...pagination} count={data?.length ?? 0} />
         )}
       </div>

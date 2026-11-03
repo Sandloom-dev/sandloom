@@ -5,6 +5,8 @@ import type { AdminManifest } from '@/schema/types';
 export interface AdminConfig {
   modules: Set<string>;
   manifest: AdminManifest;
+  /** Served outside production: keep the session across a reload of the tab. */
+  development: boolean;
 }
 // Static same-origin bootstrap files, read before any API session exists.
 const bootstrapFile = (name: string) =>
@@ -41,7 +43,13 @@ export async function loadConfig(): Promise<AdminConfig> {
   )
     throw new Error('Invalid admin module configuration');
   const names = modules as string[];
+  const development =
+    config !== null &&
+    typeof config === 'object' &&
+    'development' in config &&
+    config.development === true;
   return {
+    development,
     modules: new Set([...names, 'core']),
     manifest: {
       ...manifest,

@@ -104,6 +104,65 @@ async def test_the_link_works_once_and_the_admin_signs_in(
     assert await _mint(sandloom_app, test_db, user_id) is None
 
 
+async def test_setting_the_first_password_is_audited_as_a_set(
+    sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession
+) -> None:
+    """A set-password link (``admin create`` / ``invite``) sets a password the
+    account never had: the journal says so, not ``identity.password.reset``
+    (which a user's own reset request still records)."""
+    user_id = await _create(sandloom_app, test_db, "owner@example.com")
+    token = await _mint(sandloom_app, test_db, user_id)
+    assert token
+    assert (await _reset(async_client, token)).status_code == 204
+    audit = await test_db.execute(
+        text("SELECT action FROM audit_log WHERE resource_id = :rid"),
+        {"rid": str(user_id)},
+    )
+    actions = list(audit.scalars())
+    assert "identity.user.password_set" in actions
+    assert "identity.password.reset" not in actions
+
+
+async def test_list_platform_admins_tells_which_have_a_password(
+    sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession
+) -> None:
+    first = await _create(sandloom_app, test_db, "owner@example.com")
+    await _create(sandloom_app, test_db, "second@example.com", key="op-c2")
+    token = await _mint(sandloom_app, test_db, first)
+    assert token and (await _reset(async_client, token)).status_code == 204
+    assert (
+        await _login(async_client, "owner@example.com", NEW_PASSWORD)
+    ).status_code == 200
+    with bind_contract_session(test_db):
+        admins = await _security(sandloom_app).list_platform_admins()
+    by_email = {a.email: a for a in admins}
+    assert set(by_email) == {"owner@example.com", "second@example.com"}
+    assert by_email["owner@example.com"].password_set is True
+    assert by_email["owner@example.com"].last_login_at is not None
+    assert by_email["second@example.com"].password_set is False
+    assert by_email["second@example.com"].last_login_at is None
+
+
+async def test_an_audited_listing_records_who_asked_and_why(
+    sandloom_app: Any, test_db: AsyncSession
+) -> None:
+    """``sandloom admin list`` in production: who asked, why, and whether the
+    full addresses were shown; no address in the record."""
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        assert await _security(sandloom_app).record_admin_listing(
+            "incident 42", "cli:alice", True, "op-list-1"
+        )
+    rows = await test_db.execute(
+        text("SELECT action, actor_type, data FROM audit_log WHERE action = :a"),
+        {"a": "identity.admin.listed"},
+    )
+    (_, actor_type, data) = rows.one()
+    assert actor_type == "operator"
+    assert data["reason"] == "incident 42" and data["operator"] == "cli:alice"
+    assert data["show_emails"] is True
+    assert "@" not in str(data)
+
+
 async def test_the_link_expires_after_fifteen_minutes(
     sandloom_app: Any,
     async_client: AsyncClient,

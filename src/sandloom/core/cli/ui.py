@@ -214,6 +214,7 @@ class Symbols:
     dot: str
     ellipsis: str
     spinner: tuple[str, ...]
+    dash: str = "-"
 
 
 UNICODE = Symbols(
@@ -228,6 +229,7 @@ UNICODE = Symbols(
     dot="·",
     ellipsis="…",
     spinner=("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"),
+    dash="—",
 )
 ASCII = Symbols(
     ok="+",
@@ -242,7 +244,7 @@ ASCII = Symbols(
     ellipsis="...",
     spinner=("-", "\\", "|", "/"),
 )
-_UNICODE_SAMPLE = "✓✗\u203a●◆→↑↓·…⠋▀▄█"
+_UNICODE_SAMPLE = "✓✗\u203a●◆→↑↓·…⠋▀▄█—"
 
 
 def can_encode(encoding: str | None, text: str = _UNICODE_SAMPLE) -> bool:

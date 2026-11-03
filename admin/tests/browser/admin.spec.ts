@@ -452,11 +452,12 @@ test('audit explorer: actor names, prefix filter in the URL and keyset paging', 
   await signIn(page, api);
   await nav(page).getByRole('link', { name: 'Audit log' }).click();
   const table = page.getByRole('table', { name: 'Audit log' });
-  await expect(table).toContainText('Riley Moss');
-  await expect(table.getByRole('link', { name: 'Riley Moss' }).first()).toHaveAttribute(
-    'href',
-    `/users/${RILEY}`,
-  );
+  // Users by email: the actor, and a subject of type user.
+  await expect(table).toContainText('riley@northwind.example');
+  await expect(table).toContainText('jordan@northwind.example');
+  await expect(
+    table.getByRole('link', { name: 'riley@northwind.example' }).first(),
+  ).toHaveAttribute('href', `/users/${RILEY}`);
   await page.getByRole('button', { name: 'Older' }).click();
   await expect(page.getByText('Page 2')).toBeVisible();
   expect(api.queries.some((q) => q.includes('/audit?') && q.includes('cursor=50'))).toBe(true);

@@ -117,7 +117,9 @@ or the whole container fleet.
 
 ## Sessions and verification
 
-Tokens are kept only in memory. Reloading the tab requires login. Refresh is
+Tokens are kept in memory. In production reloading the tab requires login. Outside
+production (`/admin/config.json` says `development`) the session is also kept in the
+tab's sessionStorage, so a reload keeps it ([sessions](index.md#sessions)). Refresh is
 single-flight; a revoked session requires new authentication. Session changes
 cancel requests and clear cached data, while organization queries include the
 user and organization in their keys. Security mutations wait for the server

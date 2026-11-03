@@ -23,8 +23,7 @@ import { listHref } from '@/features/resources/routes';
 import { sourceName, usePlatformSources, useServiceHealth } from '@/features/platform/sources';
 import { platformKeys, platformPath, type DeadLetter } from '@/features/platform/api';
 import { allowed } from '@/schema/types';
-import { shortId } from '@/lib/format';
-import { useActorNames } from '@/features/platform/actors';
+import { auditParties, useUserEmails } from '@/features/platform/actors';
 
 interface AttentionCheck {
   resource: string;
@@ -215,6 +214,7 @@ interface AuditRow {
   actor_id: string | null;
   actor_type: string;
   action: string;
+  resource_type: string | null;
   resource_id: string | null;
 }
 
@@ -227,21 +227,28 @@ function RecentActivity() {
     queryFn: ({ signal }) =>
       api.request<AuditRow[]>(`${source?.list.path ?? ''}?limit=8`, { signal }),
   });
-  const actorName = useActorNames((audit.data ?? []).map((row) => row.actor_id));
-  const items: TimelineItem[] = (audit.data ?? []).map((row) => ({
-    id: row.id,
-    at: row.occurred_at,
-    meta: row.action,
-    tone: /(blocked|revoked|deleted|failed)/.test(row.action) ? 'danger' : 'accent',
-    title: (
-      <>
-        <span className="font-semibold">
-          {row.actor_id ? actorName(row.actor_id) : row.actor_type}
-        </span>
-        {row.resource_id ? ` on ${shortId(row.resource_id)}` : ''}
-      </>
-    ),
-  }));
+  const { session } = useSession();
+  const emailOf = useUserEmails(
+    (audit.data ?? []).flatMap((row) => [
+      row.actor_id,
+      row.resource_type === 'user' ? row.resource_id : null,
+    ]),
+  );
+  const items: TimelineItem[] = (audit.data ?? []).map((row) => {
+    const { actor, subject } = auditParties(row, emailOf, session?.subject);
+    return {
+      id: row.id,
+      at: row.occurred_at,
+      meta: row.action,
+      tone: /(blocked|revoked|deleted|failed)/.test(row.action) ? 'danger' : 'accent',
+      title: (
+        <>
+          <span className="font-semibold">{actor}</span>
+          {subject ? ` on ${subject}` : ''}
+        </>
+      ),
+    };
+  });
   return (
     <Card className="flex-1 basis-96">
       <CardHeader>

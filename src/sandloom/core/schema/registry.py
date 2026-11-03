@@ -65,7 +65,7 @@ class InMemorySchemaRegistry(SchemaRegistryContract):
         if self._loaded_from_disk or not self._persistence_path:
             return
         if not os.path.exists(self._persistence_path):
-            logger.info(
+            logger.debug(
                 "Schema registry persistence file not found at %s, skipping load.",
                 self._persistence_path,
             )

@@ -8,6 +8,7 @@ written by ``sandloom generate``.
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -27,4 +28,19 @@ class AccountStanding(BaseModel):
     is_active: bool
 
 
-__all__ = ["AccountStanding"]
+class PlatformAdmin(BaseModel):
+    """A platform administrator as ``sandloom admin list`` shows it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    email: str
+    #: A password was set (an account from ``admin create --invite`` has none
+    #: until its link is used).
+    password_set: bool
+    #: A deactivated account cannot sign in.
+    is_active: bool
+    #: The last successful sign-in, or ``None``.
+    last_login_at: datetime | None = None
+
+
+__all__ = ["AccountStanding", "PlatformAdmin"]

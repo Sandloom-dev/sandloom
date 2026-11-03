@@ -33,6 +33,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import json
 import keyword
@@ -90,7 +91,7 @@ QUICKSTART: tuple[tuple[str, str], ...] = (
     ("uv run sandloom add module {module}", "a module: discovered, nothing to wire"),
     ("uv run sandloom test", "tests + every gate (never writes)"),
     ("uv run sandloom migrate upgrade-all --apply", "core + module chains"),
-    ("uv run sandloom dev run", "http://127.0.0.1:8000/health"),
+    ("uv run sandloom dev run", "serves the app; prints its address"),
 )
 
 
@@ -102,9 +103,23 @@ _ADMIN_STEP = """Create the first console administrator. It asks for the passwor
 uv run sandloom admin create --email you@example.com
 ```
 
-The console is at `http://127.0.0.1:8000/admin/`
-([guide](https://sandloom.dev/docs/admin-console/)).
+The console is at `/admin/` on the address `sandloom dev run` prints
+([guide](https://sandloom.dev/docs/admin-console/)). Cannot sign in? See
+which addresses are administrators, then give one a new password:
 
+```bash
+uv run sandloom admin list
+uv run sandloom admin invite --email you@example.com
+```
+
+"""
+
+#: The README's note for an app with identity: development prints email links.
+_IDENTITY_NOTE = """
+In development the emails identity sends (verification, password reset) are
+not mailed: their links appear in the `sandloom dev run` output
+(`NOTIFIER_LOG_LINKS=true` in `.env`). Tokens for API calls:
+[your first access token](https://sandloom.dev/docs/modules/batteries/first-access-token/).
 """
 
 #: The ``.env`` line that prints email links (verification, password reset)
@@ -329,10 +344,10 @@ mypy, pytest, pytest-xdist); `pre-commit install` adds the commit hooks. The
 API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 `.env.example` if you delete it), the tests read `.env.test`.
 
-If you selected `--with identity`, follow the
-[authentication and email guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)
-to receive verification mail locally and obtain access/refresh tokens.
-
+The app answers on the address `sandloom dev run` prints: port 8000, or the
+next free one when 8000 was taken at the first `dev up`. The port is kept
+for this checkout, so the address does not change between runs.
+$identity_note
 ### The dev services
 
 `uv run sandloom dev up` starts Postgres and Redis in Docker for this
@@ -347,7 +362,7 @@ gets its own test database, so two `sandloom test` runs never clash.
 
 ```bash
 uv run sandloom dev status     # ports, URLs (paste them into a database GUI)
-uv run sandloom dev run --port auto   # another free port, when 8000 is taken
+uv run sandloom dev run --port auto   # a free port now, when the app's own is taken
 uv run sandloom dev reset      # empty this checkout's database
 uv run sandloom dev down       # stop the containers (the data stays)
 uv run sandloom dev prune      # remove databases of deleted worktrees
@@ -542,9 +557,34 @@ from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
 
 BUNDLED: list[str] = $bundled_json
 
-app = create_app(default_modules=[*BUNDLED, *app_modules("$app.modules")])
-'''
+$create_app'''
 )
+
+
+def _create_app_call(app: str, width: int = 88) -> str:
+    """``app = create_app(...)`` as ``ruff format`` lays it out for this name
+    (the app's own format gate checks it): one line when it fits, else
+    wrapped, then one argument per line, then the list exploded too."""
+    title = f'title="{app}"'
+    modules = f'default_modules=[*BUNDLED, *app_modules("{app}.modules")]'
+    forms = [
+        f"app = create_app({title}, {modules})\n",
+        f"app = create_app(\n    {title}, {modules}\n)\n",
+        f"app = create_app(\n    {title},\n    {modules},\n)\n",
+    ]
+    exploded = (
+        f"app = create_app(\n    {title},\n    default_modules=[\n        *BUNDLED,\n"
+        f'        *app_modules("{app}.modules"),\n    ],\n)\n'
+    )
+    forms.append(exploded)
+    for form in forms:
+        if all(len(line) <= width for line in form.splitlines()):
+            return form
+    return exploded.replace(
+        f'        *app_modules("{app}.modules"),\n',
+        f'        *app_modules(\n            "{app}.modules"\n        ),\n',
+    )
+
 
 _MODULES_INIT = Template(
     '''"""Business modules for the $app application.
@@ -1114,18 +1154,61 @@ def _framework_sources(
     return "\n".join(lines) + "\n"
 
 
+#: Importable standard-library packages that ``sys.stdlib_module_names``
+#: leaves out (the test suite, IDLE's, the tooling ones), and the app's own
+#: ``tests`` package.
+_STDLIB_EXTRAS = frozenset(
+    {
+        "test",
+        "tests",
+        "idlelib",
+        "lib2to3",
+        "ensurepip",
+        "venv",
+        "turtledemo",
+        "pydoc_data",
+        "distutils",
+        "__phello__",
+    }
+)
+
+
+def _installed_import_names() -> dict[str, str]:
+    """``{top-level import name: distribution}`` of what is installed here
+    (the framework and its dependencies: the app installs the same), plus
+    the bundled modules' packages."""
+    found: dict[str, str] = {
+        "sandloom": "sandloom",
+        **{f"sandloom_{name}": f"sandloom-{name}" for name in _BUNDLED},
+    }
+    for name, dists in importlib.metadata.packages_distributions().items():
+        if name.isidentifier():
+            found.setdefault(name.lower(), dists[0] if dists else name)
+    return found
+
+
 def app_name_problem(app: str) -> str | None:
     """Why ``app`` cannot name an application, or ``None``. The name is the
-    project's Python package, so it must not shadow a standard library
-    module (``json``, ``email``, ``test``): the app would break on import."""
+    project's Python package, so it must not be the name of another import
+    in the app's environment: a standard library module (``json``, ``test``)
+    or an installed package (``redis``, ``sandloom``). One would shadow the
+    other and the app breaks on import (``No module named 'test.asgi'``)."""
     if not _NAME_RE.fullmatch(app):
         return "app name must be snake_case starting with a letter (e.g. 'helpdesk')"
     if keyword.iskeyword(app):
         return f"app name '{app}' is a Python keyword; choose another (e.g. 'helpdesk')"
-    if app in sys.stdlib_module_names:
+    suggestion = f"pick another (e.g. '{app}_app')"
+    if app in sys.stdlib_module_names or app in _STDLIB_EXTRAS:
         return (
-            f"app name '{app}' is a Python standard library module; the app's "
-            "package would shadow it (choose e.g. 'my_" + app + "')"
+            f"'{app}' is a Python module name (the standard library's); the "
+            f"app's package and it would shadow each other: {suggestion}"
+        )
+    installed = _installed_import_names().get(app)
+    if installed is not None:
+        return (
+            f"'{app}' is a Python module name (from {installed}, which the app "
+            f"installs); the app's package and it would shadow each other: "
+            f"{suggestion}"
         )
     return None
 
@@ -1179,6 +1262,7 @@ def generate_project(
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,
+        "create_app": _create_app_call(app),
         "framework_deps": "\n".join(f'    "{dep}",' for dep in framework_deps),
         "framework_distribution": ", ".join(
             f"`{name}`" for name in _sourced_names(bundled)
@@ -1189,6 +1273,7 @@ def generate_project(
         ),
         "port_hint": "start the services with: uv run sandloom dev up",
         "dev_block": _envfile.empty_block(),
+        "identity_note": _IDENTITY_NOTE if "identity" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
         ),

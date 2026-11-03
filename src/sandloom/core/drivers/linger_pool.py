@@ -120,6 +120,10 @@ class _Waiter:
 class LingeringQueuePool(AsyncAdaptedQueuePool):
     """AsyncAdaptedQueuePool + an overflow linger window (see module docs)."""
 
+    #: Log under SQLAlchemy's pool loggers (WARNING unless ``echo_pool``), like
+    #: the stock pool: its dispose / recreate lines are not news at INFO.
+    _sqla_logger_namespace = "sqlalchemy.pool.impl.LingeringQueuePool"
+
     def __init__(
         self,
         creator: Any,
@@ -339,7 +343,7 @@ class LingeringQueuePool(AsyncAdaptedQueuePool):
         return sum(1 for waiter in self._waiters if not waiter.fut.done())
 
     def recreate(self) -> LingeringQueuePool:
-        self.logger.info("Pool recreating")
+        self.logger.debug("Pool recreating")
         return self.__class__(
             self._creator,
             pool_size=self._core_size,

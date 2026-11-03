@@ -72,7 +72,10 @@ another `sandloom dev up` in <path>") and then finds everything already up.
 - `sandloom dev logs [service]`: compose logs.
 
 Commands that need a database never start services themselves. When they cannot connect they say
-so in one line and name `sandloom dev up` (see "Errors").
+so in one line and name `sandloom dev up` (see "Errors"). The one exception is `dev run`, the
+person's "run my app" (decided 2026-11-03, `first-run-polish`): stopped services are started first,
+the way `dev up` starts them (same locks and checks, one line), so the app never boots without its
+database.
 
 ## Readiness from the host
 
@@ -160,7 +163,9 @@ the causes (services down, wrong `.env`, port not published).
 ## Out of scope
 
 Branch-scoped databases inside one checkout (Supabase's branch identity), Podman support,
-implicit service start, `APP_PORT` stickiness.
+implicit service start (except `dev run`, above). The app port is sticky since `first-run-polish`:
+the first `dev up` gives each checkout 8000 or the next free port, kept in the state, `dev run`'s
+default.
 
 ## Revisions after the edge-case review (2026-11-03)
 
@@ -230,3 +235,38 @@ handles `docker compose` lines today.
 
 **Errors.** The connection-failure code joins an existing family, a runtime `SANDLOOM-R0xx` code,
 registered in `error_codes` and `docs/reference/error-codes.md`.
+
+## Round two: your own PostgreSQL and Redis (2026-11-03, tm: `wizard-ux-2`)
+
+Docker is no longer required. The dev state (`dev.json`) records where the services come from.
+`services: "docker"` is the compose project, the default, and what an older state means.
+`"external"` holds `external: {database_url, redis_url}`: servers the person already runs.
+
+- `dev up --services external [--database-url URL] [--redis-url URL]` switches to them. The
+  default URLs are `postgresql://$USER@127.0.0.1:5432/postgres` and `redis://127.0.0.1:6379`,
+  taken only when they answer.
+- It checks both servers (`SELECT 1`, `PING`) and creates this checkout's database there. It
+  writes the same `.env` block and `.env.test.local`. The sticky app port and the choice are
+  kept in the state. The test databases and test Redis indexes live on the same servers.
+- `dev up --services docker` switches back. `sandloom new` runs the same code for its option 2.
+- In external mode no command calls Docker. `up`, `status`, `reset`, `prune` and `run` work on
+  the servers. `down` and `logs` say there is nothing to stop or show.
+- `run` checks the servers first. When one does not answer, one line names it and says how to
+  start it (Homebrew, Postgres.app), or how to let Docker run both.
+- A role that may not create databases is named in the error.
+
+**Two apps in one repository** (a monorepo). The compose project and its ports belong to the
+repository, as before. Both apps share one container set: the state reconciles the second app
+to the first app's project. Compose files that differ only in `POSTGRES_DB` count as the same.
+Everything per checkout is keyed by the app's project root (its `pyproject.toml`):
+
+- the checkout row, the Redis indexes, the app port and the `.env` block;
+- the database, named after the app;
+- the test database, whose hash is of the app's directory when it lies below the work tree's
+  top. Otherwise the hash is unchanged, so existing worktree databases keep their names.
+
+**`dev run` says what runs.** It waits until the app answers `/health/simple`, which follows
+uvicorn's "Application startup complete". Then it prints one block, once, after uvicorn's own
+lines. The block lists the app, the admin console when `/admin/` answers, the API docs when
+`/docs` answers, and `/health`. Outside production the app also serves `/favicon.ico`: the
+caracal of `docs/assets/sandloom-mark.svg` in the brand colours. The start page links it.

@@ -1,12 +1,14 @@
 """Where a checkout is: its repository, its state directory, its names.
 
-The dev services belong to a **repository** (``git rev-parse --git-common-dir``,
-realpath: the main checkout and every worktree share it), the databases to a
-**checkout**. The repository's state (``dev.json``, ``dev.lock``, the CLI's
-copy of the compose file) lives in ``<git common dir>/sandloom/``: shared by
-every worktree, never committed, never in a synced tree. Outside git it is
-the project root's ``.sandloom/``. ``GIT_DIR`` / ``GIT_COMMON_DIR`` (set
-inside a git hook) are ignored.
+The dev services belong to a **repository** (``git rev-parse
+--git-common-dir``, realpath: the main checkout and every worktree share
+it), the databases to a **checkout**: an app's project root (its
+``pyproject.toml``), so two apps in one repository share the containers but
+not a database, a port or a ``.env``. The repository's state (``dev.json``,
+``dev.lock``, the CLI's copy of the compose file) lives in ``<git common
+dir>/sandloom/``: shared by every worktree, never committed, never in a
+synced tree. Outside git it is the project root's ``.sandloom/``.
+``GIT_DIR`` / ``GIT_COMMON_DIR`` (set inside a git hook) are ignored.
 """
 
 from __future__ import annotations
@@ -54,7 +56,12 @@ class Identity:
 
     @property
     def checkout_hash(self) -> str:
-        return short_hash(self.machine, canonical(self.checkout))
+        """This app checkout's hash: of the checkout, or, for an app inside a
+        bigger repository (a monorepo: ``root`` below the work tree's top),
+        of the app's own directory, so two apps there never share a test
+        database or a worktree database name."""
+        where = self.checkout if self.root == self.checkout else self.root
+        return short_hash(self.machine, canonical(where))
 
     @property
     def database(self) -> str:

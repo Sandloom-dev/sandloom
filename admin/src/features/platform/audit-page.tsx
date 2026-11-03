@@ -12,13 +12,13 @@ import { FilterBar } from '@/components/patterns/filter-bar';
 import { PageHeader } from '@/components/patterns/page-header';
 import { Segmented } from '@/components/patterns/segmented';
 import { EmptyState } from '@/components/patterns/states';
-import { formatDateTime, formatRelative } from '@/lib/format';
+import { formatDateTime, formatRelative, shortId } from '@/lib/format';
 import { useSubject } from '@/app/session';
 import { useConfig } from '@/app/config-context';
 import { recordHref } from '@/features/resources/routes';
 import type { Field } from '@/schema/types';
 import { platformPath, type AuditRow } from './api';
-import { useActorNames } from './actors';
+import { useActorNames, useUserEmails } from './actors';
 import { sourceName, usePlatformSources } from './sources';
 
 const RANGES = [
@@ -127,6 +127,9 @@ export function AuditPage() {
   const rows = result.data?.data;
   const next = result.data?.headers.get('X-Next-Cursor') ?? null;
   const actorName = useActorNames((rows ?? []).map((row) => row.actor_id));
+  const emailOf = useUserEmails(
+    (rows ?? []).map((row) => (row.resource_type === 'user' ? row.resource_id : null)),
+  );
   const pagesAvailable = useMemo(
     () => new Set(manifest.resources.filter((r) => r.detail).map((r) => r.name)),
     [manifest],
@@ -196,7 +199,7 @@ export function AuditPage() {
                   className="font-mono text-xs text-accent hover:underline"
                   to={recordHref(page, id)}
                 >
-                  {id.length > 12 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id}
+                  {(type === 'user' ? emailOf(id) : undefined) ?? shortId(id)}
                 </Link>
               ) : (
                 <CopyText value={id} short />
@@ -216,7 +219,7 @@ export function AuditPage() {
           ),
       },
     ],
-    [actorName, pagesAvailable],
+    [actorName, emailOf, pagesAvailable],
   );
 
   if (!source) return <EmptyState title="No audit source is exposed" />;

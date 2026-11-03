@@ -934,6 +934,11 @@ def test_viewer_assets_and_placeholder_data_are_embedded_safely(
     assert "__SANDLOOM_VIEWER_CSS__" not in rendered
     assert "<script src=" not in rendered
     assert "<link rel=" not in rendered
+    # The header carries the caracal (inline, the accent colour), not a letter.
+    header = rendered.split("<header>", 1)[1].split("</header>", 1)[0]
+    assert '<svg class="mark" aria-hidden="true"' in header
+    assert 'fill="currentColor"' in header and 'fill-rule="evenodd"' in header
+    assert ">S<" not in header
 
 
 def test_compact_topology_defers_route_policy_to_explicit_detail(

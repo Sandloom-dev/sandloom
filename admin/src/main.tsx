@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client';
 import '@/styles/index.css';
 import { App } from '@/app/app';
 import { loadConfig } from '@/app/config';
+import { api } from '@/api/client';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Missing #root');
 const root = createRoot(container);
 loadConfig()
   .then((config) => {
+    // Outside production a reload of this tab keeps the session (sessionStorage).
+    api.keepAcrossReloads(config.development);
     root.render(
       <StrictMode>
         <App config={config} />

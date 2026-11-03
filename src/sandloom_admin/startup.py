@@ -9,6 +9,7 @@ without identity says nothing).
 import logging
 
 from sandloom.sdk import Contract
+from sandloom.sdk.errors import ContractCallError
 from sandloom.sdk.module import ModuleAPI
 from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1
 
@@ -34,8 +35,16 @@ async def warn_without_admin() -> None:
     if client is None:
         return
     # Not critical: a failure (no migration yet, an older identity) is logged
-    # by the lifespan and the app starts anyway.
-    exists = await client.platform_admin_exists()
+    # by the lifespan and the app starts anyway. An unreachable database (the
+    # dev services are stopped) is not this check's news: skipped quietly,
+    # tried again at the next start.
+    try:
+        exists = await client.platform_admin_exists()
+    except ContractCallError as exc:
+        if exc.status_code != 503:
+            raise
+        logger.debug("first-administrator check skipped: %s", exc.detail)
+        return
     _warned = True
     if not exists:
         logger.warning(HINT)

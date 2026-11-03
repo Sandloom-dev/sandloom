@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import UUID
 
 from sandloom.core.descriptors.contract_refs import ContractRef
-from sandloom.shared.contracts.identity_dto import AccountStanding
+from sandloom.shared.contracts.identity_dto import AccountStanding, PlatformAdmin
 
 
 class IdentitySecurityV1(Protocol):
@@ -37,6 +37,11 @@ class IdentitySecurityV1(Protocol):
     async def find_user_id(self, email: str) -> UUID | None:
         """The id of the user with this address, or ``None``."""
 
+    async def list_platform_admins(self) -> list[PlatformAdmin]:
+        """Every account holding the platform ``admin`` role, by address
+        (``sandloom admin list``: which address is mine, has it a password).
+        """
+
     async def list_user_ids(self, after: UUID | None, limit: int) -> list[UUID]:
         """User ids in id order, strictly after ``after`` (keyset paging)."""
 
@@ -47,6 +52,14 @@ class IdentitySecurityV1(Protocol):
 
     async def platform_admin_exists(self) -> bool:
         """Whether any active account holds the platform ``admin`` role."""
+
+    async def record_admin_listing(
+        self, reason: str, operator: str, show_emails: bool, operation_key: str
+    ) -> bool:
+        """Record that an operator listed the platform administrators
+        (``sandloom admin list`` in production): who, why, and whether the
+        full addresses were shown. The addresses themselves stay out.
+        """
 
     async def reissue_set_password(
         self, user_id: UUID, reason: str, operator: str, operation_key: str

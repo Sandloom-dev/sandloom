@@ -465,7 +465,7 @@ def _load_list(  # noqa: C901
         name = queue.pop(0)
         if _should_skip(name):
             summary.skipped.append(SkippedModule(name=name, reason="list"))
-            logger.info("[plugin_loader] Skipped by list rules: %s", name)
+            logger.debug("[plugin_loader] Skipped by list rules: %s", name)
             continue
         if any(d.name == name for d in summary.loaded):
             summary.duplicates.append(name)
@@ -491,7 +491,7 @@ def _load_list(  # noqa: C901
             if desc:
                 summary.loaded.append(desc)
                 _record_manifest(summary, desc, api, mod)
-                logger.info("[plugin_loader] Loaded %s v%s", desc.name, desc.version)
+                logger.debug("[plugin_loader] Loaded %s v%s", desc.name, desc.version)
         except _DeferModule as wait_for:
             # Retry after the rest of the list; a module deferred more times
             # than there are modules left is stuck in a cycle.
@@ -554,7 +554,7 @@ def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  #
             if desc:
                 summary.loaded.append(desc)
                 _record_manifest(summary, desc, api, loaded)
-                logger.info(
+                logger.debug(
                     "[plugin_loader] Loaded entrypoint %s v%s", desc.name, desc.version
                 )
         except _DuplicateModule as dup:
@@ -641,13 +641,13 @@ def _load_with_summary(
                     core_facade._known_module_packages.add(value.split(":", 1)[0])
         except Exception:  # pragma: no cover - reported again by the loader
             logger.exception("[plugin_loader] Entry point package discovery failed")
-    logger.info("[plugin_loader] Start load; explicit=%s", explicit)
+    logger.debug("[plugin_loader] Start load; explicit=%s", explicit)
     _load_list(explicit, core_facade, summary)
     if getattr(settings, "module_load_entrypoints", False):
         _load_entry_points(core_facade, summary)
     core_facade.loaded_modules = [d.name for d in summary.loaded]
     core_facade.module_descriptors = list(summary.loaded)
-    logger.info(
+    logger.debug(
         "[plugin_loader] Done. loaded=%d failed=%d skipped=%d duplicates=%d success=%s",
         len(summary.loaded),
         len(summary.failed),

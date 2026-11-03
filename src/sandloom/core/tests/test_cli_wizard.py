@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
@@ -69,15 +70,19 @@ def _ask(
     given: wizard.Given | None = None,
     **kw: Any,
 ) -> wizard.Answers:
-    options: dict[str, Any] = {
-        "parent": tmp_path,
-        "detected": {"codex": "codex"},
+    machine: dict[str, Any] = {
         "uv": "/usr/bin/uv",
-        "docker_ready": lambda: True,
+        "docker": lambda: wizard.DOCKER_READY,
         "git_email": "you@example.com",
     }
-    options.update(kw)
-    return wizard.ask(prompter, given or wizard.Given(), **options)
+    machine.update(kw)
+    return wizard.ask(
+        prompter,
+        given or wizard.Given(),
+        parent=tmp_path,
+        detected={"codex": "codex"},
+        machine=wizard.Machine(**machine),
+    )
 
 
 # ----------------------------------------------------------------- the flow
@@ -97,23 +102,22 @@ def test_the_questions_in_order(tmp_path: Path) -> None:
         batteries=["identity", "admin"],
         agents=["codex"],
         setup=True,
-        admin_email="you@example.com",
+        services=wizard.DOCKER,
     )
     text = out.getvalue()
     assert "Scripts and agents: add --yes" in text
-    assert text.index("Scripts and agents") < text.index("App name")
-    assert asked[0] == "App name [my_app]: "
+    assert text.index("Scripts and agents") < text.index("Name your app")
+    assert asked[0] == "What are you building? Name your app [my_app]: "
     assert "snake_case" in text
     assert "standard library" in text
     assert "already exists" in text
     assert "admin brings identity" in text
     assert "space to add, Enter to continue" in text
-    assert "Set it up now? [Y/n] " in asked
-    assert asked[-1].startswith("First administrator's email [you@example.com]")
+    assert asked[-1].startswith("Install the dependencies")
 
 
 def test_enter_takes_the_default_name_and_no_module(tmp_path: Path) -> None:
-    prompter, _, _ = _prompter(["", "n"], [["confirm"], ["confirm"]])
+    prompter, _, _ = _prompter(["", "", "n"], [["confirm"], ["confirm"]])
     answers = _ask(prompter, tmp_path)
     assert (answers.app, answers.batteries, answers.setup) == ("my_app", [], False)
     assert answers.admin_email is None
@@ -124,8 +128,9 @@ def test_flags_leave_only_the_rest(tmp_path: Path) -> None:
     given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
     answers = _ask(prompter, tmp_path, given, git_email=None)
     assert asked == [
-        "Set it up now? [Y/n] ",
-        "First administrator's email (Enter to skip): ",
+        "How do you want to run them? [1]: ",
+        "Install the dependencies, start PostgreSQL and Redis in Docker, create "
+        "the tables and your administrator now? (about a minute) [Y/n] ",
     ]
     assert answers.setup and answers.admin_email is None
     assert answers.batteries == ["identity", "admin"]
@@ -135,24 +140,13 @@ def test_no_setup_question_without_uv(tmp_path: Path) -> None:
     prompter, asked, out = _prompter(["shop"], [["confirm"], ["confirm"]])
     answers = _ask(prompter, tmp_path, uv=None)
     assert not answers.setup
-    assert not any("Set it up" in q for q in asked)
+    assert not any("Install the dependencies" in q for q in asked)
     assert "docs.astral.sh/uv" in out.getvalue()
-
-
-def test_docker_down_offers_the_files_only(tmp_path: Path) -> None:
-    checks = iter([False, True])
-    prompter, _, out = _prompter(["shop", "", "r"], [["confirm"], ["confirm"]])
-    answers = _ask(prompter, tmp_path, docker_ready=lambda: next(checks))
-    assert "Docker is starting or not running" in out.getvalue()
-    assert answers.setup  # `r` checked again and Docker answered
-    prompter, _, _ = _prompter(["shop", "", ""], [["confirm"], ["confirm"]])
-    answers = _ask(prompter, tmp_path, docker_ready=lambda: False)
-    assert not answers.setup
 
 
 def test_typed_answers_where_keys_cannot_be_read(tmp_path: Path) -> None:
     """TERM=dumb, --plain or Windows without VT: typed answers, no cursor moves."""
-    prompter, _, out = _prompter(["shop", "4, tenancy", "2", "n"])
+    prompter, _, out = _prompter(["shop", "4, tenancy", "2", "1", "n"])
     answers = _ask(prompter, tmp_path)
     assert answers.batteries == ["identity", "tenancy", "admin"]
     assert answers.agents == ["codex"]
@@ -168,10 +162,29 @@ def test_ctrl_c_in_a_question_cancels(tmp_path: Path) -> None:
         _ask(prompter, tmp_path)
 
 
-def test_a_dash_skips_the_administrator(tmp_path: Path) -> None:
-    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
-    prompter, _, _ = _prompter(["", "-"])
-    assert _ask(prompter, tmp_path, given).admin_email is None
+def test_a_git_address_that_is_not_mine_is_asked_again() -> None:
+    prompter, asked, _ = _prompter(["", "n", "me@work.example"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") == "me@work.example"
+    assert asked[0] == (
+        "Email of your console administrator [you@example.com] (from git config; "
+        "- to skip): "
+    )
+    # Taken from git config: confirmed as the address they sign in with.
+    assert asked[1] == (
+        "Administrator: you@example.com — is this the address you sign in with? [Y/n] "
+    )
+    assert asked[-1] == "Email of your console administrator (Enter to skip): "
+
+
+def test_a_typed_address_needs_no_confirmation() -> None:
+    prompter, asked, _ = _prompter(["me@work.example"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") == "me@work.example"
+    assert not any("is this the address" in q for q in asked)
+
+
+def test_a_dash_skips_the_administrator() -> None:
+    prompter, _, _ = _prompter(["-"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") is None
 
 
 # ------------------------------------------------------------------- names
@@ -188,11 +201,48 @@ def test_a_dash_skips_the_administrator(tmp_path: Path) -> None:
         ("json", "standard library"),
         ("email", "standard library"),
         ("string", "standard library"),
+        # Importable, yet left out of sys.stdlib_module_names.
+        ("test", "Python module name"),
+        ("tests", "Python module name"),
+        ("idlelib", "Python module name"),
+        # Installed with the app: its package and the import would clash.
+        ("redis", "Python module name"),
+        ("sandloom", "Python module name"),
+        ("fastapi", "Python module name"),
+        ("sqlalchemy", "Python module name"),
     ],
 )
 def test_app_names(name: str, problem: str | None, tmp_path: Path) -> None:
     found = wizard.name_problem(name, tmp_path)
     assert (found is None) if problem is None else (problem in (found or ""))
+
+
+def test_a_module_name_is_asked_again_with_the_reason(tmp_path: Path) -> None:
+    prompter, asked, out = _prompter(
+        ["test", "redis", "shop", "1", "n"], [["confirm"]] * 2
+    )
+    assert _ask(prompter, tmp_path).app == "shop"
+    assert asked[:3] == ["What are you building? Name your app [my_app]: "] * 3
+    text = out.getvalue()
+    assert "'test' is a Python module name" in text and "'test_app'" in text
+    assert "'redis' is a Python module name" in text
+
+
+@pytest.mark.parametrize("name", ["test", "redis", "sandloom"])
+def test_flags_refuse_a_module_name(name: str, tmp_path: Path) -> None:
+    err = _Stream(tty=False)
+    code = wizard.main(
+        [name, "--dir", str(tmp_path), "--yes", "--agents", "claude"],
+        environ={},
+        stdin=_Stream(tty=False),
+        out=_Stream(tty=False),
+        err=err,
+    )
+    assert code == 1
+    assert f"'{name}' is a Python module name" in err.getvalue()
+    assert not (tmp_path / name).exists()
+    with pytest.raises(ValueError, match="Python module name"):
+        project.generate_project(name, tmp_path)
 
 
 def test_the_generator_refuses_a_stdlib_name(tmp_path: Path) -> None:
@@ -293,9 +343,14 @@ def test_a_failing_step_prints_its_tail_and_how_to_continue(tmp_path: Path) -> N
     assert "✓ uv sync" in text and "✗ uv run sandloom generate" in text
     assert "line 29" in text and "line 5" not in text  # the last 20 lines
     assert "error: the generator broke" in text
+    # The reason first, then the tail.
+    assert text.index("the generator broke") < text.index("line 29")
+    # One command per line: a narrow terminal or a log viewer cuts nothing.
     assert (
-        "Fix it and continue with: cd shop && uv run sandloom generate"
-        " && uv run sandloom dev up"
+        "Fix it and continue with:\n"
+        "  cd shop\n"
+        "  uv run sandloom generate\n"
+        "  uv run sandloom dev up\n"
     ) in text
     assert "never" not in text
     log = (tmp_path / ".sandloom/run/new-setup.log").read_text()
@@ -332,7 +387,7 @@ def test_ctrl_c_stops_the_step_without_a_traceback(
     text = out.getvalue()
     assert "Traceback" not in text
     assert "Cancelled" in text
-    assert "Continue with: cd shop && uv sync && uv run sandloom generate" in text
+    assert "Continue with:\n  cd shop\n  uv sync\n  uv run sandloom generate\n" in text
 
 
 def test_ctrl_c_right_after_the_step_starts_prints_no_traceback(
@@ -357,6 +412,44 @@ def test_ctrl_c_right_after_the_step_starts_prints_no_traceback(
     assert time.monotonic() - started < 20
     assert result.cancelled and not result.ok
     assert "Traceback" not in out.getvalue()
+
+
+def test_a_traceback_is_not_repeated_under_its_reason(tmp_path: Path) -> None:
+    """A step that dies with a traceback: the reason line and the log path,
+    not twenty lines of frames ending in the same reason."""
+    runner, out = _runner(tmp_path)
+    step = _py(
+        "uv run sandloom generate",
+        "def load():\n    raise ModuleNotFoundError(\"No module named 'test.asgi'\")\n"
+        "load()",
+    )
+    result = runner.run([step], cwd=tmp_path, app_dir="test")
+    text = out.getvalue()
+    assert not result.ok
+    assert "ModuleNotFoundError: No module named 'test.asgi'" in text
+    assert "Traceback" not in text and 'File "' not in text
+    assert "The whole output:" in text
+    assert "Traceback" in (tmp_path / ".sandloom/run/new-setup.log").read_text()
+
+
+def test_log_lines_never_reach_the_spinner(tmp_path: Path) -> None:
+    class Line:
+        notes: list[str] = []
+
+        def note(self, text: str) -> None:
+            self.notes.append(text)
+
+    line = Line()
+    stream = io.StringIO(
+        "2026-11-03 16:19:40,923 [INFO] sandloom.app: CONFIG OVERRIDE: x\n"
+        "2026-11-03 16:19:40,964 [WARNING] sandloom.core.infra: y\n"
+        "INFO:     Started server process [1]\n"
+        "wrote shop/shared/admin-manifest.json\n"
+    )
+    errors: list[str] = []
+    wizard.SetupRunner._pump(stream, io.StringIO(), deque(), line, errors)  # type: ignore[arg-type]
+    assert line.notes == ["wrote shop/shared/admin-manifest.json"]
+    assert len(errors) == 4  # every line still counts for the failure report
 
 
 def test_children_get_a_cleaned_environment(tmp_path: Path) -> None:
@@ -419,6 +512,7 @@ def test_the_admin_step_is_admin_create_on_the_terminal(tmp_path: Path) -> None:
         "create",
         "--email",
         "you@example.com",
+        "--quiet",
     ]
     _FakePopen.calls = []
     runner, _ = _runner(tmp_path, popen=_FakePopen)
@@ -454,6 +548,98 @@ def test_git_init_is_skipped_inside_a_work_tree(tmp_path: Path) -> None:
     assert not wizard.git_init(tmp_path / "x", {"PATH": ""})  # git missing
 
 
+def _git_identity(tmp_path: Path, *, name: bool) -> dict[str, str]:
+    config = tmp_path / "gitconfig"
+    config.write_text(
+        "[user]\n  name = Owner\n  email = owner@example.com\n" if name else ""
+    )
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "GIT_CONFIG_GLOBAL": str(config),
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_initial_commit_holds_everything_but_env(tmp_path: Path) -> None:
+    env = _git_identity(tmp_path, name=True)
+    root = tmp_path / "shop"
+    project.generate_project("shop", tmp_path, agents=["claude"])
+    assert wizard.git_init(root, env)
+    assert wizard.initial_commit(root, env) is None
+    log = subprocess.run(
+        ["git", "log", "--format=%s"], cwd=root, env=env, capture_output=True, text=True
+    )
+    assert log.stdout.strip() == "Initial commit from sandloom new"
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=root, env=env, capture_output=True, text=True
+    ).stdout.split()
+    assert "pyproject.toml" in tracked and ".env.example" in tracked
+    assert ".env" not in tracked
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout == ""
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_no_git_identity_skips_the_commit_with_a_hint(tmp_path: Path) -> None:
+    env = _git_identity(tmp_path, name=False)
+    root = tmp_path / "shop"
+    root.mkdir()
+    (root / "README.md").write_text("x\n")
+    assert wizard.git_init(root, env)
+    hint = wizard.initial_commit(root, env)
+    assert hint is not None and "user.name" in hint and "git commit" in hint
+    log = subprocess.run(["git", "log"], cwd=root, env=env, capture_output=True)
+    assert log.returncode != 0  # no commit
+
+
+def test_the_framework_flags_are_hidden_from_help_but_work() -> None:
+    text = wizard.parser().format_help()
+    for flag in ("--framework-req", "--framework-source", "--framework-path"):
+        assert flag not in text
+    args = wizard.parser().parse_args(
+        ["shop", "--framework-source", "path", "--framework-path", "/r"]
+    )
+    assert args.framework_source == "path" and str(args.framework_path) == "/r"
+
+
+def test_after_a_setup_the_summary_uses_the_port_dev_up_chose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        wizard, "app_url_of", lambda root, environ: "http://127.0.0.1:8001"
+    )
+    run = wizard._Run(
+        args=wizard.parser().parse_args(["shop"]),
+        environ={},
+        stdin=_Stream(tty=True),
+        out=_Stream(tty=True),
+        err=_Stream(tty=True),
+        version="1.0.0",
+        asking=True,
+        style=ui.PLAIN,
+    )
+    plan = wizard.Plan(app="shop", parent=tmp_path, batteries=["identity", "admin"])
+    answers = wizard.Answers("shop", ["identity", "admin"], ["claude"], True, "o@x.y")
+    root = tmp_path / "shop"
+    lines = wizard._next_steps(run, plan, root, answers)
+    assert lines[-1] == "uv run sandloom dev run"
+    text = wizard._summary(run, plan, root, answers, admin_created=True)
+    assert "http://127.0.0.1:8001/admin/" in text
+    assert "http://127.0.0.1:8001/docs" in text
+    assert "8000" not in text
+    # Which account is mine, and how to get back in.
+    assert "Sign in as o@x.y" in text
+    assert "uv run sandloom admin invite --email o@x.y" in text
+
+
 # -------------------------------------------------------------- plain mode
 
 
@@ -483,7 +669,7 @@ def test_plain_mode_prints_nothing_new_after_next_steps(tmp_path: Path) -> None:
     assert tail == expected_tail
     assert head.startswith("Created application 'shop' (")
     assert "\x1b" not in out.getvalue()
-    assert not (root / ".git").exists()  # plain mode leaves git alone
+    assert "git repository" in head  # its own repository, said before the block
 
 
 @pytest.mark.usefixtures("_no_boot")
@@ -618,7 +804,7 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
         pump(until, start)
 
     try:
-        pump(b"App name")
+        pump(b"Name your app")
         send(b"shop\r", b"Enter to continue")
         send(b" \r", b"Esc cancel")  # identity; then the agents list
         # Claude Code (the first row) only, whatever this machine has installed.
@@ -628,8 +814,14 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
             (b" " if (b"[x]" in row) != (i == 0) else b"") + b"j"
             for i, row in enumerate(rows)
         )
-        send(keys + b"\r", b"[Y/n]")
-        os.write(fd, b"n\r")
+        # The git question (unless tmp is inside a work tree), else services.
+        send(keys + b"\r", b"? [")
+        if (
+            b"How do you want to run them?"
+            not in output.rsplit(b"Coding agents", 1)[-1]
+        ):
+            send(b"n\r", b"How do you want to run them?")
+        os.write(fd, b"3\r")  # later: the files only
         deadline = time.monotonic() + 180
         while child.poll() is None and time.monotonic() < deadline:
             pump(b"\0", len(output), 0.5)  # keep reading: a full terminal blocks
@@ -644,14 +836,12 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
     assert status == 0, text
     assert ui.MARK[3] in text  # the caracal beside the name
     assert "Scripts and agents: add --yes" in text
+    assert "https://sandloom.dev" in text and "step by step" in text
+    assert "Your app is created" in text
     assert "sandloom new shop --with identity --agents claude --yes" in text
     assert "Traceback" not in text
     root = tmp_path / "shop"
     assert (root / "pyproject.toml").is_file()
     assert (root / ".claude/skills").is_dir() and not (root / ".agents").exists()
     assert "sandloom-identity" in (root / "pyproject.toml").read_text()
-    assert (root / ".git").is_dir() or subprocess.run(
-        ["git", "-C", str(tmp_path), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        check=False,
-    ).returncode == 0
+    assert (root / ".git").is_dir() or "inside the git repository at" in text

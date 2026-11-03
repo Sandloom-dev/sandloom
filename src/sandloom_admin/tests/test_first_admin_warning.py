@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from sandloom.sdk.errors import ContractCallError
 from sandloom.sdk.testing import fake_contract
 from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1
 from sandloom_admin import startup as admin_setup
@@ -75,3 +76,25 @@ def test_the_module_registers_the_check(monkeypatch: pytest.MonkeyPatch) -> None
 
     admin_setup.setup(_Api())  # type: ignore[arg-type]
     assert tasks == [(admin_setup.warn_without_admin, False)]
+
+
+async def test_an_unreachable_database_is_not_a_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Stopped dev services: identity answers 503. The check is skipped
+    quietly (the app reports the database once), and tried at the next start."""
+
+    class _Unavailable:
+        async def platform_admin_exists(self) -> bool:
+            raise ContractCallError(
+                "Database temporarily unavailable; retry the request", status_code=503
+            )
+
+    with (
+        fake_contract(IDENTITY_SECURITY_V1, _Unavailable()),
+        caplog.at_level(logging.DEBUG),
+    ):
+        await admin_setup.warn_without_admin()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not any(r.exc_info for r in caplog.records)
+    assert admin_setup._warned is False

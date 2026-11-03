@@ -60,7 +60,7 @@ from sandloom_identity.models.user import User
 from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
-from sandloom_identity.schemas.operator import AccountStanding
+from sandloom_identity.schemas.operator import AccountStanding, PlatformAdmin
 from sandloom_identity.services.auth_service import AuthService
 from sandloom_identity.services.role_service import ADMIN_ROLE_CODE
 from sandloom_identity.services.setup_state import platform_admin_exists
@@ -297,6 +297,52 @@ class SecurityOperationsContract:
             email_verified=bool(user.is_verified),
             is_active=bool(user.is_active),
         )
+
+    async def list_platform_admins(self) -> list[PlatformAdmin]:
+        """Every account holding the platform ``admin`` role, by address
+        (``sandloom admin list``: which address is mine, has it a password)."""
+        db = contract_session()
+        rows = await db.scalars(
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.code == ADMIN_ROLE_CODE)
+            .order_by(User.email)
+            .limit(MAX_BATCH)
+        )
+        return [
+            PlatformAdmin(
+                email=user.email,
+                password_set=user.hashed_password is not None,
+                is_active=bool(user.is_active),
+                last_login_at=user.last_login_at,
+            )
+            for user in rows.unique()
+        ]
+
+    @command(idempotency_key="operation_key")
+    async def record_admin_listing(
+        self, reason: str, operator: str, show_emails: bool, operation_key: str
+    ) -> bool:
+        """Record that an operator listed the platform administrators
+        (``sandloom admin list`` in production): who, why, and whether the
+        full addresses were shown. The addresses themselves stay out."""
+        if not reason.strip() or not operator.strip():
+            raise HTTPException(422, "reason and operator are required")
+        record_audit(
+            "identity.admin.listed",
+            actor_id=None,
+            actor_type="operator",
+            resource_type="user",
+            data={
+                "operator": operator,
+                "reason": reason,
+                "show_emails": bool(show_emails),
+                "operation_key": operation_key,
+            },
+            required=True,
+        )
+        return True
 
     async def platform_admin_exists(self) -> bool:
         """Whether any active account holds the platform ``admin`` role."""
