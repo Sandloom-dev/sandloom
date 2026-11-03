@@ -13,6 +13,31 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **`sandloom new` asks at a terminal.** Without a name it asks what the flags
+  leave open, from the app's name to its first administrator. The setup runs
+  the quickstart up to the migrations, then `admin create`, one line per step.
+  A failed step shows its last lines and the commands left. The summary ends with a pinned `uvx`
+  command that makes the same app with no question. `git init` runs first
+  unless the app is inside a repository.
+- **Scripts and agents get no question.** `--yes` (alias `--no-input`), CI,
+  a pipe or a coding agent's shell (`CLAUDECODE`, `CODEX_SANDBOX`,
+  `GEMINI_CLI`, `CURSOR_AGENT` and others) mean no question. Then the output
+  ends with the "Next steps" block, as before. `--setup` and
+  `--admin-email` run the setup without questions; `--plain` turns off
+  colour and redrawn lines.
+- **The Sandloom look in the terminal.** `new`, `dev up`, `dev status`,
+  `dev run`, `admin create`, `admin invite` and the one-line connection
+  errors use one accent colour, symbols with an ASCII fallback, and colour
+  only at a terminal. `NO_COLOR` turns it off and `FORCE_COLOR` turns it on.
+  Without colour the text is unchanged.
+
+### Changed
+
+- **An app name may not shadow a standard library module** (`json`,
+  `email`): `sandloom new` refuses it, with or without the wizard.
+
 ## [0.7.0a8] — 2026-11-03
 
 ### Added

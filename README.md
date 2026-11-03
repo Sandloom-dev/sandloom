@@ -66,6 +66,10 @@ uv run uvicorn myapp.asgi:app --reload
 ```
 <!-- readme:quickstart:end -->
 
+At a terminal, `uvx --from "sandloom==0.7.0a8" sandloom new` with no name asks
+for the name, the modules and the coding agents, and can run the setup.
+Scripts and coding agents pass `--yes`.
+
 Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health);
 with the services healthy, it returns HTTP 200. Generated module routes require
 a bearer token by default. For signup and login, use `--with identity` instead

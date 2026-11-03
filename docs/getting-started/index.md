@@ -28,6 +28,21 @@ instead. That command already creates `notes`, so its printed steps add a
 different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.
 
+!!! tip "Or answer a few questions"
+    At a terminal, `sandloom new` without a name asks for what its flags
+    leave open. It asks for the name, the standard modules and the coding
+    agents. Then it offers to set the app up and to create the first
+    administrator.
+
+    ```bash
+    uvx --from "sandloom[standard]==0.7.0a8" sandloom new
+    ```
+
+    A yes to the setup runs the steps below up to the migrations. The
+    summary ends with one command that makes the same app again without
+    questions. Scripts and coding agents pass `--yes`: they get no question,
+    and the output is the one below.
+
 `sandloom new` prints the next steps; run them as printed:
 
 <!-- quickstart:begin (sandloom.core.cli.project.QUICKSTART; src/sandloom/core/tests/test_quickstart.py) -->

@@ -65,6 +65,6 @@ uv run sandloom test                 # schema & deploy checks the profile too
 The framework also has `src/sandloom/core/tests/test_deploy_profiles.py`, the
 split conformance matrix (`tests/split_conformance`, slow) and CI's
 `microservices-smoke`. The CI job `app-split` (`tools/smoke/split_check.py`,
-`--smoke` for the real stack) splits a fresh `sandloom new` app. Unbound
+`--smoke` for the real stack) splits a fresh `sandloom new <app> --yes` app (an agent always passes `--yes`). Unbound
 optional contracts must degrade explicitly (404, 501 or 503), never with a
 500.
