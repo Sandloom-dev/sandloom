@@ -328,7 +328,7 @@ proves that local and in-process RPC calls agree. See the
     The mechanism matrix and the ambiguous-COMMIT table are in
     [ADR-0005](../../adr/0005-effect-model.md); the ids are in the
     [guarantee ledger](../../reference/guarantees.md). See also
-    [Guarantees and labels](../guarantees/index.md).
+    [Guarantees and labels](../../advanced/guarantees.md).
 
 ??? note "Level 2 form"
     `@contract` and `Contract` are built from L2 primitives that stay public

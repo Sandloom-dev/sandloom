@@ -1,5 +1,6 @@
 ---
 title: Module maps for agents
+type: concept
 ---
 
 # Module maps for agents

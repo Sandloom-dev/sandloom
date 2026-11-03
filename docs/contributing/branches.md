@@ -1,5 +1,6 @@
 ---
 title: Branches and owner review
+type: how-to
 ---
 
 # Branches and owner review

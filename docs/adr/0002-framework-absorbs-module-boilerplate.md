@@ -92,4 +92,4 @@ The framework owns this plumbing; modules declare, conventions derive.
 ## Related reading
 
 - [Module model](../modules/index.md)
-- [Testing harness](../toolchain/testing.md)
+- [Testing harness](../modules/testing.md)

@@ -1,5 +1,6 @@
 ---
 title: SLOs
+type: concept
 ---
 
 # Service level objectives
@@ -36,6 +37,7 @@ windows, as `sandloom:sli_<name>:ratio_rate<window>`.
 
 Definitions and their limits:
 
+<!-- lookup -->
 - **Probes are not traffic.** `/health*`, `/ready`, `/metrics` and unmatched
   paths (`<unmatched>`, i.e. 404 scans) are excluded.
 - **4xx are good events.** 401, 403, 404, 409, 422 and 429 are the API working
@@ -167,5 +169,5 @@ after any capacity change).
 
 ## Related reading
 
-- [Runbook](../operate/runbook.md)
-- [Security model](security-model.md)
+- [Runbook](runbook.md)
+- [Security model](../advanced/security-model.md)

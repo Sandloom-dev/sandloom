@@ -1,6 +1,7 @@
 ---
 title: Get your first access token
 description: Register, verify your email in a local inbox, sign in and refresh organization claims.
+type: how-to
 ---
 
 # Get your first access token

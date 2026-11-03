@@ -81,7 +81,7 @@ sets it to 2. Keep
 - Terminate TLS at the gateway or an upstream load balancer.
 - Behind a proxy, set `TRUST_PROXY_HEADERS=true` **and** `TRUSTED_PROXY_IPS` (the
   proxies' CIDRs). See
-  [Security model](../reference/security-model.md#transport-request-hardening).
+  [Security model](../advanced/security-model.md#transport-request-hardening).
 - Probe `/health/simple` for liveness and `/ready` for readiness. `/health` and
   `/ready` answer `503` when degraded, so using either as a liveness probe restarts
   the process during a database outage.
@@ -101,7 +101,7 @@ sets it to 2. Keep
 - Run a shared multi-tenant product with
   `PRODUCTION_PROFILE=multi_tenant_strict`: row-level security on every tenant table,
   fail-closed revocation and a separate non-evicting security Redis. See
-  [Production profile](../reference/security-model.md#production-profile-the-multi-tenant-trust-model-as-a-contract).
+  [Production profile](../advanced/security-model.md#production-profile-the-multi-tenant-trust-model-as-a-contract).
 
 ## The framework's own profiles
 

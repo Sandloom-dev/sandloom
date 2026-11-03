@@ -25,7 +25,7 @@ guarantees:
     inside unscoped()) raises MissingTenantError instead of running cross-tenant.
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant isolation
+  - docs/advanced/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_no_tenant_bound_fails_closed
   - src/sandloom/core/tests/test_tenant_criteria_prebuilt.py::test_no_tenant_fails_closed
@@ -35,7 +35,7 @@ guarantees:
     automatically filtered to that tenant's rows only.
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant isolation
+  - docs/advanced/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_automatic_filtering_to_bound_tenant
   - src/sandloom/core/tests/test_tenant_isolation.py::test_bulk_update_scoped_to_bound_tenant
@@ -46,7 +46,7 @@ guarantees:
     unbound they fail closed, bound they return only the bound tenant''s rows.'
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant isolation
+  - docs/advanced/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_unbound_reach_into_tenant_table_fails_closed
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_unbound_lazy_relationship_load_fails_closed
@@ -86,7 +86,7 @@ guarantees:
     when no tenant is bound, and scoped() restricts results to the bound tenant.
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant isolation
+  - docs/advanced/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_explicit_scoped_is_fail_closed
   - src/sandloom/core/tests/test_tenant_isolation.py::test_single_tenant_runtime_scope_binds_canonical_tenant
@@ -212,9 +212,9 @@ guarantees:
     and changes only rows of the tenant in sandloom.tenant_id, and an INSERT/UPDATE for another tenant is refused
     by WITH CHECK.
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
-  - docs/reference/security-model.md#SQL paths available to business-module code
+  - docs/advanced/security-model.md#SQL paths available to business-module code
   tests:
   - src/sandloom/core/tests/test_tenant_rls.py::test_raw_text_sees_only_bound_tenant
   - src/sandloom/core/tests/test_tenant_rls.py::test_with_check_blocks_cross_tenant_writes
@@ -225,7 +225,7 @@ guarantees:
     and refused writes on an RLS table, never a cast error or fail-open, including when no engine hook
     is installed.
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_malformed_tenant_setting_fails_closed
@@ -236,7 +236,7 @@ guarantees:
   statement: 'The RLS policy has no bypass: neither unscoped() nor the legacy sandloom.tenant_bypass setting
     lets the app role read or write another tenant''s rows.'
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
   - docs/modules/database/multi-tenancy.md
   tests:
@@ -249,7 +249,7 @@ guarantees:
     switch within a transaction, is restored after a savepoint rollback, and never carries one pooled
     transaction''s tenant into the next.'
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
   tests:
   - src/sandloom/core/tests/test_tenant_rls.py::test_settings_do_not_leak_across_pooled_transactions
@@ -262,7 +262,7 @@ guarantees:
     of such a role, owns an RLS table directly or by membership, or is covered by an unconditional (system-role)
     policy.
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
   - docs/modules/database/multi-tenancy.md
   tests:
@@ -300,7 +300,7 @@ guarantees:
     rolls back on error, and writes an sandloom.system_db.session audit row with actor and reason in the same
     transaction.
   sources:
-  - docs/reference/security-model.md#The system channel (privileged work)
+  - docs/advanced/security-model.md#The system channel (privileged work)
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_channel_reaches_all_tenants_and_is_audited
@@ -313,7 +313,7 @@ guarantees:
     SystemChannelUnavailable for a database with no system channel; require_system_channel without a system
     DSN, or a system_url without tenant_rls, fails at provider construction.
   sources:
-  - docs/reference/security-model.md#The system channel (privileged work)
+  - docs/advanced/security-model.md#The system channel (privileged work)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_session_requires_actor_reason_and_configuration
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_require_system_channel_without_dsn_fails_fast
@@ -322,7 +322,7 @@ guarantees:
     sandloom.core.sql_alchemy.tenant_rls are forbidden infra imports, absent from the public core API, and
     the database provider exposes no system engine; the app role cannot SET ROLE to the system role.'
   sources:
-  - docs/reference/security-model.md#SQL paths available to business-module code
+  - docs/advanced/security-model.md#SQL paths available to business-module code
   - docs/modules/database/multi-tenancy.md
   tests:
   - tests/architecture/test_system_channel_unreachable.py::test_module_import_of_system_channel_is_flagged
@@ -335,8 +335,8 @@ guarantees:
   statement: A raw asyncpg driver connection bypasses the RLS hook but runs under the transaction's last
     synced setting, so with no tenant it fails closed (zero rows).
   sources:
-  - docs/reference/security-model.md#SQL paths available to business-module code
-  - docs/reference/security-model.md#What is NOT guaranteed (residual risks)
+  - docs/advanced/security-model.md#SQL paths available to business-module code
+  - docs/advanced/security-model.md#What is NOT guaranteed (residual risks)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_paths.py::test_raw_driver_connection_is_not_covered_but_fails_closed
 - id: G-RLS-12
@@ -344,7 +344,7 @@ guarantees:
     are scoped by sandloom.tenant_id on a tenant_rls database (also when tenant_rls is requested after the
     default contract engine exists).
   sources:
-  - docs/reference/security-model.md#SQL paths available to business-module code
+  - docs/advanced/security-model.md#SQL paths available to business-module code
   tests:
   - src/sandloom/core/tests/test_contract_pool.py::test_default_contract_engine_honours_a_later_tenant_rls_request
 - id: G-RLS-13
@@ -353,7 +353,7 @@ guarantees:
     tenant table inside it (NonTenantStatementError), and in production syncs instead of skipping on a
     violation.'
   sources:
-  - docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
+  - docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification
     passed)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_allowlist.py::test_allowlist_never_skips_a_bound_tenant
@@ -365,8 +365,8 @@ guarantees:
     app role reads another tenant (strict xfail), and a superuser bypasses RLS (documented caveat test);
     a fix that changes either must flip these tests.'
   sources:
-  - docs/reference/security-model.md#What is NOT guaranteed (residual risks)
-  - docs/reference/security-model.md#Trust model of this Sandloom version (normative)
+  - docs/advanced/security-model.md#What is NOT guaranteed (residual risks)
+  - docs/advanced/security-model.md#Trust model of this Sandloom version (normative)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_forged_tenant_setting_cannot_read_other_tenant
   - src/sandloom/core/tests/test_tenant_rls.py::test_superuser_bypasses_rls_documented_caveat
@@ -375,7 +375,7 @@ guarantees:
     at aopen, and the provider does not advertise the tenant_rls feature (it is advertised only when the
     option is on).'
   sources:
-  - docs/reference/security-model.md#Tenant RLS threat model
+  - docs/advanced/security-model.md#Tenant RLS threat model
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_rls_off_instance_is_unchanged
   - src/sandloom/core/tests/test_tenant_rls_paths.py::test_tenant_rls_off_changes_nothing
@@ -386,7 +386,7 @@ guarantees:
     and a SECURITY_CACHE_INSTANCE that is 'default', undeclared, or on the same Redis server as the default
     cache — listing every reason.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_default_production_config_is_refused_with_every_reason
@@ -397,21 +397,21 @@ guarantees:
   statement: The strict profile's boot check stops every entry point — ASGI app, Celery worker, sandloom migrate
     and the sandloom CLI — before it serves or touches anything.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   tests:
   - src/sandloom/core/tests/test_boot_configuration_checks.py::test_moved_validator_refuses_every_entry_point
 - id: G-PROFILE-03
   statement: Under the strict profile AUTH_REVOCATION_FAIL_CLOSED is turned on when unset, and a compliant
     configuration starts.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
-  - docs/reference/security-model.md#The contract (what Sandloom guarantees, and under which conditions)
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#The contract (what Sandloom guarantees, and under which conditions)
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_compliant_strict_profile_starts_and_forces_fail_closed
 - id: G-PROFILE-04
   statement: The strict profile is inert outside ENVIRONMENT=prod and with PRODUCTION_PROFILE=standard.
   sources:
-  - 'docs/reference/security-model.md#Production profile: the multi-tenant trust model as a contract'
+  - 'docs/advanced/security-model.md#Production profile: the multi-tenant trust model as a contract'
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_profile_is_inert_outside_prod_and_for_standard
 - id: G-PROFILE-05
@@ -419,7 +419,7 @@ guarantees:
     naming each table and the enable_tenant_rls(op, table) fix, when any TenantScoped table on any database
     lacks enabled+FORCEd RLS or its <table>_tenant_isolation policy, or is missing.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_rls_coverage_reports_unprotected_tenant_tables
   - src/sandloom/core/tests/test_production_profile.py::test_startup_enforcement_fails_on_an_uncovered_table
@@ -433,7 +433,7 @@ guarantees:
     (and a separate idempotency cache) reach a different Redis process than the default cache, failing
     with ProductionProfileError on the same process or when identity cannot be read.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_infra_review_20261022.py::test_strict_profile_checks_physical_redis_identity
@@ -445,8 +445,8 @@ guarantees:
     cache must be declared and on a different Redis server than the default cache (refused otherwise),
     sharing the security Redis is only a warning, and leaving it unset keeps the previous behaviour.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
-  - docs/reference/security-model.md#Security-critical vs best-effort cache
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#Security-critical vs best-effort cache
   tests:
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_refuses_an_unsafe_idempotency_instance
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_warns_when_sharing_the_security_redis
@@ -457,7 +457,7 @@ guarantees:
     SECURITY_CACHE_INSTANCE, never plain cache(); idempotency records move to IDEMPOTENCY_CACHE_INSTANCE
     when set while revocation marks stay in the security cache.
   sources:
-  - docs/reference/security-model.md#Security-critical vs best-effort cache
+  - docs/advanced/security-model.md#Security-critical vs best-effort cache
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_cache_instance
@@ -468,7 +468,7 @@ guarantees:
     or a shared HS secret (the accepted risk shared_hs_secret_split is refused), and a process loading
     no token issuer is refused an HS secret by the kernel role check with no opt-out.
   sources:
-  - docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
+  - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_each_trust_layer_is_required
   - src/sandloom/core/tests/test_production_profile.py::test_split_requires_asymmetric_jwt
@@ -1177,7 +1177,7 @@ guarantees:
     true) without re-running the endpoint.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_replays_successful_response
   - src/sandloom/core/tests/test_idempotency_record_format.py::test_json_body_is_stored_raw_and_replays_byte_identical
@@ -1197,7 +1197,7 @@ guarantees:
     reserves afresh; the error response is sent before the release.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_failed_attempt_allows_retry
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_unhandled_exception_releases_key
@@ -1217,7 +1217,7 @@ guarantees:
     an expired owner can neither release nor finalise over a retry''s reservation.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_idempotency_cas.py::test_redis_cas_primitives
   - src/sandloom/core/tests/test_idempotency_cas.py::test_expired_owner_cannot_release_a_retrys_reservation
@@ -1226,7 +1226,7 @@ guarantees:
   statement: Idempotency keys are scoped per caller and tenant (never replayed across tenants), and an
     anonymous caller never gets a stored body replayed (status only).
   sources:
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_never_replays_across_tenants
@@ -1248,7 +1248,7 @@ guarantees:
     fail-open guard lets the request through.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_fail_closed_returns_503_on_cache_outage
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_fail_open_allows_on_cache_outage
@@ -1308,7 +1308,7 @@ guarantees:
   statement: A valid token's revocation and block state is checked live before an idempotency reservation
     or replay, even when the guard precedes the endpoint's auth dependency.
   sources:
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_replay_checks_live_auth_before_cache_lookup
 - id: G-IDEM-16
@@ -1579,7 +1579,7 @@ guarantees:
     change commits.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Audit trail
+  - docs/advanced/security-model.md#Audit trail
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_record_audit_writes_in_uow
@@ -1611,7 +1611,7 @@ guarantees:
     token.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - tests/integration/test_review_hardening.py::test_guard_rejects_token_without_access_type
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_bearer_claims_is_the_single_access_token_parser
@@ -1620,7 +1620,7 @@ guarantees:
   statement: An access token without iat or exp is rejected (401 at the guard).
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_decode_requires_iat
   - tests/integration/test_shared_authz_review.py::test_token_without_iat_is_rejected
@@ -1631,7 +1631,7 @@ guarantees:
     RSA < 2048 bit, wrong EC curve refuse startup) and the HS and asymmetric key families are mutually
     exclusive.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_alg_none_is_rejected
@@ -1644,7 +1644,7 @@ guarantees:
     by the token''s kid: a token without kid, with an unknown kid, of another algorithm, HMAC-signed with
     the public PEM or with JWT_SECRET is rejected.'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_token_without_or_with_unknown_kid_is_rejected
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_hs256_token_signed_with_the_public_key_is_rejected
@@ -1656,7 +1656,7 @@ guarantees:
     or JWT_SECRET, is refused; in prod a split process on a shared HS secret is refused unless the accepted
     risk shared_hs_secret_split is set, and never under multi_tenant_strict.'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_startup_role_check
@@ -1670,7 +1670,7 @@ guarantees:
     microservices split every identity-minted access token is EdDSA under the issuer's kid and verifies
     in processes holding only public keys.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_verify_only_process_cannot_mint
@@ -1680,7 +1680,7 @@ guarantees:
     whose kid equals JWT_KID verifies with JWT_SECRET only, and in prod previous secrets obey the JWT_SECRET
     strength rules and may not contain the current secret.'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_kid_is_stamped_and_previous_secret_still_verifies
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_current_kid_is_verified_with_current_secret_only
@@ -1691,7 +1691,7 @@ guarantees:
     retired (removed) kid is rejected at once, and startup refuses a JWT_PRIVATE_KEY that is not the private
     half of JWT_PUBLIC_KEYS[JWT_KID].'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_rotation_both_kids_verify_and_retired_kid_is_rejected
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_private_key_must_match_its_published_kid
@@ -1700,14 +1700,14 @@ guarantees:
   statement: When JWT_ISSUER / JWT_AUDIENCE are set, tokens carry them and verification rejects a token
     of another issuer or audience.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_review_fixes_v2.py::test_jwt_issuer_audience_enforced_when_configured
 - id: G-AUTH-10
   statement: Prod refuses to start with a weak or placeholder JWT_SECRET (secrets and tokens must be >=
     32 chars and not placeholders).
   sources:
-  - docs/reference/security-model.md#Secrets
+  - docs/advanced/security-model.md#Secrets
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_prod_rejects_weak_or_placeholder_jwt_secret
@@ -1718,7 +1718,7 @@ guarantees:
     (503), the first critical failure in registration order winning.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_runs_in_its_own_uow_and_is_exposed
   - src/sandloom/core/tests/test_contract_runtime.py::test_critical_local_contributor_failure_is_503
@@ -1730,7 +1730,7 @@ guarantees:
     unknown and escalates to a live check.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_claims_provenance_always_stamped
   - tests/integration/test_claims_provenance_and_subscribed.py::test_authoritative_provenance_trusts_only_listed_owner
@@ -1739,7 +1739,7 @@ guarantees:
 - id: G-AUTH-13
   statement: Claims contributors cannot override the identity claims (sub, email, email_verified, token_type).
   sources:
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_unverified_user_and_contributors_cannot_override_identity
 - id: G-AUTH-14
@@ -1756,7 +1756,7 @@ guarantees:
     owasp_min m=19456/t=2/p=1, custom requiring every value); explicit PASSWORD_HASH_* values override
     the preset and the configured hasher follows settings.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_password_hash_config.py::test_defaults_are_unchanged
@@ -1767,7 +1767,7 @@ guarantees:
   statement: Production refuses password-hash parameters below the OWASP argon2id minimum unless the accepted
     risk weak_password_hash is set (outside prod only a warning).
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_password_hash_config.py::test_prod_refuses_weak_parameters_with_a_fix
@@ -1777,7 +1777,7 @@ guarantees:
   statement: A successful login re-hashes a hash with other parameters (upgrade or downgrade) in the same
     UoW; a failed login never re-hashes and a re-hash failure never blocks the login (counted).
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   tests:
   - src/sandloom_identity/tests/services/test_password_rehash_on_login.py::test_login_upgrades_a_weaker_hash
@@ -1789,7 +1789,7 @@ guarantees:
     hash, same cache/SQL steps) whether or not the e-mail has an account, so neither response nor timing
     reveals account existence.
   sources:
-  - docs/modules/standard/identity.md#Behaviour API clients must know
+  - docs/modules/batteries/identity.md#Behaviour API clients must know
   tests:
   - src/sandloom_identity/tests/services/test_login_timing_equalizer.py::test_wrong_password_and_unknown_email_do_identical_work
   - src/sandloom_identity/tests/services/test_login_timing_equalizer.py::test_unknown_email_submits_to_the_password_pool_once
@@ -1799,7 +1799,7 @@ guarantees:
     rotation); in prod with identity loaded the key is mandatory and must be strong (critical startup
     refusal), only outside prod an unset key derives from JWT_SECRET.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
   - docs/operate/topologies.md
   tests:
@@ -1813,7 +1813,7 @@ guarantees:
     token with 401 'Token has been revoked'.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_token_issued_earlier_in_the_same_second_is_revoked
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_token_without_iat_us_is_revoked_by_any_mark
@@ -1824,7 +1824,7 @@ guarantees:
     and tokens minted later in the revoking request are stamped past it.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_skew_margin_rejects_tokens_from_an_issuer_clock_running_ahead
   - src/sandloom/core/tests/test_revocation_windows.py::test_issuer_that_saw_the_mark_mints_past_the_margin
@@ -1835,7 +1835,7 @@ guarantees:
     set_max nor cas is refused for revocation writes.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_never_moves_backwards
   - src/sandloom/core/tests/test_cache_set_max.py::test_concurrent_revocations_all_succeed_and_keep_the_max
@@ -1846,7 +1846,7 @@ guarantees:
     never revokes (logs out) the user.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_tenancy/tests/test_security_hardening.py::test_rolled_back_member_removal_skips_the_post_commit_revocation
   - src/sandloom_tenancy/tests/test_security_hardening.py::test_rolled_back_org_deletion_skips_the_post_commit_revocation
@@ -1857,7 +1857,7 @@ guarantees:
     than the skew also revokes the request's own tokens (counted auth_revocation_remark_overtook_floor_total).
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_immediate_and_corrupt.py::test_immediate_revocation_writes_the_mark_before_commit
   - src/sandloom/core/tests/test_revocation_immediate_and_corrupt.py::test_immediate_revocation_refuses_the_change_on_a_cache_outage
@@ -1870,7 +1870,7 @@ guarantees:
     role revocation, password change/reset, deactivation; block_user.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_tenancy/tests/test_role_change_revocation.py::test_role_change_revokes_the_members_tokens
   - src/sandloom_tenancy/tests/test_role_change_revocation.py::test_ownership_transfer_revokes_both_parties
@@ -1888,7 +1888,7 @@ guarantees:
     applies it idempotently without ever lowering a newer mark.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_revocation_is_persisted_in_the_uow_for_the_durable_applier
   - src/sandloom/core/tests/test_revocation_windows.py::test_exhausted_retries_count_a_deferred_revocation
@@ -1899,7 +1899,7 @@ guarantees:
     capped backoff (never parked in the DLQ), only a malformed payload is dead-lettered at once, and while
     a revocation is stuck /ready answers 503 degraded with /health unaffected.'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_outage_longer_than_the_old_budget_is_applied_not_dlqd
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_malformed_revocation_is_dead_lettered_at_once
@@ -1911,7 +1911,7 @@ guarantees:
     on lifetime drift) and /ready fails on ACCESS_TOKEN_EXPIRE_MINUTES drift between services.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_outlives_other_services_tokens_by_default
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_ttl_setting_is_honoured_but_never_too_short
@@ -1923,7 +1923,7 @@ guarantees:
     to now + skew, never deleting or lowering a readable record, and a revocation overwrites a corrupt record.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
   - src/sandloom/core/tests/test_revocation_immediate_and_corrupt.py::test_corrupt_mark_rejects_every_token_and_is_counted
@@ -1937,7 +1937,7 @@ guarantees:
     open accepts with a warning.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -1951,7 +1951,7 @@ guarantees:
     one request share the one lookup.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -1967,7 +1967,7 @@ guarantees:
     or block written during the request answers 401 with nothing committed (also for named-database units).
   sources:
   - docs/modules/database/units.md
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -1987,7 +1987,7 @@ guarantees:
     remote command commits unchecked; every HTTP request (incl. nested ASGI and internal RPC) starts a fresh
     authority context and restores the caller''s on return.'
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_guarded_request_never_sends_remote_command
@@ -2000,7 +2000,7 @@ guarantees:
   statement: Revocation marks and blocks are read and written only through SECURITY_CACHE_INSTANCE and
     never move to IDEMPOTENCY_CACHE_INSTANCE.
   sources:
-  - docs/reference/security-model.md#Security-critical vs best-effort cache
+  - docs/advanced/security-model.md#Security-critical vs best-effort cache
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_cache_instance
@@ -2069,7 +2069,7 @@ guarantees:
     error="invalid_token", as G-REVOKE-21).'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
@@ -2084,7 +2084,7 @@ guarantees:
     a cache outage raises BlockUnavailableError (503) and the audit rolls back.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
   - src/sandloom/core/tests/test_revocation_freshness.py::test_block_requires_uow_and_reason
@@ -2096,7 +2096,7 @@ guarantees:
     or failed unblock leaves the user blocked.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
   - src/sandloom/core/tests/test_revocation_freshness.py::test_unblock_lifts_the_mark_only_after_commit
@@ -2109,7 +2109,7 @@ guarantees:
     AUTH_REVOCATION_FAIL_CLOSED.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Operation classes (normative)
   tests:
   - src/sandloom_identity/tests/api/test_emergency_block.py::test_blocked_user_cannot_login_or_refresh
@@ -2125,7 +2125,7 @@ guarantees:
     lifting the block requires a fresh login.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/api/test_emergency_block.py::test_block_ends_sessions_on_commit
 - id: G-BLOCK-06
@@ -2175,7 +2175,7 @@ guarantees:
     another dependency is never pruned.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
   - src/sandloom/core/tests/test_route_markers.py::test_create_app_prunes_every_marker
@@ -2188,7 +2188,7 @@ guarantees:
     after revocation gets 403, a concurrent demotion serialises, and two admins demoting each other do not
     deadlock.'
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   - docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner
   tests:
@@ -2202,7 +2202,7 @@ guarantees:
     in user_id order: a demotion/removal committed first is seen (403/404), an action committed first serialises
     the demotion, no deadlock.'
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely
   - docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner
@@ -2445,7 +2445,7 @@ guarantees:
     a claims-only policy such as require(Subscribed(of=Account.user())) opens no DB session and does no I/O.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
   - tests/integration/test_shared_authz_review.py::test_http_claims_only_policy_opens_no_db_session
@@ -2485,7 +2485,7 @@ guarantees:
   statement: require(...) as a route dependency rejects resource-loading policies (only claim and live
     policies are allowed there).
   sources:
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   tests:
   - tests/integration/test_authz_algebra.py::test_require_rejects_resource_policy
   - tests/integration/test_authz_algebra.py::test_require_allows_claim_and_live_policies
@@ -2494,7 +2494,7 @@ guarantees:
     the user id; without an org context the decision is indeterminate and a missing org can never be negated
     into allow.
   sources:
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   tests:
   - tests/integration/test_shared_authz_review.py::test_org_credits_use_org_from_path_never_user_id
   - tests/integration/test_shared_authz_review.py::test_org_credits_use_bound_tenant
@@ -2504,7 +2504,7 @@ guarantees:
   statement: Authorization denials are recorded through the structured deny log and access_denied_* metrics
     (a denied request rolls back, so it is not audited).
   sources:
-  - docs/reference/security-model.md#Audit trail
+  - docs/advanced/security-model.md#Audit trail
   tests:
   - tests/integration/test_access_subsystem.py::test_enforce_denies_and_records_metric
 - id: G-AUTHZ-09
@@ -2564,7 +2564,7 @@ guarantees:
     reserves a key or replays a stored response, even when the guard is listed before the endpoint's auth
     dependency.
   sources:
-  - docs/reference/security-model.md#Idempotency
+  - docs/advanced/security-model.md#Idempotency
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_replay_checks_live_auth_before_cache_lookup
 - id: G-HTTP-01
@@ -2572,7 +2572,7 @@ guarantees:
     it elsewhere), blocks boundary bursts, and a 429 carries Retry-After; on a cache outage it fails open
     by default or answers 503 when configured fail-closed.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_http_rate_limit.py::test_rate_limiter_exceeds_limit
@@ -2594,7 +2594,7 @@ guarantees:
     order); with trust on but no CIDRs prod uses the peer and dev the rightmost hop; invalid CIDRs fail
     settings.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_client_ip.py::test_spoofed_leftmost_xff_is_ignored
@@ -2606,7 +2606,7 @@ guarantees:
     INTERNAL_API_TOKEN in every environment, opened only by INTERNAL_ENDPOINTS_OPEN_IN_DEV outside prod;
     METRICS_TOKEN unlocks /metrics only.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_internal_auth.py::test_closed_in_dev_without_token_by_default
@@ -2617,15 +2617,15 @@ guarantees:
   statement: In prod INTERNAL_API_TOKEN and METRICS_TOKEN must be long and random, and METRICS_TOKEN must
     differ from INTERNAL_API_TOKEN (settings validation).
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
-  - docs/reference/security-model.md#Secrets
+  - docs/advanced/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Secrets
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_prod_validates_internal_and_metrics_tokens
 - id: G-HTTP-06
   statement: MAX_REQUEST_BODY_BYTES caps every request body globally with 413, chunked bodies and every
     Content-Length header included.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_chunked_oversize_json_body_is_413
@@ -2633,7 +2633,7 @@ guarantees:
 - id: G-HTTP-07
   statement: Interactive docs (/docs etc.) are off in prod unless DOCS_ENABLED is set.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_docs_exposed_property
@@ -2641,7 +2641,7 @@ guarantees:
   statement: CORS follows CORS_ORIGINS; a wildcard origin disables credentials, and masked 500 responses
     still carry the CORS headers.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   tests:
   - src/sandloom/core/tests/test_review_fixes.py::test_cors_wildcard_disables_credentials
   - src/sandloom/core/tests/test_review_fixes.py::test_cors_explicit_origin_keeps_credentials
@@ -2650,7 +2650,7 @@ guarantees:
   statement: JSON API responses carry CSP default-src 'none'; frame-ancestors 'none', restricted permissions
     and COOP same-origin without breaking HTML/Swagger asset policy.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_json_security_headers_do_not_break_html_assets
 - id: G-HTTP-10
@@ -2658,7 +2658,7 @@ guarantees:
     X-Internal-Token) and are cached for HEALTH_CACHE_TTL_SECONDS so anonymous traffic cannot fan out
     probes.
   sources:
-  - docs/reference/security-model.md#Transport & request hardening
+  - docs/advanced/security-model.md#Transport & request hardening
   - docs/contributing/repository.md#Things that look wrong but are intentional
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_public_health_probes_are_cached_and_topology_hidden
@@ -2666,7 +2666,7 @@ guarantees:
   statement: Logs redact sensitive extra keys by substring and scrub credential-shaped values from messages;
     Sentry events pass the same redaction.
   sources:
-  - docs/reference/security-model.md#Secrets
+  - docs/advanced/security-model.md#Secrets
   tests:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_log_extras_redacted_by_substring
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_free_text_messages_are_scrubbed
@@ -2684,7 +2684,7 @@ guarantees:
     the intent pending (503) and a retry reuses the same PSP session, a definitive PSP 4xx fails the intent
     (502).'
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   - docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle
   tests:
@@ -2699,7 +2699,7 @@ guarantees:
     (401); any refusal revokes the pending intent (audited), expires the checkout session and never returns
     the URL (a portal URL is never handed out).
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely
   - docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle
@@ -2765,7 +2765,7 @@ guarantees:
     audited (billing.intent.unauthorized_completion) and flagged for an operator; objects without the
     marker (pre-intent sessions) apply as before.
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix
   tests:
@@ -2802,7 +2802,7 @@ guarantees:
   statement: A failed expire compensation is counted (billing_intent_expire_failed), recorded on the intent
     and retried by the reconciler; the refusal stands and the webhook gate remains the backstop.
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved
   tests:
   - src/sandloom_billing/tests/test_operation_intents.py::test_a_failed_expire_is_counted_and_the_gate_remains_the_backstop
@@ -2891,7 +2891,7 @@ guarantees:
     deploy profiles require an explicit BILLING_PROVIDER.
   sources:
   - docs/reference/cli.md
-  - docs/reference/security-model.md#Secrets
+  - docs/advanced/security-model.md#Secrets
   - docs/operate/topologies.md
   tests:
   - tests/integration/test_resilience_config.py::test_stripe_provider_requires_keys
@@ -2912,7 +2912,7 @@ guarantees:
     neither window opens in that request (fail closed, 503 SANDLOOM-R008), whichever hop made the unanswered call (a
     provider reports its own nested unanswered calls back, caught or not, and each caller merges them).'
   sources:
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - "docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed \u2014 resolved"
   - docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle
   tests:
@@ -2964,7 +2964,7 @@ guarantees:
     succeeds whatever the balance, including a negative one left by a refund or dispute reversal (a positive spend
     still needs cover). A negative amount is refused (422) and a grant of 0 stays refused.'
   sources:
-  - docs/modules/standard/billing.md
+  - docs/modules/batteries/billing.md
   tests:
   - src/sandloom_billing/tests/test_credits.py::TestCreditIdempotencyHardening::test_a_zero_spend_is_recorded_and_idempotent
   - src/sandloom_billing/tests/test_credits.py::TestCreditIdempotencyHardening::test_a_zero_spend_needs_no_prior_billing_customer
@@ -3351,7 +3351,7 @@ guarantees:
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Threat model
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_wrong_audience_is_refused
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_captured_request_replayed_to_another_service_is_refused
@@ -3422,7 +3422,7 @@ guarantees:
   sources:
   - docs/modules/between/contracts.md
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_unlisted_method_is_forbidden
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_unlisted_caller_is_forbidden
@@ -3434,7 +3434,7 @@ guarantees:
     bindings.
   sources:
   - docs/modules/between/contracts.md
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_every_bound_contract_must_be_allowed_for_the_caller
   - src/sandloom/core/tests/test_deploy_profiles.py::test_rpc_allowlist_is_derived_from_bindings
@@ -3449,7 +3449,7 @@ guarantees:
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Key-compromise impersonation (KCI) and the command
     signature
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_kci_a_leaked_provider_key_forges_reads_but_never_commands
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_kci_a_command_signed_by_another_service_is_refused
@@ -3527,7 +3527,7 @@ guarantees:
   sources:
   - docs/modules/between/contracts.md
   - docs/operate/service-rpc.md#Response binding
-  - docs/reference/security-model.md#Response binding — threat model
+  - docs/advanced/security-model.md#Response binding — threat model
   tests:
   - src/sandloom/core/tests/test_rpc_response_binding.py::test_peer_returning_a_stale_response_of_another_call
   - src/sandloom/core/tests/test_rpc_response_binding.py::test_an_unbound_reply_is_rejected
@@ -3540,7 +3540,7 @@ guarantees:
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Security review
-  - docs/reference/security-model.md#Response binding — threat model
+  - docs/advanced/security-model.md#Response binding — threat model
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_r1_a_response_cannot_be_rebound_to_another_request
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_r1_request_auth_covers_the_request_mac
@@ -3552,7 +3552,7 @@ guarantees:
     nonce alone, unkeyed; unverified callers never churn the key cache.
   sources:
   - docs/operate/service-rpc.md#Response binding
-  - docs/reference/security-model.md#Response binding — threat model
+  - docs/advanced/security-model.md#Response binding — threat model
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)
   tests:
   - src/sandloom/core/tests/test_rpc_keyed_binding.py::test_no_custom_curve_code_and_no_signing_key_reuse
@@ -3655,7 +3655,7 @@ guarantees:
     or deterministic regardless of JSON order (an unpublished current kid is refused).'
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_provider_rotation_has_no_failed_call_at_any_step
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_a_request_to_a_dropped_provider_kid_is_refused
@@ -3682,7 +3682,7 @@ guarantees:
   statement: Describe and readiness probes are pair-MAC authenticated like calls and allowed when any
     method of the contract is allowed for the caller.
   sources:
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   - deploy/README.md#Probes (liveness vs readiness)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_proxy_of_an_allowed_caller_calls_and_describes
@@ -4555,7 +4555,7 @@ guarantees:
     process.'
   sources:
   - docs/reference/testing.md
-  - docs/toolchain/testing.md#Test isolation
+  - docs/modules/testing.md#Test isolation
   tests:
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_1_a_test_builds_its_own_app
   - src/sandloom/core/tests/test_testing_isolation.py::test_step_2_the_next_test_gets_the_previous_runtime_back
@@ -4686,7 +4686,7 @@ guarantees:
     file, and the smoke builds the service image from that context and finds none in it.
   sources:
   - docs/operate/split-into-services.md
-  - docs/reference/security-model.md
+  - docs/advanced/security-model.md
   tests:
   - src/sandloom/core/tests/test_image_secrets.py::test_dockerignore_rules_follow_docker
   - src/sandloom/core/tests/test_image_secrets.py::test_the_generated_context_ships_no_secret_file
@@ -5261,7 +5261,7 @@ capabilities:
     no tenant on an RLS database.
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant isolation
+  - docs/advanced/security-model.md#Tenant isolation
   tests:
   - src/sandloom/core/tests/test_tenant_isolation.py::test_unscoped_sees_all_tenants
   - src/sandloom/core/tests/test_tenant_guard_gaps.py::test_bulk_update_by_primary_key_allowed_when_unscoped
@@ -5283,7 +5283,7 @@ capabilities:
     feature) plus enable_tenant_rls/disable_tenant_rls in module migrations.
   sources:
   - docs/modules/database/multi-tenancy.md
-  - docs/reference/security-model.md#Tenant RLS threat model
+  - docs/advanced/security-model.md#Tenant RLS threat model
   tests:
   - src/sandloom/core/tests/test_tenant_rls.py::test_driver_option_installs_hook
   - src/sandloom/core/tests/test_database_tenant_rls_feature.py::test_feature_set_follows_option
@@ -5293,7 +5293,7 @@ capabilities:
   statement: Kernel/ops code can run audited cross-tenant work through sandloom.core.drivers.system_db.system_session(actor=,
     reason=, database=, tenant_id=) over a separate sandloom_system login (DATABASE_SYSTEM_URL / system_url).
   sources:
-  - docs/reference/security-model.md#The system channel (privileged work)
+  - docs/advanced/security-model.md#The system channel (privileged work)
   tests:
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_channel_reaches_all_tenants_and_is_audited
   - src/sandloom/core/tests/test_tenant_rls_bypass.py::test_system_session_tenant_scoped_and_rollback
@@ -5302,7 +5302,7 @@ capabilities:
     (ORM guard + RLS on every database, fail-closed revocation, separate security Redis, split checks)
     into enforced boot and startup checks.
   sources:
-  - 'docs/reference/security-model.md#Production profile: the multi-tenant trust model as a contract'
+  - 'docs/advanced/security-model.md#Production profile: the multi-tenant trust model as a contract'
   tests:
   - src/sandloom/core/tests/test_production_profile.py::test_compliant_strict_profile_starts_and_forces_fail_closed
   see:
@@ -5313,7 +5313,7 @@ capabilities:
     and idempotency records optionally to another with IDEMPOTENCY_CACHE_INSTANCE (default empty = follows
     the security cache).
   sources:
-  - docs/reference/security-model.md#Security-critical vs best-effort cache
+  - docs/advanced/security-model.md#Security-critical vs best-effort cache
   tests:
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_unset_follows_the_security_cache
   - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_default_keeps_guard_records_in_the_security_cache
@@ -5382,7 +5382,7 @@ capabilities:
   statement: SSO login/link over OAuth2 with one-time, TTL-bound, browser-bound CSRF state tokens (reuse
     and expiry refused; link requires an authenticated link state).
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/api/test_sso.py::TestSSOSecurityReal::test_state_reuse_protection_real
   - src/sandloom_identity/tests/api/test_sso.py::TestSSOSecurityReal::test_sso_state_expiration_real
@@ -5392,7 +5392,7 @@ capabilities:
   statement: TOTP 2FA with single-use codes (replay refused) and single-use backup codes, secrets encrypted
     at rest.
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestTOTPReplay::test_same_code_cannot_be_used_twice
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestBackupCodes::test_backup_code_single_use
@@ -5402,7 +5402,7 @@ capabilities:
     files), identity declares itself the token issuer (issues_tokens=True), and split services verify
     with public keys only.'
   sources:
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   - docs/operate/topologies.md
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_prints_a_usable_pair
@@ -5415,7 +5415,7 @@ capabilities:
     themself); the `sandloom security` incident CLI is area F.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authentication
+  - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom_identity/tests/api/test_user_safety.py::test_block_status_unblock_round_trip
   - src/sandloom_identity/tests/api/test_user_safety.py::test_block_requires_idempotency_key_and_replays_once
@@ -5426,7 +5426,7 @@ capabilities:
     of a rotated token revokes the whole family, a benign replay within the grace window is 409, concurrent
     refreshes yield one winner.'
   sources:
-  - docs/modules/standard/identity.md#Behaviour API clients must know
+  - docs/modules/batteries/identity.md#Behaviour API clients must know
   tests:
   - src/sandloom_identity/tests/services/test_refresh_rotation.py::test_refresh_rotates_within_family
   - src/sandloom_identity/tests/services/test_refresh_rotation.py::test_reusing_rotated_token_revokes_whole_family
@@ -5438,7 +5438,7 @@ capabilities:
     path.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
-  - docs/reference/security-model.md#Authorization
+  - docs/advanced/security-model.md#Authorization
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   tests:
   - tests/integration/test_authz_algebra.py::test_perm_and_role_membership
@@ -5451,7 +5451,7 @@ capabilities:
     before the COMMIT of every committing unit of the request and is automatic on writes and writing GETs.
   sources:
   - docs/modules/database/units.md
-  - docs/reference/security-model.md#Authority at commit (admin and money effects)
+  - docs/advanced/security-model.md#Authority at commit (admin and money effects)
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
   - src/sandloom/core/tests/test_before_commit.py::test_checks_run_in_order_after_the_handler_and_before_commit
@@ -5630,7 +5630,7 @@ capabilities:
   statement: '`sandloom keys allowlist --bindings <svc>=''<SERVICE_BINDINGS>''` prints the RPC_ALLOWED_CALLS
     derived from the services'' bindings.'
   sources:
-  - docs/reference/security-model.md#Service-to-service trust (internal RPC)
+  - docs/advanced/security-model.md#Service-to-service trust (internal RPC)
   tests:
   - src/sandloom/core/tests/test_rpc_allowlist.py::test_allowlist_is_derived_from_service_bindings
 - id: C-RPC-05
@@ -7120,8 +7120,8 @@ capabilities:
   statement: tenancy.member_added / member_removed / member_role_changed .v2 (tenant_id, required per-membership
     version) are dual-published with v1, and billing.subscription.*.v1 carry the catalog plan in data.plan.
   sources:
-  - docs/modules/standard/tenancy.md
-  - docs/modules/standard/billing.md
+  - docs/modules/batteries/tenancy.md
+  - docs/modules/batteries/billing.md
   tests:
   - src/sandloom_tenancy/tests/test_registration_surface.py::test_registration_surface_is_pinned
   - src/sandloom_billing/tests/test_entitlement_intentless.py::test_subscription_events_carry_whether_the_subscription_grants

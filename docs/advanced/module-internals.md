@@ -7,14 +7,14 @@ type: concept
 # Module internals
 
 You do not need this page to write a module. It explains what happens underneath
-[What a module is](../index.md), for when you drop below the generated code, ship a module
+[What a module is](../modules/index.md), for when you drop below the generated code, ship a module
 as its own package or read a discovery error.
 
 ## The beginner tier
 
 Twenty-nine names cover CRUD, events and cross-module calls. Generated code
 and the examples use only these (`sandloom test` checks it,
-[SANDLOOM-T009](../../reference/error-codes.md#sandloom-t009)); any other name is advanced
+[SANDLOOM-T009](../reference/error-codes.md#sandloom-t009)); any other name is advanced
 and its import line says why: `# sandloom: advanced <reason>`.
 
 | Need | Names (`from sandloom.sdk import ...`) |
@@ -80,7 +80,7 @@ they exist: `models`, `api`, `events`, `consumers`, `contracts`, `sagas`,
   are ignored.
 - **Misplaced declarations.** An L1 object outside the conventional
   submodules is refused with the module to move it to
-  ([SANDLOOM-B006](../../reference/error-codes.md#sandloom-b006)).
+  ([SANDLOOM-B006](../reference/error-codes.md#sandloom-b006)).
 - **Plain routers keep their rule.** The `APIRouter` bound to
   `<pkg>.api.router`, else every `APIRouter` among `api.__all__` (or its
   public names), is mounted. `module_router()` routers anywhere in the `api`
@@ -90,7 +90,7 @@ they exist: `models`, `api`, `events`, `consumers`, `contracts`, `sagas`,
   `<module>_`.
 - **Atomic.** Discovery fills a registration draft, validates it, then
   applies it. A failure applies nothing and names the original error
-  ([SANDLOOM-B001](../../reference/error-codes.md#sandloom-b001)).
+  ([SANDLOOM-B001](../reference/error-codes.md#sandloom-b001)).
 - **`setup(core)`** stays for what has no declaration: startup and shutdown
   tasks, claims contributors, planner operations. `router=` and `events=`
   override discovery; `consumes=` adds to the derived requirements, never
@@ -101,7 +101,7 @@ The module list is discovered too. An application loads every subpackage of
 adding a module edits nothing else); installed module packages are found by
 their entry point ([Module packages](#module-packages)). `SANDLOOM_MODULES`
 still selects a subset, which is how one codebase deploys as several services
-([Deployment](../../operate/topologies.md)).
+([Deployment](../operate/topologies.md)).
 
 ## Module packages
 
@@ -128,12 +128,12 @@ packages `sandloom_identity`, `sandloom_tenancy` and `sandloom_billing`
   anything loads, a requested module whose name two installed packages
   register, or that an installed package and an app-local module both carry
   (`app.modules.identity` next to `sandloom-identity`)
-  ([SANDLOOM-B020](../../reference/error-codes.md#sandloom-b020)). The message
+  ([SANDLOOM-B020](../reference/error-codes.md#sandloom-b020)). The message
   names both providers: uninstall the package or remove (rename) the local
   module.
 - **Isolation.** An installed module package is another module: an app
   module importing it, in any spelling, is
-  [SANDLOOM-C001](../../reference/error-codes.md#sandloom-c001). Talk to it
+  [SANDLOOM-C001](../reference/error-codes.md#sandloom-c001). Talk to it
   through its events and contracts. The standard modules' contract stubs, the
   generated copies of their DTOs and their event schemas live in
   `sandloom.shared` and ship with `sandloom` (SANDLOOM-C012: every caller
@@ -163,7 +163,7 @@ committed version (`sandloom add` runs it last; `sandloom test` only checks):
   event schemas, consumers, consumed contracts, contracts, sagas,
   projections);
 - `<module>/routes.snapshot.json`: every route and its resolved policy
-  ([Route policy](../http/route-policy.md#the-route-snapshot));
+  ([Route policy](../modules/http/route-policy.md#the-route-snapshot));
 - `<module>/contracts.snapshot.json`: the describe documents of the contracts
   the module provides;
 - the typed stub of every contract the module provides, in the shared DTO
@@ -184,6 +184,6 @@ the one stated exception to "a module edits nothing outside its package".
 
 ## Design rationale
 
-- [ADR-0002: the framework absorbs module boilerplate](../../adr/0002-framework-absorbs-module-boilerplate.md)
-- [ADR-0007: kernel layers](../../adr/0007-kernel-layers.md)
-- [ADR-0010: Public API 1.0](../../adr/0010-public-api-1.0.md)
+- [ADR-0002: the framework absorbs module boilerplate](../adr/0002-framework-absorbs-module-boilerplate.md)
+- [ADR-0007: kernel layers](../adr/0007-kernel-layers.md)
+- [ADR-0010: Public API 1.0](../adr/0010-public-api-1.0.md)

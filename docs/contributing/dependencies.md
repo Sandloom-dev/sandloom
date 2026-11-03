@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Dependency stack — versions and why
 
 The framework's runtime stack is chosen by **measurement**, not by "latest".
@@ -220,6 +224,6 @@ reads the running loop instead.
 
 ## Related reading
 
-- [Dependency security audit (2026-10-29)](../contributing/dependency-security-audit.md)
-- [Configuration reference](configuration.md)
-- [Versioning policy](../contributing/versioning.md)
+- [Dependency security audit (2026-10-29)](dependency-security-audit.md)
+- [Configuration reference](../reference/configuration.md)
+- [Versioning policy](versioning.md)

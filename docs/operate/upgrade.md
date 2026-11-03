@@ -1,6 +1,7 @@
 ---
 title: Upgrade an application
 description: Review and apply Sandloom package upgrades, generated contracts and database migrations with a rollback plan.
+type: how-to
 ---
 
 # Upgrade an application
@@ -46,16 +47,16 @@ uv run sandloom graph
 refreshes contracts, snapshots and `.sandloom/inspection.json`. Cold `graph`
 and `context MODULE` read that saved model; they never regenerate implicitly.
 
-`add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../toolchain/agent-tooling.md#keep-the-skills-current) has the details.
-See [module maps](../toolchain/module-context.md) and the
-[architecture explorer](../toolchain/architecture-graph.md) for formats and freshness.
+`add skills` updates the agent files it wrote and keeps the ones you edited; [keep the skills current](../ai/agent-tooling.md#keep-the-skills-current) has the details.
+See [module maps](../ai/module-context.md) and the
+[architecture explorer](../ai/architecture-graph.md) for formats and freshness.
 
 For a breaking event payload, use [dual-publish versioning](../modules/between/event-versioning.md).
 The [Public API 1.0 migration](upgrade-1.0.md) is a specific historical source
 migration guide, not the general package-upgrade procedure.
 
 If the upgrade fails, capture the error code, package versions and a redacted
-reproduction for [support](../getting-started/help.md).
+reproduction for [support](../help.md).
 
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 

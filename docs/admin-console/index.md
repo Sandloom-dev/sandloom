@@ -1,6 +1,7 @@
 ---
 title: Admin Console
 description: A ready-made web console for the platform owner, served by your application at /admin/. No Node or separate image.
+type: concept
 ---
 
 # Admin Console

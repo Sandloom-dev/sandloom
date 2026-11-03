@@ -1,5 +1,6 @@
 ---
 title: Tenancy
+type: concept
 ---
 
 # Tenancy Module (`sandloom_tenancy`)

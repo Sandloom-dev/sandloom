@@ -1,6 +1,7 @@
 ---
 title: Add your module
 description: Give a module its own console screens with an admin.py declaration. No React and no frontend build.
+type: how-to
 ---
 
 # Add your module

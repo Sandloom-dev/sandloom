@@ -52,7 +52,7 @@ It is probably not for a tiny endpoint or a short script, where the structure is
 
 <div class="grid cards" markdown>
 
--   :material-sitemap-outline: **[How Sandloom works](architecture.md)**
+-   :material-sitemap-outline: **[How Sandloom works](advanced/index.md)**
 
     See how the parts fit together, and which piece you write for each need.
 
@@ -60,7 +60,7 @@ It is probably not for a tiny endpoint or a short script, where the structure is
 
     Read real applications: a minimal app, a SaaS with billing, a process with rollback.
 
--   :material-puzzle-outline: **[Standard modules](modules/standard/index.md)**
+-   :material-puzzle-outline: **[Standard modules](modules/batteries/index.md)**
 
     Add ready-made identity, tenancy and billing, and an [admin console](admin-console/index.md).
 

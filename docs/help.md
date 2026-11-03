@@ -1,6 +1,7 @@
 ---
 title: Getting help
 description: Find answers, report a reproducible Sandloom problem and report security vulnerabilities through the appropriate private channel.
+type: how-to
 ---
 
 # Getting help
@@ -12,8 +13,8 @@ uv run sandloom explain SANDLOOM-C001
 uv run sandloom docs db
 ```
 
-The [error catalogue](../reference/error-codes.md) explains every code and its
-fix. The [CLI reference](../reference/cli.md) lists commands; each command's
+The [error catalogue](reference/error-codes.md) explains every code and its
+fix. The [CLI reference](reference/cli.md) lists commands; each command's
 `--help` is authoritative for the installed version. Local documentation search
 works without an external service.
 
@@ -41,5 +42,5 @@ and follow the repository's
 
 ## Keep learning
 
-Start with the [quickstart](index.md) and the [tutorial](tutorial.md). For an existing
-application, use the [upgrade checklist](../operate/upgrade.md).
+Start with the [quickstart](getting-started/index.md) and the [tutorial](getting-started/tutorial.md). For an existing
+application, use the [upgrade checklist](operate/upgrade.md).

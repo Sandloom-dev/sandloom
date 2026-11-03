@@ -51,7 +51,7 @@ database=None)` is synchronous: it queues the row on the current unit
   `# sandloom: best-effort <reason>` marker on the call
   ([SANDLOOM-C007](../../reference/error-codes.md#sandloom-c007)).
 - **The database.** The audit row goes to the route's write store, the same
-  database as the write ([Write admission](../guarantees/write-admission.md)). In a unit
+  database as the write ([Write admission](../../advanced/write-admission.md)). In a unit
   opened on a named database, `database="billing"` names it explicitly; an
   ambiguous choice raises rather than auditing in the wrong database.
 - In tests under `client` or `db_uow` the audit row lands in the test

@@ -35,7 +35,7 @@ PostgreSQL superusers, ``BYPASSRLS`` roles and table OWNERS (who can simply
 application must connect as a role that is none of those; the driver verifies
 this at startup (:func:`sandloom.core.sql_alchemy.tenant_rls.verify_tenant_rls_roles`).
 
-Threat model (see ``docs/reference/security-model.md``): RLS guards against
+Threat model (see ``docs/advanced/security-model.md``): RLS guards against
 forgotten tenant filters and removes every *privileged* bypass from the app
 role. It does NOT authenticate the tenant context: any code that can send
 arbitrary SQL as the app role can still ``set_config('sandloom.tenant_id', <other

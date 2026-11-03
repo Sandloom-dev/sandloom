@@ -80,9 +80,8 @@ full_output = "llms-full.txt"
 [project.plugins.llmstxt.sections]
 Home = [
     "index.md",
-    "architecture.md",
     "changelog.md",
-    "getting-started/help.md",
+    "help.md",
 ]
 "Getting Started" = [
     "getting-started/index.md",
@@ -91,15 +90,14 @@ Home = [
     "getting-started/installation.md",
     "getting-started/glossary.md",
 ]
-Toolchain = [
-    "toolchain/index.md",
-    "toolchain/generators.md",
-    "toolchain/generate.md",
-    "toolchain/agent-tooling.md",
-    "toolchain/module-context.md",
-    "toolchain/architecture-graph.md",
-    "toolchain/checks.md",
-    "toolchain/testing.md",
+"Develop with AI" = [
+    "ai/index.md",
+    "ai/agent-tooling.md",
+    "ai/generators.md",
+    "ai/generate.md",
+    "ai/module-context.md",
+    "ai/architecture-graph.md",
+    "ai/checks.md",
 ]
 Modules = [
     "modules/index.md",
@@ -128,17 +126,14 @@ Modules = [
     "modules/between/add-saga.md",
     "modules/background/tasks.md",
     "modules/background/effect-deduplication.md",
-    "modules/standard/index.md",
-    "modules/standard/identity.md",
-    "modules/standard/first-access-token.md",
-    "modules/standard/tenancy.md",
-    "modules/standard/billing.md",
-    "modules/standard/customize.md",
-    "modules/standard/sso.md",
-    "modules/guarantees/index.md",
-    "modules/guarantees/write-admission.md",
-    "modules/guarantees/lifecycle.md",
-    "modules/guarantees/module-internals.md",
+    "modules/testing.md",
+    "modules/batteries/index.md",
+    "modules/batteries/identity.md",
+    "modules/batteries/first-access-token.md",
+    "modules/batteries/tenancy.md",
+    "modules/batteries/billing.md",
+    "modules/batteries/customize.md",
+    "modules/batteries/sso.md",
 ]
 Infrastructure = [
     "infrastructure/index.md",
@@ -153,12 +148,15 @@ Infrastructure = [
     "infrastructure/own-capability.md",
     "infrastructure/driverkit.md",
 ]
-Operate = [
+"Admin Console" = [
     "admin-console/index.md",
     "admin-console/add-your-module.md",
     "admin-console/deploy.md",
+    "admin-console/operations.md",
     "admin-console/declarations.md",
     "admin-console/develop.md",
+]
+"Deploy and operate" = [
     "operate/index.md",
     "operate/topologies.md",
     "operate/deploy.md",
@@ -167,8 +165,18 @@ Operate = [
     "operate/loader-configuration.md",
     "operate/runbook.md",
     "operate/operator-reference.md",
+    "operate/slo.md",
     "operate/upgrade.md",
     "operate/upgrade-1.0.md",
+]
+Advanced = [
+    "advanced/index.md",
+    "advanced/guarantees.md",
+    "advanced/write-admission.md",
+    "advanced/lifecycle.md",
+    "advanced/module-internals.md",
+    "advanced/security-model.md",
+    "advanced/execution-planner.md",
 ]
 Reference = [
     "reference/index.md",
@@ -200,11 +208,7 @@ Reference = [
     "reference/configuration-tiers.md",
     "reference/routes.md",
     "reference/event-contracts.md",
-    "reference/security-model.md",
     "reference/guarantees.md",
-    "reference/execution-planner.md",
-    "reference/slo.md",
-    "reference/dependencies.md",
 ]
 Optional = [
     "contributing/index.md",
@@ -216,6 +220,7 @@ Optional = [
     "contributing/local-ci.md",
     "contributing/supply-chain.md",
     "contributing/lint-policy.md",
+    "contributing/dependencies.md",
     "adr/index.md",
     "adr/0001-framework-distribution.md",
     "adr/0002-framework-absorbs-module-boilerplate.md",
@@ -228,7 +233,6 @@ Optional = [
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
     "adr/0011-driver-api.md",
-    "admin-console/operations.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -274,10 +278,8 @@ homepage = "/"
 [[project.nav]]
 Intro = [
     { Overview = "index.md" },
-    { "How Sandloom works" = "architecture.md" },
     { "Release Notes" = "changelog.md" },
-    { "Contribution Guide" = "contributing/index.md" },
-    { Help = "getting-started/help.md" },
+    { Help = "help.md" },
 ]
 
 [[project.nav]]
@@ -290,21 +292,14 @@ Intro = [
 ]
 
 [[project.nav]]
-Toolchain = [
-    { "The toolchain" = "toolchain/index.md" },
-    { Start = [
-        { Generators = "toolchain/generators.md" },
-        { "Generate contracts and snapshots" = "toolchain/generate.md" },
-    ] },
-    { Work = [
-        { "Agent tooling" = "toolchain/agent-tooling.md" },
-        { "Module context for agents" = "toolchain/module-context.md" },
-        { "Explore the architecture graph" = "toolchain/architecture-graph.md" },
-    ] },
-    { Check = [
-        { Checks = "toolchain/checks.md" },
-        { "Testing modules" = "toolchain/testing.md" },
-    ] },
+"Develop with AI" = [
+    { "The toolchain" = "ai/index.md" },
+    { "Agent tooling" = "ai/agent-tooling.md" },
+    { Generators = "ai/generators.md" },
+    { "Generate contracts and snapshots" = "ai/generate.md" },
+    { "Module maps for agents" = "ai/module-context.md" },
+    { "Explore the architecture graph" = "ai/architecture-graph.md" },
+    { Checks = "ai/checks.md" },
 ]
 
 [[project.nav]]
@@ -351,20 +346,15 @@ Modules = [
         { "Background tasks" = "modules/background/tasks.md" },
         { "Deduplicate effects" = "modules/background/effect-deduplication.md" },
     ] },
-    { "Standard modules" = [
-        { Overview = "modules/standard/index.md" },
-        { Identity = "modules/standard/identity.md" },
-        { "Get your first access token" = "modules/standard/first-access-token.md" },
-        { Tenancy = "modules/standard/tenancy.md" },
-        { Billing = "modules/standard/billing.md" },
-        { "Customize a standard module" = "modules/standard/customize.md" },
-        { "SSO setup" = "modules/standard/sso.md" },
-    ] },
-    { "Guarantees in depth" = [
-        { "Guarantees and labels" = "modules/guarantees/index.md" },
-        { "Write admission" = "modules/guarantees/write-admission.md" },
-        { "Transaction and replay lifecycle" = "modules/guarantees/lifecycle.md" },
-        { "Module internals" = "modules/guarantees/module-internals.md" },
+    { "Testing modules" = "modules/testing.md" },
+    { Batteries = [
+        { Overview = "modules/batteries/index.md" },
+        { Identity = "modules/batteries/identity.md" },
+        { "Get your first access token" = "modules/batteries/first-access-token.md" },
+        { Tenancy = "modules/batteries/tenancy.md" },
+        { Billing = "modules/batteries/billing.md" },
+        { "Customize a battery" = "modules/batteries/customize.md" },
+        { "SSO setup" = "modules/batteries/sso.md" },
     ] },
 ]
 
@@ -398,7 +388,7 @@ Infrastructure = [
 ]
 
 [[project.nav]]
-Operate = [
+"Deploy and operate" = [
     "operate/index.md",
     { Topologies = "operate/topologies.md" },
     { Deploy = "operate/deploy.md" },
@@ -407,38 +397,48 @@ Operate = [
     { "Loader configuration" = "operate/loader-configuration.md" },
     { Runbook = "operate/runbook.md" },
     { "Operator reference" = "operate/operator-reference.md" },
-    { Upgrade = [
-        { "Upgrade an application" = "operate/upgrade.md" },
-        { "Upgrading to Public API 1.0" = "operate/upgrade-1.0.md" },
-    ] },
+    { SLOs = "operate/slo.md" },
+    { "Upgrade an application" = "operate/upgrade.md" },
+    { "Upgrading to Public API 1.0" = "operate/upgrade-1.0.md" },
+]
+
+[[project.nav]]
+Advanced = [
+    { Architecture = "advanced/index.md" },
+    { "Guarantees and labels" = "advanced/guarantees.md" },
+    { "Write admission" = "advanced/write-admission.md" },
+    { "Transaction and replay lifecycle" = "advanced/lifecycle.md" },
+    { "Module internals" = "advanced/module-internals.md" },
+    { "Security model" = "advanced/security-model.md" },
+    { "Execution planner" = "advanced/execution-planner.md" },
 ]
 
 [[project.nav]]
 Reference = [
     "reference/index.md",
     { "Python API (sandloom.sdk)" = [
-    "reference/sdk/index.md",
-    { "sandloom.sdk.module" = "reference/sdk/module.md" },
-    { "sandloom.sdk.web" = "reference/sdk/web.md" },
-    { "sandloom.sdk.data" = "reference/sdk/data.md" },
-    { "sandloom.sdk.tenant" = "reference/sdk/tenant.md" },
-    { "sandloom.sdk.events" = "reference/sdk/events.md" },
-    { "sandloom.sdk.effects" = "reference/sdk/effects.md" },
-    { "sandloom.sdk.tasks" = "reference/sdk/tasks.md" },
-    { "sandloom.sdk.contracts" = "reference/sdk/contracts.md" },
-    { "sandloom.sdk.authz" = "reference/sdk/authz.md" },
-    { "sandloom.sdk.sagas" = "reference/sdk/sagas.md" },
-    { "sandloom.sdk.projections" = "reference/sdk/projections.md" },
-    { "sandloom.sdk.infra" = "reference/sdk/infra.md" },
-    { "sandloom.sdk.security" = "reference/sdk/security.md" },
-    { "sandloom.sdk.errors" = "reference/sdk/errors.md" },
-    { "sandloom.sdk.app" = "reference/sdk/app.md" },
-    { "sandloom.sdk.migrations" = "reference/sdk/migrations.md" },
-    { "sandloom.sdk.tooling" = "reference/sdk/tooling.md" },
-    { "sandloom.sdk.testing" = "reference/sdk/testing.md" },
-    { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
-    { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
-] },
+        "reference/sdk/index.md",
+        { "sandloom.sdk.module" = "reference/sdk/module.md" },
+        { "sandloom.sdk.web" = "reference/sdk/web.md" },
+        { "sandloom.sdk.data" = "reference/sdk/data.md" },
+        { "sandloom.sdk.tenant" = "reference/sdk/tenant.md" },
+        { "sandloom.sdk.events" = "reference/sdk/events.md" },
+        { "sandloom.sdk.effects" = "reference/sdk/effects.md" },
+        { "sandloom.sdk.tasks" = "reference/sdk/tasks.md" },
+        { "sandloom.sdk.contracts" = "reference/sdk/contracts.md" },
+        { "sandloom.sdk.authz" = "reference/sdk/authz.md" },
+        { "sandloom.sdk.sagas" = "reference/sdk/sagas.md" },
+        { "sandloom.sdk.projections" = "reference/sdk/projections.md" },
+        { "sandloom.sdk.infra" = "reference/sdk/infra.md" },
+        { "sandloom.sdk.security" = "reference/sdk/security.md" },
+        { "sandloom.sdk.errors" = "reference/sdk/errors.md" },
+        { "sandloom.sdk.app" = "reference/sdk/app.md" },
+        { "sandloom.sdk.migrations" = "reference/sdk/migrations.md" },
+        { "sandloom.sdk.tooling" = "reference/sdk/tooling.md" },
+        { "sandloom.sdk.testing" = "reference/sdk/testing.md" },
+        { "sandloom.sdk.testing.fixtures" = "reference/sdk/testing/fixtures.md" },
+        { "sandloom.sdk.testing.plugin" = "reference/sdk/testing/plugin.md" },
+    ] },
     { "Error catalogue" = "reference/error-codes.md" },
     { "Testing (copy-paste)" = "reference/testing.md" },
     { CLI = "reference/cli.md" },
@@ -446,15 +446,12 @@ Reference = [
     { "Configuration tiers" = "reference/configuration-tiers.md" },
     { Routes = "reference/routes.md" },
     { "Event contracts" = "reference/event-contracts.md" },
-    { "Security model" = "reference/security-model.md" },
     { "Guarantees and capabilities" = "reference/guarantees.md" },
-    { "Execution planner" = "reference/execution-planner.md" },
-    { SLOs = "reference/slo.md" },
-    { "Dependency stack" = "reference/dependencies.md" },
 ]
 
 [[project.nav]]
-Project = [
+Contribute = [
+    { "Contribution Guide" = "contributing/index.md" },
     { "Set up the repository" = "contributing/setup.md" },
     { "Repository map and agent tooling" = "contributing/repository.md" },
     { "Source snapshot policy" = "contributing/source-export.md" },
@@ -466,18 +463,19 @@ Project = [
     { "Local CI runner" = "contributing/local-ci.md" },
     { "Supply-chain gates" = "contributing/supply-chain.md" },
     { "Lint policy" = "contributing/lint-policy.md" },
+    { "Dependency stack" = "contributing/dependencies.md" },
     { "Decisions (ADRs)" = [
-    "adr/index.md",
-    { "ADR-0001: Framework Distribution" = "adr/0001-framework-distribution.md" },
-    { "ADR-0002: Framework Absorbs Module Boilerplate" = "adr/0002-framework-absorbs-module-boilerplate.md" },
-    { "ADR-0003: Fewer Sync RPC Calls (Membership)" = "adr/0003-fewer-sync-rpc-membership-reads.md" },
-    { "ADR-0004: Pair-MAC RPC" = "adr/0004-rpc-pair-mac-request-authentication.md" },
-    { "ADR-0005: Effect Model" = "adr/0005-effect-model.md" },
-    { "ADR-0006: Accepted Risks" = "adr/0006-accepted-risks.md" },
-    { "ADR-0007: Kernel Layers" = "adr/0007-kernel-layers.md" },
-    { "ADR-0008: Sagas" = "adr/0008-sagas.md" },
-    { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
-    { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
-    { "ADR-0011: The driver API" = "adr/0011-driver-api.md" },
-] },
+        "adr/index.md",
+        { "ADR-0001: Framework Distribution" = "adr/0001-framework-distribution.md" },
+        { "ADR-0002: Framework Absorbs Module Boilerplate" = "adr/0002-framework-absorbs-module-boilerplate.md" },
+        { "ADR-0003: Fewer Sync RPC Calls (Membership)" = "adr/0003-fewer-sync-rpc-membership-reads.md" },
+        { "ADR-0004: Pair-MAC RPC" = "adr/0004-rpc-pair-mac-request-authentication.md" },
+        { "ADR-0005: Effect Model" = "adr/0005-effect-model.md" },
+        { "ADR-0006: Accepted Risks" = "adr/0006-accepted-risks.md" },
+        { "ADR-0007: Kernel Layers" = "adr/0007-kernel-layers.md" },
+        { "ADR-0008: Sagas" = "adr/0008-sagas.md" },
+        { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
+        { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
+        { "ADR-0011: The driver API" = "adr/0011-driver-api.md" },
+    ] },
 ]

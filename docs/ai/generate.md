@@ -1,6 +1,7 @@
 ---
 title: Generate contracts and snapshots
 description: When to run sandloom generate, what it writes, how to check for drift and how to handle a rejected compatibility change.
+type: how-to
 ---
 
 # Generate contracts and snapshots

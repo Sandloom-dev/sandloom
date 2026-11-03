@@ -1,5 +1,6 @@
 ---
 title: Lint policy
+type: reference
 ---
 
 # Lint policy and the suppression ratchet
@@ -104,4 +105,4 @@ reason with the new one: check the diff for lost reasons before committing.
 ## Related reading
 
 - [Contributor workflow](index.md)
-- [Quality gates](../toolchain/testing.md)
+- [Quality gates](../modules/testing.md)

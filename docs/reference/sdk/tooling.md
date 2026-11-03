@@ -40,5 +40,5 @@ def main(argv: list[str] | None = None) -> int
 
 ## Examples and related guides
 
-- [Generate contracts and snapshots](../../toolchain/generate.md)
+- [Generate contracts and snapshots](../../ai/generate.md)
 - [Python API overview](index.md)

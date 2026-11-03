@@ -12,12 +12,12 @@ and drivers connect the framework to your backends.
 
 <figure class="sl-architecture" aria-label="Sandloom architecture: business modules, contracts, kernel and infrastructure drivers">
   <div class="sl-architecture__modules">
-    <div class="sl-architecture__heading"><a href="modules/">Business modules</a><span>Your application code</span></div>
+    <div class="sl-architecture__heading"><a href="../modules/">Business modules</a><span>Your application code</span></div>
     <div class="sl-architecture__peers">
       <div class="sl-architecture__module"><strong>Orders</strong><span>Order logic &amp; data</span></div>
       <div class="sl-architecture__connections">
-        <a href="modules/between/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
-        <a href="modules/between/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
+        <a href="../modules/between/contracts/"><strong>Contracts</strong><span>Typed calls &amp; replies</span><span class="sl-architecture__arrow" aria-hidden="true">↔</span></a>
+        <a href="../modules/between/events/"><strong>Events</strong><span>Asynchronous reactions</span><span class="sl-architecture__arrow sl-architecture__arrow--event" aria-hidden="true">→</span></a>
       </div>
       <div class="sl-architecture__module"><strong>Catalog</strong><span>Product logic &amp; data</span></div>
     </div>
@@ -25,7 +25,7 @@ and drivers connect the framework to your backends.
   </div>
   <div class="sl-architecture__connector" aria-hidden="true"><span>use the public SDK</span></div>
   <div class="sl-architecture__kernel">
-    <a class="sl-architecture__sdk" href="reference/sdk/"><span>Public SDK</span><code>sandloom.sdk</code></a>
+    <a class="sl-architecture__sdk" href="../reference/sdk/"><span>Public SDK</span><code>sandloom.sdk</code></a>
     <div class="sl-architecture__runtime">
       <div class="sl-architecture__heading"><strong>Kernel</strong><span>Provided by Sandloom</span></div>
       <div class="sl-architecture__guarantees"><span>Transactions</span><span>Access checks</span><span>Outbox &amp; inbox</span><span>Local / RPC routing</span></div>
@@ -34,7 +34,7 @@ and drivers connect the framework to your backends.
   </div>
   <div class="sl-architecture__connector" aria-hidden="true"><span>resolve infrastructure capabilities</span></div>
   <div class="sl-architecture__drivers">
-    <div class="sl-architecture__heading"><a href="infrastructure/">Drivers</a><span>Selected by configuration</span></div>
+    <div class="sl-architecture__heading"><a href="../infrastructure/">Drivers</a><span>Selected by configuration</span></div>
     <p>Each driver connects the runtime to a concrete backend.</p>
     <div class="sl-architecture__backends">
       <div><span>Database · sqlalchemy</span><strong>PostgreSQL</strong></div>
@@ -55,10 +55,10 @@ and drivers connect the framework to your backends.
 - **The framework owns what is easy to get wrong.** It commits the transaction, authenticates
   each route unless the route declares `public(reason=...)`, and delivers events through an
   outbox. Weakening a default takes a visible line of code. Which resources a user may touch
-  is yours to declare with [`require`](modules/http/authorization.md).
+  is yours to declare with [`require`](../modules/http/authorization.md).
 - **Configuration decides where things run.** It selects which process loads which
   module and which backend each capability uses. Moving a running module's existing data
-  to its own database is a separate, [explicit step](operate/split-into-services.md#existing-data).
+  to its own database is a separate, [explicit step](../operate/split-into-services.md#existing-data).
 - **A machine checks the rules.** `sandloom check` and the startup checks enforce the
   boundaries and name the fix: `sandloom explain <code>`.
 
@@ -73,20 +73,20 @@ A module is what your product does. A driver is what it runs on.
 | **Imports** | `sandloom.sdk` | `sandloom.driverkit` |
 | **Found through** | your `modules` package or the `sandloom.modules` entry point | the `sandloom.drivers` entry point |
 | **Selected by** | `SANDLOOM_MODULES` | `INFRA` |
-| **Created with** | `sandloom add module <name>` | [your own package](infrastructure/write-a-driver.md) |
+| **Created with** | `sandloom add module <name>` | [your own package](../infrastructure/write-a-driver.md) |
 
-Modules talk to each other in two ways: [events](modules/between/events.md) when something has
-happened, and typed [contracts](modules/between/contracts.md) when one needs an answer now.
+Modules talk to each other in two ways: [events](../modules/between/events.md) when something has
+happened, and typed [contracts](../modules/between/contracts.md) when one needs an answer now.
 
 ## What do I write?
 
 | I want to | I write |
 | --- | --- |
-| add a product feature | a [module](modules/create.md) |
-| react to something another module did | an [event consumer](modules/between/add-consumer.md) |
-| ask another module for data now | a call to its [contract](modules/between/add-contract.md) |
-| run a process across modules, with undo | a [saga](modules/between/add-saga.md) |
-| show a list that spans modules | a [projection](modules/between/add-projection.md) |
-| change how identity, tenancy or billing behave | a [customization](modules/standard/customize.md) |
-| send notifications through a new service | a [driver](infrastructure/write-a-driver.md) |
-| run a module as its own service | [configuration](operate/split-into-services.md), no module code |
+| add a product feature | a [module](../modules/create.md) |
+| react to something another module did | an [event consumer](../modules/between/add-consumer.md) |
+| ask another module for data now | a call to its [contract](../modules/between/add-contract.md) |
+| run a process across modules, with undo | a [saga](../modules/between/add-saga.md) |
+| show a list that spans modules | a [projection](../modules/between/add-projection.md) |
+| change how identity, tenancy or billing behave | a [customization](../modules/batteries/customize.md) |
+| send notifications through a new service | a [driver](../infrastructure/write-a-driver.md) |
+| run a module as its own service | [configuration](../operate/split-into-services.md), no module code |

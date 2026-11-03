@@ -1,5 +1,6 @@
 ---
 title: Billing
+type: concept
 ---
 
 # Billing Module (`sandloom_billing`)

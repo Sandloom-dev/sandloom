@@ -118,4 +118,4 @@ deprecation period of Decision 2 is dropped:
 ## Related reading
 
 - [Configuration tiers](../reference/configuration-tiers.md)
-- [Security model](../reference/security-model.md)
+- [Security model](../advanced/security-model.md)

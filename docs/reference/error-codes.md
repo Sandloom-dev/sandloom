@@ -325,7 +325,7 @@ exemption (no matching table any more) also fails.
 
 **Fix:** declare `class X(TenantScoped, Base)` (drop the own tenant column) and ship enable_tenant_rls(op, &lt;table>), or list a deliberate global table under tenant_scope_exempt in architecture_rules.yml with a reason
 
-**More:** `docs/reference/security-model.md`
+**More:** `docs/advanced/security-model.md`
 
 ### SANDLOOM-C015
 
@@ -1160,7 +1160,7 @@ Context and graph read a generated index without booting the app. Missing/change
 
 **Fix:** read the diagnostic kind; select valid inputs, adjust the budget or explicitly run sandloom generate
 
-**More:** `docs/toolchain/module-context.md`
+**More:** `docs/ai/module-context.md`
 
 ### SANDLOOM-T001
 
@@ -1397,4 +1397,4 @@ distinct prefixes).
 ## Related reading
 
 - [CLI reference](cli.md)
-- [Getting help](../getting-started/help.md)
+- [Getting help](../help.md)

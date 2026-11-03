@@ -14,7 +14,7 @@ generated contract stubs and DTOs, and their own package (`sandloom check` rule
 - Every name and exact signature: [`sandloom.sdk.testing`](sdk/testing.md), the
   fixtures of [`sandloom.sdk.testing.plugin`](sdk/testing/plugin.md).
 - Running the suites, your own database and Redis, the isolation guards:
-  [Testing modules](../toolchain/testing.md).
+  [Testing modules](../modules/testing.md).
 
 ## The kit at a glance
 
@@ -65,7 +65,7 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   with `sandloom test --seed <seed>` or `pytest --sandloom-shuffle=<seed>` (the plugin
   `-p sandloom.core.testing.shuffle`); `sandloom test --no-shuffle` keeps file order.
   A test must pass alone and in any order:
-  [Test isolation](../toolchain/testing.md#test-isolation).
+  [Test isolation](../modules/testing.md#test-isolation).
 - **Never re-run a serial `pytest -q` after each fix.** The parallel run is
   several times faster.
 - **Use your own test resources** on a shared machine: export

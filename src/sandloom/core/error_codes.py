@@ -127,7 +127,7 @@ from what the current declarations and routes compile to.
         "Exit 3 means strict source verification is unavailable. "
         "Generation explicitly writes files; review its diff. "
         "A verified source basis is not live topology.",
-        docs="docs/toolchain/module-context.md",
+        docs="docs/ai/module-context.md",
     ),
     # ------------------------------------------------------------------ checks
     _entry(
@@ -333,7 +333,7 @@ Tables that are deliberately keyed by organisation but global to the system
 records) are listed under tenant_scope_exempt with a written reason. A stale
 exemption (no matching table any more) also fails.
 """,
-        "docs/reference/security-model.md",
+        "docs/advanced/security-model.md",
     ),
     _entry(
         "SANDLOOM-C015",

@@ -215,7 +215,7 @@ The route snapshot records each route's idempotency mode and any
 
 - [Route policy](route-policy.md): the defaults, including the
   idempotency section.
-- [Transaction and replay lifecycle](../guarantees/lifecycle.md): every route
+- [Transaction and replay lifecycle](../../advanced/lifecycle.md): every route
   kind and its idempotency mode.
 - [Units of Work and `db()`](../database/units.md): why the durable record
   commits with the effect.

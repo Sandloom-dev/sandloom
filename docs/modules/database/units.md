@@ -88,7 +88,7 @@ task, the task that runs the dependencies and the endpoint.
   Write admission still applies: the first unit of the request that writes
   becomes its writer, so a child may be the only writer under a read-only
   parent, and is refused when another unit already wrote
-  ([Write admission](../guarantees/write-admission.md)).
+  ([Write admission](../../advanced/write-admission.md)).
 - **Passing a session object to another task is unsupported.** The framework
   detects it on a best-effort basis (session methods, the cursor), but some
   forms cannot be detected: in-place mutation of a mutable column value (for
@@ -168,14 +168,14 @@ if** the change that produced it commits.
 Each database has its own unit and transaction; there is no distributed
 transaction. One business invariant belongs in one database. A route writes
 to one database, its write store; a second writing unit in the same request is
-refused at its first write ([Write admission](../guarantees/write-admission.md)). When two
+refused at its first write ([Write admission](../../advanced/write-admission.md)). When two
 databases must stay consistent, use events or a saga, never a shared
 transaction.
 
 A write that must survive the request's rollback (rare) needs its own
 transaction opened after the request, never nested inside it. A route whose
 job is a sequence of short units around an external call (billing checkout)
-uses the operation-intent mode ([Lifecycle](../guarantees/lifecycle.md)).
+uses the operation-intent mode ([Lifecycle](../../advanced/lifecycle.md)).
 
 ## What breaks it
 
@@ -204,7 +204,7 @@ uses the operation-intent mode ([Lifecycle](../guarantees/lifecycle.md)).
       undetectable forms above are pinned by tests (C-UNIT-02).
     - The outbox gives no loss between the commit and the bus; delivery is
       at-least-once (G-OUTBOX-*). The full effect matrix: [ADR-0005](../../adr/0005-effect-model.md);
-      the labels: [Guarantees and labels](../guarantees/index.md).
+      the labels: [Guarantees and labels](../../advanced/guarantees.md).
 
     The ledger with the enforcing tests: [Guarantees & capabilities](../../reference/guarantees.md).
 
@@ -216,7 +216,7 @@ uses the operation-intent mode ([Lifecycle](../guarantees/lifecycle.md)).
     connection), planned read, task unit, saga-step unit, and the kernel's own
     units (outbox marking, post-commit dispatch, guard bookkeeping). Each
     route kind and each non-route unit has one row in the
-    [lifecycle matrix](../guarantees/lifecycle.md).
+    [lifecycle matrix](../../advanced/lifecycle.md).
 
 ## Design rationale
 

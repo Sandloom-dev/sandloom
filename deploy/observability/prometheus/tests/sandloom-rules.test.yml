@@ -123,7 +123,7 @@ tests:
             exp_annotations:
               summary: "sandloom: API reads burn the 99.9 % availability budget 14x too fast"
               description: "5xx ratio over 1h: 3%. At this rate the 30-day budget is gone in ~2 days."
-              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/reference/slo.md#burn-rate-alerts
+              runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/slo.md#burn-rate-alerts
     promql_expr_test:
       - expr: round(sandloom:sli_read_errors:ratio_rate5m, 0.001)
         eval_time: 30m

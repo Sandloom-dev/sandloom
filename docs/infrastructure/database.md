@@ -15,7 +15,7 @@ The database is your system of record: it backs the unit of work, the outbox and
 `Annotated[AsyncSession, Database("x")]` in a route, or `open_uow("x")` in a block. Each
 database has its own unit and its own outbox, and no transaction spans two of them. A route
 that writes to several needs `writes(...)` or `allow_multi_db_write(...)`
-([Write admission](../modules/guarantees/write-admission.md)).
+([Write admission](../advanced/write-admission.md)).
 
 ## Drivers
 

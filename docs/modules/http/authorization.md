@@ -154,14 +154,14 @@ The same rule applies where billing chooses an account:
 - **The billing API** (`/subscription`, `/credits`, checkout, portal):
   without `org_id` the account is the caller's personal account; an
   organization account needs `org_id`. There is no inference from "member of
-  exactly one organization". See [Billing](../standard/billing.md).
+  exactly one organization". See [Billing](../batteries/billing.md).
 - **`billing.credits.v1.spend` / `get_balance`**: when the call carries a
   user subject, a personal `tenant_id` must equal that subject, else
   `BillingTenantMismatchError` (`403`). System and service callers are
   unchanged.
 - **Operation intents** (checkout, portal) pass the resolved account to
   `release_check`, which requires the authority re-read for an organization
-  ([Lifecycle](../guarantees/lifecycle.md#operation-intent-mode)).
+  ([Lifecycle](../../advanced/lifecycle.md#operation-intent-mode)).
 
 ## Access facts and resolution modes
 

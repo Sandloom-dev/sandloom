@@ -1,6 +1,7 @@
 ---
 title: Operator reference
 description: Authentication, keys, incidents, backups, migrations, streams and operational command flags with dry-run and production safeguards.
+type: reference
 ---
 
 # Operator reference
@@ -41,7 +42,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   after the access-token lifetime. Asymmetric JWT (`EdDSA`/`RS256`/`ES256`):
   publish the new kid in `JWT_PUBLIC_KEYS` everywhere, switch the issuer's
   `JWT_PRIVATE_KEY` + `JWT_KID`, drop the old kid after the access-token
-  lifetime (runbook: `docs/reference/security-model.md`). 2FA: `TWOFA_ENCRYPTION_KEY` is a
+  lifetime (runbook: `docs/advanced/security-model.md`). 2FA: `TWOFA_ENCRYPTION_KEY` is a
   comma-separated list, newest first — keep old keys until every secret is
   re-encrypted. Internal token: rotate on every service together (RPC
   signatures are verified with the provider's own token).
@@ -771,7 +772,7 @@ restore the interpreter's own behaviour exactly.
   observability`, not started by default) — see `deploy/observability/README.md`.
   Import the JSON / rule files into your own stack the same way. Example SLOs
   with error-budget arithmetic and starting targets measured on a 2 vCPU
-  stand: `docs/reference/slo.md`. The Celery worker exports no metrics yet.
+  stand: `docs/operate/slo.md`. The Celery worker exports no metrics yet.
 - **Traces**: set `TRACING_URL` to your OTLP endpoint (TLS auto for https).
 - **Errors**: set `SENTRY_DSN` to enable Sentry reporting.
 - **Health**: `/health` (operational health, 503 when degraded),
@@ -813,7 +814,7 @@ sampled every 5 s by a background task, the outbox age by the relay every
 | `sandloom_rate_limit_rejected_total` | counter, `route` | `429` answers of `rate_limiter` (route template, `unmatched` for 404s). |
 | `sandloom_rate_limit_unavailable_total` | counter, `outcome` | Rate-limit checks without a cache answer: `open` (allowed) / `closed` (503). |
 | `sandloom_rpc_client_request_duration_seconds` | histogram, `peer`, `outcome` | One internal RPC attempt (`ok` = an answer arrived, whatever its status; `timeout`; `error`). `peer` is the binding's base URL. The retry delay is not counted. |
-| `sandloom_multi_store_partial_commit_total` | counter, `route`, `store` | An `allow_multi_db_write` request left partially committed (best-effort 1PC): `store` committed, then a later commit of the request failed. `route` is the route template; the `uow.partial_commit` warning names the committed stores and the failing one. A retry with the same `Idempotency-Key` converges it ([write admission](../modules/guarantees/write-admission.md) rule 4). Counted only on a failed commit. |
+| `sandloom_multi_store_partial_commit_total` | counter, `route`, `store` | An `allow_multi_db_write` request left partially committed (best-effort 1PC): `store` committed, then a later commit of the request failed. `route` is the route template; the `uow.partial_commit` warning names the committed stores and the failing one. A retry with the same `Idempotency-Key` converges it ([write admission](../advanced/write-admission.md) rule 4). Counted only on a failed commit. |
 | `sandloom_http_untrusted_forwarded_headers_total` | counter | Requests whose client IP was resolved while carrying `X-Forwarded-For` with `TRUST_PROXY_HEADERS` off (the warning is logged once; this counts every one). |
 
 ### Alerts
@@ -858,7 +859,7 @@ differs.
 | `SandloomRevocationPendingCritical` | page | Pending > 300 s | A revoked token may still be accepted. [Secrets management](#secrets-management). |
 | `SandloomRevocationMalformed` | page | A revocation event that can never apply (5m) | Find the producer, revoke by hand, drop the DLQ entry only after the fix. [Secrets management](#secrets-management). |
 | `SandloomIdempotencyPersistFailures` | warning | An idempotency terminal record was lost in 15m | A retry may re-execute a completed operation; exactly-once effects need `durable_inbox`. |
-| `SandloomMultiStorePartialCommit` | warning | A multi-store request partially committed in 15m | The `uow.partial_commit` log names the route, the committed stores and the failing store; the client's keyed retry converges it, an unretried request leaves the secondary's write orphaned. [Write admission](../modules/guarantees/write-admission.md) rule 4. |
+| `SandloomMultiStorePartialCommit` | warning | A multi-store request partially committed in 15m | The `uow.partial_commit` log names the route, the committed stores and the failing store; the client's keyed retry converges it, an unretried request leaves the secondary's write orphaned. [Write admission](../advanced/write-admission.md) rule 4. |
 | `SandloomTenantRlsNonTenantViolations` | warning | A statement outside a `non_tenant_statements()` allowlist in 15m | Find the statement in the logs; fix the allowlist or the code. |
 | `SandloomRateLimiterBlind` | warning | A rate-limit check without a cache answer in 5m | Limits not enforced (`open`) or endpoints answer 503 (`closed`). |
 | `Sandloom429Spike` | info | > 1 rejected request/s on a route | Abuse or a too-tight limit; with untrusted forwarding every client may share a proxy's bucket. |
@@ -870,7 +871,7 @@ differs.
 | `SandloomRpcResponseBindingRejected` | warning | An RPC response rejected as unbound to its request in 15m | Mixed-up connection, key misconfiguration or tampering. |
 | `SandloomSagaParked` | warning | A saga instance parked in 15m | `sandloom sagas list`, then `sandloom sagas show <type> <id>` (why + the fixed remediation). [Sagas](#sagas). |
 | `SandloomGcGen2PausesLong` | info | Full-GC p99 pause > 25 ms for 30m | [Garbage collector tuning](#garbage-collector-tuning). |
-| `SandloomApiReadAvailabilityBurnFast` | page | Read 5xx ratio > 14.4 × the example 0.1 % budget over 1h and 5m | `docs/reference/slo.md` → Burn-rate alerts. |
+| `SandloomApiReadAvailabilityBurnFast` | page | Read 5xx ratio > 14.4 × the example 0.1 % budget over 1h and 5m | `docs/operate/slo.md` → Burn-rate alerts. |
 | `SandloomApiReadAvailabilityBurnSlow` | warning | > 6 × the budget over 6h and 30m | Same. |
 | `SandloomApiWriteAvailabilityBurnFast` | page | Write 5xx ratio > 14.4 × budget over 1h and 5m | Same. |
 | `SandloomApiWriteAvailabilityBurnSlow` | warning | > 6 × the budget over 6h and 30m | Same. |

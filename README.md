@@ -113,8 +113,8 @@ uv run sandloom explore
 interfaces and owned file locations. Both default to compact text, with explicit
 `--format json` for structured data. `explore` generates and opens an offline
 browser view of the same declared architecture, including processes and impact.
-See [module maps](docs/toolchain/module-context.md) and the
-[architecture explorer](docs/toolchain/architecture-graph.md).
+See [module maps](docs/ai/module-context.md) and the
+[architecture explorer](docs/ai/architecture-graph.md).
 
 ## See architecture checks in action
 
@@ -187,7 +187,7 @@ does not commit the session itself.
 
 See [units of work](docs/modules/database/units.md),
 [tenant isolation](docs/modules/database/multi-tenancy.md) and
-[guarantees and their conditions](docs/modules/guarantees/index.md).
+[guarantees and their conditions](docs/advanced/guarantees.md).
 
 ## How Sandloom works
 
@@ -248,8 +248,8 @@ Sandloom is in alpha. See [stability](docs/contributing/versioning.md) and the
 [changelog](CHANGELOG.md) for compatibility and changes. Events use
 **at-least-once delivery**; durable consumers deduplicate by envelope ID within
 the documented retention conditions. Review the
-[guarantee boundaries](docs/modules/guarantees/index.md) and
-[security model](docs/reference/security-model.md) for your application.
+[guarantee boundaries](docs/advanced/guarantees.md) and
+[security model](docs/advanced/security-model.md) for your application.
 
 For framework development, start with [AGENTS.md](AGENTS.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerability reporting and its current

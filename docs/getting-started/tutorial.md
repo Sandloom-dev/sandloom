@@ -170,7 +170,7 @@ does not own. Make the handler count the item:
 
 The durable inbox deduplicates the same envelope during its configured
 retention window; separate event ids are separate occurrences
-([guarantees](../modules/guarantees/index.md)). Test this through the real consumer
+([guarantees](../advanced/guarantees.md)). Test this through the real consumer
 runtime. `deliver(..., times=2)` delivers the same event twice:
 
 ```python title="tasklist/modules/stats/tests/test_stats.py"

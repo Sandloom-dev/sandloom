@@ -774,7 +774,7 @@ def _validated_rls_options(
                 else f'INFRA["database"]["{name}"]["system_url"]'
             )
             + " to the DSN of the dedicated system role (see "
-            "docs/reference/security-model.md, 'System channel')"
+            "docs/advanced/security-model.md, 'System channel')"
         )
     return opts.model_copy(update={"system_url": system_url})
 

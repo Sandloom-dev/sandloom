@@ -512,7 +512,7 @@ def render_module(module: ModuleType) -> str:
         "security": ("Revoke sessions", "modules/http/session-revocation.md"),
         "errors": ("Error catalogue", "reference/error-codes.md"),
         "migrations": ("Run migrations", "modules/database/run-migrations.md"),
-        "tooling": ("Generate contracts and snapshots", "toolchain/generate.md"),
+        "tooling": ("Generate contracts and snapshots", "ai/generate.md"),
     }
     key = module.__name__.removeprefix("sandloom.sdk.")
     if key.startswith("testing"):
@@ -603,7 +603,7 @@ def render_index(modules: list[ModuleType]) -> str:
         "`Event`, `on`, `contract`, `command`, `Contract`, typed saga steps, "
         "`Projection`) is built only from level 2 (the primitives these pages "
         "list as advanced). The kernel (level 3) is never imported by a module. "
-        "See [Module internals](../../modules/guarantees/module-internals.md).",
+        "See [Module internals](../../advanced/module-internals.md).",
         "",
     ]
     return "\n".join(out).rstrip() + "\n"
@@ -707,7 +707,7 @@ def render_errors() -> str:
         "## Related reading",
         "",
         "- [CLI reference](cli.md)",
-        "- [Getting help](../getting-started/help.md)",
+        "- [Getting help](../help.md)",
         "",
     ]
     return "\n".join(out).rstrip() + "\n"

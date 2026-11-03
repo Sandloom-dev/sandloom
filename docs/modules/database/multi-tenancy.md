@@ -207,7 +207,7 @@ RLS guards against a *forgotten* tenant filter (raw SQL included) and removes
 every privileged bypass from the application role. It does **not**
 authenticate the tenant: code that can send arbitrary SQL as the application
 role can still set `sandloom.tenant_id` to another tenant. See
-[the RLS threat model](../../reference/security-model.md#tenant-rls-threat-model)
+[the RLS threat model](../../advanced/security-model.md#tenant-rls-threat-model)
 for the exact guarantees, residual risks and the architectural options.
 
 ## Production profile
@@ -217,7 +217,7 @@ model non-optional: `tenant_rls` and role verification on every database, the
 tenant policy on every `TenantScoped` table (a startup check), fail-closed
 revocation, `SECURITY_CACHE_INSTANCE` on a separate Redis, and the contract
 compatibility check when split. See
-[the security model](../../reference/security-model.md).
+[the security model](../../advanced/security-model.md).
 
 **Trust model.** Business modules are trusted code; trust comes from
 admission (architecture checks and review) before execution, never

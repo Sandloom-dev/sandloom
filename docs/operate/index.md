@@ -1,6 +1,7 @@
 ---
 title: Operate
 description: Take a Sandloom application to production and keep it running - topologies, deployment, splitting into services, incidents and upgrades.
+type: concept
 ---
 
 # Operate

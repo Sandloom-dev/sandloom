@@ -1,6 +1,7 @@
 ---
 title: Installation
 description: What Sandloom needs, how to install it from PyPI and which packages and extras exist.
+type: how-to
 ---
 
 # Installation

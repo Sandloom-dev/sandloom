@@ -22,12 +22,12 @@ understand why, start with [What a module is](../modules/index.md).
 | [Configuration tiers](configuration-tiers.md) | which settings change a guarantee, per profile (generated) |
 | [Routes](routes.md) | every platform route and its resolved policy (generated) |
 | [Event contracts](event-contracts.md) | channel naming, the schema registry, validation, evolution |
-| [Security model](security-model.md) | authentication, tenant isolation, idempotency, audit, secrets, the production profile |
+| [Security model](../advanced/security-model.md) | authentication, tenant isolation, idempotency, audit, secrets, the production profile |
 | [Guarantees & capabilities](guarantees.md) | the ledger: every guarantee with the tests that enforce it, and the recorded gaps (generated) |
-| [Execution planner](execution-planner.md) | declared read operations and the planner |
-| [SLOs](slo.md) | SLIs from the shipped metrics, example SLOs and an error-budget template |
-| [Dependency stack](dependencies.md) | the libraries Sandloom builds on |
-| [Standard modules](../modules/standard/index.md) | identity, tenancy and billing: routes, events, contracts |
+| [Execution planner](../advanced/execution-planner.md) | declared read operations and the planner |
+| [SLOs](../operate/slo.md) | SLIs from the shipped metrics, example SLOs and an error-budget template |
+| [Dependency stack](../contributing/dependencies.md) | the libraries Sandloom builds on |
+| [Standard modules](../modules/batteries/index.md) | identity, tenancy and billing: routes, events, contracts |
 
 Regenerate the committed generated pages (`sdk/` and the error catalogue)
 with `uv run python tools/docs/docs_reference.py`; the docs

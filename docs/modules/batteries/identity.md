@@ -1,5 +1,6 @@
 ---
 title: Identity
+type: concept
 ---
 
 # Identity Module (`sandloom_identity`)

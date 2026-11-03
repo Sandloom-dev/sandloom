@@ -54,7 +54,7 @@ the rule files and import the dashboard JSON as they are — every query uses a
 | Sandloom / Database pools | Checked-out / capacity per database and pool (main, contract), checkout waiters, connections by state, overflow, dead connections replaced, driver fast paths disabled. |
 | Sandloom / Internal RPC | Per peer: p99 of successful attempts, attempts by outcome (ok/timeout/error), pool wait, waiting calls, connection churn; pair-MAC auth rejections, clock skew, response binding (rejected / unbound / unkeyed), transport fallbacks. Empty in the monolith. |
 | Sandloom / Runtime & GC | GC pause p99 and collections per generation, time in GC, collected / frozen objects, startup duration, lifecycle task failures, module load failures, notifications, scrape health (`up`). |
-| Sandloom / SLOs | Remaining 30-day error budget and 5m/1h/6h burn rates of the example SLOs (`docs/reference/slo.md`), outbox freshness, consumer lag. |
+| Sandloom / SLOs | Remaining 30-day error budget and 5m/1h/6h burn rates of the example SLOs (`docs/operate/slo.md`), outbox freshness, consumer lag. |
 
 ## Changing things
 
