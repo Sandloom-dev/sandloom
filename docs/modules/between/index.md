@@ -30,7 +30,8 @@ Most choices come down to these two.
 | **Direction** | the producer does not know who listens | the caller names the provider |
 
 Prefer an event when the other module only needs to know something happened. Use a contract
-when the caller cannot continue without the answer.
+when the caller cannot continue without the answer. The caller's code is the same whether the
+provider runs in its process or behind internal RPC ([local equals remote](contracts.md#local-equals-remote)).
 
 ## Referring to another module's data
 

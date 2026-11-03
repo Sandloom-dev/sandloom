@@ -29,7 +29,7 @@ A label has a **delivery** part and a **visibility** part.
 `atomic` implies `no_loss` and `no_dup`. Labels combine by meet: delivery sets
 intersect and visibility takes the weaker, so a chain of effects is as strong
 as its weakest link. Response replay (an idempotent HTTP retry) is a separate
-axis, described in [Route policy](../modules/http/route-policy.md#idempotency).
+axis, described in [Make a write idempotent](../modules/http/idempotent-write.md#idempotency-modes).
 
 ## Labels per effect
 

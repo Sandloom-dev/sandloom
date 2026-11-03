@@ -64,19 +64,11 @@ and drivers connect the framework to your backends.
 
 ## Modules and drivers
 
-A module is what your product does. A driver is what it runs on.
-
-| | Module | Driver |
-| --- | --- | --- |
-| **What it is** | one slice of the business, such as orders or billing | a connection to a backend, such as Redis or SMTP |
-| **Who uses it** | your product's users, through routes | modules, through the SDK; they never name the driver |
-| **Imports** | `sandloom.sdk` | `sandloom.driverkit` |
-| **Found through** | your `modules` package or the `sandloom.modules` entry point | the `sandloom.drivers` entry point |
-| **Selected by** | `SANDLOOM_MODULES` | `INFRA` |
-| **Created with** | `sandloom add module <name>` | [your own package](../infrastructure/write-a-driver.md) |
-
-Modules talk to each other in two ways: [events](../modules/between/events.md) when something has
-happened, and typed [contracts](../modules/between/contracts.md) when one needs an answer now.
+A [module](../modules/index.md) is what your product does; a [driver](../infrastructure/index.md)
+is what it runs on. Modules call the framework's capabilities through the SDK and never name
+a driver. `SANDLOOM_MODULES` selects which modules a process loads, and `INFRA` selects which
+driver backs each capability. Modules talk to each other through events, contracts,
+projections and sagas, never an import ([Choose how modules talk](../modules/between/index.md)).
 
 ## What do I write?
 

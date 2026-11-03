@@ -1,10 +1,71 @@
 ---
-title: Timestamps, ids and list order
-description: Use new_id, CreatedAt and UpdatedAt, and order lists by created_at then id, so a page of results has no ties.
+title: Module tables
+description: Declare a module's table as a model on Base, with TenantScoped for per-tenant rows, a <module>_ name, a new_id key and a CreatedAt column, and order lists by created_at then id.
 type: concept
+job: When I add data to a module, I want to declare its table once in the shape Sandloom expects, so its migration, its tenant filter and a later move of the module need no extra code.
+purpose: The reader declares each table as a model in the module's models/ package, picks TenantScoped or Base alone, names it <module>_*, and gives it a new_id key and a CreatedAt column.
+audience: [developer, agent]
+level: first-app
 ---
 
-# Timestamps, ids and list order
+# Module tables
+
+A module keeps its data in tables that only it writes. Each table must reach
+the module's migration and stay apart from other modules' tables. When a row
+belongs to one customer, other customers must never read it.
+
+A table is a SQLAlchemy model class in the module's `models/` package. It
+inherits `Base` from `sandloom.sdk`, with `TenantScoped` in front when each
+row belongs to one tenant: one customer account or organization. Its name
+starts with `<module>_`. `sandloom migrate new <module>` writes the revision
+for every such table, and
+[`sandloom migrate extract-module`](../../operate/extract-module-data.md)
+moves them with the module. The id defaults to `new_id` and `created_at` is
+`Mapped[CreatedAt]`, so rows list in creation order.
+
+`sandloom add module board` writes this example table:
+
+```python title="board/models/item.py"
+--8<-- "docs/snippets/generated/module/demo/modules/board/models/item.py"
+```
+
+## Tenant tables and global tables
+
+`TenantScoped` adds an indexed `tenant_id` column. Sandloom fills it on insert
+and filters every read, update and delete by the tenant the request is bound
+to. [Multi-tenancy](multi-tenancy.md) holds the rest of the rules, from
+binding the tenant to row-level security.
+
+A table on `Base` alone holds rows for the whole system. A profile keyed by
+the user's id is one:
+
+```python title="profiles/models/profile.py"
+--8<-- "docs/snippets/customize/profile_model.py"
+```
+
+A `Base`-only model with a column such as `tenant_id` or `organization_id`
+fails `sandloom check` with
+[SANDLOOM-C014](../../reference/error-codes.md#sandloom-c014), unless it is a
+listed exemption ([Multi-tenancy](multi-tenancy.md#opt-a-model-into-scoping)).
+
+## Table names and the models package
+
+The generated `models/__init__.py` imports every file of the package. A new
+`models/<table>.py` joins the module's tables with no other registration.
+
+The `<module>_` prefix is the module's claim on a table. Its `<module>` is
+the last segment of the package name: `sandloom_billing` owns `billing_*`.
+A module's `migrations/env.py` calls `run_module_migrations(__file__)`, and
+autogenerate then compares only the tables with that prefix. A table named
+outside it is left out of the revision `sandloom migrate new` writes.
+`run_module_migrations(__file__, table_names=[...])` adds tables outside the
+prefix.
+
+A row of another module is referenced by its UUID, never by a foreign key.
+The extraction refuses a foreign key that leaves the module, because the
+two tables would end up in different databases.
+
+## Timestamps, ids and list order
 
 A list that pages or that a test asserts needs an order with no tie. Two
 idioms give it; generated modules use both:
@@ -49,4 +110,8 @@ query = sa.select(Note).order_by(Note.created_at.desc(), Note.id.desc())
   order of one process; across processes it follows their clocks.
 - Recipe: `uv run sandloom docs recipe list-order`.
 
-See also [What a module is](../index.md).
+## Related reading
+
+- [What a module is](../index.md)
+- [Write a migration](write-migration.md)
+- [Multi-tenancy](multi-tenancy.md)

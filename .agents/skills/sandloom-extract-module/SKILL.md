@@ -12,6 +12,9 @@ split (env anchor, migrate one-shot, bindings, gateway) is skill
 Full runbook: `deploy/README.md`, section "Runbook: moving a module's data out
 of the monolith database".
 
+Docs: `docs/operate/extract-module-data.md` (what each step moves and why,
+with real output). This skill is the procedure.
+
 Run every command with the **monolith's** configuration. Its `SANDLOOM_MODULES`
 must load the module. `--from` / `--to` take an instance name or a URL.
 
@@ -33,7 +36,8 @@ must load the module. `--from` / `--to` take an instance name or a URL.
    `--apply --i-have-stopped-writes` added.
    - It fences the source (read-only triggers), migrates the target to head,
      copies with per-table checksums, sets sequences, hands off undelivered
-     outbox rows (same ids), copies the inbox, audit and command-log rows,
+     outbox rows (same ids), copies the inbox, audit, command-log and
+     `http_idempotency_log` rows and the saga instances with their steps,
      and transfers consumer-group ownership.
    - A live writer makes it fail with "the module still has writers". Stop
      the writer and re-run the **same** command: every step is idempotent and
@@ -50,8 +54,9 @@ must load the module. `--from` / `--to` take an instance name or a URL.
      the group-owner fingerprint. That is intended.
 6. **Clean up, later and explicitly:** run the same command with
    `--drop-source --apply --i-have-stopped-writes`. It refuses while
-   undelivered module events remain. It keeps the audit rows and the
-   handed-off outbox rows.
+   undelivered module events remain. It deletes the module's inbox claims,
+   command and HTTP idempotency records and saga instances; it keeps the audit
+   rows and the handed-off outbox rows.
 
 **Rollback before the cutover:** `--unfence --apply`. After the extraction
 has completed, this is refused without `--force`, because the new service

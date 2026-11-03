@@ -139,8 +139,9 @@ class RpcConfig(BaseModel):
     )
     # Rotation: further X25519 private keys this provider
     # still / already accepts requests for, {"<kid>": "<PEM>"} (SECRETS_DIR
-    # file ``rpc_dh_extra_private_keys``). Callers address a service's LAST
-    # kid in RPC_SERVICE_DH_KEYS (docs/adr/0004, "Key rotation").
+    # file ``rpc_dh_extra_private_keys``). Callers address the kid
+    # RPC_SERVICE_DH_CURRENT_KIDS selects, else the greatest published kid in
+    # RPC_SERVICE_DH_KEYS (docs/operate/rotate-keys.md).
     rpc_dh_extra_private_keys: Annotated[dict[str, str], NoDecode] = Field(
         default_factory=dict,
         alias="RPC_DH_EXTRA_PRIVATE_KEYS",

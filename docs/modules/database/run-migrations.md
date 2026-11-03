@@ -119,9 +119,9 @@ sandloom migrate extract-module notes --from default --to notes_db --verify
 sandloom migrate extract-module notes --from default --to notes_db --drop-source
 ```
 
-`--unfence` rolls back (makes the source tables writable again). Follow the
-`sandloom-extract-module` procedure and [Deployment](../../operate/deploy.md) for the full
-cut-over.
+`--unfence` rolls back (makes the source tables writable again). The full
+procedure, with the cutover, is
+[Move a module's data to its own database](../../operate/extract-module-data.md).
 
 ## Verify
 

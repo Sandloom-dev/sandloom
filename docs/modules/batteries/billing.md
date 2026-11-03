@@ -264,7 +264,7 @@ subscription status in the webhook service.
 
 - **Idempotency** on the PSP session endpoints with `fail_closed=True` —
   `idempotency_guard(scope="billing.checkout_session", fail_closed=True)`. See
-  [Idempotency](../http/route-policy.md#idempotency).
+  [Make a write idempotent](../http/idempotent-write.md#idempotency-modes).
 - **Webhook idempotency** via the `billing_stripe_events` journal; tests sign
   payloads with `sandloom_billing.psp.sign_stripe_payload`.
 - Credits modeled as a materialized balance plus an append-only ledger;
@@ -272,39 +272,20 @@ subscription status in the webhook service.
 
 ## Gating an endpoint on billing
 
-Every billing atom states whose account it checks with the required `of=`
-(`Account` from `sandloom.sdk.authz`); an atom without it is refused at startup
-(SANDLOOM-B017). There is no default and no inference from the bound tenant.
+A billing gate is an authorization policy whose atom names the paying account
+with a required `of=`. The atoms, the `Account` values and the `402` / `501`
+answers are in
+[Authorization](../http/authorization.md#billing-subjects-of-is-required).
 
-<!-- code-ok: D1 fragment, route decorators without their handlers -->
+<!-- code-ok: D1 fragment, a route decorator without its handler -->
 ```python
 from fastapi import Depends
 
-from sandloom.sdk import Credits, Subscribed, SubscriptionActive, require
-from sandloom.sdk.authz import Account
+from sandloom.sdk import Subscribed, require
+from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
 
-# claim-cheap (the caller's personal account; past_due passes during the grace period)
 @router.get("/report", dependencies=[Depends(require(Subscribed(of=Account.user())))])
-
-# live, authoritative
-@router.post("/expensive", dependencies=[Depends(require(
-    SubscriptionActive(of=Account.user()) & Credits(10, of=Account.user())))])
-
-# organization subscription (always live; org from the path parameter, X-Tenant-Id or the bound tenant)
-@router.post("/orgs/{org_id}/x", dependencies=[Depends(require(Subscribed(of=Account.org(param="org_id"))))])
 ```
-
-`Account.org(param=None)` resolves the organization from `X-Tenant-Id` or the
-bound tenant only; `Account.bound_tenant()` picks the personal or the
-organization account by the bound tenant's kind (indeterminate for a
-canonical or unknown tenant). See
-[Authorization](../http/authorization.md).
-
-A failed subscription/credits gate answers `402`; a billing contract absent from
-the deployment answers `501` (never a silent allow). `Entitled(...)` facts deny
-with `403` unless constructed with `category=Category.PAYMENT_REQUIRED`.
-`Credits(n)` only checks the balance — spend with `billing.credits.v1`.
-
 
 ## Platform owner operations
 

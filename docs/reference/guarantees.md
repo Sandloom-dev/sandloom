@@ -1249,10 +1249,10 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-CONTRACT-02</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-03</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-04</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
-| <span class="sl-id">G-CONTRACT-05</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
-| <span class="sl-id">G-CONTRACT-06</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
-| <span class="sl-id">G-CONTRACT-07</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
-| <span class="sl-id">G-CONTRACT-08</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
+| <span class="sl-id">G-CONTRACT-05</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
+| <span class="sl-id">G-CONTRACT-06</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
+| <span class="sl-id">G-CONTRACT-07</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
+| <span class="sl-id">G-CONTRACT-08</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-09</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Errors |
 | <span class="sl-id">G-CONTRACT-10</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Errors |
 | <span class="sl-id">G-CONTRACT-11</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Errors |
@@ -1260,8 +1260,8 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-CONTRACT-13</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-14</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-15</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
-| <span class="sl-id">G-CONTRACT-16</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote<br>docs/operate/service-rpc.md#Transport & performance |
-| <span class="sl-id">G-CONTRACT-17</span> | docs/operate/service-rpc.md#Local == remote |
+| <span class="sl-id">G-CONTRACT-16</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote<br>docs/operate/service-rpc.md#Transport & performance |
+| <span class="sl-id">G-CONTRACT-17</span> | docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-18</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Request authentication and idempotency |
 | <span class="sl-id">G-CONTRACT-19</span> | docs/modules/between/contracts.md<br>docs/adr/0010-public-api-1.0.md#Note (2026-10-28): contract DTOs authored in the provider, generated into the DTO package |
 | <span class="sl-id">G-COMPAT-01</span> | docs/modules/between/contracts.md<br>deploy/README.md#Rolling upgrades: contract compatibility |
@@ -1465,7 +1465,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-RPC-02</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
 | <span class="sl-id">C-RPC-03</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Request authentication and idempotency |
 | <span class="sl-id">C-RPC-04</span> | docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
-| <span class="sl-id">C-RPC-05</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
+| <span class="sl-id">C-RPC-05</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Testing |
 | <span class="sl-id">C-INFRA-01</span> | docs/infrastructure/index.md |
 | <span class="sl-id">C-INFRA-02</span> | docs/infrastructure/index.md<br>docs/adr/0001-framework-distribution.md#2. Package graph (monorepo + uv workspace, N wheels, independent versions) |
 | <span class="sl-id">C-INFRA-03</span> | docs/infrastructure/index.md |

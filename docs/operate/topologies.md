@@ -13,7 +13,8 @@ single process or as a set of services, by configuration alone.
 does not host. Modules talk only through events and contracts, which behave
 the same locally and remotely, so moving a module into its own service needs
 no code change. Moving that module's existing data into its own database is
-a separate, offline step (`sandloom migrate extract-module`).
+a separate, offline step
+([Move a module's data to its own database](extract-module-data.md)).
 
 ## What you get by default / what you declare
 

@@ -68,12 +68,12 @@ startup.
 | `JWT_PRIVATE_KEY` | — | **required** (identity processes only) | the issuer's signing key (`sandloom keys generate`); prefer `SECRETS_DIR` + a `jwt_private_key` file. A process without identity refuses to start with it |
 | `JWT_PUBLIC_KEYS` | — | **required** (every process) | `{"<kid>": "<PEM>"}` verification keys, identical everywhere; several kids during a rotation |
 | `JWT_KID` | optional | **required** | the kid identity signs with (must be in `JWT_PUBLIC_KEYS` and match `JWT_PRIVATE_KEY`) |
-| `TWOFA_ENCRYPTION_KEY` | **required** | **required** (identity processes) | dedicated key(s) encrypting TOTP secrets at rest — identity refuses to start in prod without it (no `JWT_SECRET` fallback). Comma-separated, newest first, to rotate; keep old keys listed until re-encrypted. Passed to every process that loads identity (migrate, app/identity, worker, beat) |
+| `TWOFA_ENCRYPTION_KEY` | **required** | **required** (identity processes) | dedicated key(s) encrypting TOTP secrets at rest — identity refuses to start in prod without it (no `JWT_SECRET` fallback). Comma-separated, newest first, to rotate; nothing re-encrypts stored secrets (a secret moves to the new key only when its user sets up 2FA again), so keep old keys listed until then. Passed to every process that loads identity (migrate, app/identity, worker, beat) |
 | `INTERNAL_API_TOKEN` | optional | **required** | unlocks `/diagnostics`, `/contracts`, `/metrics`, `/health` details; ≥ 32 chars. It never authenticates internal RPC (`/_sandloom/rpc`) |
 | internal RPC | — (a monolith calls nothing) | pair-MAC | every call is authenticated with an HMAC under a key only the caller and the provider derive from their X25519 keys (audience-bound, replay-guarded; [ADR-0004](../docs/adr/0004-rpc-pair-mac-request-authentication.md)); providers authorize per caller (security model: *Service-to-service trust*). There is no other RPC authentication mode |
 | `IDENTITY_RPC_DH_PRIVATE_KEY` / `_DH_KEY_ID`, `TENANCY_…`, `BILLING_…` | — | **required** | each service's DEDICATED X25519 key (→ its `RPC_DH_PRIVATE_KEY` / `RPC_DH_KEY_ID`; `sandloom keys generate --purpose rpc-dh --service <id>`). It authenticates that service's calls and responses: keep it like a signing key (SECRETS_DIR file, that service only) |
 | clocks (NTP) | — | **required** | every service's clock must agree with every other's within `RPC_AUTH_MAX_SKEW_SECONDS` (default 60 s): calls outside it fail `rpc_auth_expired`, and the shared nonce guard's TTL (`3·skew`) assumes it. Alert on `sandloom_rpc_auth_clock_skew_total` (accepted requests off by more than half the window) |
-| `RPC_SERVICE_DH_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<X25519 PEM>"}}` public halves of every service's X25519 key; callers address a service's LAST listed kid (rotation: ADR-0004 "Key rotation") |
+| `RPC_SERVICE_DH_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<X25519 PEM>"}}` public halves of every service's X25519 key; callers address the kid `RPC_SERVICE_DH_CURRENT_KIDS` selects, else the greatest published kid (rotation: `docs/operate/rotate-keys.md`) |
 | `IDENTITY_RPC_PRIVATE_KEY` / `_KEY_ID`, `BILLING_…` | — | **required** (calling services) | each caller's Ed25519 key (`sandloom keys generate --purpose rpc --service <id>`): it signs the caller's COMMAND calls on top of the MAC (`RPC_COMMANDS_REQUIRE_SIGNATURE`, on in prod), so a leaked provider X25519 key cannot forge effects (ADR-0004, KCI). tenancy calls nothing and holds none |
 | `RPC_SERVICE_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<PEM>"}}` the callers' Ed25519 public keys |
 | `RPC_ALLOWED_CALLS` | — | fixed in the common env | the allowlist = each caller's `SERVICE_BINDINGS` (`sandloom keys allowlist`; pinned by `test_rpc_allowlist_is_derived_from_bindings`) |
@@ -751,10 +751,10 @@ Neither is implemented; until then plan a maintenance window per module.
 - Generate strong secrets; the monolith's processes share `JWT_SECRET`; in
   the microservices profile only identity holds `JWT_PRIVATE_KEY` /
   `JWT_SECRET` and every service shares `JWT_PUBLIC_KEYS` (rotation runbook:
-  `docs/advanced/security-model.md`); every service holds its own X25519
+  `docs/operate/rotate-keys.md`); every service holds its own X25519
   `RPC_DH_PRIVATE_KEY` — it authenticates that service's RPC calls, so it
   is as sensitive as a signing key — and shares the public
-  `RPC_SERVICE_DH_KEYS` (rotate per service, independently: ADR-0004); all services share
+  `RPC_SERVICE_DH_KEYS` (rotate per service, independently: `docs/operate/rotate-keys.md`); all services share
   `INTERNAL_API_TOKEN` (ops endpoints only); every identity process shares `TWOFA_ENCRYPTION_KEY`
   (losing it makes enrolled TOTP secrets undecryptable — back it up).
 - Put TLS on the gateway (terminate at nginx or an upstream LB).

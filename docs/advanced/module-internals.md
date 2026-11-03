@@ -156,31 +156,11 @@ Then `pip install` it next to an app and add its name to `SANDLOOM_MODULES`.
 
 ## Generated files
 
-`sandloom generate [module ...]` writes, after a compatibility check against the
-committed version (`sandloom add` runs it last; `sandloom test` only checks):
-
-- `<module>/module.snapshot.json`: the module's declared surface (producer
-  event schemas, consumers, consumed contracts, contracts, sagas,
-  projections);
-- `<module>/routes.snapshot.json`: every route and its resolved policy
-  ([Route policy](../modules/http/route-policy.md#the-route-snapshot));
-- `<module>/contracts.snapshot.json`: the describe documents of the contracts
-  the module provides;
-- the typed stub of every contract the module provides, in the shared DTO
-  package (`<shared>/contracts/<x_y_vN>.py`), also for the installed module
-  packages the application composes (the stubs stay with the consumer);
-- a wire-shape copy of every DTO of the module's own package a provided
-  contract signature names (`<shared>/contracts/<module>_dto.py`);
-- the JSON schema of every event the module produces
-  (`<shared>/events/<channel>.json`), so views in other repositories can be
-  verified.
-
-An incompatible change (a contract method removed, an event field changed on
-the same `.vN`, a route that lost its authentication, a DTO the generator
-cannot copy) fails before anything is written; `sandloom test` (dev and CI)
-fails on a stale file: "generated files are stale: run `sandloom generate`".
-A weaker route policy is approved only by `sandloom routes snapshot --write`. These generated files are
-the one stated exception to "a module edits nothing outside its package".
+`sandloom generate` writes each module's snapshots and the contract stubs, DTO
+copies and event schemas that callers import. These generated files are the one
+stated exception to "a module edits nothing outside its package".
+[Generate contracts and snapshots](../ai/generate.md#what-is-generated) lists
+every file and the compatibility check that runs before writing.
 
 ## Design rationale
 

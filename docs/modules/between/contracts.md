@@ -215,15 +215,29 @@ url = await client.url_for(user.user_id) if client is not None else None
 
 ### Local equals remote
 
-The same code runs as a monolith or split by configuration. Resolution is
-local-first: a co-deployed provider wins; otherwise a generated RPC proxy from
-`SERVICE_BINDINGS`; otherwise the contract is not deployed (required:
-startup refusal; optional: `None`; at call time `ServiceUnavailableInDeployment`,
-[SANDLOOM-R005](../../reference/error-codes.md#sandloom-r005)). Over RPC the request is
-authenticated per service pair, the tenant is bound only from the MAC-covered
-context, and only calls listed in `RPC_ALLOWED_CALLS` are allowed. A timeout
-is `503`, and a command may have committed: retry with the same key. Keys,
-transport and error mapping are in [Service RPC](../../operate/service-rpc.md).
+The same caller and provider code runs in a monolith and split by
+configuration. Resolution is local-first: a co-deployed provider wins;
+otherwise a generated RPC proxy from `SERVICE_BINDINGS`; otherwise the
+contract is not deployed (required: startup refusal; optional: `None`). Both
+paths bind arguments, validate them (a bad argument is `422
+ContractArgumentError`) and decode results through one wire codec, and a provider's domain error reaches the caller as the same
+`ContractCallError`. No session crosses either path: the call runs in the
+provider's unit, so a transaction never spans the network.
+
+The remote path adds the failures of a network. Each raises, and none is
+turned into a business value such as `None`:
+
+| Failure | The caller gets |
+| --- | --- |
+| timeout, connection failure, provider crash (500 on the local path), or a request the provider refused to authenticate or authorize | `503 RemoteServiceUnavailable` with the provider's error `code` |
+| a reply that is not Sandloom's RPC envelope, or one over `RPC_MAX_RESPONSE_BYTES` | `502` |
+| a contract not deployed, or a method the remote provider lacks | `501 ServiceUnavailableInDeployment` ([SANDLOOM-R005](../../reference/error-codes.md#sandloom-r005)), a `ServiceNotFound` |
+
+After a timeout a command may have committed: retry with the same key, and
+the command log replays the result. Over RPC the request is authenticated per
+service pair, the tenant is bound only from the MAC-covered context, and only
+calls listed in `RPC_ALLOWED_CALLS` are allowed. Bindings, keys, the allowlist
+and timeouts are configured as in [Service RPC](../../operate/service-rpc.md).
 
 Inside one request, local reads share one provider connection (READ
 COMMITTED, rolled back, never the caller's transaction). Identical reads,

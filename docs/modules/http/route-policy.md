@@ -1,6 +1,6 @@
 ---
 title: Route policy and sessions
-description: Model E - deny by default, public(reason=), the live session check, the commit-time re-check, risk at its source, idempotency modes B/S/X and replay_safe, the route snapshot.
+description: Model E - deny by default, public(reason=), the live session check, the commit-time re-check, risk at its source, the idempotency default, the route snapshot.
 type: concept
 ---
 
@@ -68,14 +68,9 @@ authorizes with a gate (`require(...)`) needs no parameter at all.
 
 ## Tenant binding
 
-`module_router(tenant="derive")` binds the tenant per route: `required` when
-the module declares a `TenantScoped` model, else `none`. A route's own
-`tenant=` (`"required"`, `"optional"`, `"none"`) overrides it. A signed
-`tenant_id` claim binds directly; `X-Tenant-Id` is only a selector and must be
-in the token's signed `tenant_ids` allowlist. A missing tenant answers
-`400 tenant context required`. The binding is about **data isolation only**;
-it never chooses a billing account ([Authorization](authorization.md)). See
-[Multi-tenancy](../database/multi-tenancy.md).
+Each route of a module with a `TenantScoped` model binds the caller's tenant
+from the signed token, and a missing tenant is `400`. How the binding is
+derived and overridden: [Multi-tenancy](../database/multi-tenancy.md#bind-the-tenant).
 
 ## The live session check
 
@@ -209,68 +204,11 @@ revocation, domain audits and commit-time session checks still apply.
 
 ## Idempotency
 
-A client retries a write by sending the same `Idempotency-Key` header. The
-framework guarantees the retry never repeats the effect. There are three
-modes:
-
-| Mode | Record | A retry after success | Enters the handler? |
-| --- | --- | --- | --- |
-| **B** body replay | a durable record in the write store, committed with the effect | the stored status, body and headers, `Idempotent-Replay: true` | no |
-| **S** status replay | a durable record, as B | the stored status, an empty body, `Idempotent-Replay: true` | no |
-| **X** release and re-execute | an in-flight reservation only (fail-closed), released when the request completes | runs again: every dependency, the authorization and the handler; the effect's own dedupe record keeps the effect single | yes |
-
-| Route | Mode |
-| --- | --- |
-| ordinary write, automatic guard | **S** |
-| ordinary write with `replay_safe(reason=)` | B (the reason is recorded in the route snapshot) |
-| any route with an explicit `idempotency_guard(...)` | as configured: `durable=True` is B; the cache form with `store_response=True` replays a cached body; `store_response=False` is X |
-| sensitive write | S (an explicit guard keeps its options) |
-| token issuer, operation-intent route | no automatic guard; an explicit mode-X guard is required ([SANDLOOM-B019](../../reference/error-codes.md#sandloom-b019)) |
-| public route | none |
-| write route without a request unit | the fail-closed in-flight form |
-
-**Why the automatic guard never replays a body.** A handler may decide what
-to return with ordinary code, for example
-`return {"secret": doc.secret} if doc.owner_id == user.user_id else {}`.
-After an ownership transfer a fresh run returns `{}`, while a body replay
-would return the secret. Status replay cannot leak a body. The client still
-gets the original status and can read the resource with a normal `GET`,
-which re-runs authorization.
-
-**When to add `replay_safe(reason=)`:** only when the response contains
-nothing whose visibility could change between attempts, typically a creation
-that echoes the caller's own submitted fields and the new id. Never on a
-response with a secret, a bearer capability (a URL, a token), other users'
-data, or fields whose visibility depends on a role, an ownership or a
-membership. When in doubt, leave it out. See
-[Make a write idempotent](idempotent-write.md).
-
-**Common rules.**
-
-- The key is scoped by the route template and method, the caller, the tenant
-  and the key itself; it never replays across routes or tenants.
-- The request fingerprint covers the method, path, query, caller, tenant and
-  body: the same key with a different request answers `422`.
-- A concurrent retry while the first attempt is in flight answers `409`.
-- A replay is decided only after every route-level dependency, including the
-  live session check, the tenant binding, the gates and the step-up: a caller
-  who lost access gets `401`/`403`, not a replay.
-- Records live 24 hours unless `ttl_seconds` says otherwise.
-- `no_idempotency(reason=)` opts a write out (streaming responses).
-
-**The explicit guard** (`idempotency_guard(scope=, ttl_seconds=, required=,
-fail_closed=, store_response=, durable=)`, advanced) keeps every option for a
-custom scope. Its cache form is a replay layer, not exactly-once for effects:
-a crash between the commit and the cache write lets a retry run again. Use
-`durable=True` (the record commits with the effect) or `store_response=False`
-with `fail_closed=True` when the endpoint owns its durable dedupe record.
-Anonymous callers never get a stored body replayed. The guard must resolve
-after the route's authentication
-([SANDLOOM-B002](../../reference/error-codes.md#sandloom-b002)).
-
-An irreversible effect outside the request (a consumer, a task) claims its
-own dedupe record in its unit: `durable_inbox("<scope>").claim(...)` or a
-unique operation-key column on the effect's row ([Events](../between/events.md)).
+A write that receives an `Idempotency-Key` is deduplicated with no
+declaration: a retry gets the stored status and an empty body (mode S). A
+route opts in to body replay with `replay_safe(reason=)` (mode B) or opts out
+with `no_idempotency(reason=)`. Every mode and when body replay is safe:
+[Make a write idempotent](idempotent-write.md#idempotency-modes).
 
 ## Token claims
 

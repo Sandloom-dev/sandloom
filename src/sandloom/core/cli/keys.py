@@ -35,9 +35,11 @@ and a demo PSP. The keys sit in a plain file: production generates them with
 the commands above into a secret store.
 
 ``--purpose rpc-dh`` generates ONLY the X25519 pair — a provider that calls
-nothing needs no more, and the key to rotate in (append its
-``RPC_SERVICE_DH_KEYS`` entry LAST, after the service holds it in
-``RPC_DH_EXTRA_PRIVATE_KEYS``).
+nothing needs no more, and the key to rotate in. Callers address the kid
+``RPC_SERVICE_DH_CURRENT_KIDS`` selects, else the greatest published kid:
+pin the current kid, publish the new entry, install the private key in
+``RPC_DH_EXTRA_PRIVATE_KEYS``, then flip the pin
+(docs/operate/rotate-keys.md).
 """
 
 from __future__ import annotations
@@ -181,7 +183,7 @@ def _cmd_generate_rpc_dh(args: argparse.Namespace) -> int:
     print(dh_private, end="")
     print(
         "# RPC_SERVICE_DH_KEYS entry — merge into the map every service shares "
-        "(a rotation: append it as the service's LAST kid):"
+        "(a rotation: follow the order in docs/operate/rotate-keys.md):"
     )
     print(dh_entry)
     return 0

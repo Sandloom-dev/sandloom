@@ -5,12 +5,10 @@ type: concept
 
 # Service RPC
 
-Sandloom keeps module code **local-first**: a module calls a contract through
-`Contract(REF)` (the typed reference its generated stub exports) exactly as it
-does in the monolith. When the provider module is not loaded in the current
-process, the framework (the
-[`CoreFacade`](../reference/sdk/infra.md)) resolves the reference to a
-generated internal HTTP proxy from `SERVICE_BINDINGS`.
+A contract call is the same code whether its provider runs in the process or
+in another service ([local equals remote](../modules/between/contracts.md#local-equals-remote)).
+In a split deployment you configure where each contract lives, the keys that
+authenticate the call, the allowlist and the transport.
 
 ## Resolution order
 
@@ -24,20 +22,6 @@ SERVICE_BINDINGS='{"tenancy.membership.v1":{"base_url":"http://tenancy:2222","se
 RPC_SERVICE_ID='billing'
 # + this service's RPC keys and the shared key maps / allowlist (below)
 ```
-
-Billing keeps calling — a direct Python call in a monolith, an internal request
-in a split:
-
-```python
-membership = Contract(TENANCY_MEMBERSHIP_V1)         # from the generated stub
-role = await membership.get_role(org_id, user_id)   # no session — the provider owns the UoW
-```
-
-The provider side is written once, as a `@contract` class (reads are plain
-`async def` methods, commands carry `@command`; see
-[Contracts](../modules/between/contracts.md)):
-every call — local or remote — runs in the provider's own Unit of Work on the
-provider's database, so semantics do not change when a module is split out.
 
 ## Provider endpoint
 
@@ -87,49 +71,20 @@ and the allowlist with `sandloom keys allowlist`.
   bare `X-Tenant-Id` header is rejected (`400`). The context carries the
   tenant only — a contract acting for a user takes the user id as an explicit
   argument.
-- Reads keep no idempotency record. Commands are deduped by the contract
-  runtime on the idempotency argument they name
-  (`@command(idempotency_key="operation_key")`), with
-  the same record for a local and a remote call — so the proxy's single
-  transport retry is safe and the caller's own retry after a `503` timeout
-  (the remote **may have committed**) replays the result: just retry with the
-  same operation key.
-
-## Local == remote
-
-A provider is validated when it is registered: every public member must be a
-contract method (a read or a `@command`) with a wire-portable signature (JSON scalars, `None`,
-`UUID`, `datetime`/`date`, `Decimal`, `Enum`, `Literal`, pydantic models and
-containers / unions of those; no `*args`/`**kwargs`). Both paths bind
-arguments with Python's rules (`422 ContractArgumentError`), validate them and
-decode results against the annotations through the same codec — the remote
-proxy learns the annotations from the provider's describe endpoint. Provider
-`HTTPException` / `http_status` errors reach the caller as the same
-`ContractCallError` (status, detail, headers, code) on both paths.
-
-- contract methods take no session; a session passed by a caller is an
-  unknown argument (`422 ContractArgumentError`). **Transactions never cross
-  the network.**
-- ORM models are not wire types: such a contract fails to register. ORM stays
-  inside the owning module.
-- Check a contract with `assert_contract_conformance` (from `sandloom.sdk.testing`).
+- Reads keep no idempotency record. A command is deduped by the contract
+  runtime's single record, shared by the local and the remote call, so the
+  proxy's single transport retry never runs a command twice.
 
 ## Errors
 
-Provider errors are normalized into an RPC envelope and mapped back to framework
-exceptions by the generated client:
-
-- domain/validation errors → `ContractCallError` (an `HTTPException`) with the
-  provider's status, detail, headers and code — exactly as locally;
-- timeout, connection failure, a request the provider refused to
-  authenticate or authorize, or a provider crash → `503`
-  (`RemoteServiceUnavailable`, carrying the provider's error `code`);
-- a contract or method not available in this deployment →
-  `ServiceUnavailableInDeployment` (501) / `ServiceNotFound` (all exported from
-  `sandloom.sdk.errors`);
-- malformed provider response → `502`.
-
-Transport failure is **never** converted to a business value such as `None`.
+What a caller receives for each RPC failure is in
+[Contracts](../modules/between/contracts.md#local-equals-remote). When
+diagnosing, note that every refusal at the provider (a bad MAC, a replay, a
+caller missing from `RPC_ALLOWED_CALLS`) and every reply without a keyed
+binding reaches the caller as `503 RemoteServiceUnavailable`, never as the
+provider's 401 or 403. Its `code` (`rpc_auth_*`, `rpc_identity_*`,
+`rpc_context_*`, `rpc_caller_forbidden`, `rpc_replay_unavailable`) tells a key
+or allowlist mistake from a provider that is down.
 
 ## Transport & performance
 

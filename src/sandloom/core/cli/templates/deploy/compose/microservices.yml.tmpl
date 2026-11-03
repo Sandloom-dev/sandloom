@@ -121,7 +121,7 @@ x-common-env: &common-env
   # caller's key, so a leaked provider X25519 key can forge reads at most.
   RPC_SERVICE_KEYS: ${RPC_SERVICE_KEYS:?set RPC_SERVICE_KEYS (sandloom keys generate --purpose rpc)}
   # The X25519 public keys of every service ({"<service>": {"<kid>": "<PEM>"}};
-  # callers address a service's LAST kid).
+  # callers address the kid RPC_SERVICE_DH_CURRENT_KIDS pins, else the greatest).
   RPC_SERVICE_DH_KEYS: ${RPC_SERVICE_DH_KEYS:?set RPC_SERVICE_DH_KEYS (sandloom keys generate --purpose rpc-dh)}
   # Deny by default: each caller may call exactly the contracts its
   # SERVICE_BINDINGS bind.
