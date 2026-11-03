@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a10] — 2026-11-03
+
 ### Added
 
 <!-- lookup -->
