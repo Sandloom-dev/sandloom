@@ -24,7 +24,9 @@ import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
+import sandloom.core.cli.checkbox as _checkbox
 import sandloom.core.cli.scaffold_wiring as _wiring
 
 #: The skills an application gets, in the order the map lists them.
@@ -274,6 +276,31 @@ def ask_agents(
             write(str(exc))
 
 
+def pick_agents(
+    detected: dict[str, str],
+    preselected: Sequence[str],
+    keys: Iterable[str] | None = None,
+    out: TextIO | None = None,
+) -> list[str]:
+    """A checkbox list of the agents, ``preselected`` checked; raises
+    ``ValueError`` when the person cancels."""
+    out = out or sys.stdout
+    out.write(
+        "Coding agents for this project (each reads skills from its own folder):\n"
+    )
+    labels = [
+        f"{agent.name:<26} {agent.skills_dir}"
+        + (f"  (found: {detected[agent.key]})" if agent.key in detected else "")
+        for agent in CODING_AGENTS
+    ]
+    checked = [i for i, agent in enumerate(CODING_AGENTS) if agent.key in preselected]
+    try:
+        chosen = _checkbox.select(labels, checked, keys=keys, out=out)
+    except _checkbox.Cancelled:
+        raise ValueError("no coding agents chosen (cancelled); pass --agents") from None
+    return [CODING_AGENTS[i].key for i in chosen]
+
+
 def _choice(answer: str) -> list[str]:
     """Agent keys from an answer of numbers and names; raises on an unknown one."""
     keys: list[str] = []
@@ -292,12 +319,14 @@ def choose_agents(
     interactive: bool,
     reask: bool = False,
     detect: Callable[[], dict[str, str]] = detect_agents,
-    read: Callable[[str], str] = input,
-    write: Callable[[str], None] = print,
+    read: Callable[[str], str] | None = None,
+    write: Callable[[str], None] | None = None,
 ) -> list[str]:
     """The agents to install for: ``given`` (``--agents``), else the record of
     ``root``, else the installed ones (asked when ``interactive``), else
-    :data:`DEFAULT_AGENTS`. ``reask`` asks even when the record has a choice."""
+    :data:`DEFAULT_AGENTS`. ``reask`` asks even when the record has a choice.
+    At a terminal the question is a checkbox list; with ``read`` given, or
+    where raw keys cannot be read, a typed answer."""
     if given:
         return parse_agents(given)
     recorded = load_record(root)[0] if root is not None else None
@@ -307,7 +336,9 @@ def choose_agents(
     preselected = recorded or [a.key for a in CODING_AGENTS if a.key in detected]
     preselected = preselected or list(DEFAULT_AGENTS)
     if interactive:
-        return ask_agents(detected, preselected, read, write)
+        if read is None and _checkbox.available():
+            return pick_agents(detected, preselected)
+        return ask_agents(detected, preselected, read or input, write or print)
     return preselected
 
 
@@ -332,6 +363,7 @@ __all__ = [
     "detect_agents",
     "load_record",
     "parse_agents",
+    "pick_agents",
     "save_record",
     "skill_dirs",
     "skill_files",
