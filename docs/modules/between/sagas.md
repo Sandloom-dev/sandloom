@@ -211,23 +211,6 @@ runtime re-issues the forward call with the same key first (the command log
 replays it, waits for it or runs it) and compensates only an applied step. A
 parked instance never moves without an operator.
 
-### Park reasons
-
-`sandloom sagas show` prints the reason and the remediation of a parked instance:
-
-| Reason | What to do |
-| --- | --- |
-| `retriable_refused` | a step after the pivot refused: fix the provider or the arguments, then `sandloom sagas retry`; if the effect is not needed, `sandloom sagas resolve --step S --as skipped` |
-| `compensation_refused` | undo the effect by hand at the provider (search for the step's operation key), then `sandloom sagas resolve --step S --as applied` |
-| `compensation_deadline_exceeded` | fix the provider, then `sandloom sagas retry` |
-| `deadline_exceeded` | after the pivot, forward recovery only: fix the failing provider, then `sandloom sagas retry` (grants a fresh deadline) |
-| `nondeterministic_args` | the `args` function is not pure: fix it, ship a new definition version, then resolve the step by hand |
-| `result_not_replayable` | the step ran but its result is too large to replay: establish the outcome at the provider, then `sandloom sagas resolve --step S --as applied` |
-| `misconfigured` | fix the binding or the `args` function and deploy, then `sandloom sagas retry` |
-| `unknown_definition` | deploy the version that started it (registered alongside the new one), then `sandloom sagas retry` |
-| `outcome_unknown_after_ttl` | the last attempt was ambiguous and its dedupe record may have expired: establish the outcome at the provider, then `sandloom sagas resolve --step S --as applied` or `--as skipped` |
-| `operator` | parked by an operator: `sandloom sagas retry` when it may continue |
-
 ### Operation keys
 
 Every command a flow issues more than once for the same business fact needs a
@@ -304,18 +287,12 @@ one-liners `assert_compensations_idempotent(DEF)` /
 
 ### Operating
 
-```bash
-sandloom sagas list                               # parked, compensating, overdue
-sandloom sagas show enroll <id>                   # timeline, why parked, what to do
-sandloom sagas retry|park enroll <id> --apply --reason "..."
-sandloom sagas resolve enroll <id> --step charge --as applied --apply --reason "..."
-```
-
-Operator mutations are dry runs unless `--apply`, and are audited. Metrics:
-`sandloom_saga_instances{saga_type,status}`, `sandloom_saga_step_duration_seconds`,
-`sandloom_saga_step_attempts_total{outcome}`, `sandloom_saga_parked_total{saga_type,reason}`
-(alert on it). `sandloom doctor` warns about parked and overdue instances; sizing
-and the runbook are in `docs/operate/operator-reference.md` ("Sagas") in the repository.
+`sandloom sagas list` shows the instances that need an operator, and
+`sandloom sagas show <saga_type> <id>` prints why one parked with the fix for
+its reason. The commands that move an instance are dry runs without
+`--apply --reason`, and are audited. Every park reason with its fix, the
+metrics and pool sizing are in the [operator reference](../../operate/operator-reference.md#sagas);
+the repair steps are in [A parked saga](../../operate/operator-reference.md#runbook-a-parked-saga).
 
 ## What breaks it
 

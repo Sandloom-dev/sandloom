@@ -3020,7 +3020,7 @@ guarantees:
     exposes only its contract methods (private members and unknown names raise AttributeError).
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_non_portable_contracts_are_rejected_at_registration
   - src/sandloom/core/tests/test_contract_parity.py::test_local_provider_exposes_only_contract_methods
@@ -3032,7 +3032,7 @@ guarantees:
     annotation validation are 422 ContractArgumentError both ways.'
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_contract_parity.py::test_rpc_type_fidelity
@@ -3045,7 +3045,7 @@ guarantees:
     generated copy, G-CONTRACT-19) on both paths, every field set as read off the wire.
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_rpc_type_fidelity
   - tests/sdk/test_sdk_contract_dtos.py::test_a_caller_receives_the_copy_equal_to_the_providers_value
@@ -3064,7 +3064,7 @@ guarantees:
     the peer.'
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_module_contract_with_own_package_dto_is_accepted
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_a_function_local_dto_is_refused
@@ -3163,7 +3163,7 @@ guarantees:
     beyond 64 bits crosses RPC tagged (bigint) so local still equals remote.'
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   - docs/operate/service-rpc.md#Transport & performance
   tests:
   - src/sandloom/core/tests/test_contract_codec_v2.py::test_server_answers_typed_only_for_the_accepted_contract_hash
@@ -3178,7 +3178,7 @@ guarantees:
   statement: Every shipped contract (tenancy.membership.v1, billing.entitlements.v1, billing.credits.v1,
     billing.facts.v1, *.claims.v1) gives identical results and errors locally and over RPC under assert_contract_conformance.
   sources:
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Local equals remote
   tests:
   - src/sandloom_tenancy/tests/test_contract_conformance.py::test_tenancy_contracts_conform
   - src/sandloom_billing/tests/test_contract_conformance.py::test_billing_contracts_conform
@@ -5639,7 +5639,7 @@ capabilities:
     or a real aiohttp/httpx socket), also under the pair MAC.
   sources:
   - docs/modules/between/contracts.md
-  - docs/operate/service-rpc.md#Local == remote
+  - docs/modules/between/contracts.md#Testing
   tests:
   - src/sandloom/core/tests/test_contract_parity.py::test_local_and_rpc_results_and_errors_are_identical
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_contract_conformance_holds_under_service_mac

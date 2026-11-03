@@ -328,9 +328,8 @@
     },
     "docs/operate/service-rpc.md": {
       "P6": 1,
-      "P9": 10,
-      "S4": 9,
-      "S8": 1
+      "P9": 4,
+      "S4": 7
     },
     "docs/operate/slo.md": {
       "P6": 2,

@@ -344,6 +344,15 @@ relay).
 - **Moving a module out.** `sandloom migrate extract-module` copies its saga
   instances (`saga_type` = `<module>.<name>`) and step rows with its command
   records; the new service continues every in-flight saga.
+- **Signals.** Alert on `sandloom_saga_parked_total{saga_type,reason}`: a
+  parked instance never moves without an operator (the shipped
+  `SandloomSagaParked` rule, [Alerts](#alerts)). The sweep holder refreshes
+  `sandloom_saga_instances{saga_type,status}` about once a minute. Step calls
+  are timed by `sandloom_saga_step_duration_seconds{saga_type,direction}` and
+  counted by `sandloom_saga_step_attempts_total{saga_type,outcome}`;
+  `sandloom_saga_started_total{saga_type}` counts starts. `sandloom doctor`
+  warns about parked instances, active ones past their deadline and active
+  instances of an unregistered definition version.
 
 ### Runbook: a parked saga
 
