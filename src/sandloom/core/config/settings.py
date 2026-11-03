@@ -717,6 +717,27 @@ class Settings(
 _LOAD_LOCK = threading.Lock()
 
 
+#: The service URLs ``sandloom dev up`` writes into a new app's ``.env``.
+_DEV_SERVICE_URLS = ("DATABASE_URL", "CACHE_URL", "BROKER_URL")
+
+
+def _hint(error: ValidationError) -> str:
+    """The next step when the service URLs are missing (a new app before
+    ``sandloom dev up``); empty for any other refusal."""
+    missing = [
+        str(item["loc"][0])
+        for item in error.errors()
+        if item.get("type") == "missing" and item.get("loc")
+    ]
+    if not any(name in _DEV_SERVICE_URLS for name in missing):
+        return ""
+    return (
+        f"{', '.join(n for n in missing if n in _DEV_SERVICE_URLS)} not set. "
+        "In a new app, run `uv run sandloom dev up` first: it starts PostgreSQL "
+        "and Redis and writes the URLs into .env (or set them yourself).\n"
+    )
+
+
 def _load_into(target: Settings) -> None:
     """Validate the environment and turn ``target`` into a loaded ``Settings``.
 
@@ -731,7 +752,7 @@ def _load_into(target: Settings) -> None:
             fresh = Settings()
         except ValidationError as e:
             # fail loudly and immediately: an invalid config is unacceptable
-            raise SystemExit(f"{INVALID_CONFIGURATION}{e}") from e
+            raise SystemExit(f"{INVALID_CONFIGURATION}{_hint(e)}{e}") from e
         for slot in _STATE_SLOTS:
             object.__setattr__(target, slot, object.__getattribute__(fresh, slot))
         object.__setattr__(target, "__class__", Settings)
