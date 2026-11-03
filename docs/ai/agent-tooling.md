@@ -16,16 +16,18 @@ A Sandloom application keeps its instructions for agents in its own files. `sand
 
 ## Choose your agents
 
-Each coding agent reads skills from its own folder, so the application writes them where your agents look. At a terminal, `sandloom new` lists the agents it knows, with the ones installed on your machine marked, and asks which to install for (shortened here):
+Each coding agent reads skills from its own folder, so the application writes them where your agents look. At a terminal, `sandloom new` shows the agents it knows as a checklist, with the ones installed on your machine already checked (shortened here):
 
 ```text
 Coding agents for this project (each reads skills from its own folder):
-  [x] 1. Claude Code                .claude/skills  (found: claude)
-  [x] 2. Codex                      .agents/skills  (found: ~/.codex)
-  [ ] 3. Gemini CLI / Antigravity   .agents/skills
+> [x] Claude Code                .claude/skills  (found: claude)
+  [x] Codex                      .agents/skills  (found: ~/.codex)
+  [ ] Gemini CLI / Antigravity   .agents/skills
   ...
-Numbers or names, comma-separated (Enter keeps the marked):
+  ↑/↓ move · space check · a all · Enter confirm · Esc cancel
 ```
+
+Usually Enter is all it takes. Where the terminal cannot read single keys, it asks for numbers or names instead.
 
 | Folder | Read by |
 | --- | --- |

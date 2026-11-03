@@ -240,11 +240,9 @@ sandloom streams dlq-list   <channel> [--limit N]
 sandloom streams dlq-replay <channel> [--id DLQ_ID ...] [--limit N]
 ```
 
-- On the producer side, an outbox row that exhausts
-  `OUTBOX_RELAY_MAX_ATTEMPTS` is dead-lettered too (`dead_at` set,
-  `outbox_dead_total` incremented), not retried forever. Repair it with
-  `sandloom outbox list-dead` / `sandloom outbox requeue`. A broker outage does not
-  burn attempts: it trips the relay's circuit breaker.
+- On the producer side, the outbox relay dead-letters a row it cannot send
+  after its attempts: see
+  [the outbox](../database/units.md#events-and-audit-go-through-the-unit).
 - Streams are trimmed by age (`EVENT_STREAM_RETENTION_SECONDS`, default 7
   days) and optionally by length (`EVENT_STREAM_MAXLEN`). A consumer offline
   longer than retention misses events.
@@ -356,8 +354,9 @@ duplicates) runs your consumers as the runtime would. See the
       commits with the change or not at all. It is preflighted (channel,
       schema, size) before it is written, so an event the bus would reject is
       refused to the caller instead of committed. A failed post-commit
-      dispatch never fails the committed operation; the relay retries with
-      capped backoff and dead-letters after `OUTBOX_RELAY_MAX_ATTEMPTS`. The
+      dispatch never fails the committed operation; the
+      [relay](../database/units.md#events-and-audit-go-through-the-unit)
+      retries it. The
       label is **intent only** for atomicity: the row is atomic with the
       change, the delivery is eventual.
     - **Delivery (G-OUTBOX-05, G-OUTBOX-15, G-EVENT-10 to 12).** At least
@@ -394,12 +393,10 @@ duplicates) runs your consumers as the runtime would. See the
       equal (`test_l1_equals_l2_registration`).
     - The envelope is unchanged: `id`, `channel`, `schema_version`,
       `trace_id`, `emitted_at`, `payload`.
-    - On the request path the post-commit dispatch is handed to a background
-      coalescer, off the response; scripts and tasks wait for it. Tests that
-      assert delivered state let the harness drain it.
     - The outbox, inbox and relay live in the kernel (`src/sandloom/core/`);
-      each database owns its own outbox, marked by the dispatcher and relay of
-      the database that produced the row.
+      how the outbox and its relay work:
+      [Units of Work](../database/units.md#events-and-audit-go-through-the-unit).
+      Tests that assert delivered state let the harness drain the dispatch.
 
 ## Design rationale
 

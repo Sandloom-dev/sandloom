@@ -48,6 +48,9 @@ website renders this same changelog.
 - `sandloom security grant-admin` no longer marks an unverified address verified.
   It refuses it; `sandloom admin create --take-over` makes the account an
   administrator and ends its old password.
+- **Choosing coding agents is a checklist.** `sandloom new` and `sandloom add skills
+  --choose` show the agents with the installed ones checked: arrows move, space
+  checks, Enter confirms. Where single keys cannot be read, the typed answer stays.
 
 ## [0.7.0a7] — 2026-11-03
 
