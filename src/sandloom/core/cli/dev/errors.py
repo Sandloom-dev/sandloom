@@ -40,6 +40,7 @@ from collections.abc import Iterator, Mapping, MutableSequence
 from pathlib import Path
 from typing import TextIO
 
+import sandloom.core.cli.ui as _ui
 from sandloom.core.cli.dev.envfile import ENV_FILE, exported_drift, read_block
 
 CODE = "SANDLOOM-R014"
@@ -80,8 +81,11 @@ _ADDRESS = re.compile(
 
 
 def environment() -> Mapping[str, str]:
-    """The process environment: the CLI's own switches (``SANDLOOM_DEBUG``,
-    ``CI``, ``DOCKER_HOST``) are process flags, not settings."""
+    """The process environment: the CLI's own switches are process flags,
+    not settings (``src/sandloom/core/AGENTS.md`` lists them):
+    ``SANDLOOM_DEBUG``, ``CI``, ``DOCKER_HOST``, the terminal's ``NO_COLOR``,
+    ``FORCE_COLOR``, ``CLICOLOR_FORCE``, ``TERM``, ``COLORTERM``, ``UV`` and
+    the coding-agent markers of :data:`sandloom.core.cli.ui.AGENT_MARKERS`."""
     return os.environ
 
 
@@ -248,7 +252,11 @@ def report(exc: BaseException, *, debug: bool, out: TextIO | None = None) -> boo
     line = connection_failure(exc)
     if line is None:
         return False
-    print(line, file=out if out is not None else sys.stderr)
+    stream = out if out is not None else sys.stderr
+    style = _ui.style_for(stream, environment())
+    if line.startswith("error: "):
+        line = style.red("error:") + line.removeprefix("error:")
+    print(line, file=stream)
     return True
 
 

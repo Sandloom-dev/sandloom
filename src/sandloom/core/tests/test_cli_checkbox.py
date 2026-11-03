@@ -35,6 +35,26 @@ def test_enter_with_nothing_checked_keeps_the_list_open() -> None:
     assert "check at least 1" in out.getvalue()
 
 
+def test_minimum_zero_accepts_an_empty_answer_and_a_custom_hint() -> None:
+    out = io.StringIO()
+    chosen = checkbox.select(
+        ["a", "b"], keys=["confirm"], out=out, minimum=0, hint="  space to add"
+    )
+    assert chosen == []
+    assert "space to add" in out.getvalue()
+    assert "check at least" not in out.getvalue()
+
+
+def test_the_hint_line_uses_the_symbol_table() -> None:
+    from sandloom.core.cli import ui
+
+    assert checkbox.hint_line(ui.ASCII) == (
+        "  ^/v move - space check - a all - Enter confirm - Esc cancel"
+    )
+    assert "↑/↓ move ·" in checkbox.hint_line(ui.UNICODE)
+    assert checkbox.render(["a"], [True], 0, symbols=ui.UNICODE)[0] == "\u203a [x] a"
+
+
 @pytest.mark.parametrize("keys", [["cancel"], []])
 def test_esc_or_the_end_of_input_cancels(keys: list[str]) -> None:
     with pytest.raises(checkbox.Cancelled):
@@ -59,3 +79,20 @@ def test_pick_agents_preselects_and_maps_keys() -> None:
     assert len([a for a in CODING_AGENTS if a.key in chosen]) == 2
     with pytest.raises(ValueError, match="--agents"):
         pick_agents({}, ["claude"], keys=["cancel"], out=io.StringIO())
+
+
+def test_checking_an_item_checks_what_it_requires() -> None:
+    # 0 identity, 1 tenancy, 2 admin: admin requires identity.
+    labels = ["identity", "tenancy", "admin"]
+    requires = {2: (0,)}
+    keys = ["down", "down", "toggle", "confirm"]
+    chosen = checkbox.select(
+        labels, keys=keys, out=io.StringIO(), minimum=0, requires=requires
+    )
+    assert chosen == [0, 2]
+    # Unchecking identity then unchecks admin.
+    keys = ["toggle", "confirm"]
+    chosen = checkbox.select(
+        labels, [0, 2], keys=keys, out=io.StringIO(), minimum=0, requires=requires
+    )
+    assert chosen == []

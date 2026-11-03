@@ -20,10 +20,18 @@ def run(
     env: Mapping[str, str],
     capture: bool = True,
     cwd: Path | None = None,
+    timeout: float | None = None,
+    search_path: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Run ``argv`` (``argv[0]`` looked up on ``PATH``; ``FileNotFoundError``
-    when it is not installed). ``capture``: stdout and stderr apart."""
-    exe = shutil.which(argv[0])
+    """Run ``argv`` (``argv[0]`` looked up on ``PATH``, ``env``'s with
+    ``search_path``; ``FileNotFoundError`` when it is not installed).
+    ``capture``: stdout and stderr apart. ``timeout`` raises
+    ``subprocess.TimeoutExpired``."""
+    exe = (
+        shutil.which(argv[0], path=env.get("PATH"))
+        if search_path
+        else shutil.which(argv[0])
+    )
     if exe is None:
         raise FileNotFoundError(f"{argv[0]} is not installed")
     return subprocess.run(  # noqa: S603 - fixed argv built by sandloom dev (git, docker, lsof), no shell
@@ -33,6 +41,7 @@ def run(
         capture_output=capture,
         text=True,
         check=False,
+        timeout=timeout,
     )
 
 

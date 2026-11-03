@@ -8,6 +8,9 @@ description: Create a new Sandloom business module (sandloom add module, migrate
 1. **Read the module-author contract first.**
    - In the framework tree, that is `src/sandloom/AGENTS.md`.
    - In an `sandloom new` app, it is the project's `AGENTS.md`.
+   - No app yet? Create one with `--yes`:
+     `uvx --from "sandloom==<version>" sandloom new <app> --yes`. Without
+     it, `sandloom new` at a terminal asks questions and waits for answers.
    - Its "Rules no check enforces yet" list matters most: a row owned through
      another tenant row is `TenantScoped`, effects outside a durable consumer
      need their own dedupe, a breaking event change is a

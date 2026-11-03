@@ -23,6 +23,10 @@ uvx --from "sandloom[standard]==0.7.0a8" sandloom new myapp --with identity,tena
 Then follow the [quickstart](index.md) from its `cd myapp` step. `uv sync` inside the
 project installs the framework and the modules you chose.
 
+At a terminal, leave out the name and the flags: `sandloom new` asks for them,
+and it can run the setup for you. Scripts and coding agents add `--yes`, so
+nothing waits for an answer.
+
 ## The packages
 
 | Package | What it is |

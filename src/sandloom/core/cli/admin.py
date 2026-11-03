@@ -35,9 +35,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import sandloom.core.cli.ui as _ui
 from sandloom.core.admin import compile_app
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
+from sandloom.core.cli.dev import errors as _dev_errors
 from sandloom.core.cli.dev.identity import project_root
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
@@ -196,10 +198,16 @@ def _key(command: str) -> str:
     return f"sandloom-admin:{command}:{uuid.uuid4().hex}"
 
 
+def _style() -> _ui.Style:
+    """stdout's look: colour at a terminal, the same text without."""
+    return _ui.style_for(sys.stdout, _dev_errors.environment())
+
+
 def _print_link(email: str, token: str, *, created: str) -> None:
+    style = _style()
     print(
-        f"{created} Set the password within 15 minutes:\n"
-        f"  {link_for(token, email)}\n"
+        f"{style.green(created)} Set the password within 15 minutes:\n"
+        f"  {style.accent(link_for(token, email))}\n"
         "The link works once. A new one: "
         f"uv run sandloom admin invite --email {email}"
     )
@@ -368,7 +376,7 @@ async def create_admin(
             file=sys.stderr,
         )
         return 1
-    print(f"{done} {email} can sign in at {_sign_in_hint()}")
+    print(f"{_style().green(done)} {email} can sign in at {_sign_in_hint()}")
     return 0
 
 
@@ -507,6 +515,11 @@ def main(argv: list[str] | None = None) -> int:
             print(exc.code, file=sys.stderr)
             return 2
         raise
+    except KeyboardInterrupt:
+        # Ctrl-C at the password prompt (the `sandloom new` wizard runs this
+        # command on the terminal): one line, never a traceback.
+        print("\nCancelled.", file=sys.stderr)
+        return 130
 
 
 __all__ = ["SECURITY_CONTRACT", "create_admin", "invite_admin", "link_for", "main"]
