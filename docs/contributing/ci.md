@@ -45,6 +45,10 @@ source selection. CI configuration changes have dedicated regression tests and e
 regular PR suites. Manual full-validation jobs remain opt-in.
 
 Normal PR backend tests use Python 3.12, without coverage or `slow` tests.
+They run in two parts of one seed: `--sandloom-shard=1/2` and `2/2`, with the
+run id as the seed. Each part runs half the test files on its own runner.
+Together they run the whole fast suite, split by file as xdist already does.
+Rerunning a failed part keeps the run id, and so the split.
 The Python 3.11/3.13/3.14 compatibility runs, coverage, serial in-process isolation suite,
 generated-app quickstart/recipes/split checks and live microservices smoke run
 in full validation. Those omissions from the PR profile are intentional; its
@@ -53,7 +57,8 @@ green result is not evidence that full release validation passed.
 Checks run on PRs rather than repeating the same work after a merge to `main`.
 New commits cancel older runs of the same PR. Closing or merging a PR also
 cancels its older Monorepo CI run without starting new test jobs. Short-lived
-workflow artifacts expire after three days (the SBOM after seven).
+workflow artifacts expire after three days (the SBOM after seven, the
+`ci-evidence` file of the release reuse after fourteen).
 
 ## Actions and dependency caches
 
@@ -72,6 +77,17 @@ lock and Python selection and do not use this shared uv cache.
 ## Serial isolation performance
 
 The serial pass retains every in-process test and its shuffled file order.
+It runs as two shards of one seed. Each shard is one serial process over
+half the files: the seed deals each file to the shard with fewer tests so
+far. The two shards together are the whole selection. One serial process
+took about 10.7 minutes on a hosted runner; a shard takes about half.
+
+The gate is weaker in one respect, and that is the owner's call. Under one
+seed, a leak from file A shows in file B only when both share a shard. Every
+seed deals the files anew. So a given pair shares a process in about half of
+the release runs, not in all of them. More shards would not shorten the
+release, because the compatibility matrix (about 5 minutes) is then longest.
+
 `subprocess_probe` marks only checks whose tested runtime is entirely in a
 fresh child interpreter (package build/install and CLI/plugin isolation probes).
 They remain in the unfiltered full matrix on Python 3.11 and 3.12; repeating
@@ -107,6 +123,34 @@ Comparative load benchmarks retain their explicit manual/label opt-in.
 The PyPI release workflow requests full backend validation. Dry runs retain
 validated artifacts without uploading; real uploads additionally require owner
 approval in the `pypi` environment.
+
+### Reusing the PR run on the same tree
+
+A release usually follows a PR merge. Its `validate` stage used to repeat
+the jobs that PR had passed on the same tree. The release's `plan` job runs
+`tools/ci/pr_evidence.py select`. It names the jobs whose green PR result
+covers the release commit, and `validate` skips exactly those. A job is
+reused only when all of these hold:
+
+- the release commit is the merge commit of a PR merged into `main`;
+- a `pull_request` run of `ci.yml` for that PR's head succeeded, so its
+  `CI required` gate passed;
+- that run's `ci-evidence` artifact records the release commit's exact git
+  tree (the PR's `CI required` job writes it). If `main` moved after the PR
+  run, the tree differs and nothing is reused;
+- GitHub's job list for that run shows the job succeeded, every matrix entry
+  included. The results come from GitHub, never from the artifact.
+
+Only a job that runs the same commands in both profiles can be reused. The
+list is `REUSABLE_JOBS` in `tools/ci/required_ci.py`. The backend matrix
+always runs, with its other Pythons, coverage and slow suites. So do the
+isolation shards and every full-only job.
+
+If any condition fails, nothing is reused and every job runs: a tag on a
+commit without a PR, say, or an expired artifact.
+The full-validation gate accepts a skip only for the jobs the release named,
+and only outside a PR. The manual umbrella (`full-validation.yml`) never
+reuses.
 
 The [local CI runner](local-ci.md) retains the full four-version matrix and
 heavy backend jobs by default. It deliberately overrides `full_validation` in

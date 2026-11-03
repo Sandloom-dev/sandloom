@@ -36,9 +36,15 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      # Read the PR run's job results and its tested-tree artifact.
+      actions: read
     outputs:
       manifest: ${{ steps.plan.outputs.manifest }}
       publish: ${{ steps.plan.outputs.publish }}
+      reused_jobs: ${{ steps.reuse.outputs.reused_jobs || '[]' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,12 +61,21 @@ jobs:
             export RELEASE_ON_MAIN=false
           fi
           python3 tools/packaging/pypi_release.py plan
+      - name: Reuse the green PR run of this exact tree
+        # Names the jobs a green PR run of ci.yml already passed on this
+        # commit's tree; validate skips only those, and runs everything when
+        # nothing qualifies. tools/ci/pr_evidence.py says what qualifies.
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/pr_evidence.py select
 
   validate:
     needs: plan
     uses: ./.github/workflows/ci.yml
     with:
       full_validation: true
+      reused_jobs: ${{ needs.plan.outputs.reused_jobs }}
 
   distributions:
     needs: plan

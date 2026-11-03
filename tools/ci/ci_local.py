@@ -422,27 +422,27 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:ci-required": "7b3550dbf6899f8f",
+    "ci.yml:ci-required": "3cb1614fc715bf3a",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:docs": "2bfd2034c9234a2a",
-    "ci.yml:workflow-policy": "7182f4643d709639",
+    "ci.yml:workflow-policy": "5efb72bd5ebd2667",
     "ci.yml:changes": "95e21b75fd59c982",
-    "ci.yml:backend-static": "0a113b038dd0245d",
-    "ci.yml:supply-chain": "e461aa1b6fdeadca",
-    "ci.yml:backend-tests": "a24ea0500fc4bcb1",
-    "ci.yml:backend-tests-isolation": "8428d5d1750b01f3",
-    "ci.yml:benchmarks-security": "80cc0886283010ce",
-    "ci.yml:examples": "5ceec9e17b801f89",
+    "ci.yml:backend-static": "b89fe924a9997227",
+    "ci.yml:supply-chain": "f97313a67b7eacd0",
+    "ci.yml:backend-tests": "f1014705ee362401",
+    "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
+    "ci.yml:benchmarks-security": "c516a25e95f3072b",
+    "ci.yml:examples": "a0f1d3c10d3ca421",
     "ci.yml:quickstart": "0f6563faeb3c2d10",
     "ci.yml:app-split": "40ce521d833336e8",
     "ci.yml:app-recipes": "3708a6d3b9426a26",
-    "ci.yml:deploy-profiles": "f0c3c51f23604a21",
+    "ci.yml:deploy-profiles": "fe116108319c0d69",
     "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
-    "ci.yml:docker-build": "dbc55b0fec74fd68",
-    "ci.yml:admin-contracts": "9b7305c14b201ec3",
+    "ci.yml:docker-build": "587cf6ce58699e97",
+    "ci.yml:admin-contracts": "ae4e3ef8a5f5b4ec",
     "docs.yml:build": "78d8bd064fcb5ee4",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
@@ -653,12 +653,23 @@ class Expr:
             return False
         if name == "fromJSON":
             return json.loads(args[0])
+        if name == "contains":
+            haystack, needle = args
+            if isinstance(haystack, list):
+                return any(
+                    _to_str(v).lower() == _to_str(needle).lower() for v in haystack
+                )
+            return _to_str(needle).lower() in _to_str(haystack).lower()
         if name == "hashFiles":
             return "local"
         raise DriftError(f"unknown expression function {name}() in {self.src!r}")
 
     def _lookup(self, dotted: str) -> Any:
         node: Any = self.ctx
+        head, _, rest = dotted.partition(".")
+        if head == "matrix" and rest and "." not in rest:
+            # GitHub: a key one matrix row lacks is null in that row.
+            return (node.get("matrix") or {}).get(rest)
         for part in dotted.split("."):
             if not isinstance(node, dict) or part not in node:
                 raise DriftError(
@@ -739,7 +750,8 @@ class LocalJob:
 
     def ctx(self, workspace: str = WORKSPACE, sha: str = "0" * 40) -> dict[str, Any]:
         return {
-            "inputs": {"full_validation": True},
+            # A local run reuses no PR result: every job runs.
+            "inputs": {"full_validation": True, "reused_jobs": "[]"},
             "matrix": self.matrix,
             "github": {
                 "workspace": workspace,
@@ -748,6 +760,8 @@ class LocalJob:
                 "event_name": "pull_request",
                 "event": {"action": "synchronize"},
                 "repository": "local/ci-local",
+                # The isolation shards' shared seed: one per commit locally.
+                "run_id": str(int(sha[:8], 16) if sha.strip("0") else 1),
             },
             "runner": {"os": "Linux", "temp": "/tmp"},
             "needs": {

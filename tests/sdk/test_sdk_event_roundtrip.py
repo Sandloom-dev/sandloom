@@ -23,6 +23,7 @@ narrowed past what the docs promise.
 from __future__ import annotations
 
 import enum
+import functools
 import itertools
 import json
 import math
@@ -530,6 +531,9 @@ def _containers(inner: Strategy, *, risky: bool) -> Strategy:
     )
 
 
+# Built once per mode: a fresh recursive strategy per example cost three
+# quarters of the run in strategy construction and drew the same examples.
+@functools.cache
 def _shapes(*, risky: bool) -> Strategy:
     leaves = st.sampled_from(_scalars())
     if risky:  # a probe as often as an allowed scalar
