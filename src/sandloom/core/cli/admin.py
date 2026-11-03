@@ -13,6 +13,13 @@
     sandloom admin invite --email ADDRESS
         a new set-password link for an administrator (the older link and every
         session end)
+    sandloom admin list [--confirm-production --reason WHY [--show-emails]]
+        the platform administrators: address, whether a password is set, the
+        last sign-in. Read-only. In production it needs --confirm-production
+        and --reason, writes an audit record (identity.admin.listed) and masks
+        the addresses unless --show-emails (recorded too). Whoever runs the CLI
+        on a server can read the database anyway: the command adds no access,
+        only an audit trail and addresses kept out of shell history and logs.
 
 ``create`` and ``invite`` act at once outside production; with
 ``ENVIRONMENT=prod`` they need ``--apply --confirm-production --reason``. No
@@ -48,7 +55,8 @@ from sandloom.core.module_api._service_registry import ServiceNotFound
 
 #: The token issuer's operator contract (provided by ``sandloom_identity``).
 SECURITY_CONTRACT = "identity.security.v1"
-#: Where the link points outside production when FRONTEND_URL is not set.
+#: Where the link points outside production when FRONTEND_URL is not set and
+#: neither a live ``dev run`` nor ``dev up``'s app port says otherwise.
 DEV_BASE_URL = "http://127.0.0.1:8000"
 #: ``FRONTEND_URL``'s default: a frontend dev server, not this app's console.
 _FRONTEND_DEFAULT = "http://localhost:3000"
@@ -94,18 +102,9 @@ def _intent(args: argparse.Namespace, default_reason: str) -> _Intent:
 
 
 def _dev_run_base(root: Path) -> str | None:
-    """The URL of this checkout's live ``sandloom dev run`` (its run file;
-    one whose process is gone is ignored)."""
-    data = _dev_commands.live_run(root)
-    if data is None:
-        return None
-    url = data.get("url")
-    if isinstance(url, str) and url.startswith("http"):
-        return url.rstrip("/")
-    port = data.get("port")
-    if isinstance(port, int) and 0 < port < 65536:
-        return f"http://127.0.0.1:{port}"
-    return None
+    """Where this checkout's app answers: its live ``sandloom dev run``, else
+    the port ``sandloom dev up`` chose for it (``dev run``'s default)."""
+    return _dev_commands.app_url(root, _dev_errors.environment())
 
 
 def _checkout_root() -> Path:
@@ -387,6 +386,76 @@ def _sign_in_hint() -> str:
         return "the console"
 
 
+def mask_email(email: str) -> str:
+    """``vasiliy@gmail.com`` -> ``v***y@gmail.com`` (the domain stays)."""
+    local, at, domain = email.partition("@")
+    if len(local) <= 2:
+        hidden = (local[:1] or "") + "***"
+    else:
+        hidden = f"{local[0]}***{local[-1]}"
+    return hidden + at + domain
+
+
+def _listing_intent(args: argparse.Namespace) -> _Intent | None:
+    """Production: ``--confirm-production --reason`` (an audited read);
+    elsewhere ``None`` (no flags, no audit)."""
+    if not settings.is_prod:
+        return None
+    reason = (args.reason or "").strip()
+    if not (args.confirm_production and len(reason) >= 3):
+        raise SystemExit(
+            "error: ENVIRONMENT=prod: add --confirm-production --reason "
+            '"<why>" (the listing is recorded in the audit log)'
+        )
+    operator = (args.operator or _login_name()).strip() or "cli"
+    return _Intent(operator=f"cli:{operator}", reason=reason)
+
+
+async def list_admins(core: Any, args: argparse.Namespace) -> int:
+    """``sandloom admin list``; returns the exit status."""
+    intent = _listing_intent(args)
+    service = _service(core)
+    show = intent is None or bool(args.show_emails)
+    if intent is not None:
+        await _call(
+            service,
+            "record_admin_listing",
+            intent.reason,
+            intent.operator,
+            bool(args.show_emails),
+            _key("list"),
+        )
+    admins = await _call(service, "list_platform_admins")
+    if not admins:
+        print(
+            "No administrator yet. Create one: uv run sandloom admin create "
+            "--email you@example.com"
+        )
+        return 0
+    rows = [
+        (
+            admin.email if show else mask_email(admin.email),
+            ("set" if admin.password_set else "not set")
+            + ("" if admin.is_active else " (deactivated)"),
+            admin.last_login_at.strftime("%Y-%m-%d %H:%M UTC")
+            if admin.last_login_at
+            else "never",
+        )
+        for admin in admins
+    ]
+    widths = [
+        max(len(r[i]) for r in [("email", "password", "last sign-in"), *rows])
+        for i in range(3)
+    ]
+    for row in [("email", "password", "last sign-in"), *rows]:
+        print("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+    print(
+        "A new password (and the end of every session): "
+        "uv run sandloom admin invite --email <address>"
+    )
+    return 0
+
+
 async def invite_admin(core: Any, args: argparse.Namespace) -> int:
     """``sandloom admin invite``; returns the exit status."""
     email = args.email.strip()
@@ -489,6 +558,24 @@ def _parser() -> argparse.ArgumentParser:
     )
     invite.add_argument("--email", required=True, help="the administrator's address")
     add_operator_arguments(invite)
+
+    listing = commands.add_parser(
+        "list", help="the platform administrators and whether each has a password"
+    )
+    listing.add_argument(
+        "--confirm-production",
+        action="store_true",
+        help="required when ENVIRONMENT=prod (the listing is audited)",
+    )
+    listing.add_argument("--reason", default="", help="why (stored in the audit log)")
+    listing.add_argument(
+        "--operator", default=None, help="who asks (default: the OS login name)"
+    )
+    listing.add_argument(
+        "--show-emails",
+        action="store_true",
+        help="production: the full addresses (masked by default; recorded)",
+    )
     return parser
 
 
@@ -497,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export":
         return _export(args)
     try:
+        if args.command == "list":
+            return asyncio.run(list_admins(_build_core(), args))
         if args.command == "create":
             return asyncio.run(
                 create_admin(
@@ -522,4 +611,12 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-__all__ = ["SECURITY_CONTRACT", "create_admin", "invite_admin", "link_for", "main"]
+__all__ = [
+    "SECURITY_CONTRACT",
+    "create_admin",
+    "invite_admin",
+    "link_for",
+    "list_admins",
+    "main",
+    "mask_email",
+]

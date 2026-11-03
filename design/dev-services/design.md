@@ -72,7 +72,10 @@ another `sandloom dev up` in <path>") and then finds everything already up.
 - `sandloom dev logs [service]`: compose logs.
 
 Commands that need a database never start services themselves. When they cannot connect they say
-so in one line and name `sandloom dev up` (see "Errors").
+so in one line and name `sandloom dev up` (see "Errors"). The one exception is `dev run`, the
+person's "run my app" (decided 2026-11-03, `first-run-polish`): stopped services are started first,
+the way `dev up` starts them (same locks and checks, one line), so the app never boots without its
+database.
 
 ## Readiness from the host
 
@@ -160,7 +163,9 @@ the causes (services down, wrong `.env`, port not published).
 ## Out of scope
 
 Branch-scoped databases inside one checkout (Supabase's branch identity), Podman support,
-implicit service start, `APP_PORT` stickiness.
+implicit service start (except `dev run`, above). The app port is sticky since `first-run-polish`:
+the first `dev up` gives each checkout 8000 or the next free port, kept in the state, `dev run`'s
+default.
 
 ## Revisions after the edge-case review (2026-11-03)
 

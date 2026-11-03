@@ -119,6 +119,22 @@ def database_exists(pg: Postgres, name: str) -> bool:
         conn.close()
 
 
+def has_tables(pg: Postgres, name: str) -> bool:
+    """Whether database ``name`` holds a table outside the system schemas
+    (an empty one has never been migrated)."""
+    conn = pg.connect(name)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname NOT IN "
+                "('pg_catalog', 'information_schema'))"
+            )
+            row = cur.fetchone()
+            return bool(row and row[0])
+    finally:
+        conn.close()
+
+
 def sessions(pg: Postgres, databases: Iterable[str] | None = None) -> dict[str, int]:
     """``{database: other client connections}`` (this connection excluded)."""
     conn = pg.connect()
@@ -213,6 +229,7 @@ __all__ = [
     "drop_database",
     "ensure_database",
     "flush_indexes",
+    "has_tables",
     "pg_ready",
     "redis_clients",
     "redis_ready",

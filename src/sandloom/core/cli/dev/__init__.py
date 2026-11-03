@@ -7,9 +7,10 @@ worktrees share them), one database and one pair of Redis indexes per
     sandloom dev up                   start / check the services, write this
                                       checkout's .env block and .env.test.local
     sandloom dev status [--json]      services, ports, reachability, URLs
-    sandloom dev run [--port N|auto]  uvicorn for this checkout (default 8000)
+    sandloom dev run [--port N|auto]  uvicorn for this checkout (its own port:
+                                      8000, else the next free, chosen once)
     sandloom dev reset [--force]      drop and recreate this checkout's database
-    sandloom dev down [--all] [--volumes] [--force]
+    sandloom dev down [--all] [--volumes] [--force] [--verbose]
     sandloom dev prune                databases of removed worktrees, stale test
                                       databases, ports of removed repositories
     sandloom dev logs [service] [-f]
@@ -66,7 +67,12 @@ def _parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="services, ports, URLs")
     status.add_argument("--json", action="store_true", help="machine-readable")
     run = sub.add_parser("run", help="run the app (uvicorn) for this checkout")
-    run.add_argument("--port", default=None, help="a port number, or auto")
+    run.add_argument(
+        "--port",
+        default=None,
+        help="a port number, or auto (default: this checkout's port, which the "
+        "first `dev up` chose: 8000, else the next free one)",
+    )
     run.add_argument("--no-reload", action="store_true", help="no auto-reload")
     reset = sub.add_parser("reset", help="drop and recreate this checkout's database")
     reset.add_argument("--force", action="store_true", help="even while in use")
@@ -79,6 +85,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     down.add_argument(
         "--force", action="store_true", help="even while this checkout uses them"
+    )
+    down.add_argument(
+        "--verbose",
+        "--debug",
+        dest="verbose",
+        action="store_true",
+        help="show Docker Compose's own progress",
     )
     sub.add_parser("prune", help="drop what removed worktrees and old runs left")
     logs = sub.add_parser("logs", help="the services' logs")
@@ -103,6 +116,7 @@ def _dispatch(ctx: _commands.Context, args: argparse.Namespace) -> int:
     if args.action == "reset":
         return _commands.reset(ctx, force=args.force)
     if args.action == "down":
+        ctx.verbose = ctx.verbose or args.verbose
         return _commands.down(
             ctx, all_=args.all, volumes=args.volumes, force=args.force
         )
@@ -138,6 +152,7 @@ def main(
         identity=_identity.resolve(Path.cwd(), env),
         environ=env,
         interactive=sys.stdin.isatty() and sys.stdout.isatty(),
+        verbose=_errors.debug_requested([], env),
     )
     try:
         return _dispatch(ctx, args)

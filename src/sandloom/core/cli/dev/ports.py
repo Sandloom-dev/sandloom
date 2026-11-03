@@ -30,7 +30,12 @@ ATTEMPTS = 256
 def port_free(port: int) -> bool:
     """Whether ``port`` can be bound on 127.0.0.1 and on ::1 (when the host
     has IPv6). A port free on one loopback address only is not free:
-    ``localhost`` may resolve to the other."""
+    ``localhost`` may resolve to the other.
+
+    A port whose only use is closed connections in TIME_WAIT (the app's
+    connections to a database that ``dev down`` just stopped) refuses a
+    plain bind for half a minute, yet nothing listens there: it is free
+    (:func:`_listening` tells the two apart)."""
     for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
         try:
             sock = socket.socket(family, socket.SOCK_STREAM)
@@ -41,9 +46,25 @@ def port_free(port: int) -> bool:
         except OSError as exc:
             if exc.errno in (errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT):
                 continue  # ::1 not configured
+            if exc.errno == errno.EADDRINUSE and not _listening(family, host, port):
+                continue  # only TIME_WAIT leftovers
             return False
         finally:
             sock.close()
+    return True
+
+
+def _listening(family: int, host: str, port: int) -> bool:
+    """Whether something accepts connections at ``host``:``port`` (a refused
+    connection means nobody listens; anything else counts as taken)."""
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            probe.connect((host, port))
+    except ConnectionRefusedError:
+        return False
+    except OSError:
+        return True
     return True
 
 

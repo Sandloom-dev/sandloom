@@ -58,7 +58,8 @@ Subcommands:
 
 A command that cannot reach PostgreSQL or Redis prints one line naming
 `sandloom dev up` (SANDLOOM-R014); `--debug` or SANDLOOM_DEBUG=1 shows the
-traceback instead.
+traceback instead, and the framework's DEBUG startup lines (LOG_LEVEL=DEBUG
+unless LOG_LEVEL is exported).
 """
 
 from __future__ import annotations
@@ -147,6 +148,9 @@ def main() -> None:
     """The ``sandloom`` entry point: a connection failure is one line."""
     errors = _static_import("sandloom.core.cli.dev.errors")
     debug = errors.debug_requested(sys.argv, errors.environment())
+    if debug:
+        # Child processes too (`dev run`'s server, the wizard's steps).
+        errors.enable_debug(errors.environment())
     try:
         _main()
     except (SystemExit, KeyboardInterrupt):

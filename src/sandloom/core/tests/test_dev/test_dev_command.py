@@ -297,7 +297,7 @@ def test_up_reregisters_the_ports_after_an_adopted_move(
     save_state(ctx.state_dir, moved)
     save_registry(ctx.home, dict.fromkeys(moved.ports.values(), gone))
     monkeypatch.setattr(commands._docker, "check_docker", lambda env: None)
-    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state: [])
+    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state, **kw: [])
     monkeypatch.setattr(commands, "_finish_up", lambda ctx, state, options: 0)
     assert commands.up(ctx, commands.UpOptions(adopt=True, pull=False)) == 0
     registry = load_registry(ctx.home)
@@ -415,7 +415,7 @@ def test_a_second_up_waits_for_the_first(
     ctx = _ctx(repo, environ)
     calls: list[str] = []
     monkeypatch.setattr(commands._docker, "check_docker", lambda env: None)
-    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state: [])
+    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state, **kw: [])
 
     def finish(ctx: Any, state: State, options: Any) -> int:
         calls.append("finish")
@@ -983,3 +983,366 @@ def test_an_exported_url_that_differs_from_the_block_is_warned(
     )
     assert drift == ["DATABASE_URL"]
     assert "the exported value wins" in out.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# First run: sticky app port, a port Docker releases late, quiet down, exit 0
+# --------------------------------------------------------------------------- #
+
+
+def _compose_copy(ctx: commands.Context) -> None:
+    ctx.state_dir.mkdir(parents=True, exist_ok=True)
+    (ctx.state_dir / commands.STATE_COMPOSE).write_text("services: {}\n")
+
+
+def test_a_port_docker_releases_a_moment_after_down_stays(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Docker Desktop frees a published port a moment after ``down``: the
+    check waits for it instead of moving the port."""
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    _compose_copy(ctx)
+    monkeypatch.setattr(commands._docker.Compose, "states", lambda self: {})
+    monkeypatch.setattr(commands, "PORT_SETTLE_SECONDS", 3.0)
+    monkeypatch.setattr(commands, "PORT_SETTLE_STEP", 0.01)
+    calls: list[int] = []
+
+    def late(port: int) -> bool:
+        calls.append(port)
+        return port != state.ports["db"] or len(calls) > 4
+
+    monkeypatch.setattr(commands._ports, "port_free", late)
+    assert commands.ports_needed(ctx, state) == []
+    assert "moved" not in _text(ctx.err)
+
+
+def test_a_port_dockers_proxy_holds_right_after_down_is_ours(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    _compose_copy(ctx)
+    monkeypatch.setattr(commands._docker.Compose, "states", lambda self: {})
+    monkeypatch.setattr(commands, "PORT_SETTLE_SECONDS", 0.0)
+    held = state.ports["db"]
+    monkeypatch.setattr(commands._ports, "port_free", lambda port: port != held)
+    for proxy in ("com.docker.backend", "vpnkit-bridge", "docker-proxy", "ssh"):
+        monkeypatch.setattr(commands, "port_listener", lambda port, p=proxy: (p, 7))
+        state.stopped_at = time.time() - 5  # `dev down` just ran
+        assert commands.ports_needed(ctx, state) == [], proxy
+        # Long after the services stopped, Docker holds it for someone else.
+        state.stopped_at = time.time() - 2 * commands.STOPPING_SECONDS
+        assert commands.ports_needed(ctx, state) == ["db"], proxy
+
+
+def test_a_foreign_holder_still_moves_the_port(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    state.stopped_at = time.time()
+    _compose_copy(ctx)
+    monkeypatch.setattr(commands._docker.Compose, "states", lambda self: {})
+    monkeypatch.setattr(commands, "PORT_SETTLE_SECONDS", 0.0)
+    held = state.ports["db"]
+    monkeypatch.setattr(commands._ports, "port_free", lambda port: port != held)
+    monkeypatch.setattr(commands, "port_listener", lambda port: ("postgres", 99))
+    assert commands.ports_needed(ctx, state) == ["db"]
+
+
+def test_down_records_when_the_services_stopped_and_prints_one_line(
+    repo: Path,
+    environ: dict[str, str],
+    no_services: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _ctx(repo, environ)
+    save_state(ctx.state_dir, _state(ctx))
+    seen: list[dict[str, Any]] = []
+
+    def run(
+        self: Any, *args: str, capture: bool = False, check: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        seen.append({"args": args, "capture": capture})
+        noise = " Container shop-db-1 Removing\n Network shop_default Removed\n"
+        return subprocess.CompletedProcess(args, 0, noise if capture else None, "")
+
+    monkeypatch.setattr(commands._docker.Compose, "run", run)
+    before = time.time()
+    assert commands.down(ctx, all_=False, volumes=False, force=False) == 0
+    assert seen[-1]["capture"] is True
+    assert _text(ctx.out).strip().splitlines() == [
+        f"stopped {ctx.identity.project} (the data stays)"
+    ]
+    stored = load_state(ctx.state_dir)
+    assert stored is not None and stored.stopped_at >= before
+    loud = _ctx(repo, environ)
+    loud.verbose = True
+    assert commands.down(loud, all_=False, volumes=False, force=False) == 0
+    assert seen[-1]["capture"] is False  # Compose prints its progress itself
+
+
+def test_a_failing_down_is_one_line(
+    repo: Path,
+    environ: dict[str, str],
+    no_services: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _ctx(repo, environ)
+    save_state(ctx.state_dir, _state(ctx))
+    monkeypatch.setattr(
+        commands._docker.Compose,
+        "run",
+        lambda self, *a, **k: subprocess.CompletedProcess(a, 1, "", "boom\nno daemon"),
+    )
+    with pytest.raises(commands.DevError, match="no daemon"):
+        commands.down(ctx, all_=False, volumes=False, force=False)
+
+
+def test_the_app_port_is_8000_else_the_next_free_and_not_a_siblings(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    assert commands.ensure_app_port(ctx, state, is_free=lambda p: True) == 8000
+    assert commands.ensure_app_port(ctx, state, is_free=lambda p: False) == 8000
+    state.app_ports.clear()
+    state.app_ports["/elsewhere/worktree"] = 8001
+    assert commands.ensure_app_port(ctx, state, is_free=lambda p: p != 8000) == 8002
+    save_state(ctx.state_dir, state)
+    stored = load_state(ctx.state_dir)
+    assert stored is not None
+    assert stored.app_ports[str(ctx.root)] == 8002
+
+
+def test_an_old_state_without_app_ports_still_loads(tmp_path: Path) -> None:
+    (tmp_path / "dev.json").write_text(
+        json.dumps({"repository": "/r", "project": "p", "machine": "m"})
+    )
+    stored = load_state(tmp_path)
+    assert stored is not None and stored.app_ports == {} and stored.stopped_at == 0
+
+
+def test_dev_run_without_port_serves_the_checkouts_port(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        sticky = probe.getsockname()[1]
+    state.app_ports[str(ctx.root)] = sticky
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=True)
+    served: list[list[str]] = []
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env: served.append(argv) or 0
+    )
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert served[0][served[0].index("--port") + 1] == str(sticky)
+    assert f"http://127.0.0.1:{sticky}" in _text(ctx.out)
+
+
+def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        state.app_ports[str(ctx.root)] = busy.getsockname()[1]
+        commands.checkout_row(ctx, state)
+        save_state(ctx.state_dir, state)
+        _reachable(monkeypatch, up=True)
+        monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+        with pytest.raises(commands.DevError, match="is in use") as refused:
+            commands.run(ctx, port=None, reload=False)
+    assert "uv run sandloom dev run --port" in str(refused.value)
+    assert "\n" not in str(refused.value)
+
+
+def test_the_app_url_is_the_live_run_else_the_sticky_port(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    assert commands.app_url(repo, environ) is None
+    state = _state(ctx)
+    state.app_ports[str(ctx.root)] = 8001
+    save_state(ctx.state_dir, state)
+    assert commands.app_url(repo, environ) == "http://127.0.0.1:8001"
+    marker = commands.run_file(repo)
+    marker.parent.mkdir(parents=True)
+    marker.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "host": socket.gethostname(),
+                "url": "http://127.0.0.1:9100",
+            }
+        )
+    )
+    assert commands.app_url(repo, environ) == "http://127.0.0.1:9100"
+
+
+def test_ctrl_c_stops_dev_run_with_exit_status_0(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Child:
+        waited = 0
+        signals: list[int] = []
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.waited += 1
+            if self.waited == 1:
+                raise KeyboardInterrupt
+            return 1  # uvicorn's status after the interrupt
+
+        def send_signal(self, signum: int) -> None:
+            self.signals.append(signum)
+
+    child = Child()
+    monkeypatch.setattr(commands._process, "spawn", lambda argv, env, cwd: child)
+    ctx = _ctx(repo, environ)
+    assert commands._serve(ctx, ["uvicorn"], {}) == 0
+    assert child.signals  # the child was asked to stop
+
+
+def test_up_suggests_the_migrations_only_for_a_new_or_empty_database(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    row = commands.checkout_row(ctx, state)
+    state.app_ports[str(ctx.root)] = 8001
+    commands._print_summary(ctx, state, row, migrate=True)
+    first = _text(ctx.out)
+    assert "next: uv run sandloom migrate upgrade-all --apply, then" in first
+    again = _ctx(repo, environ)
+    commands._print_summary(again, state, row, migrate=False)
+    text = _text(again.out)
+    assert "migrate" not in text
+    assert "next: uv run sandloom dev run (http://127.0.0.1:8001)" in text
+
+
+def test_debug_brings_the_framework_logs_back() -> None:
+    """``sandloom --debug`` (or SANDLOOM_DEBUG=1) shows tracebacks and the
+    DEBUG startup lines, in this process and the ones it starts (dev run);
+    an exported LOG_LEVEL is the person's own choice and stays."""
+    env: dict[str, str] = {}
+    errors.enable_debug(env)
+    assert env == {"SANDLOOM_DEBUG": "1", "LOG_LEVEL": "DEBUG"}
+    mine = {"LOG_LEVEL": "INFO"}
+    errors.enable_debug(mine)
+    assert mine["LOG_LEVEL"] == "INFO"
+
+
+def _reachable(monkeypatch: pytest.MonkeyPatch, up: bool) -> None:
+    answer = None if up else "connection refused"
+    monkeypatch.setattr(commands._services, "pg_ready", lambda pg: answer)
+    monkeypatch.setattr(commands._services, "redis_ready", lambda host, port: answer)
+
+
+def test_dev_run_starts_stopped_services_first(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`dev run` is the person's "run my app": stopped services are started
+    the way `dev up` starts them (one line), then the app is served."""
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    state.app_ports[str(ctx.root)] = 8123
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=False)
+    started: list[commands.UpOptions] = []
+
+    def up(c: commands.Context, options: commands.UpOptions) -> int:
+        print("dev services up (compose project x)", file=c.out)
+        started.append(options)
+        _reachable(monkeypatch, up=True)
+        return 0
+
+    monkeypatch.setattr(commands, "up", up)
+    monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: sticky or 8000)
+    served: list[list[str]] = []
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env: served.append(argv) or 0
+    )
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert len(started) == 1 and served
+    text = _text(ctx.out)
+    assert "starting the dev services" in text
+    assert "dev services up" not in text  # `up`'s own summary stays quiet
+
+
+def test_dev_run_with_running_services_starts_nothing(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=True)
+    monkeypatch.setattr(commands, "up", lambda c, o: pytest.fail("started"))
+    monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert "starting" not in _text(ctx.out)
+
+
+def test_dev_run_without_a_block_starts_the_services(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh checkout (no `dev up` yet): `dev run` brings them up."""
+    ctx = _ctx(repo, environ)
+    environ.pop("DATABASE_URL", None)
+
+    def up(c: commands.Context, options: commands.UpOptions) -> int:
+        (repo / ".env").write_text(envfile.render_block(_VALUES))
+        return 0
+
+    monkeypatch.setattr(commands, "up", up)
+    monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert "starting the dev services" in _text(ctx.out)
+
+
+def test_a_failing_start_is_one_line(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    environ.pop("DATABASE_URL", None)
+
+    def up(c: commands.Context, options: commands.UpOptions) -> int:
+        raise commands.DevError("`docker compose up` failed: port is already allocated")
+
+    monkeypatch.setattr(commands, "up", up)
+    with pytest.raises(commands.DevError, match="already allocated"):
+        commands.run(ctx, port=None, reload=False)
+
+
+def test_a_port_with_only_closed_connections_left_is_free() -> None:
+    """After `dev down` the connections the app had to the database linger in
+    TIME_WAIT on the database's port: no one listens, so it is free (this
+    is what moved the port after every down/up)."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    client = socket.create_connection(("127.0.0.1", port))
+    served, _ = listener.accept()
+    served.close()  # the server side closes first: its port enters TIME_WAIT
+    client.close()
+    listener.close()
+    assert ports.port_free(port)
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        assert not ports.port_free(busy.getsockname()[1])

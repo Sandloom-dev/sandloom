@@ -3,7 +3,9 @@
 ``<state>/dev.json`` (written under the repository lock): the repository it
 was made for, the compose project name, the four host ports, and one row per
 checkout using the servers (its database, its two dev Redis indexes, its last
-``up``). ``~/.sandloom/ports.json`` (written under the machine lock): every
+``up``), the app port of each checkout (``dev run``'s default) and when
+``down`` last stopped the services. ``~/.sandloom/ports.json`` (written under
+the machine lock): every
 port any repository on this machine reserved, with that repository's path.
 Both are written atomically (a temp file, then ``os.replace``).
 """
@@ -71,6 +73,12 @@ class State:
     checkouts: dict[str, CheckoutRow] = field(default_factory=dict)
     compose_sha: str = ""
     version: int = STATE_VERSION
+    #: Checkout path -> the port its ``dev run`` serves on (sticky, chosen
+    #: by the first ``dev up``). Kept apart from the rows: a CLI that does
+    #: not know it still reads the file.
+    app_ports: dict[str, int] = field(default_factory=dict)
+    #: When ``dev down`` last stopped the services (epoch seconds).
+    stopped_at: float = 0.0
 
     def to_json(self) -> str:
         data = asdict(self)
@@ -90,6 +98,10 @@ class State:
             checkouts=rows,
             compose_sha=str(data.get("compose_sha") or ""),
             version=int(data.get("version") or STATE_VERSION),
+            app_ports={
+                str(k): int(v) for k, v in (data.get("app_ports") or {}).items()
+            },
+            stopped_at=float(data.get("stopped_at") or 0.0),
         )
 
     def used_indexes(self, *, besides: str | None = None) -> set[int]:

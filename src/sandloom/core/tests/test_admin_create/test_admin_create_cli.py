@@ -11,6 +11,7 @@ import json
 import os
 import socket
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +20,7 @@ import pytest
 
 from sandloom.core.cli import admin
 from sandloom.core.cli._operator import OperatorIntent
+from sandloom.core.cli.dev import commands, identity, state
 from sandloom.core.cli.security import SECURITY_CONTRACT, grant_admin
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
@@ -84,6 +86,29 @@ class _Security:
     ) -> bool:
         self.calls.append(("appoint", user_id))
         return True
+
+    async def record_admin_listing(
+        self, reason: str, operator: str, show_emails: bool, operation_key: str
+    ) -> bool:
+        self.calls.append(("audit", reason, operator, show_emails))
+        return True
+
+    async def list_platform_admins(self) -> list[Any]:
+        self.calls.append(("list",))
+        return [
+            SimpleNamespace(
+                email="owner@example.com",
+                password_set=True,
+                is_active=True,
+                last_login_at=datetime(2026, 11, 3, 9, 30, tzinfo=UTC),
+            ),
+            SimpleNamespace(
+                email="new@example.com",
+                password_set=False,
+                is_active=True,
+                last_login_at=None,
+            ),
+        ]
 
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
@@ -205,6 +230,41 @@ def test_a_dead_dev_run_file_is_ignored(run: Any, tmp_path: Path) -> None:
     code, out, _ = run(_Security(), "create", "--email", "o@example.com", "--invite")
     assert code == 0
     assert "http://127.0.0.1:8000/admin/set-password#token=" in out
+
+
+def _sticky_port(root: Path, port: int) -> None:
+    """``dev up``'s record of this checkout's app port (outside git)."""
+    env = dict(os.environ)
+    ctx = commands.Context(identity=identity.resolve(root, env), environ=env)
+    saved = state.State(repository=str(root), project="shop-1", machine="m")
+    saved.app_ports[str(ctx.root)] = port
+    state.save_state(ctx.state_dir, saved)
+
+
+def test_the_links_use_the_port_dev_up_chose(
+    run: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wizard's app runs on 8001 when 8000 is taken: the sign-in address
+    and the set-password link say 8001, not 8000."""
+    monkeypatch.setenv("SANDLOOM_HOME", str(tmp_path / "home"))
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "shop"\n')
+    _sticky_port(tmp_path, 8001)
+    code, out, _ = run(
+        _Security(),
+        "create",
+        "--email",
+        "owner@example.com",
+        "--password-stdin",
+        stdin=GOOD + "\n",
+    )
+    assert code == 0, out
+    assert "can sign in at http://127.0.0.1:8001/admin/" in out
+    code, out, _ = run(_Security(), "create", "--email", "o@example.com", "--invite")
+    assert "http://127.0.0.1:8001/admin/set-password#token=" in out
+    # A live `dev run` on another port wins: that is where the app answers.
+    _run_file(tmp_path, os.getpid(), 8123)
+    code, out, _ = run(_Security(), "create", "--email", "p@example.com", "--invite")
+    assert "http://127.0.0.1:8123/admin/set-password#token=" in out
 
 
 def test_a_password_that_was_not_set_prints_no_token(run: Any) -> None:
@@ -418,3 +478,85 @@ async def test_grant_admin_points_an_unknown_address_to_admin_create() -> None:
     with pytest.raises(SystemExit) as info:
         await grant_admin(_Core(_Security()), "nobody@example.com", intent)
     assert "sandloom admin create" in str(info.value.code)
+
+
+def test_admin_list_names_every_administrator_and_its_password(run: Any) -> None:
+    """Which address is mine, and does it have a password? Read-only: no
+    --apply, nothing changes, even in production."""
+    security = _Security()
+    code, out, _ = run(security, "list")
+    assert code == 0, out
+    assert security.names() == ["list"]
+    lines = out.strip().splitlines()
+    assert lines[0].split() == ["email", "password", "last", "sign-in"]
+    assert lines[1].split()[:2] == ["owner@example.com", "set"]
+    assert "2026-11-03 09:30" in lines[1]
+    assert lines[2].split()[:3] == ["new@example.com", "not", "set"]
+    assert lines[2].rstrip().endswith("never")
+    assert "admin invite --email" in out
+
+
+def test_admin_list_without_administrators_says_how_to_create_one(run: Any) -> None:
+    class _Empty(_Security):
+        async def list_platform_admins(self) -> list[Any]:
+            return []
+
+    code, out, _ = run(_Empty(), "list")
+    assert code == 0
+    assert "No administrator yet" in out and "admin create --email" in out
+
+
+def test_admin_list_in_production_needs_confirmation_and_a_reason(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prod(monkeypatch)
+    security = _Security()
+    code, _, err = run(security, "list")
+    assert code == 2
+    assert "--confirm-production" in err and "--reason" in err
+    assert security.calls == []
+
+
+def test_admin_list_in_production_is_audited_and_masks_the_addresses(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prod(monkeypatch)
+    security = _Security()
+    code, out, _ = run(
+        security, "list", "--confirm-production", "--reason", "who can sign in"
+    )
+    assert code == 0, out
+    assert security.calls[0][0] == "audit"
+    _, reason, operator, shown = security.calls[0]
+    assert (reason, shown) == ("who can sign in", False)
+    assert operator.startswith("cli:")
+    assert "o***r@example.com" in out and "owner@example.com" not in out
+    assert "n***w@example.com" in out
+
+
+def test_admin_list_show_emails_in_production_is_audited(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prod(monkeypatch)
+    security = _Security()
+    code, out, _ = run(
+        security,
+        "list",
+        "--confirm-production",
+        "--reason",
+        "incident 42",
+        "--show-emails",
+    )
+    assert code == 0, out
+    assert security.calls[0] == ("audit", "incident 42", security.calls[0][2], True)
+    assert "owner@example.com" in out
+
+
+def test_admin_list_outside_production_shows_plain_addresses_unaudited(
+    run: Any,
+) -> None:
+    security = _Security()
+    code, out, _ = run(security, "list")
+    assert code == 0
+    assert "owner@example.com" in out
+    assert security.names() == ["list"]

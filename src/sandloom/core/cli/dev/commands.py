@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import io
 import json
 import os
 import signal
@@ -11,7 +12,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -26,6 +27,7 @@ from sandloom.core.cli.dev import ports as _ports
 from sandloom.core.cli.dev import process as _process
 from sandloom.core.cli.dev import services as _services
 from sandloom.core.cli.dev.identity import COMPOSE_FILE, Identity
+from sandloom.core.cli.dev.identity import resolve as resolve_identity
 from sandloom.core.cli.dev.locks import FileLock, pid_alive
 from sandloom.core.cli.dev.state import (
     CheckoutRow,
@@ -48,6 +50,23 @@ RUN_FILE = Path("run") / "dev-run.json"
 DEFAULT_APP_PORT = 8000
 #: Test Redis base indexes in ``.env.test.local`` (each run claims its own).
 TEST_CACHE_INDEX, TEST_BROKER_INDEX = 15, 14
+#: How long a sticky service port that looks taken is checked again before it
+#: moves: Docker Desktop releases a published port a moment after ``down``.
+PORT_SETTLE_SECONDS = 5.0
+PORT_SETTLE_STEP = 0.25
+#: A ``dev down`` this recent means our containers are just stopping: a port
+#: Docker's own proxy still holds is ours, not a stranger's.
+STOPPING_SECONDS = 120.0
+#: Listeners that hold a published port for Docker (Docker Desktop, Colima,
+#: OrbStack, Lima, the Linux ``docker-proxy``): command-name prefixes, and
+#: ``ssh`` (Colima's and Lima's port forwards).
+DOCKER_PORT_HOLDERS = (
+    "com.docker.",
+    "vpnkit",
+    "docker-proxy",
+    "orbstack",
+    "limactl",
+)
 
 
 class DevError(RuntimeError):
@@ -61,6 +80,10 @@ class Context:
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
     interactive: bool = False
+    #: Show Docker Compose's own progress (``--verbose`` / ``--debug``).
+    verbose: bool = False
+    #: Set by ``up``: this checkout's database is new or holds no table.
+    needs_migrate: bool = False
 
     # --------------------------------------------------------------- paths
     @property
@@ -351,9 +374,16 @@ def reconcile(ctx: Context, state: State | None, options: UpOptions) -> State:
     return fresh
 
 
-def ports_needed(ctx: Context, state: State) -> list[str]:
+def ports_needed(
+    ctx: Context, state: State, *, settle: float | None = None
+) -> list[str]:
     """Services whose port must be (re)chosen: none yet, or a sticky port
-    something else took while that service was down."""
+    something else took while that service was down.
+
+    A taken port is checked again for ``settle`` seconds (default
+    :data:`PORT_SETTLE_SECONDS`): Docker Desktop releases a published port a
+    moment after ``down``. One that Docker's own proxy still holds while our
+    containers are just stopping is ours (:func:`_held_for_us`)."""
     missing = [s for s in _ports.SERVICES if s not in state.ports]
     if missing:
         return missing
@@ -361,11 +391,31 @@ def ports_needed(ctx: Context, state: State) -> list[str]:
     running: dict[str, str] = {}
     if (ctx.state_dir / STATE_COMPOSE).is_file():
         running = ctx.compose(state).states()
-    return [
+    taken = [
         service
         for service, port in state.ports.items()
         if running.get(service) != "running" and not _ports.port_free(port)
     ]
+    wait = PORT_SETTLE_SECONDS if settle is None else settle
+    deadline = time.monotonic() + wait
+    while taken and time.monotonic() < deadline:
+        time.sleep(PORT_SETTLE_STEP)
+        taken = [s for s in taken if not _ports.port_free(state.ports[s])]
+    return [s for s in taken if not _held_for_us(state, running, state.ports[s])]
+
+
+def _held_for_us(state: State, running: Mapping[str, str], port: int) -> bool:
+    """Whether Docker's own proxy holds ``port`` while this project's
+    containers are just stopping (a recent ``dev down``, or a container
+    being removed): the port is still ours, not a stranger's."""
+    found = port_listener(port)
+    if found is None:
+        return False
+    name = found[0].lower()
+    if not (name == "ssh" or name.startswith(DOCKER_PORT_HOLDERS)):
+        return False
+    stopping = time.time() - state.stopped_at < STOPPING_SECONDS
+    return stopping or any(s == "removing" for s in running.values())
 
 
 def assign_ports(ctx: Context, state: State, services: list[str]) -> bool:
@@ -458,7 +508,7 @@ def up(ctx: Context, options: UpOptions) -> int:
         # Ports: release the repository lock, take machine then repository.
         with ctx.machine_lock(), ctx.repo_lock("sandloom dev up"):
             state = reconcile(ctx, load_state(ctx.state_dir), options)
-            needed = ports_needed(ctx, state)
+            needed = ports_needed(ctx, state, settle=0.0)
             if needed:
                 moved = assign_ports(ctx, state, needed)
                 save_state(ctx.state_dir, state)
@@ -623,21 +673,40 @@ def _finish_up(ctx: Context, state: State, options: UpOptions) -> int:
     _ensure_reachable(ctx, state, options)
     with ctx.checkout_lock(ctx.root):
         row = checkout_row(ctx, state)
-        if _services.ensure_database(ctx.postgres(state), row.database):
+        pg = ctx.postgres(state)
+        created = _services.ensure_database(pg, row.database)
+        if created:
             ctx.say(f"created the database {row.database}")
         notes = write_checkout_files(ctx, state, row)
+        ensure_app_port(ctx, state)
         row.last_up = time.time()
         save_state(ctx.state_dir, state)
     for note in notes:
         ctx.say(note)
-    _print_summary(ctx, state, row)
+    migrate = created
+    if not migrate:
+        with contextlib.suppress(*_services.service_errors()):
+            migrate = not _services.has_tables(pg, row.database)
+    ctx.needs_migrate = migrate
+    _print_summary(ctx, state, row, migrate=migrate)
     return 0
 
 
-def _print_summary(ctx: Context, state: State, row: CheckoutRow) -> None:
+def _print_summary(
+    ctx: Context, state: State, row: CheckoutRow, *, migrate: bool
+) -> None:
+    """The URLs, then the next command: the migrations only for a database
+    that was just created or holds no table yet."""
     urls = checkout_urls(ctx, state, row)
     tests = test_urls(ctx, state, row)
     gui = ctx.postgres(state).url(row.database, driver="postgresql")
+    port = state.app_ports.get(row.path)
+    serve = "uv run sandloom dev run" + (f" (http://127.0.0.1:{port})" if port else "")
+    following = (
+        f"next: uv run sandloom migrate upgrade-all --apply, then {serve}"
+        if migrate
+        else f"next: {serve}"
+    )
     ctx.say(
         "\n".join(
             [
@@ -648,8 +717,7 @@ def _print_summary(ctx: Context, state: State, row: CheckoutRow) -> None:
                 "  tests    SANDLOOM_TEST_DATABASE_URL="
                 + tests["SANDLOOM_TEST_DATABASE_URL"],
                 f"  GUI      {gui}",
-                "next: uv run sandloom migrate upgrade-all --apply, then "
-                "uv run sandloom dev run",
+                following,
             ]
         )
     )
@@ -770,24 +838,44 @@ def status(ctx: Context, *, as_json: bool) -> int:
 # --------------------------------------------------------------------------- #
 
 
-def port_holder(port: int) -> str | None:
-    """Who listens on ``port`` (``lsof``), when the tool exists."""
+def port_listener(port: int) -> tuple[str, int] | None:
+    """The command name and pid listening on ``port`` (``lsof``), when the
+    tool exists and tells."""
     if _process.which("lsof") is None:
         return None
-    proc = _process.run(
-        ["lsof", "+c", "0", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
-        env=_errors.environment(),
-    )
+    try:
+        proc = _process.run(
+            ["lsof", "+c", "0", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+            env=_errors.environment(),
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     rows = proc.stdout.strip().splitlines()[1:]
     if not rows:
         return None
     parts = rows[0].split()
-    return f"{parts[0]} (pid {parts[1]})" if len(parts) > 1 else rows[0]
+    if len(parts) < 2 or not parts[1].isdigit():
+        return None
+    # lsof escapes a space in the command name (`OrbStack\x20Helper`).
+    return parts[0].replace("\\x20", " "), int(parts[1])
 
 
-def free_port(preferred: int = DEFAULT_APP_PORT + 1) -> int:
+def port_holder(port: int) -> str | None:
+    """Who listens on ``port``, for a message (``lsof``)."""
+    found = port_listener(port)
+    return f"{found[0]} (pid {found[1]})" if found else None
+
+
+def free_port(
+    preferred: int = DEFAULT_APP_PORT + 1,
+    *,
+    skip: Collection[int] = (),
+    is_free: Callable[[int], bool] | None = None,
+) -> int:
+    check = _ports.port_free if is_free is None else is_free
     for port in range(preferred, preferred + 200):
-        if _ports.port_free(port):
+        if port not in skip and check(port):
             return port
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -803,13 +891,69 @@ def app_target(root: Path, app: str, environ: Mapping[str, str]) -> str:
     return composition if ":" in composition else f"{composition}:app"
 
 
-def app_port(port: str | None) -> int:
-    """The port ``dev run`` serves on (``DevError`` naming the holder when
-    the asked one is taken)."""
+def ensure_app_port(
+    ctx: Context, state: State, *, is_free: Callable[[int], bool] | None = None
+) -> int:
+    """This checkout's app port, chosen once and kept in the state: 8000
+    when free, else the next free one; never another checkout's. The
+    caller holds the repository lock and saves the state."""
+    key = str(ctx.root)
+    port = state.app_ports.get(key)
+    if port:
+        return port
+    siblings = {p for k, p in state.app_ports.items() if k != key}
+    taken = siblings | set(state.ports.values())
+    check = _ports.port_free if is_free is None else is_free
+    port = free_port(DEFAULT_APP_PORT, skip=taken, is_free=check)
+    if not check(port):  # nothing free near 8000: keep 8000, dev run says why
+        port = DEFAULT_APP_PORT
+    state.app_ports[key] = port
+    return port
+
+
+def app_url(root: Path, environ: Mapping[str, str]) -> str | None:
+    """Where this checkout's app answers: its live ``dev run`` (the run
+    file), else its sticky app port (``dev up``); ``None`` when neither is
+    known. ``sandloom admin create`` / ``invite`` build their links on it."""
+    live = live_run(root)
+    if live is not None:
+        url = live.get("url")
+        if isinstance(url, str) and url.startswith("http"):
+            return url.rstrip("/")
+        port = live.get("port")
+        if isinstance(port, int) and 0 < port < 65536:
+            return f"http://127.0.0.1:{port}"
+    try:
+        ctx = Context(identity=resolve_identity(root, environ), environ=environ)
+    except (OSError, ValueError):
+        return None
+    state = load_state(ctx.state_dir)
+    port = state.app_ports.get(str(ctx.root)) if state is not None else None
+    return f"http://127.0.0.1:{port}" if port else None
+
+
+def _sticky_app_port(ctx: Context) -> int | None:
+    """This checkout's app port; chosen now (and saved) for a state from
+    before app ports, ``None`` without a state."""
+    with ctx.repo_lock("sandloom dev run"):
+        state = load_state(ctx.state_dir)
+        if state is None:
+            return None
+        known = state.app_ports.get(str(ctx.root))
+        if known or str(ctx.root) not in state.checkouts:
+            return known
+        port = ensure_app_port(ctx, state)
+        save_state(ctx.state_dir, state)
+        return port
+
+
+def app_port(port: str | None, *, sticky: int | None = None) -> int:
+    """The port ``dev run`` serves on: ``port``, else the checkout's sticky
+    one, else 8000 (``DevError`` naming the holder when it is taken)."""
     if port == "auto":
         return free_port(DEFAULT_APP_PORT)
     if port in (None, ""):
-        number = DEFAULT_APP_PORT
+        number = sticky or DEFAULT_APP_PORT
     else:
         try:
             number = int(str(port))
@@ -827,17 +971,73 @@ def app_port(port: str | None) -> int:
     )
 
 
-def run(ctx: Context, *, port: str | None, reload: bool) -> int:
+def _read_block(root: Path) -> dict[str, str]:
     try:
-        block = _envfile.read_block((ctx.root / ".env").read_text(encoding="utf-8"))
+        return _envfile.read_block((root / ".env").read_text(encoding="utf-8"))
     except OSError:
-        block = {}
+        return {}
+
+
+def services_reachable(ctx: Context) -> bool:
+    """Whether this checkout's dev PostgreSQL and Redis answer from the host
+    (``False`` without a state: no ``dev up`` yet)."""
+    state = load_state(ctx.state_dir)
+    if state is None or len(state.ports) < len(_ports.SERVICES):
+        return False
+    if state.checkouts.get(str(ctx.root)) is None:
+        return False
+    return (
+        _services.pg_ready(ctx.postgres(state)) is None
+        and _services.redis_ready(ctx.host, state.ports["redis"]) is None
+    )
+
+
+def _start_services(ctx: Context) -> None:
+    """``dev run`` on stopped (or never started) services: ``dev up`` with
+    its locks and checks, in one line; its failure is its own one line."""
+    ctx.say("starting the dev services…")
+    quiet = Context(
+        identity=ctx.identity,
+        environ=ctx.environ,
+        out=io.StringIO(),
+        err=ctx.err,
+        interactive=ctx.interactive,
+        verbose=ctx.verbose,
+    )
+    up(quiet, UpOptions())
+    if quiet.needs_migrate:
+        ctx.warn(
+            "the database has no tables yet: uv run sandloom migrate upgrade-all "
+            "--apply"
+        )
+
+
+def run(ctx: Context, *, port: str | None, reload: bool) -> int:
+    """Serve this checkout's app. The person's "run my app": stopped dev
+    services are started first (unlike every other command), so the app
+    never boots without its database. Not in CI, and not for a checkout
+    that points ``DATABASE_URL`` at its own server instead of ``dev up``."""
+    block = _read_block(ctx.root)
+    own_services = bool(block) or not ctx.environ.get("DATABASE_URL")
+    if (
+        own_services
+        and not in_ci(ctx.environ)
+        and not live_run(ctx.root)
+        and (not block or not services_reachable(ctx))
+    ):
+        _start_services(ctx)
+        block = _read_block(ctx.root)
     if not block and not ctx.environ.get("DATABASE_URL"):
         raise DevError(
             "this checkout has no dev services yet (the sandloom dev block of .env "
             "is empty): run `uv run sandloom dev up` first"
         )
     marker = run_file(ctx.root)
+    existing = live_run(ctx.root)
+    if existing:
+        ctx.say(f"already running at {existing.get('url')} (pid {existing.get('pid')})")
+        return 0
+    sticky = _sticky_app_port(ctx) if port in (None, "") else None
     with ctx.checkout_lock(ctx.root):
         existing = live_run(ctx.root)
         if existing:
@@ -845,7 +1045,7 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
                 f"already running at {existing.get('url')} (pid {existing.get('pid')})"
             )
             return 0
-        number = app_port(port)
+        number = app_port(port, sticky=sticky)
         url = f"http://127.0.0.1:{number}"
         record = {
             "pid": os.getpid(),
@@ -890,15 +1090,17 @@ def _serve(ctx: Context, argv: list[str], env: dict[str, str]) -> int:
 
     previous = signal.signal(signal.SIGTERM, _forward)
     try:
-        return child.wait()
+        return int(child.wait())
     except KeyboardInterrupt:
+        # Ctrl-C is how a person stops the server: a clean stop, exit 0.
         with contextlib.suppress(ProcessLookupError):
             child.send_signal(signal.SIGINT)
         try:
-            return child.wait(timeout=20)
-        except subprocess.TimeoutExpired:
+            child.wait(timeout=20)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
             child.kill()
-            return child.wait()
+            child.wait()
+        return 0
     finally:
         signal.signal(signal.SIGTERM, previous)
 
@@ -1034,9 +1236,20 @@ def down(ctx: Context, *, all_: bool, volumes: bool, force: bool) -> int:
             _confirm_volumes(ctx, state, force=force)
         write_state_env(ctx, state)
         args = ["down", *(["--volumes"] if volumes else [])]
-        ctx.compose(state).run(*args, check=True)
+        # Compose's own progress ("Container … Removing") only when asked.
+        proc = ctx.compose(state).run(*args, capture=not ctx.verbose)
+        if proc.returncode != 0:
+            detail = ((proc.stderr or "") + (proc.stdout or "")).strip().splitlines()
+            raise DevError(
+                f"`docker compose down` failed (exit {proc.returncode})"
+                + (f": {detail[-1]}" if detail else "")
+                + " (`uv run sandloom dev down --verbose` shows its output)"
+            )
         if volumes:
             _forget(ctx, state)
+        else:
+            state.stopped_at = time.time()
+            save_state(ctx.state_dir, state)
     ctx.say(
         f"stopped {state.project}"
         + (" and deleted its data" if volumes else " (the data stays)")
@@ -1112,12 +1325,16 @@ __all__ = [
     "DevError",
     "UpOptions",
     "allocate_indexes",
+    "app_port",
+    "app_url",
     "assign_ports",
     "checkout_urls",
     "down",
+    "ensure_app_port",
     "in_ci",
     "logs",
     "other_active",
+    "port_listener",
     "ports_needed",
     "prune",
     "reconcile",
@@ -1125,6 +1342,7 @@ __all__ = [
     "reregister_ports",
     "reset",
     "run",
+    "services_reachable",
     "status",
     "status_data",
     "test_urls",
