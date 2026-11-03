@@ -61,6 +61,15 @@ class Postgres:
                 f"not a PostgreSQL URL: {redact(url)} (for example "
                 "postgresql://you@127.0.0.1:5432/postgres)"
             )
+        if parts.query:
+            # Every connection is built from host, port, user and password:
+            # an `?sslmode=require` would be dropped silently (cleartext).
+            raise ValueError(
+                f"connection options are not supported yet: {redact(url)} "
+                f"(?{parts.query.split('=', 1)[0]}=…; sslmode and TLS are not "
+                "carried to the app). Use a local server without options, or "
+                "--services docker"
+            )
         return cls(
             parts.hostname,
             parts.port or DEFAULT_PG_PORT,
@@ -99,9 +108,24 @@ class RedisServer:
     @classmethod
     def from_url(cls, url: str) -> RedisServer:
         parts = urlsplit(url.strip())
-        if parts.scheme not in {"redis", "rediss"} or not parts.hostname:
+        if parts.scheme == "rediss":
+            # TLS is not carried end to end yet (the URLs written, the checks'
+            # client): refuse rather than send AUTH in cleartext.
+            raise ValueError(
+                f"rediss:// (TLS) is not supported yet: {redact(url)}. Use a local "
+                "Redis without TLS (redis://127.0.0.1:6379), or --services docker"
+            )
+        if parts.scheme != "redis" or not parts.hostname:
             raise ValueError(
                 f"not a Redis URL: {redact(url)} (for example redis://127.0.0.1:6379)"
+            )
+        if parts.username or parts.query:
+            # Only a password is carried: an ACL user (or `?…` options) would
+            # be dropped silently.
+            raise ValueError(
+                f"a Redis ACL user or URL options are not supported yet: "
+                f"{redact(url)}. Use redis://:password@host:port (the default "
+                "user), or --services docker"
             )
         return cls(
             parts.hostname,
@@ -160,6 +184,42 @@ def ensure_database(pg: Postgres, name: str) -> bool:
             except errors.DuplicateDatabase:
                 return False
             return True
+    finally:
+        conn.close()
+
+
+#: The comment ``--services external`` puts on a database it creates
+#: (``COMMENT ON DATABASE``), followed by the checkout's path: only a database
+#: carrying this checkout's mark is adopted, reset or pruned.
+DEV_MARK = "sandloom dev: "
+
+
+def database_mark(pg: Postgres, name: str) -> str | None:
+    """The comment on database ``name`` (``None``: no comment, or no database)."""
+    conn = pg.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT shobj_description(oid, 'pg_database') FROM pg_database "
+                "WHERE datname = %s",
+                (name,),
+            )
+            row = cur.fetchone()
+            return None if row is None or row[0] is None else str(row[0])
+    finally:
+        conn.close()
+
+
+def mark_database(pg: Postgres, name: str, mark: str) -> None:
+    """Put ``mark`` on database ``name`` as its comment (the role owns it)."""
+    conn = pg.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                    sql.Identifier(name), sql.Literal(mark)
+                )
+            )
     finally:
         conn.close()
 
@@ -297,15 +357,18 @@ def flush_indexes(
 
 __all__ = [
     "DEV_CREDENTIALS",
+    "DEV_MARK",
     "TEST_CREDENTIALS",
     "Postgres",
     "RedisServer",
     "advisory_holders",
     "database_exists",
+    "database_mark",
     "drop_database",
     "ensure_database",
     "flush_indexes",
     "has_tables",
+    "mark_database",
     "pg_ready",
     "redact",
     "redis_clients",

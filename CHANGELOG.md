@@ -107,6 +107,15 @@ website renders this same changelog.
 - A startup task that cannot reach PostgreSQL or Redis logs one line with the
   fix instead of a traceback; in development the app reports an unreachable
   database once.
+- **`dev up --services external` never adopts a database it did not create.**
+  An existing database with the app's name on your server (another project's) is
+  refused instead of migrated into; the databases it creates carry a comment
+  (`sandloom dev: <checkout>`), and `dev reset` and `dev prune` drop only those.
+  A database an earlier build created and `dev.json` records is marked on the next
+  `dev up`.
+- **`--services external` refuses URLs whose security it would drop:** `rediss://`,
+  a Redis ACL user, Redis URL options and PostgreSQL `?sslmode=…` (or any query
+  option) were silently lost, sending passwords in cleartext.
 
 ## [0.7.0a9] — 2026-11-03
 
