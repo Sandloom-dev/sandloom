@@ -14,6 +14,7 @@ code runs against any configured backend and in any deployment profile.
 - An **interface** is what a module may call, such as `cache().get(key)`. In code and in
   error messages it is called a **capability**.
 - A **driver** implements an interface for one backend, such as `redis` for the cache.
+  A module is what your product does; a driver is what it runs on.
 - An **instance** is a named, configured driver, such as the `default` database and a
   second `analytics` one.
 
@@ -48,7 +49,9 @@ An interface offers operations, never the underlying client. What only one engin
 `raw_client()` / `raw_backend()`, which business modules may not call.
 
 Drivers are the only code that constructs a backend, and each is built lazily, so nothing
-opens at import. To connect a new backend, [write a driver](write-a-driver.md);
+opens at import. A driver is its own package: it imports its backend's SDK and
+[`sandloom.driverkit`](driverkit.md), and registers as `<capability>.<driver>` in the
+`sandloom.drivers` entry-point group. To connect a new backend, [write a driver](write-a-driver.md);
 for a new kind of infrastructure, [add your own capability](own-capability.md).
 
 ## Declare what you need

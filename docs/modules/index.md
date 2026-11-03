@@ -81,13 +81,10 @@ marked optional dependency (`# sandloom: optional-import <reason>`).
 
 ## How modules talk to each other
 
-Through [events](between/events.md) when something has happened, and through
-[contracts](between/contracts.md) when one module needs an answer now, never through an import.
-[Choose how modules talk](between/index.md) compares every option.
-
-Other modules' rows are referenced by plain UUID, never by a foreign key. A contract call
-runs in the provider's own unit on the provider's database, locally or over internal RPC:
-local equals remote.
+Never through an import: through [events](between/events.md) when something has happened,
+and through [contracts](between/contracts.md) when one module needs an answer now.
+[Choose how modules talk](between/index.md) compares every option, projections and sagas
+included, and why another module's rows are referenced by plain UUID.
 
 ## Conventions inside a module
 
