@@ -1,6 +1,7 @@
 ---
 title: Deploy the console
 description: Turn the admin console on in production, restrict who can reach it, run it in a split deployment, upgrade it and replace it with your own build.
+type: how-to
 ---
 
 # Deploy the console

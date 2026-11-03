@@ -1,5 +1,6 @@
 ---
 title: Repository Map & Agent Tooling
+type: concept
 ---
 
 # Repository map and agent tooling
@@ -122,7 +123,7 @@ MCP servers are registered for Copilot (`.vscode/mcp.json`) and Claude Code
 
 ## Inspect before changing a module
 
-Use [module context](../toolchain/module-context.md) to gather scoped rules, SDK and
-wire interfaces, and the [declared architecture graph](../toolchain/architecture-graph.md)
+Use [module context](../ai/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../ai/architecture-graph.md)
 to inspect contract/event connections. Both commands can be invoked by an agent
 and read their index without booting the app.

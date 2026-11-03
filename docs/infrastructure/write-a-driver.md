@@ -155,5 +155,5 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 - [Infrastructure](index.md): interfaces, drivers and instances.
 - [Add your own capability](own-capability.md): a new kind of infrastructure.
 - [`sandloom.driverkit`](driverkit.md): every name it exports.
-- [Customize a standard module](../modules/standard/customize.md): what a notification driver can do for identity's mail.
+- [Customize a standard module](../modules/batteries/customize.md): what a notification driver can do for identity's mail.
 - [ADR-0011](../adr/0011-driver-api.md): why it works this way.

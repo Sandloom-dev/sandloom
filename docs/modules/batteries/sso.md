@@ -1,5 +1,6 @@
 ---
 title: SSO Setup
+type: how-to
 ---
 
 # SSO Setup

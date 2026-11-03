@@ -32,7 +32,7 @@ class TrustConfig(BaseModel):
     )
 
     # Production profile: the trust model a production deployment promises
-    # (sandloom.core.production_profile; docs/reference/security-model.md).
+    # (sandloom.core.production_profile; docs/advanced/security-model.md).
     # ``standard`` keeps every knob as configured. ``multi_tenant_strict``
     # (enforced only with ENVIRONMENT=prod) requires TENANCY_MODE=multi,
     # tenant_rls (+ role verification) on every database instance and the

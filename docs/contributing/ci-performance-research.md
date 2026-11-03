@@ -1,10 +1,11 @@
 ---
 title: CI performance research
+type: concept
 ---
 
 # CI performance research
 
-Related: [CI profiles](ci.md) · [Testing guide](../toolchain/testing.md).
+Related: [CI profiles](ci.md) · [Testing guide](../modules/testing.md).
 
 Research date: **2026-10-29**. This is an observed sample, not a ranking of
 framework quality or a universal target for test duration.

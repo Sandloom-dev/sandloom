@@ -29,7 +29,7 @@ A label has a **delivery** part and a **visibility** part.
 `atomic` implies `no_loss` and `no_dup`. Labels combine by meet: delivery sets
 intersect and visibility takes the weaker, so a chain of effects is as strong
 as its weakest link. Response replay (an idempotent HTTP retry) is a separate
-axis, described in [Route policy](../http/route-policy.md#idempotency).
+axis, described in [Route policy](../modules/http/route-policy.md#idempotency).
 
 ## Labels per effect
 
@@ -38,7 +38,7 @@ axis, described in [Route policy](../http/route-policy.md#idempotency).
 | a write in the route's write store | always | always | always | immediate |
 | an outbox event (its delivery) | never: delivery is at-least-once, consumers dedupe on the envelope id | the outbox and a durable bus; a delivery may be **parked** in the dead-letter queue | the intent only | eventual |
 | a consumer effect with `durable=True` | the inbox is in the **same database** as the effect, and inbox retention is at least stream retention plus one day | the outbox and a durable bus, always qualified: `dead_letter=True` parks on poison or after the delivery budget; `dead_letter=False` parks only on an explicit `PoisonEventError` | no | eventual |
-| a consumer effect in another store | the target write is conditional (version-guarded, see [Projections](../between/projections.md)) | as above | no | eventual |
+| a consumer effect in another store | the target write is conditional (version-guarded, see [Projections](../modules/between/projections.md)) | as above | no | eventual |
 | a command | the provider has a durable command log and its dedupe TTL covers the caller's retry horizon; the cache fallback gives **no** `no_dup` (not crash-safe) | the caller retries with the same key until a definite answer | no | immediate |
 | an `on_commit` callback | always | never (a crash after the commit loses it) | no | none |
 | a write in an opted-out secondary (`allow_multi_db_write`) | a keyed or version-guarded write | never | never | immediate |
@@ -50,8 +50,8 @@ holds". The conditions are checked where they can be:
   against the relay horizon, the inbox retention against the stream
   retention. A window that does not hold is a named, accepted risk, refused
   in production unless listed in `SANDLOOM_ACCEPTED_RISKS`
-  ([ADR-0006](../../adr/0006-accepted-risks.md),
-  [configuration tiers](../../reference/configuration-tiers.md)).
+  ([ADR-0006](../adr/0006-accepted-risks.md),
+  [configuration tiers](../reference/configuration-tiers.md)).
 - **Features the defaults need** (a durable command log, conditional writes)
   are checked at boot.
 - **The write store** of a route is inferred statically, so the durable
@@ -64,13 +64,13 @@ holds". The conditions are checked where they can be:
   idempotency record commit together or not at all.
 - An event you publish is delivered at least once, in no particular order;
   every consumer must tolerate a duplicate and an out-of-order event
-  ([Events](../between/events.md)).
+  ([Events](../modules/between/events.md)).
 - A consumer with `durable=True` applies each event once, if its effect is in
   the consumer's own database.
 - A command call is deduplicated by its key in the provider; it is **not**
   atomic with your unit. Compose commands that must undo each other as a
-  saga ([Sagas](../between/sagas.md)).
-- A projection is eventually consistent and converges ([Projections](../between/projections.md)).
+  saga ([Sagas](../modules/between/sagas.md)).
+- A projection is eventually consistent and converges ([Projections](../modules/between/projections.md)).
 - An `on_commit` callback can be lost on a crash: never put an effect there
   that must happen.
 
@@ -85,14 +85,14 @@ holds". The conditions are checked where they can be:
     for every row of the table above, including the cache fallback and the
     expired-window cases (C-MSTORE-03).
 
-    The page: [Guarantees & capabilities](../../reference/guarantees.md).
+    The page: [Guarantees & capabilities](../reference/guarantees.md).
 
 ## Design rationale
 
-- [ADR-0005: the effect model](../../adr/0005-effect-model.md): boundaries,
+- [ADR-0005: the effect model](../adr/0005-effect-model.md): boundaries,
   guarantee levels, the dedupe record, the commit pipeline, the ambiguous
   COMMIT table and the guarantee windows. Read its matrix before relying on a
   guarantee. Do not add a new dedupe store or post-commit variant: reuse one,
   or amend the ADR.
-- [ADR-0006: accepted risks](../../adr/0006-accepted-risks.md)
-- [ADR-0010: Public API 1.0](../../adr/0010-public-api-1.0.md), "Guarantee labels"
+- [ADR-0006: accepted risks](../adr/0006-accepted-risks.md)
+- [ADR-0010: Public API 1.0](../adr/0010-public-api-1.0.md), "Guarantee labels"

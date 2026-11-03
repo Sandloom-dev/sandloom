@@ -1,5 +1,6 @@
 ---
 title: Service RPC
+type: concept
 ---
 
 # Service RPC
@@ -157,4 +158,4 @@ an unkeyed error answer (the provider could not authenticate the request)
 surfaces as `503 RemoteServiceUnavailable` with the provider's error code.
 Binding authenticates responses but is **not** a substitute for TLS/mTLS: run
 internal RPC over TLS or a trusted network. See the
-[security model](../reference/security-model.md).
+[security model](../advanced/security-model.md).

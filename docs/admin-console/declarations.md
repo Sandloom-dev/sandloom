@@ -1,6 +1,7 @@
 ---
 title: Declaration reference
 description: Every key of an admin.py resource declaration, manifest version 1, with its constraints.
+type: reference
 ---
 
 # Declaration reference

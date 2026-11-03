@@ -1,6 +1,7 @@
 ---
 title: Develop the console
 description: How the console is built, how to change it from source, how sessions and command recovery behave, and how to troubleshoot it.
+type: how-to
 ---
 
 # Develop the console
@@ -134,7 +135,7 @@ not claim a full live production deployment.
 
 See [authorization](../modules/http/authorization.md),
 [multi-tenancy](../modules/database/multi-tenancy.md),
-[tenancy API](../modules/standard/tenancy.md), and the
+[tenancy API](../modules/batteries/tenancy.md), and the
 [operator guide](operations.md). Internal design research is not part of
 the public distribution.
 

@@ -85,7 +85,7 @@ so the FORCEd policy sees an empty ``sandloom.tenant_id`` and fails closed.
 
 The hook keeps HONEST code consistent; it is not an authentication boundary.
 Code that can send arbitrary SQL as the application role can still set
-``sandloom.tenant_id`` itself (see ``docs/reference/security-model.md``).
+``sandloom.tenant_id`` itself (see ``docs/advanced/security-model.md``).
 
 :func:`verify_tenant_rls_roles` checks at startup that the application role
 cannot step outside the policies (superuser, ``BYPASSRLS``, table owner, member

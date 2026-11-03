@@ -53,10 +53,10 @@
     "docs/modules/database/units.md": {
       "D4": 2
     },
-    "docs/modules/guarantees/module-internals.md": {
+    "docs/advanced/module-internals.md": {
       "D4": 1
     },
-    "docs/modules/guarantees/write-admission.md": {
+    "docs/advanced/write-admission.md": {
       "D4": 1
     },
     "docs/modules/http/audit.md": {
@@ -71,16 +71,16 @@
     "docs/modules/http/route-policy.md": {
       "D4": 1
     },
-    "docs/modules/standard/billing.md": {
+    "docs/modules/batteries/billing.md": {
       "D4": 1
     },
-    "docs/modules/standard/customize.md": {
+    "docs/modules/batteries/customize.md": {
       "D4": 1
     },
     "docs/reference/event-contracts.md": {
       "D4": 1
     },
-    "docs/reference/execution-planner.md": {
+    "docs/advanced/execution-planner.md": {
       "D4": 1
     },
     "docs/reference/testing.md": {

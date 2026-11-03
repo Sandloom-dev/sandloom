@@ -1,5 +1,6 @@
 ---
 title: CI profiles and minute budget
+type: reference
 ---
 
 # CI profiles and minute budget

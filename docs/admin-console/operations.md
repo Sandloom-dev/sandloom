@@ -1,3 +1,7 @@
+---
+type: how-to
+---
+
 # Platform owner console: operator guide
 
 Sandloom Admin is the optional **platform owner and operations console**. It serves

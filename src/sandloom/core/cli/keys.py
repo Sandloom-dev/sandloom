@@ -15,7 +15,7 @@ issuer, ``jwt_public_keys`` JSON for everyone) and prints only the public part.
 Rotation (no forced logout): generate a new kid, add its public key to
 ``JWT_PUBLIC_KEYS`` everywhere (both kids verify), switch the issuer's
 ``JWT_PRIVATE_KEY`` + ``JWT_KID`` to it, and drop the old kid after
-``ACCESS_TOKEN_EXPIRE_MINUTES`` (+ leeway). See docs/reference/security-model.md.
+``ACCESS_TOKEN_EXPIRE_MINUTES`` (+ leeway). See docs/advanced/security-model.md.
 
 ``--purpose rpc`` generates a service's internal-RPC keys (ADR-0004): the
 X25519 key-agreement pair that authenticates every request and response

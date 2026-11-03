@@ -916,7 +916,7 @@ aliases or warnings. Replacements: `docs/guides/upgrading-0.8.md`, section
 - Apply additive core migration `0008` before deployment. Review
   the archived hardening upgrade notes for
   intentional security compatibility changes; current requirements are in the
-  [security model](https://sandloom.dev/docs/reference/security-model/). Historical benchmarks do not
+  [security model](https://sandloom.dev/docs/advanced/security-model/). Historical benchmarks do not
   qualify this new artifact; external credential rotation remains separate.
 - Outbox relay: a failed / broker-parked row holds the rows behind it on its
   channel (no attempt counted) so a later event never overtakes an earlier one
@@ -1190,7 +1190,7 @@ In short:
   (`sandloom.core.security.token_signing_problem`); `JWT_SECRET` is optional in
   asymmetric mode and refused on verify-only processes. `sandloom keys generate
   [--alg] [--kid] [--out-dir]`; rotation runbook in
-  `docs/reference/security-model.md`. `PLANNER_CURSOR_SECRET` keys planner
+  `docs/advanced/security-model.md`. `PLANNER_CURSOR_SECRET` keys planner
   cursors where neither `INTERNAL_API_TOKEN` nor `JWT_SECRET` exists. The
   microservices profile signs with EdDSA.
 - **Service identity for internal RPC** (internal change #57). `RPC_AUTH_MODE=service_identity`:
@@ -1675,7 +1675,7 @@ it is deprecated on arrival and will be removed in 0.7.0.
   "<table>")` for every RLS table and move table ownership off the app role
   (docs/modules/database/multi-tenancy.md). Residual risk (documented, not fixed):
   SQL running as the app role can still set `sandloom.tenant_id` to another
-  tenant — see the RLS threat model in docs/reference/security-model.md.
+  tenant — see the RLS threat model in docs/advanced/security-model.md.
 
 The framework absorbs per-module boilerplate
 ([ADR-0002](https://sandloom.dev/docs/adr/0002-framework-absorbs-module-boilerplate/)): a
@@ -1838,7 +1838,7 @@ Experimental, default OFF:
   `snapshot_instance(...)` / `restore_instance(snapshot)` — reconfigure an
   instance temporarily without touching registry internals.
 
-### Dependencies (measured upgrade — see `docs/reference/dependencies.md`)
+### Dependencies (measured upgrade — see `docs/contributing/dependencies.md`)
 
 Locked → new: FastAPI 0.116.1 → **0.136.3** (capped `<0.137`), Starlette
 0.47.2 → **1.6.0** (floor `>=1.3.1`; lock-only cap `<1.7`), pydantic 2.11.7 →

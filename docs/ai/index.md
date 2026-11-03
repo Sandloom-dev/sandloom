@@ -20,7 +20,7 @@ Sandloom puts three kinds of tools around every change. [Generators](generators.
 | --- | --- | --- |
 | Start | `sandloom new`, `sandloom add`, `sandloom generate` | [Generators](generators.md), [Generate contracts and snapshots](generate.md) |
 | Work | `AGENTS.md`, skills, `sandloom docs`, `sandloom context`, `sandloom graph` | [Agent tooling](agent-tooling.md), [Module maps for agents](module-context.md), [Explore the architecture graph](architecture-graph.md) |
-| Check | `sandloom check`, `sandloom test`, `sandloom explain` | [Checks](checks.md), [Testing modules](testing.md) |
+| Check | `sandloom check`, `sandloom test`, `sandloom explain` | [Checks](checks.md), [Testing modules](../modules/testing.md) |
 
 ## One change through the loop
 

@@ -7,7 +7,7 @@ import re
 from sandloom.core.cli.inspection.model import Doc, InspectionError, response
 from sandloom.core.cli.inspection.read import Reader
 
-LIFECYCLE = "https://sandloom.dev/docs/modules/guarantees/lifecycle/"
+LIFECYCLE = "https://sandloom.dev/docs/advanced/lifecycle/"
 SAGAS = "https://sandloom.dev/docs/modules/between/sagas/"
 
 

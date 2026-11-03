@@ -1,5 +1,6 @@
 ---
 title: Security Model
+type: concept
 ---
 
 # Security Model
@@ -9,6 +10,7 @@ the concept page with the full detail.
 
 ## Authentication
 
+<!-- lookup -->
 - **JWT access/refresh tokens.** Access tokens are short-lived (default 15 min);
   refresh tokens are longer-lived (default 14 days) and stored **hashed**.
 - **Password hashing.** argon2id with a configurable work factor
@@ -214,7 +216,7 @@ the concept page with the full detail.
   required in production when identity is loaded; only outside production does
   an unset key fall back to one derived from `JWT_SECRET`.
 - **SSO.** OAuth2 with CSRF-protecting one-time state tokens stored in Redis with
-  a TTL. See the [SSO guide](../modules/standard/sso.md).
+  a TTL. See the [SSO guide](../modules/batteries/sso.md).
 
 ## Authorization
 
@@ -384,6 +386,7 @@ There is exactly one internal-RPC authentication, the pair MAC of
 `/contracts`, `/metrics`, `/health` details) and never authenticates
 `/_sandloom/rpc`; `INTERNAL_ENDPOINTS_OPEN_IN_DEV` never opens it.
 
+<!-- lookup -->
 - **Keys.** Every service that serves or calls RPC holds its own DEDICATED
   X25519 key `RPC_DH_PRIVATE_KEY` (`SECRETS_DIR` file `rpc_dh_private_key`)
   with kid `RPC_DH_KEY_ID`, as `RPC_SERVICE_ID` (default `SANDLOOM_SERVICE_NAME`;
@@ -703,7 +706,7 @@ internal-token rules are already unconditional in prod.
 
 The effective value of every guarantee-changing (**semantic**) setting in
 each profile — `dev`, `test`, `prod`, `prod` + `multi_tenant_strict` — is
-one table: [Configuration Tiers](configuration-tiers.md) (generated from
+one table: [Configuration Tiers](../reference/configuration-tiers.md) (generated from
 `sandloom.core.config.tiers`). A setting moved towards its weaker end in prod is
 an *override*: refused where the table says *refused*, otherwise logged as a
 WARNING at every start and listed by `/diagnostics/core`
@@ -798,6 +801,7 @@ audited).
 
 ## Transport & request hardening
 
+<!-- lookup -->
 - **Rate limiting.** A sliding-window limiter, always enforced in prod
   (`RATE_LIMIT_ENABLED` forces it elsewhere). Sensitive auth endpoints carry
   tighter per-endpoint limits. A `429` includes a conservative `Retry-After`.

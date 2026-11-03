@@ -45,14 +45,14 @@ myapp/
 | `myapp/shared/`, each module's `module.snapshot.json` and `routes.snapshot.json`, `.sandloom/inspection.json` | `sandloom generate`. Commit them and never edit them by hand |
 
 `sandloom test` checks the generated files and never writes them. If it reports them out
-of date, run [`sandloom generate`](../toolchain/generate.md).
+of date, run [`sandloom generate`](../ai/generate.md).
 
 ## What comes from the framework
 
 | Package | What it gives you |
 | --- | --- |
 | `sandloom` | `sandloom.sdk`, the only framework API your modules import, plus the CLI |
-| `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` | the [standard modules](../modules/standard/index.md), if you chose them |
+| `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` | the [standard modules](../modules/batteries/index.md), if you chose them |
 
 Choose the standard modules when you create the project: `--with identity,tenancy,billing`
 for any subset, or `--no-batteries` for none. All options are in the
@@ -60,7 +60,7 @@ for any subset, or `--no-batteries` for none. All options are in the
 
 A standard module runs in your application but stays in its package. Your modules reach it
 through the contract stubs in `myapp/shared/`, the same way they reach each other. To
-change its behaviour, see [Customize a standard module](../modules/standard/customize.md).
+change its behaviour, see [Customize a standard module](../modules/batteries/customize.md).
 To move to a new framework version, see [Upgrade an application](../operate/upgrade.md).
 
 ## How the application starts

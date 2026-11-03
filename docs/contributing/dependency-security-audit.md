@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Dependency security audit — 2026-10-29
 
 This audit covers the 51 open Dependabot alerts captured on 2026-10-29 for

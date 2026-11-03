@@ -1,5 +1,6 @@
 ---
 title: Modules
+type: concept
 ---
 
 # Standard Modules
@@ -12,7 +13,7 @@ are optional: `--no-batteries` creates an application with none of them. Each is
 `pip install "sandloom[standard]"`). Each registers a `sandloom.modules` entry
 point whose name is its module name, depends on `sandloom>=0.7.0a6,<0.8` and on no
 other module, and follows the same isolation rules as a module you write yourself
-([Module packages](../guarantees/module-internals.md#module-packages)). Load any subset via
+([Module packages](../../advanced/module-internals.md#module-packages)). Load any subset via
 `SANDLOOM_MODULES` (`["identity", "tenancy"]`), or `sandloom new <app> --with
 identity,tenancy,billing`. Sandloom is in alpha, and so are these modules.
 

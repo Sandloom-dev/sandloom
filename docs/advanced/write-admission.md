@@ -9,7 +9,7 @@ type: concept
 A request writes through **one** unit on **one** database, its write store.
 The first unit of the request that writes becomes the request's writer; a
 write by any other unit of the same request is refused **before the statement
-runs**, with [SANDLOOM-R007](../../reference/error-codes.md#sandloom-r007). This is what
+runs**, with [SANDLOOM-R007](../reference/error-codes.md#sandloom-r007). This is what
 makes "the request committed" mean one atomic change: there is no
 distributed transaction, so two writing units could commit one and lose the
 other.
@@ -20,7 +20,7 @@ other.
 | --- | --- | --- |
 | a route that writes through `db()` or `DbSession` | the module's primary database is the write store | nothing |
 | a route that injects one named database (`Database("x")`) and no `DbSession` | `x` is the write store | nothing |
-| a route that injects several writable sessions | refused at startup ([SANDLOOM-B009](../../reference/error-codes.md#sandloom-b009)) | `writes("x")` to name the write store |
+| a route that injects several writable sessions | refused at startup ([SANDLOOM-B009](../reference/error-codes.md#sandloom-b009)) | `writes("x")` to name the write store |
 | a route that must write to a second database too | refused at its first write (SANDLOOM-R007) | `allow_multi_db_write(secondaries=("y",), reason="...")`, a reviewed opt-out with a lower guarantee |
 | a child task that writes | allowed if it is the first writer; refused if another unit already wrote | nothing; the child opens its own unit with `open_uow()` |
 | a contract command, a consumer, a task, a saga step | its own admission scope: it writes in its own unit | nothing |
@@ -75,9 +75,9 @@ outbox marking) are exempt.
    `sandloom_multi_store_partial_commit_total{route,store}` (each store that
    committed), logged as a `uow.partial_commit` warning and converged by a
    keyed retry. A money effect is never allowed in a secondary
-   ([SANDLOOM-B014](../../reference/error-codes.md#sandloom-b014)).
+   ([SANDLOOM-B014](../reference/error-codes.md#sandloom-b014)).
 5. An operation-intent route admits sequential units only: a unit may not open
-   while another is open ([SANDLOOM-R008](../../reference/error-codes.md#sandloom-r008)).
+   while another is open ([SANDLOOM-R008](../reference/error-codes.md#sandloom-r008)).
    See [the lifecycle](lifecycle.md#operation-intent-mode).
 
 ```python
@@ -95,19 +95,19 @@ async def rebuild_rollup(db: DbSession, analytics: Database("analytics")) -> Non
   (`SELECT my_func()` that writes): the classifier cannot see them.
 - Work in other processes.
 - The raw DBAPI handles (`raw_connection()`, `driver_connection`): module code
-  cannot reach them ([SANDLOOM-C003](../../reference/error-codes.md#sandloom-c003)), so the
+  cannot reach them ([SANDLOOM-C003](../reference/error-codes.md#sandloom-c003)), so the
   one path that bypasses the cursor hook is closed to modules.
 
 ## What breaks it
 
 | Code | What it catches |
 | --- | --- |
-| [SANDLOOM-R007](../../reference/error-codes.md#sandloom-r007) | a second writer, at its first write |
-| [SANDLOOM-R008](../../reference/error-codes.md#sandloom-r008) | overlapping units in an intent route; a unit opened during an external call or a release check |
-| [SANDLOOM-B009](../../reference/error-codes.md#sandloom-b009) | several writable sessions without `writes()` or an opt-out |
-| [SANDLOOM-B013](../../reference/error-codes.md#sandloom-b013) | an invalid `allow_multi_db_write` (the secondary is the write store, or not injected) |
-| [SANDLOOM-B014](../../reference/error-codes.md#sandloom-b014) | a money effect in an opted-out secondary |
-| [SANDLOOM-C023](../../reference/error-codes.md#sandloom-c023) | lists every `allow_multi_db_write` opt-out for review |
+| [SANDLOOM-R007](../reference/error-codes.md#sandloom-r007) | a second writer, at its first write |
+| [SANDLOOM-R008](../reference/error-codes.md#sandloom-r008) | overlapping units in an intent route; a unit opened during an external call or a release check |
+| [SANDLOOM-B009](../reference/error-codes.md#sandloom-b009) | several writable sessions without `writes()` or an opt-out |
+| [SANDLOOM-B013](../reference/error-codes.md#sandloom-b013) | an invalid `allow_multi_db_write` (the secondary is the write store, or not injected) |
+| [SANDLOOM-B014](../reference/error-codes.md#sandloom-b014) | a money effect in an opted-out secondary |
+| [SANDLOOM-C023](../reference/error-codes.md#sandloom-c023) | lists every `allow_multi_db_write` opt-out for review |
 
 ??? note "Guarantees, precisely"
 
@@ -120,9 +120,9 @@ async def rebuild_rollup(db: DbSession, analytics: Database("analytics")) -> Non
     A property test over random sequences of unit opens, writes, flushes and
     child tasks shows no second writer's statement ever executes.
 
-    The ledger with the enforcing tests: [Guarantees & capabilities](../../reference/guarantees.md).
+    The ledger with the enforcing tests: [Guarantees & capabilities](../reference/guarantees.md).
 
 ## Design rationale
 
-- [ADR-0010: Public API 1.0](../../adr/0010-public-api-1.0.md), "One writer per request"
-- [ADR-0005: the effect model](../../adr/0005-effect-model.md)
+- [ADR-0010: Public API 1.0](../adr/0010-public-api-1.0.md), "One writer per request"
+- [ADR-0005: the effect model](../adr/0005-effect-model.md)

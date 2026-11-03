@@ -77,7 +77,7 @@ sandloom test: FAILED (ruff check, ruff format, sandloom check)
 ```
 
 <!-- prose-ok: P6 the option list and the failure kinds are real lists, not rhythm -->
-The module you name runs first, then the fast suite and the static checks. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
+The module you name runs first, then the fast suite and the static checks. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](../modules/testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
 
 ## Run sandloom check alone
 
@@ -97,5 +97,5 @@ The checks prove the structure, not the behaviour: whether a feature does what y
 ## Go deeper
 
 - [Error codes](../reference/error-codes.md): every code with its cause and fix.
-- [Testing modules](testing.md): the fixtures and helpers for your module's tests.
+- [Testing modules](../modules/testing.md): the fixtures and helpers for your module's tests.
 - [The toolchain](index.md): where the checks sit in the loop of a change.

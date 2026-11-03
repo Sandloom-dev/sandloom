@@ -998,13 +998,13 @@ uv run pytest -m guarantees src
 
 | Id | Source |
 | --- | --- |
-| <span class="sl-id">G-TENANT-01</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant isolation |
-| <span class="sl-id">G-TENANT-02</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant isolation |
-| <span class="sl-id">G-TENANT-03</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant isolation |
+| <span class="sl-id">G-TENANT-01</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant isolation |
+| <span class="sl-id">G-TENANT-02</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant isolation |
+| <span class="sl-id">G-TENANT-03</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant isolation |
 | <span class="sl-id">G-TENANT-04</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-05</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-06</span> | docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-TENANT-07</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant isolation |
+| <span class="sl-id">G-TENANT-07</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant isolation |
 | <span class="sl-id">G-TENANT-08</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-09</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-10</span> | docs/modules/database/multi-tenancy.md |
@@ -1016,30 +1016,30 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-TENANT-16</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-17</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-TENANT-18</span> | docs/modules/between/projections.md |
-| <span class="sl-id">G-RLS-01</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/reference/security-model.md#SQL paths available to business-module code |
-| <span class="sl-id">G-RLS-02</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
-| <span class="sl-id">G-RLS-03</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-RLS-04</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
-| <span class="sl-id">G-RLS-05</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-RLS-01</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/advanced/security-model.md#SQL paths available to business-module code |
+| <span class="sl-id">G-RLS-02</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
+| <span class="sl-id">G-RLS-03</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-RLS-04</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
+| <span class="sl-id">G-RLS-05</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed)<br>docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-RLS-06</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-RLS-07</span> | docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-RLS-08</span> | docs/reference/security-model.md#The system channel (privileged work)<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-RLS-09</span> | docs/reference/security-model.md#The system channel (privileged work) |
-| <span class="sl-id">G-RLS-10</span> | docs/reference/security-model.md#SQL paths available to business-module code<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-RLS-11</span> | docs/reference/security-model.md#SQL paths available to business-module code<br>docs/reference/security-model.md#What is NOT guaranteed (residual risks) |
-| <span class="sl-id">G-RLS-12</span> | docs/reference/security-model.md#SQL paths available to business-module code |
-| <span class="sl-id">G-RLS-13</span> | docs/reference/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
-| <span class="sl-id">G-RLS-14</span> | docs/reference/security-model.md#What is NOT guaranteed (residual risks)<br>docs/reference/security-model.md#Trust model of this Sandloom version (normative) |
-| <span class="sl-id">G-RLS-15</span> | docs/reference/security-model.md#Tenant RLS threat model |
-| <span class="sl-id">G-PROFILE-01</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-PROFILE-02</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
-| <span class="sl-id">G-PROFILE-03</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/reference/security-model.md#The contract (what Sandloom guarantees, and under which conditions) |
-| <span class="sl-id">G-PROFILE-04</span> | docs/reference/security-model.md#Production profile: the multi-tenant trust model as a contract |
-| <span class="sl-id">G-PROFILE-05</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
-| <span class="sl-id">G-PROFILE-06</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-PROFILE-07</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/reference/security-model.md#Security-critical vs best-effort cache |
-| <span class="sl-id">G-PROFILE-08</span> | docs/reference/security-model.md#Security-critical vs best-effort cache<br>docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">G-PROFILE-09</span> | docs/reference/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
+| <span class="sl-id">G-RLS-08</span> | docs/advanced/security-model.md#The system channel (privileged work)<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-RLS-09</span> | docs/advanced/security-model.md#The system channel (privileged work) |
+| <span class="sl-id">G-RLS-10</span> | docs/advanced/security-model.md#SQL paths available to business-module code<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-RLS-11</span> | docs/advanced/security-model.md#SQL paths available to business-module code<br>docs/advanced/security-model.md#What is NOT guaranteed (residual risks) |
+| <span class="sl-id">G-RLS-12</span> | docs/advanced/security-model.md#SQL paths available to business-module code |
+| <span class="sl-id">G-RLS-13</span> | docs/advanced/security-model.md#What is guaranteed (tables with `enable_tenant_rls`, startup verification passed) |
+| <span class="sl-id">G-RLS-14</span> | docs/advanced/security-model.md#What is NOT guaranteed (residual risks)<br>docs/advanced/security-model.md#Trust model of this Sandloom version (normative) |
+| <span class="sl-id">G-RLS-15</span> | docs/advanced/security-model.md#Tenant RLS threat model |
+| <span class="sl-id">G-PROFILE-01</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-PROFILE-02</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
+| <span class="sl-id">G-PROFILE-03</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/advanced/security-model.md#The contract (what Sandloom guarantees, and under which conditions) |
+| <span class="sl-id">G-PROFILE-04</span> | docs/advanced/security-model.md#Production profile: the multi-tenant trust model as a contract |
+| <span class="sl-id">G-PROFILE-05</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
+| <span class="sl-id">G-PROFILE-06</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-PROFILE-07</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`<br>docs/advanced/security-model.md#Security-critical vs best-effort cache |
+| <span class="sl-id">G-PROFILE-08</span> | docs/advanced/security-model.md#Security-critical vs best-effort cache<br>docs/modules/database/multi-tenancy.md |
+| <span class="sl-id">G-PROFILE-09</span> | docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict` |
 | <span class="sl-id">G-UOW-01</span> | docs/modules/database/units.md<br>docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list |
 | <span class="sl-id">G-UOW-02</span> | docs/modules/database/units.md |
 | <span class="sl-id">G-UOW-03</span> | docs/modules/database/units.md<br>docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list |
@@ -1095,20 +1095,20 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-CMD-07</span> | docs/modules/between/contracts.md<br>docs/adr/0005-effect-model.md#2. The dedupe record — one primitive |
 | <span class="sl-id">G-CMD-08</span> | docs/modules/between/contracts.md |
 | <span class="sl-id">G-CMD-09</span> | docs/modules/between/contracts.md<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
-| <span class="sl-id">G-IDEM-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Idempotency |
+| <span class="sl-id">G-IDEM-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Idempotency |
 | <span class="sl-id">G-IDEM-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
-| <span class="sl-id">G-IDEM-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Idempotency |
+| <span class="sl-id">G-IDEM-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Idempotency |
 | <span class="sl-id">G-IDEM-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0005-effect-model.md#2. The dedupe record — one primitive |
-| <span class="sl-id">G-IDEM-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Idempotency |
-| <span class="sl-id">G-IDEM-06</span> | docs/reference/security-model.md#Idempotency<br>docs/modules/index.md#What you get by default, and what you declare |
+| <span class="sl-id">G-IDEM-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Idempotency |
+| <span class="sl-id">G-IDEM-06</span> | docs/advanced/security-model.md#Idempotency<br>docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">G-IDEM-07</span> | docs/modules/index.md#What you get by default, and what you declare |
-| <span class="sl-id">G-IDEM-08</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Idempotency |
+| <span class="sl-id">G-IDEM-08</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Idempotency |
 | <span class="sl-id">G-IDEM-09</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0005-effect-model.md#2. The dedupe record — one primitive<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
 | <span class="sl-id">G-IDEM-10</span> | docs/adr/0005-effect-model.md#2. The dedupe record — one primitive |
 | <span class="sl-id">G-IDEM-11</span> | docs/adr/0005-effect-model.md#4a. Ambiguous COMMIT |
 | <span class="sl-id">G-IDEM-12</span> | docs/adr/0005-effect-model.md#2. The dedupe record — one primitive<br>docs/adr/0005-effect-model.md#Consequences |
 | <span class="sl-id">G-IDEM-14</span> | docs/modules/index.md#What you get by default, and what you declare |
-| <span class="sl-id">G-IDEM-15</span> | docs/reference/security-model.md#Idempotency |
+| <span class="sl-id">G-IDEM-15</span> | docs/advanced/security-model.md#Idempotency |
 | <span class="sl-id">G-IDEM-16</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">G-IDEM-17</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
 | <span class="sl-id">G-IDEM-18</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
@@ -1134,57 +1134,57 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-EVENT-12</span> | docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">G-EVENT-13</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/modules/between/events.md#Changing an event |
 | <span class="sl-id">G-EVENT-14</span> | docs/reference/cli.md |
-| <span class="sl-id">G-AUDIT-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Audit trail<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
+| <span class="sl-id">G-AUDIT-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Audit trail<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
 | <span class="sl-id">G-AUDIT-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0005-effect-model.md#4. Mechanism matrix |
-| <span class="sl-id">G-AUTH-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-03</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-04</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-05</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-06</span> | docs/reference/security-model.md#Authentication<br>docs/operate/topologies.md |
-| <span class="sl-id">G-AUTH-07</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-08</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-09</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-AUTH-10</span> | docs/reference/security-model.md#Secrets<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-11</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authorization |
-| <span class="sl-id">G-AUTH-12</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authorization |
-| <span class="sl-id">G-AUTH-13</span> | docs/reference/security-model.md#Authorization |
+| <span class="sl-id">G-AUTH-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-03</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-04</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-05</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-06</span> | docs/advanced/security-model.md#Authentication<br>docs/operate/topologies.md |
+| <span class="sl-id">G-AUTH-07</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-08</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-09</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-AUTH-10</span> | docs/advanced/security-model.md#Secrets<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-11</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authorization |
+| <span class="sl-id">G-AUTH-12</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authorization |
+| <span class="sl-id">G-AUTH-13</span> | docs/advanced/security-model.md#Authorization |
 | <span class="sl-id">G-AUTH-14</span> | docs/modules/index.md#What you get by default, and what you declare |
-| <span class="sl-id">G-AUTH-15</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-16</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-17</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md |
-| <span class="sl-id">G-AUTH-18</span> | docs/modules/standard/identity.md#Behaviour API clients must know |
-| <span class="sl-id">G-AUTH-19</span> | docs/reference/security-model.md#Authentication<br>docs/reference/cli.md<br>docs/operate/topologies.md |
-| <span class="sl-id">G-REVOKE-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-06</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-07</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-08</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-09</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">G-REVOKE-10</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
-| <span class="sl-id">G-REVOKE-11</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-REVOKE-12</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-REVOKE-17</span> | docs/modules/database/units.md<br>docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-REVOKE-18</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-REVOKE-19</span> | docs/reference/security-model.md#Security-critical vs best-effort cache<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-15</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-16</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-17</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md |
+| <span class="sl-id">G-AUTH-18</span> | docs/modules/batteries/identity.md#Behaviour API clients must know |
+| <span class="sl-id">G-AUTH-19</span> | docs/advanced/security-model.md#Authentication<br>docs/reference/cli.md<br>docs/operate/topologies.md |
+| <span class="sl-id">G-REVOKE-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-06</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-07</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-08</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-09</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">G-REVOKE-10</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
+| <span class="sl-id">G-REVOKE-11</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-REVOKE-12</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-REVOKE-17</span> | docs/modules/database/units.md<br>docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-REVOKE-18</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-REVOKE-19</span> | docs/advanced/security-model.md#Security-critical vs best-effort cache<br>docs/reference/cli.md |
 | <span class="sl-id">G-REVOKE-21</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks<br>docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix) |
 | <span class="sl-id">G-REVOKE-22</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix)<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
 | <span class="sl-id">G-REVOKE-23</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
 | <span class="sl-id">G-REVOKE-24</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-BLOCK-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-BLOCK-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
-| <span class="sl-id">G-BLOCK-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
-| <span class="sl-id">G-BLOCK-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Operation classes (normative) |
-| <span class="sl-id">G-BLOCK-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
+| <span class="sl-id">G-BLOCK-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-BLOCK-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
+| <span class="sl-id">G-BLOCK-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
+| <span class="sl-id">G-BLOCK-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Operation classes (normative) |
+| <span class="sl-id">G-BLOCK-05</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
 | <span class="sl-id">G-BLOCK-06</span> | docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
 | <span class="sl-id">G-BLOCK-07</span> | docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks |
 | <span class="sl-id">G-OPCLASS-03</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Platform routes → classes<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far<br>docs/adr/0009-route-policy-and-session-freshness.md#The route snapshot |
-| <span class="sl-id">G-OPCLASS-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-OPCLASS-05</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner |
-| <span class="sl-id">G-OPCLASS-06</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner |
+| <span class="sl-id">G-OPCLASS-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">G-OPCLASS-05</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner |
+| <span class="sl-id">G-OPCLASS-06</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner |
 | <span class="sl-id">G-OPCLASS-07</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Platform owner console routes<br>docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner |
 | <span class="sl-id">G-ROUTE-01</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix)<br>docs/adr/0009-route-policy-and-session-freshness.md#Removed from the internal API before the initial public alpha |
 | <span class="sl-id">G-ROUTE-02</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
@@ -1198,41 +1198,41 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-SENS-05</span> | docs/adr/0009-route-policy-and-session-freshness.md#What risk triggers (applied by the framework)<br>docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix) |
 | <span class="sl-id">G-SENS-06</span> | docs/adr/0009-route-policy-and-session-freshness.md#What risk triggers (applied by the framework)<br>docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix) |
 | <span class="sl-id">G-AUTHZ-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Failure rules (fail-closed defaults)<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
-| <span class="sl-id">G-AUTHZ-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authorization<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
+| <span class="sl-id">G-AUTHZ-02</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authorization<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
 | <span class="sl-id">G-AUTHZ-03</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#What must stay strict (always a live RPC / local call)<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
 | <span class="sl-id">G-AUTHZ-04</span> | docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">G-AUTHZ-05</span> | docs/modules/index.md#What you get by default, and what you declare |
-| <span class="sl-id">G-AUTHZ-06</span> | docs/reference/security-model.md#Authorization |
-| <span class="sl-id">G-AUTHZ-07</span> | docs/reference/security-model.md#Authorization |
-| <span class="sl-id">G-AUTHZ-08</span> | docs/reference/security-model.md#Audit trail |
+| <span class="sl-id">G-AUTHZ-06</span> | docs/advanced/security-model.md#Authorization |
+| <span class="sl-id">G-AUTHZ-07</span> | docs/advanced/security-model.md#Authorization |
+| <span class="sl-id">G-AUTHZ-08</span> | docs/advanced/security-model.md#Audit trail |
 | <span class="sl-id">G-AUTHZ-09</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.2 `of=` (required, no default) |
 | <span class="sl-id">G-AUTHZ-10</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.2 `of=` (required, no default) |
 | <span class="sl-id">G-AUTHZ-11</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
 | <span class="sl-id">G-AUTHZ-12</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
 | <span class="sl-id">G-GUARD-01</span> | docs/modules/index.md#What you get by default, and what you declare |
-| <span class="sl-id">G-GUARD-02</span> | docs/reference/security-model.md#Idempotency |
-| <span class="sl-id">G-HTTP-01</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
+| <span class="sl-id">G-GUARD-02</span> | docs/advanced/security-model.md#Idempotency |
+| <span class="sl-id">G-HTTP-01</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
 | <span class="sl-id">G-HTTP-02</span> | docs/reference/cli.md |
-| <span class="sl-id">G-HTTP-03</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
-| <span class="sl-id">G-HTTP-04</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
-| <span class="sl-id">G-HTTP-05</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/security-model.md#Secrets |
-| <span class="sl-id">G-HTTP-06</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
-| <span class="sl-id">G-HTTP-07</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
-| <span class="sl-id">G-HTTP-08</span> | docs/reference/security-model.md#Transport & request hardening |
-| <span class="sl-id">G-HTTP-09</span> | docs/reference/security-model.md#Transport & request hardening |
-| <span class="sl-id">G-HTTP-10</span> | docs/reference/security-model.md#Transport & request hardening<br>docs/contributing/repository.md#Things that look wrong but are intentional |
-| <span class="sl-id">G-HTTP-11</span> | docs/reference/security-model.md#Secrets |
+| <span class="sl-id">G-HTTP-03</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
+| <span class="sl-id">G-HTTP-04</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
+| <span class="sl-id">G-HTTP-05</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/advanced/security-model.md#Secrets |
+| <span class="sl-id">G-HTTP-06</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
+| <span class="sl-id">G-HTTP-07</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/reference/cli.md |
+| <span class="sl-id">G-HTTP-08</span> | docs/advanced/security-model.md#Transport & request hardening |
+| <span class="sl-id">G-HTTP-09</span> | docs/advanced/security-model.md#Transport & request hardening |
+| <span class="sl-id">G-HTTP-10</span> | docs/advanced/security-model.md#Transport & request hardening<br>docs/contributing/repository.md#Things that look wrong but are intentional |
+| <span class="sl-id">G-HTTP-11</span> | docs/advanced/security-model.md#Secrets |
 | <span class="sl-id">G-HTTP-12</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
-| <span class="sl-id">G-BILLING-01</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
-| <span class="sl-id">G-BILLING-02</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
+| <span class="sl-id">G-BILLING-01</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
+| <span class="sl-id">G-BILLING-02</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
 | <span class="sl-id">G-BILLING-03</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Guarantees, precisely<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Strict RPC is not zero staleness: the TOCTOU window |
 | <span class="sl-id">G-BILLING-04</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Intent lifecycle (state transitions) |
 | <span class="sl-id">G-BILLING-05</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Intent lifecycle (state transitions)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions)<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
 | <span class="sl-id">G-BILLING-06</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Intent ownership (application-level isolation) |
-| <span class="sl-id">G-BILLING-07</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix |
+| <span class="sl-id">G-BILLING-07</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix |
 | <span class="sl-id">G-BILLING-08</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions) |
 | <span class="sl-id">G-BILLING-09</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Intent reconciliation (#72)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions) |
-| <span class="sl-id">G-BILLING-10</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved |
+| <span class="sl-id">G-BILLING-10</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved |
 | <span class="sl-id">G-BILLING-11</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix<br>docs/contributing/repository.md#Things that look wrong but are intentional |
 | <span class="sl-id">G-BILLING-12</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix |
 | <span class="sl-id">G-BILLING-13</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix |
@@ -1240,11 +1240,11 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-BILLING-15</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions) |
 | <span class="sl-id">G-BILLING-16</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions) |
 | <span class="sl-id">G-BILLING-17</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Webhook matrix<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Open items (owner questions) |
-| <span class="sl-id">G-BILLING-18</span> | docs/reference/cli.md<br>docs/reference/security-model.md#Secrets<br>docs/operate/topologies.md |
-| <span class="sl-id">G-BILLING-19</span> | docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
+| <span class="sl-id">G-BILLING-18</span> | docs/reference/cli.md<br>docs/advanced/security-model.md#Secrets<br>docs/operate/topologies.md |
+| <span class="sl-id">G-BILLING-19</span> | docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0003-fewer-sync-rpc-membership-reads.md#Gaps the classification exposed — resolved<br>docs/adr/0010-public-api-1.0.md#4. Transaction and replay lifecycle |
 | <span class="sl-id">G-BILLING-20</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.4 Account selection in billing itself |
 | <span class="sl-id">G-BILLING-21</span> | docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects<br>tests/fixtures/specs/public-api-1.0-spec.md#7.4 Account selection in billing itself |
-| <span class="sl-id">G-BILLING-22</span> | docs/modules/standard/billing.md |
+| <span class="sl-id">G-BILLING-22</span> | docs/modules/batteries/billing.md |
 | <span class="sl-id">G-CONTRACT-01</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-02</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
 | <span class="sl-id">G-CONTRACT-03</span> | docs/modules/between/contracts.md<br>docs/modules/between/contracts.md#Local equals remote |
@@ -1275,23 +1275,23 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-RPC-02</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key schedule<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Threat model |
 | <span class="sl-id">G-RPC-03</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC |
 | <span class="sl-id">G-RPC-04</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Errors<br>docs/operate/service-rpc.md#Request authentication and idempotency |
-| <span class="sl-id">G-RPC-05</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Threat model<br>docs/reference/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">G-RPC-05</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Threat model<br>docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
 | <span class="sl-id">G-RPC-06</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Third review (re-review of the KCI fix, 2026-10-21) |
 | <span class="sl-id">G-RPC-07</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Security review |
 | <span class="sl-id">G-RPC-08</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Second review (independent, 2026-10-21) |
 | <span class="sl-id">G-RPC-09</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Second review (independent, 2026-10-21) |
 | <span class="sl-id">G-RPC-10</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Request authentication and idempotency |
-| <span class="sl-id">G-RPC-11</span> | docs/modules/between/contracts.md<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade<br>docs/reference/security-model.md#Service-to-service trust (internal RPC) |
-| <span class="sl-id">G-RPC-12</span> | docs/modules/between/contracts.md<br>docs/reference/security-model.md#Service-to-service trust (internal RPC) |
-| <span class="sl-id">G-RPC-13</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key-compromise impersonation (KCI) and the command signature<br>docs/reference/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">G-RPC-11</span> | docs/modules/between/contracts.md<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade<br>docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">G-RPC-12</span> | docs/modules/between/contracts.md<br>docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">G-RPC-13</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key-compromise impersonation (KCI) and the command signature<br>docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
 | <span class="sl-id">G-RPC-14</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key-compromise impersonation (KCI) and the command signature<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation |
 | <span class="sl-id">G-RPC-15</span> | docs/modules/between/contracts.md<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25) |
 | <span class="sl-id">G-RPC-16</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Provider endpoint<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25) |
 | <span class="sl-id">G-RPC-17</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation<br>docs/operate/service-rpc.md#Response binding |
 | <span class="sl-id">G-RPC-18</span> | docs/modules/between/contracts.md<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Errors<br>docs/operate/service-rpc.md#Errors |
-| <span class="sl-id">G-RPC-19</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Response binding<br>docs/reference/security-model.md#Response binding — threat model |
-| <span class="sl-id">G-RPC-20</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Security review<br>docs/reference/security-model.md#Response binding — threat model |
-| <span class="sl-id">G-RPC-21</span> | docs/operate/service-rpc.md#Response binding<br>docs/reference/security-model.md#Response binding — threat model<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25) |
+| <span class="sl-id">G-RPC-19</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Response binding<br>docs/advanced/security-model.md#Response binding — threat model |
+| <span class="sl-id">G-RPC-20</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Request MAC<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Security review<br>docs/advanced/security-model.md#Response binding — threat model |
+| <span class="sl-id">G-RPC-21</span> | docs/operate/service-rpc.md#Response binding<br>docs/advanced/security-model.md#Response binding — threat model<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25) |
 | <span class="sl-id">G-RPC-22</span> | docs/operate/service-rpc.md#Response binding |
 | <span class="sl-id">G-RPC-23</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
 | <span class="sl-id">G-RPC-24</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
@@ -1300,10 +1300,10 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-RPC-27</span> | docs/operate/service-rpc.md#Transport & performance |
 | <span class="sl-id">G-RPC-28</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Downgrade<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)<br>docs/operate/service-rpc.md#Provider endpoint |
 | <span class="sl-id">G-RPC-29</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Amendment (2026-10-25)<br>docs/reference/cli.md |
-| <span class="sl-id">G-RPC-30</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation<br>docs/reference/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">G-RPC-30</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Key rotation<br>docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
 | <span class="sl-id">G-RPC-31</span> | docs/adr/0004-rpc-pair-mac-request-authentication.md#Errors<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Security review |
 | <span class="sl-id">G-RPC-32</span> | docs/operate/service-rpc.md#Request authentication and idempotency<br>docs/adr/0004-rpc-pair-mac-request-authentication.md#Second review (independent, 2026-10-21) |
-| <span class="sl-id">G-RPC-33</span> | docs/reference/security-model.md#Service-to-service trust (internal RPC)<br>deploy/README.md#Probes (liveness vs readiness) |
+| <span class="sl-id">G-RPC-33</span> | docs/advanced/security-model.md#Service-to-service trust (internal RPC)<br>deploy/README.md#Probes (liveness vs readiness) |
 | <span class="sl-id">G-MODULE-01</span> | docs/modules/index.md#What a module may import<br>docs/modules/index.md#How modules talk to each other |
 | <span class="sl-id">G-MODULE-02</span> | docs/modules/index.md#What a module may import<br>docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase) |
 | <span class="sl-id">G-MODULE-03</span> | docs/modules/index.md#What a module may import |
@@ -1383,7 +1383,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-OPS-07</span> | docs/reference/testing.md |
 | <span class="sl-id">G-OPS-08</span> | docs/reference/testing.md |
 | <span class="sl-id">G-OPS-09</span> | docs/reference/testing.md |
-| <span class="sl-id">G-OPS-10</span> | docs/reference/testing.md<br>docs/toolchain/testing.md#Test isolation |
+| <span class="sl-id">G-OPS-10</span> | docs/reference/testing.md<br>docs/modules/testing.md#Test isolation |
 | <span class="sl-id">G-OPS-11</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Preflight and effective configuration |
 | <span class="sl-id">G-OPS-12</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise) |
 | <span class="sl-id">G-OPS-13</span> | docs/operate/operator-reference.md#Observability<br>docs/operate/operator-reference.md#Data retention & PII |
@@ -1395,7 +1395,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-OPS-19</span> | docs/operate/operator-reference.md#Restoring: the order, and the traffic gate<br>docs/operate/operator-reference.md#Backups & restore |
 | <span class="sl-id">G-OPS-20</span> | docs/operate/topologies.md |
 | <span class="sl-id">G-OPS-21</span> | docs/reference/cli.md<br>deploy/README.md#Required modules |
-| <span class="sl-id">G-OPS-22</span> | docs/operate/split-into-services.md<br>docs/reference/security-model.md |
+| <span class="sl-id">G-OPS-22</span> | docs/operate/split-into-services.md<br>docs/advanced/security-model.md |
 | <span class="sl-id">G-SAGA-01</span> | docs/adr/0008-sagas.md#1. Definition (registration-time checks) |
 | <span class="sl-id">G-SAGA-02</span> | docs/adr/0008-sagas.md#1. Definition (registration-time checks) |
 | <span class="sl-id">G-SAGA-03</span> | docs/adr/0008-sagas.md#2. State: two core-chain tables in the owning module's database |
@@ -1429,25 +1429,25 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-SENS-07</span> | docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner<br>tests/fixtures/specs/public-api-1.0-spec.md#8.2 Property-based (Hypothesis) |
 | <span class="sl-id">C-TENANT-01</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">C-TENANT-02</span> | docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">C-TENANT-03</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant isolation |
+| <span class="sl-id">C-TENANT-03</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant isolation |
 | <span class="sl-id">C-TENANT-04</span> | docs/modules/database/multi-tenancy.md |
-| <span class="sl-id">C-TENANT-05</span> | docs/modules/database/multi-tenancy.md<br>docs/reference/security-model.md#Tenant RLS threat model |
-| <span class="sl-id">C-TENANT-06</span> | docs/reference/security-model.md#The system channel (privileged work) |
-| <span class="sl-id">C-TENANT-07</span> | docs/reference/security-model.md#Production profile: the multi-tenant trust model as a contract |
-| <span class="sl-id">C-TENANT-08</span> | docs/reference/security-model.md#Security-critical vs best-effort cache |
+| <span class="sl-id">C-TENANT-05</span> | docs/modules/database/multi-tenancy.md<br>docs/advanced/security-model.md#Tenant RLS threat model |
+| <span class="sl-id">C-TENANT-06</span> | docs/advanced/security-model.md#The system channel (privileged work) |
+| <span class="sl-id">C-TENANT-07</span> | docs/advanced/security-model.md#Production profile: the multi-tenant trust model as a contract |
+| <span class="sl-id">C-TENANT-08</span> | docs/advanced/security-model.md#Security-critical vs best-effort cache |
 | <span class="sl-id">C-TENANT-09</span> | docs/modules/database/multi-tenancy.md |
 | <span class="sl-id">C-EVENT-01</span> | docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">C-EVENT-02</span> | docs/modules/index.md#What a module may import |
 | <span class="sl-id">C-EVENT-03</span> | docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">C-EFFECT-01</span> | docs/modules/background/tasks.md |
 | <span class="sl-id">C-EFFECT-02</span> | docs/modules/database/units.md<br>docs/adr/0005-effect-model.md#3. The commit pipeline — one stage list |
-| <span class="sl-id">C-AUTH-01</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">C-AUTH-02</span> | docs/reference/security-model.md#Authentication |
-| <span class="sl-id">C-AUTH-03</span> | docs/reference/security-model.md#Authentication<br>docs/operate/topologies.md |
-| <span class="sl-id">C-AUTH-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authentication |
-| <span class="sl-id">C-AUTH-05</span> | docs/modules/standard/identity.md#Behaviour API clients must know |
-| <span class="sl-id">C-AUTH-06</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/reference/security-model.md#Authorization<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
-| <span class="sl-id">C-AUTH-07</span> | docs/modules/database/units.md<br>docs/reference/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
+| <span class="sl-id">C-AUTH-01</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">C-AUTH-02</span> | docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">C-AUTH-03</span> | docs/advanced/security-model.md#Authentication<br>docs/operate/topologies.md |
+| <span class="sl-id">C-AUTH-04</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authentication |
+| <span class="sl-id">C-AUTH-05</span> | docs/modules/batteries/identity.md#Behaviour API clients must know |
+| <span class="sl-id">C-AUTH-06</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/advanced/security-model.md#Authorization<br>docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects |
+| <span class="sl-id">C-AUTH-07</span> | docs/modules/database/units.md<br>docs/advanced/security-model.md#Authority at commit (admin and money effects)<br>docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
 | <span class="sl-id">C-AUTH-08</span> | docs/adr/0003-fewer-sync-rpc-membership-reads.md#Intent reconciliation (#72) |
 | <span class="sl-id">C-AUTH-09</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)<br>tests/fixtures/specs/public-api-1.0-spec.md#2.3 New names: exact signatures |
 | <span class="sl-id">C-ROUTE-01</span> | docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare) |
@@ -1464,7 +1464,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-RPC-01</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
 | <span class="sl-id">C-RPC-02</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Transport & performance |
 | <span class="sl-id">C-RPC-03</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Request authentication and idempotency |
-| <span class="sl-id">C-RPC-04</span> | docs/reference/security-model.md#Service-to-service trust (internal RPC) |
+| <span class="sl-id">C-RPC-04</span> | docs/advanced/security-model.md#Service-to-service trust (internal RPC) |
 | <span class="sl-id">C-RPC-05</span> | docs/modules/between/contracts.md<br>docs/operate/service-rpc.md#Local == remote |
 | <span class="sl-id">C-INFRA-01</span> | docs/infrastructure/index.md |
 | <span class="sl-id">C-INFRA-02</span> | docs/infrastructure/index.md<br>docs/adr/0001-framework-distribution.md#2. Package graph (monorepo + uv workspace, N wheels, independent versions) |
@@ -1600,9 +1600,9 @@ uv run pytest -m guarantees src
 | <span class="sl-id">C-SDK-03</span> | docs/modules/background/tasks.md |
 | <span class="sl-id">C-MIGRATE-09</span> | docs/modules/database/write-migration.md |
 | <span class="sl-id">C-PROJ-09</span> | docs/modules/between/projections.md |
-| <span class="sl-id">C-EVENT-04</span> | docs/modules/standard/tenancy.md<br>docs/modules/standard/billing.md |
+| <span class="sl-id">C-EVENT-04</span> | docs/modules/batteries/tenancy.md<br>docs/modules/batteries/billing.md |
 
 ## Related reading
 
-- [Guarantee boundaries](../modules/guarantees/index.md)
+- [Guarantee boundaries](../advanced/guarantees.md)
 - [Error catalogue](error-codes.md)

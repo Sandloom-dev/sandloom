@@ -1,5 +1,6 @@
 ---
 title: Event Contracts
+type: reference
 ---
 
 # Event Contracts
@@ -128,7 +129,7 @@ resolve emails through the owning module by id.
 
 | Channel(s) | Payload | Notes |
 | --- | --- | --- |
-| `identity.*.v1` (15 channels, see [Identity](../modules/standard/identity.md#published-events)) | envelope `{event_id, event_type, actor, payload}` | one shared schema; per-event fields live in `payload` |
+| `identity.*.v1` (15 channels, see [Identity](../modules/batteries/identity.md#published-events)) | envelope `{event_id, event_type, actor, payload}` | one shared schema; per-event fields live in `payload` |
 | `identity.user_registered.v1` | `payload: {user_id}` | no `email` |
 | `identity.user_sessions_revoked.v1` | `payload: {user_id, reason, tokens_valid_after}` | `reason`: `deactivated` / `password_reset` / `password_changed` / `role_revoked`; `tokens_valid_after` is a unix timestamp — drop cached sessions for the user |
 | `tenancy.organization_{created,updated,deleted}.v1` | `{organization_id, actor_id?}` | `organization_deleted` is published by the owner-only `DELETE /api/v1/orgs/{org_id}` |
@@ -137,7 +138,7 @@ resolve emails through the owning module by id.
 | `billing.subscription.{created,updated,canceled}.v1`, `billing.credits.{added,spent}.v1` | `{event_id, occurred_at, customer_id, tenant_type, tenant_id, data}` | `credits.spent` `data`: `{amount, balance, reason}` |
 
 `billing.credits.v1` is a **service contract**, not an event channel — see
-[Billing](../modules/standard/billing.md#service-contracts).
+[Billing](../modules/batteries/billing.md#service-contracts).
 
 ## 7. Delivery guarantees
 

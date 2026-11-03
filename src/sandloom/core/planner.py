@@ -1,4 +1,4 @@
-"""Contract-driven execution planner (see docs/reference/execution-planner.md).
+"""Contract-driven execution planner (see docs/advanced/execution-planner.md).
 
 A module DECLARES an operation with known semantics instead of writing the
 query by hand::

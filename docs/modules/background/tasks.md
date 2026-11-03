@@ -206,7 +206,7 @@ failure then aborts startup instead of degrading silently).
 
     See [ADR-0005](../../adr/0005-effect-model.md), the
     [guarantee ledger](../../reference/guarantees.md) and the
-    [transaction and replay lifecycle](../guarantees/lifecycle.md).
+    [transaction and replay lifecycle](../../advanced/lifecycle.md).
 
 ## Design rationale
 

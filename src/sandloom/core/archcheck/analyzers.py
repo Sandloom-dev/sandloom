@@ -574,7 +574,7 @@ FORBIDDEN_INFRA_MODULES = frozenset(
         # The RLS hook internals are kernel-only. The privileged system
         # channel (sandloom.core.drivers.system_db) is covered by the drivers
         # prefix above: a business module never reaches the system engine
-        # (docs/reference/security-model.md).
+        # (docs/advanced/security-model.md).
         "sandloom.core.sql_alchemy.tenant_rls",
         # For driver packages: a module asks for a capability and never
         # implements one. C002 misses it in the framework tree.

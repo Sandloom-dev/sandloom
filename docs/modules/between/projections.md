@@ -207,7 +207,7 @@ list` shows the registered projections.
 
     See [ADR-0005](../../adr/0005-effect-model.md), the
     [guarantee ledger](../../reference/guarantees.md) and
-    [Guarantees and labels](../guarantees/index.md).
+    [Guarantees and labels](../../advanced/guarantees.md).
 
 ??? note "How it works"
     `Projection(...)` is the L1 form of a `QueryProjectionDescriptor`, one

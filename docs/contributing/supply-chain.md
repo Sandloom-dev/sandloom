@@ -1,5 +1,6 @@
 ---
 title: Supply-chain gates
+type: concept
 ---
 
 # Supply-chain gates: SBOM, SAST, dependency review

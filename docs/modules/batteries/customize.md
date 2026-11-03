@@ -137,7 +137,7 @@ def render(notification: Notification) -> str:
 - **Ejecting a module** into your application with a command. It does not exist
   yet.
 
-If you need one of these, [open an issue](../../getting-started/help.md) with your
+If you need one of these, [open an issue](../../help.md) with your
 use case.
 
 ## Related

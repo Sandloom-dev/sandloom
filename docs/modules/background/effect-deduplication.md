@@ -1,6 +1,7 @@
 ---
 title: Deduplicate effects
 description: Choose the correct deduplication boundary for HTTP retries, events, commands, tasks and external providers.
+type: concept
 ---
 
 # Deduplicate effects

@@ -145,4 +145,4 @@ sandloom test stats
   queue, consumer groups.
 - [Add an event](add-event.md): the producer side.
 - [Add a projection](add-projection.md): a read model fed by events.
-- [Testing modules](../../toolchain/testing.md).
+- [Testing modules](../testing.md).

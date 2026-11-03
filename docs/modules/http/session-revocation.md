@@ -1,6 +1,7 @@
 ---
 title: Revoke sessions
 description: Revoke user sessions safely from application code or an operator command, with transaction and production safeguards.
+type: how-to
 ---
 
 # Revoke sessions

@@ -290,7 +290,7 @@ API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 `.env.example` if you delete it), the tests read `.env.test`.
 
 If you selected `--with identity`, follow the
-[authentication and email guide](https://sandloom.dev/docs/modules/standard/first-access-token/)
+[authentication and email guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)
 to receive verification mail locally and obtain access/refresh tokens.
 
 If you selected `--with admin`, the

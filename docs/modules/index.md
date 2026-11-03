@@ -137,13 +137,13 @@ the architecture tests and the import contracts.
 
 ## Inspect before changing a module
 
-Use [module context](../toolchain/module-context.md) to gather scoped rules, SDK and
-wire interfaces, and the [declared architecture graph](../toolchain/architecture-graph.md)
+Use [module context](../ai/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../ai/architecture-graph.md)
 to inspect contract/event connections. Both commands can be invoked by an agent
 and read their index without booting the app.
 
 ## Go deeper
 
-- [Module internals](guarantees/module-internals.md): the beginner names, the API levels, discovery,
+- [Module internals](../advanced/module-internals.md): the beginner names, the API levels, discovery,
   module packages and generated files.
 - [ADR-0002: the framework absorbs module boilerplate](../adr/0002-framework-absorbs-module-boilerplate.md)

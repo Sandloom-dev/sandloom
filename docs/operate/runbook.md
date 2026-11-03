@@ -1,6 +1,7 @@
 ---
 title: Runbook
 description: What to do in production, by situation - dead-lettered events, parked sagas, restores, key leaks, slow logins - with a link to the exact procedure.
+type: troubleshooting
 ---
 
 # Runbook

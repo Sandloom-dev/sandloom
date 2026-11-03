@@ -1,5 +1,6 @@
 ---
 title: Testing modules
+type: concept
 ---
 
 # Testing modules
@@ -408,13 +409,13 @@ own suite; a missing seam belongs in `sandloom.sdk.testing`.
 
 ## The quality gates
 
-`sandloom test` runs the static checks after the tests. [Checks](checks.md)
+`sandloom test` runs the static checks after the tests. [Checks](../ai/checks.md)
 explains what each one verifies, the error codes they print, and how to run
 `sandloom check` on its own.
 
 ## Inspect before changing a module
 
-Use [module context](module-context.md) to gather scoped rules, SDK and
-wire interfaces, and the [declared architecture graph](architecture-graph.md)
+Use [module context](../ai/module-context.md) to gather scoped rules, SDK and
+wire interfaces, and the [declared architecture graph](../ai/architecture-graph.md)
 to inspect contract/event connections. Both commands can be invoked by an agent
 and read their index without booting the app.

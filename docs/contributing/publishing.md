@@ -1,3 +1,7 @@
+---
+type: how-to
+---
+
 # Publishing packages to PyPI
 
 Sandloom publishes five distributions through

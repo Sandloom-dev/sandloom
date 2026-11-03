@@ -386,7 +386,7 @@ duplicates) runs your consumers as the runtime would. See the
     Labels are derived from the configured mechanism, never assumed. The full
     matrix is in [ADR-0005](../../adr/0005-effect-model.md); every id above is
     in the [guarantee ledger](../../reference/guarantees.md). See also
-    [Guarantees and labels](../guarantees/index.md).
+    [Guarantees and labels](../../advanced/guarantees.md).
 
 ??? note "How it works"
     - `class E(Event, channel=C)` is the L1 form of

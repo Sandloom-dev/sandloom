@@ -1,5 +1,6 @@
 ---
 title: CLI reference
+type: reference
 ---
 
 # CLI reference
@@ -49,8 +50,8 @@ I/O failure, 2 usage (including an unknown graph module selector), 3 strict
 verification unavailable. JSON emits one versioned
 success/error envelope. Text errors leave stdout empty and explain on stderr.
 Inspection performs no app imports, prompts, network access, `.env` loading or
-implicit generation. See [module maps](../toolchain/module-context.md) and
-[graph semantics](../toolchain/architecture-graph.md).
+implicit generation. See [module maps](../ai/module-context.md) and
+[graph semantics](../ai/architecture-graph.md).
 
 `explore` runs `generate`, writes `.sandloom/cache/explore.html` atomically, prints
 its URL and opens the browser. `--no-generate` reads the saved index;
@@ -61,7 +62,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../toolchain/agent-tooling.md)); at a terminal it asks, with the installed ones marked. The app depends on `sandloom[redis,celery]>=0.7.0a6,<0.8` plus `sandloom-<module>>=0.7.0a6,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)); at a terminal it asks, with the installed ones marked. The app depends on `sandloom[redis,celery]>=0.7.0a6,<0.8` plus `sandloom-<module>>=0.7.0a6,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom add module <name>` | A new module under the app's `modules` package. It is discovered: nothing else to edit. |
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |
@@ -91,7 +92,7 @@ generator has a how-to: [Add a module](../modules/create.md),
 | Command | What it does |
 | --- | --- |
 | `sandloom generate [<module> ...] [--check] [--root ROOT]` | Writes every generated file: each module's `module.snapshot.json`, `routes.snapshot.json` and `contracts.snapshot.json`, the contract stubs and the DTO copies (`<shared>/contracts/<module>_dto.py`, a wire-shape copy of each provider DTO a contract signature names) and the exported event schemas. Every file is compared with the committed one first: an incompatible change (SANDLOOM-T001, T004, T005, T007, C012) fails and nothing is written. A weaker route policy is written only by `sandloom routes snapshot --write`. Module names keep those modules' files only. Loads the project's `.env.test` like `sandloom test`; generation does not apply migrations. Code generators run it last. `sandloom new` attempts it when dependencies are available; after `uv sync`, run it in the app environment. `--check` compares without writing; `--root` selects the application root. |
-| `sandloom test [<module>] [--full] [--no-gates] [-n N] [--plan] [--ci] [--seed N \| --no-shuffle]` | The gate: the module's tests first, then the fast suite in parallel (`-m "not slow" -n auto --dist loadfile`, `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`; `--full` includes slow tests), then ruff, ruff format, mypy, `sandloom check`, the architecture tests, `lint-imports` and the contract and route snapshots. A failing step names its code. It never writes a generated file: a stale one fails with "generated files are stale: run `sandloom generate`" and the list. `--ci` also runs `ruff check --no-fix`. The test steps run in a seeded random order (printed; `--seed N` replays it, `--no-shuffle` keeps file order): [Test isolation](../toolchain/testing.md#test-isolation). |
+| `sandloom test [<module>] [--full] [--no-gates] [-n N] [--plan] [--ci] [--seed N \| --no-shuffle]` | The gate: the module's tests first, then the fast suite in parallel (`-m "not slow" -n auto --dist loadfile`, `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`; `--full` includes slow tests), then ruff, ruff format, mypy, `sandloom check`, the architecture tests, `lint-imports` and the contract and route snapshots. A failing step names its code. It never writes a generated file: a stale one fails with "generated files are stale: run `sandloom generate`" and the list. `--ci` also runs `ruff check --no-fix`. The test steps run in a seeded random order (printed; `--seed N` replays it, `--no-shuffle` keeps file order): [Test isolation](../modules/testing.md#test-isolation). |
 | `sandloom check [--rules FILE] [--only rule,...] [--list-rules] [--boot]` | Static architecture analyzers against `./architecture_rules.yml` (exit `0` ok, `1` violations, `2` usage). `--boot` also builds the app through `create_app` and reports startup refusals and stale route snapshots. Outside this repository it needs `pip install "sandloom[check]"`. |
 | `sandloom routes snapshot [--write \| --check] [--module M]` | Each module's route snapshot (`routes.snapshot.json`: method, path, authentication, resolved policy). `--check` fails on a stale file (SANDLOOM-T001); after a route change run `--write` and review the diff. `sandloom generate` never writes a weaker policy (spec §5.8): `--write` is its explicit approval and names each weakening it approves. |
 | `sandloom routes reference` | Print the generated route reference. |
@@ -100,7 +101,7 @@ generator has a how-to: [Add a module](../modules/create.md),
 
 Never re-run a serial `pytest -q` after each fix; `sandloom test` runs the suite in
 parallel. The harness and its isolation guards are described in
-[Testing Modules](../toolchain/testing.md); every fixture in the
+[Testing Modules](../modules/testing.md); every fixture in the
 [testing reference](testing.md).
 
 ```bash

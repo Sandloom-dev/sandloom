@@ -3,7 +3,7 @@
 ``PRODUCTION_PROFILE`` names the guarantees a production deployment promises
 its tenants. ``standard`` (default) keeps every existing knob as configured.
 ``multi_tenant_strict`` turns the documented trust model
-(``docs/reference/security-model.md`` — "Production profile") into startup
+(``docs/advanced/security-model.md`` — "Production profile") into startup
 checks, so an operator cannot run a shared multi-tenant SaaS with one of its
 layers silently off. In ``ENVIRONMENT=prod`` it requires:
 
@@ -127,7 +127,7 @@ def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
                 f"database/{name}: tenant_rls is off — set "
                 f'INFRA={{"database": {{"{name}": {{"tenant_rls": true}}}}}} '
                 "(Row-Level Security on every tenant table, app role without "
-                "BYPASSRLS / ownership; see docs/reference/security-model.md)"
+                "BYPASSRLS / ownership; see docs/advanced/security-model.md)"
             )
     security = str(getattr(cfg, "security_cache_instance", "default") or "default")
     caches = infra.get("cache") or {}

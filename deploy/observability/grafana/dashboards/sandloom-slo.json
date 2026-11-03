@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Example SLOs from docs/reference/slo.md on the recording rules in prometheus/rules/sandloom-slo.yml. Targets are starting points, not promises.",
+  "description": "Example SLOs from docs/operate/slo.md on the recording rules in prometheus/rules/sandloom-slo.yml. Targets are starting points, not promises.",
   "editable": true,
   "graphTooltip": 1,
   "links": [
@@ -27,7 +27,7 @@
       },
       "id": 1,
       "options": {
-        "content": "Targets on this board are the **examples** from `docs/reference/slo.md` (2 vCPU monolith, Oracle qualification 2026-10-22). Change the targets in `deploy/observability/prometheus/rules/sandloom-slo.yml` and here together.",
+        "content": "Targets on this board are the **examples** from `docs/operate/slo.md` (2 vCPU monolith, Oracle qualification 2026-10-22). Change the targets in `deploy/observability/prometheus/rules/sandloom-slo.yml` and here together.",
         "mode": "markdown"
       },
       "title": "",

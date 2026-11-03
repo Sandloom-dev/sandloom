@@ -1,6 +1,7 @@
 ---
 title: Website publishing
 description: Build, review and manually publish the unified Sandloom website and documentation to GitHub Pages at sandloom.dev.
+type: how-to
 ---
 
 # Website publishing

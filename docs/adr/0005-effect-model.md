@@ -256,7 +256,7 @@ Not effects of a business operation, so not dedupe records and not governed
 by this ADR (they keep their own documented models):
 
 - **Revocation and block marks** (`sandloom:auth:*`) — monotonic security state
-  (`set_max`), see `AGENTS.md` and `docs/reference/security-model.md`. Their
+  (`set_max`), see `AGENTS.md` and `docs/advanced/security-model.md`. Their
   *delivery* reuses the outbox (`core.auth.tokens_revoked.v1`).
 - **Leases and ownership** — the beat singleton lease, Streams consumer
   leases and consumer-group ownership fingerprints: concurrency control

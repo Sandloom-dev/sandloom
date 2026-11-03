@@ -1257,12 +1257,12 @@ def slo() -> Board:
     b = Board(
         "sandloom-slo",
         "Sandloom / SLOs",
-        "Example SLOs from docs/reference/slo.md on the recording rules in "
+        "Example SLOs from docs/operate/slo.md on the recording rules in "
         "prometheus/rules/sandloom-slo.yml. Targets are starting points, not promises.",
         ["slo"],
     )
     b.text(
-        "Targets on this board are the **examples** from `docs/reference/slo.md` "
+        "Targets on this board are the **examples** from `docs/operate/slo.md` "
         "(2 vCPU monolith, Oracle qualification 2026-10-22). Change the targets in "
         "`deploy/observability/prometheus/rules/sandloom-slo.yml` and here together.",
         h=2,

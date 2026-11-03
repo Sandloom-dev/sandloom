@@ -1,5 +1,6 @@
 ---
 title: Versioning & Stability
+type: reference
 ---
 
 # Versioning & Stability

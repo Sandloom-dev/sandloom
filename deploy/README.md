@@ -744,14 +744,14 @@ Neither is implemented; until then plan a maintenance window per module.
   non-evicting Redis (`SECURITY_CACHE_INSTANCE`) and, when split, the contract
   compatibility check is on. The full contract, the Redis HA recommendations
   and the mapping of named cache instances are in
-  `docs/reference/security-model.md` → *Production profile*. The compose
+  `docs/advanced/security-model.md` → *Production profile*. The compose
   profiles in this directory are demo stacks and do NOT meet it (one Redis,
   no RLS roles).
 
 - Generate strong secrets; the monolith's processes share `JWT_SECRET`; in
   the microservices profile only identity holds `JWT_PRIVATE_KEY` /
   `JWT_SECRET` and every service shares `JWT_PUBLIC_KEYS` (rotation runbook:
-  `docs/reference/security-model.md`); every service holds its own X25519
+  `docs/advanced/security-model.md`); every service holds its own X25519
   `RPC_DH_PRIVATE_KEY` — it authenticates that service's RPC calls, so it
   is as sensitive as a signing key — and shares the public
   `RPC_SERVICE_DH_KEYS` (rotate per service, independently: ADR-0004); all services share

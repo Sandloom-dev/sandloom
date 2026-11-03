@@ -1,5 +1,6 @@
 ---
 title: Loader Configuration
+type: how-to
 ---
 
 # Loader Configuration
@@ -69,7 +70,7 @@ with the same name (`myapp.modules.tickets` next to `acme_tickets`), are
 refused before anything loads
 ([SANDLOOM-B020](../reference/error-codes.md#sandloom-b020)): uninstall the
 package or remove (rename) the local module. See
-[Module packages](../modules/guarantees/module-internals.md#module-packages).
+[Module packages](../advanced/module-internals.md#module-packages).
 
 `MODULE_FS_SCAN` no longer exists (it scanned `sandloom.*`, which holds no
 module); setting it to true fails startup.

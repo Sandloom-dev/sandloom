@@ -1,5 +1,6 @@
 ---
 title: Reviewed source snapshots
+type: concept
 ---
 
 # Reviewed source snapshots

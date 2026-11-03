@@ -359,20 +359,43 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
     return 0
 
 
-#: Pages that moved, ``{old directory URL: new one}`` under /docs/. A static host
-#: has no server redirects, so each old URL gets a page that forwards to the new.
+#: Pages that moved, ``{old directory URL: new one}`` under /docs/ (the Toolchain
+#: move and the section restructure of 2026-11-03). A static host has no server
+#: redirects, so each old URL gets a page that forwards to the new.
 MOVED_PAGES: dict[str, str] = {
-    f"modules/tooling/{old}": f"toolchain/{new}"
-    for old, new in {
-        "": "",
-        "generators/": "generators/",
-        "generate/": "generate/",
-        "agent-tooling/": "agent-tooling/",
-        "module-context/": "module-context/",
-        "architecture-graph/": "architecture-graph/",
-        "checks/": "checks/",
-        "testing/": "testing/",
-    }.items()
+    "architecture/": "advanced/",
+    "getting-started/help/": "help/",
+    "modules/guarantees/": "advanced/guarantees/",
+    "modules/guarantees/lifecycle/": "advanced/lifecycle/",
+    "modules/guarantees/module-internals/": "advanced/module-internals/",
+    "modules/guarantees/write-admission/": "advanced/write-admission/",
+    "modules/standard/": "modules/batteries/",
+    "modules/standard/billing/": "modules/batteries/billing/",
+    "modules/standard/customize/": "modules/batteries/customize/",
+    "modules/standard/first-access-token/": "modules/batteries/first-access-token/",
+    "modules/standard/identity/": "modules/batteries/identity/",
+    "modules/standard/sso/": "modules/batteries/sso/",
+    "modules/standard/tenancy/": "modules/batteries/tenancy/",
+    "modules/tooling/": "ai/",
+    "modules/tooling/agent-tooling/": "ai/agent-tooling/",
+    "modules/tooling/architecture-graph/": "ai/architecture-graph/",
+    "modules/tooling/checks/": "ai/checks/",
+    "modules/tooling/generate/": "ai/generate/",
+    "modules/tooling/generators/": "ai/generators/",
+    "modules/tooling/module-context/": "ai/module-context/",
+    "modules/tooling/testing/": "modules/testing/",
+    "reference/dependencies/": "contributing/dependencies/",
+    "reference/execution-planner/": "advanced/execution-planner/",
+    "reference/security-model/": "advanced/security-model/",
+    "reference/slo/": "operate/slo/",
+    "toolchain/": "ai/",
+    "toolchain/agent-tooling/": "ai/agent-tooling/",
+    "toolchain/architecture-graph/": "ai/architecture-graph/",
+    "toolchain/checks/": "ai/checks/",
+    "toolchain/generate/": "ai/generate/",
+    "toolchain/generators/": "ai/generators/",
+    "toolchain/module-context/": "ai/module-context/",
+    "toolchain/testing/": "modules/testing/",
 }
 
 

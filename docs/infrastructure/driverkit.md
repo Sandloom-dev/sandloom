@@ -1,6 +1,7 @@
 ---
 title: sandloom.driverkit
 description: The API for driver packages - the notification contract, capability specs and references, and the conformance kit. Business modules never import it.
+type: reference
 ---
 
 # `sandloom.driverkit`

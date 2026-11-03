@@ -1,3 +1,7 @@
+---
+type: concept
+---
+
 # Execution planner: production contract
 
 The planner executes a module's declared reads and returns its declared
@@ -139,5 +143,5 @@ revision before making throughput claims.
 
 ## Related reading
 
-- [Data SDK](sdk/data.md)
+- [Data SDK](../reference/sdk/data.md)
 - [Transaction units](../modules/database/units.md)

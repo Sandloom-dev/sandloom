@@ -1,5 +1,6 @@
 ---
 title: Explore the architecture graph
+type: how-to
 ---
 
 # Explore the architecture graph

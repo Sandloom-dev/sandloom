@@ -1,6 +1,7 @@
 ---
 title: Set up the repository
 description: Run the Sandloom framework from a source checkout - dependencies, environment, test services, migrations, the API and the quality gates.
+type: how-to
 ---
 
 # Set up the repository
