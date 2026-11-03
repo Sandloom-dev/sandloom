@@ -148,6 +148,11 @@ if** the change that produced it commits.
   `OUTBOX_RELAY_ENABLED=auto` runs the relay in production processes only
   (one elected worker per container under gunicorn); turning it off in a
   production app process needs the accepted risk `relay_disabled`.
+- **Where it lives.** Each database has its own outbox; the row goes to the
+  outbox of the unit's database, and that database's dispatcher and relay
+  send it. On the request path the dispatch runs in the background, off the
+  response; scripts and tasks wait for it. How to run and repair it:
+  [operator reference](../../operate/operator-reference.md#events-outbox-relay-and-dead-letters).
 
 ## Effects that wait for the commit, checks that run before it
 

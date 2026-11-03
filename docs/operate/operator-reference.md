@@ -201,6 +201,10 @@ database of the active Unit of Work.
 
 ## Events: outbox relay and dead letters
 
+What the outbox and its relay guarantee:
+[Units of Work](../modules/database/units.md#events-and-audit-go-through-the-unit).
+This section holds the settings, commands and metrics.
+
 - The relay (in-process, `OUTBOX_RELAY_ENABLED=auto` = prod; under gunicorn
   exactly one elected worker runs it, the others run with `delegated`; `off`
   in a prod app process is refused unless `SANDLOOM_ACCEPTED_RISKS` lists
