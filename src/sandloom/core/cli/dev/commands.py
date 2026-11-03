@@ -18,6 +18,7 @@ from typing import Any, TextIO
 
 from dotenv import dotenv_values
 
+import sandloom.core.cli.ui as _ui
 from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
@@ -82,6 +83,12 @@ class Context:
     @property
     def host(self) -> str:
         return _docker.docker_host(self.environ)
+
+    @property
+    def style(self) -> _ui.Style:
+        """How ``out`` is written (colour only at a terminal; the plain text
+        is the same either way)."""
+        return _ui.style_for(self.out, self.environ)
 
     def say(self, text: str) -> None:
         print(text, file=self.out, flush=True)
@@ -634,7 +641,7 @@ def _print_summary(ctx: Context, state: State, row: CheckoutRow) -> None:
     ctx.say(
         "\n".join(
             [
-                f"dev services up (compose project {state.project})",
+                ctx.style.green(f"dev services up (compose project {state.project})"),
                 f"  app      DATABASE_URL={urls['DATABASE_URL']}",
                 f"           CACHE_URL={urls['CACHE_URL']}",
                 f"           BROKER_URL={urls['BROKER_URL']}",
@@ -724,7 +731,11 @@ def status(ctx: Context, *, as_json: bool) -> int:
         return 0
     lines = [f"compose project {data['project']} ({data['repository']})"]
     for name, svc in data["services"].items():
-        mark = "ok" if svc["reachable"] else f"NOT reachable: {svc.get('problem')}"
+        mark = (
+            ctx.style.green("ok")
+            if svc["reachable"]
+            else ctx.style.red(f"NOT reachable: {svc.get('problem')}")
+        )
         lines.append(f"  {name:14} {ctx.host}:{svc['port']:<6} {svc['state']:9} {mark}")
     if "urls" in data:
         lines.append(f"this checkout ({data['checkout']}): database {data['database']}")
@@ -860,7 +871,7 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
         str(number),
         *(["--reload"] if reload else []),
     ]
-    ctx.say(f"sandloom dev run: {url} (health: {url}/health)")
+    ctx.say(f"sandloom dev run: {ctx.style.accent(url)} (health: {url}/health)")
     try:
         return _serve(ctx, argv, env)
     finally:

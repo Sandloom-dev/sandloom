@@ -68,6 +68,14 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
 - **Read configuration only through `Settings`, never `os.getenv`.** The
   exceptions are `SANDLOOM_COMPOSITION_ROOT` (process env first) and
   `SANDLOOM_WORKER_TASKQUEUE`.
+- **CLI process flags are not settings.** The CLI reads them through one seam,
+  `sandloom.core.cli.dev.errors.environment()`, and passes the mapping down:
+  - `SANDLOOM_DEBUG`, `CI`, `DOCKER_HOST`, `UV`;
+  - the terminal: `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM`;
+  - the coding-agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`
+    (`CLAUDECODE`, `CODEX_SANDBOX`, `GEMINI_CLI`, `CURSOR_AGENT`, …).
+
+  A new flag joins this list and that seam, never `os.getenv`.
 
 ## Infrastructure layer
 

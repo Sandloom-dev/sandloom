@@ -1,8 +1,10 @@
 """Sandloom framework — top-level CLI (`sandloom`).
 
 Subcommands:
-    sandloom new <app>        scaffold a standalone application that consumes the
-                         framework (see sandloom.core.cli.project)
+    sandloom new [<app>]      scaffold a standalone application that consumes the
+                         framework; at a terminal it asks what the flags
+                         leave open, --yes asks nothing (see
+                         sandloom.core.cli.wizard and sandloom.core.cli.project)
     sandloom add ...          generate code: a module, an event, a contract, a
                          consumer, a saga, a projection, a task, and a
                          module's microservices deployment (sandloom add deploy)
@@ -130,116 +132,10 @@ def _version() -> str:
 
 
 def _cmd_new(argv: list[str]) -> int:
-    project = _static_import("sandloom.core.cli.project")
-    generate_project, quickstart = project.generate_project, project.quickstart
-
-    parser = argparse.ArgumentParser(
-        prog="sandloom new", description="Scaffold a standalone Sandloom application"
-    )
-    parser.add_argument("app", help="application name (snake_case, e.g. helpdesk)")
-    parser.add_argument(
-        "--dir", type=Path, default=Path.cwd(), help="parent directory (default: cwd)"
-    )
-    parser.add_argument(
-        "--with",
-        dest="batteries",
-        default="",
-        help="comma-separated standard modules to install and load: "
-        "identity,tenancy,billing,admin (the sandloom-<module> packages; "
-        "admin brings identity)",
-    )
-    parser.add_argument(
-        "--no-batteries",
-        action="store_true",
-        help="install no standard module (minimal app)",
-    )
-    parser.add_argument(
-        "--module",
-        default="example",
-        help="name of the initial sample module (default: example)",
-    )
-    parser.add_argument(
-        "--framework-req",
-        default=None,
-        help=(
-            "override the framework dependency requirement string "
-            "(default: sandloom[redis,celery]>=0.7.0a8,<0.8; each --with module "
-            "adds its sandloom-<module> package)"
-        ),
-    )
-    parser.add_argument(
-        "--framework-source",
-        choices=("pypi", "git", "path"),
-        default=None,
-        help="distribution source (checkout: git; installed wheel: pypi)",
-    )
-    parser.add_argument(
-        "--framework-path",
-        type=Path,
-        default=None,
-        help=(
-            "framework repository (or its backend/ directory, holding "
-            "packages/) for --framework-source path"
-        ),
-    )
-    skills = _static_import("sandloom.core.cli.skills")
-    parser.add_argument(
-        "--agents",
-        default=None,
-        help="comma-separated coding agents to write skills for: "
-        + ", ".join(a.key for a in skills.CODING_AGENTS)
-        + " (default: asked at a terminal, else the installed ones)",
-    )
-    args = parser.parse_args(argv)
-    try:
-        agents = skills.choose_agents(
-            None, args.agents, interactive=skills.stdin_is_interactive()
-        )
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-
-    batteries: list[str] = []
-    if not args.no_batteries and args.batteries:
-        batteries = [m.strip() for m in args.batteries.split(",") if m.strip()]
-
-    try:
-        created = generate_project(
-            args.app,
-            args.dir,
-            with_batteries=batteries,
-            sample_module=args.module,
-            framework_req=args.framework_req,
-            framework_source=args.framework_source,
-            framework_path=args.framework_path,
-            agents=agents,
-        )
-    except (ValueError, FileExistsError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-
-    root = args.dir / args.app
-    print(f"Created application '{args.app}' ({len(created)} files) at {root}")
-    print(
-        f"Agent skills for: {', '.join(agents)} "
-        "(change with `uv run sandloom add skills --choose`)"
-    )
-    # The generated files (snapshots, schemas, stubs): the app's own CI gate
-    # (`sandloom test --ci`) only checks them, so a fresh app must carry them.
-    problem = project.write_generated_files(root)
-    if problem is not None:
-        print(
-            f"note: generated files not written ({problem}); "
-            "run `uv run sandloom generate` once the app installs"
-        )
-    # The quickstart's one source (sandloom.core.cli.project.QUICKSTART): the docs
-    # are tested against it and the CI job `quickstart` runs these lines.
-    in_cwd = args.dir.resolve() == Path.cwd().resolve()
-    lines = quickstart(args.app, args.module, path=None if in_cwd else str(root))
-    if "admin" in batteries:
-        lines.append(project.ADMIN_NEXT_STEP)
-    print("\nNext steps:\n" + "".join(f"  {line}\n" for line in lines))
-    return 0
+    """``sandloom new``: the wizard at a terminal, the flags elsewhere
+    (:mod:`sandloom.core.cli.wizard`)."""
+    wizard = _static_import("sandloom.core.cli.wizard")
+    return int(wizard.main(argv, version=_version()))
 
 
 #: Commands that connect to the configured database / Redis: they warn when

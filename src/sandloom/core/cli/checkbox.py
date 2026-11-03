@@ -14,6 +14,8 @@ import sys
 from collections.abc import Iterable, Iterator, Sequence
 from typing import TextIO
 
+import sandloom.core.cli.ui as _ui
+
 if sys.platform == "win32":
     import msvcrt
 else:
@@ -53,11 +55,13 @@ class Cancelled(Exception):
 
 
 def available() -> bool:
-    """A terminal on both ends, so raw keys can be read and the list redrawn."""
+    """A terminal on both ends, so raw keys can be read and the list redrawn
+    (on Windows, a console that takes VT sequences; else typed answers)."""
     try:
-        return sys.stdin.isatty() and sys.stdout.isatty()
+        both = sys.stdin.isatty() and sys.stdout.isatty()
     except (AttributeError, ValueError):
         return False
+    return both and _ui.enable_vt(sys.stdout)
 
 
 def terminal_keys() -> Iterator[str]:
@@ -75,7 +79,9 @@ def terminal_keys() -> Iterator[str]:
         fd = sys.stdin.fileno()
         saved = termios.tcgetattr(fd)
         try:
-            tty.setraw(fd)
+            # TCSANOW: keys typed before the list was drawn are kept
+            # (the default, TCSAFLUSH, would drop them).
+            tty.setraw(fd, termios.TCSANOW)
             while True:
                 ch = os.read(fd, 1).decode(errors="ignore")
                 if ch == "\x1b" and _select.select([fd], [], [], 0.05)[0]:
@@ -100,17 +106,30 @@ def _move(key: str, state: list[bool], cursor: int) -> int:
     return cursor
 
 
+def hint_line(symbols: _ui.Symbols = _ui.UNICODE) -> str:
+    """The keys, under the list."""
+    return (
+        f"  {symbols.up}/{symbols.down} move {symbols.dot} space check {symbols.dot} "
+        f"a all {symbols.dot} Enter confirm {symbols.dot} Esc cancel"
+    )
+
+
 def render(
-    labels: Sequence[str], checked: Sequence[bool], cursor: int, note: str = ""
+    labels: Sequence[str],
+    checked: Sequence[bool],
+    cursor: int,
+    note: str = "",
+    *,
+    symbols: _ui.Symbols = _ui.ASCII,
+    hint: str | None = None,
 ) -> list[str]:
-    """The lines of the list: a pointer on the cursor row, a box per item."""
+    """The lines of the list: a pointer on the cursor row, a box per item
+    (``x`` marks a checked one in both symbol tables)."""
     lines = [
-        f"{'>' if i == cursor else ' '} [{'x' if on else ' '}] {label}"
+        f"{symbols.pointer if i == cursor else ' '} [{'x' if on else ' '}] {label}"
         for i, (label, on) in enumerate(zip(labels, checked, strict=True))
     ]
-    lines.append(
-        note or "  ↑/↓ move · space check · a all · Enter confirm · Esc cancel"
-    )
+    lines.append(note or (hint if hint is not None else hint_line(symbols)))
     return lines
 
 
@@ -121,20 +140,23 @@ def select(
     keys: Iterable[str] | None = None,
     out: TextIO | None = None,
     minimum: int = 1,
+    hint: str | None = None,
 ) -> list[int]:
     """Show ``labels`` as checkboxes and return the indexes checked on Enter.
 
     ``checked`` are the indexes checked at the start. Enter with fewer than
-    ``minimum`` checked keeps the list open with a note. Raises
+    ``minimum`` checked keeps the list open with a note (``minimum=0``: an
+    empty answer is fine). ``hint`` replaces the keys line. Raises
     :class:`Cancelled` on Esc, q or Ctrl-C.
     """
     out = out or sys.stdout
+    symbols = _ui.symbols_for(getattr(out, "encoding", None))
     state = [i in set(checked) for i in range(len(labels))]
     cursor, note, drawn = 0, "", 0
 
     def draw() -> None:
         nonlocal drawn
-        lines = render(labels, state, cursor, note)
+        lines = render(labels, state, cursor, note, symbols=symbols, hint=hint)
         if drawn:
             out.write(f"\x1b[{drawn}F\x1b[J")
         out.write("\r\n".join(lines) + "\r\n")
@@ -161,4 +183,4 @@ def select(
         out.flush()
 
 
-__all__ = ["Cancelled", "available", "render", "select", "terminal_keys"]
+__all__ = ["Cancelled", "available", "hint_line", "render", "select", "terminal_keys"]

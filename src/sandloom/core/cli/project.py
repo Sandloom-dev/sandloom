@@ -38,6 +38,7 @@ import json
 import keyword
 import re
 import secrets
+import sys
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
@@ -260,7 +261,9 @@ module of `$app/modules` (no list to edit). From the project root:
   `uv run sandloom generate` (`sandloom add` runs it last);
 - the one gate: `uv run sandloom test` (tests, lint, types, `sandloom check`, generated
   files checked, never written; `sandloom explain <SANDLOOM-code>` says how to fix
-  a failure).
+  a failure);
+- another app: `sandloom new <name> --yes`. An agent always passes `--yes`
+  (or `--no-input`): at a terminal `sandloom new` asks questions otherwise.
 
 A module imports only `sandloom.sdk` (plus generated contract stubs and DTO copies
 in `$app.shared`) and its own package; a provider's contract DTOs live in its own
@@ -1111,6 +1114,22 @@ def _framework_sources(
     return "\n".join(lines) + "\n"
 
 
+def app_name_problem(app: str) -> str | None:
+    """Why ``app`` cannot name an application, or ``None``. The name is the
+    project's Python package, so it must not shadow a standard library
+    module (``json``, ``email``, ``test``): the app would break on import."""
+    if not _NAME_RE.fullmatch(app):
+        return "app name must be snake_case starting with a letter (e.g. 'helpdesk')"
+    if keyword.iskeyword(app):
+        return f"app name '{app}' is a Python keyword; choose another (e.g. 'helpdesk')"
+    if app in sys.stdlib_module_names:
+        return (
+            f"app name '{app}' is a Python standard library module; the app's "
+            "package would shadow it (choose e.g. 'my_" + app + "')"
+        )
+    return None
+
+
 def generate_project(
     app: str,
     parent_dir: Path,
@@ -1126,10 +1145,9 @@ def generate_project(
 
     ``agents`` (keys of :data:`sandloom.core.cli.skills.CODING_AGENTS`) decides
     which skill folders and instruction pointers the application gets."""
-    if not _NAME_RE.fullmatch(app) or keyword.iskeyword(app):
-        raise ValueError(
-            "app name must be snake_case starting with a letter (e.g. 'helpdesk')"
-        )
+    problem = app_name_problem(app)
+    if problem is not None:
+        raise ValueError(problem)
     if not _NAME_RE.fullmatch(sample_module) or keyword.iskeyword(sample_module):
         raise ValueError("module name must be snake_case starting with a letter")
 

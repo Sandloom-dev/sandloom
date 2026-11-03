@@ -35,6 +35,26 @@ def test_enter_with_nothing_checked_keeps_the_list_open() -> None:
     assert "check at least 1" in out.getvalue()
 
 
+def test_minimum_zero_accepts_an_empty_answer_and_a_custom_hint() -> None:
+    out = io.StringIO()
+    chosen = checkbox.select(
+        ["a", "b"], keys=["confirm"], out=out, minimum=0, hint="  space to add"
+    )
+    assert chosen == []
+    assert "space to add" in out.getvalue()
+    assert "check at least" not in out.getvalue()
+
+
+def test_the_hint_line_uses_the_symbol_table() -> None:
+    from sandloom.core.cli import ui
+
+    assert checkbox.hint_line(ui.ASCII) == (
+        "  ^/v move - space check - a all - Enter confirm - Esc cancel"
+    )
+    assert "↑/↓ move ·" in checkbox.hint_line(ui.UNICODE)
+    assert checkbox.render(["a"], [True], 0, symbols=ui.UNICODE)[0] == "\u203a [x] a"
+
+
 @pytest.mark.parametrize("keys", [["cancel"], []])
 def test_esc_or_the_end_of_input_cancels(keys: list[str]) -> None:
     with pytest.raises(checkbox.Cancelled):

@@ -27,7 +27,9 @@ from pathlib import Path
 from typing import TextIO
 
 import sandloom.core.cli.checkbox as _checkbox
+import sandloom.core.cli.dev.errors as _errors
 import sandloom.core.cli.scaffold_wiring as _wiring
+import sandloom.core.cli.ui as _ui
 
 #: The skills an application gets, in the order the map lists them.
 APP_SKILLS: tuple[str, ...] = (
@@ -343,11 +345,9 @@ def choose_agents(
 
 
 def stdin_is_interactive() -> bool:
-    """A person at a terminal (not a pipe, not CI, not an agent's shell)."""
-    try:
-        return sys.stdin.isatty() and sys.stdout.isatty()
-    except (AttributeError, ValueError):
-        return False
+    """A person at a terminal (not a pipe, not CI, not an agent's shell):
+    :func:`sandloom.core.cli.ui.interactive`."""
+    return _ui.interactive(_errors.environment())
 
 
 __all__ = [
