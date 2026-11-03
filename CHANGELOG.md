@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a10] — 2026-11-03
+
 ### Added
 
 <!-- lookup -->
@@ -105,6 +107,24 @@ website renders this same changelog.
 - A startup task that cannot reach PostgreSQL or Redis logs one line with the
   fix instead of a traceback; in development the app reports an unreachable
   database once.
+- **`dev up --services external` never adopts a database it did not create.**
+  An existing database with the app's name on your server (another project's) is
+  refused instead of migrated into; the databases it creates carry a comment
+  (`sandloom dev: <checkout>`), and `dev reset` and `dev prune` drop only those.
+  A database an earlier build created and `dev.json` records is marked on the next
+  `dev up`.
+- **`--services external` takes only empty Redis indexes** on your own server, below
+  its `databases` setting: `dev reset` and `dev prune` flush them. `dev.json` is
+  owner-only (0600) once it holds the servers' URLs.
+- **`sandloom new` with your own servers on the usual ports** no longer fails after a
+  successful setup; a failed setup with `--yes` exits 1. Its git calls ignore a hook's
+  `GIT_DIR`.
+- **`/admin/index.html` carries the console's CSP**, `Accept-Encoding` q-values are read
+  as numbers, and a browser that blocks `sessionStorage` still gets a working console.
+- **`sandloom admin list`** shows sign-in times in UTC whatever zone the driver returns.
+- **`--services external` refuses URLs whose security it would drop:** `rediss://`,
+  a Redis ACL user, Redis URL options and PostgreSQL `?sslmode=…` (or any query
+  option) were silently lost, sending passwords in cleartext.
 
 ## [0.7.0a9] — 2026-11-03
 

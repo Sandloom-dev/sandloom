@@ -16,7 +16,7 @@ inbox to complete the flow; no external email account is needed.
 Create an application with identity and tenancy:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a9" sandloom new myapp --with identity,tenancy --module notes
+uvx --from "sandloom[standard]==0.7.0a10" sandloom new myapp --with identity,tenancy --module notes
 ```
 
 Follow the printed quickstart through `uv sync`, `uv run sandloom generate`,

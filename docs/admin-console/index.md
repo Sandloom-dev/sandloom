@@ -19,7 +19,7 @@ the platform `admin` role.
 Create an application with the console. It brings identity, which handles sign-in:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a9" sandloom new myapp --with admin,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a10" sandloom new myapp --with admin,tenancy,billing
 cd myapp
 uv sync
 uv run sandloom generate
@@ -43,8 +43,8 @@ uv run sandloom admin create --email you@example.com
 Open `/admin/` on the address the app answers on and sign in: with the commands above
 that is [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/); `sandloom dev run`
 prints its own address. The address counts as verified, so you don't need a mail server
-yet. The command is recorded in the audit log, and so is the password it sets
-(`identity.user.password_set`).
+yet. The command is recorded in the audit log, and so is the fact that it set a
+password (`identity.user.password_set`; never the password itself).
 
 If no one can type the password, for example an agent or a CI job runs the setup,
 ask for a link instead:
@@ -77,8 +77,10 @@ show the `admin create` command.
 
 Outside production, a failed sign-in names two more commands. `admin list` shows
 which addresses are administrators and which of them have a password; `admin invite`
-gives one a new password. In production it needs `--confirm-production --reason "..."`. It then
-writes an audit record and masks the addresses unless you add `--show-emails`.
+gives one a new password. In production `admin list` needs `--confirm-production
+--reason "..."`; it then writes an audit record and masks the addresses unless you
+add `--show-emails`. `admin invite` in production needs `--apply --confirm-production
+--reason "..."`.
 
 Whoever can run the CLI on a server can read the database anyway: the command grants
 no new access. What it adds in production is an audit trail, and addresses kept out

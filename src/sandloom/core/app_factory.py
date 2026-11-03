@@ -135,9 +135,9 @@ async def report_unreachable_database(core_facade: CoreFacade) -> None:
         if parts.hostname:
             where = f" at {parts.hostname}" + (f":{parts.port}" if parts.port else "")
     logging.getLogger("sandloom.app").warning(
-        "cannot reach PostgreSQL%s: start the dev services with "
-        "`uv run sandloom dev up` (`uv run sandloom dev run` starts them too)   "
-        "[SANDLOOM-R014]",
+        "PostgreSQL%s fails its health check: when `sandloom dev` runs it, start "
+        "it with `uv run sandloom dev up` (`dev run` does too); otherwise check "
+        "DATABASE_URL and the server's log   [SANDLOOM-R014]",
         where,
     )
 

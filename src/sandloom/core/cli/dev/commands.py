@@ -247,11 +247,32 @@ def allocate_indexes(state: State, path: str, *, main: bool) -> tuple[int, int]:
     return (free[0], free[1])
 
 
+def _external_indexes(ctx: Context, state: State, path: str) -> tuple[int, int]:
+    """The pair for a new checkout on the person's own Redis: two indexes no
+    other checkout uses that hold no key there (their data may live in any
+    index; ``reset`` and ``prune`` flush ours), (1, 2) first for the main one."""
+    used = state.used_indexes(besides=path)
+    first = [1, 2] if ctx.identity.main and not {1, 2} & used else []
+    candidates = first + [i for i in range(1, 1024) if i not in used and i not in first]
+    server = ctx.redis(state)
+    found = _services.empty_indexes(server, candidates)
+    if len(found) < 2:
+        raise DevError(
+            f"your Redis at {server.host}:{server.port} has no two empty database "
+            "indexes for this checkout (dev reset and prune flush them). Free two, "
+            "raise `databases` in its config, or use --services docker"
+        )
+    return (found[0], found[1])
+
+
 def checkout_row(ctx: Context, state: State) -> CheckoutRow:
     key = str(ctx.root)
     row = state.checkouts.get(key)
     if row is None:
-        cache, broker = allocate_indexes(state, key, main=ctx.identity.main)
+        if state.is_external:
+            cache, broker = _external_indexes(ctx, state, key)
+        else:
+            cache, broker = allocate_indexes(state, key, main=ctx.identity.main)
         row = CheckoutRow(
             path=key,
             database=ctx.identity.database,
@@ -664,6 +685,72 @@ def _external_urls(ctx: Context, state: State, options: UpOptions) -> tuple[str,
     return database, redis
 
 
+def dev_mark(row: CheckoutRow) -> str:
+    """The comment external mode puts on the database it creates for ``row``."""
+    return _services.DEV_MARK + row.path
+
+
+def _known_external(ctx: Context, state: State, database_url: str) -> str | None:
+    """The database an earlier external ``up`` of this checkout recorded on
+    the same server (``None``: none). Builds before the mark created it
+    without one; the state is their record."""
+    row = state.checkouts.get(str(ctx.root))
+    previous = state.external.get("database_url")
+    if row is None or not state.is_external or not previous:
+        return None
+    try:
+        same = (
+            _services.Postgres.from_url(previous).address
+            == _services.Postgres.from_url(database_url).address
+        )
+    except ValueError:
+        return None
+    return row.database if same else None
+
+
+def _claim_external(
+    pg: _services.Postgres,
+    row: CheckoutRow,
+    *,
+    created: bool,
+    known: str | None,
+) -> None:
+    """Mark the database just created; adopt an existing one only when it
+    carries this checkout's mark (or the state recorded it: an earlier
+    build's, then marked now). Anything else belongs to someone else:
+    migrations, ``reset`` and ``prune`` would write into or drop it."""
+    mark = dev_mark(row)
+    if created:
+        _services.mark_database(pg, row.database, mark)
+        return
+    found = _services.database_mark(pg, row.database)
+    if found == mark:
+        return
+    if found is None and known == row.database:
+        _services.mark_database(pg, row.database, mark)
+        return
+    owner = (
+        f" (it is marked for {found.removeprefix(_services.DEV_MARK)})"
+        if found and found.startswith(_services.DEV_MARK)
+        else ""
+    )
+    raise DevError(
+        f"your PostgreSQL at {pg.address} already has a database {row.database} "
+        f"that `sandloom dev` did not create for this checkout{owner}; not using "
+        "it (migrations, `dev reset` and `dev prune` would write into or drop it). "
+        "Rename or drop that database, point --database-url at another server, or "
+        "use --services docker"
+    )
+
+
+def _owned_external(ctx: Context, state: State, row: CheckoutRow) -> bool:
+    """External mode: whether ``row``'s database carries this checkout's
+    mark (Docker mode: always, the compose project's server is ours)."""
+    if not state.is_external:
+        return True
+    return _services.database_mark(ctx.postgres(state), row.database) == dev_mark(row)
+
+
 def up_external(ctx: Context, options: UpOptions) -> int:
     """``up`` on the person's own servers: no Docker. Checks both, creates
     this checkout's database, writes its ``.env`` block and
@@ -684,6 +771,7 @@ def up_external(ctx: Context, options: UpOptions) -> int:
         problem = check_external(database, redis)
         if problem is not None:
             raise DevError(problem)
+        known = _known_external(ctx, state, database)
         state.services = EXTERNAL
         state.external = {"database_url": database, "redis_url": redis}
         save_state(ctx.state_dir, state)
@@ -692,6 +780,7 @@ def up_external(ctx: Context, options: UpOptions) -> int:
             row = checkout_row(ctx, state)
             try:
                 created = _services.ensure_database(pg, row.database)
+                _claim_external(pg, row, created=created, known=known)
             except _services.service_errors() as exc:
                 raise DevError(
                     f"cannot create the database {row.database} on your PostgreSQL "
@@ -1483,8 +1572,17 @@ def reset(ctx: Context, *, force: bool) -> int:
                 "Stop them, or add --force"
             )
         pg = ctx.postgres(state)
+        if not _owned_external(ctx, state, row):
+            raise DevError(
+                f"not resetting {row.database} on your PostgreSQL at {pg.address}: "
+                "`sandloom dev` did not create it for this checkout (it carries no "
+                "mark). Run `uv run sandloom dev up` first (it marks the database "
+                "an earlier build created), or drop it yourself"
+            )
         _services.drop_database(pg, row.database)
         _services.ensure_database(pg, row.database)
+        if state.is_external:
+            _services.mark_database(pg, row.database, dev_mark(row))
         _flush(ctx, state, row)
     ctx.say(
         f"reset {row.database} and Redis indexes {row.cache_index}, "
@@ -1628,6 +1726,14 @@ def _prune_checkouts(ctx: Context, state: State) -> list[str]:
         if Path(path).exists():
             continue
         try:
+            if not _owned_external(ctx, state, row):
+                ctx.warn(
+                    f"kept {row.database} of {path}: `sandloom dev` did not create "
+                    "it (no mark on your PostgreSQL); drop it yourself if it is "
+                    "unused"
+                )
+                del state.checkouts[path]
+                continue
             _services.drop_database(ctx.postgres(state), row.database)
             _flush(ctx, state, row)
         except _services.service_errors() as exc:  # the services are down
@@ -1679,6 +1785,7 @@ __all__ = [
     "announce_when_up",
     "banner",
     "check_external",
+    "dev_mark",
     "app_port",
     "app_url",
     "assign_ports",

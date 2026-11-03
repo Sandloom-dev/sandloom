@@ -9,7 +9,7 @@ without identity says nothing).
 import logging
 
 from sandloom.sdk import Contract
-from sandloom.sdk.errors import ContractCallError
+from sandloom.sdk.errors import ContractCallError  # sandloom: advanced 503
 from sandloom.sdk.module import ModuleAPI
 from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1
 

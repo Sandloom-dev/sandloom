@@ -205,7 +205,7 @@ def _main() -> None:  # noqa: C901
     sub.add_parser(
         "explore",
         add_help=False,
-        help="(experimental) open the architecture explorer",
+        help="(experimental) generate and open the architecture explorer",
     )
     sub.add_parser("migrate", add_help=False, help="run database migrations")
     sub.add_parser("projection", add_help=False, help="operate query projections")

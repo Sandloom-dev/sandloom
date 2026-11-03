@@ -113,6 +113,24 @@ function storedSession(raw: string | null): StoredSession | undefined {
   }
 }
 
+/** This tab's sessionStorage, or undefined where the browser blocks it. */
+function sessionStorageOrNone(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A storage write that may fail (quota, policy); the session stays in memory. */
+function quietly(write: () => void) {
+  try {
+    write();
+  } catch {
+    // Persistence is a convenience; the in-memory session is the source.
+  }
+}
+
 /**
  * Credentials in memory; one refresh per session, no automatic replay of
  * mutations. Outside production (`keepAcrossReloads(true)`) the session is
@@ -154,16 +172,28 @@ export class ApiClient {
    * take back the one a reload left there; in production, drop any stored one.
    */
   keepAcrossReloads(keep: boolean) {
-    const storage = window.sessionStorage;
+    // Storage is optional: a browser policy that blocks it (SecurityError)
+    // leaves the session in memory, as in production.
+    this.storage = undefined;
+    const storage = sessionStorageOrNone();
+    if (!storage) return;
     if (!keep) {
-      this.storage = undefined;
-      storage.removeItem(SESSION_KEY);
+      quietly(() => {
+        storage.removeItem(SESSION_KEY);
+      });
+      return;
+    }
+    let restored: StoredSession | undefined;
+    try {
+      restored = storedSession(storage.getItem(SESSION_KEY));
+    } catch {
       return;
     }
     this.storage = storage;
-    const restored = storedSession(storage.getItem(SESSION_KEY));
     if (!restored) {
-      storage.removeItem(SESSION_KEY);
+      quietly(() => {
+        storage.removeItem(SESSION_KEY);
+      });
       return;
     }
     this.generation++;
@@ -171,9 +201,13 @@ export class ApiClient {
     this.changed();
   }
   private persist() {
-    if (!this.storage) return;
-    if (this.session) this.storage.setItem(SESSION_KEY, JSON.stringify(this.session));
-    else this.storage.removeItem(SESSION_KEY);
+    const storage = this.storage;
+    if (!storage) return;
+    const session = this.session;
+    quietly(() => {
+      if (session) storage.setItem(SESSION_KEY, JSON.stringify(session));
+      else storage.removeItem(SESSION_KEY);
+    });
   }
   clear() {
     this.generation++;

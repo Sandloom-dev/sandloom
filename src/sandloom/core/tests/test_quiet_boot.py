@@ -89,8 +89,9 @@ async def test_dev_reports_an_unreachable_database_in_one_line(
         await app_factory.report_unreachable_database(_Core("fail"))  # type: ignore[arg-type]
     (record,) = caplog.records
     message = record.getMessage()
-    assert "cannot reach PostgreSQL at 127.0.0.1:23470" in message
+    assert "PostgreSQL at 127.0.0.1:23470 fails its health check" in message
     assert "uv run sandloom dev up" in message and "SANDLOOM-R014" in message
+    assert "DATABASE_URL" in message  # it may be a server dev does not run
     assert "secret" not in message and record.exc_info is None
     caplog.clear()
     with caplog.at_level(logging.WARNING):

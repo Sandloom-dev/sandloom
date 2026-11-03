@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import subprocess
 import threading
 import uuid
@@ -23,7 +24,7 @@ import pytest
 from sandloom.core.cli import dev as dev_cli
 from sandloom.core.cli import ui
 from sandloom.core.cli.dev import commands, envfile, identity, services
-from sandloom.core.cli.dev.state import load_state
+from sandloom.core.cli.dev.state import CheckoutRow, load_state, save_state
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -120,6 +121,8 @@ def test_external_services_end_to_end(
         assert services.database_exists(pg, name)
         state = load_state(ctx.state_dir)
         assert state is not None and state.services == "external"
+        # It holds the servers' URLs with their passwords: owner only.
+        assert (ctx.state_dir / "dev.json").stat().st_mode & 0o777 == 0o600
         assert state.ports == {}
         block = envfile.read_block((root / ".env").read_text())
         assert block["DATABASE_URL"].endswith(f"@{pg.host}:{pg.port}/{name}")
@@ -151,6 +154,151 @@ def test_external_services_end_to_end(
         assert served and no_docker == []
     finally:
         services.drop_database(pg, name)
+
+
+def _sql(pg: services.Postgres, statement: str, database: str = "postgres") -> None:
+    conn = pg.connect(database)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+    finally:
+        conn.close()
+
+
+def test_external_up_never_adopts_a_database_it_did_not_create(
+    tmp_path: Path, environ: dict[str, str], no_docker: list[str]
+) -> None:
+    """Another project's ``shop`` on the same server: refused, left intact."""
+    database, redis = _servers()
+    name = f"ux_ext_{uuid.uuid4().hex[:8]}"
+    pg = services.Postgres.from_url(database)
+    services.ensure_database(pg, name)
+    try:
+        _sql(pg, "CREATE TABLE theirs (id int)", name)
+        root = _app(tmp_path, name)
+        options = commands.UpOptions(
+            services="external", database_url=database, redis_url=redis
+        )
+        with pytest.raises(commands.DevError) as refused:
+            commands.up(_ctx(root, environ), options)
+        message = str(refused.value)
+        assert "\n" not in message
+        assert f"already has a database {name}" in message
+        assert "--database-url" in message
+        assert services.has_tables(pg, name)
+        assert services.database_mark(pg, name) is None
+        block = envfile.read_block((root / ".env").read_text())
+        assert not block.get("DATABASE_URL")
+    finally:
+        services.drop_database(pg, name)
+
+
+def test_external_reset_and_prune_drop_only_a_marked_database(
+    tmp_path: Path,
+    environ: dict[str, str],
+    no_docker: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The test server is shared by this run's other databases: prune only rows.
+    monkeypatch.setattr(commands, "_prune_test_databases", lambda ctx, state: [])
+    database, redis = _servers()
+    name = f"ux_ext_{uuid.uuid4().hex[:8]}"
+    foreign = f"{name}_theirs"
+    root = _app(tmp_path, name)
+    pg = services.Postgres.from_url(database)
+    try:
+        options = commands.UpOptions(
+            services="external", database_url=database, redis_url=redis
+        )
+        assert commands.up(_ctx(root, environ), options) == 0
+        state = load_state(_ctx(root, environ).state_dir)
+        assert state is not None
+        row = state.checkouts[str(root)]
+        assert services.database_mark(pg, name) == commands.dev_mark(row)
+
+        # A database created by an earlier build (no mark) the state records:
+        # `up` adopts and marks it, so a re-run keeps working.
+        _sql(pg, f"COMMENT ON DATABASE {name} IS NULL")
+        assert commands.up(_ctx(root, environ), commands.UpOptions()) == 0
+        assert services.database_mark(pg, name) == commands.dev_mark(row)
+
+        # Our marked database resets (and keeps its mark).
+        _sql(pg, "CREATE TABLE ours (id int)", name)
+        assert commands.reset(_ctx(root, environ), force=True) == 0
+        assert not services.has_tables(pg, name)
+        assert services.database_mark(pg, name) == commands.dev_mark(row)
+
+        # Without the mark, reset refuses and drops nothing.
+        _sql(pg, "CREATE TABLE ours (id int)", name)
+        _sql(pg, f"COMMENT ON DATABASE {name} IS NULL")
+        with pytest.raises(commands.DevError, match="did not create it"):
+            commands.reset(_ctx(root, environ), force=True)
+        assert services.has_tables(pg, name)
+
+        # prune of a removed checkout keeps an unmarked database.
+        services.ensure_database(pg, foreign)
+        ctx = _ctx(root, environ)
+        state = load_state(ctx.state_dir)
+        assert state is not None
+        gone = str(tmp_path / "gone")
+        state.checkouts[gone] = CheckoutRow(
+            path=gone,
+            database=foreign,
+            cache_index=40,
+            broker_index=41,
+            test_database="sandloom_test_gone",
+        )
+        save_state(ctx.state_dir, state)
+        assert commands.prune(ctx) == 0
+        assert services.database_exists(pg, foreign)
+        after = load_state(ctx.state_dir)
+        assert after is not None and gone not in after.checkouts
+    finally:
+        services.drop_database(pg, name)
+        services.drop_database(pg, foreign)
+
+
+def test_only_empty_redis_indexes_are_taken_on_your_own_server() -> None:
+    """Your own Redis may keep data in any index, and `dev reset` / `prune`
+    flush ours: a checkout gets two that hold no key, below the server's
+    last database."""
+    _, redis_url = _servers()
+    server = services.RedisServer.from_url(redis_url)
+    busy = services._redis(server.host, server.port, 860, server.password)
+    try:
+        busy.set("theirs", "1")
+        assert services.empty_indexes(server, [860, 861, 862]) == [861, 862]
+        # Past the server's `databases` setting there is nothing to take.
+        assert services.empty_indexes(server, [861, 10**6, 862]) == [861]
+    finally:
+        busy.delete("theirs")
+        busy.close()
+
+
+@pytest.mark.parametrize(
+    ("url", "says"),
+    [
+        ("rediss://:secret@cache.local:6380", "rediss:// (TLS) is not supported"),
+        ("redis://app:secret@cache.local:6379", "ACL user"),
+        ("redis://cache.local:6379?ssl_cert_reqs=none", "URL options"),
+    ],
+)
+def test_a_redis_url_whose_tls_or_user_would_be_dropped_is_refused(
+    url: str, says: str
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(says)) as refused:
+        services.RedisServer.from_url(url)
+    assert "secret" not in str(refused.value)
+    problem = commands.check_external("postgresql://me@127.0.0.1:5432/postgres", url)
+    assert problem is not None and says in problem
+
+
+def test_a_postgres_url_whose_sslmode_would_be_dropped_is_refused() -> None:
+    url = "postgresql://me:secret@db.local:5432/postgres?sslmode=require"
+    with pytest.raises(ValueError, match="sslmode") as refused:
+        services.Postgres.from_url(url)
+    assert "secret" not in str(refused.value)
+    assert services.RedisServer.from_url("redis://:pw@h:1").password == "pw"
 
 
 def test_the_cli_flags_switch_to_external(
@@ -186,6 +334,8 @@ def test_dev_run_with_external_servers_down_says_what_to_do(
     monkeypatch.setattr(commands._services, "redis_ready", lambda *a, **k: None)
     monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
     monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
+    monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    monkeypatch.setattr(commands._services, "empty_indexes", lambda s, c: list(c)[:2])
     options = commands.UpOptions(
         services="external",
         database_url="postgresql://me@127.0.0.1:5432/postgres",

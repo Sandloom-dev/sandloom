@@ -140,7 +140,10 @@ def load_state(state_dir: Path) -> State | None:
 
 
 def save_state(state_dir: Path, state: State) -> None:
-    atomic_write(state_dir / STATE_FILE, state.to_json())
+    # External mode keeps the person's server URLs, passwords included:
+    # readable by its owner only, like .env.
+    mode = 0o600 if state.external else None
+    atomic_write(state_dir / STATE_FILE, state.to_json(), mode=mode)
 
 
 def load_registry(home: Path) -> dict[int, str]:

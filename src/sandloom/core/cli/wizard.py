@@ -719,8 +719,7 @@ def docker_ready(environ: Mapping[str, str]) -> bool:
 def git_toplevel(directory: Path, environ: Mapping[str, str]) -> Path | None:
     """The work tree holding ``directory`` (``git rev-parse --show-toplevel``),
     or ``None``. ``GIT_DIR`` and the like are ignored, as in ``sandloom dev``."""
-    env = {k: v for k, v in environ.items() if k not in _GIT_ENV}
-    proc = _run_quiet(["git", "rev-parse", "--show-toplevel"], env, cwd=directory)
+    proc = _git(["rev-parse", "--show-toplevel"], environ, cwd=directory)
     if proc is None or proc.returncode != 0 or not proc.stdout.strip():
         return None
     return Path(proc.stdout.strip())
@@ -728,6 +727,15 @@ def git_toplevel(directory: Path, environ: Mapping[str, str]) -> Path | None:
 
 #: Variables a git hook sets that would point git at another repository.
 _GIT_ENV = frozenset({"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"})
+
+
+def _git(
+    args: Sequence[str], environ: Mapping[str, str], *, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str] | None:
+    """``git <args>`` in ``cwd`` without :data:`_GIT_ENV`, so a hook's or an
+    agent shell's ``GIT_DIR`` never points it at another repository."""
+    env = {k: v for k, v in environ.items() if k not in _GIT_ENV}
+    return _run_quiet(["git", *args], env, cwd=cwd)
 
 
 def machine_for(environ: Mapping[str, str], parent: Path) -> Machine:
@@ -742,7 +750,7 @@ def machine_for(environ: Mapping[str, str], parent: Path) -> Machine:
 
 
 def git_email(environ: Mapping[str, str]) -> str | None:
-    proc = _run_quiet(["git", "config", "user.email"], environ)
+    proc = _git(["config", "user.email"], environ)
     value = proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
     return value or None
 
@@ -751,12 +759,10 @@ def git_init(root: Path, environ: Mapping[str, str]) -> bool:
     """``git init`` in ``root`` (no commit), unless ``root`` is already inside
     a work tree or git is missing; whether it ran."""
     probe = root if root.is_dir() else root.parent
-    inside = _run_quiet(
-        ["git", "rev-parse", "--is-inside-work-tree"], environ, cwd=probe
-    )
+    inside = _git(["rev-parse", "--is-inside-work-tree"], environ, cwd=probe)
     if inside is None or inside.stdout.strip() == "true":
         return False
-    done = _run_quiet(["git", "init", "--quiet"], environ, cwd=root)
+    done = _git(["init", "--quiet"], environ, cwd=root)
     return done is not None and done.returncode == 0
 
 
@@ -765,7 +771,7 @@ INITIAL_COMMIT = "Initial commit from sandloom new"
 
 
 def _git_config(key: str, root: Path, environ: Mapping[str, str]) -> str:
-    proc = _run_quiet(["git", "config", key], environ, cwd=root)
+    proc = _git(["config", key], environ, cwd=root)
     return proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
 
 
@@ -786,15 +792,14 @@ def initial_commit(root: Path, environ: Mapping[str, str]) -> str | None:
             f'"{INITIAL_COMMIT}"; or once: git add -A && git -c user.name="Your '
             f'Name" -c user.email=you@example.com commit -m "{INITIAL_COMMIT}"'
         )
-    added = _run_quiet(["git", "add", "-A"], environ, cwd=root)
+    added = _git(["add", "-A"], environ, cwd=root)
     if added is None or added.returncode != 0:
         return _commit_failed(added)
-    done = _run_quiet(
+    done = _git(
         # This one automated commit only: no hook (none of this app's is
         # installed yet) and no signing (a key may need a passphrase or be
         # missing); the person's own commits keep their settings.
         [
-            "git",
             "-c",
             "commit.gpgsign=false",
             "commit",
@@ -1503,8 +1508,10 @@ def _own_servers(run: _Run, plan: Plan, root: Path, answers: Answers) -> Answers
     the summary lists the steps left."""
     problem = configure_external(run, root, answers)
     if problem is None:
-        pg = _services.Postgres.from_url(answers.database_url or "")
-        done = f"PostgreSQL and Redis: the database {plan.app} on {pg.address}"
+        where = "your PostgreSQL"  # the usual local ports, found by `dev up`
+        if answers.database_url:
+            where = _services.Postgres.from_url(answers.database_url).address
+        done = f"PostgreSQL and Redis: the database {plan.app} on {where}"
         run.out.write(f"  {run.style.ok(done)}\n")
         return answers
     run.out.write(_ui.error_lines(run.style, problem) + "\n")
@@ -1545,8 +1552,11 @@ def create_administrator(
 def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
     style = run.style
     initialised = _start_git(run, root, answers)
+    servers_failed = False
     if answers.services == EXTERNAL:
+        requested = answers.setup
         answers = _own_servers(run, plan, root, answers)
+        servers_failed = requested and not answers.setup
     admin_created = False
     if answers.setup:
         result = _setup(run, root, answers)
@@ -1570,7 +1580,8 @@ def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
         # prints nothing after it.
         lines = _next_steps(run, plan, root, answers)
         run.out.write("\nNext steps:\n" + "".join(f"  {line}\n" for line in lines))
-        return 0
+        # A script that asked for the setup sees from the status it did not run.
+        return 1 if servers_failed else 0
     run.out.write(_summary(run, plan, root, answers, admin_created=admin_created))
     run.out.flush()
     return 0

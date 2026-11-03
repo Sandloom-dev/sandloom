@@ -68,8 +68,11 @@ async def client(
         yield http
 
 
-async def test_the_entry_page_forbids_foreign_code(client: AsyncClient) -> None:
-    response = await client.get("/admin/")
+@pytest.mark.parametrize("path", ["/admin/", "/admin/index.html"])
+async def test_the_entry_page_forbids_foreign_code(
+    client: AsyncClient, path: str
+) -> None:
+    response = await client.get(path)
     assert response.status_code == 200
     assert "/admin/assets/" in response.text
     assert "script-src 'self'" in response.headers["content-security-policy"]
@@ -124,10 +127,11 @@ async def test_hashed_assets_come_precompressed(client: AsyncClient) -> None:
         assert "javascript" in response.headers["content-type"]
         assert "immutable" in response.headers["cache-control"]
         assert int(response.headers["content-length"]) < len(plain.content) / 2
-    refused = await client.get(
-        f"/admin/{asset}", headers={"Accept-Encoding": "br;q=0, gzip"}
-    )
-    assert refused.headers["content-encoding"] == "gzip"
+    for header in ("br;q=0, gzip", "br; Q=0.0, gzip", "br;q=0., gzip;q=0.5"):
+        refused = await client.get(
+            f"/admin/{asset}", headers={"Accept-Encoding": header}
+        )
+        assert refused.headers["content-encoding"] == "gzip", header
 
 
 async def test_a_missing_file_is_not_answered_with_html(client: AsyncClient) -> None:
