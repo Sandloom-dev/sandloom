@@ -68,7 +68,12 @@ class Context:
 
     @property
     def state_dir(self) -> Path:
-        return self.identity.state_dir
+        """This machine's part of the repository state.
+
+        Keyed by the machine id: a devcontainer or a sandboxed agent with its
+        own HOME on the same repository keeps its own compose project, ports
+        and checkout rows instead of replacing the other's."""
+        return self.identity.state_dir / "machines" / self.identity.machine
 
     @property
     def root(self) -> Path:
@@ -377,6 +382,29 @@ def assign_ports(ctx: Context, state: State, services: list[str]) -> bool:
     return moved
 
 
+def registry_stale(ctx: Context, state: State) -> bool:
+    """Whether a port of ``state`` is registered to no repository or to one
+    that is gone (a moved repository adopted its services): ``dev prune``
+    would free it while the services still use it."""
+    registry = load_registry(ctx.home)
+    for port in state.ports.values():
+        owner = registry.get(port)
+        if owner != state.repository and (owner is None or not Path(owner).exists()):
+            return True
+    return False
+
+
+def reregister_ports(ctx: Context, state: State) -> None:
+    """Register ``state``'s ports under its (new) repository path; ports that
+    a live repository holds are left alone. Under the machine lock."""
+    registry = load_registry(ctx.home)
+    for port in state.ports.values():
+        owner = registry.get(port)
+        if owner is None or not Path(owner).exists():
+            registry[port] = state.repository
+    save_registry(ctx.home, registry)
+
+
 @contextlib.contextmanager
 def _checkout_locks(ctx: Context, paths: list[str]) -> Iterator[None]:
     with contextlib.ExitStack() as stack:
@@ -418,7 +446,7 @@ def up(ctx: Context, options: UpOptions) -> int:
     for _ in range(3):
         with ctx.repo_lock("sandloom dev up"):
             state = reconcile(ctx, load_state(ctx.state_dir), options)
-            if not ports_needed(ctx, state):
+            if not ports_needed(ctx, state) and not registry_stale(ctx, state):
                 return _finish_up(ctx, state, options)
         # Ports: release the repository lock, take machine then repository.
         with ctx.machine_lock(), ctx.repo_lock("sandloom dev up"):
@@ -430,6 +458,9 @@ def up(ctx: Context, options: UpOptions) -> int:
                 write_state_env(ctx, state)
                 if moved:
                     _rewrite_checkouts(ctx, state, needed)
+            elif registry_stale(ctx, state):
+                reregister_ports(ctx, state)
+                save_state(ctx.state_dir, state)
     raise DevError("the ports kept changing while `sandloom dev up` ran; run it again")
 
 
@@ -1079,6 +1110,8 @@ __all__ = [
     "ports_needed",
     "prune",
     "reconcile",
+    "registry_stale",
+    "reregister_ports",
     "reset",
     "run",
     "status",

@@ -24,6 +24,7 @@ conftest or test module can import the framework. This module (and the
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Generator
 from pathlib import Path
 
@@ -54,7 +55,13 @@ from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixt
     test_engine,
     user_headers,
 )
-from sandloom.core.testing.slots import acquire_test_slot
+from sandloom.core.testing.slots import (
+    SLOT_LOST_MESSAGE,
+    SlotsExhausted,
+    acquire_test_slot,
+    held_slot,
+    slot_lost,
+)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -105,5 +112,18 @@ def pytest_load_initial_conftests(
             starts.append(candidate)
     # Plain pytest: the controller takes the slot (xdist workers and the
     # steps of `sandloom test` find it held). Kept until the process exits.
-    acquire_test_slot(starts)
+    try:
+        acquire_test_slot(starts)
+    except SlotsExhausted as exc:
+        raise pytest.UsageError(str(exc)) from None
     load_test_env(starts, warn_if_late=True)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """A run that lost its test-run slot fails: another run may have shared
+    its database meanwhile."""
+    if held_slot() is not None and slot_lost():
+        print(f"\n{SLOT_LOST_MESSAGE}", file=sys.stderr)
+        if exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED

@@ -19,9 +19,17 @@ takes a *slot*:
 3. ``SANDLOOM_TEST_SLOT_HELD=<pid>`` tells the processes the run starts (the
    pytest steps of ``sandloom test``, xdist workers) that the slot is held.
 
-Nothing changes for CI (``CI`` set), for an exported
-``SANDLOOM_TEST_DATABASE_URL`` / ``SANDLOOM_TEST_OWNER`` (the caller manages
-its resources), or for a checkout without ``.env.test.local``.
+Nothing changes for an exported ``SANDLOOM_TEST_DATABASE_URL`` /
+``SANDLOOM_TEST_OWNER`` (the caller manages its resources: a CI job sets
+them), or for a checkout without ``.env.test.local``. ``CI`` alone changes
+nothing: agent harnesses export ``CI=1`` on a developer machine, and a slot is
+cheap.
+
+When every slot is held, the run stops with one line naming the holders (each
+slot's connection carries ``application_name`` ``sandloom-test-slot pid=<pid>
+<host>``). The slot's connection is checked again when the run ends: a run
+that lost it (the server restarted) may have shared its database with
+another run, and fails (:func:`slot_lost`).
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -30,6 +38,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import socket
 import struct
 import sys
 from collections.abc import Iterable, MutableMapping
@@ -55,6 +64,12 @@ DATABASE_ENV = "SANDLOOM_TEST_DATABASE_URL"
 REDIS_ENVS = ("SANDLOOM_TEST_CACHE_URL", "SANDLOOM_TEST_BROKER_URL")
 STRIDE_ENV = "SANDLOOM_TEST_REDIS_DB_STRIDE"
 MAX_SLOTS = 64
+#: ``application_name`` prefix of a slot's connection (names the holder).
+APPLICATION_PREFIX = "sandloom-test-slot"
+
+
+class SlotsExhausted(RuntimeError):
+    """Every test-run slot of the checkout is held (a one-line message)."""
 
 
 @dataclass
@@ -99,10 +114,6 @@ def slot_database_url(base_url: str, number: int) -> str:
 
 def slot_owner(machine: str, checkout: Path, number: int) -> str:
     return f"{machine}:{checkout}#{number}"
-
-
-def _truthy(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _pid_alive(pid: int) -> bool:
@@ -170,7 +181,7 @@ def _slot_source(
     starts: Iterable[Path], env: MutableMapping[str, str]
 ) -> tuple[Path, dict[str, str]] | None:
     """``(.env.test.local, its values)`` when this run takes a slot."""
-    if _truthy(env.get("CI")) or env.get("PYTEST_XDIST_WORKER"):
+    if env.get("PYTEST_XDIST_WORKER"):
         return None
     if _held_by_parent(env) or env.get(DATABASE_ENV) or env.get(OWNER_ENV):
         return None
@@ -181,6 +192,36 @@ def _slot_source(
     if not (values.get(DATABASE_ENV) or "").startswith("postgresql"):
         return None
     return local, values
+
+
+def _application_name() -> str:
+    return f"{APPLICATION_PREFIX} pid={os.getpid()} {socket.gethostname()}"[:63]
+
+
+def _holders(conn: Any, key: int) -> str:
+    """Who holds the slots of ``key``: ``"slot 1: pid=… host, …"``."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT l.objid::bigint, a.application_name, a.pid "
+                "FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid "
+                "WHERE l.locktype = 'advisory' AND l.granted "
+                "AND l.objsubid = 2 AND l.classid = %s::bigint::oid "
+                "ORDER BY 1",
+                (key & 0xFFFFFFFF,),
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error:
+        return "unknown holders"
+    named = []
+    for number, app, backend in rows:
+        who = str(app or "")
+        who = who.removeprefix(APPLICATION_PREFIX).strip() or f"backend {backend}"
+        named.append(f"slot {number}: {who}")
+    if not named:
+        return "unknown holders"
+    shown = ", ".join(named[:5])
+    return shown + (f" and {len(named) - 5} more" if len(named) > 5 else "")
 
 
 def _lock_first_free(conn: Any, key: int) -> int:
@@ -236,7 +277,9 @@ def acquire_test_slot(
     checkout = checkout_root(cwd or local.parent)
     machine = machine_id(env)
     try:
-        conn = psycopg2.connect(_admin_dsn(base), connect_timeout=5)
+        conn = psycopg2.connect(
+            _admin_dsn(base), connect_timeout=5, application_name=_application_name()
+        )
     except psycopg2.OperationalError as exc:
         if announce:
             print(
@@ -246,12 +289,15 @@ def acquire_test_slot(
             )
         return None
     conn.autocommit = True
-    number = _lock_first_free(conn, slot_key(machine, checkout))
+    key = slot_key(machine, checkout)
+    number = _lock_first_free(conn, key)
     if not number:
+        holders = _holders(conn, key)
         conn.close()
-        raise RuntimeError(
+        raise SlotsExhausted(
             f"sandloom testing: all {MAX_SLOTS} test-run slots of {checkout} are "
-            "held by running test runs"
+            f"held ({holders}): wait for a run to end or stop one, or export "
+            "SANDLOOM_TEST_DATABASE_URL to give this run its own database"
         )
     owner = slot_owner(machine, checkout, number)
     slot = Slot(number, slot_database_url(base, number), owner, connection=conn)
@@ -268,6 +314,29 @@ def acquire_test_slot(
     return slot
 
 
+def slot_lost(slot: Slot | None = None) -> bool:
+    """Whether the held slot's connection is gone (so is its lock: another
+    run may have taken the slot and its database meanwhile)."""
+    slot = _held if slot is None else slot
+    if slot is None or slot.connection is None:
+        return False
+    try:
+        with slot.connection.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+    except psycopg2.Error:
+        return True
+    return False
+
+
+#: What a run that lost its slot prints (and why it fails).
+SLOT_LOST_MESSAGE = (
+    "sandloom testing: this run lost its test-run slot (the connection holding "
+    "it closed: the test server restarted?); another run may have used the same "
+    "database meanwhile, so the results are not trustworthy. Run the tests again"
+)
+
+
 def release_test_slot() -> None:
     global _held
     if _held is not None:
@@ -279,12 +348,15 @@ __all__ = [
     "LOCAL_ENV_FILE",
     "MAX_SLOTS",
     "SLOT_HELD_ENV",
+    "SLOT_LOST_MESSAGE",
     "Slot",
+    "SlotsExhausted",
     "acquire_test_slot",
     "held_slot",
     "local_env_file",
     "release_test_slot",
     "slot_database_url",
     "slot_key",
+    "slot_lost",
     "slot_owner",
 ]

@@ -83,7 +83,12 @@ from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.testing.env import find_env_file, load_test_env
-from sandloom.core.testing.slots import acquire_test_slot
+from sandloom.core.testing.slots import (
+    SLOT_LOST_MESSAGE,
+    SlotsExhausted,
+    acquire_test_slot,
+    slot_lost,
+)
 
 #: Catalogue code a failing step points to (``sandloom explain <code>``).
 _STEP_CODES = {
@@ -490,7 +495,11 @@ def main(argv: list[str] | None = None) -> int:
         for step in steps:
             print(f"{step.name:20} {step.describe()}")
         return 0
-    env_file = load_project_test_env(root)
+    try:
+        env_file = load_project_test_env(root)
+    except SlotsExhausted as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if env_file is None:
         print(
             "sandloom test: no .env.test found walking up from "
@@ -506,6 +515,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     outcomes = run(steps, root)
     print(summary(outcomes))
+    if slot_lost():
+        print(SLOT_LOST_MESSAGE, file=sys.stderr)
+        return 1
     if seed is not None and any(o.code for o in outcomes):
         print(
             f"sandloom test: test order seed {seed} (replay: "

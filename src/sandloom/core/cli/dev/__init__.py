@@ -34,6 +34,7 @@ from pathlib import Path
 
 from sandloom.core.cli.dev import commands as _commands
 from sandloom.core.cli.dev import docker as _docker
+from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
 from sandloom.core.cli.dev import identity as _identity
 
@@ -147,7 +148,7 @@ def main(
             file=sys.stderr,
         )
         return 1
-    except _commands.DevError as exc:
+    except (_commands.DevError, _envfile.EnvFileChanged) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

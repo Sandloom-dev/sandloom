@@ -56,8 +56,11 @@ committed and names this repository's test servers.
   uses the same name with `_2`, and gets its own Redis indexes too.
 - `sandloom test` holds its slot for all its steps. A plain `pytest` takes one
   in the controller process.
-- CI and an exported `SANDLOOM_TEST_DATABASE_URL` or `SANDLOOM_TEST_OWNER` take
-  no slot: the run uses exactly what you set.
+- An exported `SANDLOOM_TEST_DATABASE_URL` or `SANDLOOM_TEST_OWNER` takes no
+  slot: the run uses exactly what you set. A CI job that brings its own services
+  sets them. `CI=1` alone changes nothing, since agent tools set it too.
+- When every slot is taken, the run stops with one line that names the runs
+  holding them.
 
 ### Your own database and Redis (shared machines)
 

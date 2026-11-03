@@ -37,9 +37,11 @@ async def test_it_warns_once_without_an_administrator(
     ):
         await admin_setup.warn_without_admin()
         await admin_setup.warn_without_admin()
-    warnings = [r for r in caplog.records if "No platform administrator" in r.message]
+    warnings = [
+        r for r in caplog.records if "No platform administrator" in r.getMessage()
+    ]
     assert len(warnings) == 1
-    assert "uv run sandloom admin create --email" in warnings[0].message
+    assert "uv run sandloom admin create --email" in warnings[0].getMessage()
     assert security.calls == 1
 
 

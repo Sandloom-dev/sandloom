@@ -138,13 +138,19 @@ def test_a_second_run_in_one_checkout_gets_slot_two(
 @pytest.mark.parametrize(
     "extra",
     [
-        {"CI": "true"},
+        {"CI": "true", "SANDLOOM_TEST_DATABASE_URL": "postgresql://ci/sandloom_test"},
         {"SANDLOOM_TEST_DATABASE_URL": "postgresql+asyncpg://u:p@h/sandloom_test_x"},
         {"SANDLOOM_TEST_OWNER": "me"},
         {"PYTEST_XDIST_WORKER": "gw0"},
         {slots.SLOT_HELD_ENV: str(os.getpid())},
     ],
-    ids=["ci", "explicit-url", "explicit-owner", "xdist-worker", "held-by-parent"],
+    ids=[
+        "ci-provided-url",
+        "explicit-url",
+        "explicit-owner",
+        "xdist-worker",
+        "held-by-parent",
+    ],
 )
 def test_no_slot_for_ci_explicit_overrides_or_a_held_slot(
     tmp_path: Path, extra: dict[str, str]
@@ -240,3 +246,137 @@ def test_the_default_owner_carries_the_machine_id(tmp_path: Path) -> None:
     owner = ownership.current_owner(env, cwd=tmp_path / "wt")
     machine, _, path = owner.partition(":")
     assert len(machine) == 12 and path == str((tmp_path / "wt").resolve())
+
+
+def test_ci_alone_still_takes_a_slot(
+    checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    """Agent harnesses export CI=1 on a developer machine: the slot still
+    applies (a CI job that provides its services sets SANDLOOM_TEST_*)."""
+    root, name = checkout
+    env = {**_clean_env(tmp_path / "home"), "CI": "1"}
+    slot = slots.acquire_test_slot([root], env, cwd=root, announce=False)
+    assert slot is not None
+    try:
+        assert slot.number == 1
+        assert env["SANDLOOM_TEST_DATABASE_URL"].endswith(f"/{name}")
+    finally:
+        slot.release()
+
+
+def test_exhausted_slots_name_their_holders(
+    checkout: tuple[Path, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLDER, str(root)],
+        env=env,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert json.loads(holder.stdout.readline())["number"] == 1
+        monkeypatch.setattr(slots, "MAX_SLOTS", 1)
+        with pytest.raises(slots.SlotsExhausted) as refused:
+            slots.acquire_test_slot([root], dict(env), cwd=root, announce=False)
+        message = str(refused.value)
+        assert "\n" not in message
+        assert f"slot 1: pid={holder.pid}" in message
+        assert "SANDLOOM_TEST_DATABASE_URL" in message
+    finally:
+        holder.kill()
+        holder.wait()
+
+
+def test_exhausted_slots_are_one_line_in_sandloom_test(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def full(root: Path) -> None:
+        raise slots.SlotsExhausted("sandloom testing: all 64 test-run slots ...")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_tests, "load_project_test_env", full)
+    monkeypatch.setattr(run_tests, "plan", lambda *a, **k: [])
+    assert run_tests.main(["--no-gates", "--no-shuffle"]) == 1
+    err = capsys.readouterr().err.strip().splitlines()
+    assert err[-1] == "error: sandloom testing: all 64 test-run slots ..."
+
+
+def test_a_lost_slot_connection_is_detected(
+    checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    slot = slots.acquire_test_slot([root], env, cwd=root, announce=False)
+    assert slot is not None
+    try:
+        assert not slots.slot_lost(slot)
+        # The server ends the slot's backend (as a restart would).
+        psycopg2 = pytest.importorskip("psycopg2")
+        backend = slot.connection.get_backend_pid()
+        killer = psycopg2.connect(
+            _plain(_test_url("DATABASE_URL"), "postgres"), connect_timeout=5
+        )
+        killer.autocommit = True
+        with killer.cursor() as cur:
+            cur.execute("SELECT pg_terminate_backend(%s)", (backend,))
+        killer.close()
+        assert slots.slot_lost(slot)
+    finally:
+        slot.release()
+
+
+def test_the_dev_up_hint_needs_a_missing_env_test_local(tmp_path: Path) -> None:
+    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    assert test_env.dev_up_hint([tmp_path]) == test_env.DEV_UP_HINT
+    assert "run `uv run sandloom dev up` first" in test_env.DEV_UP_HINT
+    (tmp_path / ".env.test.local").write_text("X=1\n")
+    assert test_env.dev_up_hint([tmp_path]) is None
+
+
+def test_an_unreachable_server_without_env_test_local_says_dev_up(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sandloom.core.testing import session_checks
+
+    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    config = mock.Mock()
+    config.rootpath = tmp_path
+    config.invocation_params.args = ()
+    session_checks._warn_unreachable(
+        config, "postgresql+asyncpg://u:p@127.0.0.1:1/sandloom_test"
+    )
+    err = capsys.readouterr().err
+    assert "127.0.0.1:1 is not reachable" in err
+    assert "run `uv run sandloom dev up` first" in err
+    (tmp_path / ".env.test.local").write_text("X=1\n")
+    session_checks._warn_unreachable(
+        config, "postgresql+asyncpg://u:p@127.0.0.1:1/sandloom_test"
+    )
+    assert capsys.readouterr().err == ""
+
+
+def test_an_ownership_refusal_without_env_test_local_says_dev_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sandloom.core.testing import session_checks
+
+    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    config = mock.Mock(spec=["rootpath", "invocation_params", "getoption"])
+    config.rootpath = tmp_path
+    config.invocation_params.args = ()
+
+    def refuse(target: dict[str, str]) -> None:
+        raise ownership.TestResourceOwnershipError("Refusing to reset database 'x'.")
+
+    monkeypatch.setattr(session_checks, "run_values", lambda config: {})
+    monkeypatch.setattr(session_checks, "_numprocesses", lambda config: 0)
+    monkeypatch.setattr(session_checks.ownership, "claim_test_resources", refuse)
+    with pytest.raises(pytest.exit.Exception) as stopped:
+        session_checks.check_run_resources(config)
+    assert "Refusing to reset database 'x'." in str(stopped.value)
+    assert "run `uv run sandloom dev up` first" in str(stopped.value)

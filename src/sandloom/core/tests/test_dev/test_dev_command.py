@@ -167,6 +167,48 @@ def test_the_machine_id_is_created_once(environ: dict[str, str]) -> None:
     assert (Path(environ["SANDLOOM_HOME"]) / "machine-id").is_file()
 
 
+def _first_machine_id(home: str, out: str) -> None:
+    Path(out).write_text(machine_id({"SANDLOOM_HOME": home}))
+
+
+@pytest.mark.parametrize("broken", [None, ""])
+def test_concurrent_first_calls_agree_on_the_machine_id(
+    tmp_path: Path, broken: str | None
+) -> None:
+    """On a new machine, and when an empty file is repaired concurrently."""
+    home = tmp_path / "fresh-home"
+    if broken is not None:
+        home.mkdir()
+        (home / "machine-id").write_text(broken)
+    spawn = multiprocessing.get_context("spawn")
+    outs = [tmp_path / f"id-{n}" for n in range(6)]
+    procs = [
+        spawn.Process(target=_first_machine_id, args=(str(home), str(out)))
+        for out in outs
+    ]
+    for proc in procs:
+        proc.start()
+    for proc in procs:
+        proc.join(30)
+    ids = {out.read_text() for out in outs}
+    assert len(ids) == 1
+    assert (home / "machine-id").read_text().strip() == ids.pop()
+    assert not [p for p in home.iterdir() if p.name.startswith(".machine-id.")]
+
+
+@pytest.mark.parametrize("broken", ["", "\n", "not-an-id\n"])
+def test_an_empty_or_garbage_machine_id_is_repaired_once(
+    environ: dict[str, str], broken: str
+) -> None:
+    home = Path(environ["SANDLOOM_HOME"])
+    home.mkdir(parents=True)
+    (home / "machine-id").write_text(broken)
+    first = machine_id(environ)
+    assert len(first) == 12
+    assert (home / "machine-id").read_text().strip() == first
+    assert machine_id(environ) == first
+
+
 def test_the_state_round_trips(tmp_path: Path) -> None:
     state = State(repository="/r", project="p-1", machine="m", ports={"db": 1})
     state.checkouts["/r/a"] = CheckoutRow("/r/a", "p", 1, 2, "sandloom_test_x", 5.0)
@@ -193,6 +235,74 @@ def test_a_copied_repository_gets_new_services(
     copied.project = "shop-000000"
     found = commands.reconcile(ctx, copied, commands.UpOptions())
     assert found.project == ctx.identity.project and not found.ports
+
+
+def test_two_homes_on_one_repository_keep_their_own_state(
+    repo: Path, environ: dict[str, str], tmp_path: Path
+) -> None:
+    """A devcontainer or a sandboxed agent with its own HOME (another machine
+    id) on the same repository gets its own project and rows; the host's
+    state is neither replaced nor orphaned."""
+    host = _ctx(repo, environ)
+    host_state = _state(host)
+    host_state.checkouts[str(repo)] = CheckoutRow(str(repo), "shop", 1, 2, "t")
+    save_state(host.state_dir, host_state)
+
+    sandbox_env = {**environ, "SANDLOOM_HOME": str(tmp_path / "sandbox-home")}
+    sandbox = _ctx(repo, sandbox_env)
+    assert sandbox.identity.machine != host.identity.machine
+    assert sandbox.state_dir != host.state_dir
+    found = commands.reconcile(
+        sandbox, load_state(sandbox.state_dir), commands.UpOptions()
+    )
+    assert found.project == sandbox.identity.project != host_state.project
+    assert not found.checkouts
+    save_state(sandbox.state_dir, found)
+    assert load_state(host.state_dir) == host_state
+    again = commands.reconcile(host, load_state(host.state_dir), commands.UpOptions())
+    assert again == host_state
+
+
+def test_an_adopted_move_registers_the_ports_under_the_new_path(
+    repo: Path, environ: dict[str, str], tmp_path: Path
+) -> None:
+    ctx = _ctx(repo, environ)
+    gone = str(tmp_path / "old-place" / ".git")
+    moved = _state(ctx)
+    moved.repository = gone
+    save_registry(ctx.home, dict.fromkeys(moved.ports.values(), gone) | {25000: "/x"})
+    found = commands.reconcile(ctx, moved, commands.UpOptions(adopt=True))
+    assert found.repository == str(ctx.identity.repository)
+    assert commands.registry_stale(ctx, found)
+    commands.reregister_ports(ctx, found)
+    registry = load_registry(ctx.home)
+    assert {registry[p] for p in found.ports.values()} == {found.repository}
+    assert registry[25000] == "/x"
+    assert not commands.registry_stale(ctx, found)
+    # `dev prune` keeps them now.
+    commands.prune(ctx)
+    assert set(found.ports.values()) <= set(load_registry(ctx.home))
+
+
+def test_up_reregisters_the_ports_after_an_adopted_move(
+    repo: Path,
+    environ: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _ctx(repo, environ)
+    gone = str(tmp_path / "old-place" / ".git")
+    moved = _state(ctx)
+    moved.repository = gone
+    save_state(ctx.state_dir, moved)
+    save_registry(ctx.home, dict.fromkeys(moved.ports.values(), gone))
+    monkeypatch.setattr(commands._docker, "check_docker", lambda env: None)
+    monkeypatch.setattr(commands, "ports_needed", lambda ctx, state: [])
+    monkeypatch.setattr(commands, "_finish_up", lambda ctx, state, options: 0)
+    assert commands.up(ctx, commands.UpOptions(adopt=True, pull=False)) == 0
+    registry = load_registry(ctx.home)
+    assert {registry[p] for p in moved.ports.values()} == {str(ctx.identity.repository)}
+    assert load_state(ctx.state_dir).repository == str(ctx.identity.repository)
 
 
 # --------------------------------------------------------------------------- #
@@ -260,7 +370,12 @@ def _hold_forever(path: str, ready: str) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fcntl")
-def test_a_dead_holder_is_taken_over(tmp_path: Path) -> None:
+def test_a_holder_whose_record_names_an_invisible_pid_keeps_the_lock(
+    tmp_path: Path,
+) -> None:
+    """The record says the holder is gone, but a live process holds the
+    ``flock`` (a child that inherited it, another pid namespace): the waiter
+    waits, never takes it over and never unlinks the file."""
     lock, ready = tmp_path / "dev.lock", tmp_path / "ready"
     spawn = multiprocessing.get_context("spawn")
     stuck = spawn.Process(target=_hold_forever, args=(str(lock), str(ready)))
@@ -269,15 +384,21 @@ def test_a_dead_holder_is_taken_over(tmp_path: Path) -> None:
         deadline = time.monotonic() + 30
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
+        inode = lock.stat().st_ino
         out = io.StringIO()
-        taken = locks.FileLock(lock, out=out, poll=0.05, timeout=10)
-        with taken:
-            assert taken.took_over
-            assert locks.read_holder(lock)["pid"] == os.getpid()
-        assert "taking over" in out.getvalue()
+        waiter = locks.FileLock(lock, out=out, poll=0.05, timeout=1.5)
+        with pytest.raises(TimeoutError, match=str(2**22 + 12345)):
+            waiter.acquire()
+        assert lock.stat().st_ino == inode
+        assert locks.read_holder(lock)["pid"] == 2**22 + 12345
+        assert "waiting for" in out.getvalue()
     finally:
         stuck.kill()
         stuck.join()
+    # The holder died: the operating system released the lock.
+    with locks.FileLock(lock, out=io.StringIO(), poll=0.05, timeout=5):
+        assert locks.read_holder(lock)["pid"] == os.getpid()
+    assert lock.exists()
 
 
 def test_a_live_holder_is_never_taken_over(tmp_path: Path) -> None:
@@ -430,6 +551,53 @@ def test_a_file_without_the_block_gets_it_and_old_urls_are_commented(
     once = env.read_text()
     envfile.write_env_block(env, _VALUES)
     assert env.read_text() == once
+
+
+def test_a_torn_block_keeps_every_user_line(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "JWT_SECRET=s\n"
+        f"{envfile.BEGIN}\n"
+        "DATABASE_URL=postgresql://old/db\n"
+        "STRIPE_KEY=sk_test_keep\n"
+        "export CACHE_URL=redis://old/1\n"
+        "FEATURE_X=on\n"
+    )
+    urls = {
+        "DATABASE_URL": "postgresql://127.0.0.1:1/shop",
+        "CACHE_URL": "redis://127.0.0.1:2/1",
+        "BROKER_URL": "redis://127.0.0.1:2/2",
+    }
+    assert envfile.write_env_block(env, urls)
+    text = env.read_text()
+    for kept in ("JWT_SECRET=s", "STRIPE_KEY=sk_test_keep", "FEATURE_X=on"):
+        assert f"\n{kept}\n" in f"\n{text}"
+    assert "# (moved into the sandloom dev block below) DATABASE_URL=" in text
+    assert "# (moved into the sandloom dev block below) export CACHE_URL=" in text
+    assert text.count(envfile.BEGIN) == 1 and text.count(envfile.END) == 1
+    assert envfile.read_block(text) == urls
+    # Stable from now on: a second write changes nothing.
+    assert not envfile.write_env_block(env, urls)
+
+
+def test_an_edit_during_the_write_is_merged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("A=1\n")
+    reads = {"n": 0}
+    real = envfile._read
+
+    def racing(path: Path) -> str:
+        reads["n"] += 1
+        if reads["n"] == 2:  # the user saves the file between read and replace
+            env.write_text("A=1\nB=2\n")
+        return real(path)
+
+    monkeypatch.setattr(envfile, "_read", racing)
+    assert envfile.write_env_block(env, {"DATABASE_URL": "postgresql://x/y"})
+    text = env.read_text()
+    assert "B=2" in text and "DATABASE_URL=postgresql://x/y" in text
 
 
 def test_a_symlinked_env_is_written_through_the_link(tmp_path: Path) -> None:
@@ -651,6 +819,105 @@ def test_a_wrapped_asyncpg_refusal_is_recognised() -> None:
         line = errors.connection_failure(exc)
     assert line is not None
     assert "PostgreSQL at 127.0.0.1:24817 (connection refused)" in line
+
+
+def test_an_error_raised_while_handling_a_refusal_keeps_its_traceback() -> None:
+    """``__context__`` is never followed: the real error is not hidden."""
+    import psycopg2
+
+    try:
+        try:
+            raise psycopg2.OperationalError(_REFUSED)
+        except psycopg2.OperationalError:
+            raise KeyError("a bug in the handler") from None
+    except KeyError as exc:
+        assert errors.connection_failure(exc) is None
+    try:
+        try:
+            raise psycopg2.OperationalError(_REFUSED)
+        except psycopg2.OperationalError:
+            {}["missing"]
+    except KeyError as exc:
+        assert exc.__context__ is not None
+        assert errors.connection_failure(exc) is None
+
+
+def test_the_outermost_exception_decides() -> None:
+    """An application error raised ``from`` a refusal is not a refusal."""
+    import psycopg2
+
+    try:
+        raise RuntimeError("the import job failed") from psycopg2.OperationalError(
+            _REFUSED
+        )
+    except RuntimeError as exc:
+        assert errors.connection_failure(exc) is None
+
+
+def test_authentication_and_missing_database_have_their_own_lines() -> None:
+    import psycopg2
+    from sqlalchemy.exc import OperationalError
+
+    at = 'connection to server at "127.0.0.1", port 5432 failed: FATAL:  '
+    auth = errors.connection_failure(
+        psycopg2.OperationalError(at + 'password authentication failed for user "u"')
+    )
+    assert auth == (
+        "error: PostgreSQL at 127.0.0.1:5432 refused the login (authentication "
+        "failed): check the user and password in the URL   [SANDLOOM-R014]"
+    )
+    missing = errors.connection_failure(
+        psycopg2.OperationalError(at + 'database "shop" does not exist')
+    )
+    assert missing == (
+        "error: the database shop does not exist on PostgreSQL at 127.0.0.1:5432: "
+        "uv run sandloom dev up creates it (else create it, then uv run sandloom "
+        "migrate upgrade-all --apply)   [SANDLOOM-R014]"
+    )
+
+    class InvalidPasswordError(Exception):
+        pass
+
+    InvalidPasswordError.__module__ = "asyncpg.exceptions"
+    wrapped = OperationalError("SELECT 1", {}, InvalidPasswordError("bad"))
+    assert "refused the login" in (errors.connection_failure(wrapped) or "")
+
+
+@pytest.mark.parametrize(
+    ("argv", "debug", "left"),
+    [
+        (["sandloom", "--debug", "migrate"], True, ["sandloom", "migrate"]),
+        (["sandloom", "test", "--", "--debug"], False, None),
+        (["sandloom", "test", "--debug"], False, None),
+        (["sandloom", "migrate", "status"], False, None),
+    ],
+)
+def test_debug_is_taken_only_before_the_subcommand(
+    argv: list[str], debug: bool, left: list[str] | None
+) -> None:
+    before = list(argv)
+    assert errors.debug_requested(argv, {}) is debug
+    assert argv == (left if left is not None else before)
+
+
+def test_migrate_prints_the_same_one_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import psycopg2
+
+    from sandloom.core.cli import migrate
+
+    def refused() -> None:
+        raise psycopg2.OperationalError(_REFUSED)
+
+    monkeypatch.setattr(migrate, "enforce_configuration", lambda settings: None)
+    monkeypatch.setattr(migrate, "_load_core", refused)
+    assert migrate.main(["databases"]) == 1
+    err = capsys.readouterr().err.strip().splitlines()
+    assert err == [
+        "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
+        "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
+    ]
 
 
 @pytest.mark.subprocess_probe

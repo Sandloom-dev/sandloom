@@ -16,8 +16,13 @@ import hashlib
 import os
 import sys
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+
+if sys.platform == "win32":  # pragma: no cover - Windows only
+    import msvcrt
+else:
+    import fcntl
 
 #: Overrides ``~/.sandloom`` (the machine id, the port registry, its lock).
 HOME_ENV = "SANDLOOM_HOME"
@@ -31,26 +36,78 @@ def sandloom_home(environ: Mapping[str, str] | None = None) -> Path:
     return Path(explicit).expanduser() if explicit else Path.home() / ".sandloom"
 
 
+def _valid(text: str) -> bool:
+    return len(text) == 12 and all(c in "0123456789abcdef" for c in text)
+
+
+def _read_id(path: Path) -> str | None:
+    """The id stored in ``path``; ``None`` when missing, empty or garbage."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text if _valid(text) else None
+
+
+def _written(directory: Path, value: str) -> Path:
+    """A complete temporary file holding ``value`` in ``directory``."""
+    temp = directory / f".{MACHINE_ID_FILE}.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+    with open(temp, "x", encoding="utf-8") as handle:
+        handle.write(value + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return temp
+
+
+@contextlib.contextmanager
+def _repair_lock(directory: Path) -> Iterator[None]:
+    """An exclusive lock beside the id while a broken file is repaired."""
+    fd = os.open(directory / f"{MACHINE_ID_FILE}.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        if sys.platform == "win32":  # pragma: no cover - Windows only
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # closing the descriptor releases the lock
+
+
 def machine_id(environ: Mapping[str, str] | None = None) -> str:
     """This machine's id (12 hex), created on first use.
 
-    Created with ``O_EXCL``, so two processes racing on a new machine agree on
-    the one that won.
+    Created atomically and exclusively: a complete temporary file is
+    hard-linked into place, so a reader never sees a partial file and two
+    processes racing on a new machine agree on the one whose link won. An
+    empty or unreadable file (a crash of an older version, a disk that
+    filled up) is repaired once, under a lock beside it.
     """
     path = sandloom_home(environ) / MACHINE_ID_FILE
-    with contextlib.suppress(OSError):
-        existing = path.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
+    found = _read_id(path)
+    if found is not None:
+        return found
     path.parent.mkdir(parents=True, exist_ok=True)
-    fresh = uuid.uuid4().hex[:12]
+    temp = _written(path.parent, uuid.uuid4().hex[:12])
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    except FileExistsError:
-        return path.read_text(encoding="utf-8").strip() or fresh
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(fresh + "\n")
-    return fresh
+        try:
+            os.link(temp, path)
+        except OSError:  # it exists (or no hard links here): read or repair it
+            pass
+        found = _read_id(path)
+        if found is not None:
+            return found
+        with _repair_lock(path.parent):
+            found = _read_id(path)  # another process may have repaired it
+            if found is not None:
+                return found
+            os.replace(temp, path)
+        found = _read_id(path)
+        if found is None:
+            raise OSError(f"cannot store the machine id in {path}")
+        return found
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
 
 
 def canonical(path: Path) -> str:

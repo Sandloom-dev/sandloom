@@ -20,13 +20,14 @@ import os
 import sys
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
 import pytest
 import redis
 
 from sandloom.core.testing import connections, ownership, resources, workers
+from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.fixtures import env_starts, find_env_file
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
@@ -126,6 +127,7 @@ def check_run_resources(config: pytest.Config) -> None:
     count = _numprocesses(config)
     # Budget first: a run that cannot start must not claim Redis indexes.
     database = values.get("DATABASE_URL") or ""
+    _warn_unreachable(config, database)
     if database:
         per_process = connections.process_connection_need()
         what = (
@@ -143,9 +145,43 @@ def check_run_resources(config: pytest.Config) -> None:
         for target in worker_targets(values, count):
             ownership.claim_test_resources(target)
     except ownership.TestResourceOwnershipError as exc:
-        pytest.exit(str(exc), returncode=pytest.ExitCode.USAGE_ERROR)
+        hint = dev_up_hint(env_starts(config))
+        message = f"{exc} Or: {hint}." if hint else str(exc)
+        pytest.exit(message, returncode=pytest.ExitCode.USAGE_ERROR)
     if database and not count:
         _prepare_serial_database(database)
+
+
+def _server_reachable(database_url: str) -> bool:
+    """Whether the PostgreSQL server of ``database_url`` accepts a connection
+    to its ``postgres`` database (a refused login counts as reachable)."""
+    parts = urlsplit(database_url)
+    dsn = urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
+    try:
+        psycopg2.connect(dsn, connect_timeout=5).close()
+    except psycopg2.OperationalError as exc:
+        text = str(exc)
+        return "authentication" in text or "does not exist" in text
+    return True
+
+
+def _warn_unreachable(config: pytest.Config, database: str) -> None:
+    """The test server does not answer and the checkout has no
+    ``.env.test.local``: say how to get this checkout's own servers (the
+    database tests then skip or fail on their own)."""
+    if not database.startswith("postgresql"):
+        return
+    hint = dev_up_hint(env_starts(config))
+    if hint is None:
+        return
+    if _server_reachable(database):
+        return
+    parts = urlsplit(database)
+    print(
+        f"sandloom testing: the test database server {parts.hostname}:"
+        f"{parts.port or 5432} is not reachable; {hint}",
+        file=sys.stderr,
+    )
 
 
 def _prepare_serial_database(database: str) -> None:

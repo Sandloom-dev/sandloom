@@ -13,6 +13,11 @@ block gets it appended, and a ``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL``
 line outside it is commented out with a note (it would win otherwise: the
 last line of a dotenv file wins). The file is written atomically, keeps its
 mode (0600 stays 0600) and, when it is a symlink, is written through the link.
+A torn block (a begin marker without its end marker, say after a bad merge)
+deletes nothing: every line stays, the managed variables in it are commented
+out with a note, the marker is replaced by a note, and a fresh block is
+appended. The write is a cheap compare-and-swap: the file is read again just
+before it is replaced, and an edit that landed meanwhile is merged once more.
 A worktree without ``.env`` gets one from ``.env.example`` with a fresh
 ``JWT_SECRET`` first.
 
@@ -37,6 +42,10 @@ _BEGIN_PREFIX = "# >>> sandloom dev"
 _END_PREFIX = "# <<< sandloom dev"
 MANAGED = ("DATABASE_URL", "CACHE_URL", "BROKER_URL")
 _NOTE = "# (moved into the sandloom dev block below) "
+_TORN = (
+    "# (sandloom dev: a block began here without its end marker; its lines "
+    "were kept and a new block is below)"
+)
 ENV_FILE = ".env"
 EXAMPLE_FILE = ".env.example"
 TEST_LOCAL_FILE = ".env.test.local"
@@ -71,8 +80,8 @@ def _split(text: str) -> tuple[list[str], list[str] | None, list[str]]:
         (i for i in range(begin + 1, len(lines)) if lines[i].startswith(_END_PREFIX)),
         None,
     )
-    if end is None:  # a torn block: everything after the marker was ours
-        return lines[:begin], lines[begin + 1 :], []
+    if end is None:  # a torn block: keep every line, no block
+        return [*lines[:begin], _TORN, *lines[begin + 1 :]], None, []
     return lines[:begin], lines[begin + 1 : end], lines[end + 1 :]
 
 
@@ -112,17 +121,35 @@ def replace_block(text: str, values: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_env_block(path: Path, values: dict[str, str]) -> bool:
-    """Rewrite ``path``'s block (``True``: the file changed)."""
+class EnvFileChanged(RuntimeError):
+    """The ``.env`` kept changing while ``sandloom dev up`` rewrote it."""
+
+
+def _read(path: Path) -> str:
     try:
-        text = path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        text = ""
-    new = replace_block(text, values)
-    if new == text:
-        return False
-    atomic_write(path, new)
-    return True
+        return ""
+
+
+def write_env_block(path: Path, values: dict[str, str]) -> bool:
+    """Rewrite ``path``'s block (``True``: the file changed).
+
+    Compare-and-swap: the file is read again just before it is replaced; an
+    edit that landed in between is merged once more (one retry)."""
+    text = _read(path)
+    for _ in range(2):
+        new = replace_block(text, values)
+        if new == text:
+            return False
+        current = _read(path)
+        if current == text:
+            atomic_write(path, new)
+            return True
+        text = current
+    raise EnvFileChanged(
+        f"{path} kept changing while `sandloom dev up` wrote its block; run it again"
+    )
 
 
 def seed_env(root: Path) -> bool:
@@ -190,6 +217,7 @@ __all__ = [
     "BEGIN",
     "END",
     "ENV_FILE",
+    "EnvFileChanged",
     "EXAMPLE_FILE",
     "MANAGED",
     "TEST_LOCAL_FILE",

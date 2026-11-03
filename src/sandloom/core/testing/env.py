@@ -24,6 +24,23 @@ ENV_FILE = ".env.test"
 LOCAL_ENV_FILE = ".env.test.local"
 
 
+#: What a refusal or an unreachable test server adds when the checkout has
+#: no ``.env.test.local`` (``.env.test`` alone names the shared default).
+DEV_UP_HINT = (
+    "this checkout has no .env.test.local: run `uv run sandloom dev up` first "
+    "(it starts this checkout's own test servers and writes that file)"
+)
+
+
+def dev_up_hint(starts: Iterable[Path]) -> str | None:
+    """:data:`DEV_UP_HINT` when the nearest ``.env.test`` has no
+    ``.env.test.local`` beside it; ``None`` otherwise."""
+    path = find_env_file(list(starts))
+    if path is None or (path.parent / LOCAL_ENV_FILE).is_file():
+        return None
+    return DEV_UP_HINT
+
+
 class MissingTestEnvError(RuntimeError):
     """No ``.env.test`` walking up from any start."""
 
@@ -94,9 +111,11 @@ def load_test_env(
 
 
 __all__ = [
+    "DEV_UP_HINT",
     "ENV_FILE",
     "LOCAL_ENV_FILE",
     "MissingTestEnvError",
+    "dev_up_hint",
     "find_env_file",
     "load_test_env",
 ]

@@ -1,15 +1,30 @@
 """One line instead of a traceback when the CLI cannot reach PostgreSQL / Redis.
 
-The ``sandloom`` entry point (:func:`sandloom.main`) hands every uncaught
-exception to :func:`connection_failure`: a connection failure (``OSError``,
-asyncpg, psycopg2, redis, unwrapped from SQLAlchemy) becomes::
+The ``sandloom`` entry point (:func:`sandloom.main`) and ``sandloom migrate``
+hand an uncaught exception to :func:`connection_failure`. Only the outermost
+exception decides: it must be a driver's or SQLAlchemy's error, the kernel's
+``DatabaseUnavailable`` / ``BrokerUnavailableError``, or an ``OSError`` /
+``TimeoutError``; its reason is read from it and the exceptions
+it was raised ``from`` (``__cause__``) or wraps (SQLAlchemy's ``.orig``),
+never from ``__context__`` (an error raised while handling a connection
+failure is a real error and keeps its traceback). Three one-liners::
 
     error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused).
     Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]
 
-(one line; wrapped here)
-and exit code 1. ``--debug`` or ``SANDLOOM_DEBUG=1`` shows the traceback
-instead. :func:`warn_env_drift` warns when an exported ``DATABASE_URL`` /
+    error: PostgreSQL at 127.0.0.1:5432 refused the login (authentication
+    failed): check the user and password in the URL   [SANDLOOM-R014]
+
+    error: the database on PostgreSQL at 127.0.0.1:5432 does not exist:
+    uv run sandloom dev up creates it (else create it, then uv run sandloom
+    migrate upgrade-all --apply)   [SANDLOOM-R014]
+
+(each one line; wrapped here) and exit code 1. ``--debug`` before the
+subcommand (``sandloom --debug migrate ...``) or ``SANDLOOM_DEBUG=1`` shows the
+traceback instead; a ``--debug`` after the subcommand belongs to it
+(``sandloom test -- --debug`` reaches pytest).
+
+:func:`warn_env_drift` warns when an exported ``DATABASE_URL`` /
 ``CACHE_URL`` / ``BROKER_URL`` differs from the ``.env`` block ``sandloom dev up``
 wrote (the process environment wins over ``.env``).
 """
@@ -34,10 +49,27 @@ DEBUG_ENV = "SANDLOOM_DEBUG"
 #: Exception class names that mean "the server is not there / refused us".
 _PG_ERRORS = {
     "InvalidPasswordError": "authentication failed",
+    "InvalidAuthorizationSpecificationError": "authentication failed",
+    "AuthenticationError": "authentication failed",
+    "AuthenticationWrongNumberOfArgsError": "authentication failed",
     "InvalidCatalogNameError": "database does not exist",
     "CannotConnectNowError": "the server is starting up",
-    "ConnectionDoesNotExistError": "connection lost",
-    "TooManyConnectionsError": "too many connections",
+}
+#: Packages whose exceptions may stand outermost for a connection failure.
+_DRIVERS = ("sqlalchemy", "asyncpg", "psycopg2", "psycopg", "redis", "kombu")
+#: The kernel's own "backend unavailable" wrappers (raised ``from`` the
+#: driver's error), which may stand outermost too.
+_WRAPPERS = {
+    ("sandloom.core.exceptions", "DatabaseUnavailable"),
+    ("sandloom.core.infra.contracts", "BrokerUnavailableError"),
+}
+#: Reasons that mean nothing answers at the address.
+_UNREACHABLE = {
+    "connection refused",
+    "timed out",
+    "unknown host",
+    "connection error",
+    "the server is starting up",
 }
 _ADDRESS = re.compile(
     r"""(?:\(\s*['"]?(?P<h1>[\w.:-]+?)['"]?\s*,\s*(?P<p1>\d+)\s*\))"""
@@ -54,30 +86,46 @@ def environment() -> Mapping[str, str]:
 
 
 def debug_requested(argv: MutableSequence[str], environ: Mapping[str, str]) -> bool:
-    """``--debug`` (removed from ``argv``) or ``SANDLOOM_DEBUG=1``."""
-    found = DEBUG_FLAG in argv
-    while DEBUG_FLAG in argv:
-        argv.remove(DEBUG_FLAG)
+    """``--debug`` before the subcommand (removed from ``argv``) or
+    ``SANDLOOM_DEBUG=1``. A ``--debug`` after the subcommand is left to it."""
+    found = False
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--" or not arg.startswith("-"):
+            break  # the subcommand (or the end of the options) starts here
+        if arg == DEBUG_FLAG:
+            del argv[index]
+            found = True
+            continue
+        index += 1
     raw = (environ.get(DEBUG_ENV) or "").strip().lower()
     return found or raw in {"1", "true", "yes", "on"}
 
 
 def _chain(exc: BaseException) -> Iterator[BaseException]:
+    """``exc``, then what it was raised from or wraps, outermost first:
+    ``.orig`` (SQLAlchemy) and ``__cause__`` only, never ``__context__``."""
     seen: set[int] = set()
-    todo: list[BaseException] = [exc]
-    while todo:
-        current = todo.pop(0)
-        if id(current) in seen:
-            continue
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
         seen.add(id(current))
         yield current
-        linked = (
-            getattr(current, "orig", None),
-            current.__cause__,
-            current.__context__,
-            *(getattr(current, "exceptions", None) or ()),
-        )
-        todo.extend(nxt for nxt in linked if isinstance(nxt, BaseException))
+        orig = getattr(current, "orig", None)
+        nxt = orig if isinstance(orig, BaseException) else current.__cause__
+        current = nxt if isinstance(nxt, BaseException) else None
+
+
+def _driver_error(exc: BaseException) -> bool:
+    """Whether ``exc`` may stand outermost for a connection failure."""
+    if isinstance(exc, OSError | TimeoutError):
+        return True
+    if any((cls.__module__, cls.__name__) in _WRAPPERS for cls in type(exc).__mro__):
+        return True
+    return any(
+        (getattr(cls, "__module__", "") or "").startswith(_DRIVERS)
+        for cls in type(exc).__mro__
+    )
 
 
 def _module_of(exc: BaseException) -> str:
@@ -117,17 +165,25 @@ def _reason(item: BaseException) -> str | None:
         "nodename nor servname" in str(item) or "Name or service" in str(item)
     ):
         return "unknown host"
+    return _text_reason(item, name)
+
+
+def _text_reason(item: BaseException, name: str) -> str | None:
+    """The reason a driver states only in its message."""
     text = str(item)
+    if any(
+        mark in text
+        for mark in ("password authentication failed", "WRONGPASS", "NOAUTH")
+    ) or ("invalid password" in text):
+        return "authentication failed"
+    if re.search(r'database ".*" does not exist', text):
+        return "database does not exist"
     if "Connection refused" in text or "Connect call failed" in text:
         return "connection refused"
     if name == "OperationalError" and "could not connect" in text:
         return "connection refused"
-    if name in {"ConnectionError"} and _module_of(item).startswith("redis"):
+    if name == "ConnectionError" and _module_of(item).startswith("redis"):
         return "connection refused" if "refused" in text.lower() else "connection error"
-    if "password authentication failed" in text:
-        return "authentication failed"
-    if re.search(r'database ".*" does not exist', text):
-        return "database does not exist"
     return None
 
 
@@ -141,9 +197,19 @@ def _address(chain: list[BaseException]) -> str | None:
     return None
 
 
+def _database(chain: list[BaseException]) -> str | None:
+    for item in chain:
+        match = re.search(r'database "([^"]+)" does not exist', str(item))
+        if match:
+            return match.group(1)
+    return None
+
+
 def connection_failure(exc: BaseException) -> str | None:
     """The one-line message for ``exc``, or ``None`` when it is not a
-    failure to reach PostgreSQL / Redis."""
+    failure to reach PostgreSQL / Redis (see the module doc)."""
+    if not _driver_error(exc):
+        return None
     chain = list(_chain(exc))
     reason = next((r for r in (_reason(item) for item in chain) if r), None)
     if reason is None:
@@ -153,6 +219,21 @@ def connection_failure(exc: BaseException) -> str | None:
         return None
     where = _address(chain)
     at = f" at {where}" if where else ""
+    if reason == "authentication failed":
+        return (
+            f"error: {service}{at} refused the login (authentication failed): "
+            f"check the user and password in the URL   [{CODE}]"
+        )
+    if reason == "database does not exist":
+        name = _database(chain)
+        which = f"the database {name}" if name else "the database"
+        return (
+            f"error: {which} does not exist on {service}{at}: uv run sandloom "
+            "dev up creates it (else create it, then uv run sandloom migrate "
+            f"upgrade-all --apply)   [{CODE}]"
+        )
+    if reason not in _UNREACHABLE:
+        return None
     return (
         f"error: cannot reach {service}{at} ({reason}). Start the dev services: "
         f"uv run sandloom dev up   [{CODE}]"
