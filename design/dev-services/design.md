@@ -161,3 +161,72 @@ the causes (services down, wrong `.env`, port not published).
 
 Branch-scoped databases inside one checkout (Supabase's branch identity), Podman support,
 implicit service start, `APP_PORT` stickiness.
+
+## Revisions after the edge-case review (2026-11-03)
+
+An adversarial review against the code found six blockers and twelve gaps. These rules replace the
+sections above where they disagree.
+
+**Where state lives.** Repository state goes to
+`$(git rev-parse --path-format=absolute --git-common-dir)/sandloom/` (`dev.json`, `dev.lock`, the
+CLI's own copy of the compose file). That works for the main checkout, worktrees, a bare repository
+with worktrees and submodules, and keeps it out of iCloud/Dropbox-synced trees. Without git: the
+project root's `.sandloom/`. `GIT_DIR` / `GIT_COMMON_DIR` from a git hook are ignored.
+
+**Identity of a run.** Owners and derived names include a machine id (generated once into
+`~/.sandloom/machine-id`), because cloud sandboxes share paths like `/workspace/repo`.
+
+**Test runs (replaces "Test runs").** A run takes a *slot* before anything touches a database:
+
+1. In the process that starts the run (the `sandloom test` parent, or the pytest controller for
+   plain `pytest`), before `load_test_env`: lock slot 1, 2, 3 ... with
+   `pg_try_advisory_lock(<hash of machine id + checkout>, <slot>)` on the test server's `postgres`
+   database, held on a connection the process keeps open for the whole run.
+2. Slot N sets `SANDLOOM_TEST_DATABASE_URL` to `sandloom_test_<checkout hash>` (slot 1) or
+   `…_<N>`, and `SANDLOOM_TEST_OWNER` to `<machine id>:<checkout>#<N>`, in `os.environ`, so
+   `assert_disposable_test_database`, xdist's `_gw<N>` copies and the ownership markers all see
+   this run's own name and owner. Redis indexes come from the `auto` stride under that owner, so a
+   second run in one checkout never gets the first run's indexes.
+3. `sandloom test` holds the slot across all its pytest steps and passes it down
+   (`SANDLOOM_TEST_SLOT_HELD=<pid>`), so the steps do not re-lock.
+
+**Compose: never recreate under someone else.** `up` runs compose from the CLI's own copy of the
+compose file in the state directory. When the checkout's `deploy/docker-compose.dev.yml` differs
+from the running config (another branch bumped an image, added a service), `up` does not apply it:
+it says so and applies it only with `dev up --recreate`, which refuses while other checkouts have
+sessions (`pg_stat_activity`, Redis `CLIENT LIST`) unless `--force`. The "unreachable from the
+host" repair recreates automatically only when nobody else is connected; otherwise it asks.
+`--remove-orphans` is never passed.
+
+**Locks.** Images are pulled before the repository lock is taken. A lock file records its holder's
+pid, host and a heartbeat; a waiter waits while the holder is alive (no fixed 120 s), and takes over
+a lock whose holder is dead. Order is always machine -> repository -> checkout(s), several
+checkouts sorted by path. Port reassignment releases the repository lock, takes machine then
+repository again, and re-reads the state.
+
+**A new worktree has no `.env`.** `dev up` seeds a missing `.env` from `.env.example` with a fresh
+`JWT_SECRET`, then writes the block. The file keeps its mode (0600 when it was) and a symlinked
+`.env` is written through the link.
+
+**Which value wins.** Process environment beats `.env` (pydantic-settings), so `dev run` passes the
+checkout's URLs explicitly to uvicorn, and `dev status` and every CLI command that connects warn
+when an exported `DATABASE_URL` / `CACHE_URL` / `BROKER_URL` differs from the block.
+
+**`.env.test.local`** is loaded with `override=False` and only from the directory of the
+`.env.test` that was found, never by walking up (a worktree nested in the main checkout must not
+pick up the main checkout's file). An exported `SANDLOOM_TEST_*` still wins.
+
+**Same-checkout agents.** `dev reset` and `dev down` refuse while other sessions use the database
+or a live `dev run` pid file exists, unless `--force`, and name them.
+
+**Ports.** URLs always use `127.0.0.1`, never `localhost` (which may resolve to `::1` and reach a
+different server with the same credentials). Candidates are test-bound on `127.0.0.1` and `::1`;
+with a remote `DOCKER_HOST` or Colima the published port is checked on the Docker host after `up`.
+`prune` frees registry entries of repositories whose path is gone.
+
+**CI.** With `CI=true` and `SANDLOOM_TEST_DATABASE_URL` set, `dev up` exits 0 and prints that CI
+provides the services. `tools/.../quickstart_check.py` learns the `sandloom dev up` line the way it
+handles `docker compose` lines today.
+
+**Errors.** The connection-failure code joins an existing family, a runtime `SANDLOOM-R0xx` code,
+registered in `error_codes` and `docs/reference/error-codes.md`.

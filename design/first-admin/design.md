@@ -109,3 +109,50 @@ the links an email carries (verification, reset), marked `[dev only]`. In produc
 
 Env bootstrap (`SANDLOOM_FIRST_ADMIN_*`), 2FA enrolment at first sign-in, a web first-run form,
 organisation setup for tenancy apps.
+
+## Revisions after the edge-case review (2026-11-03)
+
+An adversarial review against the code found three blockers here. These rules replace the sections
+above where they disagree.
+
+**No secret through a replayed command.** Completed `@command` results are stored for replay, and
+the arguments digest covers every argument. So:
+- `create_platform_admin(email, full_name, reason, operator, operation_key) -> user_id` is the
+  command: it creates the user with no usable password, `password_reset_required`, a fresh nonce,
+  the `admin` role and the audit record. It takes no password and returns no token.
+- Minting the link is a separate method that is not a command and is never stored: it reads the
+  current nonce and signs a token.
+- The prompt's password is set through identity's own reset path with that token, in the same CLI
+  run, so the password never enters a command's arguments or results.
+
+**Token purpose.** Set-password tokens get their own salt and a 15-minute lifetime; the existing
+reset token keeps 3600 s. Consuming a token also clears the account's lockout, so the sign-in that
+follows works. Known limit, documented: the public `request-password-reset` rotates the same
+nonce, so anyone who knows the email can invalidate a pending link (not take it over); `admin
+invite` issues a new one.
+
+**Where the link points.** `FRONTEND_URL` (it exists; reset links use it today), not a new
+`PUBLIC_BASE_URL`. In dev, when unset, the CLI uses the port of this checkout's `dev run`, else
+`http://127.0.0.1:8000`. The page is the console's `/admin/set-password` while the console is
+enabled; with the console off (the default when `ENVIRONMENT=prod`), `--invite` needs `FRONTEND_URL`
+to serve a reset page and says so, or it refuses.
+
+**Setup state** lives in identity, `GET /api/v1/identity/setup-state` -> `{"has_admin": bool}`,
+`public(reason="first-run hint: tells only whether an administrator exists")`, answering 404 when
+`ENVIRONMENT=prod`; the route snapshot changes with it. The console calls it on the sign-in page.
+
+**Re-runs and squatting.** `--if-missing` exits 0 only when the email is already a platform
+administrator. An existing account that is not an administrator is refused. `grant-admin` stops
+marking an unverified account as verified: for an unverified account it refuses and points to
+`admin create --email … --take-over`, which makes it an administrator *and* invalidates its
+password (a link is issued), so a squatter's password never becomes an admin's.
+
+**Production** means `ENVIRONMENT=prod` (`settings.is_prod`), not the deploy profile.
+
+**Dev-only email links** are an explicit ops setting, `NOTIFIER_LOG_LINKS` (default off), which
+`sandloom new` writes as `true` into the dev `.env` and production refuses unless the accepted
+risk is listed. Classified in `config.tiers`.
+
+**Split deployments.** The new methods are additive to `identity.security.v1`; the CLI reports an
+identity service too old to have them in one line, and the deploy profile's `RPC_ALLOWED_CALLS`
+gains the grant.
