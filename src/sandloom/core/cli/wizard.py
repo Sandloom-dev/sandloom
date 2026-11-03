@@ -1050,28 +1050,31 @@ def _summary(
 
 
 def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
-    if (run.asking or answers.setup) and git_init(root, run.environ):
+    initialised = (run.asking or answers.setup) and git_init(root, run.environ)
+    if initialised:
         run.out.write(f"  {run.style.ok('git init')}\n")
+    if answers.setup:
+        result = _setup(run, root, answers)
+        if not result.ok:
+            return 130 if result.cancelled else 1
+    if initialised:
+        # After the setup: the files `sandloom generate` writes are in it too.
         hint = initial_commit(root, run.environ)
         if hint is None:
             run.out.write(f"  {run.style.ok('git commit')}\n")
         else:
             run.out.write(f"  {run.style.muted(hint)}\n")
-    if answers.setup:
-        result = _setup(run, root, answers)
-        if not result.ok:
-            return 130 if result.cancelled else 1
-        if result.skipped and answers.admin_email:
-            email = shlex.quote(answers.admin_email)
-            run.out.write(
-                run.style.muted(
-                    "  No administrator yet. Again: uv run sandloom admin create "
-                    f"--email {email} (an account without a password: uv run "
-                    f"sandloom admin invite --email {email})"
-                )
-                + "\n"
+    if answers.setup and result.skipped and answers.admin_email:
+        email = shlex.quote(answers.admin_email)
+        run.out.write(
+            run.style.muted(
+                "  No administrator yet. Again: uv run sandloom admin create "
+                f"--email {email} (an account without a password: uv run "
+                f"sandloom admin invite --email {email})"
             )
-            answers = dataclasses.replace(answers, admin_email=None)
+            + "\n"
+        )
+        answers = dataclasses.replace(answers, admin_email=None)
     lines = _next_steps(run, plan, root, answers)
     if not run.asking:
         # CI parses this block (tools/smoke/quickstart_check.py): plain mode

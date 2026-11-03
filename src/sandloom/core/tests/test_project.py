@@ -150,7 +150,8 @@ def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:
     # The kernel factory (sandloom.sdk.app; sandloom.main is the standard root).
     assert "from sandloom.sdk.app import app_modules, create_app" in asgi
     assert "sandloom.main" not in asgi
-    assert "app = create_app(default_modules=" in asgi
+    assert "app = create_app(\n" in asgi and "default_modules=" in asgi
+    assert 'title="probe"' in asgi  # the start page and the API docs name the app
 
 
 def test_generated_module_is_namespace_portable(tmp_path: Path) -> None:

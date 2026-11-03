@@ -906,9 +906,9 @@ def _install_start_page(application: FastAPI) -> None:
     commands = []
     if console:
         commands.append(
-            "<li><code>uv run sandloom admin create --email you@example.com</code>"
-            " (the first administrator; <code>uv run sandloom admin list</code> "
-            "shows them)</li>"
+            "<li><code>uv run sandloom admin list</code> (the administrators; "
+            "<code>uv run sandloom admin create --email &lt;address&gt;</code> "
+            "adds one)</li>"
         )
     commands += [
         "<li><code>uv run sandloom add module notes</code> (a module)</li>",

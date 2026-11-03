@@ -557,7 +557,9 @@ from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
 
 BUNDLED: list[str] = $bundled_json
 
-app = create_app(default_modules=[*BUNDLED, *app_modules("$app.modules")])
+app = create_app(
+    title="$app", default_modules=[*BUNDLED, *app_modules("$app.modules")]
+)
 '''
 )
 
