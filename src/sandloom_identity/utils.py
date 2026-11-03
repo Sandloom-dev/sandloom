@@ -259,6 +259,9 @@ class PasswordResetClaims:
     user_id: UUID
     nonce: str | None
     password_fingerprint: str | None
+    #: ``"reset"`` (the user asked: a password-reset link) or ``"set"`` (an
+    #: operator's set-password link: ``sandloom admin create`` / ``invite``).
+    purpose: str = "reset"
 
 
 @dataclass(frozen=True)
@@ -370,6 +373,7 @@ class EmailTokenUtils:
                 user_id=UUID(data["user_id"]),
                 nonce=data.get("n"),
                 password_fingerprint=data.get("pf"),
+                purpose="set",
             )
         except Exception as e:
             raise ValueError("Invalid set-password token") from e

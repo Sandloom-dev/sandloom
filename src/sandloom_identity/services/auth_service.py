@@ -746,7 +746,11 @@ class AuthService:
         await on_commit(_unlock)
 
         record_audit(
-            "identity.password.reset",
+            # An operator's set-password link sets the account's first (or a
+            # replaced) password; a reset is the user's own request.
+            "identity.user.password_set"
+            if claims.purpose == "set"
+            else "identity.password.reset",
             actor_id=user.id,
             resource_type="user",
             resource_id=str(user.id),

@@ -163,7 +163,7 @@
       }
     },
     "identity.security.v1": {
-      "hash": "573812719bffe8f7d4c149f1b66b051b",
+      "hash": "ed0385dfb659939804f7a8cfba941399",
       "methods": {
         "account_standing": {
           "idempotency_key": null,
@@ -351,6 +351,57 @@
             ]
           }
         },
+        "list_platform_admins": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
+          "returns": {
+            "item": {
+              "fields": {
+                "email": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "str"
+                  }
+                },
+                "is_active": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "bool"
+                  }
+                },
+                "last_login_at": {
+                  "required": false,
+                  "type": {
+                    "k": "union",
+                    "of": [
+                      {
+                        "k": "scalar",
+                        "t": "datetime"
+                      },
+                      {
+                        "k": "none"
+                      }
+                    ]
+                  }
+                },
+                "password_set": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "bool"
+                  }
+                }
+              },
+              "k": "model",
+              "ref": "sandloom_identity.schemas.operator:PlatformAdmin",
+              "schema_hash": "f8f42dc6635687ee"
+            },
+            "k": "list"
+          }
+        },
         "list_user_ids": {
           "idempotency_key": null,
           "kind": "read",
@@ -430,6 +481,52 @@
           "idempotency_key": null,
           "kind": "read",
           "params": [],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "record_admin_listing": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "show_emails",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "bool"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
           "returns": {
             "k": "scalar",
             "t": "bool"
