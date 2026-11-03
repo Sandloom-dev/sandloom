@@ -7,11 +7,9 @@ pseudo-terminal. Design: ``design/cli-wizard/design.md``.
 
 from __future__ import annotations
 
-import contextlib
 import io
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import time
