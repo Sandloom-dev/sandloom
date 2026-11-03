@@ -13,6 +13,53 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **`sandloom admin list`** names the platform administrators, whether each has a
+  password and the last sign-in. In production it needs `--confirm-production
+  --reason`, is audited (`identity.admin.listed`) and masks addresses unless
+  `--show-emails`. (tm: first-run-polish)
+- **A start page at `/` outside production**: the address `dev run` prints links
+  to the console, the API docs and `/health` instead of answering 404.
+- **The console keeps its session across a reload outside production**
+  (sessionStorage, never localStorage); production keeps it in memory only.
+- **An initial commit** after the wizard's own `git init`, when git has a user name
+  and email (`.env` stays out).
+
+### Changed
+
+- **Each checkout has its own app port.** The first `dev up` picks 8000, else the
+  next free port, and keeps it; `dev run`, `admin create` / `invite` links and the
+  wizard's summary use it.
+- **`dev run` starts stopped dev services** first, the way `dev up` does, and exits
+  0 when stopped with Ctrl-C.
+- **Quieter boot.** Module loading, built drivers, the planner, a first boot's
+  schema file, the pool's dispose and the generated dev override log at DEBUG;
+  `--debug`, `SANDLOOM_DEBUG=1` or `LOG_LEVEL=DEBUG` show them. The wizard's
+  spinner shows no log line. `dev down` prints one line (`--verbose` for
+  Compose's output); `dev up` suggests the migrations only for a new or empty
+  database.
+- **App names that shadow an import are refused**: `test`, `tests`, any stdlib
+  module, and the import names of installed packages (`redis`, `sandloom`).
+- **A failed wizard step** shows its reason first, no traceback that repeats it,
+  and the remaining commands one per line.
+- **The administrator's email** from `git config` needs a confirmation; the summary
+  says "Sign in as …" and how to get a new password. The console's failed sign-in
+  names `admin list` and `admin invite` outside production.
+- **The console names users by email** in "Recent activity" and the audit pages.
+- **A first password set through a set-password link** is audited as
+  `identity.user.password_set`, not `identity.password.reset`.
+- `sandloom new --help` hides the contributors' `--framework-*` flags.
+- The generated README no longer hard-codes `:8000` and drops the outdated
+  verification-mail paragraph.
+
+### Fixed
+
+- `dev down` then `dev up` no longer moves a port Docker Desktop releases late.
+- A startup task that cannot reach PostgreSQL or Redis logs one line with the
+  fix instead of a traceback; in development the app reports an unreachable
+  database once.
+
 ## [0.7.0a9] — 2026-11-03
 
 ### Added
