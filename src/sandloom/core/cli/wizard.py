@@ -27,12 +27,14 @@ import threading
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import IO, Any, TextIO
 
 import sandloom.core.cli.checkbox as _checkbox
 import sandloom.core.cli.dev.errors as _errors
 import sandloom.core.cli.dev.ports as _ports
+import sandloom.core.cli.dev.process as _process
 import sandloom.core.cli.project as _project
 import sandloom.core.cli.skills as _skills
 import sandloom.core.cli.ui as _ui
@@ -457,18 +459,11 @@ def _run_quiet(
     argv: Sequence[str], environ: Mapping[str, str], *, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str] | None:
     """Run a probe (git, docker); ``None`` when it is missing or hangs."""
-    exe = shutil.which(argv[0], path=environ.get("PATH"))
-    if exe is None:
+    if shutil.which(argv[0], path=environ.get("PATH")) is None:
         return None
     try:
-        return subprocess.run(  # noqa: S603 - a fixed probe argv (git / docker), no shell
-            [exe, *argv[1:]],
-            cwd=cwd,
-            env=dict(environ),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=DOCKER_TIMEOUT,
+        return _process.run(
+            argv, env=environ, cwd=cwd, timeout=DOCKER_TIMEOUT, search_path=True
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -735,10 +730,8 @@ class _Run:
 
 def _version() -> str:
     try:
-        from importlib.metadata import version  # noqa: PLC0415 - cold: static command - the version only for the heading and the repeat command
-
-        return version("sandloom")
-    except Exception:  # noqa: BLE001 - editable / unbuilt tree has no dist metadata
+        return metadata.version("sandloom")
+    except metadata.PackageNotFoundError:  # an unbuilt tree has no dist metadata
         return "0.0.0+local"
 
 

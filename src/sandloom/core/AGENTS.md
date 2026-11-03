@@ -58,24 +58,16 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
 
 - **Classify every new setting** in `sandloom.core.config.tiers` as semantic or
   ops. Check: `src/sandloom/core/tests/test_config_tiers.py`.
-  - The semantic count is ratcheted (ceiling 16) and needs an ADR to grow.
-    Prefer an ops knob or a profile-chosen value.
+  - The semantic count is ratcheted (ceiling 16; an ADR to grow): prefer an ops knob or a profile value.
 - **A production weakening is an accepted risk, never a boolean.** Add an id
   to `sandloom.core.config.accepted_risks` and read it with
   `settings.accepts_risk(id)`. An unknown id fails startup.
-- **Removed settings** (`config_tiers.REMOVED`) fail startup unless they are
-  set to their inert value.
-- **Read configuration only through `Settings`, never `os.getenv`.** The
-  exceptions are `SANDLOOM_COMPOSITION_ROOT` (process env first) and
-  `SANDLOOM_WORKER_TASKQUEUE`.
-- **CLI process flags are not settings.** The CLI reads them through one seam,
-  `sandloom.core.cli.dev.errors.environment()`, and passes the mapping down:
-  - `SANDLOOM_DEBUG`, `CI`, `DOCKER_HOST`, `UV`;
-  - the terminal: `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM`;
-  - the coding-agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`
-    (`CLAUDECODE`, `CODEX_SANDBOX`, `GEMINI_CLI`, `CURSOR_AGENT`, …).
-
-  A new flag joins this list and that seam, never `os.getenv`.
+- **Removed settings** (`config_tiers.REMOVED`) fail startup unless set to their inert value.
+- **Read configuration only through `Settings`, never `os.getenv`.** Exceptions:
+  `SANDLOOM_COMPOSITION_ROOT` (process env first), `SANDLOOM_WORKER_TASKQUEUE`, and the CLI's
+  process flags, read only through `sandloom.core.cli.dev.errors.environment()`: `SANDLOOM_DEBUG`,
+  `CI`, `DOCKER_HOST`, `UV`, `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM`
+  and the agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`. A new flag joins this list.
 
 ## Infrastructure layer
 

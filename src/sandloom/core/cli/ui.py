@@ -21,6 +21,7 @@ the process. Design: ``design/cli-wizard/design.md``.
 from __future__ import annotations
 
 import codecs
+import ctypes
 import os
 import sys
 import threading
@@ -28,6 +29,9 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TextIO
+
+if sys.platform == "win32":
+    import msvcrt
 
 # --------------------------------------------------------------------------- #
 # Who is on the other end
@@ -283,19 +287,22 @@ def enable_vt(stream: object, platform: str = sys.platform) -> bool:
     elsewhere). ``False``: an old console; colour and cursor moves stay off."""
     if platform != "win32":
         return True
-    try:
-        import ctypes  # noqa: PLC0415 - optional: Windows console API, absent elsewhere
-        import msvcrt  # noqa: PLC0415 - optional: Windows console API, absent elsewhere
+    return _windows_vt(stream)
 
-        kernel32 = getattr(ctypes, "windll").kernel32  # noqa: B009 - windll exists on Windows only
-        handle = getattr(msvcrt, "get_osfhandle")(stream.fileno())  # type: ignore[attr-defined]  # noqa: B009 - Windows only
-        mode = ctypes.c_uint32()
-        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+
+def _windows_vt(stream: object) -> bool:
+    if sys.platform == "win32":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            handle = msvcrt.get_osfhandle(stream.fileno())  # type: ignore[attr-defined]
+            mode = ctypes.c_uint32()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                return False
+            # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+        except (AttributeError, OSError, ValueError):
             return False
-        # ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
-    except (AttributeError, OSError, ValueError, ImportError):
-        return False
+    return False  # asked for Windows elsewhere (tests): no console API
 
 
 # --------------------------------------------------------------------------- #
