@@ -243,10 +243,19 @@ def test_affordable_workers_count_own_and_free_indexes_without_claiming(
     scratch_index: tuple[str, int, str],
 ) -> None:
     url, index, owner = scratch_index
-    room = resources.affordable_redis_workers([url], owner)
-    assert room >= 1  # at least the index this owner already holds
+    assert resources.affordable_redis_workers([url], owner) >= 1
+    # Which indexes count, not how many: other test runs on a shared Redis
+    # claim and free indexes between two counts.
     stranger = f"resources-test-{uuid.uuid4().hex[:8]}"
-    assert resources.affordable_redis_workers([url], stranger) <= room - 1
+    base = [resources._index_of(url)]
+    probe = resources._connect_redis(url)
+    try:
+        mine, _free = resources._claimable_indexes(probe, base, owner)
+        theirs, their_free = resources._claimable_indexes(probe, base, stranger)
+    finally:
+        probe.close()
+    assert index in mine  # the owner's own index counts for the owner
+    assert index not in theirs and index not in their_free  # never for a stranger
     client = _index_client(url, index)
     try:  # read-only: the owner marker is untouched
         assert client.get(ownership.REDIS_OWNER_KEY) == owner.encode()
