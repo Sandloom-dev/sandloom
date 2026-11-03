@@ -8,6 +8,7 @@ Every route of the batteries platform: who may call it (`auth`) and its resolved
 
 | Method | Path | Auth | Policy |
 |---|---|---|---|
+| GET | `/` | public | effect=read, idempotency=none, public_reason=development start page (never in production), session=none |
 | GET | `/api/v1/platform/billing/audit` | authenticated | effect=read, idempotency=none, risk={'admin': ['sandloom.core.admin.api.platform.platform_operator']}, session=live, re-check if a unit writes |
 | GET | `/api/v1/platform/billing/consumers` | authenticated | effect=read, idempotency=none, risk={'admin': ['sandloom.core.admin.api.platform.platform_operator']}, session=live, re-check if a unit writes |
 | GET | `/api/v1/platform/billing/contracts` | authenticated | effect=read, idempotency=none, risk={'admin': ['sandloom.core.admin.api.platform.platform_operator']}, session=live, re-check if a unit writes |
@@ -48,6 +49,7 @@ Every route of the batteries platform: who may call it (`auth`) and its resolved
 | GET | `/diagnostics/core` | service | effect=read, idempotency=none, session=live |
 | GET | `/diagnostics/infra` | service | effect=read, idempotency=none, session=live |
 | GET | `/diagnostics/services` | service | effect=read, idempotency=none, session=live |
+| GET | `/favicon.ico` | public | effect=read, idempotency=none, public_reason=development favicon (never in production), session=none |
 | GET | `/health` | public | effect=read, idempotency=none, public_reason=liveness / readiness probe (no caller), session=none |
 | GET | `/health/simple` | public | effect=read, idempotency=none, public_reason=liveness / readiness probe (no caller), session=none |
 | GET | `/metrics` | service | effect=read, idempotency=none, session=live |
