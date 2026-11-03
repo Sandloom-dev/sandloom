@@ -74,24 +74,19 @@ async def test_the_entry_page_forbids_foreign_code(client: AsyncClient) -> None:
     assert "/admin/assets/" in response.text
     assert "script-src 'self'" in response.headers["content-security-policy"]
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
-    # Kept, but asked for again each time: a new release is seen at once.
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
-async def test_an_unchanged_entry_page_costs_a_bodiless_304(
-    client: AsyncClient,
-) -> None:
-    first = await client.get("/admin/users")
+async def test_an_unchanged_font_costs_a_bodiless_304(client: AsyncClient) -> None:
+    first = await client.get("/admin/fonts/hack-nerd-mono-regular.woff2")
+    assert first.headers["cache-control"] == "no-cache"
     again = await client.get(
-        "/admin/users", headers={"If-None-Match": first.headers["etag"]}
+        "/admin/fonts/hack-nerd-mono-regular.woff2",
+        headers={"If-None-Match": first.headers["etag"]},
     )
     assert again.status_code == 304
     assert again.content == b""
-    assert "script-src 'self'" in again.headers["content-security-policy"]
-    assert (await client.get("/admin/favicon.svg")).headers[
-        "cache-control"
-    ] == "no-cache"
 
 
 async def test_the_bare_path_redirects(client: AsyncClient) -> None:

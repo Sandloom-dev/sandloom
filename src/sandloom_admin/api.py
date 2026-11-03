@@ -120,8 +120,8 @@ def _json(payload: dict[str, Any], request: Request) -> Response:
 
 
 def _revalidated(file: Path, request: Request, headers: dict[str, str]) -> Response:
-    """A file without a hash in its name (the entry page, fonts, icons): the browser
-    may keep it but asks each time, and an unchanged one costs a bodiless 304."""
+    """A file without a hash in its name (fonts, icons): the browser may keep it
+    but asks each time, and an unchanged one costs a bodiless 304."""
     stat = file.stat()
     etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
     headers = {**headers, "Cache-Control": "no-cache", "ETag": etag}
@@ -191,4 +191,8 @@ async def console_file(path: str, request: Request) -> Response:
     index = root / "index.html"
     if not index.is_file():
         raise HTTPException(503, "The admin console files are missing.")
-    return _revalidated(index, request, {"Content-Security-Policy": CSP})
+    # Never stored: 2 KiB, and a new release must reach the browser at once.
+    return FileResponse(
+        index,
+        headers={"Cache-Control": "no-store", "Content-Security-Policy": CSP},
+    )
