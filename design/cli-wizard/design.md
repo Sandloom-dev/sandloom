@@ -163,3 +163,76 @@ all, for screen readers and logs.
 
 Colouring `--help`, restyling `sandloom test` and the other commands, templates beyond the four
 standard modules, telemetry.
+
+## Revisions after the edge-case review (2026-11-03)
+
+An adversarial review found two blockers and fifteen gaps. These rules replace the sections above
+where they disagree.
+
+1. **Agents never block.** One `interactive()` in `ui.py`, used by the wizard and by
+   `choose_agents`. It is true only when:
+   - stdin and stdout are TTYs;
+   - neither `--yes` nor `--no-input` is given (`--no-input` is an alias of `--yes`);
+   - `CI` is not truthy;
+   - no known agent marker is set: `CLAUDECODE`, `CODEX_*`, `GEMINI_CLI`, `CURSOR_AGENT` and the
+     like. Each name is verified against the agent's docs or source and listed in one place.
+
+   Above the first question the wizard prints one muted line: "Scripts and agents: add --yes".
+   `TERM=dumb` keeps questions as typed prompts (the `ask_agents` fallback), with no cursor moves.
+2. **The administrator step belongs to `admin create`.** The wizard collects no password. As the
+   last setup step it runs `uv run sandloom admin create --email <e>` attached to the terminal, and
+   that command already asks twice, checks the policy and retries. If the account exists but the
+   password was not set, the "continue with" line names `sandloom admin invite`.
+3. **Repeat command:** `uvx --from "sandloom==<version>" sandloom new <name> …`, pinned like the
+   docs. It carries every flag that was set (`--with`, `--agents`, `--module`, `--dir`,
+   `--framework-source`/`--framework-path`) plus `--yes`. A test checks the argv round trip.
+4. **CI parses "Next steps".** In plain mode nothing new is printed after that block. The summary
+   box, the repeat command and the links are wizard-only.
+5. **`--setup` under CI** refuses up front with one line: CI provides its own services, and
+   `dev up` refuses there anyway. `--with admin --yes --setup` without `--admin-email` skips the
+   admin step and prints the command; with it, the step runs `admin create --invite` and prints the
+   link (no TTY, no password).
+6. **The setup runner:**
+   - child processes get an environment without `VIRTUAL_ENV`, `UV_PROJECT_ENVIRONMENT` and
+     `UV_PROJECT`; uv is the `UV` environment variable when set, else `which("uv")`;
+   - under the spinner: elapsed time and the last stderr line of the step;
+   - Ctrl-C stops the current step and waits for it to exit (a second Ctrl-C kills it), then prints
+     the "continue with" line, never a traceback. A partial `.venv` is fine: `uv sync` repairs it,
+     and `dev up` is idempotent;
+   - `docker info` gets a timeout (10 s), with "Docker is starting or not running" as the answer.
+7. **`git init`** runs after generation and before setup, unless the target is already inside a git
+   work tree or git is missing, so the dev state lands in the app's own repository from the start.
+   It makes no commit.
+8. **Name:** the default is `my_app` (`generate_project` always creates `<dir>/<app>`). The
+   "not a stdlib module" check moves into `generate_project`, so flags and the wizard agree. With
+   `--yes` and no name, `sandloom new` errors and names the argument.
+9. **Modules:** the generator enforces only admin → identity, and the wizard says exactly that.
+   Nothing is ticked by default; the checklist uses `minimum=0`.
+10. **Colour:**
+    - one mid-tone accent that reads on both light and dark backgrounds (about `#94714b`, checked at
+      4.5:1 on white and on `#1e1e1e`; adjust if not), with bold for prompts; there is no
+      light/dark switch;
+    - `NO_COLOR` (non-empty) wins; `FORCE_COLOR=0` means off, and 1, 2 or 3 set the depth;
+    - forced colour never turns on cursor movement or the spinner;
+    - colour is decided per stream: errors go to stderr.
+11. **Environment reads** (`NO_COLOR`, `FORCE_COLOR`, `TERM`, `COLORTERM`, `CI`, the agent markers)
+    go through the existing process-flags seam (`dev/errors.environment()`). They are listed as an
+    exception in `src/sandloom/core/AGENTS.md`. `SANDLOOM_NO_BANNER` is dropped.
+12. **Windows and encodings:**
+    - the checklist enables VT mode, or falls back to typed prompts;
+    - its hint line uses the symbol table;
+    - the fallback table covers `◆ → ↑ ↓ ·`;
+    - the spinner is ASCII on Windows;
+    - the ASCII failure mark is `!`, never `x`, which means "selected" in the checklist.
+13. **Port:** when 8000 is taken, the "Next" line carries `--port <free port>`.
+14. **Docs and agents.** These change with the code:
+    - `docs/getting-started/index.md` and `installation.md`;
+    - the README;
+    - the generated `AGENTS.md` and skills: agents pass `--yes`;
+    - `docs/reference/cli.md`;
+    - CHANGELOG.
+15. **The mark** is rendered in a test fixture and shown to the owner before it ships. If it does
+    not read as a caracal, the heading keeps only the coloured `◆`, as rustup, gh and create-vite
+    do.
+16. `--plain` forces plain output at a terminal (screen readers, logs); the log file never carries
+    ANSI.
