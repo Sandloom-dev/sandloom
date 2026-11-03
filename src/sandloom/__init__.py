@@ -49,7 +49,14 @@ Subcommands:
     sandloom doctor           read-only deployment preflight: config, modules,
                          infra reachability, migration heads, consumer lag,
                          RLS (see sandloom.core.cli.doctor)
+    sandloom dev ...          local Postgres + Redis per repository, a database
+                         per checkout: up / status / run / reset / down /
+                         prune / logs (see sandloom.core.cli.dev)
     sandloom version          print the installed framework version
+
+A command that cannot reach PostgreSQL or Redis prints one line naming
+`sandloom dev up` (SANDLOOM-R014); `--debug` or SANDLOOM_DEBUG=1 shows the
+traceback instead.
 """
 
 from __future__ import annotations
@@ -233,7 +240,26 @@ def _cmd_new(argv: list[str]) -> int:
     return 0
 
 
-def main() -> None:  # noqa: C901
+#: Commands that connect to the configured database / Redis: they warn when
+#: an exported URL differs from the `.env` block `sandloom dev up` wrote.
+_CONNECTING_COMMANDS = _CONFIGURED_COMMANDS | {"migrate", "doctor"}
+
+
+def main() -> None:
+    """The ``sandloom`` entry point: a connection failure is one line."""
+    errors = _static_import("sandloom.core.cli.dev.errors")
+    debug = errors.debug_requested(sys.argv, errors.environment())
+    try:
+        _main()
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception as exc:
+        if errors.report(exc, debug=debug):
+            raise SystemExit(1) from None
+        raise
+
+
+def _main() -> None:  # noqa: C901
     parser = argparse.ArgumentParser(
         prog="sandloom", description="Sandloom framework CLI"
     )
@@ -304,9 +330,17 @@ def main() -> None:  # noqa: C901
         "config", add_help=False, help="effective settings (sandloom config dump)"
     )
     sub.add_parser("doctor", add_help=False, help="read-only deployment preflight")
+    sub.add_parser(
+        "dev",
+        add_help=False,
+        help="local Postgres + Redis: up / status / run / reset / down / prune / logs",
+    )
     sub.add_parser("version", help="print the framework version")
 
     args, rest = parser.parse_known_args()
+    if args.command in _CONNECTING_COMMANDS:
+        errors = _static_import("sandloom.core.cli.dev.errors")
+        errors.warn_env_drift(Path.cwd(), errors.environment())
     if args.command in _CONFIGURED_COMMANDS:
         _enforce_configuration()
 
@@ -379,6 +413,8 @@ def main() -> None:  # noqa: C901
         from sandloom.core.cli.doctor import main as doctor_main
 
         raise SystemExit(doctor_main(rest))
+    if args.command == "dev":
+        raise SystemExit(_static_import("sandloom.core.cli.dev").main(rest))
     if args.command == "version":
         print(_version())
         raise SystemExit(0)

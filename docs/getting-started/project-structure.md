@@ -15,14 +15,15 @@ myapp/
   pyproject.toml            # dependencies: sandloom, the standard modules
   .env                      # local settings, not committed
   .env.example              # the template for .env
-  .env.test                 # settings for the tests
+  .env.test                 # settings for the tests (CI's services)
+  .env.test.local           # this checkout's test services, not committed
   myapp/
     asgi.py                 # the composition root: builds the application
     modules/
       example/              # your first module; each module is one package here
     shared/                 # generated: contract stubs, DTO copies, event schemas
   deploy/
-    docker-compose.dev.yml  # Postgres and Redis for development and tests
+    docker-compose.dev.yml  # Postgres and Redis for development and tests (`sandloom dev up`)
     docker-compose.yml      # the monolith: migrations, app, worker, beat
   Dockerfile
   architecture_rules.yml    # the import boundaries `sandloom check` enforces
@@ -40,7 +41,8 @@ myapp/
 | Files | Who changes them |
 | --- | --- |
 | `myapp/modules/` except the snapshots | you, or `sandloom add` as a starting point |
-| `.env`, `pyproject.toml`, `deploy/` | you |
+| `.env`, `pyproject.toml`, `deploy/` | you; `sandloom dev up` writes only the marked block of `.env` |
+| `.env.test.local` | `sandloom dev up`. Do not commit it |
 | `myapp/asgi.py` | rarely: a new module needs no change here |
 | `myapp/shared/`, each module's `module.snapshot.json` and `routes.snapshot.json`, `.sandloom/inspection.json` | `sandloom generate`. Commit them and never edit them by hand |
 

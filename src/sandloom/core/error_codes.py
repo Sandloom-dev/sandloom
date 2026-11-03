@@ -1043,6 +1043,30 @@ cursor executions from such a task are detected on a best-effort basis
 (spec §4.3).
 """,
     ),
+    _entry(
+        "SANDLOOM-R014",
+        "services-unreachable",
+        "runtime",
+        "a sandloom command cannot reach PostgreSQL or Redis",
+        "start the dev services: `uv run sandloom dev up` (then `uv run sandloom "
+        "dev status` shows the ports and URLs)",
+        """
+The command connected to the DATABASE_URL, CACHE_URL or BROKER_URL it was
+given and nothing answered, or the server refused the login. The CLI prints
+one line instead of the driver's traceback; add --debug (or set
+SANDLOOM_DEBUG=1) to see the traceback.
+
+Usual causes:
+
+- the dev services are not running: `uv run sandloom dev up` starts them (it
+  never happens on its own);
+- `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
+  the marked block of `.env`, and a DATABASE_URL / CACHE_URL / BROKER_URL
+  exported in the shell wins over `.env` (the CLI warns when they differ);
+- the container runs but its port is not published to the host (seen with
+  Docker Desktop): `sandloom dev up` checks from the host and recreates it.
+""",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",

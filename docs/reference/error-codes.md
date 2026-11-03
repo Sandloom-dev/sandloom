@@ -88,6 +88,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R011`](#sandloom-r011) | `step-up-required` | runtime | a security-sensitive route needs a fresh authentication (401, RFC 9470) | active |
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
+| [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -1128,6 +1129,31 @@ cursor executions from such a task are detected on a best-effort basis
 **Fix:** open the child task's own unit: `async with open_uow() as session:`
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
+
+### SANDLOOM-R014
+
+**a sandloom command cannot reach PostgreSQL or Redis**
+
+Slug: `services-unreachable` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+The command connected to the DATABASE_URL, CACHE_URL or BROKER_URL it was
+given and nothing answered, or the server refused the login. The CLI prints
+one line instead of the driver's traceback; add --debug (or set
+SANDLOOM_DEBUG=1) to see the traceback.
+
+Usual causes:
+
+- the dev services are not running: `uv run sandloom dev up` starts them (it
+  never happens on its own);
+- `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
+  the marked block of `.env`, and a DATABASE_URL / CACHE_URL / BROKER_URL
+  exported in the shell wins over `.env` (the CLI warns when they differ);
+- the container runs but its port is not published to the host (seen with
+  Docker Desktop): `sandloom dev up` checks from the host and recreates it.
+
+**Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs)
 
 ## Test-harness and snapshot gates (`sandloom test`)
 
