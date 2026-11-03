@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a9] — 2026-11-03
+
 ### Added
 
 - **`sandloom new` asks at a terminal.** Without a name it asks what the flags

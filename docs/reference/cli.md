@@ -12,7 +12,7 @@ has `--help`.
 
 ## Context and declared architecture
 
-Available in `sandloom>=0.7.0a8,<0.8`. <!-- sandloom-release -->
+Available in `sandloom>=0.7.0a9,<0.8`. <!-- sandloom-release -->
 
 | Command | What it does |
 | --- | --- |
@@ -62,7 +62,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[redis,celery]>=0.7.0a8,<0.8` plus `sandloom-<module>>=0.7.0a8,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[redis,celery]>=0.7.0a9,<0.8` plus `sandloom-<module>>=0.7.0a9,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom new` (at a terminal) | The wizard. It asks what the flags leave open: the name, the standard modules, the coding agents, whether to set the app up now and the first administrator. The setup runs `uv sync`, `generate`, `dev up`, the migrations and `admin create`; its output goes to `.sandloom/run/new-setup.log`. The summary ends with a pinned `uvx` command that makes the same app without questions. Without a terminal, in CI or under a coding agent, nothing is asked. |
 | `sandloom new … --yes` (alias `--no-input`) | Ask nothing: the flags and the defaults decide, and the app name is required. The output ends with the "Next steps" block. Scripts and coding agents pass it. |
 | `sandloom new … --setup [--admin-email <e>]` | Also run the setup. With `--with admin` and `--admin-email`, the last step creates the administrator; without a terminal it prints a set-password link (`admin create --invite`). CI refuses `--setup`: CI provides its own services. |

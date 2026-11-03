@@ -10,20 +10,20 @@ footer_previous:
 # Quickstart
 
 !!! note "Current alpha"
-    The current alpha is `0.7.0a8`. All five packages are available on <!-- sandloom-release -->
-    [PyPI](https://pypi.org/project/sandloom/0.7.0a8/). The source is maintained in
+    The current alpha is `0.7.0a9`. All five packages are available on <!-- sandloom-release -->
+    [PyPI](https://pypi.org/project/sandloom/0.7.0a9/). The source is maintained in
     [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 
 You need Python 3.11+, [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker.
 In an empty directory, generate an application from the published alpha:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a8" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a9" sandloom new myapp --with identity,tenancy,billing
 ```
 
 This starter selects all three [standard modules](../modules/batteries/index.md). For a
 minimal backend, use
-`uvx --from "sandloom==0.7.0a8" sandloom new myapp --no-batteries --module notes`
+`uvx --from "sandloom==0.7.0a9" sandloom new myapp --no-batteries --module notes`
 instead. That command already creates `notes`, so its printed steps add a
 different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.
@@ -35,7 +35,7 @@ different module; the other steps are the same. The
     administrator.
 
     ```bash
-    uvx --from "sandloom[standard]==0.7.0a8" sandloom new
+    uvx --from "sandloom[standard]==0.7.0a9" sandloom new
     ```
 
     A yes to the setup runs the steps below up to the migrations. The

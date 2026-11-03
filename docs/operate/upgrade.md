@@ -8,7 +8,7 @@ type: how-to
 
 Sandloom is an alpha. Pin and review the versions you deploy; do not infer
 compatibility from a passing installation alone. The current published alpha
-is `0.7.0a8`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
+is `0.7.0a9`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
 [versioning policy](../contributing/versioning.md).
 
 1. Record the installed kernel and optional battery versions, the application
