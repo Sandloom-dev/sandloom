@@ -34,7 +34,9 @@ def _load_test_env() -> None:
 
 
 def _server_url() -> str:
-    raw = os.environ.get("SANDLOOM_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    # This worker's own database, which the harness has created: the run's base
+    # database may not exist yet on a fresh server.
+    raw = os.environ.get("DATABASE_URL") or os.environ.get("SANDLOOM_TEST_DATABASE_URL")
     if not raw or not raw.startswith("postgresql"):
         pytest.skip("needs the test PostgreSQL server")
     return to_sync_url(raw)

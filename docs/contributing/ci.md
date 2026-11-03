@@ -182,6 +182,35 @@ The focused Redis/billing regressions and full data-extraction scenario are
 verified locally. Full validation must still pass on the exact selected commit
 before a release; an economical PR result does not replace that gate.
 
+## Tests on shared test servers
+
+Several runs share one PostgreSQL and one Redis server: xdist workers, the CI
+shards, and developers or agents on one machine. A test that passes alone and
+fails next to another run is a bug in the test or in the harness, never a
+reason to rerun. The rules:
+
+- **Use your own resources.** A test uses this worker's database
+  (`DATABASE_URL` after the harness rewrote it) or a scratch database or Redis
+  index with a unique name. It never uses the run's base
+  `SANDLOOM_TEST_DATABASE_URL`: every worker of the run shares that one.
+- **Assert on your own resources, not on server totals.** "How many indexes
+  are free" changes while the test runs; "my index counts for me and not for a
+  stranger" does not.
+- **Feed a snapshot for global logic.** Code that reads the whole server
+  (`CLIENT LIST`, `pg_stat_activity`) is tested with a fixed answer; the live
+  server only proves the wiring.
+- **Hand back what you claim.** A test or a test slot that claims an index or a
+  database releases it, so runs do not leak them until `prune`.
+- **No real signals across threads.** Under xdist the main thread need not be
+  the one running the test: raise the interrupt where the code waits.
+
+Before a change to the harness or a test of shared services, run the fast suite
+twice at once against the same servers. Give each run its own
+`SANDLOOM_TEST_OWNER`, `SANDLOOM_TEST_DATABASE_URL` and Redis indexes; both
+must pass. This check found five such tests during the 0.7.0a9 release, and two
+harness bugs. A scanner counted as a client of every index it read, and test
+slots never handed their Redis indexes back.
+
 ## Generated application profiles
 
 Full validation creates applications through a standalone kernel-only CLI,

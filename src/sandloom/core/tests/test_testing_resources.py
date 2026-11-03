@@ -239,19 +239,84 @@ def test_allocation_never_hands_out_an_index_someone_is_connected_to(
         busy.connection_pool.disconnect()
 
 
+def test_another_runs_scanner_is_not_a_client_of_the_index_it_reads() -> None:
+    """A scan SELECTs each index in turn; a concurrent run must not take that
+    connection for someone using the index (it made prunes and counts flaky).
+    A fixed CLIENT LIST, not the shared server: other runs connect at will."""
+
+    class Server:
+        def execute_command(self, *args: Any) -> int:
+            assert args == ("CLIENT", "ID")
+            return 1
+
+        def client_list(self) -> list[dict[str, str]]:
+            return [
+                {"id": "1", "db": "5", "name": ""},  # this scanner
+                {"id": "2", "db": "7", "name": resources.SCANNER_CLIENT_NAME},
+                {"id": "3", "db": "7", "name": ""},  # a run using index 7
+                {"id": "4", "db": "9", "name": resources.SCANNER_CLIENT_NAME},
+            ]
+
+    assert resources._clients_per_db(Server()) == {7: 1}
+
+
+def test_the_scanner_names_its_connection(
+    scratch_index: tuple[str, int, str],
+) -> None:
+    url, _index, _owner = scratch_index
+    scanner = resources._connect_redis(url)
+    try:
+        name = scanner.execute_command("CLIENT", "GETNAME")
+        assert name in (
+            resources.SCANNER_CLIENT_NAME,
+            resources.SCANNER_CLIENT_NAME.encode(),
+        )
+    finally:
+        scanner.close()
+
+
 def test_affordable_workers_count_own_and_free_indexes_without_claiming(
     scratch_index: tuple[str, int, str],
 ) -> None:
     url, index, owner = scratch_index
-    room = resources.affordable_redis_workers([url], owner)
-    assert room >= 1  # at least the index this owner already holds
+    assert resources.affordable_redis_workers([url], owner) >= 1
+    # Which indexes count, not how many: other test runs on a shared Redis
+    # claim and free indexes between two counts.
     stranger = f"resources-test-{uuid.uuid4().hex[:8]}"
-    assert resources.affordable_redis_workers([url], stranger) <= room - 1
+    base = [resources._index_of(url)]
+    probe = resources._connect_redis(url)
+    try:
+        mine, _free = resources._claimable_indexes(probe, base, owner)
+        theirs, their_free = resources._claimable_indexes(probe, base, stranger)
+    finally:
+        probe.close()
+    assert index in mine  # the owner's own index counts for the owner
+    assert index not in theirs and index not in their_free  # never for a stranger
     client = _index_client(url, index)
     try:  # read-only: the owner marker is untouched
         assert client.get(ownership.REDIS_OWNER_KEY) == owner.encode()
     finally:
         client.close()
+
+
+def test_affordable_workers_divide_own_and_free_indexes_by_the_bases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The arithmetic on a fixed snapshot (the live server changes meanwhile)."""
+
+    class Client:
+        def close(self) -> None:
+            pass
+
+    snapshot = {"owner": ([3, 4], [5, 6, 7]), "stranger": ([], [5, 6, 7])}
+    monkeypatch.setattr(resources, "_connect_redis", lambda _url: Client())
+    monkeypatch.setattr(
+        resources, "_claimable_indexes", lambda _c, _bases, owner: snapshot[owner]
+    )
+    urls = ["redis://h:6379/1", "redis://h:6379/2"]  # two bases share the indexes
+    assert resources.affordable_redis_workers(urls, "owner") == 5 // 2
+    assert resources.affordable_redis_workers(urls, "stranger") == 3 // 2
+    assert resources.affordable_redis_workers([], "owner") == 0
 
 
 @pytest.mark.parametrize(("room", "expected"), [(8, 6), (3, 3), (1, 0), (0, 0)])

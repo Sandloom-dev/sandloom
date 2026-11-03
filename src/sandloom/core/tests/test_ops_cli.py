@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,7 +31,9 @@ def _test_database_url() -> str:
     from sandloom.core.testing.workers import worker_env_values
 
     values = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
-    return os.environ.get("SANDLOOM_TEST_DATABASE_URL") or values["DATABASE_URL"]
+    # This worker's own database: the run's base database is shared by every
+    # xdist worker, and two of them must not race for its migration lock.
+    return values["DATABASE_URL"]
 
 
 # ------------------------------------------------------- migration lock ----

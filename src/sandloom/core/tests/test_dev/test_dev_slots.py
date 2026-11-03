@@ -14,6 +14,7 @@ import textwrap
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
@@ -380,3 +381,75 @@ def test_an_ownership_refusal_without_env_test_local_says_dev_up(
         session_checks.check_run_resources(config)
     assert "Refusing to reset database 'x'." in str(stopped.value)
     assert "run `uv run sandloom dev up` first" in str(stopped.value)
+
+
+def test_a_released_slot_hands_back_its_redis_indexes(
+    checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    """A slot claims Redis indexes for its owner; releasing it empties them
+    (only while that owner still holds them), so runs do not leak indexes."""
+    redis = pytest.importorskip("redis")
+    from sandloom.core.testing import ownership
+
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    slot = slots.acquire_test_slot([root], env, cwd=root, announce=False)
+    assert slot is not None
+    claimed = list(slot.claimed_redis)
+    if not claimed:
+        slot.release()
+        pytest.skip("no Redis URLs or no free index on the shared test server")
+    slot.release()
+    for url in claimed:
+        client = redis.Redis.from_url(url)
+        try:
+            # Another run may claim the index right after the release: only
+            # this slot's marker must be gone.
+            assert client.get(ownership.REDIS_OWNER_KEY) != slot.owner.encode()
+        finally:
+            client.close()
+
+
+def test_a_slot_that_lost_its_lock_leaves_the_redis_indexes_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the lock is lost another run may hold the same slot, with the same
+    owner and indexes: the old process must not empty them at exit."""
+    released: list[str] = []
+    monkeypatch.setattr(
+        slots,
+        "_resources",
+        lambda: mock.Mock(release_redis=lambda u, _o: released.append(u)),
+    )
+    slot = slots.Slot(
+        number=2,
+        database_url="postgresql://x/y",
+        owner="m:/repo#2",
+        claimed_redis=("redis://h/7",),
+    )
+    monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: True)
+    slot.release()
+    assert released == []
+    slot.claimed_redis = ("redis://h/7",)
+    monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: False)
+    slot.release()
+    assert released == ["redis://h/7"]
+
+
+def test_the_controller_releases_its_slot_at_exit(
+    monkeypatch: pytest.MonkeyPatch, checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    """`sandloom test` and a plain pytest controller never call release: the
+    slot registers it for process exit."""
+    registered: list[Any] = []
+    monkeypatch.setattr(slots.atexit, "register", registered.append)
+    monkeypatch.setattr(slots, "_held", None)
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    monkeypatch.setattr(slots.os, "environ", env)
+    slot = slots.acquire_test_slot([root], cwd=root, announce=False)
+    try:
+        assert slot is not None
+        assert registered == [slots.release_test_slot]
+    finally:
+        slots.release_test_slot()

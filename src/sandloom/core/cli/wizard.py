@@ -633,11 +633,15 @@ class SetupRunner:
             for stream, sink in ((proc.stdout, None), (proc.stderr, errors))
             if stream is not None
         ]
+        try:
+            for reader in readers:
+                reader.start()
+            code, cancelled = self._wait(proc)
+        except KeyboardInterrupt:  # Ctrl-C before the wait began
+            code, cancelled = self._stop(proc), True
         for reader in readers:
-            reader.start()
-        code, cancelled = self._wait(proc)
-        for reader in readers:
-            reader.join()
+            if reader.ident is not None:  # started, even if start() was interrupted
+                reader.join()
         line.finish(ok=code == 0 and not cancelled)
         if cancelled:
             return "cancelled"
@@ -671,7 +675,11 @@ class SetupRunner:
         try:
             return proc.wait(), False
         except KeyboardInterrupt:
-            pass
+            return SetupRunner._stop(proc), True
+
+    @staticmethod
+    def _stop(proc: Any) -> int:
+        """Ask the step to stop, wait :data:`STOP_GRACE`, then kill it."""
         with contextlib.suppress(ProcessLookupError, OSError):
             proc.send_signal(signal.SIGINT)
         try:
@@ -680,7 +688,7 @@ class SetupRunner:
             with contextlib.suppress(ProcessLookupError, OSError):
                 proc.kill()
             proc.wait()
-        return proc.returncode or 1, True
+        return proc.returncode or 1
 
     def _report(self, tail: deque[str], errors: list[str], code: int) -> None:
         for text in tail:
