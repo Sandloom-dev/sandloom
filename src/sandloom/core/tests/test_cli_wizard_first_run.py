@@ -518,6 +518,24 @@ def test_the_setup_question_for_own_servers_starts_nothing(tmp_path: Path) -> No
     )
 
 
+def test_a_failed_own_server_setup_fails_a_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--yes --setup --services external``: when the servers answer but
+    the setup cannot finish (no CREATEDB), the status says so."""
+    monkeypatch.setattr(
+        wizard, "configure_external", lambda run, root, answers: "role cannot create"
+    )
+    run = _run(tmp_path, asking=False)
+    plan = wizard.Plan(app="cool_app", parent=tmp_path, batteries=[])
+    answers = wizard.Answers(
+        "cool_app", [], ["claude"], True, git=False, services=wizard.EXTERNAL
+    )
+    (tmp_path / "cool_app").mkdir()
+    assert wizard._finish(run, plan, tmp_path / "cool_app", answers) == 1
+    assert "role cannot create" in run.out.getvalue()
+
+
 # ------------------------------------------------------------------ summary
 
 

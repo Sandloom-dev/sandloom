@@ -68,8 +68,11 @@ async def client(
         yield http
 
 
-async def test_the_entry_page_forbids_foreign_code(client: AsyncClient) -> None:
-    response = await client.get("/admin/")
+@pytest.mark.parametrize("path", ["/admin/", "/admin/index.html"])
+async def test_the_entry_page_forbids_foreign_code(
+    client: AsyncClient, path: str
+) -> None:
+    response = await client.get(path)
     assert response.status_code == 200
     assert "/admin/assets/" in response.text
     assert "script-src 'self'" in response.headers["content-security-policy"]

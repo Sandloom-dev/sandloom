@@ -588,6 +588,26 @@ def test_the_initial_commit_holds_everything_but_env(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_a_hooks_git_dir_never_receives_the_app(tmp_path: Path) -> None:
+    """Inside a git hook or an agent shell ``GIT_DIR`` names another
+    repository: the app still gets its own, and theirs gets no commit."""
+    env = _git_identity(tmp_path, name=True)
+    theirs = tmp_path / "theirs"
+    subprocess.run(["git", "init", "--quiet", str(theirs)], env=env, check=True)
+    hooked = {**env, "GIT_DIR": str(theirs / ".git"), "GIT_WORK_TREE": str(theirs)}
+    root = tmp_path / "shop"
+    root.mkdir()
+    (root / "README.md").write_text("x\n")
+    assert wizard.git_init(root, hooked)
+    assert wizard.initial_commit(root, hooked) is None
+    assert (root / ".git").is_dir()
+    theirs_log = subprocess.run(
+        ["git", "log"], cwd=theirs, env=env, capture_output=True
+    )
+    assert theirs_log.returncode != 0  # still no commit in theirs
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_no_git_identity_skips_the_commit_with_a_hint(tmp_path: Path) -> None:
     env = _git_identity(tmp_path, name=False)
     root = tmp_path / "shop"

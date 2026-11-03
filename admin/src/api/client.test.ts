@@ -61,4 +61,38 @@ describe('ApiClient session storage', () => {
     new ApiClient(server()).keepAcrossReloads(false);
     expect(sessionStorage.getItem(KEY)).toBeNull();
   });
+
+  it('a browser that blocks storage still gets a working console (memory only)', async () => {
+    const blocked = vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    try {
+      for (const keep of [false, true]) {
+        const client = new ApiClient(server());
+        expect(() => {
+          client.keepAcrossReloads(keep);
+        }).not.toThrow();
+        expect(client.keepsAcrossReloads).toBe(false);
+        await client.login({ email: 'owner@example.com', password: 'x' });
+        expect(client.snapshot?.subject).toBe('u1');
+      }
+    } finally {
+      blocked.mockRestore();
+    }
+  });
+
+  it('a storage write that fails keeps the session in memory', async () => {
+    sessionStorage.clear();
+    const client = new ApiClient(server());
+    client.keepAcrossReloads(true);
+    const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    try {
+      await client.login({ email: 'owner@example.com', password: 'x' });
+      expect(client.snapshot?.subject).toBe('u1');
+    } finally {
+      full.mockRestore();
+    }
+  });
 });

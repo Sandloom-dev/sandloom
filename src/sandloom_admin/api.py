@@ -180,18 +180,25 @@ async def console_config(request: Request) -> Response:
 async def console_file(path: str, request: Request) -> Response:
     root = _console().resolve()
     file = (root / path).resolve()
+    index = root / "index.html"
     if file != root and root in file.parents and file.is_file():
         if "assets" in file.relative_to(root).parts:
             return _asset(file, request)
+        if file == index:  # /admin/index.html is the entry page too
+            return _entry_page(index)
         return _revalidated(file, request, {})
     # A deep link is the browser's route. A missing file must stay a 404, or a
     # stale script tag would receive HTML.
     if "." in path.rsplit("/", 1)[-1]:
         raise HTTPException(404, "Not found")
-    index = root / "index.html"
     if not index.is_file():
         raise HTTPException(503, "The admin console files are missing.")
-    # Never stored: 2 KiB, and a new release must reach the browser at once.
+    return _entry_page(index)
+
+
+def _entry_page(index: Path) -> FileResponse:
+    """The console's HTML, by whichever path: never stored (2 KiB, and a new
+    release must reach the browser at once) and always under the CSP."""
     return FileResponse(
         index,
         headers={"Cache-Control": "no-store", "Content-Security-Policy": CSP},

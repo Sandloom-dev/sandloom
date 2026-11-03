@@ -41,6 +41,7 @@ import sys
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -435,6 +436,14 @@ def _listing_intent(args: argparse.Namespace) -> _Intent | None:
     return _Intent(operator=f"cli:{operator}", reason=reason)
 
 
+def _utc(moment: datetime) -> str:
+    """A sign-in time in UTC, whatever zone the driver returned it in (a
+    naive value is already UTC)."""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC)
+    return moment.strftime("%Y-%m-%d %H:%M UTC")
+
+
 async def list_admins(core: Any, args: argparse.Namespace) -> int:
     """``sandloom admin list``; returns the exit status."""
     intent = _listing_intent(args)
@@ -461,9 +470,7 @@ async def list_admins(core: Any, args: argparse.Namespace) -> int:
             admin.email if show else mask_email(admin.email),
             ("set" if admin.password_set else "not set")
             + ("" if admin.is_active else " (deactivated)"),
-            admin.last_login_at.strftime("%Y-%m-%d %H:%M UTC")
-            if admin.last_login_at
-            else "never",
+            _utc(admin.last_login_at) if admin.last_login_at else "never",
         )
         for admin in admins
     ]

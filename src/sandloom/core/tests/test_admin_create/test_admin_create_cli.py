@@ -11,7 +11,7 @@ import json
 import os
 import socket
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -100,7 +100,10 @@ class _Security:
                 email="owner@example.com",
                 password_set=True,
                 is_active=True,
-                last_login_at=datetime(2026, 11, 3, 9, 30, tzinfo=UTC),
+                # 12:30 in Moscow is 09:30 UTC: the listing converts before it says UTC.
+                last_login_at=datetime(
+                    2026, 11, 3, 12, 30, tzinfo=timezone(timedelta(hours=3))
+                ),
             ),
             SimpleNamespace(
                 email="new@example.com",
