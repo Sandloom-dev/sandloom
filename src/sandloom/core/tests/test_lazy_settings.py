@@ -74,3 +74,5 @@ def test_an_invalid_environment_still_fails_at_the_entry_point(tmp_path: Path) -
     assert result.returncode != 0
     assert "Invalid configuration" in result.stderr
     assert "DATABASE_URL" in result.stderr
+    # A new app before `sandloom dev up` is told the next step.
+    assert "uv run sandloom dev up" in result.stderr
