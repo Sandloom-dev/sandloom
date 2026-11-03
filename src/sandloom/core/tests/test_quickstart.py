@@ -86,10 +86,24 @@ def test_the_readme_repeats_the_quickstart(tmp_path: Path) -> None:
         assert line in readme
     assert "SANDLOOM_DEV_POSTGRES_PORT" not in readme
     assert "uv run sandloom dev status" in readme
-    # The first-admin step lands between migrate and serve (admin-create).
-    placeholder = "<!-- first-admin step: added by admin-create -->"
+    assert "sandloom admin create" not in readme  # no console in this app
+
+
+def test_an_admin_app_readme_creates_the_first_administrator(tmp_path: Path) -> None:
+    """With the console, the first-admin step lands between migrate and serve."""
+    generate_project(
+        "probe", tmp_path, framework_source="pypi", with_batteries=["admin"]
+    )
+    readme = (tmp_path / "probe" / "README.md").read_text(encoding="utf-8")
+    for line in quickstart("probe")[1:]:
+        assert line in readme
     migrate = readme.index("uv run sandloom migrate upgrade-all --apply")
-    assert migrate < readme.index(placeholder) < readme.index("uv run sandloom dev run")
+    create = readme.index("uv run sandloom admin create --email")
+    assert migrate < create < readme.index("uv run sandloom dev run")
+    env = (tmp_path / "probe" / ".env").read_text(encoding="utf-8")
+    assert "\nNOTIFIER_LOG_LINKS=true\n" in env
+    example = (tmp_path / "probe" / ".env.example").read_text(encoding="utf-8")
+    assert "\n# NOTIFIER_LOG_LINKS=true\n" in example
 
 
 def test_dev_service_ports_are_configurable(tmp_path: Path) -> None:
