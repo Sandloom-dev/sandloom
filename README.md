@@ -48,8 +48,9 @@ For a tiny API or one-off script, a lighter framework may be a better fit.
 
 ## Quickstart
 
-You need **Python 3.11+** (3.12 recommended),
-[uv 0.13.4+](https://docs.astral.sh/uv/) and **Docker with Compose**.
+You need **Python 3.11+** (3.12 recommended) and
+[uv 0.13.4+](https://docs.astral.sh/uv/). For PostgreSQL and Redis, use
+**Docker with Compose**, or servers you already run (`sandloom dev up --services external`).
 
 Create a backend with one module from the published alpha. This example uses
 the framework without the optional identity, tenancy and billing packages:

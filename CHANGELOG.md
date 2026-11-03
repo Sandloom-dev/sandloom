@@ -15,6 +15,7 @@ website renders this same changelog.
 
 ### Added
 
+<!-- lookup -->
 - **`sandloom admin list`** names the platform administrators, whether each has a
   password and the last sign-in. In production it needs `--confirm-production
   --reason`, is audited (`identity.admin.listed`) and masks addresses unless
@@ -25,8 +26,38 @@ website renders this same changelog.
   (sessionStorage, never localStorage); production keeps it in memory only.
 - **An initial commit** after the wizard's own `git init`, when git has a user name
   and email (`.env` stays out).
+- **PostgreSQL and Redis without Docker**: `sandloom dev up --services external
+  [--database-url URL] [--redis-url URL]` uses servers you already run (Homebrew,
+  Postgres.app). It creates the app's database and writes the same `.env` block and
+  `.env.test.local`; the choice is kept, and no `dev` command calls Docker after it.
+  `sandloom new` asks how to run them (Docker, your own servers, or later) and takes
+  `--services docker|external|none`, `--database-url`, `--redis-url`. (tm: wizard-ux-2)
+- **`sandloom dev run` says what runs** once the app answers: the app, the admin
+  console, the API docs and `/health`, in one block after uvicorn's own lines.
+- **A favicon outside production**: `/favicon.ico` is the caracal in the brand
+  colours; the start page links it.
+- **`sandloom admin create --quiet`** prints no success line (the wizard's summary says
+  it). `--if-missing` no longer needs `--invite` or `--password-stdin` when the address
+  is already an administrator.
 
 ### Changed
+
+<!-- lookup -->
+- **The `sandloom new` wizard, round two** (tm: wizard-ux-2). It welcomes with the
+  site link and asks in plain words. The setup question says what it does and how
+  long it takes. After the setup comes the console administrator: `admin create`
+  asks the password on the terminal, so the wizard never handles it. A closing
+  summary says how to start the app and what to open; help and the repeat command
+  come after.
+- **`sandloom new` makes a git repository with a first commit by default**, as
+  `cargo new` does; `--no-git` skips it, also with `--yes`. Inside an existing
+  repository it creates none and commits nothing. The first commit runs no hook and is
+  not signed.
+- **identity's password policy checks the length** (8 to 100 characters) wherever it
+  applies. `admin create`'s prompt names the address, the app and the minimum length.
+- **Two apps in one repository** share the dev containers but never a database, a
+  test database, a port or a `.env` block.
+- **The Architecture explorer's header** shows the caracal instead of a letter.
 
 - **Each checkout has its own app port.** The first `dev up` picks 8000, else the
   next free port, and keeps it; `dev run`, `admin create` / `invite` links and the
@@ -55,6 +86,10 @@ website renders this same changelog.
 
 ### Fixed
 
+- **A fresh app with a short name passes its own format gate.** `asgi.py` lays out
+  its `create_app(...)` call as `ruff format` does for that name; `demo` failed
+  before. The docs snippet generator creates its apps with `--no-git`.
+  (tm: wizard-ux-2)
 - `dev down` then `dev up` no longer moves a port Docker Desktop releases late.
 - A startup task that cannot reach PostgreSQL or Redis logs one line with the
   fix instead of a traceback; in development the app reports an unreachable

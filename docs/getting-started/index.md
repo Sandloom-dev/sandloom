@@ -14,8 +14,9 @@ footer_previous:
     [PyPI](https://pypi.org/project/sandloom/0.7.0a9/). The source is maintained in
     [Sandloom-dev/sandloom](https://github.com/Sandloom-dev/sandloom).
 
-You need Python 3.11+, [uv 0.13.4+](https://docs.astral.sh/uv/) and Docker.
-In an empty directory, generate an application from the published alpha:
+You need Python 3.11+ and [uv 0.13.4+](https://docs.astral.sh/uv/). The app
+also needs PostgreSQL and Redis: Docker runs them for you, or use the
+servers you already have (see "Without Docker" below). In an empty directory, generate an application from the published alpha:
 
 ```bash
 uvx --from "sandloom[standard]==0.7.0a9" sandloom new myapp --with identity,tenancy,billing
@@ -29,19 +30,28 @@ different module; the other steps are the same. The
 [README](https://github.com/Sandloom-dev/sandloom#quickstart) demonstrates that minimal path.
 
 !!! tip "Or answer a few questions"
-    At a terminal, `sandloom new` without a name asks for what its flags
-    leave open. It asks for the name, the standard modules and the coding
-    agents. Then it offers to set the app up and to create the first
-    administrator.
+    At a terminal, `sandloom new` without a name guides you step by step.
+    It asks for the name, the standard modules and the coding agents. Then
+    it asks whether Docker should run PostgreSQL and Redis, or servers you
+    already have. Last, it offers to set the app up.
 
     ```bash
     uvx --from "sandloom[standard]==0.7.0a9" sandloom new
     ```
 
-    A yes to the setup runs the steps below up to the migrations. The
-    summary ends with one command that makes the same app again without
-    questions. Scripts and coding agents pass `--yes`: they get no question,
-    and the output is the one below.
+    A yes to the setup runs the steps below up to the migrations. With the
+    console, it then asks for the administrator's email, and
+    `sandloom admin create` asks for the password itself: the wizard never
+    sees it. The summary says how to start the app and what to open. It
+    ends with one command that makes the same app again without questions.
+    Scripts and coding agents pass `--yes`: they get no question, and the
+    output is the one below.
+
+`sandloom new` also makes the app a git repository with a first commit, as
+`cargo new` and `rails new` do; `--no-git` skips it. Inside an existing
+repository it creates none and commits nothing: the files stay there for you
+to commit. The first commit runs no hooks and is not signed; your own
+commits keep your settings.
 
 `sandloom new` prints the next steps; run them as printed:
 
@@ -81,7 +91,26 @@ was free (`/health`, and `/api/v1/notes/items` with a bearer token). The CI job 
     - Each `sandloom test` run gets its own test database, so two runs never
       clash.
     - `uv run sandloom dev down` stops the containers; the data stays.
+    - Two apps in one repository share the containers; each gets its own
+      database, port and `.env` block.
 
+!!! note "Without Docker"
+    PostgreSQL and Redis from Homebrew, Postgres.app or a package manager
+    work too. Point `dev up` at them once:
+
+    ```bash
+    uv run sandloom dev up --services external \
+        --database-url postgresql://$USER@127.0.0.1:5432/postgres \
+        --redis-url redis://127.0.0.1:6379
+    ```
+
+    Both URLs are optional when the servers answer on these usual local
+    ports. The role must be allowed to create databases. `dev up` checks
+    both servers and creates this app's database there. It writes the same
+    `.env` block and `.env.test.local`, and keeps the choice: `dev up`,
+    `dev run` and `dev status` never call Docker after that. When a server
+    does not answer, `dev run` says how to start it. `dev down` has nothing
+    to stop. `--services docker` switches back.
 With `--with identity`, development prints the links of the emails identity
 sends (verification, password reset) in the `sandloom dev run` output instead
 of mailing them. For tokens, see [your first access token](../modules/batteries/first-access-token.md).

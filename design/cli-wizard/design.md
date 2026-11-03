@@ -236,3 +236,77 @@ where they disagree.
     do.
 16. `--plain` forces plain output at a terminal (screen readers, logs); the log file never carries
     ANSI.
+
+## Round two: the owner's first-run notes (2026-11-03, tm: `wizard-ux-2`)
+
+The owner tried the polish branch as a first-time user. These rules replace the sections and
+revisions above where they disagree.
+
+1. **Welcome.** Under the caracal and the name come the site link and one welcome line. The line
+   says the wizard guides the person step by step to a new Sandloom application. The first
+   question reads "What are you building? Name your app [my_app]:".
+2. **Plain words for the setup.** The question says what happens and about how long. With
+   Docker and the console it reads:
+   "Install the dependencies, start PostgreSQL and Redis in Docker, create the tables and your
+   administrator now? (about a minute) [Y/n]". <!-- prose-ok: S4 quotes the prompt verbatim -->
+   The person's own servers drop the Docker part. No console drops the administrator.
+3. **Git by default, no question** (replaces revision 7). The app gets a repository and a first
+   commit, as `cargo new`, `rails new` and `create-next-app` do. One step line says so.
+   `--no-git` turns it off, also with `--yes`. The repeat command carries `--no-git` only when
+   it was used. The existing-git cases:
+   - **Inside a work tree** (`git rev-parse --show-toplevel` from the parent). This covers a
+     monorepo, the person's project and a home directory under git. The wizard makes no nested
+     repository and never commits into theirs. One muted line names the toplevel and says the
+     files are added there, not committed. For `$HOME` it adds that the home directory is a git
+     repository.
+   - **git not installed:** one muted hint, no repository.
+   - **No `user.name` or `user.email`:** the repository is made and the files staged, with no
+     commit. The hint gives the `git config --global` commands and a one-off
+     `git -c user.name=… -c user.email=… commit`.
+   - **The commit fails:** the repository stays. One line gives git's reason and the command to
+     commit by hand. Only this automated commit runs with `--no-verify` and
+     `-c commit.gpgsign=false`. A global hook or a locked signing key must not stop it; the
+     person's own commits keep their settings.
+   - **The target already holds a `.git`:** the generator refuses an existing folder by name.
+4. **The administrator comes last; the wizard never handles the password** (replaces section
+   5 and revision 2). Why: a password the wizard never reads cannot leak from it.
+   - The setup runs first: dependencies, services, migrations.
+   - Then a heading, "Now create the console administrator of <app>", and the email. The
+     `git config` address is offered with a confirmation; `-` skips.
+   - Right after it, `uv run sandloom admin create --email <e> --quiet` runs on the terminal.
+     It asks for the password twice, checks identity's policy and asks again.
+   - So the two prompts sit together, and the wizard has no `getpass` and pipes nothing.
+   - The prompt names the address, the app and the minimum length. The minimum is identity's
+     `MIN_PASSWORD_LENGTH` when importable, else 8 (`sandloom.core.cli.password_check`).
+     Identity's policy now counts the length too.
+   - Without a terminal, `--yes --setup --admin-email` keeps `admin create --invite`.
+5. **The summary**, in order:
+   - "Your app is ready" (or "created");
+   - "Start it:" with one command, `cd <app> && uv run sandloom dev run` (without a setup, the
+     remaining commands, one per line);
+   - "Then open:" with the app and console URLs and "Sign in as <email>";
+   - a muted "Help" block: `admin list` and `admin invite` for a lost password, `dev up
+     --services external` without Docker, and the docs;
+   - last, the repeat command, labelled for scripts and agents.
+
+   `admin create --quiet` prints no success line, so the summary says it once. Without a
+   terminal the "Next steps:" block is unchanged.
+6. **PostgreSQL and Redis without Docker.** A question, "How do you want to run them?":
+   1. Docker starts them (the default when `docker info` answers).
+   2. The person already runs them (Homebrew, Postgres.app). The wizard tries the usual local
+      ports, as the login for PostgreSQL. What answers becomes the default. After checking both
+      servers it runs the code of `dev up --services external`.
+   3. Later: the files only.
+
+   When Docker is missing or stopped, the wizard says which. The default then becomes 2 when a
+   local server answers, else 3. Scripts pass `--services docker|external|none`,
+   `--database-url` and `--redis-url`. The URL flags alone mean `external`; `none` with
+   `--setup` is refused. The repeat command carries them and shows a database password as
+   `<password>`.
+7. **Kept from earlier rounds:** name checks, the sticky app port and `ui.interactive()`. The
+   plain "Next steps:" block stays as `tools/smoke/quickstart_check.py` parses it. So do the
+   repeat command and the Windows and ASCII fallbacks; the new dash symbol falls back to `-`.
+
+Tests: `src/sandloom/core/tests/test_cli_wizard_first_run.py` covers each case above, the
+wizard never reading a password, and the summary order. `test_cli_wizard.py` drives a
+pseudo-terminal.

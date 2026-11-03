@@ -10,7 +10,8 @@ You need:
 
 - **Python 3.11+** (3.12 recommended);
 - **[uv 0.13.4+](https://docs.astral.sh/uv/)**, the package manager Sandloom uses;
-- **Docker with Compose**, for the local PostgreSQL and Redis.
+- **PostgreSQL and Redis**: Docker with Compose runs them for you, or use servers you
+  already run (Homebrew, Postgres.app) with `uv run sandloom dev up --services external`.
 
 ## Create an application
 
