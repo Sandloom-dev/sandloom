@@ -39,11 +39,14 @@ async def test_swagger_ui_carries_the_bar_the_favicon_and_the_colours() -> None:
     assert response.status_code == 200
     page = response.text
     assert "<title>shop API</title>" in page
-    assert 'class="sl-bar"' in page and "shop</a>" in page
+    assert 'class="sl-bar"' in page and "shop</span>" in page
+    assert ">Start page<" not in page  # the bar links the docs, not the start page
     assert 'href="data:image/svg+xml,' in page  # the caracal in the tab
     assert '<a href="/docs" class="" aria-current="page">' in page
     assert 'href="/docs/assets/api_docs.css"' in page
-    assert "dark-mode" in page  # Swagger UI's dark mode follows the system
+    # The theme switch: system, light, dark, kept in this browser.
+    assert 'class="sl-theme"' in page
+    assert 'src="/docs/assets/api_docs.js"' in page
     assert "url: '/openapi.json'" in page
     assert '"persistAuthorization": true' in page
     # Still FastAPI's Swagger UI underneath, with its OAuth2 redirect.
@@ -63,8 +66,11 @@ async def test_redoc_carries_the_favicon_and_no_google_fonts() -> None:
     assert "<title>shop API</title>" in page
     assert 'href="data:image/svg+xml,' in page
     assert "fonts.googleapis.com" not in page
-    assert 'scroll-y-offset=".sl-bar"' in page and "#8b6841" in page
-    assert '<html class="sl-light">' in page and 'class="sl-bar"' in page
+    assert 'class="sl-bar"' in page and 'class="sl-theme"' in page
+    # Drawn by script in either theme, so the switch can redraw it.
+    assert "<redoc " not in page and '<div id="redoc"></div>' in page
+    assert "#8b6841" in page and "#d8b892" in page  # the light and the dark accent
+    assert "Redoc.init" in page and "sl-theme" in page
 
 
 @pytest.mark.asyncio
@@ -73,6 +79,10 @@ async def test_the_stylesheet_and_fonts_are_served_by_the_app() -> None:
     """No font service and no network for the look: the files ship in the
     wheel next to their licenses."""
     app = app_factory._new_application("shop")
+    script = await _get(app, "/docs/assets/api_docs.js")
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
+    assert "localStorage" in script.text and "dark-mode" in script.text
     css = await _get(app, "/docs/assets/api_docs.css")
     assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
     for font in re.findall(r'url\("/docs/assets/([^"]+)"\)', css.text):

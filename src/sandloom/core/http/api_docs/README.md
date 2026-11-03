@@ -1,7 +1,8 @@
 # API docs assets
 
 `/docs` and `/redoc` outside production serve these files at `/docs/assets/`:
-the stylesheet and the brand fonts, the same files as `website/assets/fonts/`.
+the stylesheet, the theme switch (`api_docs.js`) and the brand fonts, the same
+files as `website/assets/fonts/`.
 
 - Manrope (variable, Latin and Latin Extended): SIL Open Font License 1.1,
   `Manrope-OFL.txt`; upstream recorded in `website/assets/fonts/Manrope-SOURCE.json`.

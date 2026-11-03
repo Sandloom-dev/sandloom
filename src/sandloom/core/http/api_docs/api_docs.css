@@ -28,6 +28,15 @@
   --sl-get: #4d7590; --sl-post: #5b7d4b; --sl-put: #a87326; --sl-patch: #8b6841;
   --sl-delete: #a24f3a; --sl-other: #686c6f;
 }
+/* api_docs.js sets sl-dark or sl-light from the switch; without it, the system. */
+:root.sl-dark {
+    color-scheme: dark;
+    --sl-bg: #111213; --sl-surface: #191b1d; --sl-ink: #edeee9; --sl-muted: #a5aaa8;
+    --sl-line: #303337; --sl-accent: #d8b892; --sl-button-bg: #d8b892;
+    --sl-button-fg: #1a1815; --sl-code-bg: #222528;
+    --sl-get: #7fa6c0; --sl-post: #8fb07c; --sl-put: #d3a35a; --sl-patch: #d8b892;
+    --sl-delete: #d0826d; --sl-other: #a5aaa8;
+}
 @media (prefers-color-scheme: dark) {
   :root:not(.sl-light) {
     color-scheme: dark;
@@ -56,6 +65,16 @@ html, body { margin: 0; background: var(--sl-bg); }
 .sl-bar nav { margin-left: auto; display: flex; gap: 22px; color: var(--sl-muted); }
 .sl-bar nav a:hover, .sl-bar nav a[aria-current] { color: var(--sl-ink); }
 .sl-bar nav a.sl-out::after { content: " \2197"; }
+.sl-theme { display: inline-grid; place-items: center; width: 34px; height: 34px;
+  margin-left: 6px; padding: 0; border: 1px solid var(--sl-line); border-radius: 999px;
+  background: transparent; color: var(--sl-ink); cursor: pointer; }
+.sl-theme:hover { border-color: var(--sl-muted); }
+.sl-theme:focus-visible { outline: 2px solid var(--sl-accent); outline-offset: 2px; }
+.sl-theme svg { width: 17px; height: 17px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: none; }
+.sl-theme[data-mode="system"] .sl-i-system, .sl-theme[data-mode="light"] .sl-i-light,
+.sl-theme[data-mode="dark"] .sl-i-dark, .sl-theme:not([data-mode]) .sl-i-system {
+  display: block; }
 @media (max-width: 720px) {
   .sl-bar { gap: 12px; padding: 0 16px; }
   .sl-bar nav { gap: 14px; font-size: 13px; }
@@ -77,18 +96,21 @@ html, body { margin: 0; background: var(--sl-bg); }
 .swagger-ui .opblock-summary-path, .swagger-ui .opblock-summary-path__deprecated,
 .swagger-ui code, .swagger-ui pre, .swagger-ui .microlight, .swagger-ui .model,
 .swagger-ui .parameter__type, .swagger-ui .prop-type, .swagger-ui .opblock-summary-method,
-.swagger-ui .response-col_links, .swagger-ui textarea, .swagger-ui .version-stamp,
-.swagger-ui .info .title small pre {
+.swagger-ui .response-col_links, .swagger-ui textarea {
   font-family: var(--sl-code-font) !important; }
 .swagger-ui .wrapper { max-width: 1180px; padding: 0 32px; }
 .swagger-ui .info { margin: 44px 0 28px; }
 .swagger-ui .info .title { color: var(--sl-ink); font-size: 40px; font-weight: 750;
   letter-spacing: -.045em; }
-.swagger-ui .info .title small { background: var(--sl-code-bg); border: 1px solid var(--sl-line);
-  border-radius: 999px; padding: 2px 9px; top: -14px; }
-.swagger-ui .info .title small pre { color: var(--sl-muted); }
-.swagger-ui .info .title small.version-stamp { background: var(--sl-accent); border-color: var(--sl-accent); }
-.swagger-ui .info .title small.version-stamp pre { color: var(--sl-button-fg); }
+/* Version and OAS: quiet outlined labels next to the title, not filled pills. */
+.swagger-ui .info .title small { background: transparent; border: 1px solid var(--sl-line);
+  border-radius: 999px; padding: 3px 10px; top: -10px; margin-left: 8px;
+  vertical-align: middle; }
+.swagger-ui .info .title small pre { color: var(--sl-muted); font-size: 12px; font-weight: 600;
+  line-height: 1.2; letter-spacing: 0; font-family: var(--sl-font) !important; }
+.swagger-ui .info .title small.version-stamp { background: transparent;
+  border-color: color-mix(in srgb, var(--sl-accent) 55%, transparent); margin-left: 4px; }
+.swagger-ui .info .title small.version-stamp pre { color: var(--sl-accent); }
 .swagger-ui .info a, .swagger-ui .info .link, .swagger-ui a.nostyle,
 .swagger-ui .opblock-tag small a, .swagger-ui .info .base-url { color: var(--sl-accent); }
 .swagger-ui .info p, .swagger-ui .info li, .swagger-ui .opblock-tag small,
@@ -211,16 +233,18 @@ html.dark-mode body .swagger-ui .opblock.opblock-head .opblock-summary-method,
 html.dark-mode body .swagger-ui .opblock.opblock-options .opblock-summary-method,
 html.dark-mode body .swagger-ui .opblock.opblock-deprecated .opblock-summary-method {
   background: var(--m); color: #111213; }
-html.dark-mode body .swagger-ui .info .title small { background: var(--sl-code-bg);
-  border-color: var(--sl-line); }
+html.dark-mode body .swagger-ui .info .title small,
+html.dark-mode body .swagger-ui .info .title small.version-stamp { background: transparent; }
+html.dark-mode body .swagger-ui .info .title small { border-color: var(--sl-line); }
 html.dark-mode body .swagger-ui .info .title small.version-stamp {
-  background: var(--sl-accent); border-color: var(--sl-accent); }
-html.dark-mode body .swagger-ui .info .title small.version-stamp pre { color: var(--sl-button-fg); }
+  border-color: color-mix(in srgb, var(--sl-accent) 55%, transparent); }
+html.dark-mode body .swagger-ui .info .title small pre { color: var(--sl-muted); }
+html.dark-mode body .swagger-ui .info .title small.version-stamp pre { color: var(--sl-accent); }
 html.dark-mode body .swagger-ui .info a, html.dark-mode body .swagger-ui .info .link,
 html.dark-mode body .swagger-ui a.nostyle, html.dark-mode body .swagger-ui .info .base-url {
   color: var(--sl-accent); }
 html.dark-mode body .swagger-ui .opblock-tag a.nostyle,
 html.dark-mode body .swagger-ui .opblock-tag a.nostyle span { color: var(--sl-ink); }
 
-/* ReDoc sits under the same bar: its light theme only. */
-.sl-redoc redoc { display: block; }
+/* ReDoc under the same bar; api_docs.js redraws it with the theme. */
+#redoc { min-height: calc(100vh - 65px); }
