@@ -8,6 +8,8 @@ type: how-to
 Inspect what an authoring composition declares: business modules, contracts,
 event channels, consumers, projections and infrastructure requirements.
 This is a declared map, not production traffic or active RPC routing.
+The browser viewer, `sandloom explore`, is experimental: its view and
+options may change between releases; `graph` and `context` are stable.
 
 !!! note "Package availability"
     Available in `sandloom>=0.7.0a9,<0.8`. <!-- sandloom-release -->

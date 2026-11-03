@@ -23,7 +23,7 @@ Available in `sandloom>=0.7.0a9,<0.8`. <!-- sandloom-release -->
 | `sandloom graph sequence [ID]` | List readable process names or inspect saga/route phases; names and stable IDs are accepted. |
 | `sandloom graph state ID` | Conditional saga state transitions. |
 | `sandloom graph --format html > architecture.html` | Save the offline viewer. |
-| `sandloom explore [MODULE]` | Generate, save and open the offline viewer. |
+| `sandloom explore [MODULE]` | Experimental: generate, save and open the offline viewer. |
 
 Both inspection commands accept `--root PATH`, `--format` and
 `--require-verified`. Context formats are `markdown|json`. Graph formats are

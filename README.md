@@ -116,7 +116,7 @@ uv run sandloom explore
 
 `graph` maps module purposes and declared connections; `context notes` lists
 interfaces and owned file locations. Both default to compact text, with explicit
-`--format json` for structured data. `explore` generates and opens an offline
+`--format json` for structured data. `explore` (experimental) generates and opens an offline
 browser view of the same declared architecture, including processes and impact.
 See [module maps](docs/ai/module-context.md) and the
 [architecture explorer](docs/ai/architecture-graph.md).

@@ -43,6 +43,9 @@ website renders this same changelog.
 ### Changed
 
 <!-- lookup -->
+- **`sandloom explore` is marked experimental** in `sandloom --help` and the docs;
+  `graph` and `context` stay stable. The wizard's summary also lists the API docs.
+  (tm: wizard-docs-line)
 - **The `sandloom new` wizard, round two** (tm: wizard-ux-2). It welcomes with the
   site link and asks in plain words. The setup question says what it does and how
   long it takes. After the setup comes the console administrator: `admin create`
