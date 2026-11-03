@@ -44,3 +44,8 @@ path = "../../tools/packaging/package_build.py"
 
 [tool.sandloom.sources]
 "../../src/sandloom_billing" = "sandloom_billing"
+
+# Local builds (`uvx --from packages/sandloom-billing`) rebuild when the sources change,
+# not only when this file does.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "../../src/sandloom_billing/**/*" }]
