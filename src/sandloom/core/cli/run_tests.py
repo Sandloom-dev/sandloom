@@ -47,8 +47,11 @@ Run it from the project root (the directory holding ``pyproject.toml`` /
 app. Tests need the project's test services and test env, like ``pytest``.
 
 Every step sees the SAME test environment, loaded once before the first step
-exactly as the pytest harness loads it (:func:`load_project_test_env`): the
-nearest ``.env.test`` (override), then the ``SANDLOOM_TEST_*`` variables on top —
+exactly as the pytest harness loads it (:func:`load_project_test_env`): on a
+checkout ``sandloom dev up`` prepared, the run's test-run slot first
+(:mod:`sandloom.core.testing.slots`: its own database, owner and Redis
+indexes, held until ``sandloom test`` exits), then the nearest ``.env.test``
+(override) and its ``.env.test.local``, then the ``SANDLOOM_TEST_*`` variables on top —
 so the in-process snapshot checks work on a checkout without ``.env``. Every
 xdist step (``-n``) gets ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` unless the caller
 exported a stride, so parallel steps never collide with other runs' Redis
@@ -80,6 +83,12 @@ from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.testing.env import find_env_file, load_test_env
+from sandloom.core.testing.slots import (
+    SLOT_LOST_MESSAGE,
+    SlotsExhausted,
+    acquire_test_slot,
+    slot_lost,
+)
 
 #: Catalogue code a failing step points to (``sandloom explain <code>``).
 _STEP_CODES = {
@@ -137,6 +146,9 @@ def load_project_test_env(root: Path) -> Path | None:
     """
     if find_env_file([root]) is None:
         return None
+    # This run's test-run slot first (`sandloom dev up` checkouts): held by
+    # this process across every step, which inherit SANDLOOM_TEST_SLOT_HELD.
+    acquire_test_slot([root])
     return load_test_env([root])
 
 
@@ -483,7 +495,11 @@ def main(argv: list[str] | None = None) -> int:
         for step in steps:
             print(f"{step.name:20} {step.describe()}")
         return 0
-    env_file = load_project_test_env(root)
+    try:
+        env_file = load_project_test_env(root)
+    except SlotsExhausted as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if env_file is None:
         print(
             "sandloom test: no .env.test found walking up from "
@@ -499,6 +515,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     outcomes = run(steps, root)
     print(summary(outcomes))
+    if slot_lost():
+        print(SLOT_LOST_MESSAGE, file=sys.stderr)
+        return 1
     if seed is not None and any(o.code for o in outcomes):
         print(
             f"sandloom test: test order seed {seed} (replay: "

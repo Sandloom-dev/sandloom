@@ -211,7 +211,29 @@ async def reset_failures(subject: str, *, client_ip: str | None = None) -> None:
         logger.warning("identity: could not reset auth failure counter")
 
 
+async def clear_lock(subject: str, *, client_ip: str | None = None) -> None:
+    """Lift the lock and the failure counters after a password reset.
+
+    A completed reset proves the owner holds the new password, so the sign-in
+    that follows must not wait out a lock earlier failures left: the lock and
+    counter of the (subject, ``client_ip``) pair and of the subject alone, and
+    the per-account soft-throttle counter. A lock another IP holds expires on
+    its own (at most :data:`MAX_LOCK_SECONDS`); it is that IP's.
+    """
+    keys = [_keyed(subject, None)]
+    if client_ip is not None:
+        keys.append(_keyed(subject, client_ip))
+    # Runs after commit (``on_commit``): a cache outage is logged there, and
+    # the lock expires on its own.
+    provider = cache()
+    for key in keys:
+        await provider.delete(_LOCK_PREFIX + key)
+        await provider.delete(_FAIL_PREFIX + key)
+    await provider.delete(_GLOBAL_PREFIX + subject)
+
+
 __all__ = [
+    "clear_lock",
     "FAIL_THRESHOLD",
     "GLOBAL_SOFT_THRESHOLD",
     "LOCKED_DETAIL",

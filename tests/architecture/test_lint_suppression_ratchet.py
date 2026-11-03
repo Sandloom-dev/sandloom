@@ -51,7 +51,11 @@ NOQA_BASELINE: dict[str, int] = {
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
     # the `sandloom[redis]` extra and `sandloom test --help` must run in a
     # lean `pip install sandloom` (tests/integration/test_package_distributions.py).
-    "PLC0415": 118,
+    # 121 (2026-11-03): +3 optional imports of the `redis` extra: a test-run
+    # slot claiming its Redis indexes (testing/slots.py: `redis` and
+    # testing.resources, which imports it; `sandloom test` loads slots in a
+    # lean install) and `sandloom dev prune` (cli/dev/commands.py).
+    "PLC0415": 121,
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,
@@ -69,7 +73,10 @@ NOQA_BASELINE: dict[str, int] = {
     # mypy, lint-imports) with a fixed argv — one helper, one marker.
     # +1: the split boot check (sandloom.core.testing.deploy_profile) runs `sandloom
     # doctor` per service in a fresh interpreter (sys.executable, fixed code).
-    "S603": 5,
+    # +2: `sandloom dev` runs git / docker / lsof through one helper and starts
+    # the app server (sys.executable -m uvicorn), both a fixed argv, no shell
+    # (sandloom.core.cli.dev.process).
+    "S603": 7,
     "S608": 22,
     "SIM102": 1,
 }

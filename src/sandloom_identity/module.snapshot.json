@@ -28,11 +28,19 @@
     {
       "database": null,
       "methods": [
+        "account_standing",
         "appoint_platform_admin",
+        "create_platform_admin",
         "find_user_id",
         "list_user_ids",
+        "password_problem",
+        "platform_admin_exists",
+        "reissue_set_password",
         "require_password_reset",
-        "revoke_sessions"
+        "revoke_sessions",
+        "set_password_token",
+        "set_password_with_token",
+        "take_over_platform_admin"
       ],
       "name": "identity.security.v1"
     },

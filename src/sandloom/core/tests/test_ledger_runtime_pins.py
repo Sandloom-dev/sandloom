@@ -57,6 +57,7 @@ def test_accepted_risk_ids_are_pinned() -> None:
         "experimental_capability",
         "fake_psp_in_prod",
         "local_storage_in_prod",
+        "log_links_in_prod",
         "log_notifier_in_prod",
         "relay_disabled",
         "saga_horizon_beyond_command_dedupe",

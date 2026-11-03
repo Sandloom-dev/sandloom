@@ -24,6 +24,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import sandloom.core.cli.dev.errors as _dev_errors
 import sandloom.core.cli.migrate_drift as _migrate_drift
 import sandloom.core.cli.migrate_rls as _migrate_rls
 from sandloom.core.app_factory import enforce_configuration
@@ -463,7 +464,10 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI wr
         if command is not None:
             return command(core, descriptors, args)
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        print(f"Migration failed: {exc}", file=sys.stderr)
+        # The same one line as every other command (SANDLOOM-R014) when the
+        # database cannot be reached; any other failure keeps its message.
+        line = _dev_errors.connection_failure(exc)
+        print(line or f"Migration failed: {exc}", file=sys.stderr)
         return 1
     return 0
 

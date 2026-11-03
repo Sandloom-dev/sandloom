@@ -4244,8 +4244,9 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the nine ids fake_psp_in_prod, log_notifier_in_prod, local_storage_in_prod, volatile_event_bus,
-    unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled, command_dedupe_below_retry_horizon.
+    holds exactly the twelve ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
+    command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
@@ -6391,8 +6392,9 @@ capabilities:
   - src/sandloom_admin/tests/test_console.py::test_a_newer_manifest_version_is_refused
   - src/sandloom_admin/tests/test_console.py::test_a_widget_this_console_lacks_is_refused
 - id: C-CONSOLE-04
-  statement: sandloom security grant-admin makes a registered user a platform administrator, verifies
-    the address, keeps one assignment when repeated and writes a required audit row.
+  statement: sandloom security grant-admin makes a registered user with a verified address a platform
+    administrator, refuses an unverified one, keeps one assignment when repeated and writes a required
+    audit row.
   sources:
   - docs/admin-console/index.md
   tests:

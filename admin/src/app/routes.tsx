@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react';
-import { Route, Routes, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import { FileQuestion } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -120,6 +120,7 @@ export function AppRoutes() {
       <Route path="platform/contracts" element={<ContractsPage />} />
       <Route path="platform/settings" element={<SettingsPage />} />
       <Route path="help" element={<HelpPage />} />
+      <Route path="set-password" element={<Navigate to="/" replace />} />
       <Route path=":resource" element={<ResourceRoute view="list" />} />
       <Route path=":resource/new" element={<ResourceRoute view="create" />} />
       <Route path=":resource/:id" element={<ResourceRoute view="detail" />} />

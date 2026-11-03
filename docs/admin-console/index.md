@@ -34,25 +34,51 @@ fails when the file is stale.
 
 ## Create the first administrator
 
-Register an account while the application runs:
+Run this in the application's directory and type the password twice when asked:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email": "you@example.com", "full_name": "You", "password": "Example-Passw0rd!"}'
+uv run sandloom admin create --email you@example.com
 ```
 
-Then make it an administrator. The command reports what it would do until you add
-`--apply`:
+Open [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) and sign in. The
+address counts as verified, so you don't need a mail server yet. The command is
+recorded in the audit log.
+
+If no one can type the password, for example an agent or a CI job runs the setup,
+ask for a link instead:
 
 ```bash
-uv run sandloom security grant-admin --email you@example.com
-uv run sandloom security grant-admin --email you@example.com --apply --reason "first administrator"
+uv run sandloom admin create --email you@example.com --invite --if-missing
 ```
 
-This also marks the address as verified, so you don't need a mail server yet. The grant
-is recorded in the audit log. Open
-[http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) and sign in.
+The command prints a link to the console's set-password page. Whoever opens it sets
+the password and is signed in. The link works once and only for 15 minutes, so it is
+safe to pass on in a chat. `--if-missing` makes a second run do nothing when the
+address is already an administrator.
+
+To set the password from a secret manager, pipe it in with `--password-stdin`. There
+is no flag that takes the password itself, so it never lands in your shell history.
+
+| Situation | Command |
+| --- | --- |
+| Forgot the password, or the link expired | `uv run sandloom admin invite --email you@example.com` |
+| A verified user should become an administrator | `uv run sandloom security grant-admin --email them@example.com --apply --reason "..."` |
+| Someone else registered your address first | `uv run sandloom admin create --email you@example.com --invite --take-over` |
+
+`--take-over` makes that account yours. It ends its password, two-factor setup and
+sessions. `grant-admin` refuses an unverified address for that reason: whoever
+registered it first would keep their password.
+
+While no administrator exists, the sign-in page and the application's startup log
+show the `admin create` command.
+
+With the console off, as in production by default, the link opens your own frontend
+instead: `FRONTEND_URL/auth/reset-password#token=...`. The token is in the URL
+fragment, which the browser never sends to a server: no access log records it.
+Your reset page must read the token from `location.hash`, send it in the body of
+`POST /auth/reset-password`, and then remove it from the address bar with
+`history.replaceState`. Identity's own reset emails still put the token in the query
+string (`?token=`). A page that serves both reads either.
 
 ## Add it to an existing application
 

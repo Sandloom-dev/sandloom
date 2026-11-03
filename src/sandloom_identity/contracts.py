@@ -4,7 +4,7 @@
 time by any module that writes to users; events carry no PII.
 
 ``identity.security.v1`` — operator security commands (incident response, and
-granting the first platform administrator).
+the first platform administrator: ``sandloom admin create`` / ``invite``).
 
 The contract behind ``sandloom security revoke-sessions`` and ``sandloom security
 force-password-reset`` (:mod:`sandloom.core.cli.security`): the kernel CLI pages
@@ -19,29 +19,53 @@ the target users (all users here, or a tenant's members through
 * writes one ``required=True`` audit row per affected user
   (``actor_type="operator"``, ``data`` = operator, reason, operation key).
 
+The first administrator: ``create_platform_admin`` (and
+``take_over_platform_admin`` for an unverified account that holds the
+address) leaves the account with no usable password and a pending
+set-password link; ``set_password_token`` mints that link. The command takes
+no password and returns no token, because a command's result is stored for
+replay; the read that mints is never stored. ``set_password_with_token``
+sets the password a terminal prompt read through identity's reset path: the
+token and the password are ``undigested``, so its stored record (command log
+or cache reservation) holds a digest over the operation key alone and a
+boolean; nothing stored depends on either secret, not even as a hash.
+
 Not part of any user-facing API: a caller needs the contract locally (the CLI
 runs in identity's process) or an ``RPC_ALLOWED_CALLS`` grant.
 """
 
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy import delete, exists, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.core.module_api import contract_session
+from sandloom.core.module_api import contract_session, undigested
 from sandloom.sdk import command, contract, record_audit
 from sandloom.sdk.effects import sensitive_effect
+from sandloom.sdk.security import is_user_blocked
+from sandloom_identity.events import EventActor
+from sandloom_identity.models.external_identity import ExternalIdentity
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.role import Role
+from sandloom_identity.models.twofa_backup_code import TwoFABackupCode
+from sandloom_identity.models.twofa_secret import TwoFASecret
 from sandloom_identity.models.user import User
 from sandloom_identity.models.user_role import UserRole
+from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
+from sandloom_identity.schemas.operator import AccountStanding
+from sandloom_identity.services.auth_service import AuthService
 from sandloom_identity.services.role_service import ADMIN_ROLE_CODE
+from sandloom_identity.services.setup_state import platform_admin_exists
 from sandloom_identity.sessions import revoke_sessions
+from sandloom_identity.utils import email_token_utils
 
 SECURITY_SERVICE_V1 = "identity.security.v1"
 CONTACT_SERVICE_V1 = "identity.contact.v1"
@@ -101,8 +125,10 @@ async def _admin_role(db: AsyncSession) -> Role:
     return role
 
 
-@sensitive_effect("admin")
-async def _grant_admin(user: User, *, reason: str, operator: str, key: str) -> None:
+_EMAIL = TypeAdapter(EmailStr)
+
+
+async def _assign_admin_role(user: User) -> None:
     db = contract_session()
     role = await _admin_role(db)
     assigned = await db.scalar(
@@ -112,19 +138,132 @@ async def _grant_admin(user: User, *, reason: str, operator: str, key: str) -> N
     )
     if assigned is None:
         db.add(UserRole(user_id=user.id, role_id=role.id))
-    if not user.is_verified:
-        # The operator vouches for the address, so no mail server is needed.
-        user.is_verified = True
-        user.email_verified_at = datetime.now(UTC)
     await db.flush()
+
+
+def _operator_audit(
+    action: str, user_id: UUID, *, reason: str, operator: str, key: str
+) -> None:
     record_audit(
-        "identity.user.platform_admin_granted",
+        action,
         actor_id=None,
         actor_type="operator",
         resource_type="user",
-        resource_id=str(user.id),
+        resource_id=str(user_id),
         data={"operator": operator, "reason": reason, "operation_key": key},
         required=True,
+    )
+
+
+@sensitive_effect("admin")
+async def _grant_admin(user: User, *, reason: str, operator: str, key: str) -> None:
+    # An unverified address may belong to anyone who registered it first: the
+    # operator takes it over instead (``take_over_platform_admin``), which
+    # also invalidates that person's password.
+    if not user.is_verified:
+        raise HTTPException(
+            409,
+            "the account's email address is not verified: take it over with "
+            "`sandloom admin create --email <address> --take-over`",
+        )
+    await _assign_admin_role(user)
+    _operator_audit(
+        "identity.user.platform_admin_granted",
+        user.id,
+        reason=reason,
+        operator=operator,
+        key=key,
+    )
+
+
+def _require_set_password(user: User) -> None:
+    """No usable password until the link is used; one outstanding link."""
+    user.password_reset_required = True
+    user.password_reset_nonce = secrets.token_urlsafe(24)
+    user.updated_at = datetime.now(UTC)
+
+
+async def _is_platform_admin(db: AsyncSession, user_id: UUID) -> bool:
+    found = await db.scalar(
+        select(
+            exists().where(
+                UserRole.user_id == user_id,
+                UserRole.role_id == Role.id,
+                Role.code == ADMIN_ROLE_CODE,
+            )
+        )
+    )
+    return bool(found)
+
+
+def _normalized_email(email: str) -> str:
+    try:
+        return str(_EMAIL.validate_python(email.strip()))
+    except ValidationError as exc:
+        raise HTTPException(422, f"not an email address: {email!r}") from exc
+
+
+@sensitive_effect("admin")
+async def _create_admin(
+    email: str, full_name: str, *, reason: str, operator: str, key: str
+) -> UUID:
+    db = contract_session()
+    exists_already = await db.scalar(select(User.id).where(User.email == email))
+    if exists_already is not None:
+        raise HTTPException(409, f"an account with the address {email} already exists")
+    now = datetime.now(UTC)
+    user = User(
+        email=email,
+        full_name=full_name.strip() or email.split("@", 1)[0],
+        hashed_password=None,
+        is_active=True,
+        # The operator vouches for the address, so no mail server is needed.
+        is_verified=True,
+        email_verified_at=now,
+    )
+    _require_set_password(user)
+    try:
+        async with db.begin_nested():
+            db.add(user)
+            await db.flush()
+    except IntegrityError as exc:
+        # Another create for the same address committed first (unique email).
+        raise HTTPException(
+            409, f"an account with the address {email} already exists"
+        ) from exc
+    await _assign_admin_role(user)
+    _operator_audit(
+        "identity.user.platform_admin_created",
+        user.id,
+        reason=reason,
+        operator=operator,
+        key=key,
+    )
+    return user.id
+
+
+@sensitive_effect("admin")
+async def _take_over(user: User, *, reason: str, operator: str, key: str) -> None:
+    db = contract_session()
+    # Whoever registered the address first loses every way in: the password,
+    # a second factor, linked sign-in providers and every session. A
+    # deactivated account is reactivated: the administrator it becomes must
+    # be able to use the link (never an admin without a password and a link).
+    user.hashed_password = None
+    user.is_active = True
+    _require_set_password(user)
+    if not user.is_verified:
+        user.is_verified = True
+        user.email_verified_at = datetime.now(UTC)
+    for model in (TwoFASecret, TwoFABackupCode, ExternalIdentity):
+        await db.execute(delete(model).where(model.user_id == user.id))
+    await _assign_admin_role(user)
+    await _end_sessions(
+        [user.id],
+        action="identity.user.platform_admin_taken_over",
+        reason=reason,
+        operator=operator,
+        key=key,
     )
 
 
@@ -146,12 +285,139 @@ class SecurityOperationsContract:
         found: UUID | None = await db.scalar(select(User.id).where(User.email == email))
         return found
 
+    async def account_standing(self, email: str) -> AccountStanding | None:
+        """The account with this address as an operator sees it, or ``None``."""
+        db = contract_session()
+        user = await db.scalar(select(User).where(User.email == email.strip()))
+        if user is None:
+            return None
+        return AccountStanding(
+            user_id=user.id,
+            is_platform_admin=await _is_platform_admin(db, user.id),
+            email_verified=bool(user.is_verified),
+            is_active=bool(user.is_active),
+        )
+
+    async def platform_admin_exists(self) -> bool:
+        """Whether any active account holds the platform ``admin`` role."""
+        return await platform_admin_exists(contract_session())
+
+    async def password_problem(self, email: str, password: str) -> str | None:
+        """Why identity's password policy refuses ``password`` for this
+        address, or ``None`` (a read: nothing is stored or logged)."""
+        return password_policy_violation(password, email.strip())
+
+    async def set_password_token(self, user_id: UUID) -> str | None:
+        """A 15-minute, single-use set-password token for an active platform
+        administrator who has a set-password link pending; ``None`` otherwise.
+
+        A read, never stored: it signs the account's current reset nonce.
+        Identity's ``POST /auth/reset-password`` accepts it once.
+        """
+        db = contract_session()
+        user = await db.get(User, user_id)
+        if (
+            user is None
+            or not user.is_active
+            or not user.password_reset_required
+            or not user.password_reset_nonce
+            or not await _is_platform_admin(db, user.id)
+        ):
+            return None
+        return email_token_utils.generate_set_password_token(
+            user.id,
+            nonce=user.password_reset_nonce,
+            hashed_password=user.hashed_password,
+        )
+
+    @command(idempotency_key="operation_key")
+    async def create_platform_admin(
+        self,
+        email: str,
+        full_name: str,
+        reason: str,
+        operator: str,
+        operation_key: str,
+    ) -> UUID:
+        """Create a platform administrator with a verified address and no
+        usable password (a set-password link is pending); 409 when the address
+        already has an account. Takes no password and returns no token."""
+        _check_batch([], reason, operator)
+        address = _normalized_email(email)
+        return await _create_admin(
+            address, full_name, reason=reason, operator=operator, key=operation_key
+        )
+
+    @command(idempotency_key="operation_key")
+    async def take_over_platform_admin(
+        self, user_id: UUID, reason: str, operator: str, operation_key: str
+    ) -> bool:
+        """Make an existing account a platform administrator and take it from
+        whoever holds it: the password, second factor, linked providers and
+        sessions end, the address counts as verified and a set-password link
+        is pending; a deactivated account is reactivated. 409 for a blocked
+        account (nothing changes). Returns whether the user exists."""
+        _check_batch([user_id], reason, operator)
+        db = contract_session()
+        user = await db.get(User, user_id)
+        if user is None:
+            return False
+        if await is_user_blocked(user.id):
+            raise HTTPException(
+                409, "the account is blocked: unblock it first, then take it over"
+            )
+        await _take_over(user, reason=reason, operator=operator, key=operation_key)
+        return True
+
+    @command(idempotency_key="operation_key")
+    async def reissue_set_password(
+        self, user_id: UUID, reason: str, operator: str, operation_key: str
+    ) -> bool:
+        """A new set-password link for a platform administrator: the older
+        link and every session end. 409 for an account that is not an active,
+        unblocked administrator; returns whether the user exists."""
+        _check_batch([user_id], reason, operator)
+        db = contract_session()
+        user = await db.get(User, user_id)
+        if user is None:
+            return False
+        if not await _is_platform_admin(db, user.id):
+            raise HTTPException(409, "the account is not a platform administrator")
+        if not user.is_active or await is_user_blocked(user.id):
+            raise HTTPException(
+                409, "the account is deactivated or blocked: unblock it first"
+            )
+        _require_set_password(user)
+        await db.flush()
+        await _end_sessions(
+            [user.id],
+            action="identity.user.set_password_link_issued",
+            reason=reason,
+            operator=operator,
+            key=operation_key,
+        )
+        return True
+
+    @command(idempotency_key="operation_key")
+    @undigested("token", "new_password")
+    async def set_password_with_token(
+        self, token: str, new_password: str, operation_key: str
+    ) -> bool:
+        """Set a password through identity's reset path (the terminal prompt
+        of ``sandloom admin create``). 400 for a used or expired token, 422 for
+        a password the policy refuses. Neither secret is in the stored record:
+        it holds a digest over ``operation_key`` alone and ``True`` (use a
+        fresh key per attempt)."""
+        db = contract_session()
+        await AuthService.reset_password(token, new_password, db, actor=EventActor())
+        return True
+
     @command(idempotency_key="operation_key")
     async def appoint_platform_admin(
         self, user_id: UUID, reason: str, operator: str, operation_key: str
     ) -> bool:
-        """Make the user a platform administrator and mark their address verified;
-        returns whether the user exists."""
+        """Make the user a platform administrator; returns whether the user
+        exists. 409 for an unverified address (``take_over_platform_admin``)."""
         _check_batch([user_id], reason, operator)
         db = contract_session()
         user = await db.get(User, user_id)

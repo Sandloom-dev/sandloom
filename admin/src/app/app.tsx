@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { commandRecovery } from '@/hooks/command-recovery';
 import { CommandRecovery } from '@/components/patterns/command-recovery';
 import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { LoginPage } from '@/features/auth/login-page';
+import { SetPasswordPage } from '@/features/auth/set-password-page';
 import { ThemeProvider } from '@/hooks/use-theme';
 import type { AdminConfig } from './config';
 import { ConfigProvider } from './config-context';
@@ -36,7 +37,7 @@ function SessionScope({ signedIn }: { signedIn: boolean }) {
       queryClient.clear();
     };
   }, [queryClient]);
-  if (!signedIn) return <LoginPage />;
+  if (!signedIn) return <SignedOut />;
   return (
     <QueryClientProvider client={queryClient}>
       <AppShell>
@@ -45,6 +46,13 @@ function SessionScope({ signedIn }: { signedIn: boolean }) {
       </AppShell>
     </QueryClientProvider>
   );
+}
+
+/** The sign-in page, or the set-password page a `sandloom admin create --invite` link opens. */
+function SignedOut() {
+  const location = useLocation();
+  if (location.pathname === '/set-password') return <SetPasswordPage fragment={location.hash} />;
+  return <LoginPage />;
 }
 
 function SessionRoot() {

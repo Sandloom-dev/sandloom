@@ -29,6 +29,7 @@ from sandloom.core.module_api._spec import (
     ContractMethodSpec,
     _return_annotation_of,
     _signature_of,
+    digested_arguments,
 )
 
 
@@ -160,7 +161,7 @@ class _CommandDedupe:
         full_key = f"idem:contract:{label}:{tenant or '-'}{scope_tag}:{key_tag}"
         try:
             outcome, value = await idempotency_reservation.reserve_key(
-                full_key, _args_digest(arguments), ttl_seconds
+                full_key, _args_digest(digested_arguments(func, arguments)), ttl_seconds
             )
         except idempotency_fingerprint._CacheUnavailable as exc:
             raise ContractIdempotencyUnavailable(
@@ -276,7 +277,9 @@ class _DurableCommandClaim:
         bound = _tenant_context.current_tenant_id_optional()
         self.tenant = str(bound) if bound is not None else None
         self.label = _method_label(contract, func)
-        self.digest = _args_digest(arguments)
+        # never over a secret argument (``undigested``): no stored record
+        # depends on it
+        self.digest = _args_digest(digested_arguments(func, arguments))
         self.ttl = ttl_seconds
         self.dedupe_key = effects.key_digest(
             self.label,

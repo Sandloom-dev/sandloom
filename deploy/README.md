@@ -814,3 +814,19 @@ The default upstream is `http://app:2222`; for the split profile set
 by default. Configure TLS, the trusted forwarding chain and existing backend
 secrets for the deployment as usual. The UI does not expose internal endpoints
 or grant platform/tenant privileges.
+
+The first administrator is created by `sandloom admin create` in a process
+where identity is loaded: `app` in the monolith, `identity` in the split
+profile. In production it needs `--apply --confirm-production --reason`, and
+`--invite` needs `FRONTEND_URL` (the host that serves the set-password page):
+
+```bash
+docker compose -f deploy/compose/microservices.yml exec identity \
+  sandloom admin create --email you@example.com --invite \
+  --apply --confirm-production --reason "first administrator"
+```
+
+It prints a single-use link that works for 15 minutes. From a service without
+identity the command calls `identity.security.v1` over RPC, so that service
+needs the binding and the `RPC_ALLOWED_CALLS` grant (`uv run sandloom add deploy
+--refresh` derives both from a module that consumes the contract).

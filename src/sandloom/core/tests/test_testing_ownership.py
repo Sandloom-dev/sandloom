@@ -70,12 +70,33 @@ def _marker(url: str) -> str | None:
         conn.close()
 
 
-def test_owner_is_the_explicit_id_else_the_checkout_root(tmp_path: Path) -> None:
+def test_owner_is_the_explicit_id_else_the_machine_and_checkout_root(
+    tmp_path: Path,
+) -> None:
     assert ownership.current_owner({"SANDLOOM_TEST_OWNER": "agent-7"}) == "agent-7"
     checkout = tmp_path / "wt"
     (checkout / "src").mkdir(parents=True)
     (checkout / ".git").write_text("gitdir: elsewhere\n")  # a worktree
-    assert ownership.current_owner({}, cwd=checkout / "src") == str(checkout.resolve())
+    env = {"SANDLOOM_HOME": str(tmp_path / "home")}
+    owner = ownership.current_owner(env, cwd=checkout / "src")
+    machine = (tmp_path / "home" / "machine-id").read_text().strip()
+    assert owner == f"{machine}:{checkout.resolve()}"
+
+
+def test_a_legacy_bare_path_marker_is_still_ours(
+    scratch_db: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A marker written before owners carried the machine id (the bare
+    checkout path) belongs to the same checkout: claimed, not refused."""
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
+    legacy = str(tmp_path.resolve())
+    ownership.claim_database(scratch_db, owner=legacy)
+    ownership._claimed.clear()
+    ownership.claim_database(scratch_db, owner=f"abcdef123456:{legacy}")
+    assert _marker(scratch_db) == f"abcdef123456:{legacy}"
+    assert ownership.same_owner(legacy, f"abcdef123456:{legacy}")
+    assert not ownership.same_owner("/elsewhere", f"abcdef123456:{legacy}")
+    assert not ownership.same_owner("run-a", "x:run-a")
 
 
 def test_an_unmarked_database_is_claimed_then_refused_to_others(

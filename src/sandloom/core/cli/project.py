@@ -44,6 +44,7 @@ from pathlib import Path
 from string import Template
 
 import sandloom.core.cli.add as _add
+import sandloom.core.cli.dev.envfile as _envfile
 import sandloom.core.cli.image_secrets as _image_secrets
 import sandloom.core.cli.skills as _skills
 
@@ -84,15 +85,54 @@ QUICKSTART: tuple[tuple[str, str], ...] = (
         "uv run sandloom generate",
         "snapshots, stubs and DTOs from installed dependencies",
     ),
-    (
-        "docker compose -f deploy/docker-compose.dev.yml up -d --wait",
-        "Postgres + Redis",
-    ),
+    ("uv run sandloom dev up", "Postgres + Redis (Docker); writes .env"),
     ("uv run sandloom add module {module}", "a module: discovered, nothing to wire"),
     ("uv run sandloom test", "tests + every gate (never writes)"),
     ("uv run sandloom migrate upgrade-all --apply", "core + module chains"),
-    ("uv run uvicorn {app}.asgi:app --reload", "http://localhost:8000/health"),
+    ("uv run sandloom dev run", "http://127.0.0.1:8000/health"),
 )
+
+
+#: The README's first-administrator step, for an app generated ``--with admin``.
+_ADMIN_STEP = """Create the first console administrator. It asks for the password; with
+`--invite` it prints a one-time link instead (for agents and CI):
+
+```bash
+uv run sandloom admin create --email you@example.com
+```
+
+The console is at `http://127.0.0.1:8000/admin/`
+([guide](https://sandloom.dev/docs/admin-console/)).
+
+"""
+
+#: The ``.env`` line that prints email links (verification, password reset)
+#: to the console in local development; production refuses it.
+_LOG_LINKS = """# Local development only: print the links an email carries ([dev only]).
+# NOTIFIER_LOG_LINKS=true
+"""
+
+#: The next step ``sandloom new --with admin`` prints after the quickstart.
+ADMIN_NEXT_STEP = (
+    "uv run sandloom admin create --email you@example.com"
+    "   # the first console administrator (--invite: a one-time link)"
+)
+
+
+def _quickstart_section(lines: list[str], *, admin: bool) -> str:
+    """The README's quick start: one block, or the admin step before the
+    last line (serving the app) when the app has the console."""
+    if not admin:
+        return "```bash\n" + "\n".join(lines) + "\n```\n"
+    return (
+        "```bash\n"
+        + "\n".join(lines[:-1])
+        + "\n```\n\n"
+        + _ADMIN_STEP
+        + "```bash\n"
+        + lines[-1]
+        + "\n```\n"
+    )
 
 
 def quickstart_module(sample_module: str) -> str:
@@ -280,10 +320,7 @@ select a subset).
 
 From the project root:
 
-```bash
-$quickstart
-```
-
+$quickstart_section
 `uv sync` installs the app, the framework and the pinned dev tools (ruff,
 mypy, pytest, pytest-xdist); `pre-commit install` adds the commit hooks. The
 API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
@@ -293,26 +330,24 @@ If you selected `--with identity`, follow the
 [authentication and email guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)
 to receive verification mail locally and obtain access/refresh tokens.
 
-If you selected `--with admin`, the
-[admin console guide](https://sandloom.dev/docs/admin-console/) shows how to create
-the first administrator and open the console at `http://127.0.0.1:8000/admin/`.
+### The dev services
 
-### Ports of the dev services
+`uv run sandloom dev up` starts Postgres and Redis in Docker for this
+repository and gives this checkout its own database. It picks free ports
+once and keeps them. It writes the app's URLs into the marked block of
+`.env` and the test URLs into `.env.test.local` (not committed). It is safe
+to run again: a second run waits for the first and then finds everything up.
 
-`deploy/docker-compose.dev.yml` publishes the dev Postgres on 5432 and Redis
-on 6379 (used by `.env`), and the test Postgres on 5433 and Redis on 6380
-(used by `.env.test`). When a port is taken (for example by the framework's
-own test services), choose others and point the app at them:
+A git worktree of this repository uses the same containers with its own
+database: run `uv run sandloom dev up` in the worktree too. Each test run
+gets its own test database, so two `sandloom test` runs never clash.
 
 ```bash
-export SANDLOOM_DEV_POSTGRES_PORT=15432 SANDLOOM_DEV_REDIS_PORT=16379
-export SANDLOOM_DEV_TEST_POSTGRES_PORT=15433 SANDLOOM_DEV_TEST_REDIS_PORT=16380
-docker compose -f deploy/docker-compose.dev.yml up -d --wait
-# the API: edit DATABASE_URL / CACHE_URL / BROKER_URL in .env (or export them)
-# Tests: export SANDLOOM_TEST_DATABASE_URL, SANDLOOM_TEST_CACHE_URL,
-# SANDLOOM_TEST_BROKER_URL to use isolated services.
-export SANDLOOM_TEST_DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:15433/sandloom_test
-export SANDLOOM_TEST_CACHE_URL=redis://localhost:16380/15 SANDLOOM_TEST_BROKER_URL=redis://localhost:16380/14
+uv run sandloom dev status     # ports, URLs (paste them into a database GUI)
+uv run sandloom dev run --port auto   # another free port, when 8000 is taken
+uv run sandloom dev reset      # empty this checkout's database
+uv run sandloom dev down       # stop the containers (the data stays)
+uv run sandloom dev prune      # remove databases of deleted worktrees
 ```
 
 ## Architecture checks
@@ -400,6 +435,13 @@ Every module of `$app/modules` (plus the bundled ones: `$bundled_json`);
 )
 
 _GITIGNORE = """.sandloom/cache/
+# `sandloom dev`: state, locks and run files (.sandloom/agent-files.json stays)
+.sandloom/dev.json
+.sandloom/dev.env
+.sandloom/docker-compose.dev.yml
+.sandloom/*.lock
+.sandloom/run/
+.env.test.local
 __pycache__/
 *.py[cod]
 .venv/
@@ -429,13 +471,10 @@ SANDLOOM_COMPOSITION_ROOT=$app.asgi
 # ==== Environment ====
 ENVIRONMENT=dev
 
-# ==== Database (default instance) ====
-DATABASE_URL=postgresql+asyncpg://sandloom:sandloom@localhost:5432/$app
-
-# ==== Cache / Broker (Redis) ====
-CACHE_URL=redis://localhost:6379/1
-BROKER_URL=redis://localhost:6379/2
-
+# ==== Database, cache, broker ====
+# `uv run sandloom dev up` writes DATABASE_URL, CACHE_URL and BROKER_URL of this
+# checkout's dev services into the block below; everything else is yours.
+$dev_block
 # ==== Storage ====
 STORAGE_TYPE=local
 STORAGE_PATH=./data
@@ -453,7 +492,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=14
 # INTERNAL_API_TOKEN=
 # Local development only: open them without a token (ignored in prod).
 $open_internal
-"""
+$log_links"""
 )
 
 _ENV_TEST = Template(
@@ -462,11 +501,12 @@ ENVIRONMENT=test
 CONTRACT_DTO_PACKAGES=["$app.shared"]
 SANDLOOM_COMPOSITION_ROOT=$app.asgi
 
-# Point these at your test infrastructure. Defaults match the framework's
-# deploy/compose/test.yml (Postgres :5433, Redis :6380).
-DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5433/sandloom_test
-CACHE_URL=redis://localhost:6380/15
-BROKER_URL=redis://localhost:6380/14
+# CI's test services (.github/workflows/ci.yml: Postgres :5433, Redis :6380).
+# Locally, `uv run sandloom dev up` writes .env.test.local (not committed),
+# which points the tests at this repository's test services instead.
+DATABASE_URL=postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+CACHE_URL=redis://127.0.0.1:6380/15
+BROKER_URL=redis://127.0.0.1:6380/14
 
 STORAGE_TYPE=local
 STORAGE_PATH=./test_data
@@ -617,10 +657,11 @@ allowlist: []
 )
 
 _DEV_COMPOSE = Template(
-    """# Local-only development and disposable test services. Host ports are
-# configurable (defaults below): SANDLOOM_DEV_POSTGRES_PORT, SANDLOOM_DEV_REDIS_PORT,
-# SANDLOOM_DEV_TEST_POSTGRES_PORT, SANDLOOM_DEV_TEST_REDIS_PORT (see README.md).
-name: $compose_name
+    """# Local-only development and disposable test services, started by
+#   uv run sandloom dev up
+# which names the compose project per repository and fills the host ports
+# (chosen once, free on this machine). A plain `docker compose up` stops at
+# the first missing port.
 services:
   db:
     image: postgres:16-alpine
@@ -628,7 +669,7 @@ services:
       POSTGRES_USER: sandloom
       POSTGRES_PASSWORD: sandloom
       POSTGRES_DB: $app
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_POSTGRES_PORT:-5432}:5432"]
+    ports: ["127.0.0.1:$${SANDLOOM_DEV_POSTGRES_PORT:?$port_hint}:5432"]
     volumes: ["dev_postgres:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sandloom"]
@@ -637,7 +678,8 @@ services:
       retries: 20
   redis:
     image: redis:7-alpine
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_REDIS_PORT:-6379}:6379"]
+    command: ["redis-server", "--databases", "1024"]
+    ports: ["127.0.0.1:$${SANDLOOM_DEV_REDIS_PORT:?$port_hint}:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -649,7 +691,7 @@ services:
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_password
       POSTGRES_DB: sandloom_test
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_POSTGRES_PORT:-5433}:5432"]
+    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_POSTGRES_PORT:?$port_hint}:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test_user"]
       interval: 2s
@@ -657,8 +699,8 @@ services:
       retries: 20
   redis_test:
     image: redis:7-alpine
-    command: ["redis-server", "--databases", "256"]
-    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_REDIS_PORT:-6380}:6379"]
+    command: ["redis-server", "--databases", "1024"]
+    ports: ["127.0.0.1:$${SANDLOOM_DEV_TEST_REDIS_PORT:?$port_hint}:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -1127,8 +1169,11 @@ def generate_project(
         "dev_pins": "\n".join(
             f'    "{pin}",' for pin in (*DEV_TOOL_PINS, CHECK_EXTRA_REQ, f"{app}[fast]")
         ),
-        "compose_name": f"{app.replace('_', '-')}-dev",
-        "quickstart": "\n".join(quickstart(app, sample_module)[1:]),
+        "port_hint": "start the services with: uv run sandloom dev up",
+        "dev_block": _envfile.empty_block(),
+        "quickstart_section": _quickstart_section(
+            quickstart(app, sample_module)[1:], admin="admin" in bundled
+        ),
         "billing_env": (_IDENTITY_ENV if "identity" in bundled else "")
         + (_BILLING_ENV if "billing" in bundled else ""),
     }
@@ -1136,6 +1181,7 @@ def generate_project(
         **ctx,
         "jwt_secret": "change_me_in_production_use_openssl_rand_hex_32",
         "open_internal": "# INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
+        "log_links": _LOG_LINKS if "identity" in bundled else "",
     }
     # The local .env gets a REAL random secret (git-ignored) so the placeholder
     # is never what a developer actually runs with.
@@ -1143,6 +1189,9 @@ def generate_project(
         **ctx,
         "jwt_secret": secrets.token_hex(32),
         "open_internal": "INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
+        "log_links": _LOG_LINKS.replace("# NOTIFIER_LOG_LINKS", "NOTIFIER_LOG_LINKS")
+        if "identity" in bundled
+        else "",
     }
 
     files: dict[str, str] = {

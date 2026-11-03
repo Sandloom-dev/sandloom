@@ -4,6 +4,7 @@
 Generated from the provider's own classes in:
 
 - ``sandloom_identity.schemas.contact``
+- ``sandloom_identity.schemas.operator``
 
 A copy carries the fields, their types and constraints, defaults,
 aliases, Literal / Enum values, nested models and model_config options;
@@ -17,6 +18,18 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from sandloom.core.descriptors.contract_refs import dto_copy
+
+
+@dto_copy("sandloom_identity.schemas.operator:AccountStanding")
+class AccountStanding(BaseModel):
+    """An account as an operator command sees it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    user_id: UUID
+    is_platform_admin: bool
+    email_verified: bool
+    is_active: bool
 
 
 @dto_copy("sandloom_identity.schemas.contact:UserContact")

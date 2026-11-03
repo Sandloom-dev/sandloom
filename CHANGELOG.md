@@ -13,8 +13,41 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **`sandloom dev`: local services without collisions.** `uv run sandloom dev up`
+  starts Postgres and Redis once per repository, on free ports it keeps. Each
+  checkout or git worktree gets its own database and Redis indexes, written into a
+  marked `.env` block and `.env.test.local`. Several agents can run it at once:
+  commands wait for each other, and `reset` and `down` refuse while others use the
+  services. Also `dev status [--json]`, `run [--port N|auto]`, `reset`,
+  `down [--all] [--volumes]`, `prune` and `logs`.
+- **Separate test databases for parallel runs.** Two `sandloom test` runs in one
+  checkout get separate test databases and Redis indexes (test-run slots).
+- **One-line connection errors.** A command that cannot reach PostgreSQL or Redis
+  prints one line with the fix (SANDLOOM-R014); `--debug` shows the traceback.
+- **`sandloom admin create --email ADDRESS`** creates the first console
+  administrator. At a terminal it asks for the password twice; `--invite` prints a
+  one-time set-password link (15 minutes) for agents and CI; `--password-stdin`
+  reads one line from a pipe. No password is ever written to a file.
+  `sandloom admin invite` issues a new link.
+- The console has a set-password page. While no administrator exists, its sign-in
+  page and the app's startup log name the command.
+- **Two-step console sign-in.** The sign-in page asks for the email and password
+  first, and for the two-factor code on a second screen only when the account has
+  two-factor sign-in turned on.
+- `NOTIFIER_LOG_LINKS=true` (local development) prints the links an email carries.
+  Production refuses it unless the risk `log_links_in_prod` is accepted.
+
 ### Changed
 
+- The quick start of a new app is `uv sync`, `uv run sandloom dev up`,
+  `uv run sandloom migrate upgrade-all --apply`, `uv run sandloom dev run`. The dev
+  compose file has no fixed `name:` and needs its port variables.
+- Test-resource owners include a machine id; markers written before stay valid.
+- `sandloom security grant-admin` no longer marks an unverified address verified.
+  It refuses it; `sandloom admin create --take-over` makes the account an
+  administrator and ends its old password.
 - **Choosing coding agents is a checklist.** `sandloom new` and `sandloom add skills
   --choose` show the agents with the installed ones checked: arrows move, space
   checks, Enter confirms. Where single keys cannot be read, the typed answer stays.

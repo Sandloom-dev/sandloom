@@ -3,6 +3,17 @@
   "module": "sandloom_identity",
   "routes": [
     {
+      "auth": "public",
+      "method": "GET",
+      "path": "/api/v1/identity/setup-state",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "first-run hint: tells only whether an administrator exists",
+        "session": "none"
+      }
+    },
+    {
       "auth": "authenticated",
       "method": "GET",
       "path": "/api/v1/permissions",

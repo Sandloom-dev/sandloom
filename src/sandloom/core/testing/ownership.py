@@ -25,10 +25,16 @@ DIFFERENT owner is refused before anything is reset, with
 :class:`TestResourceOwnershipError` — unless ``SANDLOOM_TEST_TAKE_OWNERSHIP=1``,
 which re-stamps it for this run (an explicit, deliberate takeover).
 
-The owner is ``SANDLOOM_TEST_OWNER`` when set, else the checkout the run started
-in (the nearest directory holding ``.git`` above the working directory — one
-per git worktree), else the working directory. CI runners start from fresh
-containers, so their resources are always unmarked and simply claimed.
+The owner is ``SANDLOOM_TEST_OWNER`` when set, else ``<machine id>:<checkout>``:
+the machine id (:mod:`sandloom.core.testing.machine`) and the checkout the run
+started in (the nearest directory holding ``.git`` above the working directory
+— one per git worktree), else the working directory. Cloud sandboxes share
+paths like ``/workspace/repo``, hence the machine id. A marker written before
+the machine id existed (the bare checkout path) is still this checkout's own.
+A test run started by ``sandloom test`` or the pytest plugin on a checkout
+``sandloom dev up`` prepared holds a slot (:mod:`sandloom.core.testing.slots`)
+whose owner ends in ``#<slot>``. CI runners start from fresh containers, so
+their resources are always unmarked and simply claimed.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -46,6 +52,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import errors, sql
+
+from sandloom.core.testing.machine import checkout_root, machine_id
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"
@@ -71,16 +79,24 @@ class TestResourceOwnershipError(RuntimeError):
 def current_owner(
     environ: Mapping[str, str] | None = None, cwd: Path | None = None
 ) -> str:
-    """This run's owner id: ``SANDLOOM_TEST_OWNER``, else the checkout root."""
+    """This run's owner id: ``SANDLOOM_TEST_OWNER``, else
+    ``<machine id>:<checkout root>``."""
     env = os.environ if environ is None else environ
     explicit = (env.get(OWNER_ENV) or "").strip()
     if explicit:
         return explicit
-    start = (cwd or Path.cwd()).resolve()
-    for directory in (start, *start.parents):
-        if (directory / ".git").exists():  # a dir, or a worktree's .git file
-            return str(directory)
-    return str(start)
+    return f"{machine_id(env)}:{checkout_root(cwd)}"
+
+
+def same_owner(holder: str | None, owner: str) -> bool:
+    """``holder`` is ``owner``, or the legacy form of it: a marker written
+    before owners carried the machine id (the bare checkout path)."""
+    if holder is None:
+        return False
+    if holder == owner:
+        return True
+    _, sep, path = owner.partition(":")
+    return bool(sep) and holder == path and Path(holder).is_absolute()
 
 
 def takeover_requested(environ: Mapping[str, str] | None = None) -> bool:
@@ -167,7 +183,7 @@ def claim_database(
         conn.autocommit = True
         with conn.cursor() as cur:
             holder = database_owner(cur)
-            if holder is not None and holder != owner:
+            if holder is not None and not same_owner(holder, owner):
                 if not takeover_requested(environ):
                     raise TestResourceOwnershipError(
                         _refusal("database", repr(name), holder, owner, _DB_HINT)
@@ -216,7 +232,7 @@ def _decoded(value: Any) -> str | None:
 def _check_redis_holder(
     holder: str | None, url: str, owner: str, environ: Mapping[str, str] | None
 ) -> None:
-    if holder is None or holder == owner:
+    if holder is None or same_owner(holder, owner):
         return
     if not takeover_requested(environ):
         raise TestResourceOwnershipError(
@@ -310,5 +326,6 @@ __all__ = [
     "claim_test_resources",
     "current_owner",
     "flush_owned_redis",
+    "same_owner",
     "takeover_requested",
 ]

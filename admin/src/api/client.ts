@@ -3,10 +3,24 @@ export class HttpError extends Error {
     message: string,
     public status: number,
     public body?: unknown,
+    public headers?: Headers,
   ) {
     super(message);
     this.name = 'HttpError';
   }
+}
+
+/**
+ * Identity's answer to a correct password on an account with two-factor
+ * authentication when no code was sent: `401` with `X-2FA-Required: true`.
+ * It comes only after the password verified and is not a failed login.
+ */
+export function needsSecondFactor(error: unknown): boolean {
+  return (
+    error instanceof HttpError &&
+    error.status === 401 &&
+    error.headers?.get('X-2FA-Required') === 'true'
+  );
 }
 import type { components } from './generated';
 
@@ -64,7 +78,7 @@ async function readResponse(response: Response): Promise<unknown> {
   if (!response.ok) {
     const detail = body && typeof body === 'object' && 'detail' in body ? body.detail : null;
     const message = typeof detail === 'string' ? detail : `Request failed (${response.status})`;
-    throw new HttpError(message, response.status, body);
+    throw new HttpError(message, response.status, body, response.headers);
   }
   return body;
 }

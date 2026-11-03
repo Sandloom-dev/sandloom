@@ -86,7 +86,7 @@ class TutorialRunner(Runner):
                             f"--no-batteries --module tasks --framework-source path "
                             f"--framework-path {shlex.quote(str(self.repo))}"
                         )
-                    if "uvicorn" in line:
+                    if "uvicorn" in line or line.startswith("uv run sandloom dev run"):
                         self.module = "tasks"
                     self.do_line(line)
             self.step(

@@ -11,8 +11,9 @@
         ``data``), e.g. for the incident record or as the off-site copy
         ``sandloom backup reconcile-security --audit-export`` reads
     sandloom security grant-admin --email ADDRESS
-        make a registered user a platform administrator and mark their address
-        verified: how an application gets its first console operator
+        make a registered user with a verified address a platform
+        administrator (an unverified one: ``sandloom admin create --take-over``;
+        a new one: ``sandloom admin create``)
 
 Every command is DRY-RUN by default (targets / rows counted, nothing changed);
 ``--apply`` acts and needs ``--reason``; in production also
@@ -364,10 +365,20 @@ def _cmd_export(args: argparse.Namespace) -> int:
 async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
     """What happened, in one line; a missing user is the operator's next step."""
     service = _service(core, SECURITY_CONTRACT)
-    user_id = await service.find_user_id(email)
-    if user_id is None:
+    standing = await service.account_standing(email)
+    if standing is None:
         raise SystemExit(
-            f"error: no user {email!r}: register them first (POST /auth/register)"
+            f"error: no user {email!r}: create the administrator with "
+            f"uv run sandloom admin create --email {email}"
+        )
+    user_id = standing.user_id
+    if not standing.email_verified:
+        # Whoever registered the address first may not be its owner: their
+        # password must not become an administrator's.
+        raise SystemExit(
+            f"error: {email} has not verified its address, so its password may "
+            "belong to someone else: uv run sandloom admin create --email "
+            f"{email} --take-over (makes it an administrator and ends that password)"
         )
     if not intent.apply:
         return (
@@ -418,7 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     add_operator_arguments(exp)
 
     grant = sub.add_parser(
-        "grant-admin", help="make a registered user a platform administrator"
+        "grant-admin",
+        help="make a registered user with a verified address a platform administrator",
     )
     grant.add_argument("--email", required=True, help="the user's address")
     add_operator_arguments(grant)

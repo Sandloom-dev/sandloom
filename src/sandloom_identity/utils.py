@@ -248,6 +248,10 @@ def secret_fingerprint(value: str | None, purpose: str) -> str:
     return hmac.new(key, msg, hashlib.sha256).hexdigest()[:32]
 
 
+#: Lifetime of a set-password link (``sandloom admin create --invite``).
+SET_PASSWORD_TOKEN_SECONDS = 15 * 60
+
+
 @dataclass(frozen=True)
 class PasswordResetClaims:
     """Decoded password-reset token claims."""
@@ -279,6 +283,7 @@ class EmailTokenUtils:
         """Initialize email token utils."""
         self._token_utils = TokenUtils(salt="email-verification")
         self._password_utils = TokenUtils(salt="password-reset")
+        self._set_password_utils = TokenUtils(salt="set-password")
 
     def generate_email_verification_token(
         self, user_id: UUID, email: str | None = None
@@ -332,6 +337,49 @@ class EmailTokenUtils:
             )
         except Exception as e:
             raise ValueError("Invalid password reset token") from e
+
+    def generate_set_password_token(
+        self, user_id: UUID, *, nonce: str, hashed_password: str | None
+    ) -> str:
+        """A set-password token: the operator's link for a new administrator.
+
+        Its own salt, so a token of one purpose never reads as the other, and
+        a shorter life (:data:`SET_PASSWORD_TOKEN_SECONDS`): the link may pass
+        through a chat. Bound to the reset nonce and the password hash like a
+        reset token, so it works once and dies with a newer link.
+        """
+        data: dict[str, Any] = {
+            "user_id": str(user_id),
+            "type": "set_password",
+            "n": nonce,
+            "pf": secret_fingerprint(hashed_password, "password"),
+        }
+        return self._set_password_utils.generate_token(
+            data, expires_in=SET_PASSWORD_TOKEN_SECONDS
+        )
+
+    def read_set_password_token(self, token: str) -> PasswordResetClaims:
+        """Validate a set-password token and return its claims."""
+        try:
+            data = self._set_password_utils.validate_token(
+                token, max_age=SET_PASSWORD_TOKEN_SECONDS
+            )
+            if data.get("type") != "set_password":
+                raise ValueError("Invalid token type")
+            return PasswordResetClaims(
+                user_id=UUID(data["user_id"]),
+                nonce=data.get("n"),
+                password_fingerprint=data.get("pf"),
+            )
+        except Exception as e:
+            raise ValueError("Invalid set-password token") from e
+
+    def read_any_password_token(self, token: str) -> PasswordResetClaims:
+        """The claims of a reset token or a set-password token."""
+        try:
+            return self.read_password_reset_token(token)
+        except ValueError:
+            return self.read_set_password_token(token)
 
     def validate_password_reset_token(self, token: str) -> UUID:
         """Validate password reset token and return user ID."""

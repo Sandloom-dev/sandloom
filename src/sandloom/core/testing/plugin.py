@@ -24,6 +24,7 @@ conftest or test module can import the framework. This module (and the
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Generator
 from pathlib import Path
 
@@ -53,6 +54,13 @@ from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixt
     test_db,
     test_engine,
     user_headers,
+)
+from sandloom.core.testing.slots import (
+    SLOT_LOST_MESSAGE,
+    SlotsExhausted,
+    acquire_test_slot,
+    held_slot,
+    slot_lost,
 )
 
 
@@ -95,10 +103,27 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> Generator[None, int,
 def pytest_load_initial_conftests(
     early_config: pytest.Config, parser: pytest.Parser, args: list[str]
 ) -> None:
-    """Load ``.env.test`` before any conftest imports the framework."""
+    """Take this run's test-run slot, then load ``.env.test`` — both before
+    any conftest imports the framework."""
     starts = [Path(str(early_config.rootpath))]
     for arg in args:
         candidate = Path(str(arg).split("::", 1)[0])
         if not str(arg).startswith("-") and candidate.exists():
             starts.append(candidate)
+    # Plain pytest: the controller takes the slot (xdist workers and the
+    # steps of `sandloom test` find it held). Kept until the process exits.
+    try:
+        acquire_test_slot(starts)
+    except SlotsExhausted as exc:
+        raise pytest.UsageError(str(exc)) from None
     load_test_env(starts, warn_if_late=True)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """A run that lost its test-run slot fails: another run may have shared
+    its database meanwhile."""
+    if held_slot() is not None and slot_lost():
+        print(f"\n{SLOT_LOST_MESSAGE}", file=sys.stderr)
+        if exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED

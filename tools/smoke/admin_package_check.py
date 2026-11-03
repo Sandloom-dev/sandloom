@@ -1,8 +1,8 @@
 """Prove the sandloom-admin package end to end, the way a new developer meets it.
 
 Builds every wheel from this checkout, generates an application for each scenario,
-runs the quickstart, creates the first administrator with ``sandloom security
-grant-admin``, serves the console from the app and signs in with a real browser.
+runs the quickstart, creates the first administrator with ``sandloom admin
+create``, serves the console from the app and signs in with a real browser.
 No Node on the application's side: only this check's browser uses admin/node_modules.
 
     uv run python tools/smoke/admin_package_check.py \\
@@ -294,14 +294,22 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
             missing.returncode != 0 and "register" in missing.stderr,
             "an unknown address names the next step",
         )
-        output = run([*grant, "--email", admin], app_dir, env)
-        expect("dry-run" in output, "grant-admin is a dry run by default")
-        status, _, _ = fetch(
-            origin, "/auth/login", data={"email": admin, "password": PASSWORD}
+        unverified = subprocess.run(  # noqa: S603 - fixed command
+            [*grant, "--email", admin, "--apply", "--reason", "first admin"],
+            cwd=app_dir, env=env, capture_output=True, text=True, check=False,
         )
-        expect(status == 403, "a dry run changed nothing")
-        run([*grant, "--email", admin, "--apply", "--reason", "first admin"], app_dir, env)
-        run([*grant, "--email", admin, "--apply", "--reason", "run twice"], app_dir, env)
+        expect(
+            unverified.returncode != 0 and "--take-over" in unverified.stderr,
+            "grant-admin refuses an unverified address and names --take-over",
+        )
+        create = ["uv", "run", "sandloom", "admin", "create", "--email", admin]
+        done = subprocess.run(  # noqa: S603 - fixed command
+            [*create, "--take-over", "--password-stdin"],
+            cwd=app_dir, env=env, input=PASSWORD + "\n",
+            capture_output=True, text=True, check=False,
+        )
+        expect(done.returncode == 0, "admin create --take-over sets the password")
+        run([*create, "--if-missing"], app_dir, env)
         status, _, body = fetch(
             origin, "/auth/login", data={"email": admin, "password": PASSWORD}
         )
@@ -314,8 +322,8 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         with urlopen(request, timeout=10) as response:  # noqa: S310 - loopback
             audit = json.loads(response.read())
         expect(
-            any(r["action"] == "identity.user.platform_admin_granted" for r in audit),
-            "the grant is in the audit log",
+            any(r["action"] == "identity.user.platform_admin_taken_over" for r in audit),
+            "the take-over is in the audit log",
         )
 
         browser_env = {

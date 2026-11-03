@@ -674,7 +674,7 @@ class AuthService:
         db: AsyncSession,
         actor: EventActor | None = None,
     ) -> User:
-        """Reset password with a single-use token.
+        """Reset password with a single-use token (a reset or set-password one).
 
         The token must carry the user's current reset nonce (cleared here, so a
         link works once; rotated by every new request, so older links die) and
@@ -687,7 +687,7 @@ class AuthService:
             detail="Invalid or expired reset token",
         )
         try:
-            claims = email_token_utils.read_password_reset_token(token)
+            claims = email_token_utils.read_any_password_token(token)
         except ValueError as e:
             raise invalid from e
 
@@ -733,6 +733,17 @@ class AuthService:
 
         await TokenService.revoke_all_user_tokens(user.id, db)
         await revoke_sessions(user.id, reason="password_reset")
+        # The new password is known to be the owner's: the sign-in that
+        # follows must not meet a lock left by earlier failures.
+        email = user.email
+        client_ip = actor.ip if actor is not None else None
+
+        async def _unlock() -> None:
+            await lockout.clear_lock(
+                lockout.subject_for_email(email), client_ip=client_ip
+            )
+
+        await on_commit(_unlock)
 
         record_audit(
             "identity.password.reset",

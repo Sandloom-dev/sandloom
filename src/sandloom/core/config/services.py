@@ -65,6 +65,16 @@ class ServicesConfig(BaseModel):
             "message contents; smtp sends email using SMTP settings."
         ),
     )
+    notifier_log_links: bool = Field(
+        default=False,
+        alias="NOTIFIER_LOG_LINKS",
+        description=(
+            "The log notifier also logs the links an email carries (verification, "
+            "password reset), marked [dev only], so a dev app without SMTP can "
+            "follow them. Refused with ENVIRONMENT=prod unless "
+            "SANDLOOM_ACCEPTED_RISKS lists log_links_in_prod."
+        ),
+    )
     # In prod the log driver advertises no delivery features (a module that
     # requires e.g. features={"email"} fails at startup instead of logging
     # mail nobody receives); SANDLOOM_ACCEPTED_RISKS "log_notifier_in_prod" restores

@@ -10,16 +10,28 @@ from typing import Protocol
 from uuid import UUID
 
 from sandloom.core.descriptors.contract_refs import ContractRef
+from sandloom.shared.contracts.identity_dto import AccountStanding
 
 
 class IdentitySecurityV1(Protocol):
     """Operator commands: sessions, password resets, the first platform admin."""
 
+    async def account_standing(self, email: str) -> AccountStanding | None:
+        """The account with this address as an operator sees it, or ``None``."""
+
     async def appoint_platform_admin(
         self, user_id: UUID, reason: str, operator: str, operation_key: str
     ) -> bool:
-        """Make the user a platform administrator and mark their address verified;
-        returns whether the user exists.
+        """Make the user a platform administrator; returns whether the user
+        exists. 409 for an unverified address (``take_over_platform_admin``).
+        """
+
+    async def create_platform_admin(
+        self, email: str, full_name: str, reason: str, operator: str, operation_key: str
+    ) -> UUID:
+        """Create a platform administrator with a verified address and no
+        usable password (a set-password link is pending); 409 when the address
+        already has an account. Takes no password and returns no token.
         """
 
     async def find_user_id(self, email: str) -> UUID | None:
@@ -27,6 +39,22 @@ class IdentitySecurityV1(Protocol):
 
     async def list_user_ids(self, after: UUID | None, limit: int) -> list[UUID]:
         """User ids in id order, strictly after ``after`` (keyset paging)."""
+
+    async def password_problem(self, email: str, password: str) -> str | None:
+        """Why identity's password policy refuses ``password`` for this
+        address, or ``None`` (a read: nothing is stored or logged).
+        """
+
+    async def platform_admin_exists(self) -> bool:
+        """Whether any active account holds the platform ``admin`` role."""
+
+    async def reissue_set_password(
+        self, user_id: UUID, reason: str, operator: str, operation_key: str
+    ) -> bool:
+        """A new set-password link for a platform administrator: the older
+        link and every session end. 409 for an account that is not an active,
+        unblocked administrator; returns whether the user exists.
+        """
 
     async def require_password_reset(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
@@ -37,6 +65,34 @@ class IdentitySecurityV1(Protocol):
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
     ) -> int:
         """End every session of the users; returns how many exist."""
+
+    async def set_password_token(self, user_id: UUID) -> str | None:
+        """A 15-minute, single-use set-password token for an active platform
+        administrator who has a set-password link pending; ``None`` otherwise.
+
+        A read, never stored: it signs the account's current reset nonce.
+        Identity's ``POST /auth/reset-password`` accepts it once.
+        """
+
+    async def set_password_with_token(
+        self, token: str, new_password: str, operation_key: str
+    ) -> bool:
+        """Set a password through identity's reset path (the terminal prompt
+        of ``sandloom admin create``). 400 for a used or expired token, 422 for
+        a password the policy refuses. Neither secret is in the stored record:
+        it holds a digest over ``operation_key`` alone and ``True`` (use a
+        fresh key per attempt).
+        """
+
+    async def take_over_platform_admin(
+        self, user_id: UUID, reason: str, operator: str, operation_key: str
+    ) -> bool:
+        """Make an existing account a platform administrator and take it from
+        whoever holds it: the password, second factor, linked providers and
+        sessions end, the address counts as verified and a set-password link
+        is pending; a deactivated account is reactivated. 409 for a blocked
+        account (nothing changes). Returns whether the user exists.
+        """
 
 
 IDENTITY_SECURITY_V1: ContractRef[IdentitySecurityV1] = ContractRef(

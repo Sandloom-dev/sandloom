@@ -1,6 +1,6 @@
 """The quickstart: one source (``project.QUICKSTART``), the docs and the
 generated README match it, ``sandloom test`` runs without pytest-xdist, the dev
-services' ports are configurable, ``--framework-path`` takes the repository
+services' ports come from ``sandloom dev up``, ``--framework-path`` takes the repository
 root, and ``sandloom new`` writes the generated files.
 
 The quickstart itself runs end to end in the CI job ``quickstart``
@@ -55,7 +55,16 @@ def test_the_quickstart_covers_the_inner_loop() -> None:
     assert commands[:2] == ["cd {path}", "uv sync"]
     assert "uv run sandloom add module {module}" in commands
     assert "uv run sandloom test" in commands
-    assert commands[-1].startswith("uv run uvicorn {app}.asgi:app")
+    # The golden path: sync, the dev services, migrate, then serve.
+    golden = [
+        "uv sync",
+        "uv run sandloom dev up",
+        "uv run sandloom migrate upgrade-all --apply",
+        "uv run sandloom dev run",
+    ]
+    assert [c for c in commands if c in golden] == golden
+    assert commands[-1] == "uv run sandloom dev run"
+    assert not any("docker compose" in c or "uvicorn" in c for c in commands)
     assert not any("pytest" in command for command in commands)
     assert commands[2] == "uv run sandloom generate"
     assert quickstart("shop", "notes")[4].startswith("uv run sandloom add module tasks")
@@ -75,23 +84,46 @@ def test_the_readme_repeats_the_quickstart(tmp_path: Path) -> None:
     readme = (tmp_path / "probe" / "README.md").read_text(encoding="utf-8")
     for line in quickstart("probe")[1:]:
         assert line in readme
-    assert "SANDLOOM_DEV_POSTGRES_PORT" in readme
+    assert "SANDLOOM_DEV_POSTGRES_PORT" not in readme
+    assert "uv run sandloom dev status" in readme
+    assert "sandloom admin create" not in readme  # no console in this app
+
+
+def test_an_admin_app_readme_creates_the_first_administrator(tmp_path: Path) -> None:
+    """With the console, the first-admin step lands between migrate and serve."""
+    generate_project(
+        "probe", tmp_path, framework_source="pypi", with_batteries=["admin"]
+    )
+    readme = (tmp_path / "probe" / "README.md").read_text(encoding="utf-8")
+    for line in quickstart("probe")[1:]:
+        assert line in readme
+    migrate = readme.index("uv run sandloom migrate upgrade-all --apply")
+    create = readme.index("uv run sandloom admin create --email")
+    assert migrate < create < readme.index("uv run sandloom dev run")
+    env = (tmp_path / "probe" / ".env").read_text(encoding="utf-8")
+    assert "\nNOTIFIER_LOG_LINKS=true\n" in env
+    example = (tmp_path / "probe" / ".env.example").read_text(encoding="utf-8")
+    assert "\n# NOTIFIER_LOG_LINKS=true\n" in example
 
 
 def test_dev_service_ports_are_configurable(tmp_path: Path) -> None:
+    """The host ports are variables `sandloom dev up` fills per repository."""
     generate_project("probe_app", tmp_path, framework_source="pypi")
     compose = (tmp_path / "probe_app" / "deploy" / "docker-compose.dev.yml").read_text(
         encoding="utf-8"
     )
-    for var, default in (
-        ("SANDLOOM_DEV_POSTGRES_PORT", 5432),
-        ("SANDLOOM_DEV_REDIS_PORT", 6379),
-        ("SANDLOOM_DEV_TEST_POSTGRES_PORT", 5433),
-        ("SANDLOOM_DEV_TEST_REDIS_PORT", 6380),
+    for var in (
+        "SANDLOOM_DEV_POSTGRES_PORT",
+        "SANDLOOM_DEV_REDIS_PORT",
+        "SANDLOOM_DEV_TEST_POSTGRES_PORT",
+        "SANDLOOM_DEV_TEST_REDIS_PORT",
     ):
-        assert f"${{{var}:-{default}}}" in compose
-    # Its own compose project: two apps' dev stacks never share containers.
-    assert "\nname: probe-app-dev\n" in compose
+        # Required: a raw `docker compose up` fails with a pointer.
+        assert f"127.0.0.1:${{{var}:?" in compose
+        assert f"${{{var}:-" not in compose
+    # No fixed project name: `sandloom dev up` names it per repository.
+    assert "\nname:" not in compose
+    assert compose.count('"--databases", "1024"') == 2
 
 
 def test_the_app_depends_on_pytest_xdist() -> None:
