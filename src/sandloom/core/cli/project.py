@@ -557,11 +557,34 @@ from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
 
 BUNDLED: list[str] = $bundled_json
 
-app = create_app(
-    title="$app", default_modules=[*BUNDLED, *app_modules("$app.modules")]
+$create_app'''
 )
-'''
-)
+
+
+def _create_app_call(app: str, width: int = 88) -> str:
+    """``app = create_app(...)`` as ``ruff format`` lays it out for this name
+    (the app's own format gate checks it): one line when it fits, else
+    wrapped, then one argument per line, then the list exploded too."""
+    title = f'title="{app}"'
+    modules = f'default_modules=[*BUNDLED, *app_modules("{app}.modules")]'
+    forms = [
+        f"app = create_app({title}, {modules})\n",
+        f"app = create_app(\n    {title}, {modules}\n)\n",
+        f"app = create_app(\n    {title},\n    {modules},\n)\n",
+    ]
+    exploded = (
+        f"app = create_app(\n    {title},\n    default_modules=[\n        *BUNDLED,\n"
+        f'        *app_modules("{app}.modules"),\n    ],\n)\n'
+    )
+    forms.append(exploded)
+    for form in forms:
+        if all(len(line) <= width for line in form.splitlines()):
+            return form
+    return exploded.replace(
+        f'        *app_modules("{app}.modules"),\n',
+        f'        *app_modules(\n            "{app}.modules"\n        ),\n',
+    )
+
 
 _MODULES_INIT = Template(
     '''"""Business modules for the $app application.
@@ -1239,6 +1262,7 @@ def generate_project(
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,
+        "create_app": _create_app_call(app),
         "framework_deps": "\n".join(f'    "{dep}",' for dep in framework_deps),
         "framework_distribution": ", ".join(
             f"`{name}`" for name in _sourced_names(bundled)

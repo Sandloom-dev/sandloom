@@ -4,7 +4,10 @@
 was made for, the compose project name, the four host ports, and one row per
 checkout using the servers (its database, its two dev Redis indexes, its last
 ``up``), the app port of each checkout (``dev run``'s default) and when
-``down`` last stopped the services. ``~/.sandloom/ports.json`` (written under
+``down`` last stopped the services, and where the services come from:
+``docker`` (the compose project, the default) or ``external`` (PostgreSQL
+and Redis the person already runs, by URL; no Docker call at all).
+``~/.sandloom/ports.json`` (written under
 the machine lock): every
 port any repository on this machine reserved, with that repository's path.
 Both are written atomically (a temp file, then ``os.replace``).
@@ -23,6 +26,8 @@ from typing import Any
 STATE_FILE = "dev.json"
 REGISTRY_FILE = "ports.json"
 STATE_VERSION = 1
+#: Where the dev services come from (``State.services``).
+DOCKER, EXTERNAL = "docker", "external"
 
 
 def atomic_write(path: Path, text: str, *, mode: int | None = None) -> None:
@@ -79,6 +84,15 @@ class State:
     app_ports: dict[str, int] = field(default_factory=dict)
     #: When ``dev down`` last stopped the services (epoch seconds).
     stopped_at: float = 0.0
+    #: :data:`DOCKER` or :data:`EXTERNAL` (``sandloom dev up --services``).
+    services: str = DOCKER
+    #: External mode: ``{"database_url": …, "redis_url": …}``, the servers'
+    #: URLs (the database in ``database_url`` is only where to connect).
+    external: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def is_external(self) -> bool:
+        return self.services == EXTERNAL
 
     def to_json(self) -> str:
         data = asdict(self)
@@ -102,6 +116,8 @@ class State:
                 str(k): int(v) for k, v in (data.get("app_ports") or {}).items()
             },
             stopped_at=float(data.get("stopped_at") or 0.0),
+            services=EXTERNAL if data.get("services") == EXTERNAL else DOCKER,
+            external={str(k): str(v) for k, v in (data.get("external") or {}).items()},
         )
 
     def used_indexes(self, *, besides: str | None = None) -> set[int]:
@@ -149,6 +165,8 @@ def save_registry(home: Path, registry: dict[int, str]) -> None:
 
 
 __all__ = [
+    "DOCKER",
+    "EXTERNAL",
     "REGISTRY_FILE",
     "STATE_FILE",
     "CheckoutRow",

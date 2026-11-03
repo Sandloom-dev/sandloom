@@ -95,8 +95,17 @@ def _snippet_problems(write: bool) -> list[str]:
         for generator, (module, commands) in SNIPPET_APPS.items():
             if module not in bases:
                 base = scratch / f"base-{module}"
+                # No repository: the snippets are copies of the tree, not a
+                # project anyone commits to.
                 _sandloom(
-                    "new", APP, "--dir", str(base), "--no-batteries", "--module", module
+                    "new",
+                    APP,
+                    "--dir",
+                    str(base),
+                    "--no-batteries",
+                    "--module",
+                    module,
+                    "--no-git",
                 )
                 bases[module] = base / APP
             root = scratch / generator / APP

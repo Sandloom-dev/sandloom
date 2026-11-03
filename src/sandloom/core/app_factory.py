@@ -296,6 +296,7 @@ def create_app(
 
     _platform.install(application, core_facade)
     _install_start_page(application)
+    _install_favicon(application)
     _validate_and_index_routes(application)
     return application
 
@@ -860,6 +861,7 @@ _START_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <style>
 body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto;
   padding: 0 1rem; color: #1f1d1a; background: #faf8f5; }}
@@ -878,6 +880,47 @@ code {{ font-size: 0.9em; }}
 </ul>
 </body></html>
 """
+
+
+#: The caracal of ``docs/assets/sandloom-mark.svg`` in the brand colours
+#: (``website/assets/brand.css``: #8b6841, #d8b892 on a dark scheme).
+_FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">'
+    "<style>path{fill:#8b6841}"
+    "@media (prefers-color-scheme:dark){path{fill:#d8b892}}</style>"
+    '<path fill-rule="evenodd" d="M17 3 22.5 7.5 27 28Q40 22 53 28L57.5 7.5 63 3 64 '
+    "29 70 42.5 64 59 52 69 40 74 28 69 16 59 10 42.5 16 29ZM19.5 17 23.5 31.5 "
+    "18 34ZM60.5 17 56.5 31.5 62 34ZM20.5 41.8C25.8 40.3 31.3 41.4 34 45.6C32.4 "
+    "48.4 29.5 49 26.6 47.7C23.4 46.3 21.4 44.4 20.5 41.8ZM59.5 41.8C54.2 40.3 "
+    "48.7 41.4 46 45.6C47.6 48.4 50.5 49 53.4 47.7C56.6 46.3 58.6 44.4 59.5 "
+    "41.8ZM34.5 54.5Q40 52.5 45.5 54.5L42 58.5 41 59V61.5L45.5 63.2 44.9 64.6 40 "
+    '62.8 35.1 64.6 34.5 63.2 39 61.5V59L38 58.5Z"/></svg>'
+)
+
+
+def _install_favicon(application: FastAPI) -> None:
+    """``GET /favicon.ico`` outside production, unless the app serves it:
+    the caracal, so a browser on the start page, the docs or the console
+    stops logging a 404. Production leaves it to the app."""
+    if settings.is_prod:
+        return
+    for route in application.routes:
+        if getattr(route, "path", None) == "/favicon.ico":
+            return
+
+    @application.get(
+        "/favicon.ico",
+        include_in_schema=False,
+        dependencies=[
+            _route_policy.public(reason="development favicon (never in production)")
+        ],
+    )
+    async def favicon() -> Response:
+        return Response(
+            _FAVICON_SVG,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
 
 def _install_start_page(application: FastAPI) -> None:

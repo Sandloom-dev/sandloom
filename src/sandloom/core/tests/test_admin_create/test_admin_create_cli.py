@@ -560,3 +560,51 @@ def test_admin_list_outside_production_shows_plain_addresses_unaudited(
     assert code == 0
     assert "owner@example.com" in out
     assert security.names() == ["list"]
+
+
+def test_quiet_prints_no_success_line(run: Any) -> None:
+    """The `sandloom new` wizard runs it with --quiet: its summary says it."""
+    code, out, err = run(
+        _Security(),
+        "create",
+        "--email",
+        "owner@example.com",
+        "--password-stdin",
+        "--quiet",
+        stdin=GOOD + "\n",
+    )
+    assert code == 0, err
+    assert out == ""
+
+
+def test_the_prompt_names_whose_password_it_is(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompts: list[str] = []
+
+    def ask(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return GOOD
+
+    monkeypatch.setattr(admin.getpass, "getpass", ask)
+    code, _, err = run(_Security(), "create", "--email", "owner@example.com", tty=True)
+    assert code == 0, err
+    assert prompts[0].startswith(
+        "Password for owner@example.com (console administrator of "
+    )
+    assert "at least" in prompts[0]
+    assert prompts[1] == "Repeat the password: "
+
+
+def test_if_missing_needs_no_mode_for_an_existing_administrator(run: Any) -> None:
+    """A script re-running `admin create --if-missing` without a terminal:
+    an existing administrator exits 0 without asking how to set a password."""
+    security = _Security(owner_at_example_com=_account(admin_role=True))
+    code, out, _ = run(
+        security, "create", "--email", "owner@example.com", "--if-missing"
+    )
+    assert code == 0 and "already an administrator" in out
+    code, _, err = run(
+        _Security(), "create", "--email", "new@example.com", "--if-missing"
+    )
+    assert code == 2 and "--invite" in err

@@ -1,5 +1,8 @@
 """Talking to the dev services from the host: reachability, databases,
-Redis indexes, who else is connected."""
+Redis indexes, who else is connected. The servers are the compose project's
+(Docker) or the person's own (``--services external``: Homebrew,
+Postgres.app), given as URLs (:meth:`Postgres.from_url`,
+:meth:`RedisServer.from_url`)."""
 
 from __future__ import annotations
 
@@ -8,6 +11,7 @@ import socket
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote, unquote, urlsplit
 
 import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import errors, sql
@@ -20,6 +24,7 @@ except ImportError:  # pragma: no cover - lean install
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")
 TEST_CREDENTIALS = ("test_user", "test_password")
+DEFAULT_PG_PORT, DEFAULT_REDIS_PORT = 5432, 6379
 
 
 def service_errors() -> tuple[type[BaseException], ...]:
@@ -38,9 +43,34 @@ class Postgres:
     password: str
 
     def url(self, database: str, *, driver: str = "postgresql+asyncpg") -> str:
-        return (
-            f"{driver}://{self.user}:{self.password}@{self.host}:{self.port}/{database}"
+        auth = quote(self.user, safe="")
+        if self.password:
+            auth += ":" + quote(self.password, safe="")
+        return f"{driver}://{auth}@{self.host}:{self.port}/{database}"
+
+    @classmethod
+    def from_url(cls, url: str) -> Postgres:
+        """The server of ``url`` (any ``postgresql[+driver]://`` URL; its
+        database is ignored). ``ValueError`` for anything else."""
+        parts = urlsplit(url.strip())
+        if (
+            not parts.scheme.startswith(("postgresql", "postgres"))
+            or not parts.hostname
+        ):
+            raise ValueError(
+                f"not a PostgreSQL URL: {redact(url)} (for example "
+                "postgresql://you@127.0.0.1:5432/postgres)"
+            )
+        return cls(
+            parts.hostname,
+            parts.port or DEFAULT_PG_PORT,
+            unquote(parts.username or ""),
+            unquote(parts.password or ""),
         )
+
+    @property
+    def address(self) -> str:
+        return f"{self.host}:{self.port}"
 
     def connect(self, database: str = "postgres", timeout: int = 5) -> Any:
         conn = psycopg2.connect(
@@ -53,6 +83,44 @@ class Postgres:
         )
         conn.autocommit = True
         return conn
+
+
+@dataclass(frozen=True)
+class RedisServer:
+    host: str
+    port: int
+    password: str = ""
+
+    def url(self, index: int | None = None) -> str:
+        auth = f":{quote(self.password, safe='')}@" if self.password else ""
+        tail = "" if index is None else f"/{index}"
+        return f"redis://{auth}{self.host}:{self.port}{tail}"
+
+    @classmethod
+    def from_url(cls, url: str) -> RedisServer:
+        parts = urlsplit(url.strip())
+        if parts.scheme not in {"redis", "rediss"} or not parts.hostname:
+            raise ValueError(
+                f"not a Redis URL: {redact(url)} (for example redis://127.0.0.1:6379)"
+            )
+        return cls(
+            parts.hostname,
+            parts.port or DEFAULT_REDIS_PORT,
+            unquote(parts.password or ""),
+        )
+
+    @property
+    def address(self) -> str:
+        return f"{self.host}:{self.port}"
+
+
+def redact(url: str) -> str:
+    """``url`` with its password replaced by ``<password>`` (for messages)."""
+    parts = urlsplit(url)
+    if not parts.password:
+        return url
+    netloc = parts.netloc.replace(f":{parts.password}@", ":<password>@", 1)
+    return parts._replace(netloc=netloc).geturl()
 
 
 def tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:
@@ -169,19 +237,24 @@ def advisory_holders(pg: Postgres) -> int:
         conn.close()
 
 
-def _redis(host: str, port: int, db: int = 0) -> Any:
+def _redis(host: str, port: int, db: int = 0, password: str | None = None) -> Any:
     if redis is None:
         raise ImportError("the redis client is not installed (sandloom[redis])")
     return redis.Redis(
-        host=host, port=port, db=db, socket_connect_timeout=3, socket_timeout=5
+        host=host,
+        port=port,
+        db=db,
+        password=password or None,
+        socket_connect_timeout=3,
+        socket_timeout=5,
     )
 
 
-def redis_ready(host: str, port: int) -> str | None:
+def redis_ready(host: str, port: int, password: str | None = None) -> str | None:
     if not tcp_open(host, port):
         return "connection refused"
     try:
-        client = _redis(host, port)
+        client = _redis(host, port, password=password)
     except ImportError:
         return None  # no redis client installed: the TCP check stands
     try:
@@ -211,9 +284,11 @@ def redis_clients(host: str, port: int, indexes: Iterable[int] | None = None) ->
         client.close()
 
 
-def flush_indexes(host: str, port: int, indexes: Iterable[int]) -> None:
+def flush_indexes(
+    host: str, port: int, indexes: Iterable[int], password: str | None = None
+) -> None:
     for index in indexes:
-        client = _redis(host, port, index)
+        client = _redis(host, port, index, password)
         try:
             client.flushdb()
         finally:
@@ -224,6 +299,7 @@ __all__ = [
     "DEV_CREDENTIALS",
     "TEST_CREDENTIALS",
     "Postgres",
+    "RedisServer",
     "advisory_holders",
     "database_exists",
     "drop_database",
@@ -231,6 +307,7 @@ __all__ = [
     "flush_indexes",
     "has_tables",
     "pg_ready",
+    "redact",
     "redis_clients",
     "redis_ready",
     "service_errors",

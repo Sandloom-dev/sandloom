@@ -182,9 +182,10 @@ def test_every_platform_route_is_authenticated_or_public() -> None:
         if not getattr(r, "sandloom_module", None)
     }
     publics = {k for k, p in kernel.items() if p.auth == "public"}
-    # "/" is the start page outside production (never in production).
+    # "/" and the favicon: the start page outside production (never in it).
     assert {path for _m, path in publics} == {
         "/",
+        "/favicon.ico",
         "/health/simple",
         "/health",
         "/ready",

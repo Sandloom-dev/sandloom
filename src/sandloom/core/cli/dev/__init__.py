@@ -6,6 +6,10 @@ worktrees share them), one database and one pair of Redis indexes per
 
     sandloom dev up                   start / check the services, write this
                                       checkout's .env block and .env.test.local
+    sandloom dev up --services external --database-url URL --redis-url URL
+                                      your own PostgreSQL and Redis (Homebrew,
+                                      Postgres.app): no Docker, kept in the state
+    sandloom dev up --services docker back to the compose project
     sandloom dev status [--json]      services, ports, reachability, URLs
     sandloom dev run [--port N|auto]  uvicorn for this checkout (its own port:
                                       8000, else the next free, chosen once)
@@ -64,6 +68,24 @@ def _parser() -> argparse.ArgumentParser:
         "compose project",
     )
     up.add_argument("--no-pull", action="store_true", help="never pull images")
+    up.add_argument(
+        "--services",
+        choices=("docker", "external"),
+        default=None,
+        help="docker: the compose project (the default); external: PostgreSQL "
+        "and Redis you already run (kept for the next commands)",
+    )
+    up.add_argument(
+        "--database-url",
+        default=None,
+        help="with --services external: your PostgreSQL, as a role that may "
+        "create databases (default: postgresql://$USER@127.0.0.1:5432/postgres)",
+    )
+    up.add_argument(
+        "--redis-url",
+        default=None,
+        help="with --services external: your Redis (default: redis://127.0.0.1:6379)",
+    )
     status = sub.add_parser("status", help="services, ports, URLs")
     status.add_argument("--json", action="store_true", help="machine-readable")
     run = sub.add_parser("run", help="run the app (uvicorn) for this checkout")
@@ -107,6 +129,9 @@ def _dispatch(ctx: _commands.Context, args: argparse.Namespace) -> int:
             force=args.force,
             adopt=args.adopt,
             pull=not args.no_pull,
+            services=args.services,
+            database_url=args.database_url,
+            redis_url=args.redis_url,
         )
         return _commands.up(ctx, options)
     if args.action == "status":

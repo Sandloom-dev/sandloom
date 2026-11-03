@@ -1,12 +1,17 @@
 """Baseline password policy.
 
-Length bounds live on the schemas (8..100). On top of that we reject the most
+Length bounds: :data:`MIN_PASSWORD_LENGTH` .. :data:`MAX_PASSWORD_LENGTH` (the
+schemas use them too, and ``sandloom new`` reads them to check a password before
+it creates the administrator). On top of that we reject the most
 common passwords (a small built-in list — the top of every breach corpus) and
 passwords equal to the account email or its local part. Composition rules
 ("one symbol, one digit…") are deliberately NOT imposed (NIST SP 800-63B).
 """
 
 from __future__ import annotations
+
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 100
 
 _COMMON_PASSWORDS = frozenset(
     {
@@ -70,6 +75,10 @@ _COMMON_PASSWORDS = frozenset(
 
 def password_policy_violation(password: str, email: str | None = None) -> str | None:
     """Return a human-readable violation, or ``None`` when acceptable."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    if len(password) > MAX_PASSWORD_LENGTH:
+        return f"Password must be at most {MAX_PASSWORD_LENGTH} characters"
     lowered = password.strip().lower()
     if lowered in _COMMON_PASSWORDS:
         return "Password is too common; choose a less guessable one"
@@ -81,4 +90,4 @@ def password_policy_violation(password: str, email: str | None = None) -> str | 
     return None
 
 
-__all__ = ["password_policy_violation"]
+__all__ = ["MAX_PASSWORD_LENGTH", "MIN_PASSWORD_LENGTH", "password_policy_violation"]

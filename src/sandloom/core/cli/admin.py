@@ -4,9 +4,12 @@
         compile the static admin manifest (module declarations + public OpenAPI)
     sandloom admin create --email ADDRESS [--name NAME]
                           [--invite | --password-stdin] [--if-missing] [--take-over]
+                          [--quiet]
         create a platform administrator. At a terminal it asks for the
         password twice; ``--invite`` prints a single-use set-password link
         (15 minutes) instead; ``--password-stdin`` reads one line from a pipe.
+        ``--quiet`` prints no success line (``sandloom new`` runs it on the
+        terminal after its setup and says it in its own summary).
         ``--if-missing`` exits 0 when the address is already an administrator.
         ``--take-over`` makes an unverified account that holds the address an
         administrator and invalidates its password.
@@ -42,12 +45,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import sandloom.core.cli.password_check as _password_check
 import sandloom.core.cli.ui as _ui
 from sandloom.core.admin import compile_app
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
 from sandloom.core.cli.dev import errors as _dev_errors
-from sandloom.core.cli.dev.identity import project_root
+from sandloom.core.cli.dev.identity import app_name, project_root
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
@@ -247,13 +251,19 @@ async def _read_password(
         if problem:
             raise SystemExit(f"error: {problem}")
         return password
+    minimum = _password_check.rules().min_length
+    app = app_name(_checkout_root())
+    prompt = (
+        f"Password for {email} (console administrator of {app}; at least "
+        f"{minimum} characters): "
+    )
     for _ in range(PROMPT_ATTEMPTS):
-        password = ask("Password: ")
+        password = ask(prompt)
         problem = await _call(service, "password_problem", email, password)
         if problem:
             print(f"{problem}. Try again.", file=sys.stderr)
             continue
-        if ask("Password (again): ") != password:
+        if ask("Repeat the password: ") != password:
             print("The passwords do not match. Try again.", file=sys.stderr)
             continue
         return password
@@ -326,12 +336,24 @@ async def _new_admin(
         ) from exc
 
 
+def _mode_unless_missing(args: argparse.Namespace) -> str | None:
+    """:func:`_mode`; with ``--if-missing`` its refusal waits (``None``): an
+    existing administrator needs no password, so the mode is asked for only
+    once something will be created."""
+    try:
+        return _mode(args)
+    except SystemExit:
+        if not args.if_missing:
+            raise
+        return None
+
+
 async def create_admin(
     core: Any, args: argparse.Namespace, *, ask: Callable[[str], str]
 ) -> int:
     """``sandloom admin create``; returns the exit status."""
     email = args.email.strip()
-    mode = _mode(args)
+    mode = _mode_unless_missing(args)
     intent = _intent(args, "first administrator")
     if mode == "invite":
         _check_link_target()
@@ -339,6 +361,7 @@ async def create_admin(
     standing = await _call(service, "account_standing", email)
     if _check_existing(email, standing, args):
         return 0
+    mode = mode or _mode(args)
     password = await _read_password(service, email, mode, ask)
     if standing is not None:
         await _call(
@@ -375,7 +398,8 @@ async def create_admin(
             file=sys.stderr,
         )
         return 1
-    print(f"{_style().green(done)} {email} can sign in at {_sign_in_hint()}")
+    if not args.quiet:
+        print(f"{_style().green(done)} {email} can sign in at {_sign_in_hint()}")
     return 0
 
 
@@ -550,6 +574,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="an unverified account holds the address: make it an administrator "
         "and invalidate its password",
+    )
+    create.add_argument(
+        "--quiet",
+        action="store_true",
+        help="no success line (errors and an --invite link still print)",
     )
     add_operator_arguments(create)
 

@@ -70,15 +70,19 @@ def _ask(
     given: wizard.Given | None = None,
     **kw: Any,
 ) -> wizard.Answers:
-    options: dict[str, Any] = {
-        "parent": tmp_path,
-        "detected": {"codex": "codex"},
+    machine: dict[str, Any] = {
         "uv": "/usr/bin/uv",
-        "docker_ready": lambda: True,
+        "docker": lambda: wizard.DOCKER_READY,
         "git_email": "you@example.com",
     }
-    options.update(kw)
-    return wizard.ask(prompter, given or wizard.Given(), **options)
+    machine.update(kw)
+    return wizard.ask(
+        prompter,
+        given or wizard.Given(),
+        parent=tmp_path,
+        detected={"codex": "codex"},
+        machine=wizard.Machine(**machine),
+    )
 
 
 # ----------------------------------------------------------------- the flow
@@ -91,36 +95,29 @@ def test_the_questions_in_order(tmp_path: Path) -> None:
         ["confirm"],  # agents: the installed one stays ticked
     ]
     names = ["Bad-Name", "json", "taken", "shop"]
-    prompter, asked, out = _prompter([*names, "", "", ""], keys)
+    prompter, asked, out = _prompter([*names, "", ""], keys)
     answers = _ask(prompter, tmp_path)
     assert answers == wizard.Answers(
         app="shop",
         batteries=["identity", "admin"],
         agents=["codex"],
         setup=True,
-        admin_email="you@example.com",
+        services=wizard.DOCKER,
     )
     text = out.getvalue()
     assert "Scripts and agents: add --yes" in text
-    assert text.index("Scripts and agents") < text.index("App name")
-    assert asked[0] == "App name [my_app]: "
+    assert text.index("Scripts and agents") < text.index("Name your app")
+    assert asked[0] == "What are you building? Name your app [my_app]: "
     assert "snake_case" in text
     assert "standard library" in text
     assert "already exists" in text
     assert "admin brings identity" in text
     assert "space to add, Enter to continue" in text
-    assert "Set it up now? [Y/n] " in asked
-    assert asked[-2] == (
-        "First administrator's email [you@example.com] (from git config; - to skip): "
-    )
-    # Taken from git config: confirmed as the address they sign in with.
-    assert asked[-1] == (
-        "Administrator: you@example.com — is this the address you sign in with? [Y/n] "
-    )
+    assert asked[-1].startswith("Install the dependencies")
 
 
 def test_enter_takes_the_default_name_and_no_module(tmp_path: Path) -> None:
-    prompter, _, _ = _prompter(["", "n"], [["confirm"], ["confirm"]])
+    prompter, _, _ = _prompter(["", "", "n"], [["confirm"], ["confirm"]])
     answers = _ask(prompter, tmp_path)
     assert (answers.app, answers.batteries, answers.setup) == ("my_app", [], False)
     assert answers.admin_email is None
@@ -131,8 +128,9 @@ def test_flags_leave_only_the_rest(tmp_path: Path) -> None:
     given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
     answers = _ask(prompter, tmp_path, given, git_email=None)
     assert asked == [
-        "Set it up now? [Y/n] ",
-        "First administrator's email (Enter to skip): ",
+        "How do you want to run them? [1]: ",
+        "Install the dependencies, start PostgreSQL and Redis in Docker, create "
+        "the tables and your administrator now? (about a minute) [Y/n] ",
     ]
     assert answers.setup and answers.admin_email is None
     assert answers.batteries == ["identity", "admin"]
@@ -142,24 +140,13 @@ def test_no_setup_question_without_uv(tmp_path: Path) -> None:
     prompter, asked, out = _prompter(["shop"], [["confirm"], ["confirm"]])
     answers = _ask(prompter, tmp_path, uv=None)
     assert not answers.setup
-    assert not any("Set it up" in q for q in asked)
+    assert not any("Install the dependencies" in q for q in asked)
     assert "docs.astral.sh/uv" in out.getvalue()
-
-
-def test_docker_down_offers_the_files_only(tmp_path: Path) -> None:
-    checks = iter([False, True])
-    prompter, _, out = _prompter(["shop", "", "r"], [["confirm"], ["confirm"]])
-    answers = _ask(prompter, tmp_path, docker_ready=lambda: next(checks))
-    assert "Docker is starting or not running" in out.getvalue()
-    assert answers.setup  # `r` checked again and Docker answered
-    prompter, _, _ = _prompter(["shop", "", ""], [["confirm"], ["confirm"]])
-    answers = _ask(prompter, tmp_path, docker_ready=lambda: False)
-    assert not answers.setup
 
 
 def test_typed_answers_where_keys_cannot_be_read(tmp_path: Path) -> None:
     """TERM=dumb, --plain or Windows without VT: typed answers, no cursor moves."""
-    prompter, _, out = _prompter(["shop", "4, tenancy", "2", "n"])
+    prompter, _, out = _prompter(["shop", "4, tenancy", "2", "1", "n"])
     answers = _ask(prompter, tmp_path)
     assert answers.batteries == ["identity", "tenancy", "admin"]
     assert answers.agents == ["codex"]
@@ -175,24 +162,29 @@ def test_ctrl_c_in_a_question_cancels(tmp_path: Path) -> None:
         _ask(prompter, tmp_path)
 
 
-def test_a_git_address_that_is_not_mine_is_asked_again(tmp_path: Path) -> None:
-    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
-    prompter, asked, _ = _prompter(["", "", "n", "me@work.example"])
-    assert _ask(prompter, tmp_path, given).admin_email == "me@work.example"
-    assert asked[-1] == "First administrator's email (Enter to skip): "
+def test_a_git_address_that_is_not_mine_is_asked_again() -> None:
+    prompter, asked, _ = _prompter(["", "n", "me@work.example"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") == "me@work.example"
+    assert asked[0] == (
+        "Email of your console administrator [you@example.com] (from git config; "
+        "- to skip): "
+    )
+    # Taken from git config: confirmed as the address they sign in with.
+    assert asked[1] == (
+        "Administrator: you@example.com — is this the address you sign in with? [Y/n] "
+    )
+    assert asked[-1] == "Email of your console administrator (Enter to skip): "
 
 
-def test_a_typed_address_needs_no_confirmation(tmp_path: Path) -> None:
-    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
-    prompter, asked, _ = _prompter(["", "me@work.example"])
-    assert _ask(prompter, tmp_path, given).admin_email == "me@work.example"
+def test_a_typed_address_needs_no_confirmation() -> None:
+    prompter, asked, _ = _prompter(["me@work.example"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") == "me@work.example"
     assert not any("is this the address" in q for q in asked)
 
 
-def test_a_dash_skips_the_administrator(tmp_path: Path) -> None:
-    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
-    prompter, _, _ = _prompter(["", "-"])
-    assert _ask(prompter, tmp_path, given).admin_email is None
+def test_a_dash_skips_the_administrator() -> None:
+    prompter, _, _ = _prompter(["-"])
+    assert wizard.ask_admin_email(prompter, "you@example.com") is None
 
 
 # ------------------------------------------------------------------- names
@@ -226,9 +218,11 @@ def test_app_names(name: str, problem: str | None, tmp_path: Path) -> None:
 
 
 def test_a_module_name_is_asked_again_with_the_reason(tmp_path: Path) -> None:
-    prompter, asked, out = _prompter(["test", "redis", "shop", "n"], [["confirm"]] * 2)
+    prompter, asked, out = _prompter(
+        ["test", "redis", "shop", "1", "n"], [["confirm"]] * 2
+    )
     assert _ask(prompter, tmp_path).app == "shop"
-    assert asked[:3] == ["App name [my_app]: "] * 3
+    assert asked[:3] == ["What are you building? Name your app [my_app]: "] * 3
     text = out.getvalue()
     assert "'test' is a Python module name" in text and "'test_app'" in text
     assert "'redis' is a Python module name" in text
@@ -518,6 +512,7 @@ def test_the_admin_step_is_admin_create_on_the_terminal(tmp_path: Path) -> None:
         "create",
         "--email",
         "you@example.com",
+        "--quiet",
     ]
     _FakePopen.calls = []
     runner, _ = _runner(tmp_path, popen=_FakePopen)
@@ -636,7 +631,7 @@ def test_after_a_setup_the_summary_uses_the_port_dev_up_chose(
     root = tmp_path / "shop"
     lines = wizard._next_steps(run, plan, root, answers)
     assert lines[-1] == "uv run sandloom dev run"
-    text = wizard._summary(run, plan, root, answers, lines)
+    text = wizard._summary(run, plan, root, answers, admin_created=True)
     assert "http://127.0.0.1:8001/admin/" in text
     assert "8000" not in text
     # Which account is mine, and how to get back in.
@@ -673,7 +668,7 @@ def test_plain_mode_prints_nothing_new_after_next_steps(tmp_path: Path) -> None:
     assert tail == expected_tail
     assert head.startswith("Created application 'shop' (")
     assert "\x1b" not in out.getvalue()
-    assert not (root / ".git").exists()  # plain mode leaves git alone
+    assert "git repository" in head  # its own repository, said before the block
 
 
 @pytest.mark.usefixtures("_no_boot")
@@ -808,7 +803,7 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
         pump(until, start)
 
     try:
-        pump(b"App name")
+        pump(b"Name your app")
         send(b"shop\r", b"Enter to continue")
         send(b" \r", b"Esc cancel")  # identity; then the agents list
         # Claude Code (the first row) only, whatever this machine has installed.
@@ -818,8 +813,14 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
             (b" " if (b"[x]" in row) != (i == 0) else b"") + b"j"
             for i, row in enumerate(rows)
         )
-        send(keys + b"\r", b"[Y/n]")
-        os.write(fd, b"n\r")
+        # The git question (unless tmp is inside a work tree), else services.
+        send(keys + b"\r", b"? [")
+        if (
+            b"How do you want to run them?"
+            not in output.rsplit(b"Coding agents", 1)[-1]
+        ):
+            send(b"n\r", b"How do you want to run them?")
+        os.write(fd, b"3\r")  # later: the files only
         deadline = time.monotonic() + 180
         while child.poll() is None and time.monotonic() < deadline:
             pump(b"\0", len(output), 0.5)  # keep reading: a full terminal blocks
@@ -834,14 +835,12 @@ def test_the_wizard_in_a_pseudo_terminal(tmp_path: Path) -> None:
     assert status == 0, text
     assert ui.MARK[3] in text  # the caracal beside the name
     assert "Scripts and agents: add --yes" in text
+    assert "https://sandloom.dev" in text and "step by step" in text
+    assert "Your app is created" in text
     assert "sandloom new shop --with identity --agents claude --yes" in text
     assert "Traceback" not in text
     root = tmp_path / "shop"
     assert (root / "pyproject.toml").is_file()
     assert (root / ".claude/skills").is_dir() and not (root / ".agents").exists()
     assert "sandloom-identity" in (root / "pyproject.toml").read_text()
-    assert (root / ".git").is_dir() or subprocess.run(
-        ["git", "-C", str(tmp_path), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        check=False,
-    ).returncode == 0
+    assert (root / ".git").is_dir() or "inside the git repository at" in text

@@ -8,6 +8,8 @@ docs (when served), ``/health``, and the next commands. Production leaves
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -88,3 +90,27 @@ def test_the_composed_app_serves_the_start_page_as_a_public_read() -> None:
     (route,) = [r for r in app.routes if getattr(r, "path", None) == "/"]
     policy = resolve_route_policy(route, "GET")
     assert policy.auth == "public" and policy.public is not None
+
+
+@pytest.mark.asyncio
+async def test_the_favicon_is_the_caracal_outside_production() -> None:
+    app = FastAPI(title="shop")
+    app_factory._install_favicon(app)
+    response = await _get(app, "/favicon.ico")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    mark = Path(__file__).resolve().parents[4] / "docs" / "assets" / "sandloom-mark.svg"
+    if mark.is_file():  # the docs ship with the repository, not the wheel
+        path = re.search(r' d="([^"]+)"', mark.read_text()).group(1)  # type: ignore[union-attr]
+        assert path in response.text
+    assert "#8b6841" in response.text  # the brand colour
+    app_factory._install_start_page(app)
+    assert 'rel="icon" href="/favicon.ico"' in (await _get(app)).text
+
+
+@pytest.mark.asyncio
+async def test_production_serves_no_favicon(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(type(settings), "is_prod", property(lambda self: True))
+    app = FastAPI(title="shop")
+    app_factory._install_favicon(app)
+    assert (await _get(app, "/favicon.ico")).status_code == 404

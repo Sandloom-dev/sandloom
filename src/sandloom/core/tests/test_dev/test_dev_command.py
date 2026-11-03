@@ -1139,7 +1139,7 @@ def test_dev_run_without_port_serves_the_checkouts_port(
     _reachable(monkeypatch, up=True)
     served: list[list[str]] = []
     monkeypatch.setattr(
-        commands, "_serve", lambda c, argv, env: served.append(argv) or 0
+        commands, "_serve", lambda c, argv, env, **kw: served.append(argv) or 0
     )
     assert commands.run(ctx, port=None, reload=False) == 0
     assert served[0][served[0].index("--port") + 1] == str(sticky)
@@ -1159,7 +1159,7 @@ def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(
         commands.checkout_row(ctx, state)
         save_state(ctx.state_dir, state)
         _reachable(monkeypatch, up=True)
-        monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+        monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
         with pytest.raises(commands.DevError, match="is in use") as refused:
             commands.run(ctx, port=None, reload=False)
     assert "uv run sandloom dev run --port" in str(refused.value)
@@ -1244,7 +1244,7 @@ def test_debug_brings_the_framework_logs_back() -> None:
 def _reachable(monkeypatch: pytest.MonkeyPatch, up: bool) -> None:
     answer = None if up else "connection refused"
     monkeypatch.setattr(commands._services, "pg_ready", lambda pg: answer)
-    monkeypatch.setattr(commands._services, "redis_ready", lambda host, port: answer)
+    monkeypatch.setattr(commands._services, "redis_ready", lambda *a, **k: answer)
 
 
 def test_dev_run_starts_stopped_services_first(
@@ -1271,7 +1271,7 @@ def test_dev_run_starts_stopped_services_first(
     monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: sticky or 8000)
     served: list[list[str]] = []
     monkeypatch.setattr(
-        commands, "_serve", lambda c, argv, env: served.append(argv) or 0
+        commands, "_serve", lambda c, argv, env, **kw: served.append(argv) or 0
     )
     assert commands.run(ctx, port=None, reload=False) == 0
     assert len(started) == 1 and served
@@ -1291,7 +1291,7 @@ def test_dev_run_with_running_services_starts_nothing(
     _reachable(monkeypatch, up=True)
     monkeypatch.setattr(commands, "up", lambda c, o: pytest.fail("started"))
     monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
-    monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
     assert commands.run(ctx, port=None, reload=False) == 0
     assert "starting" not in _text(ctx.out)
 
@@ -1309,7 +1309,7 @@ def test_dev_run_without_a_block_starts_the_services(
 
     monkeypatch.setattr(commands, "up", up)
     monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
-    monkeypatch.setattr(commands, "_serve", lambda c, argv, env: 0)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
     assert commands.run(ctx, port=None, reload=False) == 0
     assert "starting the dev services" in _text(ctx.out)
 

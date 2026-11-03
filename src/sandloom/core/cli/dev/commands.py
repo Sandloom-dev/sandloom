@@ -1,9 +1,19 @@
-"""The ``sandloom dev`` subcommands (see :mod:`sandloom.core.cli.dev`)."""
+"""The ``sandloom dev`` subcommands (see :mod:`sandloom.core.cli.dev`).
+
+Two kinds of services: the repository's compose project (``docker``, the
+default) or PostgreSQL and Redis the person already runs (``external``,
+chosen with ``dev up --services external --database-url … --redis-url …`` or
+by ``sandloom new``, and kept in the state). In external mode no command
+calls Docker: ``up`` checks the servers, creates the checkout's database and
+writes the same ``.env`` block and ``.env.test.local``; ``down`` and
+``logs`` have nothing to do; ``run`` says in one line how to start a server
+that does not answer."""
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -11,7 +21,9 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +42,8 @@ from sandloom.core.cli.dev.identity import COMPOSE_FILE, Identity
 from sandloom.core.cli.dev.identity import resolve as resolve_identity
 from sandloom.core.cli.dev.locks import FileLock, pid_alive
 from sandloom.core.cli.dev.state import (
+    DOCKER,
+    EXTERNAL,
     CheckoutRow,
     State,
     atomic_write,
@@ -150,12 +164,21 @@ class Context:
         )
 
     def postgres(self, state: State, *, test: bool = False) -> _services.Postgres:
+        if state.is_external:  # one server holds the dev and the test databases
+            return _services.Postgres.from_url(state.external["database_url"])
         if test:
             return _services.Postgres(
                 self.host, state.ports["postgres_test"], *_services.TEST_CREDENTIALS
             )
         return _services.Postgres(
             self.host, state.ports["db"], *_services.DEV_CREDENTIALS
+        )
+
+    def redis(self, state: State, *, test: bool = False) -> _services.RedisServer:
+        if state.is_external:
+            return _services.RedisServer.from_url(state.external["redis_url"])
+        return _services.RedisServer(
+            self.host, state.ports["redis_test" if test else "redis"]
         )
 
 
@@ -186,27 +209,30 @@ def write_state_env(ctx: Context, state: State) -> None:
 
 
 def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
-    host = ctx.host
-    pg = _services.Postgres(host, state.ports["db"], *_services.DEV_CREDENTIALS)
-    redis = f"redis://{host}:{state.ports['redis']}"
+    redis = ctx.redis(state)
     return {
-        "DATABASE_URL": pg.url(row.database),
-        "CACHE_URL": f"{redis}/{row.cache_index}",
-        "BROKER_URL": f"{redis}/{row.broker_index}",
+        "DATABASE_URL": ctx.postgres(state).url(row.database),
+        "CACHE_URL": redis.url(row.cache_index),
+        "BROKER_URL": redis.url(row.broker_index),
     }
 
 
 def test_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
-    host = ctx.host
-    pg = _services.Postgres(
-        host, state.ports["postgres_test"], *_services.TEST_CREDENTIALS
-    )
-    redis = f"redis://{host}:{state.ports['redis_test']}"
+    redis = ctx.redis(state, test=True)
     return {
-        "SANDLOOM_TEST_DATABASE_URL": pg.url(row.test_database),
-        "SANDLOOM_TEST_CACHE_URL": f"{redis}/{TEST_CACHE_INDEX}",
-        "SANDLOOM_TEST_BROKER_URL": f"{redis}/{TEST_BROKER_INDEX}",
+        "SANDLOOM_TEST_DATABASE_URL": ctx.postgres(state, test=True).url(
+            row.test_database
+        ),
+        "SANDLOOM_TEST_CACHE_URL": redis.url(TEST_CACHE_INDEX),
+        "SANDLOOM_TEST_BROKER_URL": redis.url(TEST_BROKER_INDEX),
     }
+
+
+def redis_problem(server: _services.RedisServer) -> str | None:
+    """``None`` when ``server`` answers ``PING``, else why not."""
+    if server.password:
+        return _services.redis_ready(server.host, server.port, server.password)
+    return _services.redis_ready(server.host, server.port)
 
 
 def allocate_indexes(state: State, path: str, *, main: bool) -> tuple[int, int]:
@@ -308,6 +334,11 @@ class UpOptions:
     force: bool = False
     adopt: bool = False
     pull: bool = True
+    #: ``docker`` / ``external`` switches the mode (kept in the state);
+    #: ``None`` keeps the stored one.
+    services: str | None = None
+    database_url: str | None = None
+    redis_url: str | None = None
 
 
 def _legacy_name(ctx: Context) -> str | None:
@@ -319,7 +350,14 @@ def _legacy_name(ctx: Context) -> str | None:
 
 
 def reconcile(ctx: Context, state: State | None, options: UpOptions) -> State:
-    """``state`` made to fit this repository (new, copied, moved, legacy)."""
+    """``state`` made to fit this repository (new, copied, moved, legacy);
+    the compose project's (Docker) services from now on."""
+    found = _reconcile(ctx, state, options)
+    found.services = DOCKER
+    return found
+
+
+def _reconcile(ctx: Context, state: State | None, options: UpOptions) -> State:
     identity = ctx.identity
     fresh = State(
         repository=str(identity.repository),
@@ -490,7 +528,32 @@ def _pull_missing(ctx: Context) -> None:
         _docker.pull(missing, ctx.environ)
 
 
+def stored_external(ctx: Context) -> bool:
+    """This repository's services are the person's own (``--services
+    external``)."""
+    state = load_state(ctx.state_dir)
+    return state is not None and state.is_external
+
+
+def _wants_external(ctx: Context, options: UpOptions) -> bool:
+    """``--services`` decides, else the stored choice."""
+    if options.services not in (None, DOCKER, EXTERNAL):
+        raise DevError(f"--services is docker or external, not {options.services!r}")
+    if options.services == EXTERNAL or (
+        options.services is None and stored_external(ctx)
+    ):
+        return True
+    if options.database_url or options.redis_url:
+        raise DevError(
+            "--database-url and --redis-url name your own servers: add "
+            "--services external"
+        )
+    return False
+
+
 def up(ctx: Context, options: UpOptions) -> int:
+    if _wants_external(ctx, options):
+        return up_external(ctx, options)
     source = ctx.root / COMPOSE_FILE
     if not source.is_file():
         raise DevError(
@@ -521,6 +584,137 @@ def up(ctx: Context, options: UpOptions) -> int:
     raise DevError("the ports kept changing while `sandloom dev up` ran; run it again")
 
 
+# --------------------------------------------------------------------------- #
+# up, external: PostgreSQL and Redis the person already runs
+# --------------------------------------------------------------------------- #
+
+
+def local_login(environ: Mapping[str, str]) -> str:
+    """The role Homebrew's and Postgres.app's PostgreSQL create: the login."""
+    for key in ("USER", "LOGNAME", "USERNAME"):
+        if environ.get(key):
+            return environ[key]
+    return "postgres"
+
+
+def local_servers(environ: Mapping[str, str]) -> tuple[str | None, str | None]:
+    """The usual local servers that accept a connection: PostgreSQL on
+    127.0.0.1:5432 (as the login, Homebrew's default role) and Redis on
+    127.0.0.1:6379. ``None`` for one that does not answer."""
+    host = "127.0.0.1"
+    pg = (
+        f"postgresql://{local_login(environ)}@{host}:{_services.DEFAULT_PG_PORT}/postgres"
+        if _services.tcp_open(host, _services.DEFAULT_PG_PORT, timeout=0.5)
+        else None
+    )
+    redis = (
+        f"redis://{host}:{_services.DEFAULT_REDIS_PORT}"
+        if _services.tcp_open(host, _services.DEFAULT_REDIS_PORT, timeout=0.5)
+        else None
+    )
+    return pg, redis
+
+
+def external_down(what: str, address: str, problem: str) -> str:
+    """One line: which server does not answer, and what to do."""
+    start = (
+        "brew services start postgresql@16; Postgres.app: open it"
+        if what == "PostgreSQL"
+        else "brew services start redis"
+    )
+    return (
+        f"cannot reach your {what} at {address} ({problem}). Start it (Homebrew: "
+        f"{start}), or let Docker run both: uv run sandloom dev up --services docker"
+    )
+
+
+def check_external(database_url: str, redis_url: str) -> str | None:
+    """Why the two servers cannot serve this app (one line), or ``None``."""
+    try:
+        pg = _services.Postgres.from_url(database_url)
+        redis = _services.RedisServer.from_url(redis_url)
+    except ValueError as exc:
+        return str(exc)
+    problem = _services.pg_ready(pg)
+    if problem is not None:
+        return external_down("PostgreSQL", pg.address, problem)
+    problem = redis_problem(redis)
+    if problem is not None:
+        return external_down("Redis", redis.address, problem)
+    return None
+
+
+def _external_urls(ctx: Context, state: State, options: UpOptions) -> tuple[str, str]:
+    database = options.database_url or state.external.get("database_url")
+    redis = options.redis_url or state.external.get("redis_url")
+    if not database or not redis:
+        found_pg, found_redis = local_servers(ctx.environ)
+        database, redis = database or found_pg, redis or found_redis
+    if not database or not redis:
+        missing = (
+            "PostgreSQL on 127.0.0.1:5432"
+            if not database
+            else "Redis on 127.0.0.1:6379"
+        )
+        raise DevError(
+            f"--services external: no {missing} answers; name your servers with "
+            "--database-url postgresql://you@host:5432/postgres --redis-url "
+            "redis://host:6379"
+        )
+    return database, redis
+
+
+def up_external(ctx: Context, options: UpOptions) -> int:
+    """``up`` on the person's own servers: no Docker. Checks both, creates
+    this checkout's database, writes its ``.env`` block and
+    ``.env.test.local`` and keeps the choice in the state."""
+    identity = ctx.identity
+    with ctx.repo_lock("sandloom dev up"):
+        state = load_state(ctx.state_dir)
+        if state is None or (state.repository, state.machine) != (
+            str(identity.repository),
+            identity.machine,
+        ):
+            state = State(
+                repository=str(identity.repository),
+                project=identity.project,
+                machine=identity.machine,
+            )
+        database, redis = _external_urls(ctx, state, options)
+        problem = check_external(database, redis)
+        if problem is not None:
+            raise DevError(problem)
+        state.services = EXTERNAL
+        state.external = {"database_url": database, "redis_url": redis}
+        save_state(ctx.state_dir, state)
+        pg = ctx.postgres(state)
+        with ctx.checkout_lock(ctx.root):
+            row = checkout_row(ctx, state)
+            try:
+                created = _services.ensure_database(pg, row.database)
+            except _services.service_errors() as exc:
+                raise DevError(
+                    f"cannot create the database {row.database} on your PostgreSQL "
+                    f"at {pg.address} ({str(exc).strip().splitlines()[0]}): connect "
+                    "as a role that may create databases (--database-url)"
+                ) from exc
+            if created:
+                ctx.say(f"created the database {row.database}")
+            notes = write_checkout_files(ctx, state, row)
+            ensure_app_port(ctx, state)
+            row.last_up = time.time()
+            save_state(ctx.state_dir, state)
+    for note in notes:
+        ctx.say(note)
+    migrate = created
+    if not migrate:
+        with contextlib.suppress(*_services.service_errors()):
+            migrate = not _services.has_tables(pg, row.database)
+    ctx.needs_migrate = migrate
+    _print_summary(ctx, state, row, migrate=migrate)
+    return 0
+
+
 def _rewrite_checkouts(ctx: Context, state: State, services: list[str]) -> None:
     paths = [p for p in state.checkouts if Path(p).is_dir()]
     with _checkout_locks(ctx, paths):
@@ -539,7 +733,8 @@ def _apply_compose_file(ctx: Context, state: State, options: UpOptions) -> bool:
     source = (ctx.root / COMPOSE_FILE).read_text(encoding="utf-8")
     ours = ctx.state_dir / STATE_COMPOSE
     current = ours.read_text(encoding="utf-8") if ours.is_file() else None
-    if current == source:
+    if current is not None and _same_services(current, source):
+        source = current  # another app of this repository: same services
         state.compose_sha = _sha(source)
         return False
     running = (
@@ -565,6 +760,16 @@ def _apply_compose_file(ctx: Context, state: State, options: UpOptions) -> bool:
     atomic_write(ours, source)
     state.compose_sha = _sha(source)
     return current is not None  # the first copy is not a change
+
+
+def _same_services(first: str, second: str) -> bool:
+    """Two compose files that differ only in ``POSTGRES_DB`` (the app name:
+    two apps of one repository) start the same services."""
+
+    def key(text: str) -> list[str]:
+        return [ln for ln in text.splitlines() if "POSTGRES_DB:" not in ln]
+
+    return key(first) == key(second)
 
 
 def _sessions_of_others(ctx: Context, state: State) -> list[str]:
@@ -607,7 +812,7 @@ def _probe(ctx: Context, state: State, service: str) -> str | None:
         return f"published on {published}, expected {port}"
     if service in ("db", "postgres_test"):
         return _services.pg_ready(ctx.postgres(state, test=service == "postgres_test"))
-    return _services.redis_ready(ctx.host, port)
+    return redis_problem(ctx.redis(state, test=service == "redis_test"))
 
 
 def _ensure_reachable(ctx: Context, state: State, options: UpOptions) -> None:
@@ -707,10 +912,17 @@ def _print_summary(
         if migrate
         else f"next: {serve}"
     )
+    if state.is_external:
+        heading = (
+            f"using your own PostgreSQL at {ctx.postgres(state).address} and Redis "
+            f"at {ctx.redis(state).address}"
+        )
+    else:
+        heading = f"dev services up (compose project {state.project})"
     ctx.say(
         "\n".join(
             [
-                ctx.style.green(f"dev services up (compose project {state.project})"),
+                ctx.style.green(heading),
                 f"  app      DATABASE_URL={urls['DATABASE_URL']}",
                 f"           CACHE_URL={urls['CACHE_URL']}",
                 f"           BROKER_URL={urls['BROKER_URL']}",
@@ -735,7 +947,24 @@ def status_data(ctx: Context) -> dict[str, Any]:
         "checkout": str(ctx.root),
         "state": str(ctx.state_dir),
         "up": False,
+        "services_mode": state.services if state is not None else DOCKER,
     }
+    if state is not None and state.is_external:
+        pg, redis = ctx.postgres(state), ctx.redis(state)
+        services: dict[str, Any] = {}
+        for name, address, problem in (
+            ("postgres", pg.address, _services.pg_ready(pg)),
+            ("redis", redis.address, redis_problem(redis)),
+        ):
+            services[name] = {
+                "address": address,
+                "reachable": problem is None,
+                **({"problem": problem} if problem else {}),
+            }
+        data["services"] = services
+        data["up"] = all(s["reachable"] for s in services.values())
+        _checkout_status(ctx, state, data)
+        return data
     if state is None or len(state.ports) < len(_ports.SERVICES):
         data["hint"] = "run `uv run sandloom dev up`"
         return data
@@ -757,6 +986,12 @@ def status_data(ctx: Context) -> dict[str, Any]:
         }
     data["services"] = services
     data["up"] = all(s["reachable"] for s in services.values())
+    _checkout_status(ctx, state, data)
+    return data
+
+
+def _checkout_status(ctx: Context, state: State, data: dict[str, Any]) -> None:
+    """This checkout's database, URLs and live run; the other checkouts."""
     row = state.checkouts.get(str(ctx.root))
     if row is not None:
         data["database"] = row.database
@@ -786,13 +1021,23 @@ def status_data(ctx: Context) -> dict[str, Any]:
         for path, r in sorted(state.checkouts.items())
         if path != str(ctx.root)
     ]
-    return data
 
 
 def status(ctx: Context, *, as_json: bool) -> int:
     data = status_data(ctx)
     if as_json:
         ctx.say(json.dumps(data, indent=2, sort_keys=True))
+        return 0
+    if data["services_mode"] == EXTERNAL:
+        lines = [f"your own PostgreSQL and Redis ({data['repository']})"]
+        for name, svc in data["services"].items():
+            mark = (
+                ctx.style.green("ok")
+                if svc["reachable"]
+                else ctx.style.red(f"NOT reachable: {svc.get('problem')}")
+            )
+            lines.append(f"  {name:14} {svc['address']:21} {mark}")
+        _say_checkout_status(ctx, data, lines)
         return 0
     if "project" not in data:
         ctx.say(f"no dev services for this repository yet: {data.get('hint')}")
@@ -805,6 +1050,11 @@ def status(ctx: Context, *, as_json: bool) -> int:
             else ctx.style.red(f"NOT reachable: {svc.get('problem')}")
         )
         lines.append(f"  {name:14} {ctx.host}:{svc['port']:<6} {svc['state']:9} {mark}")
+    _say_checkout_status(ctx, data, lines)
+    return 0
+
+
+def _say_checkout_status(ctx: Context, data: dict[str, Any], lines: list[str]) -> None:
     if "urls" in data:
         lines.append(f"this checkout ({data['checkout']}): database {data['database']}")
         for key, value in data["urls"].items():
@@ -830,7 +1080,6 @@ def status(ctx: Context, *, as_json: bool) -> int:
                 f"  {other['path']}  {other['database']}  up {age:.0f}h ago{gone}"
             )
     ctx.say("\n".join(lines))
-    return 0
 
 
 # --------------------------------------------------------------------------- #
@@ -982,20 +1231,24 @@ def services_reachable(ctx: Context) -> bool:
     """Whether this checkout's dev PostgreSQL and Redis answer from the host
     (``False`` without a state: no ``dev up`` yet)."""
     state = load_state(ctx.state_dir)
-    if state is None or len(state.ports) < len(_ports.SERVICES):
+    if state is None:
+        return False
+    if not state.is_external and len(state.ports) < len(_ports.SERVICES):
         return False
     if state.checkouts.get(str(ctx.root)) is None:
         return False
     return (
         _services.pg_ready(ctx.postgres(state)) is None
-        and _services.redis_ready(ctx.host, state.ports["redis"]) is None
+        and redis_problem(ctx.redis(state)) is None
     )
 
 
 def _start_services(ctx: Context) -> None:
     """``dev run`` on stopped (or never started) services: ``dev up`` with
-    its locks and checks, in one line; its failure is its own one line."""
-    ctx.say("starting the dev services…")
+    its locks and checks, in one line; its failure is its own one line.
+    Your own servers (external) are only checked: nothing is started."""
+    if not stored_external(ctx):
+        ctx.say("starting the dev services…")
     quiet = Context(
         identity=ctx.identity,
         environ=ctx.environ,
@@ -1073,7 +1326,7 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
     ]
     ctx.say(f"sandloom dev run: {ctx.style.accent(url)} (health: {url}/health)")
     try:
-        return _serve(ctx, argv, env)
+        return _serve(ctx, argv, env, url=url)
     finally:
         with contextlib.suppress(OSError, ValueError):
             data = json.loads(marker.read_text(encoding="utf-8"))
@@ -1081,8 +1334,81 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
                 marker.unlink()
 
 
-def _serve(ctx: Context, argv: list[str], env: dict[str, str]) -> int:
+#: How long ``dev run`` waits for the app to answer before it gives up on
+#: the banner (the server keeps running either way).
+BANNER_TIMEOUT = 300.0
+
+
+def _answers(url: str, timeout: float = 2.0) -> int | None:
+    """The HTTP status of ``GET url``, an ``http://`` URL ``dev run`` built
+    (``None``: no answer). No redirect is followed: one counts as served."""
+    parts = urllib.parse.urlsplit(url)
+    connection = http.client.HTTPConnection(
+        parts.hostname or "127.0.0.1", parts.port or 80, timeout=timeout
+    )
+    try:
+        connection.request("GET", parts.path or "/")
+        return int(connection.getresponse().status)
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        connection.close()
+
+
+def banner(style: _ui.Style, app: str, url: str, *, console: bool, docs: bool) -> str:
+    """What is running, once the app answers: the app, the console (when
+    served), the API docs (when enabled) and the health check."""
+    rows = [("App", style.accent(f"{url}/"))]
+    if console:
+        rows.append(("Admin console", style.accent(f"{url}/admin/")))
+    if docs:
+        rows.append(("API docs", style.accent(f"{url}/docs")))
+    rows.append(("Health", style.accent(f"{url}/health")))
+    return _ui.summary(
+        style, f"{app} is running", rows, footer=[style.muted("Ctrl-C stops it")]
+    )
+
+
+def announce_when_up(
+    out: TextIO,
+    style: _ui.Style,
+    app: str,
+    url: str,
+    stop: threading.Event,
+    *,
+    interval: float = 0.25,
+    timeout: float = BANNER_TIMEOUT,
+) -> bool:
+    """Wait until the app answers ``/health/simple`` (its startup is
+    complete), then print :func:`banner` once; ``False`` when ``stop`` came
+    first or the app never answered."""
+    deadline = time.monotonic() + timeout
+    while not stop.is_set() and time.monotonic() < deadline:
+        if _answers(f"{url}/health/simple") == 200:
+            break
+        stop.wait(interval)
+    else:
+        return False
+    if stop.wait(interval):  # let the server's own startup lines land first
+        return False
+    console = (_answers(f"{url}/admin/") or 500) < 400
+    docs = _answers(f"{url}/docs") == 200
+    out.write(banner(style, app, url, console=console, docs=docs))
+    out.flush()
+    return True
+
+
+def _serve(
+    ctx: Context, argv: list[str], env: dict[str, str], *, url: str | None = None
+) -> int:
     child = _process.spawn(argv, cwd=ctx.root, env=env)
+    stop = threading.Event()
+    if url is not None:
+        threading.Thread(
+            target=announce_when_up,
+            args=(ctx.out, ctx.style, ctx.identity.app, url, stop),
+            daemon=True,
+        ).start()
 
     def _forward(signum: int, _frame: object) -> None:
         with contextlib.suppress(ProcessLookupError):
@@ -1102,6 +1428,7 @@ def _serve(ctx: Context, argv: list[str], env: dict[str, str]) -> int:
             child.wait()
         return 0
     finally:
+        stop.set()
         signal.signal(signal.SIGTERM, previous)
 
 
@@ -1122,8 +1449,18 @@ def _own_users(ctx: Context, state: State, row: CheckoutRow) -> list[str]:
     return users
 
 
+def _flush(ctx: Context, state: State, row: CheckoutRow) -> None:
+    redis = ctx.redis(state)
+    if redis.password:
+        _services.flush_indexes(redis.host, redis.port, row.indexes, redis.password)
+    else:
+        _services.flush_indexes(redis.host, redis.port, row.indexes)
+
+
 def _require_state(ctx: Context) -> State:
     state = load_state(ctx.state_dir)
+    if state is not None and state.is_external:
+        return state
     if state is None or len(state.ports) < len(_ports.SERVICES):
         raise DevError(
             "no dev services for this repository: run `uv run sandloom dev up`"
@@ -1148,7 +1485,7 @@ def reset(ctx: Context, *, force: bool) -> int:
         pg = ctx.postgres(state)
         _services.drop_database(pg, row.database)
         _services.ensure_database(pg, row.database)
-        _services.flush_indexes(ctx.host, state.ports["redis"], row.indexes)
+        _flush(ctx, state, row)
     ctx.say(
         f"reset {row.database} and Redis indexes {row.cache_index}, "
         f"{row.broker_index}; next: uv run sandloom migrate upgrade-all --apply"
@@ -1226,6 +1563,12 @@ def _forget(ctx: Context, state: State) -> None:
 def down(ctx: Context, *, all_: bool, volumes: bool, force: bool) -> int:
     if volumes and not all_:
         raise DevError("--volumes deletes every checkout's data: it needs --all")
+    if stored_external(ctx):
+        ctx.say(
+            "your own PostgreSQL and Redis run this app: nothing to stop. Stop them "
+            "the way you started them (brew services stop …)"
+        )
+        return 0
     machine = ctx.machine_lock() if volumes else contextlib.nullcontext()
     with machine, ctx.repo_lock("sandloom dev down"):
         state = _require_state(ctx)
@@ -1269,7 +1612,9 @@ def prune(ctx: Context) -> int:
             removed.append(f"{len(stale_ports)} port(s) of repositories that are gone")
         with ctx.repo_lock("sandloom dev prune"):
             state = load_state(ctx.state_dir)
-            if state is not None and len(state.ports) == len(_ports.SERVICES):
+            if state is not None and (
+                state.is_external or len(state.ports) == len(_ports.SERVICES)
+            ):
                 removed += _prune_checkouts(ctx, state)
                 removed += _prune_test_databases(ctx, state)
                 save_state(ctx.state_dir, state)
@@ -1284,7 +1629,7 @@ def _prune_checkouts(ctx: Context, state: State) -> list[str]:
             continue
         try:
             _services.drop_database(ctx.postgres(state), row.database)
-            _services.flush_indexes(ctx.host, state.ports["redis"], row.indexes)
+            _flush(ctx, state, row)
         except _services.service_errors() as exc:  # the services are down
             ctx.warn(f"kept {row.database} of {path}: the services are down ({exc})")
             continue
@@ -1315,6 +1660,12 @@ def _prune_test_databases(ctx: Context, state: State) -> list[str]:
 
 def logs(ctx: Context, *, service: str | None, follow: bool) -> int:
     state = _require_state(ctx)
+    if state.is_external:
+        ctx.say(
+            "your own PostgreSQL and Redis run this app: their logs are where you "
+            "started them (brew services info …)"
+        )
+        return 0
     write_state_env(ctx, state)
     args = ["logs", *(["-f"] if follow else []), *([service] if service else [])]
     return ctx.compose(state).run(*args).returncode
@@ -1325,6 +1676,9 @@ __all__ = [
     "DevError",
     "UpOptions",
     "allocate_indexes",
+    "announce_when_up",
+    "banner",
+    "check_external",
     "app_port",
     "app_url",
     "assign_ports",
@@ -1332,6 +1686,7 @@ __all__ = [
     "down",
     "ensure_app_port",
     "in_ci",
+    "local_servers",
     "logs",
     "other_active",
     "port_listener",
@@ -1347,5 +1702,6 @@ __all__ = [
     "status_data",
     "test_urls",
     "up",
+    "up_external",
     "write_checkout_files",
 ]
