@@ -336,8 +336,12 @@ file's module fixtures are still set up once):
   the report header and the summary.
 - **CI** runs the parallel suites (`backend-tests`, `examples`) with
   `--sandloom-shuffle=random`, and the job `backend-tests-isolation` runs the
-  in-process framework tests **serially in one process** in a fresh order: the
-  check a fixed xdist distribution cannot make. Locally:
+  in-process framework tests **serially** in a fresh order: the check a fixed
+  xdist distribution cannot make. It runs as two shards of one seed
+  (`--sandloom-shard=1/2`, `2/2`). Each shard is one process over half the
+  files, and the two together run every test once. Each seed deals the files
+  anew, so two files that never share a process under one seed share one
+  under others. Locally:
   `tools/ci/ci_local.sh <ref> --jobs backend-tests-isolation`.
 
 The serial job excludes `subprocess_probe`: package build/install checks and
@@ -347,10 +351,11 @@ unfiltered full suites (Python 3.11 and 3.12). Tests of the parent's globals,
 registrations, caches and database state stay in the shuffled serial pass.
 `--durations=25` reports the slowest setup/call/teardown phases in CI.
 
-Replay a failure of the serial job in one process:
+Replay a failure of the serial job in one process (the summary prints the
+line to copy):
 
 ```bash
-uv run pytest -p no:xdist --sandloom-shuffle=<seed>      # the whole run, same order
+uv run pytest -p no:xdist --sandloom-shuffle=<seed> --sandloom-shard=<k>/2  # that shard, same order
 uv run pytest -p no:xdist src/sandloom/x/tests/test_y.py  # the failing file alone
 ```
 

@@ -6,6 +6,12 @@ on:
       full_validation:
         type: boolean
         default: false
+      reused_jobs:
+        # JSON list of REUSABLE_JOBS (tools/ci/required_ci.py) whose green PR
+        # result on this exact tree the caller verified (release.yml's plan,
+        # tools/ci/pr_evidence.py): a full validation skips them.
+        type: string
+        default: "[]"
   pull_request:
     branches: ["main"]
     # A close event cancels the older PR run without starting its test jobs.
@@ -47,6 +53,7 @@ jobs:
           tests/architecture/test_ci_workflow_policy.py
           tests/architecture/test_required_ci.py
           tests/architecture/test_pypi_release.py
+          tests/architecture/test_pr_evidence.py
           tests/architecture/test_release_sync.py -q
       - name: Reviewed source and credential patterns
         run: |
@@ -176,7 +183,7 @@ jobs:
     # Lint / format / types / architecture: no services, runs in parallel with
     # the test matrix (it used to be serialized in front of the suite).
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.backend == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'backend-static') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -261,7 +268,7 @@ jobs:
     # docs/contributing/supply-chain.md; PR dependency review is its own
     # workflow (dependency-review.yml).
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.backend == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'supply-chain') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -295,8 +302,11 @@ jobs:
           retention-days: 7
 
   backend-tests:
-    # PRs use Python 3.12 without slow multi-process suites or coverage.
-    # Full validation retains all four versions, coverage and the slow suites.
+    # PRs use Python 3.12 without slow multi-process suites or coverage, in
+    # two parts of one seed (the run id): each part takes half the files
+    # (`--sandloom-shard`), together the whole fast suite, as xdist workers
+    # already split it. Full validation retains all four versions, coverage
+    # and the slow suites, each Python one job with a fresh seed.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
@@ -304,8 +314,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: >-
-        ${{ fromJSON(inputs.full_validation && '{"include":[{"python":"3.11","coverage":false,"slow":true},{"python":"3.13","coverage":false,"slow":false},{"python":"3.14","coverage":false,"slow":false},{"python":"3.12","coverage":true,"slow":true}]}' || '{"include":[{"python":"3.12","coverage":false,"slow":false}]}') }}
-    name: backend-tests (py${{ matrix.python }}${{ matrix.coverage && ', coverage' || '' }}${{ !matrix.slow && ', not slow' || '' }})
+        ${{ fromJSON(inputs.full_validation && '{"include":[{"python":"3.11","coverage":false,"slow":true},{"python":"3.13","coverage":false,"slow":false},{"python":"3.14","coverage":false,"slow":false},{"python":"3.12","coverage":true,"slow":true}]}' || '{"include":[{"python":"3.12","coverage":false,"slow":false,"part":"1/2"},{"python":"3.12","coverage":false,"slow":false,"part":"2/2"}]}') }}
+    name: backend-tests (py${{ matrix.python }}${{ matrix.coverage && ', coverage' || '' }}${{ !matrix.slow && ', not slow' || '' }}${{ matrix.part && ', part ' || '' }}${{ matrix.part }})
     defaults:
       run:
         working-directory: .
@@ -351,8 +361,9 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-          # One writer per Python key; all other jobs only restore this cache.
-          save-cache: true
+          # One writer per Python key (of the PR's two parts, the first); all
+          # other jobs only restore this cache.
+          save-cache: ${{ matrix.part != '2/2' }}
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -361,7 +372,9 @@ jobs:
         # --sandloom-shuffle: a fresh seeded order per run (printed in the header
         # and the summary; replay with --sandloom-shuffle=<seed>).
         run: >-
-          uv run pytest -q -n auto --dist loadfile --sandloom-shuffle=random --durations=25
+          uv run pytest -q -n auto --dist loadfile --durations=25
+          --sandloom-shuffle=${{ matrix.part && github.run_id || 'random' }}
+          ${{ matrix.part && '--sandloom-shard=' || '' }}${{ matrix.part }}
           ${{ matrix.coverage && '--cov --cov-report=term-missing --cov-report=html' || '' }}
           ${{ !matrix.slow && '-m "not slow"' || '' }}
         env:
@@ -403,13 +416,20 @@ jobs:
     # files, which hides a test that passes only because an earlier one left
     # a registry, a binding or a row behind; one process running everything
     # in a fresh order finds it. The seed is printed in the header and the
-    # summary: replay with `uv run pytest -p no:xdist --sandloom-shuffle=<seed>`.
-    # docs/modules/testing.md#test-isolation.
+    # summary: replay with `uv run pytest -p no:xdist --sandloom-shuffle=<seed>
+    # --sandloom-shard=<k>/2`. docs/modules/testing.md#test-isolation.
+    # Two shards of one seed (the run id): each a serial process over half
+    # the files, dealt anew by every seed, together the whole selection.
     # This input is known immediately; no classifier output is consumed.
     # Start the critical serial gate alongside classification, not behind it.
     if: ${{ inputs.full_validation }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: backend-tests-isolation (shard ${{ matrix.shard }}/2)
     defaults:
       run:
         working-directory: .
@@ -456,7 +476,8 @@ jobs:
         # process; the unfiltered full matrix above already exercises them.
         run: >-
           uv run pytest -q -p no:xdist -p no:cacheprovider
-          --sandloom-shuffle=random -m "not subprocess_probe" --durations=25
+          --sandloom-shuffle=${{ github.run_id }} --sandloom-shard=${{ matrix.shard }}/2
+          -m "not subprocess_probe" --durations=25
         env:
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
           CACHE_URL: redis://127.0.0.1:6380/0
@@ -482,7 +503,7 @@ jobs:
     # backend suite: each worker gets its own database, Redis indexes
     # (allocated: this Redis has 16) and app role (<S5_TEST_ROLE>_gw<N>).
     needs: changes
-    if: ${{ needs.changes.outputs.benchmarks == 'true' }}
+    if: ${{ needs.changes.outputs.benchmarks == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'benchmarks-security') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -575,7 +596,7 @@ jobs:
     # migrate a fresh database with `sandloom migrate upgrade-all` — against the
     # framework from this commit.
     needs: changes
-    if: ${{ needs.changes.outputs.examples == 'true' }}
+    if: ${{ needs.changes.outputs.examples == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'examples') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -817,7 +838,7 @@ jobs:
     # variables set (their env is validated against Settings by
     # src/sandloom/core/tests/test_deploy_profiles.py).
     needs: changes
-    if: ${{ needs.changes.outputs.deploy == 'true' }}
+    if: ${{ needs.changes.outputs.deploy == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'deploy-profiles') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -917,7 +938,7 @@ jobs:
   docker-build:
     # Build the production image so a broken Dockerfile fails CI, not deploy.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.deploy == 'true' }}
+    if: ${{ (needs.changes.outputs.backend == 'true' || needs.changes.outputs.deploy == 'true') && !contains(fromJSON(inputs.reused_jobs || '[]'), 'docker-build') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -962,7 +983,7 @@ jobs:
     # (and tools/ci/ci_local.sh), so a backend route change or an openapi.json
     # change without its regenerated generated.ts cannot merge.
     needs: changes
-    if: ${{ needs.changes.outputs.admin == 'true' }}
+    if: ${{ needs.changes.outputs.admin == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'admin-contracts') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -989,6 +1010,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          # The npm download cache admin.yml also uses (keyed on the lock).
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
 
       - name: Install the backend (export_openapi.py imports the app)
         working-directory: .
@@ -1059,9 +1083,27 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the tested tree for release reuse
+        # The release reuses this run's green jobs only for a commit with
+        # exactly this tree (tools/ci/pr_evidence.py select); the job results
+        # it reads from GitHub, never from this file.
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/ci/pr_evidence.py record --out ci-evidence/evidence.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ github.event_name == 'pull_request' }}
+        # Without it a release only runs every job again.
+        continue-on-error: true
+        with:
+          name: ci-evidence
+          path: ci-evidence/
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate required job results
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
           CI_FULL_VALIDATION: ${{ inputs.full_validation || false }}
+          CI_REUSED_JOBS: ${{ inputs.reused_jobs || '[]' }}
           CI_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
         run: python3 tools/ci/required_ci.py

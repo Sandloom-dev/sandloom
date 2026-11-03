@@ -32,22 +32,28 @@ def test_uv_cache_has_one_writer_per_python_and_explicit_readers(runner):
                 if not step.get("uses", "").startswith("astral-sh/setup-uv@"):
                     continue
                 inputs = step["with"]
-                assert isinstance(inputs["save-cache"], bool), (path.name, name)
+                save = inputs["save-cache"]
+                assert isinstance(save, bool) or save == PART_WRITES, (path.name, name)
                 if not inputs["enable-cache"]:
-                    assert inputs["save-cache"] is False
+                    assert save is False
                     continue
                 assert inputs["cache-dependency-glob"] == "uv.lock"
                 assert "python-version" in inputs
-                if inputs["save-cache"]:
+                if save:
                     writers.append((path.name, name))
                     assert inputs["python-version"] == "${{ matrix.python }}"
                     for full in (False, True):
                         versions = [
                             row["python"]
                             for row in runner._expand_matrix(job, full_validation=full)
+                            if runner.eval_if(save, {"matrix": row}, "success")
                         ]
                         assert len(versions) == len(set(versions))
     assert writers == [("ci.yml", "backend-tests")]
+
+
+#: Of a Python's matrix rows split into parts, only the first saves the cache.
+PART_WRITES = "${{ matrix.part != '2/2' }}"
 
 
 def test_serial_gate_only_omits_probes_still_covered_by_the_full_matrix(runner):
@@ -58,6 +64,14 @@ def test_serial_gate_only_omits_probes_still_covered_by_the_full_matrix(runner):
     )
     assert '-m "not subprocess_probe"' in command
     assert "no:xdist" in command and "--durations=25" in command
+    # The shards of one seed are disjoint and together the whole selection
+    # (sandloom.core.testing.shuffle): every shard of 1..N runs, all with the
+    # seed every matrix entry shares, never a seed of its own.
+    shards = serial["strategy"]["matrix"]["shard"]
+    assert shards == list(range(1, len(shards) + 1))
+    assert serial["strategy"]["fail-fast"] is False
+    assert f"--sandloom-shard=${{{{ matrix.shard }}}}/{len(shards)}" in command
+    assert "--sandloom-shuffle=${{ github.run_id }}" in command
     parallel = next(
         s["run"]
         for s in jobs["backend-tests"]["steps"]
@@ -86,8 +100,20 @@ def runner() -> ModuleType:
 def test_pr_matrix_is_one_fast_312_and_full_matrix_retains_compatibility(runner):
     job = workflow("ci.yml")["jobs"]["backend-tests"]
     assert runner._expand_matrix(job, full_validation=False) == [
-        {"python": "3.12", "coverage": False, "slow": False}
+        {"python": "3.12", "coverage": False, "slow": False, "part": "1/2"},
+        {"python": "3.12", "coverage": False, "slow": False, "part": "2/2"},
     ]
+    # The parts share one seed, so together they are the whole fast suite;
+    # a full-validation row is one job with a fresh seed and no part.
+    command = next(
+        s["run"] for s in job["steps"] if "--sandloom-shuffle" in s.get("run", "")
+    )
+    assert "--sandloom-shuffle=${{ matrix.part && github.run_id || 'random' }}" in (
+        command
+    )
+    assert "${{ matrix.part && '--sandloom-shard=' || '' }}${{ matrix.part }}" in (
+        command
+    )
     full = runner._expand_matrix(job, full_validation=True)
     assert {row["python"] for row in full} == {"3.11", "3.12", "3.13", "3.14"}
     assert {row["python"] for row in full if row["slow"]} == {"3.11", "3.12"}
@@ -353,20 +379,24 @@ print(json.dumps({{key: os.environ.get(key) for key in keys}}))
 
 
 @pytest.mark.parametrize(
-    ("areas", "full", "pr"),
+    ("areas", "full", "pr", "reused"),
     [
-        (set(), False, True),
-        ({"docs"}, False, True),
-        ({"backend"}, False, True),
-        ({"admin"}, False, True),
-        ({"examples", "dependency_review"}, False, True),
-        ({"deploy"}, False, True),
-        ({"benchmarks"}, False, True),
-        ({"packages", "architecture"}, False, True),
-        (set(), True, False),
+        (set(), False, True, frozenset()),
+        ({"docs"}, False, True, frozenset()),
+        ({"backend"}, False, True, frozenset()),
+        ({"admin"}, False, True, frozenset()),
+        ({"examples", "dependency_review"}, False, True, frozenset()),
+        ({"deploy"}, False, True, frozenset()),
+        ({"benchmarks"}, False, True, frozenset()),
+        ({"packages", "architecture"}, False, True, frozenset()),
+        (set(), True, False, frozenset()),
+        # A release that reuses a green PR run of the same tree.
+        (set(), True, False, frozenset({"backend-static", "examples", "docker-build"})),
     ],
 )
-def test_gate_agrees_with_actual_github_job_conditions(runner, areas, full, pr):
+def test_gate_agrees_with_actual_github_job_conditions(runner, areas, full, pr, reused):
+    import json
+
     spec = importlib.util.spec_from_file_location(
         "required_ci_policy", ROOT / "tools/ci/required_ci.py"
     )
@@ -382,7 +412,7 @@ def test_gate_agrees_with_actual_github_job_conditions(runner, areas, full, pr):
             "event_name": "pull_request" if pr else "workflow_dispatch",
             "event": {"action": "opened" if pr else ""},
         },
-        "inputs": {"full_validation": full},
+        "inputs": {"full_validation": full, "reused_jobs": json.dumps(sorted(reused))},
         "needs": {"changes": {"outputs": outputs}},
     }
     needs = {
@@ -394,7 +424,8 @@ def test_gate_agrees_with_actual_github_job_conditions(runner, areas, full, pr):
         for name in jobs["ci-required"]["needs"]
     }
     needs["changes"]["outputs"] = outputs
-    assert gate.check(needs, full_validation=full, pull_request=pr) == []
+    assert all(needs[name]["result"] == "skipped" for name in reused)
+    assert gate.check(needs, full_validation=full, pull_request=pr, reused=reused) == []
 
 
 def test_reusable_suites_have_one_pr_entry_point_and_no_failure_bypass():

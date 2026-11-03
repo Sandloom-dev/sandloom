@@ -49,12 +49,40 @@ PR_JOBS = {
     "dependency-review": "dependency_review",
 }
 ALL_JOBS = ALWAYS | AREA_JOBS.keys() | FULL_JOBS | PR_JOBS.keys()
+# Jobs that run the same commands in the PR and the full profile. A release
+# may skip one when a green PR run tested the release commit's exact tree
+# (tools/ci/pr_evidence.py); backend-tests is not here, because the full
+# matrix runs other Pythons, coverage and the slow suites.
+REUSABLE_JOBS = (
+    "backend-static",
+    "supply-chain",
+    "benchmarks-security",
+    "examples",
+    "deploy-profiles",
+    "docker-build",
+    "admin-contracts",
+)
 
 
-def check(needs: Mapping, *, full_validation: bool, pull_request: bool) -> list[str]:
-    """Selected jobs must succeed; only unselected jobs may be skipped."""
+def check(
+    needs: Mapping,
+    *,
+    full_validation: bool,
+    pull_request: bool,
+    reused: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Selected jobs must succeed; only unselected jobs may be skipped.
+
+    ``reused``: jobs a full validation skipped because a green PR run tested
+    the same tree; only a full validation outside a PR may name any, and only
+    :data:`REUSABLE_JOBS`.
+    """
     if not isinstance(needs, Mapping) or set(needs) != ALL_JOBS:
         return ["Required CI job list is missing or differs from the reviewed workflow"]
+    if reused and (pull_request or not full_validation):
+        return ["Reused PR results are accepted only by a full validation"]
+    if not reused <= set(REUSABLE_JOBS):
+        return [f"Not reusable: {', '.join(sorted(reused - set(REUSABLE_JOBS)))}"]
     if any(not isinstance(job, Mapping) for job in needs.values()):
         return ["Invalid job result payload"]
     outputs = needs["changes"].get("outputs", {})
@@ -78,6 +106,8 @@ def check(needs: Mapping, *, full_validation: bool, pull_request: bool) -> list[
             for name, area in PR_JOBS.items()
         }
     )
+    for name in reused:
+        selected[name] = False
     return [
         f"{name}: {needs[name].get('result', 'missing')} (required: {required})"
         for name, required in sorted(selected.items())
@@ -93,12 +123,21 @@ def boolean(name: str) -> bool:
     return value == "true"
 
 
+def reused_jobs(raw: str) -> frozenset[str]:
+    value = json.loads(raw or "[]")
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ValueError("CI_REUSED_JOBS must be a JSON list of job names")
+    return frozenset(value)
+
+
 def main() -> int:
     try:
+        reused = reused_jobs(os.environ.get("CI_REUSED_JOBS", "[]"))
         problems = check(
             json.loads(os.environ["CI_NEEDS"]),
             full_validation=boolean("CI_FULL_VALIDATION"),
             pull_request=boolean("CI_PULL_REQUEST"),
+            reused=reused,
         )
     except (KeyError, ValueError, TypeError) as exc:
         print(f"Invalid required CI input: {type(exc).__name__}")
@@ -107,6 +146,11 @@ def main() -> int:
         print(problem)
     if not problems:
         print("CI required: all selected jobs succeeded")
+        if reused:
+            print(
+                "Reused from a green PR run on the same tree: "
+                + ", ".join(sorted(reused))
+            )
     return int(bool(problems))
 
 

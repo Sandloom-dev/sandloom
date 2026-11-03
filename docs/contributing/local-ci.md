@@ -173,6 +173,10 @@ CI).
 | `backend-tests-3.11` | full (`-n auto --dist loadfile`) |
 | `backend-tests-3.12` | full, with coverage (`COVERAGE_CORE=sysmon`) |
 | `backend-tests-3.13`, `backend-tests-3.14` | `-m "not slow"` |
+| `backend-tests-isolation-1`, `-2` | the serial gate's two shards of one seed (`--sandloom-shard=<k>/2`; the seed is the commit's, so both shards deal the same files) |
+
+The PR profile's two 3.12 parts are not run locally: the full rows above
+already cover their tests.
 
 The `slow` marker covers the multi-process suites — the split conformance
 matrix, module extraction, the generated project, the boot configuration

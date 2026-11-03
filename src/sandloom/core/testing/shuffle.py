@@ -14,6 +14,12 @@ is printed in the report header and again in the terminal summary, so a
 failure replays with ``--sandloom-shuffle=<seed>``. Without the option the plugin
 changes nothing.
 
+``--sandloom-shard=K/N`` (with a seed) keeps the K-th of N parts of the
+shuffled run: whole files, dealt in the seeded order to the part with the
+fewest tests so far. The N parts of one seed are disjoint and together
+are the whole selection; another seed deals the files differently, so two
+files that never meet in one process under one seed meet under others.
+
 Imports nothing from the framework: it only reorders the collected items.
 """
 
@@ -27,6 +33,7 @@ from typing import Any
 import pytest
 
 _SEED_KEY = pytest.StashKey[int]()
+_SHARD_KEY = pytest.StashKey[tuple[int, int, int, int]]()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -40,6 +47,33 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "inside each file); SEED is an integer, or 'random' for a fresh one"
         ),
     )
+    parser.getgroup("sandloom").addoption(
+        "--sandloom-shard",
+        action="store",
+        default=None,
+        metavar="K/N",
+        help=(
+            "with --sandloom-shuffle: run only the K-th of N disjoint parts "
+            "(whole files, balanced by test count) of the shuffled run"
+        ),
+    )
+
+
+def _shard(config: pytest.Config) -> tuple[int, int] | None:
+    raw = config.getoption("sandloom_shard", None)
+    if raw is None:
+        return None
+    try:
+        index, total = (int(part) for part in str(raw).split("/"))
+    except ValueError:
+        index = total = 0
+    if not 1 <= index <= total:
+        raise pytest.UsageError(
+            f"--sandloom-shard={raw}: expected K/N with 1 <= K <= N"
+        )
+    if config.getoption("sandloom_shuffle", None) is None:
+        raise pytest.UsageError("--sandloom-shard needs --sandloom-shuffle=<seed>")
+    return index, total
 
 
 def _seed(config: pytest.Config) -> int | None:
@@ -61,6 +95,7 @@ def _seed(config: pytest.Config) -> int | None:
 def pytest_configure(config: pytest.Config) -> None:
     if config.pluginmanager.hasplugin("xdist"):
         config.pluginmanager.register(_XdistHooks(), "sandloom-shuffle-xdist")
+    _shard(config)
     _seed(config)
 
 
@@ -76,7 +111,12 @@ class _XdistHooks:
 
 def pytest_report_header(config: pytest.Config) -> str | None:
     seed = _seed(config)
-    return None if seed is None else f"sandloom-shuffle: seed {seed}"
+    if seed is None:
+        return None
+    shard = _shard(config)
+    return f"sandloom-shuffle: seed {seed}" + (
+        "" if shard is None else f", shard {shard[0]}/{shard[1]}"
+    )
 
 
 @pytest.hookimpl(trylast=True)
@@ -89,10 +129,39 @@ def pytest_collection_modifyitems(
     by_file: dict[str, list[pytest.Item]] = defaultdict(list)
     for item in items:
         by_file[item.nodeid.split("::", 1)[0]].append(item)
+    files = sorted(by_file, key=lambda n: _rank(seed, n))
+    shard = _shard(config)
+    if shard is not None:
+        index, total = shard
+        kept = _deal(files, {name: len(by_file[name]) for name in files}, total)[
+            index - 1
+        ]
+        dropped = [i for name in files if name not in kept for i in by_file[name]]
+        if dropped:
+            config.hook.pytest_deselected(items=dropped)
+        config.stash[_SHARD_KEY] = (
+            len(kept),
+            len(files),
+            len(items) - len(dropped),
+            len(items),
+        )
+        files = [name for name in files if name in kept]
     shuffled: list[pytest.Item] = []
-    for name in sorted(by_file, key=lambda n: _rank(seed, n)):
+    for name in files:
         shuffled.extend(sorted(by_file[name], key=lambda i: _rank(seed, i.nodeid)))
     items[:] = shuffled
+
+
+def _deal(files: list[str], sizes: dict[str, int], total: int) -> list[set[str]]:
+    """Deal ``files`` (already in their seeded order) to ``total`` parts, each
+    to the part with the fewest tests so far (the lowest index on a tie)."""
+    parts: list[set[str]] = [set() for _ in range(total)]
+    counts = [0] * total
+    for name in files:
+        smallest = counts.index(min(counts))
+        parts[smallest].add(name)
+        counts[smallest] += sizes[name]
+    return parts
 
 
 def _rank(seed: int, name: str) -> bytes:
@@ -106,7 +175,16 @@ def pytest_terminal_summary(
     terminalreporter: pytest.TerminalReporter, config: pytest.Config
 ) -> None:
     seed = _seed(config)
-    if seed is not None:
-        terminalreporter.write_line(
-            f"sandloom-shuffle: seed {seed} (replay: --sandloom-shuffle={seed})"
-        )
+    if seed is None:
+        return
+    shard = _shard(config)
+    replay = f"--sandloom-shuffle={seed}"
+    if shard is not None:
+        replay += f" --sandloom-shard={shard[0]}/{shard[1]}"
+        if _SHARD_KEY in config.stash:
+            files, all_files, tests, all_tests = config.stash[_SHARD_KEY]
+            terminalreporter.write_line(
+                f"sandloom-shuffle: shard {shard[0]}/{shard[1]} ran {files} of "
+                f"{all_files} files, {tests} of {all_tests} tests"
+            )
+    terminalreporter.write_line(f"sandloom-shuffle: seed {seed} (replay: {replay})")
