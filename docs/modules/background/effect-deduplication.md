@@ -17,11 +17,37 @@ A fresh random key on every attempt creates a new operation.
 | Task or direct command effect | A durable inbox claim or a unique operation key in the effect's transaction | Atomically claim and write; task redelivery alone is not deduplication |
 | External payment or notification | Provider idempotency key plus durable reconciliation | Reuse the provider key after timeouts; resolve ambiguous outcomes before compensating |
 
-The SDK exposes `durable_inbox` and `operation_key` through
-[`sandloom.sdk.effects`](../../reference/sdk/effects.md), and the command declaration
-through [`sandloom.sdk.contracts`](../../reference/sdk/contracts.md). These are
-advanced tools: choose a scope that cannot collide between unrelated tenants,
-accounts or operation types.
+The consumer's claim is described with the consumer, in
+[at-least-once delivery](../between/events.md#at-least-once-delivery-and-exactly-once-effects);
+the command declaration is in [`sandloom.sdk.contracts`](../../reference/sdk/contracts.md).
+
+## Claim an effect yourself
+
+Where no framework boundary covers an effect, write the dedupe record yourself,
+in the same transaction as the effect. A task body needs one, and so does an L2
+handler registered on a raw `(session, envelope)` callback. The record takes one
+of three forms:
+
+- A durable inbox claim inside the unit:
+  `if not await durable_inbox("<module>@<task>").claim(db(), key): return`.
+  `claim` returns `False` when an earlier run already claimed `key` under that
+  name. An L2 raw handler claims `envelope["id"]` the same way.
+- A `UNIQUE` operation-key column on the effect's own row.
+- A command contract called with a derived key. Its command log dedupes at
+  the provider.
+
+`operation_key(*parts)` derives that key from business ids:
+`operation_key("close-stale", tenant_id, day)` returns
+`"close-stale:<tenant_id>:<day>"`. Every part must be non-empty and hold no `:`
+or whitespace, which keeps two different tuples from producing one key; a bad
+part raises `ValueError`. Both helpers are advanced names of
+[`sandloom.sdk.effects`](../../reference/sdk/effects.md). Choose parts that
+cannot collide between unrelated tenants, accounts or operation types.
+
+<!-- prose-ok: P6 three real alternatives, not a rhythm triad -->
+An effect in another store, such as a cache or an external API, is outside any
+database claim. Make that effect idempotent, key it with `operation_key(...)`,
+or write it conditionally.
 
 ## Keep the claim and the effect together
 

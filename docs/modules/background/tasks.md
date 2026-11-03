@@ -115,15 +115,10 @@ event and enqueue from its consumer.
 ### Effect-level dedupe
 
 The broker may redeliver a message (a worker crash with `acks_late`, a lost
-acknowledgement), and enqueue dedupe expires. Protect every irreversible
-task effect with a dedupe record that commits in the same transaction as the
-effect:
-
-- `if not await durable_inbox("<module>@<task>").claim(db(), key): return`
-  inside the block (`sandloom.sdk.effects`), or
-- a `UNIQUE` operation-key column on the effect's own row, or
-- a command contract called with a derived `operation_key(...)`: its command
-  log dedupes at the provider.
+acknowledgement), and enqueue dedupe expires. A task protects every
+irreversible effect with a dedupe record that commits in the effect's
+transaction. [Deduplicate effects](effect-deduplication.md#claim-an-effect-yourself)
+lists its forms.
 
 ### The worker and beat
 

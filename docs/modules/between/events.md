@@ -209,23 +209,18 @@ process unready: that event stays unacknowledged for redelivery or the DLQ.
 
 ### At-least-once delivery and exactly-once effects
 
-- The envelope id equals the outbox row id and is **stable across
-  redeliveries**. Duplicate deliveries do happen (the post-commit dispatch
-  and the relay can race); this is by design.
-- With `durable=True` (the default) the consumer unit claims
-  `(consumer, envelope id)` in its own database before your handler runs; a
-  duplicate is skipped. The claim commits with your effect, so a crash
-  before COMMIT redelivers and a crash after it never re-applies. This is
-  exactly-once **effect** on that database's state, not exactly-once
-  delivery.
-- With `durable=False` the dedupe is a cache record: best effort, fail-open,
-  TTL-bounded. Use it only for idempotent or non-critical handlers.
-- An effect in **another** store (a cache, an external API, another
-  database) is not covered by the claim. Make it idempotent, key it with
-  `operation_key(...)`, or write it conditionally.
-- L2 code that registers a raw `(session, envelope)` handler claims
-  explicitly: `if not await durable_inbox("<consumer>").claim(session,
-  envelope["id"]): return`.
+The envelope id equals the outbox row id and is stable across redeliveries.
+Duplicate deliveries do happen, by design: the post-commit dispatch and the
+relay can race. With `durable=True` (the default) the consumer unit claims
+`(consumer, envelope id)` in its own database before your handler runs, and a
+duplicate is skipped. The claim commits with your effect: a crash before
+COMMIT redelivers, and a crash after it never re-applies. That is exactly-once
+**effect** on that database's state, not exactly-once delivery.
+
+With `durable=False` the dedupe is a cache record (best effort, fail-open,
+TTL-bounded), for idempotent or non-critical handlers only. An effect outside
+the consumer's database, and a raw L2 handler, need a claim of their own:
+[Deduplicate effects](../background/effect-deduplication.md#claim-an-effect-yourself).
 
 ### Poison events and the dead-letter queue
 
