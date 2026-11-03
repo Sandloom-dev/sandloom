@@ -18,10 +18,15 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import HTTPException
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
@@ -324,12 +329,19 @@ def _warn_startup_configuration(main_logger: logging.Logger) -> None:
 def _new_application(title: str) -> FastAPI:
     # Interactive docs are served outside production by default; in production
     # they are disabled unless DOCS_ENABLED is explicitly set.
+    # Outside production the kernel serves /docs and /redoc itself, in the
+    # Sandloom colours; in production they are the app's own: FastAPI's.
+    branded = settings.docs_exposed and not settings.is_prod
     docs_kwargs: dict[str, str | None] = (
-        {}
+        {"docs_url": None, "redoc_url": None}
+        if branded
+        else {}
         if settings.docs_exposed
         else {"docs_url": None, "redoc_url": None, "openapi_url": None}
     )
     application = FastAPI(title=title, version="1.0.0", **docs_kwargs)  # type: ignore[arg-type]
+    if branded:
+        _install_branded_docs(application)
     # Order matters: Starlette makes the LAST-added middleware the OUTERMOST.
     # register_middlewares places the Mask5xx safety net just INSIDE CORS (so
     # masked 500s still carry CORS headers) and outside every other framework
@@ -896,6 +908,105 @@ _FAVICON_SVG = (
     "41.8ZM34.5 54.5Q40 52.5 45.5 54.5L42 58.5 41 59V61.5L45.5 63.2 44.9 64.6 40 "
     '62.8 35.1 64.6 34.5 63.2 39 61.5V59L38 58.5Z"/></svg>'
 )
+
+
+#: ``/docs`` and ``/redoc`` outside production: the caracal in the tab, a
+#: Sandloom bar above Swagger UI, links and buttons in the brand colours
+#: (``website/assets/brand.css``). The HTTP method colours stay Swagger's.
+_DOCS_STYLE = """<style>
+body { margin: 0; background: #faf8f5; }
+.sandloom-bar { display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.65rem 1.25rem; background: #1f1d1a; color: #ece8e1;
+  font: 600 15px/1.2 system-ui, sans-serif; }
+.sandloom-bar svg { width: 26px; height: 26px; flex: none; }
+.sandloom-bar svg path { fill: #d8b892; }
+.sandloom-bar .api { color: #a39a8c; font-weight: 400; }
+.sandloom-bar nav { margin-left: auto; display: flex; gap: 1rem; }
+.sandloom-bar a { color: #d8b892; font-weight: 400; text-decoration: none; }
+.sandloom-bar a:hover { text-decoration: underline; }
+.swagger-ui .info { margin: 32px 0 24px; }
+.swagger-ui .info .title, .swagger-ui .opblock-tag { color: #1f1d1a; }
+.swagger-ui .info a, .swagger-ui .opblock-tag a { color: #8b6841; }
+.swagger-ui .scheme-container { background: #faf8f5; box-shadow: none;
+  border-bottom: 1px solid #e6dfd3; }
+.swagger-ui .btn.authorize { color: #8b6841; border-color: #8b6841; }
+.swagger-ui .btn.authorize svg { fill: #8b6841; }
+.swagger-ui .btn.execute { background: #8b6841; border-color: #8b6841; }
+.swagger-ui .operation-filter-input { border-color: #d8b892; }
+</style>"""
+
+
+#: ReDoc's theme attribute: the brand colour for links, tags and the sidebar.
+_REDOC_THEME = (
+    '<redoc theme=\'{"colors": {"primary": {"main": "#8b6841"}}, '
+    '"sidebar": {"backgroundColor": "#faf8f5"}, '
+    '"rightPanel": {"backgroundColor": "#1f1d1a"}}\' '
+)
+
+
+def _docs_favicon() -> str:
+    return "data:image/svg+xml," + quote(_FAVICON_SVG)
+
+
+def _docs_bar(title: str) -> str:
+    mark = _FAVICON_SVG.replace("<style>", "<!--").replace("</style>", "-->")
+    return (
+        f'<header class="sandloom-bar">{mark}<span>{html.escape(title)}</span>'
+        '<span class="api">API</span><nav><a href="/">Start page</a>'
+        '<a href="/redoc">ReDoc</a>'
+        '<a href="https://sandloom.dev/docs/" target="_blank" rel="noopener">'
+        "Sandloom docs</a></nav></header>"
+    )
+
+
+def _install_branded_docs(application: FastAPI) -> None:
+    """Swagger UI at ``/docs`` and ReDoc at ``/redoc``, as FastAPI serves them
+    (same paths, the OAuth2 redirect, ``root_path``), with the Sandloom bar,
+    favicon and colours. Plain Starlette routes, like FastAPI's own: no
+    route policy, not in the schema."""
+    openapi_url = application.openapi_url or "/openapi.json"
+    redirect_url = application.swagger_ui_oauth2_redirect_url
+
+    async def swagger_ui(request: Request) -> HTMLResponse:
+        root = request.scope.get("root_path", "").rstrip("/")
+        page = get_swagger_ui_html(
+            openapi_url=root + openapi_url,
+            title=f"{application.title} API",
+            swagger_favicon_url=_docs_favicon(),
+            oauth2_redirect_url=root + redirect_url if redirect_url else None,
+            init_oauth=application.swagger_ui_init_oauth,
+            swagger_ui_parameters={
+                "displayRequestDuration": True,
+                "filter": True,
+                "persistAuthorization": True,  # outside production only
+                **(application.swagger_ui_parameters or {}),
+            },
+        )
+        body = bytes(page.body).decode()
+        body = body.replace("</head>", _DOCS_STYLE + "\n</head>", 1)
+        body = body.replace("<body>", "<body>\n" + _docs_bar(application.title), 1)
+        return HTMLResponse(body)
+
+    async def swagger_ui_redirect(request: Request) -> HTMLResponse:
+        return get_swagger_ui_oauth2_redirect_html()
+
+    async def redoc(request: Request) -> HTMLResponse:
+        root = request.scope.get("root_path", "").rstrip("/")
+        page = get_redoc_html(
+            openapi_url=root + openapi_url,
+            title=f"{application.title} API",
+            redoc_favicon_url=_docs_favicon(),
+            with_google_fonts=False,
+        )
+        body = bytes(page.body).decode().replace("<redoc ", _REDOC_THEME, 1)
+        return HTMLResponse(body)
+
+    application.add_route("/docs", swagger_ui, include_in_schema=False)
+    if redirect_url:
+        application.add_route(
+            redirect_url, swagger_ui_redirect, include_in_schema=False
+        )
+    application.add_route("/redoc", redoc, include_in_schema=False)
 
 
 def _install_favicon(application: FastAPI) -> None:

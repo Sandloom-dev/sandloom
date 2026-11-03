@@ -13,6 +13,15 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **The API docs carry the Sandloom brand outside production.** `/docs` (Swagger UI)
+  has the caracal in the tab, a bar with the app's name and links to the start page,
+  ReDoc and the Sandloom docs, and buttons in the brand colours; it keeps the
+  authorization across reloads and shows how long a request took. `/redoc` gets the
+  favicon and the colours, without Google Fonts. Production keeps FastAPI's own pages:
+  a deployed app's API docs are the app's.
+
 ## [0.7.0a10] — 2026-11-03
 
 ### Added
