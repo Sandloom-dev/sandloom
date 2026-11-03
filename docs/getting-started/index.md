@@ -54,13 +54,13 @@ uv run sandloom dev up                       # Postgres + Redis (Docker); writes
 uv run sandloom add module notes             # a module: discovered, nothing to wire
 uv run sandloom test                         # tests + every gate (never writes)
 uv run sandloom migrate upgrade-all --apply  # core + module chains
-uv run sandloom dev run                      # http://127.0.0.1:8000/health
+uv run sandloom dev run                      # serves the app; prints its address
 ```
 <!-- quickstart:end -->
 
 `uv run sandloom test` ends with `sandloom test: OK`; the API answers on
-`http://127.0.0.1:8000` (`/health`, and `/api/v1/notes/items` with a bearer
-token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these lines during full validation. See
+the address `sandloom dev run` prints, `http://127.0.0.1:8000` when that port
+was free (`/health`, and `/api/v1/notes/items` with a bearer token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these lines during full validation. See
 [CI profiles](../contributing/ci.md) for the automatic and full checks.
 
 !!! note "The dev services"
@@ -72,16 +72,19 @@ token). The CI job `quickstart` (`tools/smoke/quickstart_check.py`) runs these l
 
     - `uv run sandloom dev status` shows the ports and the URLs. Paste the
       URL into a database GUI.
-    - `uv run sandloom dev run` serves on port 8000. When that port is taken,
-      it says by what; `--port auto` picks a free one.
+    - `uv run sandloom dev run` serves on this app's own port: 8000, or the
+      next free one when 8000 was taken at the first `dev up`. It keeps that
+      port. When something else holds it later, it says what; `--port auto`
+      picks a free one.
     - A git worktree of the app shares the containers and gets its own
       database: run `uv run sandloom dev up` in the worktree too.
     - Each `sandloom test` run gets its own test database, so two runs never
       clash.
     - `uv run sandloom dev down` stops the containers; the data stays.
 
-For an app created with `--with identity`, follow [authentication and email](../modules/batteries/first-access-token.md)
-to receive verification mail locally and obtain access/refresh tokens.
+With `--with identity`, development prints the links of the emails identity
+sends (verification, password reset) in the `sandloom dev run` output instead
+of mailing them. For tokens, see [your first access token](../modules/batteries/first-access-token.md).
 
 ## Next
 

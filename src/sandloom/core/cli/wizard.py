@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import IO, Any, TextIO
 
 import sandloom.core.cli.checkbox as _checkbox
+import sandloom.core.cli.dev.commands as _dev_commands
 import sandloom.core.cli.dev.errors as _errors
 import sandloom.core.cli.dev.ports as _ports
 import sandloom.core.cli.dev.process as _process
@@ -55,8 +56,12 @@ SETUP_LOG = Path(".sandloom/run/new-setup.log")
 #: caller's environment instead of the new app's.
 _UV_LEAKS = frozenset({"VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT"})
 DOCKER_TIMEOUT = 10.0
-#: A logging line's time, level and logger, cut from the line under the spinner.
-_LOG_PREFIX = re.compile(r"^\d{4}-\d\d-\d\d [\d:,.]+ \[\w+\] [\w.]+: ")
+#: A log line (the framework's ``time [LEVEL] logger:``, or ``LEVEL:  ``):
+#: kept in the log, never shown under the spinner.
+_LOG_LINE = re.compile(
+    r"^(?:\d{4}-\d\d-\d\d [\d:,.]+ \[\w+\] [\w.]+: "
+    r"|(?:DEBUG|INFO|WARNING|ERROR|CRITICAL):\s)"
+)
 TAIL_LINES = 20
 #: How long a stopped step may take to exit after Ctrl-C before it is killed.
 STOP_GRACE = 15.0
@@ -169,27 +174,16 @@ def parser() -> argparse.ArgumentParser:
         default="example",
         help="name of the initial sample module (default: example)",
     )
-    p.add_argument(
-        "--framework-req",
-        default=None,
-        help=(
-            "override the framework dependency requirement string "
-            f"(default: sandloom[redis,celery]{_project.FRAMEWORK_RANGE}; each "
-            "--with module adds its sandloom-<module> package)"
-        ),
-    )
+    # For framework contributors (docs/contributing): where the app's
+    # sandloom comes from. They work; --help keeps them out of a newcomer's way.
+    p.add_argument("--framework-req", default=None, help=argparse.SUPPRESS)
     p.add_argument(
         "--framework-source",
         choices=("pypi", "git", "path"),
         default=None,
-        help="distribution source (checkout: git; installed wheel: pypi)",
+        help=argparse.SUPPRESS,
     )
-    p.add_argument(
-        "--framework-path",
-        type=Path,
-        default=None,
-        help="framework repository (holding packages/) for --framework-source path",
-    )
+    p.add_argument("--framework-path", type=Path, default=None, help=argparse.SUPPRESS)
     p.add_argument(
         "--agents",
         default=None,
@@ -408,12 +402,23 @@ def ask_setup(p: Prompter, uv: str | None, docker_ready: Callable[[], bool]) -> 
 
 
 def ask_admin_email(p: Prompter, default: str | None) -> str | None:
-    """The first administrator's email; ``None`` skips the step."""
+    """The first administrator's email; ``None`` skips the step.
+
+    ``default`` comes from ``git config user.email``, which may not be the
+    address the person signs in with: taking it needs a confirmation, and a
+    no asks again without it."""
     if default:
-        answer = p.ask(f"First administrator's email [{default}] (- to skip): ")
+        answer = p.ask(
+            f"First administrator's email [{default}] (from git config; - to skip): "
+        )
         if answer == "-":
             return None
-        return answer or default
+        if answer:
+            return answer
+        if ask_yes(
+            p, f"Administrator: {default} — is this the address you sign in with?"
+        ):
+            return default
     return p.ask("First administrator's email (Enter to skip): ") or None
 
 
@@ -503,6 +508,57 @@ def git_init(root: Path, environ: Mapping[str, str]) -> bool:
     return done is not None and done.returncode == 0
 
 
+#: The message of the commit the wizard makes after its own ``git init``.
+INITIAL_COMMIT = "Initial commit from sandloom new"
+
+
+def _git_config(key: str, root: Path, environ: Mapping[str, str]) -> str:
+    proc = _run_quiet(["git", "config", key], environ, cwd=root)
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
+
+
+def initial_commit(root: Path, environ: Mapping[str, str]) -> str | None:
+    """Commit the generated app in the repository ``git init`` just made;
+    ``None`` when it did, else the one-line hint to show instead. Needs git's
+    ``user.name`` and ``user.email`` (never invented here). ``.env`` stays
+    out: the generated ``.gitignore`` lists it. No hooks run (none are
+    installed yet; a global hook is not this app's business)."""
+    hint = (
+        "No initial commit: git has no user.name / user.email. Set them, then: "
+        'git add -A && git commit -m "' + INITIAL_COMMIT + '"'
+    )
+    if not (
+        _git_config("user.name", root, environ)
+        and _git_config("user.email", root, environ)
+    ):
+        return hint
+    added = _run_quiet(["git", "add", "-A"], environ, cwd=root)
+    done = (
+        _run_quiet(
+            ["git", "commit", "--quiet", "--no-verify", "-m", INITIAL_COMMIT],
+            environ,
+            cwd=root,
+        )
+        if added is not None and added.returncode == 0
+        else None
+    )
+    if done is None or done.returncode != 0:
+        return (
+            "No initial commit: git commit failed. Commit yourself: "
+            'git add -A && git commit -m "' + INITIAL_COMMIT + '"'
+        )
+    return None
+
+
+def app_url_of(root: Path, environ: Mapping[str, str]) -> str | None:
+    """Where the new app answers: the port its first ``dev up`` chose
+    (``dev run``'s default), read back from the dev state."""
+    try:
+        return _dev_commands.app_url(root, environ)
+    except OSError:
+        return None
+
+
 def free_app_port(preferred: int = 8000) -> int:
     """The port ``dev run`` takes: ``preferred``, else the next free one."""
     for port in range(preferred, preferred + 200):
@@ -550,6 +606,19 @@ def setup_steps(uv: str, *, admin_email: str | None, attach: bool) -> list[Step]
             create.append("--invite")
             steps.append(Step(f"uv run {shlex.join(create)}", [uv, "run", *create]))
     return steps
+
+
+def _traceback_of(tail: Sequence[str], reason: str) -> bool:
+    """Whether ``tail`` is a Python traceback whose last line is ``reason``
+    (it repeats the reason with frames only a debugger needs)."""
+    lines = [line for line in tail if line.strip()]
+    if not lines or lines[-1].strip() != reason.strip():
+        return False
+    return any(
+        line.startswith("Traceback (most recent call last)")
+        or line.lstrip().startswith('File "')
+        for line in lines
+    )
 
 
 @dataclass
@@ -600,9 +669,11 @@ class SetupRunner:
     def _continue_with(
         self, rest: Sequence[Step], app_dir: str, *, cancelled: bool
     ) -> None:
-        commands = " && ".join(["cd " + shlex.quote(app_dir), *(s.label for s in rest)])
+        # One command per line: a narrow terminal or a log viewer cuts no
+        # command off, and each line can be pasted on its own.
+        commands = ["cd " + shlex.quote(app_dir), *(s.label for s in rest)]
         head = "Cancelled. Continue with" if cancelled else "Fix it and continue with"
-        self.out.write(f"\n{head}: {commands}\n")
+        self.out.write(f"\n{head}:\n" + "".join(f"  {c}\n" for c in commands))
         self.out.flush()
 
     def _step(self, step: Step, *, cwd: Path, env: dict[str, str], log: IO[str]) -> str:
@@ -664,8 +735,10 @@ class SetupRunner:
             log.flush()
             tail.append(text)
             if errors is not None and text.strip():
-                # stderr: what the step says it is doing, under the spinner.
-                line.note(_LOG_PREFIX.sub("", text))
+                # stderr: what the step says it is doing, under the spinner;
+                # a log line (the framework's, uvicorn's) is never shown there.
+                if not _LOG_LINE.match(text):
+                    line.note(text)
                 errors.append(text.strip())
 
     @staticmethod
@@ -691,10 +764,13 @@ class SetupRunner:
         return proc.returncode or 1
 
     def _report(self, tail: deque[str], errors: list[str], code: int) -> None:
-        for text in tail:
-            self.out.write(f"    {self.style.muted(text)}\n")
+        """The reason first; then the last lines, unless they are only a
+        traceback ending in that reason; then where the whole output is."""
         reason = errors[-1] if errors else f"exit status {code}"
         self.out.write(_ui.error_lines(self.style, reason) + "\n")
+        if not _traceback_of(tail, reason):
+            for text in tail:
+                self.out.write(f"    {self.style.muted(text)}\n")
         self.out.write(self.style.muted(f"  The whole output: {self.log}") + "\n")
 
     def _attached(self, step: Step, *, cwd: Path, env: dict[str, str]) -> str:
@@ -900,8 +976,11 @@ def _next_steps(run: _Run, plan: Plan, root: Path, answers: Answers) -> list[str
         plan.app, plan.module, path=None if in_cwd else str(root)
     )
     if answers.setup:
-        port = free_app_port()
-        serve = "uv run sandloom dev run" + (f" --port {port}" if port != 8000 else "")
+        # `dev up` chose this checkout's port; `dev run` serves on it.
+        serve = "uv run sandloom dev run"
+        if app_url_of(root, run.environ) is None:
+            port = free_app_port()
+            serve += f" --port {port}" if port != 8000 else ""
         lines = [lines[0], serve]
         if "admin" in plan.batteries and not answers.admin_email:
             lines.insert(1, _project.ADMIN_NEXT_STEP)
@@ -932,17 +1011,30 @@ def _setup(run: _Run, root: Path, answers: Answers) -> Result:
     return runner.run(steps, cwd=root, app_dir=app_dir)
 
 
-def _summary(run: _Run, plan: Plan, answers: Answers, next_lines: list[str]) -> str:
+def _summary(
+    run: _Run, plan: Plan, root: Path, answers: Answers, next_lines: list[str]
+) -> str:
     style = run.style
-    port = free_app_port()
-    url = f"http://127.0.0.1:{port}"
+    url = app_url_of(root, run.environ) or f"http://127.0.0.1:{free_app_port()}"
     serve = next_lines[-1].split("#", 1)[0].strip()
     rows: list[tuple[str, str]] = []
     if answers.setup:
-        rows.append(("App", f"{style.accent(url)}   {serve}"))
+        rows.append(("App", f"{style.accent(url + '/')}   {serve}"))
         if "admin" in plan.batteries:
             who = answers.admin_email or "uv run sandloom admin create --email …"
             rows.append(("Console", f"{style.accent(url + '/admin/')}   {who}"))
+            if answers.admin_email:
+                email = shlex.quote(answers.admin_email)
+                rows.append(("", style.bold(f"Sign in as {answers.admin_email}")))
+                rows.append(
+                    (
+                        "",
+                        style.muted(
+                            "Forgot it? uv run sandloom admin list; a new password: "
+                            f"uv run sandloom admin invite --email {email}"
+                        ),
+                    )
+                )
     rows.append(("Docs", style.accent(DOCS_URL)))
     if answers.setup:
         rows += [
@@ -960,6 +1052,11 @@ def _summary(run: _Run, plan: Plan, answers: Answers, next_lines: list[str]) -> 
 def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
     if (run.asking or answers.setup) and git_init(root, run.environ):
         run.out.write(f"  {run.style.ok('git init')}\n")
+        hint = initial_commit(root, run.environ)
+        if hint is None:
+            run.out.write(f"  {run.style.ok('git commit')}\n")
+        else:
+            run.out.write(f"  {run.style.muted(hint)}\n")
     if answers.setup:
         result = _setup(run, root, answers)
         if not result.ok:
@@ -983,7 +1080,7 @@ def _finish(run: _Run, plan: Plan, root: Path, answers: Answers) -> int:
         return 0
     if not answers.setup:
         run.out.write("\nNext steps:\n" + "".join(f"  {line}\n" for line in lines))
-    run.out.write(_summary(run, plan, answers, lines))
+    run.out.write(_summary(run, plan, root, answers, lines))
     run.out.flush()
     return 0
 
@@ -1058,6 +1155,7 @@ __all__ = [
     "child_env",
     "docker_ready",
     "git_init",
+    "initial_commit",
     "main",
     "name_problem",
     "parser",

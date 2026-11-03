@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
@@ -90,7 +91,7 @@ def test_the_questions_in_order(tmp_path: Path) -> None:
         ["confirm"],  # agents: the installed one stays ticked
     ]
     names = ["Bad-Name", "json", "taken", "shop"]
-    prompter, asked, out = _prompter([*names, "", ""], keys)
+    prompter, asked, out = _prompter([*names, "", "", ""], keys)
     answers = _ask(prompter, tmp_path)
     assert answers == wizard.Answers(
         app="shop",
@@ -109,7 +110,13 @@ def test_the_questions_in_order(tmp_path: Path) -> None:
     assert "admin brings identity" in text
     assert "space to add, Enter to continue" in text
     assert "Set it up now? [Y/n] " in asked
-    assert asked[-1].startswith("First administrator's email [you@example.com]")
+    assert asked[-2] == (
+        "First administrator's email [you@example.com] (from git config; - to skip): "
+    )
+    # Taken from git config: confirmed as the address they sign in with.
+    assert asked[-1] == (
+        "Administrator: you@example.com — is this the address you sign in with? [Y/n] "
+    )
 
 
 def test_enter_takes_the_default_name_and_no_module(tmp_path: Path) -> None:
@@ -168,6 +175,20 @@ def test_ctrl_c_in_a_question_cancels(tmp_path: Path) -> None:
         _ask(prompter, tmp_path)
 
 
+def test_a_git_address_that_is_not_mine_is_asked_again(tmp_path: Path) -> None:
+    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
+    prompter, asked, _ = _prompter(["", "", "n", "me@work.example"])
+    assert _ask(prompter, tmp_path, given).admin_email == "me@work.example"
+    assert asked[-1] == "First administrator's email (Enter to skip): "
+
+
+def test_a_typed_address_needs_no_confirmation(tmp_path: Path) -> None:
+    given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
+    prompter, asked, _ = _prompter(["", "me@work.example"])
+    assert _ask(prompter, tmp_path, given).admin_email == "me@work.example"
+    assert not any("is this the address" in q for q in asked)
+
+
 def test_a_dash_skips_the_administrator(tmp_path: Path) -> None:
     given = wizard.Given(app="shop", batteries=["admin"], agents=["claude"])
     prompter, _, _ = _prompter(["", "-"])
@@ -188,11 +209,46 @@ def test_a_dash_skips_the_administrator(tmp_path: Path) -> None:
         ("json", "standard library"),
         ("email", "standard library"),
         ("string", "standard library"),
+        # Importable, yet left out of sys.stdlib_module_names.
+        ("test", "Python module name"),
+        ("tests", "Python module name"),
+        ("idlelib", "Python module name"),
+        # Installed with the app: its package and the import would clash.
+        ("redis", "Python module name"),
+        ("sandloom", "Python module name"),
+        ("fastapi", "Python module name"),
+        ("sqlalchemy", "Python module name"),
     ],
 )
 def test_app_names(name: str, problem: str | None, tmp_path: Path) -> None:
     found = wizard.name_problem(name, tmp_path)
     assert (found is None) if problem is None else (problem in (found or ""))
+
+
+def test_a_module_name_is_asked_again_with_the_reason(tmp_path: Path) -> None:
+    prompter, asked, out = _prompter(["test", "redis", "shop", "n"], [["confirm"]] * 2)
+    assert _ask(prompter, tmp_path).app == "shop"
+    assert asked[:3] == ["App name [my_app]: "] * 3
+    text = out.getvalue()
+    assert "'test' is a Python module name" in text and "'test_app'" in text
+    assert "'redis' is a Python module name" in text
+
+
+@pytest.mark.parametrize("name", ["test", "redis", "sandloom"])
+def test_flags_refuse_a_module_name(name: str, tmp_path: Path) -> None:
+    err = _Stream(tty=False)
+    code = wizard.main(
+        [name, "--dir", str(tmp_path), "--yes", "--agents", "claude"],
+        environ={},
+        stdin=_Stream(tty=False),
+        out=_Stream(tty=False),
+        err=err,
+    )
+    assert code == 1
+    assert f"'{name}' is a Python module name" in err.getvalue()
+    assert not (tmp_path / name).exists()
+    with pytest.raises(ValueError, match="Python module name"):
+        project.generate_project(name, tmp_path)
 
 
 def test_the_generator_refuses_a_stdlib_name(tmp_path: Path) -> None:
@@ -293,9 +349,14 @@ def test_a_failing_step_prints_its_tail_and_how_to_continue(tmp_path: Path) -> N
     assert "✓ uv sync" in text and "✗ uv run sandloom generate" in text
     assert "line 29" in text and "line 5" not in text  # the last 20 lines
     assert "error: the generator broke" in text
+    # The reason first, then the tail.
+    assert text.index("the generator broke") < text.index("line 29")
+    # One command per line: a narrow terminal or a log viewer cuts nothing.
     assert (
-        "Fix it and continue with: cd shop && uv run sandloom generate"
-        " && uv run sandloom dev up"
+        "Fix it and continue with:\n"
+        "  cd shop\n"
+        "  uv run sandloom generate\n"
+        "  uv run sandloom dev up\n"
     ) in text
     assert "never" not in text
     log = (tmp_path / ".sandloom/run/new-setup.log").read_text()
@@ -332,7 +393,7 @@ def test_ctrl_c_stops_the_step_without_a_traceback(
     text = out.getvalue()
     assert "Traceback" not in text
     assert "Cancelled" in text
-    assert "Continue with: cd shop && uv sync && uv run sandloom generate" in text
+    assert "Continue with:\n  cd shop\n  uv sync\n  uv run sandloom generate\n" in text
 
 
 def test_ctrl_c_right_after_the_step_starts_prints_no_traceback(
@@ -357,6 +418,44 @@ def test_ctrl_c_right_after_the_step_starts_prints_no_traceback(
     assert time.monotonic() - started < 20
     assert result.cancelled and not result.ok
     assert "Traceback" not in out.getvalue()
+
+
+def test_a_traceback_is_not_repeated_under_its_reason(tmp_path: Path) -> None:
+    """A step that dies with a traceback: the reason line and the log path,
+    not twenty lines of frames ending in the same reason."""
+    runner, out = _runner(tmp_path)
+    step = _py(
+        "uv run sandloom generate",
+        "def load():\n    raise ModuleNotFoundError(\"No module named 'test.asgi'\")\n"
+        "load()",
+    )
+    result = runner.run([step], cwd=tmp_path, app_dir="test")
+    text = out.getvalue()
+    assert not result.ok
+    assert "ModuleNotFoundError: No module named 'test.asgi'" in text
+    assert "Traceback" not in text and 'File "' not in text
+    assert "The whole output:" in text
+    assert "Traceback" in (tmp_path / ".sandloom/run/new-setup.log").read_text()
+
+
+def test_log_lines_never_reach_the_spinner(tmp_path: Path) -> None:
+    class Line:
+        notes: list[str] = []
+
+        def note(self, text: str) -> None:
+            self.notes.append(text)
+
+    line = Line()
+    stream = io.StringIO(
+        "2026-11-03 16:19:40,923 [INFO] sandloom.app: CONFIG OVERRIDE: x\n"
+        "2026-11-03 16:19:40,964 [WARNING] sandloom.core.infra: y\n"
+        "INFO:     Started server process [1]\n"
+        "wrote shop/shared/admin-manifest.json\n"
+    )
+    errors: list[str] = []
+    wizard.SetupRunner._pump(stream, io.StringIO(), deque(), line, errors)  # type: ignore[arg-type]
+    assert line.notes == ["wrote shop/shared/admin-manifest.json"]
+    assert len(errors) == 4  # every line still counts for the failure report
 
 
 def test_children_get_a_cleaned_environment(tmp_path: Path) -> None:
@@ -452,6 +551,97 @@ def test_git_init_is_skipped_inside_a_work_tree(tmp_path: Path) -> None:
     assert not wizard.git_init(inner, {"PATH": os.environ["PATH"]})
     assert not (inner / ".git").exists()
     assert not wizard.git_init(tmp_path / "x", {"PATH": ""})  # git missing
+
+
+def _git_identity(tmp_path: Path, *, name: bool) -> dict[str, str]:
+    config = tmp_path / "gitconfig"
+    config.write_text(
+        "[user]\n  name = Owner\n  email = owner@example.com\n" if name else ""
+    )
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "GIT_CONFIG_GLOBAL": str(config),
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_initial_commit_holds_everything_but_env(tmp_path: Path) -> None:
+    env = _git_identity(tmp_path, name=True)
+    root = tmp_path / "shop"
+    project.generate_project("shop", tmp_path, agents=["claude"])
+    assert wizard.git_init(root, env)
+    assert wizard.initial_commit(root, env) is None
+    log = subprocess.run(
+        ["git", "log", "--format=%s"], cwd=root, env=env, capture_output=True, text=True
+    )
+    assert log.stdout.strip() == "Initial commit from sandloom new"
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=root, env=env, capture_output=True, text=True
+    ).stdout.split()
+    assert "pyproject.toml" in tracked and ".env.example" in tracked
+    assert ".env" not in tracked
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout == ""
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_no_git_identity_skips_the_commit_with_a_hint(tmp_path: Path) -> None:
+    env = _git_identity(tmp_path, name=False)
+    root = tmp_path / "shop"
+    root.mkdir()
+    (root / "README.md").write_text("x\n")
+    assert wizard.git_init(root, env)
+    hint = wizard.initial_commit(root, env)
+    assert hint is not None and "user.name" in hint and "git commit" in hint
+    log = subprocess.run(["git", "log"], cwd=root, env=env, capture_output=True)
+    assert log.returncode != 0  # no commit
+
+
+def test_the_framework_flags_are_hidden_from_help_but_work() -> None:
+    text = wizard.parser().format_help()
+    for flag in ("--framework-req", "--framework-source", "--framework-path"):
+        assert flag not in text
+    args = wizard.parser().parse_args(
+        ["shop", "--framework-source", "path", "--framework-path", "/r"]
+    )
+    assert args.framework_source == "path" and str(args.framework_path) == "/r"
+
+
+def test_after_a_setup_the_summary_uses_the_port_dev_up_chose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        wizard, "app_url_of", lambda root, environ: "http://127.0.0.1:8001"
+    )
+    run = wizard._Run(
+        args=wizard.parser().parse_args(["shop"]),
+        environ={},
+        stdin=_Stream(tty=True),
+        out=_Stream(tty=True),
+        err=_Stream(tty=True),
+        version="1.0.0",
+        asking=True,
+        style=ui.PLAIN,
+    )
+    plan = wizard.Plan(app="shop", parent=tmp_path, batteries=["identity", "admin"])
+    answers = wizard.Answers("shop", ["identity", "admin"], ["claude"], True, "o@x.y")
+    root = tmp_path / "shop"
+    lines = wizard._next_steps(run, plan, root, answers)
+    assert lines[-1] == "uv run sandloom dev run"
+    text = wizard._summary(run, plan, root, answers, lines)
+    assert "http://127.0.0.1:8001/admin/" in text
+    assert "8000" not in text
+    # Which account is mine, and how to get back in.
+    assert "Sign in as o@x.y" in text
+    assert "uv run sandloom admin invite --email o@x.y" in text
 
 
 # -------------------------------------------------------------- plain mode

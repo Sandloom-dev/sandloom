@@ -100,10 +100,34 @@ def test_an_admin_app_readme_creates_the_first_administrator(tmp_path: Path) -> 
     migrate = readme.index("uv run sandloom migrate upgrade-all --apply")
     create = readme.index("uv run sandloom admin create --email")
     assert migrate < create < readme.index("uv run sandloom dev run")
+    # Which address is the administrator's, and a new password for it.
+    assert "uv run sandloom admin list" in readme
+    assert "uv run sandloom admin invite --email you@example.com" in readme
     env = (tmp_path / "probe" / ".env").read_text(encoding="utf-8")
     assert "\nNOTIFIER_LOG_LINKS=true\n" in env
     example = (tmp_path / "probe" / ".env.example").read_text(encoding="utf-8")
     assert "\n# NOTIFIER_LOG_LINKS=true\n" in example
+
+
+@pytest.mark.parametrize("batteries", [[], ["identity"], ["admin"]])
+def test_the_readme_hard_codes_no_app_port(
+    batteries: list[str], tmp_path: Path
+) -> None:
+    """The app's port is the one `dev up` chose (8001 when 8000 is taken):
+    the README points at the address `dev run` prints, never at :8000; with
+    identity, email links are printed in development, not mailed."""
+    generate_project(
+        "probe", tmp_path, framework_source="pypi", with_batteries=batteries
+    )
+    readme = (tmp_path / "probe" / "README.md").read_text(encoding="utf-8")
+    quick = readme.split("## Architecture checks", 1)[0]
+    assert "127.0.0.1:8000" not in quick and "8000 is taken" not in quick
+    assert "the address `sandloom dev run` prints" in quick
+    assert "receive verification mail locally" not in readme
+    if batteries:
+        assert "NOTIFIER_LOG_LINKS=true" in readme
+    else:
+        assert "NOTIFIER_LOG_LINKS" not in readme
 
 
 def test_dev_service_ports_are_configurable(tmp_path: Path) -> None:
