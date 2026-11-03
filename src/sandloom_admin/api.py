@@ -103,11 +103,23 @@ def _accepted(request: Request) -> set[str]:
     """The content codings the client accepts (``q=0`` refuses one)."""
     accepted = set()
     for part in request.headers.get("accept-encoding", "").split(","):
-        coding, _, params = part.strip().partition(";")
-        quality = params.strip().removeprefix("q=").strip()
-        if coding and quality not in {"0", "0.0", "0.00", "0.000"}:
-            accepted.add(coding.strip().lower())
+        coding, *params = (piece.strip() for piece in part.split(";"))
+        if coding and _quality(params) > 0:
+            accepted.add(coding.lower())
     return accepted
+
+
+def _quality(params: list[str]) -> float:
+    """The ``q`` of one Accept-Encoding entry (RFC 9110: 1 when absent, any
+    case of ``q``); an unreadable one counts as a refusal."""
+    for param in params:
+        name, _, value = param.partition("=")
+        if name.strip().lower() == "q":
+            try:
+                return float(value.strip())
+            except ValueError:
+                return 0.0
+    return 1.0
 
 
 def _json(payload: dict[str, Any], request: Request) -> Response:

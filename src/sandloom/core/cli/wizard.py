@@ -1508,8 +1508,10 @@ def _own_servers(run: _Run, plan: Plan, root: Path, answers: Answers) -> Answers
     the summary lists the steps left."""
     problem = configure_external(run, root, answers)
     if problem is None:
-        pg = _services.Postgres.from_url(answers.database_url or "")
-        done = f"PostgreSQL and Redis: the database {plan.app} on {pg.address}"
+        where = "your PostgreSQL"  # the usual local ports, found by `dev up`
+        if answers.database_url:
+            where = _services.Postgres.from_url(answers.database_url).address
+        done = f"PostgreSQL and Redis: the database {plan.app} on {where}"
         run.out.write(f"  {run.style.ok(done)}\n")
         return answers
     run.out.write(_ui.error_lines(run.style, problem) + "\n")

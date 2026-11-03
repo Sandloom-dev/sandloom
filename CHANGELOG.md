@@ -113,6 +113,15 @@ website renders this same changelog.
   (`sandloom dev: <checkout>`), and `dev reset` and `dev prune` drop only those.
   A database an earlier build created and `dev.json` records is marked on the next
   `dev up`.
+- **`--services external` takes only empty Redis indexes** on your own server, below
+  its `databases` setting: `dev reset` and `dev prune` flush them. `dev.json` is
+  owner-only (0600) once it holds the servers' URLs.
+- **`sandloom new` with your own servers on the usual ports** no longer fails after a
+  successful setup; a failed setup with `--yes` exits 1. Its git calls ignore a hook's
+  `GIT_DIR`.
+- **`/admin/index.html` carries the console's CSP**, `Accept-Encoding` q-values are read
+  as numbers, and a browser that blocks `sessionStorage` still gets a working console.
+- **`sandloom admin list`** shows sign-in times in UTC whatever zone the driver returns.
 - **`--services external` refuses URLs whose security it would drop:** `rediss://`,
   a Redis ACL user, Redis URL options and PostgreSQL `?sslmode=…` (or any query
   option) were silently lost, sending passwords in cleartext.

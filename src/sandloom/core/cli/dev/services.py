@@ -344,6 +344,28 @@ def redis_clients(host: str, port: int, indexes: Iterable[int] | None = None) ->
         client.close()
 
 
+def empty_indexes(
+    server: RedisServer, candidates: Iterable[int], *, want: int = 2
+) -> list[int]:
+    """The first ``want`` of ``candidates`` (in order) that hold no key on
+    ``server``, below its ``databases`` setting: the person's own Redis may
+    keep data in any index, and ``reset`` / ``prune`` flush the ones given."""
+    found: list[int] = []
+    for index in candidates:
+        client = _redis(server.host, server.port, index, server.password)
+        try:
+            size = int(client.dbsize())
+        except redis.ResponseError:  # past the server's last database
+            break
+        finally:
+            client.close()
+        if size == 0:
+            found.append(index)
+            if len(found) == want:
+                break
+    return found
+
+
 def flush_indexes(
     host: str, port: int, indexes: Iterable[int], password: str | None = None
 ) -> None:
@@ -365,6 +387,7 @@ __all__ = [
     "database_exists",
     "database_mark",
     "drop_database",
+    "empty_indexes",
     "ensure_database",
     "flush_indexes",
     "has_tables",

@@ -247,11 +247,32 @@ def allocate_indexes(state: State, path: str, *, main: bool) -> tuple[int, int]:
     return (free[0], free[1])
 
 
+def _external_indexes(ctx: Context, state: State, path: str) -> tuple[int, int]:
+    """The pair for a new checkout on the person's own Redis: two indexes no
+    other checkout uses that hold no key there (their data may live in any
+    index; ``reset`` and ``prune`` flush ours), (1, 2) first for the main one."""
+    used = state.used_indexes(besides=path)
+    first = [1, 2] if ctx.identity.main and not {1, 2} & used else []
+    candidates = first + [i for i in range(1, 1024) if i not in used and i not in first]
+    server = ctx.redis(state)
+    found = _services.empty_indexes(server, candidates)
+    if len(found) < 2:
+        raise DevError(
+            f"your Redis at {server.host}:{server.port} has no two empty database "
+            "indexes for this checkout (dev reset and prune flush them). Free two, "
+            "raise `databases` in its config, or use --services docker"
+        )
+    return (found[0], found[1])
+
+
 def checkout_row(ctx: Context, state: State) -> CheckoutRow:
     key = str(ctx.root)
     row = state.checkouts.get(key)
     if row is None:
-        cache, broker = allocate_indexes(state, key, main=ctx.identity.main)
+        if state.is_external:
+            cache, broker = _external_indexes(ctx, state, key)
+        else:
+            cache, broker = allocate_indexes(state, key, main=ctx.identity.main)
         row = CheckoutRow(
             path=key,
             database=ctx.identity.database,

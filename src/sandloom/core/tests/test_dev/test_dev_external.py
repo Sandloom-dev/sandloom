@@ -121,6 +121,8 @@ def test_external_services_end_to_end(
         assert services.database_exists(pg, name)
         state = load_state(ctx.state_dir)
         assert state is not None and state.services == "external"
+        # It holds the servers' URLs with their passwords: owner only.
+        assert (ctx.state_dir / "dev.json").stat().st_mode & 0o777 == 0o600
         assert state.ports == {}
         block = envfile.read_block((root / ".env").read_text())
         assert block["DATABASE_URL"].endswith(f"@{pg.host}:{pg.port}/{name}")
@@ -256,6 +258,23 @@ def test_external_reset_and_prune_drop_only_a_marked_database(
         services.drop_database(pg, foreign)
 
 
+def test_only_empty_redis_indexes_are_taken_on_your_own_server() -> None:
+    """Your own Redis may keep data in any index, and `dev reset` / `prune`
+    flush ours: a checkout gets two that hold no key, below the server's
+    last database."""
+    _, redis_url = _servers()
+    server = services.RedisServer.from_url(redis_url)
+    busy = services._redis(server.host, server.port, 860, server.password)
+    try:
+        busy.set("theirs", "1")
+        assert services.empty_indexes(server, [860, 861, 862]) == [861, 862]
+        # Past the server's `databases` setting there is nothing to take.
+        assert services.empty_indexes(server, [861, 10**6, 862]) == [861]
+    finally:
+        busy.delete("theirs")
+        busy.close()
+
+
 @pytest.mark.parametrize(
     ("url", "says"),
     [
@@ -316,6 +335,7 @@ def test_dev_run_with_external_servers_down_says_what_to_do(
     monkeypatch.setattr(commands._services, "ensure_database", lambda pg, n: False)
     monkeypatch.setattr(commands._services, "has_tables", lambda pg, n: True)
     monkeypatch.setattr(commands, "_claim_external", lambda *a, **k: None)
+    monkeypatch.setattr(commands._services, "empty_indexes", lambda s, c: list(c)[:2])
     options = commands.UpOptions(
         services="external",
         database_url="postgresql://me@127.0.0.1:5432/postgres",
