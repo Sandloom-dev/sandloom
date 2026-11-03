@@ -83,4 +83,20 @@ describe('SetPasswordPage', () => {
     expect(screen.getByText(/This page needs the link/)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Set password and sign in' })).toBeNull();
   });
+
+  it('drops the token from the address bar and the history entry once read', () => {
+    window.history.replaceState(
+      { key: 'k' },
+      '',
+      '/admin/set-password?x=1#token=tok&email=a%40b.c',
+    );
+    render(<SetPasswordPage fragment="#token=tok&email=a%40b.c" />);
+    expect(window.location.hash).toBe('');
+    expect(window.location.pathname).toBe('/admin/set-password');
+    expect(window.location.search).toBe('?x=1');
+    expect(window.history.state).toEqual({ key: 'k' });
+    // The page still holds the token it read.
+    expect(screen.getByRole('button', { name: 'Set password and sign in' })).toBeVisible();
+    expect(screen.getByLabelText('Email')).toHaveValue('a@b.c');
+  });
 });

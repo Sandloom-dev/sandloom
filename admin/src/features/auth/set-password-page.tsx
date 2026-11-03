@@ -1,5 +1,5 @@
 import { BrandLockup } from '@/components/brand-mark';
-import { useId, useState, type SubmitEvent } from 'react';
+import { useEffect, useId, useState, type SubmitEvent } from 'react';
 import { CircleAlert } from 'lucide-react';
 import { api, HttpError } from '@/api/client';
 import { errorMessage } from '@/api/errors';
@@ -33,6 +33,14 @@ interface Problem {
 export function SetPasswordPage({ fragment }: { fragment: string }) {
   const ids = { email: useId(), password: useId(), again: useId() };
   const [link] = useState(() => readFragment(fragment));
+  useEffect(() => {
+    // The token is read: drop it from the address bar and this history entry,
+    // so it is neither on screen nor in the back/forward list.
+    if (window.location.hash) {
+      const { pathname, search } = window.location;
+      window.history.replaceState(window.history.state, '', `${pathname}${search}`);
+    }
+  }, []);
   const [email, setEmail] = useState(link.email);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [busy, setBusy] = useState(false);

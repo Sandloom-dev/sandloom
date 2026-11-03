@@ -315,3 +315,35 @@ async def test_appointing_needs_a_user_and_a_reason(
             await contract.appoint_platform_admin(
                 test_user.id, " ", "alice", "op-admin-5"
             )
+
+
+# ---------------------------------------- the two-step console sign-in signal --
+
+
+@pytest.mark.asyncio
+async def test_a_missing_code_is_a_distinct_answer_and_no_failed_login(
+    async_client: AsyncClient, test_db: AsyncSession, test_user: User
+) -> None:
+    """The console asks for the code only after this answer: 401, detail
+    ``2FA code required``, header ``X-2FA-Required: true``. It comes only
+    after the password verified (a wrong password gets the plain refusal)
+    and never counts as a failed login, so asking again with the code does
+    not move the account towards a lockout."""
+    await _enable_2fa(test_db, test_user)
+    await test_db.commit()
+    wrong = await async_client.post(
+        "/auth/login", json={"email": test_user.email, "password": "Wrong-Passw0rd!"}
+    )
+    assert wrong.status_code == 401
+    assert "X-2FA-Required" not in wrong.headers
+    assert wrong.json()["detail"] != "2FA code required"
+    for _ in range(8):  # beyond the lockout threshold (5)
+        needs_otp = await _login(async_client, test_user)
+        assert needs_otp.status_code == 401, needs_otp.text
+        assert needs_otp.json()["detail"] == "2FA code required"
+        assert needs_otp.headers.get("X-2FA-Required") == "true"
+    signed_in = await async_client.post(
+        "/auth/login",
+        json={"email": test_user.email, "password": PASSWORD, "otp": "a" * 20},
+    )
+    assert signed_in.status_code == 200, signed_in.text
