@@ -79,8 +79,9 @@ class IdentitySecurityV1(Protocol):
     ) -> bool:
         """Set a password through identity's reset path (the terminal prompt
         of ``sandloom admin create``). 400 for a used or expired token, 422 for
-        a password the policy refuses. The stored record holds a digest over
-        the single-use token and the password, and ``True``.
+        a password the policy refuses. Neither secret is in the stored record:
+        it holds a digest over ``operation_key`` alone and ``True`` (use a
+        fresh key per attempt).
         """
 
     async def take_over_platform_admin(
@@ -89,7 +90,8 @@ class IdentitySecurityV1(Protocol):
         """Make an existing account a platform administrator and take it from
         whoever holds it: the password, second factor, linked providers and
         sessions end, the address counts as verified and a set-password link
-        is pending. Returns whether the user exists.
+        is pending; a deactivated account is reactivated. 409 for a blocked
+        account (nothing changes). Returns whether the user exists.
         """
 
 
