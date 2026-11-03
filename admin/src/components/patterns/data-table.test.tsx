@@ -48,6 +48,34 @@ function Harness({ onBulk = vi.fn() }: { onBulk?: (rows: Row[]) => void }) {
 }
 
 describe('DataTable', () => {
+  it('shows the pagination only once rows exist, so loading does not shift it', () => {
+    const pagination = {
+      page: 1,
+      pageSize: 25,
+      pageSizes: [25],
+      hasNextPage: false,
+      hasPreviousPage: false,
+      onPageChange: vi.fn(),
+      onPageSizeChange: vi.fn(),
+    };
+    const table = (status: 'pending' | 'success') => (
+      <DataTable
+        label="People"
+        columns={columns}
+        data={status === 'success' ? rows : undefined}
+        getRowId={(row) => row.id}
+        status={status}
+        empty={<p>Nothing</p>}
+        pagination={pagination}
+      />
+    );
+    const { rerender } = render(table('pending'));
+    expect(screen.getByLabelText('Loading People')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
+    rerender(table('success'));
+    expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent('Rows 1–2');
+  });
+
   it('cycles server sort and exposes aria-sort', async () => {
     render(<Harness />);
     const header = screen.getByRole('columnheader', { name: /Name/ });

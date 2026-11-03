@@ -1,12 +1,14 @@
 """Serve the console's files, its configuration and the application's manifest."""
 
+import gzip
 import json
+import mimetypes
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from sandloom.sdk import module_router, public
 from sandloom.sdk.infra import settings
@@ -20,6 +22,10 @@ CSP = (
     "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 )
 NOT_GENERATED = "The admin manifest is missing: run `sandloom generate` and restart."
+#: Precompressed copies the build writes beside each hashed asset, best first.
+ENCODINGS = (("br", ".br"), ("gzip", ".gz"))
+#: A JSON body worth compressing per request (the manifest is tens of KiB).
+COMPRESS_FROM = 1024
 
 
 def _enabled() -> None:
@@ -93,8 +99,55 @@ def _usable_manifest() -> dict[str, Any]:
     return manifest
 
 
-def _json(payload: dict[str, Any]) -> JSONResponse:
-    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+def _accepted(request: Request) -> set[str]:
+    """The content codings the client accepts (``q=0`` refuses one)."""
+    accepted = set()
+    for part in request.headers.get("accept-encoding", "").split(","):
+        coding, _, params = part.strip().partition(";")
+        quality = params.strip().removeprefix("q=").strip()
+        if coding and quality not in {"0", "0.0", "0.00", "0.000"}:
+            accepted.add(coding.strip().lower())
+    return accepted
+
+
+def _json(payload: dict[str, Any], request: Request) -> Response:
+    headers = {"Cache-Control": "no-store", "Vary": "Accept-Encoding"}
+    body = JSONResponse(payload).body
+    if len(body) >= COMPRESS_FROM and "gzip" in _accepted(request):
+        body = gzip.compress(body, compresslevel=6, mtime=0)
+        headers["Content-Encoding"] = "gzip"
+    return Response(body, media_type="application/json", headers=headers)
+
+
+def _revalidated(file: Path, request: Request, headers: dict[str, str]) -> Response:
+    """A file without a hash in its name (fonts, icons): the browser may keep it
+    but asks each time, and an unchanged one costs a bodiless 304."""
+    stat = file.stat()
+    etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+    headers = {**headers, "Cache-Control": "no-cache", "ETag": etag}
+    candidates = request.headers.get("if-none-match", "").split(",")
+    if etag in (candidate.strip().removeprefix("W/") for candidate in candidates):
+        return Response(status_code=304, headers=headers)
+    return FileResponse(file, headers=headers, stat_result=stat)
+
+
+def _asset(file: Path, request: Request) -> FileResponse:
+    """A hashed asset, from its precompressed copy when the client accepts one."""
+    headers = {
+        # The file name carries its content hash.
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Vary": "Accept-Encoding",
+    }
+    accepted = _accepted(request)
+    for coding, suffix in ENCODINGS:
+        encoded = file.with_name(file.name + suffix)
+        if coding in accepted and encoded.is_file():
+            media_type = (
+                mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+            )
+            headers["Content-Encoding"] = coding
+            return FileResponse(encoded, media_type=media_type, headers=headers)
+    return FileResponse(file, headers=headers)
 
 
 @router.get("", include_in_schema=False)
@@ -103,12 +156,12 @@ async def console_root() -> RedirectResponse:
 
 
 @router.get(f"/{MANIFEST}", include_in_schema=False)
-async def admin_manifest() -> JSONResponse:
-    return _json(_usable_manifest())
+async def admin_manifest(request: Request) -> Response:
+    return _json(_usable_manifest(), request)
 
 
 @router.get("/config.json", include_in_schema=False)
-async def console_config() -> JSONResponse:
+async def console_config(request: Request) -> Response:
     """Every section the manifest declares: composition already selected them.
 
     ``development`` (outside production only) lets the console keep its
@@ -120,20 +173,17 @@ async def console_config() -> JSONResponse:
     payload: dict[str, Any] = {"modules": modules}
     if settings.environment.value != "prod":
         payload["development"] = True
-    return _json(payload)
+    return _json(payload, request)
 
 
 @router.get("/{path:path}", include_in_schema=False)
-async def console_file(path: str) -> FileResponse:
+async def console_file(path: str, request: Request) -> Response:
     root = _console().resolve()
     file = (root / path).resolve()
     if file != root and root in file.parents and file.is_file():
         if "assets" in file.relative_to(root).parts:
-            # The file name carries its content hash.
-            cache = "public, max-age=31536000, immutable"
-        else:
-            cache = "no-store"
-        return FileResponse(file, headers={"Cache-Control": cache})
+            return _asset(file, request)
+        return _revalidated(file, request, {})
     # A deep link is the browser's route. A missing file must stay a 404, or a
     # stale script tag would receive HTML.
     if "." in path.rsplit("/", 1)[-1]:
@@ -141,6 +191,7 @@ async def console_file(path: str) -> FileResponse:
     index = root / "index.html"
     if not index.is_file():
         raise HTTPException(503, "The admin console files are missing.")
+    # Never stored: 2 KiB, and a new release must reach the browser at once.
     return FileResponse(
         index,
         headers={"Cache-Control": "no-store", "Content-Security-Policy": CSP},

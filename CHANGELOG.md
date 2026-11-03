@@ -80,6 +80,14 @@ website renders this same changelog.
 - **The console names users by email** in "Recent activity" and the audit pages.
 - **A first password set through a set-password link** is audited as
   `identity.user.password_set`, not `identity.password.reset`.
+- **A faster owner console.** `/admin/` serves its hashed assets precompressed
+  (brotli, gzip; built by `admin/scripts/compress.mjs`, also used by the standalone
+  nginx through `gzip_static`), gzips the admin manifest, and lets the browser
+  keep its fonts and icons with `no-cache` and an ETag (a 304) instead of
+  `no-store`; the entry page stays `no-store`. A list no longer shows its pagination under the loading
+  rows, where it jumped down once rows arrived. Lighthouse, median of 3, cold
+  cache: transfer 783 → 223 KiB (sign-in) and 839 → 278 KiB (Users); mobile
+  Users performance 72 → 95, LCP 5.9 → 2.8 s, CLS 0.146 → 0.009. (tm: console-perf)
 - `sandloom new --help` hides the contributors' `--framework-*` flags.
 - The generated README no longer hard-codes `:8000` and drops the outdated
   verification-mail paragraph.
