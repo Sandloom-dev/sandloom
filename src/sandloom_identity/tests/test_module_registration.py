@@ -18,6 +18,7 @@ from sandloom_identity import register
 from sandloom_identity.api import (
     auth_router,
     roles_router,
+    setup_router,
     sso_router,
     twofa_router,
     user_roles_router,
@@ -56,10 +57,11 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     descriptor, draft = _register(sandloom_app)
 
     assert descriptor == EXPECTED_DESCRIPTOR
-    # Seven routers, mounted in this order, with no include kwargs.
+    # Eight routers, mounted in this order, with no include kwargs.
     assert draft.routers == [
         (auth_router, {}),
         (roles_router, {}),
+        (setup_router, {}),
         (sso_router, {}),
         (twofa_router, {}),
         (user_roles_router, {}),
@@ -125,5 +127,5 @@ async def test_missing_twofa_key_registers_a_critical_refusal(
     with pytest.raises(RuntimeError, match="TWOFA key missing"):
         await task()
     # Everything else is registered unchanged.
-    assert len(draft.routers) == 7
+    assert len(draft.routers) == 8
     assert draft.claims_contributors == [(contribute_identity_claims, True)]

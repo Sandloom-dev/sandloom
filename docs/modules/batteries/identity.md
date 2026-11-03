@@ -75,6 +75,7 @@ can still supply it to security checks and audit handling.
 | Users | `/api/v1` | `GET /users` (admin), `GET`/`PUT /users/{user_id}` (self or admin), `DELETE /users/{user_id}` (admin, soft delete), `GET /users/{user_id}/roles` |
 | Roles | `/api/v1` | role CRUD, `GET`/`POST /permissions`, attach/detach `/roles/{role_id}/permissions/{permission_id}` |
 | User roles | `/api/v1` | assign / revoke `/users/{user_id}/roles/{role_id}` |
+| Setup | `/api/v1/identity` | `GET /setup-state` (public, `{"has_admin": bool}`; `404` when `ENVIRONMENT=prod`): the console's sign-in page shows how to create the first administrator |
 | Account safety | `/api/v1` | platform admin: `GET`/`POST /users/{user_id}/block`, `POST /users/{user_id}/unblock`, `POST /users/{user_id}/revoke-sessions`, `POST /users/{user_id}/reset-2fa` (lost second factor; ends sessions) (body `{"reason"}`, `Idempotency-Key` header required, admin risk, audited) |
 
 ### Behaviour API clients must know
@@ -86,7 +87,8 @@ can still supply it to security checks and audit handling.
   `POST /auth/request-password-reset` always answer `204`.
 - **Unverified accounts cannot sign in.** `POST /auth/login` answers `403` for a
   password account whose email is not verified. Completing a password reset
-  also verifies the address.
+  also verifies the address, and lifts the sign-in lock of the address the
+  reset came from.
 - **Login errors** — wrong credentials `401`; 2FA enabled but no `otp` → `401`
   with header `X-2FA-Required: true`; inactive account `401`.
 - **Lockout (two tiers, no lockout DoS)** — on `POST /auth/login`, 5 failed
@@ -218,7 +220,7 @@ Identity exposes these service contracts:
 | Contract | Purpose |
 | --- | --- |
 | `identity.contact.v1` | `get_contact(user_id)` and `get_contacts(user_ids)` return contact DTOs at send time; unknown users are omitted or return `None`. Batches are capped at 1000 IDs. |
-| `identity.security.v1` | Operator commands for session revocation and forced password resets, with durable command deduplication and required audit records. See the [operator reference](../../operate/operator-reference.md). |
+| `identity.security.v1` | Operator commands for session revocation, forced password resets and the first administrator (`sandloom admin create`, `sandloom admin invite`, `sandloom security grant-admin`), with durable command deduplication and required audit records. See the [operator reference](../../operate/operator-reference.md). |
 | `identity.claims.v1` | The critical claims contributor, automatically exposed by the framework for token issuance across services. |
 
 Business modules use the generated typed contract stubs and DTOs, not identity's

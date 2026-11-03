@@ -260,8 +260,8 @@ async def test_security_contract_rejects_oversized_batches(
 async def test_appointing_the_first_admin_grants_verifies_and_audits(
     sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession, test_user: User
 ) -> None:
-    test_user.is_verified = False
-    await test_db.commit()
+    # Name kept for guarantee C-CONSOLE-04: the address must already be
+    # verified (an unverified one is refused: ``test_first_admin.py``).
     contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
     with bind_contract_session(test_db), bind_test_uow(test_db):
         assert await contract.find_user_id(test_user.email) == test_user.id
@@ -270,9 +270,6 @@ async def test_appointing_the_first_admin_grants_verifies_and_audits(
             test_user.id, "first administrator", "alice", "op-admin-1"
         )
     assert granted is True
-    await test_db.refresh(test_user)
-    assert test_user.is_verified is True
-    assert test_user.email_verified_at is not None
     held = await test_db.execute(
         text(
             "SELECT r.code, r.is_system FROM user_roles ur "

@@ -67,6 +67,12 @@ RISKS: tuple[Risk, ...] = (
         "log notifier driver features (sandloom.core.drivers.log_notifier)",
     ),
     Risk(
+        "log_links_in_prod",
+        "NOTIFIER_LOG_LINKS=true in prod: password-reset and verification links "
+        "land in the logs, where anyone who reads them can use them.",
+        "Settings validator (NOTIFIER_LOG_LINKS)",
+    ),
+    Risk(
         "local_storage_in_prod",
         "Local-filesystem object storage in prod: no replication, lost with "
         "the container.",

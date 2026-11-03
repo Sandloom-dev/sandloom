@@ -11,12 +11,19 @@ In production the driver advertises NO delivery features (unless
 logs, but a module that declares
 ``CapabilityRequirement("notification", features={"email"})`` fails its
 startup preflight instead of "succeeding" into the log with nobody notified.
+
+It logs the subject and a recipient hash, never the body. With
+``NOTIFIER_LOG_LINKS`` (dev; production refuses it unless the risk
+``log_links_in_prod`` is accepted) it also logs the links the body carries,
+marked ``[dev only]``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import sys
 from collections.abc import Mapping
 from typing import Any
 
@@ -27,6 +34,9 @@ from sandloom.core.infra.contracts import Notification, NotifierProvider
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.notification")
+
+#: The links of a body (``NOTIFIER_LOG_LINKS``): http(s) up to whitespace.
+_LINK = re.compile(r"https?://[^\s<>\"']+")
 
 #: A dev/catch-all driver accepts every channel (it only logs them).
 NOTIFIER_LOG_FEATURES = frozenset({"email", "sms", "push", "inapp"})
@@ -54,6 +64,19 @@ def recipient_fingerprint(recipient: str) -> str:
     return f"sha256:{digest[:16]}"
 
 
+def _print_links(notification: Notification) -> None:
+    """``NOTIFIER_LOG_LINKS``: the body's links on stderr, marked ``[dev only]``.
+
+    Refused in prod without an accepted risk. A dev app without SMTP can then
+    follow a verification or reset link. The links only, never the address or
+    the rest of the body. Written to the process's stderr, not through
+    logging: the log formatter masks every ``token=`` value, which is the
+    point of a log line and the opposite of this one.
+    """
+    for link in dict.fromkeys(_LINK.findall(notification.body)):
+        print(f"[dev only] {notification.subject}: {link}", file=sys.stderr, flush=True)
+
+
 class LogNotifierProvider(NotifierProvider):
     """Notifier that records each notification as a structured log line."""
 
@@ -74,6 +97,8 @@ class LogNotifierProvider(NotifierProvider):
                 "dedupe_key": notification.dedupe_key,
             },
         )
+        if settings.notifier_log_links:
+            _print_links(notification)
         safe_inc(
             "notifications_sent_total",
             {"channel": notification.channel, "result": "logged"},

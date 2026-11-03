@@ -599,6 +599,7 @@ OPS: frozenset[str] = frozenset(
         "MAX_UPLOAD_SIZE_BYTES",
         "MAX_REQUEST_BODY_BYTES",
         "NOTIFIER_BACKEND",
+        "NOTIFIER_LOG_LINKS",
         "SMTP_HOST",
         "SMTP_PORT",
         "SMTP_USERNAME",

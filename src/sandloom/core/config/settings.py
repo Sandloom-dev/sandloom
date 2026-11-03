@@ -582,6 +582,21 @@ class Settings(
         return self
 
     @model_validator(mode="after")
+    def _notifier_log_links(self) -> Settings:
+        """Secret links in the log are a dev convenience, never production's."""
+        if (
+            self.environment == Environment.prod
+            and self.notifier_log_links
+            and not self.accepts_risk("log_links_in_prod")
+        ):
+            raise ValueError(
+                "NOTIFIER_LOG_LINKS=true is not allowed with ENVIRONMENT=prod: "
+                "reset and verification links would land in the logs. Unset it, "
+                'or accept the risk: SANDLOOM_ACCEPTED_RISKS=["log_links_in_prod"]'
+            )
+        return self
+
+    @model_validator(mode="after")
     def _billing_requirements(self) -> Settings:
         """Fail fast when Stripe is selected but its keys are missing.
 

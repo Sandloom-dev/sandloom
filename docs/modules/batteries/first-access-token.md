@@ -48,6 +48,10 @@ This configuration captures development mail on loopback only. Production uses
 your real SMTP provider and verified STARTTLS (`SMTP_USE_TLS=true`); Sandloom
 rejects SMTP credentials sent without TLS in production.
 
+Without a mail server, you can print the links instead. Add `NOTIFIER_LOG_LINKS=true`
+to `.env` and keep the default `log` notifier. The running API then prints each
+email's links, marked `[dev only]`. Production refuses this setting.
+
 ## Register and verify
 
 Start the API and open its interactive API documentation at

@@ -1,6 +1,12 @@
 {
   "consumers": [],
-  "consumes": [],
+  "consumes": [
+    {
+      "methods": [],
+      "name": "identity.security.v1",
+      "required": false
+    }
+  ],
   "contracts": [],
   "events": {},
   "format": 1,

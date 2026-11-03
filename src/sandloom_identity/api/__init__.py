@@ -5,6 +5,7 @@
 
 from .auth import auth_router
 from .roles import roles_router
+from .setup import setup_router
 from .sso import sso_router
 from .twofa import twofa_router
 from .user_roles import user_roles_router
@@ -14,6 +15,7 @@ from .users import users_router
 __all__ = [
     "auth_router",
     "roles_router",
+    "setup_router",
     "sso_router",
     "twofa_router",
     "user_roles_router",

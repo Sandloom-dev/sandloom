@@ -1,6 +1,6 @@
 import { BrandLockup } from '@/components/brand-mark';
-import { useId, useState, type SubmitEvent } from 'react';
-import { CircleAlert } from 'lucide-react';
+import { useEffect, useId, useState, type SubmitEvent } from 'react';
+import { CircleAlert, Terminal } from 'lucide-react';
 import { api } from '@/api/client';
 import { errorMessage } from '@/api/errors';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,29 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ThemeMenu } from '@/components/theme-menu';
 
+const CREATE_COMMAND = 'uv run sandloom admin create --email you@example.com';
+
+/** Whether the app still has no administrator (outside production only; else unknown). */
+function useNoAdminYet(): boolean {
+  const [none, setNone] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api
+      .request<{ has_admin?: unknown }>('/api/v1/identity/setup-state', {}, false)
+      .then((state) => {
+        if (live) setNone(state.has_admin === false);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return none;
+}
+
 /** Password (+ optional 2FA) sign-in; only the platform admin role is admitted. */
 export function LoginPage() {
+  const noAdminYet = useNoAdminYet();
   const ids = { email: useId(), password: useId(), otp: useId(), hint: useId() };
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,6 +111,16 @@ export function LoginPage() {
             </Button>
           </form>
         </Card>
+        {noAdminYet && (
+          <Card className="flex gap-3 p-4">
+            <Terminal aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="font-medium">No administrator yet</p>
+              <p className="text-fg-muted">Create the first one in the app&apos;s directory:</p>
+              <code className="font-mono text-xs break-all">{CREATE_COMMAND}</code>
+            </div>
+          </Card>
+        )}
         <p className="text-xs text-fg-subtle">
           Sessions live in this tab only: reloading or closing it signs you out.
         </p>

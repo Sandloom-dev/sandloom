@@ -163,8 +163,66 @@
       }
     },
     "identity.security.v1": {
-      "hash": "434058398ebaf018bdbc1070b1fe4f28",
+      "hash": "573812719bffe8f7d4c149f1b66b051b",
       "methods": {
+        "account_standing": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "email",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "fields": {
+                  "email_verified": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "bool"
+                    }
+                  },
+                  "is_active": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "bool"
+                    }
+                  },
+                  "is_platform_admin": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "bool"
+                    }
+                  },
+                  "user_id": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "uuid"
+                    }
+                  }
+                },
+                "k": "model",
+                "ref": "sandloom_identity.schemas.operator:AccountStanding",
+                "schema_hash": "f2a8a9177499668a"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
         "appoint_platform_admin": {
           "idempotency_key": "operation_key",
           "kind": "command",
@@ -209,6 +267,61 @@
           "returns": {
             "k": "scalar",
             "t": "bool"
+          }
+        },
+        "create_platform_admin": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "email",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "full_name",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "uuid"
           }
         },
         "find_user_id": {
@@ -275,6 +388,97 @@
               "t": "uuid"
             },
             "k": "list"
+          }
+        },
+        "password_problem": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "email",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "password",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "k": "scalar",
+                "t": "str"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "platform_admin_exists": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "reissue_set_password": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
           }
         },
         "require_password_reset": {
@@ -373,6 +577,116 @@
           "returns": {
             "k": "scalar",
             "t": "int"
+          }
+        },
+        "set_password_token": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "k": "scalar",
+                "t": "str"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "set_password_with_token": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "token",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "new_password",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "take_over_platform_admin": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
           }
         }
       }

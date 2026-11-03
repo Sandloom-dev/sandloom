@@ -17,8 +17,14 @@ docker compose -f deploy/docker-compose.yml up --build
 ```
 
 The manifest ships inside your application's image, so the file you committed is what
-runs. Create the administrator as in [Create the first administrator](index.md#create-the-first-administrator),
-with `--confirm-production` added to the command that has `--apply`.
+runs. Create the administrator as in [Create the first administrator](index.md#create-the-first-administrator).
+In production the command also needs `--apply --confirm-production --reason "..."`,
+and `--invite` needs `FRONTEND_URL` set to the address that serves the console:
+
+```bash
+uv run sandloom admin create --email you@example.com --invite \
+  --apply --confirm-production --reason "first administrator"
+```
 
 ## Restrict access
 
