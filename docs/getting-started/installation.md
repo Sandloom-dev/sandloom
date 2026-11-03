@@ -17,7 +17,7 @@ You need:
 Nothing has to be installed first. `uvx` runs the published CLI: <!-- sandloom-release -->
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a7" sandloom new myapp --with identity,tenancy,billing
+uvx --from "sandloom[standard]==0.7.0a8" sandloom new myapp --with identity,tenancy,billing
 ```
 
 Then follow the [quickstart](index.md) from its `cd myapp` step. `uv sync` inside the

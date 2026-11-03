@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a8] — 2026-11-03
+
 ### Added
 
 - **`sandloom dev`: local services without collisions.** `uv run sandloom dev up`

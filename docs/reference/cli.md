@@ -12,7 +12,7 @@ has `--help`.
 
 ## Context and declared architecture
 
-Available in `sandloom>=0.7.0a7,<0.8`. <!-- sandloom-release -->
+Available in `sandloom>=0.7.0a8,<0.8`. <!-- sandloom-release -->
 
 | Command | What it does |
 | --- | --- |
@@ -62,7 +62,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)); at a terminal it asks, with the installed ones marked. The app depends on `sandloom[redis,celery]>=0.7.0a7,<0.8` plus `sandloom-<module>>=0.7.0a7,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)); at a terminal it asks, with the installed ones marked. The app depends on `sandloom[redis,celery]>=0.7.0a8,<0.8` plus `sandloom-<module>>=0.7.0a8,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom add module <name>` | A new module under the app's `modules` package. It is discovered: nothing else to edit. |
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |

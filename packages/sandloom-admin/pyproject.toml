@@ -1,6 +1,6 @@
 [project]
 name = "sandloom-admin"
-version = "0.7.0a7"
+version = "0.7.0a8"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "The admin console for Sandloom: a prebuilt web UI for the platform owner, with no Node or separate image."
 readme = "README.md"
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # The console signs in through identity, a separate distribution, which the
 # `sandloom[admin]` extra and `sandloom new --with admin` add.
 dependencies = [
-    "sandloom>=0.7.0a7,<0.8",
+    "sandloom>=0.7.0a8,<0.8",
 ]
 
 [project.urls]
