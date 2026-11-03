@@ -57,7 +57,7 @@ call.
 | `Perm(code)`, `Role(code)` | claim | the `permissions` / `roles` claims |
 | `Subscribed(statuses=None, *, of, claim_key="subscription_status")` | claim with `of=Account.user()`; live with an organization | the `subscription_status` claim (`active` / `trialing` pass; `past_due` passes during the grace period unless `BILLING_DENY_ON_PAST_DUE`), or billing live |
 | `SubscriptionActive(*, of, adapter=None)` | live | billing's entitlements, authoritative |
-| `Credits(minimum, *, of, adapter=None)` | live | the real-time credit balance (never a token claim) |
+| `Credits(minimum, *, of, adapter=None)` | live | the real-time credit balance (never a token claim); it only checks, and spending goes through `billing.credits.v1` |
 | `Feature(key, *, of, claim_key="features")`, `WithinLimit(key, used, *, of, claim_key="limits")` | claim with `Account.user()`; live with an organization | the `features` / `limits` claims, or the owner's `organization.features` / `organization.limits` facts |
 | `Owner(get_owner)` | resource | the loaded resource's owner id |
 | `OrgRole(minimum, *, org_param="org_id", adapter=None)` | live | tenancy's membership contract |
@@ -174,7 +174,9 @@ never weakens the fact's `min_freshness` floor. A claim is trusted only when
 its owning module is in the token's `claims_sources` and not in
 `claims_sources_failed`; otherwise claim mode escalates to live. Claim
 interpretation is declared with `AccessFact(claim_rule=ClaimRule.one_of(...))`
-and travels over RPC.
+and travels over RPC. A false fact denies with the fact's `deny_category`,
+else `403`; `Entitled(fact, category=Category.PAYMENT_REQUIRED)` overrides it
+with `402`.
 
 Billing registers `subscription.active` (default `auto`) and
 `organization.subscription.active` (live only, membership-checked); a false

@@ -22,7 +22,7 @@ never dropped.
 
 "Re-check" is the commit-time session check; "mode" is the idempotency mode
 (B body replay, S status replay, X release and re-execute; see
-[Idempotency](../modules/http/route-policy.md#idempotency)).
+[Idempotency modes](../modules/http/idempotent-write.md#idempotency-modes)).
 
 | Route kind | How it is declared | Units | Session check | Re-check | Idempotency (automatic) |
 | --- | --- | --- | --- | --- | --- |

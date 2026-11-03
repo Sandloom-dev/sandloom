@@ -42,13 +42,16 @@ written `reason` (stale entries fail too).
 
 ## Bind the tenant
 
-`module_router()` binds the tenant on every route of a module that declares a
-`TenantScoped` model (`tenant="derive"`; a route's own `tenant=` overrides).
-A signed `tenant_id` / `org_id` access-token claim binds directly.
+`module_router()` binds the tenant per route with `tenant="derive"`:
+`required` when the module declares a `TenantScoped` model, else `none`. A
+`tenant=` of `"required"`, `"optional"` or `"none"` on the router or the route
+overrides it. A signed `tenant_id` / `org_id` access-token claim binds directly.
 `X-Tenant-Id` is only a selector: the requested id must also be in the token's
 signed `tenant_ids` allowlist, otherwise the request is rejected with `403`.
 A missing tenant answers `400 tenant context required`
-([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)).
+([SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001)). The binding
+scopes data only and never chooses a billing account
+([Authorization](../http/authorization.md#billing-subjects-of-is-required)).
 
 ```python
 from sandloom.sdk import CurrentUser, db, module_router

@@ -775,19 +775,19 @@ IDEMPOTENCY_CACHE_INSTANCE=idempotency
 
 ## Idempotency
 
-[Idempotency guards](../modules/http/route-policy.md#idempotency) de-duplicate retries on mutating
-endpoints. Keys are scoped per caller and tenant; reservations carry an owner
-token and every transition is a compare-and-set; a response body is never
-replayed to an anonymous caller. Money/irreversible operations use
-`fail_closed=True` (cache outage → `503`, never a possible duplicate).
-Exactly-once *effects* use a durable inbox.
+[The automatic guard](../modules/http/idempotent-write.md) replays a retried
+write's status, never its body; no guard replays a body to an anonymous
+caller. Keys are scoped per caller and tenant; reservations carry an owner
+token and every transition is a compare-and-set. Money and irreversible
+operations use `fail_closed=True` (a cache outage is `503`); exactly-once
+*effects* use a durable inbox.
 
 A valid access token's revocation and emergency-block state is checked before
 reserving or replaying a response, even when `idempotency_guard` appears before
-the endpoint's usual auth dependency. The request memo prevents duplicate mark
-reads by later guards. This does not replace endpoint authorization: keep the
-normal authentication, tenant and permission dependencies on protected routes.
-Error responses are sent before cache release retries; release still uses an
+the endpoint's auth dependency. The request memo prevents duplicate mark
+reads by later guards. The check does not replace authorization: protected routes
+keep their authentication, tenant and permission dependencies.
+Error responses are sent before cache release retries; release uses an
 owner-token compare-and-delete after the final body, with jittered retry and the
 pending TTL as the failure backstop.
 

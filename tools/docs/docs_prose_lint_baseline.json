@@ -45,7 +45,7 @@
       "P8": 5,
       "P9": 72,
       "S11": 1,
-      "S4": 94
+      "S4": 93
     },
     "docs/advanced/write-admission.md": {
       "P6": 2,
@@ -171,9 +171,9 @@
     "docs/modules/batteries/billing.md": {
       "P6": 5,
       "P8": 1,
-      "P9": 15,
+      "P9": 14,
       "S13": 1,
-      "S4": 23,
+      "S4": 22,
       "S8": 1
     },
     "docs/modules/batteries/customize.md": {
@@ -292,10 +292,10 @@
     },
     "docs/modules/http/route-policy.md": {
       "K3": 1,
-      "P6": 5,
-      "P7": 3,
+      "P6": 4,
+      "P7": 2,
       "S13": 1,
-      "S4": 16
+      "S4": 12
     },
     "docs/modules/http/session-revocation.md": {
       "P12": 1

@@ -14,9 +14,8 @@ twice, and gets a useful answer on the retry.
 cases the answer is nothing.
 
 **Do not use it** for consumers, tasks or saga steps: they dedupe at the
-effect level (the durable inbox, unique keys, the command log). See
-[Route policy](route-policy.md) for how the defaults are
-derived.
+effect level ([Effect deduplication](../background/effect-deduplication.md)). The other
+defaults a route gets are in [Route policy](route-policy.md).
 
 ## Prerequisites
 
@@ -50,8 +49,32 @@ A route without a request unit gets the fail-closed in-flight form: a
 concurrent duplicate is `409`, a cache outage `503`, nothing is stored.
 
 Status replay never returns a body, so it cannot leak data the caller is no
-longer allowed to see. The client knows the operation succeeded and reads
+longer allowed to see. Take a handler that returns
+`{"secret": doc.secret} if doc.owner_id == user.user_id else {}`. After an
+ownership transfer a fresh run returns `{}`, while a stored body would return
+the secret. The client knows the operation succeeded and reads
 the resource with a normal `GET`, which runs authorization again.
+
+## Idempotency modes
+
+| Mode | Record | A retry after success | Enters the handler? |
+| --- | --- | --- | --- |
+| **B** body replay | a durable record in the write store, committed with the effect | the stored status, body and headers, `Idempotent-Replay: true` | no |
+| **S** status replay | a durable record, as B | the stored status, an empty body, `Idempotent-Replay: true` | no |
+| **X** release and re-execute | an in-flight reservation only (fail-closed), released when the request completes | runs again: every dependency, the authorization and the handler; the effect's own dedupe record keeps the effect single | yes |
+
+The framework derives the mode from the route; the route snapshot records it.
+
+<!-- lookup -->
+| Route | Mode |
+| --- | --- |
+| ordinary write, automatic guard | S |
+| ordinary write with `replay_safe(reason=)` | B ([step 1](#1-opt-in-to-body-replay-only-when-it-is-safe)) |
+| any route with an explicit `idempotency_guard(...)` | as configured ([step 3](#3-configure-the-guard-explicitly-when-the-default-does-not-fit)) |
+| sensitive write (`money`, `admin`, `security`) | S; an explicit guard keeps its options |
+| token issuer, operation-intent route | no automatic guard; an explicit mode-X guard is required ([SANDLOOM-B019](../../reference/error-codes.md#sandloom-b019)) |
+| public route | none |
+| write route without a request unit | the fail-closed in-flight form |
 
 ## Steps
 
@@ -146,6 +169,8 @@ The combinations give the modes:
   routes that issue tokens or bearer URLs, which must never be replayed
   from storage (SANDLOOM-B019).
 
+An anonymous caller never gets a stored body replayed, whatever the options.
+
 Declare the guard after authentication in the endpoint's dependencies; on
 a `module_router()` authentication is already a route dependency.
 
@@ -213,8 +238,7 @@ The route snapshot records each route's idempotency mode and any
 
 ## Related
 
-- [Route policy](route-policy.md): the defaults, including the
-  idempotency section.
+- [Route policy](route-policy.md): every other default a route gets.
 - [Transaction and replay lifecycle](../../advanced/lifecycle.md): every route
   kind and its idempotency mode.
 - [Units of Work and `db()`](../database/units.md): why the durable record
