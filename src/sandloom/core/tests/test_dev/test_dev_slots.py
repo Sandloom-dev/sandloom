@@ -380,3 +380,29 @@ def test_an_ownership_refusal_without_env_test_local_says_dev_up(
         session_checks.check_run_resources(config)
     assert "Refusing to reset database 'x'." in str(stopped.value)
     assert "run `uv run sandloom dev up` first" in str(stopped.value)
+
+
+def test_a_released_slot_hands_back_its_redis_indexes(
+    checkout: tuple[Path, str], tmp_path: Path
+) -> None:
+    """A slot claims Redis indexes for its owner; releasing it empties them
+    (only while that owner still holds them), so runs do not leak indexes."""
+    redis = pytest.importorskip("redis")
+    from sandloom.core.testing import ownership
+
+    root, _ = checkout
+    env = _clean_env(tmp_path / "home")
+    slot = slots.acquire_test_slot([root], env, cwd=root, announce=False)
+    assert slot is not None
+    claimed = list(slot.claimed_redis)
+    if not claimed:
+        slot.release()
+        pytest.skip("no Redis URLs or no free index on the shared test server")
+    slot.release()
+    for url in claimed:
+        client = redis.Redis.from_url(url)
+        try:
+            assert client.get(ownership.REDIS_OWNER_KEY) is None
+            assert client.dbsize() == 0
+        finally:
+            client.close()

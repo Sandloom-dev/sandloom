@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -302,15 +303,26 @@ def test_a_failing_step_prints_its_tail_and_how_to_continue(tmp_path: Path) -> N
     assert "\x1b" not in log
 
 
-def test_ctrl_c_stops_the_step_without_a_traceback(tmp_path: Path) -> None:
+def test_ctrl_c_stops_the_step_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ctrl-C while a step runs: the step is asked to stop, no traceback, and
+    the remaining commands are printed. The interrupt is raised in the wait
+    itself: a real SIGINT reaches the main thread, which under xdist need not
+    be the one running the test."""
     runner, out = _runner(tmp_path)
+    real_wait = subprocess.Popen.wait
+    fired = []
+
+    def wait(self: subprocess.Popen[str], timeout: float | None = None) -> int:
+        if not fired:
+            fired.append(True)
+            raise KeyboardInterrupt
+        return real_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
     steps = [
-        _py(
-            "uv sync",
-            "import os, signal, time\n"
-            "os.kill(os.getppid(), signal.SIGINT)\n"
-            "time.sleep(30)",
-        ),
+        _py("uv sync", "import time\ntime.sleep(30)"),
         _py("uv run sandloom generate", "pass"),
     ]
     started = time.monotonic()
@@ -321,6 +333,30 @@ def test_ctrl_c_stops_the_step_without_a_traceback(tmp_path: Path) -> None:
     assert "Traceback" not in text
     assert "Cancelled" in text
     assert "Continue with: cd shop && uv sync && uv run sandloom generate" in text
+
+
+def test_ctrl_c_right_after_the_step_starts_prints_no_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interrupt can land between spawning the step and waiting for it
+    (a busy machine widens that window): still a clean cancel."""
+    runner, out = _runner(tmp_path)
+    real_start = threading.Thread.start
+    fired = []
+
+    def start(self: threading.Thread) -> None:
+        real_start(self)
+        if not fired:
+            fired.append(True)
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(threading.Thread, "start", start)
+    steps = [_py("uv sync", "import time; time.sleep(30)")]
+    started = time.monotonic()
+    result = runner.run(steps, cwd=tmp_path, app_dir="shop")
+    assert time.monotonic() - started < 20
+    assert result.cancelled and not result.ok
+    assert "Traceback" not in out.getvalue()
 
 
 def test_children_get_a_cleaned_environment(tmp_path: Path) -> None:

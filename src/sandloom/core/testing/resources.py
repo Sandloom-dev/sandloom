@@ -71,6 +71,13 @@ redis.call('FLUSHDB')
 return 1
 """
 
+# Release of an index an owner claimed: emptied only while still its own.
+_RELEASE_INDEX = """
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
+redis.call('FLUSHDB')
+return 1
+"""
+
 # Atomic claim of a worker index: ours already, or unmarked and empty.
 _CLAIM_INDEX = """
 local holder = redis.call('GET', KEYS[1])
@@ -148,6 +155,11 @@ def _text(value: Any) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
+#: The ``CLIENT SETNAME`` of the scanner's own connections: never counted as
+#: a run using an index (:func:`_clients_per_db`).
+SCANNER_CLIENT_NAME = "sandloom-test-resources"
+
+
 def _connect_redis(url: str) -> Any:
     client = redis.Redis.from_url(
         _server_url(url),
@@ -155,6 +167,9 @@ def _connect_redis(url: str) -> Any:
         socket_timeout=10,
         single_connection_client=True,  # SELECT / NO-TOUCH apply to one link
     )
+    # Scanning SELECTs every index in turn: named, so another run's scan does
+    # not count this connection as a client of whichever index it is on.
+    client.execute_command("CLIENT", "SETNAME", SCANNER_CLIENT_NAME)
     try:
         # Reading the marker must not refresh the idle time a later scan uses.
         client.execute_command("CLIENT", "NO-TOUCH", "ON")
@@ -183,7 +198,7 @@ def _clients_per_db(client: Any) -> dict[int, int]:
     own = int(client.execute_command("CLIENT", "ID"))
     counts: dict[int, int] = {}
     for entry in client.client_list():
-        if int(entry.get("id", -1)) == own:
+        if int(entry.get("id", -1)) == own or entry.get("name") == SCANNER_CLIENT_NAME:
             continue
         db = int(entry.get("db", 0))
         counts[db] = counts.get(db, 0) + 1
@@ -384,6 +399,17 @@ def _claimable_indexes(
         elif not holder and not keys and not connected.get(index):
             free.append(index)
     return mine, free
+
+
+def release_redis(url: str, owner: str) -> bool:
+    """Empty the index of ``url`` iff ``owner`` still holds it: a run hands back
+    what it claimed instead of leaving it for ``prune`` days later."""
+    client = _connect_redis(url)
+    try:
+        client.execute_command("SELECT", _index_of(url))
+        return bool(client.eval(_RELEASE_INDEX, 1, REDIS_OWNER_KEY, owner))
+    finally:
+        client.close()
 
 
 def affordable_redis_workers(base_urls: Sequence[str], owner: str) -> int:

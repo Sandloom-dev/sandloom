@@ -46,11 +46,8 @@ psycopg2 = pytest.importorskip("psycopg2")
 
 def _base_url() -> str:
     values = worker_env_values(BACKEND / ".env.test")
-    return (
-        os.environ.get("SANDLOOM_TEST_DATABASE_URL")
-        or values.get("DATABASE_URL")
-        or os.environ.get("DATABASE_URL", "")
-    )
+    # This worker's own database (overrides applied), never the run's shared base.
+    return values.get("DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 
 def _sync(url: str, db: str) -> str:

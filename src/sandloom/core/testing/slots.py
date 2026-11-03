@@ -80,9 +80,15 @@ class Slot:
     database_url: str
     owner: str
     redis_urls: dict[str, str] = field(default_factory=dict)
+    #: The Redis URLs whose indexes this slot claimed (handed back on release).
+    claimed_redis: tuple[str, ...] = ()
     connection: Any = None
 
     def release(self) -> None:
+        for url in self.claimed_redis:
+            with contextlib.suppress(Exception):  # gone or taken over: prune's job
+                _resources().release_redis(url, self.owner)
+        self.claimed_redis = ()
         if self.connection is not None:
             with contextlib.suppress(Exception):
                 self.connection.close()
@@ -154,12 +160,17 @@ def _admin_dsn(url: str) -> str:
     return urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
 
 
+def _resources() -> Any:
+    from sandloom.core.testing import resources  # noqa: PLC0415 - optional: imports the redis extra at import; only a slot with Redis URLs needs it
+
+    return resources
+
+
 def _claim_redis_bases(urls: dict[str, str], owner: str) -> dict[str, str]:
     """New base indexes for this owner, one per distinct base index."""
     import redis  # noqa: PLC0415 - optional: the redis extra; only a slot with Redis URLs needs it
 
-    from sandloom.core.testing import resources  # noqa: PLC0415 - optional: imports the redis extra at import; only a slot with Redis URLs needs it
-
+    resources = _resources()
     plain = [u for u in urls.values() if u.startswith(("redis://", "rediss://"))]
     if not plain:
         return {}
@@ -248,6 +259,7 @@ def _point_at(
         if announce:
             print(f"sandloom testing: no own Redis indexes ({exc})", file=sys.stderr)
     slot.redis_urls = {**redis, **claimed}
+    slot.claimed_redis = tuple(dict.fromkeys(claimed.values()))
     env.update(slot.redis_urls)
     env[SLOT_HELD_ENV] = str(os.getpid())
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,7 +30,7 @@ def _test_database_url() -> str:
     from sandloom.core.testing.workers import worker_env_values
 
     values = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
-    return os.environ.get("SANDLOOM_TEST_DATABASE_URL") or values["DATABASE_URL"]
+    return values["DATABASE_URL"]  # this worker's own database
 
 
 class _Base(DeclarativeBase):
