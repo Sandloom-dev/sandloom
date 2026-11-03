@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import select as _select
 import sys
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import TextIO
 
 import sandloom.core.cli.ui as _ui
@@ -141,13 +141,16 @@ def select(
     out: TextIO | None = None,
     minimum: int = 1,
     hint: str | None = None,
+    requires: Mapping[int, Sequence[int]] | None = None,
 ) -> list[int]:
     """Show ``labels`` as checkboxes and return the indexes checked on Enter.
 
     ``checked`` are the indexes checked at the start. Enter with fewer than
     ``minimum`` checked keeps the list open with a note (``minimum=0``: an
-    empty answer is fine). ``hint`` replaces the keys line. Raises
-    :class:`Cancelled` on Esc, q or Ctrl-C.
+    empty answer is fine). ``hint`` replaces the keys line. ``requires``
+    maps an index to the indexes it needs: checking it checks them, and
+    unchecking one of them unchecks it. Raises :class:`Cancelled` on Esc, q or
+    Ctrl-C.
     """
     out = out or sys.stdout
     symbols = _ui.symbols_for(getattr(out, "encoding", None))
@@ -175,12 +178,26 @@ def select(
                 if len(chosen) >= minimum:
                     return chosen
                 note = f"  check at least {minimum} (space), then Enter"
+            before = list(state)
             cursor = _move(key, state, cursor)
+            _apply_requires(requires or {}, before, state)
             draw()
         raise Cancelled
     finally:
         out.write("\x1b[?25h")
         out.flush()
+
+
+def _apply_requires(
+    requires: Mapping[int, Sequence[int]], before: list[bool], state: list[bool]
+) -> None:
+    """Keep ``state`` consistent with ``requires`` after one key."""
+    for item, needed in requires.items():
+        if state[item] and not before[item]:
+            for other in needed:
+                state[other] = True
+        if state[item] and any(before[o] and not state[o] for o in needed):
+            state[item] = False
 
 
 __all__ = ["Cancelled", "available", "hint_line", "render", "select", "terminal_keys"]

@@ -79,3 +79,20 @@ def test_pick_agents_preselects_and_maps_keys() -> None:
     assert len([a for a in CODING_AGENTS if a.key in chosen]) == 2
     with pytest.raises(ValueError, match="--agents"):
         pick_agents({}, ["claude"], keys=["cancel"], out=io.StringIO())
+
+
+def test_checking_an_item_checks_what_it_requires() -> None:
+    # 0 identity, 1 tenancy, 2 admin: admin requires identity.
+    labels = ["identity", "tenancy", "admin"]
+    requires = {2: (0,)}
+    keys = ["down", "down", "toggle", "confirm"]
+    chosen = checkbox.select(
+        labels, keys=keys, out=io.StringIO(), minimum=0, requires=requires
+    )
+    assert chosen == [0, 2]
+    # Unchecking identity then unchecks admin.
+    keys = ["toggle", "confirm"]
+    chosen = checkbox.select(
+        labels, [0, 2], keys=keys, out=io.StringIO(), minimum=0, requires=requires
+    )
+    assert chosen == []

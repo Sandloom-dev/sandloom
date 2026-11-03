@@ -209,15 +209,31 @@ def test_the_heading_is_one_line_without_the_mark() -> None:
     ]
 
 
-def test_the_mark_needs_utf8_and_sixty_columns() -> None:
+def test_the_mark_needs_utf8_and_a_big_enough_terminal() -> None:
     style = ui.Style(symbols=ui.UNICODE, utf8=True)
     lines = ui.heading(style, "0.7.0a8", "new application", width=80, mark=True)
-    assert len(lines) == len(ui.MARK)
-    assert "sandloom 0.7.0a8" in lines[3]
-    assert "new application" in lines[4]
-    assert len(ui.heading(style, "1", "x", width=59, mark=True)) == 1
+    assert len(lines) == len(ui.MARK) == 16
+    assert "sandloom 0.7.0a8" in lines[7]
+    assert "new application" in lines[8]
+    assert lines[1].strip() == ui.MARK[1].strip()  # braille by default
+    blocks = ui.heading(style, "1", "x", width=80, mark=True, braille=False)
+    assert blocks[1].strip() == ui.MARK_BLOCKS[1].strip()  # Windows consoles
+    assert len(ui.heading(style, "1", "x", width=63, mark=True)) == 1
+    assert len(ui.heading(style, "1", "x", width=80, height=29, mark=True)) == 1
     not_utf8 = ui.Style(symbols=ui.UNICODE, utf8=False)
     assert len(ui.heading(not_utf8, "1", "x", width=80, mark=True)) == 1
+
+
+def test_the_mark_is_a_gradient_in_truecolor_and_the_accent_otherwise() -> None:
+    true = ui.Style(depth=ui.TRUECOLOR, symbols=ui.UNICODE, utf8=True)
+    lines = ui.heading(true, "1", "x", width=80, mark=True)
+    assert "38;2;212;172;124" in lines[0]  # MARK_TOP
+    assert "38;2;131;96;59" in lines[-1]  # MARK_BOTTOM
+    basic = ui.Style(depth=ui.EXTENDED, symbols=ui.UNICODE, utf8=True)
+    assert all(
+        f"38;5;{ui.ACCENT_256}" in line
+        for line in ui.heading(basic, "1", "x", width=80, mark=True)
+    )
 
 
 def test_errors_and_the_summary_read_without_colour() -> None:

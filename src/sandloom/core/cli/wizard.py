@@ -334,6 +334,14 @@ def _typed_choice(answer: str) -> list[str]:
     return chosen
 
 
+#: Checking admin checks identity in the list (the generator adds it anyway).
+_MODULE_REQUIRES = {
+    [name for name, _ in MODULES].index("admin"): (
+        [name for name, _ in MODULES].index("identity"),
+    )
+}
+
+
 def ask_modules(p: Prompter) -> list[str]:
     p.say(p.style.bold("Standard modules") + p.style.muted(" (none is fine)"))
     width = max(len(name) for name, _ in MODULES)
@@ -349,6 +357,7 @@ def ask_modules(p: Prompter) -> list[str]:
                 out=p.out,
                 minimum=0,
                 hint=p.style.muted(hint),
+                requires=_MODULE_REQUIRES,
             )
         except (_checkbox.Cancelled, KeyboardInterrupt):
             raise Cancelled from None
@@ -799,7 +808,12 @@ def _answers(run: _Run, given: Given) -> Answers | int:
         )
     width = _ui.columns(run.out)
     for line in _ui.heading(
-        run.style, run.version, "new application", width=width, mark=True
+        run.style,
+        run.version,
+        "new application",
+        width=width,
+        height=_ui.rows(run.out),
+        mark=True,
     ):
         run.out.write(line + "\n")
     keys = None

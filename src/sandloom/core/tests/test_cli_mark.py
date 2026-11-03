@@ -1,13 +1,16 @@
 """The caracal mark of the wizard heading, rasterised from the brand SVG.
 
-The rasteriser below is the offline renderer of :data:`sandloom.core.cli.ui.MARK`:
-it parses the path of ``docs/assets/sandloom-mark.svg`` (``M L V H Q C Z``,
-even-odd fill), samples each pixel 8 x 8 times and turns pairs of pixel rows
-into half blocks. Run it to print the constant and a preview::
+The rasteriser below is the offline renderer of :data:`sandloom.core.cli.ui.MARK`
+(braille) and :data:`sandloom.core.cli.ui.MARK_BLOCKS` (half blocks, where
+braille cannot be drawn). It parses the path of ``docs/assets/sandloom-mark.svg``
+(``M L V H Q C Z``, even-odd fill), fits the shape's box (plus one unit) into a
+square grid with square cells, samples each cell 6 x 6 times, and keeps a cell
+when the shape covers enough of it: a high threshold keeps the logo's thin
+cut-outs (inner ears, eyes, nose, mouth) open. Run it to print the constants::
 
     uv run python src/sandloom/core/tests/test_cli_mark.py
 
-The test keeps the stored constant equal to what the SVG renders to.
+The tests keep the stored constants equal to what the SVG renders to.
 """
 
 from __future__ import annotations
@@ -18,9 +21,10 @@ from pathlib import Path
 from sandloom.core.cli import ui
 
 SVG = Path(__file__).resolve().parents[4] / "docs/assets/sandloom-mark.svg"
-#: The shape's box in SVG units (the 80 x 80 view box less its margins).
-BOX = (10.0, 3.0, 70.0, 74.0)
-COLUMNS, PIXEL_ROWS, THRESHOLD, SAMPLES = 14, 14, 0.4, 8
+#: Braille: 64 x 64 dots (32 x 16 cells); half blocks: 32 x 32 pixels (32 x 16).
+BRAILLE_DOTS, BRAILLE_THRESHOLD = 64, 0.7
+BLOCK_PIXELS, BLOCK_THRESHOLD = 32, 0.6
+SAMPLES = 6
 
 Point = tuple[float, float]
 
@@ -102,53 +106,112 @@ def _inside(shapes: list[list[Point]], x: float, y: float) -> bool:
     return crossings % 2 == 1
 
 
-def render(svg: Path = SVG) -> tuple[str, ...]:
-    """The mark as half-block rows (trailing blanks stripped)."""
+def _shapes(svg: Path) -> list[list[Point]]:
     path = re.search(r' d="([^"]+)"', svg.read_text(encoding="utf-8"))
     assert path is not None
-    shapes = polygons(path.group(1))
-    x0, y0, x1, y1 = BOX
-    pixels = [
+    return polygons(path.group(1))
+
+
+def grid(size: int, threshold: float, svg: Path = SVG) -> list[list[bool]]:
+    """``size`` x ``size`` square cells over the shape, centred."""
+    shapes = _shapes(svg)
+    xs = [x for shape in shapes for x, _ in shape]
+    ys = [y for shape in shapes for _, y in shape]
+    x0, x1, y0, y1 = min(xs) - 1, max(xs) + 1, min(ys) - 1, max(ys) + 1
+    step = max(x1 - x0, y1 - y0) / size
+    left = x0 - (size * step - (x1 - x0)) / 2
+    top = y0 - (size * step - (y1 - y0)) / 2
+    return [
         [
             sum(
                 _inside(
                     shapes,
-                    x0 + (column + (a + 0.5) / SAMPLES) * (x1 - x0) / COLUMNS,
-                    y0 + (row + (b + 0.5) / SAMPLES) * (y1 - y0) / PIXEL_ROWS,
+                    left + (column + (a + 0.5) / SAMPLES) * step,
+                    top + (row + (b + 0.5) / SAMPLES) * step,
                 )
                 for a in range(SAMPLES)
                 for b in range(SAMPLES)
             )
             / SAMPLES**2
-            >= THRESHOLD
-            for column in range(COLUMNS)
+            >= threshold
+            for column in range(size)
         ]
-        for row in range(PIXEL_ROWS)
+        for row in range(size)
     ]
+
+
+#: Braille dot bits by (column, row) inside a 2 x 4 cell.
+_DOTS = {
+    (0, 0): 1,
+    (0, 1): 2,
+    (0, 2): 4,
+    (1, 0): 8,
+    (1, 1): 16,
+    (1, 2): 32,
+    (0, 3): 64,
+    (1, 3): 128,
+}
+
+
+def render(svg: Path = SVG) -> tuple[str, ...]:
+    """The mark in braille: 2 x 4 dots per character."""
+    px = grid(BRAILLE_DOTS, BRAILLE_THRESHOLD, svg)
+    return tuple(
+        "".join(
+            chr(0x2800 + bits) if bits else " "
+            for bits in (
+                sum(bit for (dx, dy), bit in _DOTS.items() if px[row + dy][column + dx])
+                for column in range(0, BRAILLE_DOTS, 2)
+            )
+        ).rstrip()
+        for row in range(0, BRAILLE_DOTS, 4)
+    )
+
+
+def render_blocks(svg: Path = SVG) -> tuple[str, ...]:
+    """The mark in half blocks: 1 x 2 pixels per character."""
+    px = grid(BLOCK_PIXELS, BLOCK_THRESHOLD, svg)
     blocks = {(True, True): "█", (True, False): "▀", (False, True): "▄"}
     return tuple(
         "".join(
             blocks.get((top, bottom), " ")
-            for top, bottom in zip(pixels[r], pixels[r + 1], strict=True)
+            for top, bottom in zip(px[r], px[r + 1], strict=True)
         ).rstrip()
-        for r in range(0, PIXEL_ROWS, 2)
+        for r in range(0, BLOCK_PIXELS, 2)
     )
 
 
 def test_the_stored_mark_is_the_svg_rendered() -> None:
     assert render() == ui.MARK
+    assert render_blocks() == ui.MARK_BLOCKS
 
 
-def test_the_mark_fits_seven_rows_by_fourteen_columns() -> None:
-    assert len(ui.MARK) <= 7
-    assert max(len(row) for row in ui.MARK) <= ui.MARK_WIDTH == 14
-    assert set("".join(ui.MARK)) <= set(" ▀▄█")
+def test_the_mark_is_thirty_two_columns_by_sixteen_rows() -> None:
+    for mark, alphabet in ((ui.MARK, None), (ui.MARK_BLOCKS, set(" ▀▄█"))):
+        assert len(mark) == 16
+        assert max(len(row) for row in mark) <= ui.MARK_WIDTH == 32
+        if alphabet:
+            assert set("".join(mark)) <= alphabet
+    assert all(ch == " " or "\u2801" <= ch <= "\u28ff" for ch in "".join(ui.MARK))
+
+
+def test_the_logos_cut_outs_survive() -> None:
+    """Eyes, nose and mouth are holes in the logo: blank dots inside the face."""
+    px = grid(BRAILLE_DOTS, BRAILLE_THRESHOLD)
+    face = px[34:58]  # the rows from the eyes down to the chin
+    holes = sum(
+        1
+        for row in face
+        for i in range(1, BRAILLE_DOTS - 1)
+        if not row[i] and any(row[:i]) and any(row[i + 1 :])
+    )
+    assert holes > 60
 
 
 if __name__ == "__main__":  # pragma: no cover - the offline renderer
-    rows = render()
-    print("MARK: tuple[str, ...] = (")
-    for row in rows:
-        print(f"    {row!r},")
-    print(")\n")
-    print("\n".join(rows))
+    for name, rows in (("MARK", render()), ("MARK_BLOCKS", render_blocks())):
+        print(f"{name}: tuple[str, ...] = (")
+        for row in rows:
+            print(f"    {row!r},")
+        print(")\n")
+        print("\n".join(rows) + "\n")

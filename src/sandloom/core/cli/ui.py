@@ -402,40 +402,106 @@ def columns(stream: object, default: int = 80) -> int:
 # The mark, the heading, errors, the summary
 # --------------------------------------------------------------------------- #
 
-#: The caracal of ``docs/assets/sandloom-mark.svg`` in half blocks: 14
-#: columns by 7 rows (14 x 14 pixels, cell coverage >= 0.4 over the shape's
-#: box 10,3 - 70,74). Rendered by ``src/sandloom/core/tests/test_cli_mark.py``
+#: The caracal of ``docs/assets/sandloom-mark.svg`` in braille: 32 columns by
+#: 16 rows (64 x 64 dots). Rendered by ``src/sandloom/core/tests/test_cli_mark.py``
 #: (``uv run python src/sandloom/core/tests/test_cli_mark.py``), which checks it.
 MARK: tuple[str, ...] = (
-    " ▄▄        ▄▄",
-    " ██▄      ▄██",
-    " █ █▄████▄█ █",
-    "▄████████████▄",
-    "▀██▄▄████▄▄██▀",
-    " ▀████▄▄████▀",
-    "   ▀▀████▀▀",
+    "      ⣤⡀                ⢀⣤",
+    "      ⣿⣿⡆              ⢰⣿⣿",
+    "      ⣿⣿⣧              ⣼⣿⣿",
+    "      ⣿⢻⣿⡄            ⢠⣿⡟⣿",
+    "     ⢸⡏⠘⣿⣇            ⣸⣿⠃⢹⡇",
+    "     ⢸⡇ ⢹⣿⣀⣤⣴⣶⣶⣿⣿⣶⣶⣦⣤⣀⣿⡏ ⢸⡇",
+    "    ⢀⣾⡇⣀⣨⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣅⣀⢸⣷⡀",
+    "    ⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧",
+    "   ⣼⣿⣿⣿⡿⠛⠛⠛⠿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠛⠛⢿⣿⣿⣿⣧",
+    "   ⢹⣿⣿⣿⣷⣄⡀  ⠈⣻⣿⣿⣿⣿⣟⠁  ⢀⣠⣾⣿⣿⣿⡏",
+    "    ⢿⣿⣿⣿⣿⣿⣷⣶⣾⣿⣿⣿⣿⣿⣿⣷⣶⣾⣿⣿⣿⣿⣿⡿",
+    "    ⠈⣿⣿⣿⣿⣿⣿⣿⣿⣟⠉⠉⠉⠉⣻⣿⣿⣿⣿⣿⣿⣿⣿⠁",
+    "     ⠘⢿⣿⣿⣿⣿⣿⣿⣿⣷⡄⢠⣾⣿⣿⣿⣿⣿⣿⣿⡿⠃",
+    "       ⠙⠻⣿⣿⣿⣿⣏⣩⣤⣤⣍⣹⣿⣿⣿⣿⠟⠋",
+    "         ⠈⠛⠿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠁",
+    "             ⠉⠙⠻⠟⠋⠉",
 )
-MARK_WIDTH = 14
-#: The narrowest terminal that gets the mark.
-MARK_MIN_COLUMNS = 60
+#: The same caracal in half blocks (32 x 32 pixels), where braille cannot be
+#: drawn: the console fonts of Windows have no braille glyphs.
+MARK_BLOCKS: tuple[str, ...] = (
+    "      ▄                  ▄",
+    "      ██                ██",
+    "      ███              ███",
+    "      ███              ███",
+    "      █ ██            ██ █",
+    "      ▀ ██▄▄▄██████▄▄▄██ ▀",
+    "     █  ▄██████████████▄  █",
+    "    ████████████████████████",
+    "   ▄████▀▀▀▀████████▀▀▀▀████▄",
+    "   ▀████▄    ██████    ▄████▀",
+    "    ████████████████████████",
+    "     █████████▀▀▀▀█████████",
+    "     ▀█████████  █████████▀",
+    "       ▀▀█████▄▄▄▄█████▀▀",
+    "          ▀██████████▀",
+    "              ▀▀▀▀",
+)
+MARK_WIDTH = 32
+#: The smallest terminal that gets the mark: the caracal, a gap and the name
+#: beside it, and room for the first questions below.
+MARK_MIN_COLUMNS = 64
+MARK_MIN_ROWS = 30
+#: The mark's colour runs from light sand (ears) to deep ochre (chin).
+MARK_TOP, MARK_BOTTOM = "#d4ac7c", "#83603b"
+
+
+def _mark_colour(style: Style, row: int, rows: int) -> str:
+    """The SGR code of the mark's ``row``: a gradient in truecolor, the accent
+    otherwise."""
+    if style.depth != TRUECOLOR:
+        return style._accent_code()
+    top, bottom = _channels(MARK_TOP), _channels(MARK_BOTTOM)
+    t = row / max(1, rows - 1)
+    r, g, b = (round(a + (z - a) * t) for a, z in zip(top, bottom, strict=True))
+    return f"38;2;{r};{g};{b}"
 
 
 def heading(
-    style: Style, version: str, subtitle: str, *, width: int = 80, mark: bool = False
+    style: Style,
+    version: str,
+    subtitle: str,
+    *,
+    width: int = 80,
+    height: int = 40,
+    mark: bool = False,
+    braille: bool = sys.platform != "win32",
 ) -> list[str]:
     """``◆ sandloom <version> · <subtitle>``; with ``mark`` (the wizard, a
-    UTF-8 terminal at least :data:`MARK_MIN_COLUMNS` wide) the caracal
-    stands to the left of the name instead of the diamond."""
+    UTF-8 terminal at least :data:`MARK_MIN_COLUMNS` by :data:`MARK_MIN_ROWS`)
+    the caracal stands to the left of the name instead: in braille, or in half
+    blocks where braille cannot be drawn."""
     sym = style.symbols
     title = f"{style.bold('sandloom')} {version} {sym.dot} {subtitle}"
-    if not (mark and style.utf8 and width >= MARK_MIN_COLUMNS):
+    if not (
+        mark and style.utf8 and width >= MARK_MIN_COLUMNS and height >= MARK_MIN_ROWS
+    ):
         return [f"{style.accent(sym.diamond)} {title}"]
-    beside = {3: f"{style.bold('sandloom')} {version}", 4: style.muted(subtitle)}
+    rows = MARK if braille else MARK_BLOCKS
+    middle = len(rows) // 2 - 1
+    beside = {
+        middle: f"{style.bold('sandloom')} {version}",
+        middle + 1: style.muted(subtitle),
+    }
     return [
-        f"  {style.accent(row)}"
+        f"  {style.paint(row, _mark_colour(style, i, len(rows)))}"
         + (f"{' ' * (MARK_WIDTH - len(row))}   {beside[i]}" if i in beside else "")
-        for i, row in enumerate(MARK)
+        for i, row in enumerate(rows)
     ]
+
+
+def rows(stream: object, default: int = 40) -> int:
+    """The terminal height of ``stream`` (``default`` when it has none)."""
+    try:
+        return os.get_terminal_size(stream.fileno()).lines  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError):
+        return default
 
 
 def error_lines(style: Style, what: str, todo: str | None = None) -> str:
@@ -565,6 +631,7 @@ __all__ = [
     "AGENT_MARKERS",
     "ASCII",
     "MARK",
+    "MARK_BLOCKS",
     "PLAIN",
     "UNICODE",
     "StepLine",
@@ -572,6 +639,7 @@ __all__ = [
     "Symbols",
     "agent_marker",
     "colour_depth",
+    "rows",
     "columns",
     "contrast_ratio",
     "enable_vt",
