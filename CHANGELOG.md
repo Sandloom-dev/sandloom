@@ -33,6 +33,9 @@ website renders this same changelog.
   `sandloom admin invite` issues a new link.
 - The console has a set-password page. While no administrator exists, its sign-in
   page and the app's startup log name the command.
+- **Two-step console sign-in.** The sign-in page asks for the email and password
+  first, and for the two-factor code on a second screen only when the account has
+  two-factor sign-in turned on.
 - `NOTIFIER_LOG_LINKS=true` (local development) prints the links an email carries.
   Production refuses it unless the risk `log_links_in_prod` is accepted.
 
