@@ -93,6 +93,48 @@ QUICKSTART: tuple[tuple[str, str], ...] = (
 )
 
 
+#: The README's first-administrator step, for an app generated ``--with admin``.
+_ADMIN_STEP = """Create the first console administrator. It asks for the password; with
+`--invite` it prints a one-time link instead (for agents and CI):
+
+```bash
+uv run sandloom admin create --email you@example.com
+```
+
+The console is at `http://127.0.0.1:8000/admin/`
+([guide](https://sandloom.dev/docs/admin-console/)).
+
+"""
+
+#: The ``.env`` line that prints email links (verification, password reset)
+#: to the console in local development; production refuses it.
+_LOG_LINKS = """# Local development only: print the links an email carries ([dev only]).
+# NOTIFIER_LOG_LINKS=true
+"""
+
+#: The next step ``sandloom new --with admin`` prints after the quickstart.
+ADMIN_NEXT_STEP = (
+    "uv run sandloom admin create --email you@example.com"
+    "   # the first console administrator (--invite: a one-time link)"
+)
+
+
+def _quickstart_section(lines: list[str], *, admin: bool) -> str:
+    """The README's quick start: one block, or the admin step before the
+    last line (serving the app) when the app has the console."""
+    if not admin:
+        return "```bash\n" + "\n".join(lines) + "\n```\n"
+    return (
+        "```bash\n"
+        + "\n".join(lines[:-1])
+        + "\n```\n\n"
+        + _ADMIN_STEP
+        + "```bash\n"
+        + lines[-1]
+        + "\n```\n"
+    )
+
+
 def quickstart_module(sample_module: str) -> str:
     """The module the quickstart adds (never the sample module's name)."""
     return "tasks" if sample_module == "notes" else "notes"
@@ -278,16 +320,7 @@ select a subset).
 
 From the project root:
 
-```bash
-$quickstart
-```
-
-<!-- first-admin step: added by admin-create -->
-
-```bash
-$quickstart_serve
-```
-
+$quickstart_section
 `uv sync` installs the app, the framework and the pinned dev tools (ruff,
 mypy, pytest, pytest-xdist); `pre-commit install` adds the commit hooks. The
 API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
@@ -296,10 +329,6 @@ API reads `.env` (generated with a random `JWT_SECRET`; recreate it from
 If you selected `--with identity`, follow the
 [authentication and email guide](https://sandloom.dev/docs/modules/batteries/first-access-token/)
 to receive verification mail locally and obtain access/refresh tokens.
-
-If you selected `--with admin`, the
-[admin console guide](https://sandloom.dev/docs/admin-console/) shows how to create
-the first administrator and open the console at `http://127.0.0.1:8000/admin/`.
 
 ### The dev services
 
@@ -463,7 +492,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=14
 # INTERNAL_API_TOKEN=
 # Local development only: open them without a token (ignored in prod).
 $open_internal
-"""
+$log_links"""
 )
 
 _ENV_TEST = Template(
@@ -1142,8 +1171,9 @@ def generate_project(
         ),
         "port_hint": "start the services with: uv run sandloom dev up",
         "dev_block": _envfile.empty_block(),
-        "quickstart": "\n".join(quickstart(app, sample_module)[1:-1]),
-        "quickstart_serve": quickstart(app, sample_module)[-1],
+        "quickstart_section": _quickstart_section(
+            quickstart(app, sample_module)[1:], admin="admin" in bundled
+        ),
         "billing_env": (_IDENTITY_ENV if "identity" in bundled else "")
         + (_BILLING_ENV if "billing" in bundled else ""),
     }
@@ -1151,6 +1181,7 @@ def generate_project(
         **ctx,
         "jwt_secret": "change_me_in_production_use_openssl_rand_hex_32",
         "open_internal": "# INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
+        "log_links": _LOG_LINKS if "identity" in bundled else "",
     }
     # The local .env gets a REAL random secret (git-ignored) so the placeholder
     # is never what a developer actually runs with.
@@ -1158,6 +1189,9 @@ def generate_project(
         **ctx,
         "jwt_secret": secrets.token_hex(32),
         "open_internal": "INTERNAL_ENDPOINTS_OPEN_IN_DEV=true",
+        "log_links": _LOG_LINKS.replace("# NOTIFIER_LOG_LINKS", "NOTIFIER_LOG_LINKS")
+        if "identity" in bundled
+        else "",
     }
 
     files: dict[str, str] = {

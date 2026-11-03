@@ -236,6 +236,8 @@ def _cmd_new(argv: list[str]) -> int:
     # are tested against it and the CI job `quickstart` runs these lines.
     in_cwd = args.dir.resolve() == Path.cwd().resolve()
     lines = quickstart(args.app, args.module, path=None if in_cwd else str(root))
+    if "admin" in batteries:
+        lines.append(project.ADMIN_NEXT_STEP)
     print("\nNext steps:\n" + "".join(f"  {line}\n" for line in lines))
     return 0
 
