@@ -2,7 +2,7 @@
   "manifest_versions": [
     1
   ],
-  "source_sha256": "7e6db6e7fb53f5ea3b5bdbb8106af3ce62fbebfad0e7bb78a8b7f44468769a75",
+  "source_sha256": "4213c0607a06bea7aafacacfd43f1b9ee549c287f446d8d1c3523f2767b19bb0",
   "widgets": [
     "billing.customer",
     "identity.account-safety",

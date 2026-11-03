@@ -205,9 +205,8 @@ export class ApiClient {
     if (!storage) return;
     const session = this.session;
     quietly(() => {
-      session
-        ? storage.setItem(SESSION_KEY, JSON.stringify(session))
-        : storage.removeItem(SESSION_KEY);
+      if (session) storage.setItem(SESSION_KEY, JSON.stringify(session));
+      else storage.removeItem(SESSION_KEY);
     });
   }
   clear() {
