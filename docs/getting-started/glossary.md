@@ -16,7 +16,7 @@ Each term has one meaning across this documentation.
 | **Module** | One Python package owning one slice of the business: its tables, routes, events and contracts. Modules never import each other. [Modules](../modules/index.md). |
 | **Standard module** | A ready-made module Sandloom publishes as its own package: `identity`, `tenancy` or `billing`. It follows the same rules as your modules. The CLI flag `--no-batteries` and the extra `sandloom[standard]` refer to this set; "battery" is the informal word for a standard module. [Standard modules](../modules/batteries/index.md). |
 | **Gate** | One check `sandloom test` runs: tests, lint, types, architecture rules, generated files. Any failing gate fails the run. See [Checks](../ai/checks.md). |
-| **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. |
+| **Kernel** | The framework runtime: transactions, access checks, outbox, routing. Modules reach it only through the SDK. See [Architecture](../advanced/index.md). |
 | **SDK** | `sandloom.sdk`, the public Python API for modules. Apart from the driver kit below, everything else in the framework is private. [Reference](../reference/sdk/index.md). |
 | **Driver kit** | `sandloom.driverkit`, the separate API for driver packages. Modules may not import it. [Reference](../infrastructure/driverkit.md). |
 | **Beginner names, advanced names** | The 29 SDK names that cover ordinary modules, and every other public name. An advanced import states its reason in a comment. [Modules](../advanced/module-internals.md#the-beginner-tier). |
@@ -26,13 +26,13 @@ Each term has one meaning across this documentation.
 | Term | Meaning |
 | --- | --- |
 | **Contract** | A typed, versioned API one module offers to others, such as `tenancy.membership.v1`. The call is synchronous, in-process or over RPC. [Contracts](../modules/between/contracts.md). |
-| **Provider, caller** | The module that implements a contract, and the module that calls it. |
-| **Stub** | The generated typed client of a contract, written by `sandloom generate`. Callers import the stub, never the provider. |
-| **Command** | A contract method that changes state and is deduplicated by an idempotency key. |
+| **Provider, caller** | The module that implements a contract, and the module that calls it. See [Contracts](../modules/between/contracts.md). |
+| **Stub** | The generated typed client of a contract, written by `sandloom generate`. Callers import the stub, never the provider. See [Generate contracts and snapshots](../ai/generate.md#what-is-generated). |
+| **Command** | A contract method that changes state and is deduplicated by an idempotency key. See [Provide a contract](../modules/between/contracts.md#provide). |
 | **Event** | A typed, versioned message on a channel, such as `notes.note.created.v1`, published after commit. Asynchronous and delivered at least once. [Events](../modules/between/events.md). |
-| **Channel** | The versioned name of an event. It has one producing module. |
-| **View** | A consuming module's own class describing the fields it reads from another module's channel. |
-| **Consumer** | An `@on` handler that reacts to an event, once per event id. |
+| **Channel** | The versioned name of an event. It has one producing module. See [Events](../modules/between/events.md#declare-and-publish). |
+| **View** | A consuming module's own class describing the fields it reads from another module's channel. See [Producers and views](../modules/between/events.md#producers-and-views). |
+| **Consumer** | An `@on` handler that reacts to an event, once per event id. See [Consume](../modules/between/events.md#consume). |
 | **Projection** | A read model built from events, for lists that span modules. [Projections](../modules/between/projections.md). |
 | **Saga** | A process across modules with compensating steps. [Sagas](../modules/between/sagas.md). |
 
@@ -44,16 +44,16 @@ Each term has one meaning across this documentation.
 | **Provider contract** | The abstract class every driver of a capability implements, such as `NotifierProvider`. Modules see its operations as a Protocol, such as `Notifier`. It is unrelated to a module [contract](../modules/between/contracts.md). |
 | **Capability reference** | A typed key to a capability, `CapabilityRef[VectorIndex]("vector_index.v1")`, for one that a package adds. |
 | **Driver** | One implementation of a capability, such as `redis` for `cache`. Chosen by configuration, and published as its own package, found by name, never inside a module. [Write a driver](../infrastructure/write-a-driver.md). |
-| **Instance** | A named, configured driver, such as the `default` database and a second `analytics` one. Modules ask for an instance by name. |
-| **Backend** | The external system a driver connects to, such as PostgreSQL or Redis. |
-| **Feature** | An optional ability a driver advertises, such as `cas` for `cache`. A module can require one. |
+| **Instance** | A named, configured driver, such as the `default` database and a second `analytics` one. Modules ask for an instance by name. See [Use a named instance](../infrastructure/configure.md#use-a-named-instance). |
+| **Backend** | The external system a driver connects to, such as PostgreSQL or Redis. See [Infrastructure](../infrastructure/index.md). |
+| **Feature** | An optional ability a driver advertises, such as `cas` for `cache`. A module can require one. See [Declare what you need](../infrastructure/index.md#declare-what-you-need). |
 
 ## Transactions and requests
 
 | Term | Meaning |
 | --- | --- |
 | **Unit (of work)** | One database transaction. `db()` returns the session of the running unit; only the unit commits. [Units](../modules/database/units.md). |
-| **Outbox, inbox** | The tables that make event publishing atomic with a write, and that deduplicate deliveries. |
+| **Outbox, inbox** | The tables that make event publishing atomic with a write, and that deduplicate deliveries. See [Events and audit go through the unit](../modules/database/units.md#events-and-audit-go-through-the-unit). |
 | **Route policy** | What a route requires, derived from its code: deny by default, `public(reason=)` to opt out. [Route policy](../modules/http/route-policy.md). |
 | **Tenant** | The organization or account whose rows a request may see. `TenantScoped` tables are filtered by it. [Multi-tenancy](../modules/database/multi-tenancy.md). |
 
@@ -62,5 +62,5 @@ Each term has one meaning across this documentation.
 | Term | Meaning |
 | --- | --- |
 | **Monolith, microservices** | One process loading every module, or several processes loading one module each. The module code is the same. [Deployment](../operate/topologies.md). |
-| **Composition root** | The `create_app` call that assembles an application. |
+| **Composition root** | The `create_app` call that assembles an application. See [How the application starts](project-structure.md#how-the-application-starts). |
 | **Generated files** | Snapshots, stubs and schemas written by `sandloom generate` and committed. [Generate](../ai/generate.md). |

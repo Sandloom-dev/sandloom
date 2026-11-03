@@ -114,7 +114,7 @@ No home (a concept no page explains):
 - **Model** (`Base`, declaring a table): modules/database/conventions.md covers ids, timestamps and order only; `Base` appears in the tutorial and multi-tenancy.md. Fix: a "Declare a table" section in conventions.md. **Fixed 2026-11-03:** conventions.md is the home ("Module tables"); the timestamps section keeps its heading.
 - **Data extraction**: no page; three short mentions (operate/split-into-services.md#existing-data, modules/database/migrations.md#moving-a-modules-data, operate/topologies.md#moving-a-module-into-its-own-service); the procedure exists only in the `sandloom-extract-module` skill. Fix: an operate how-to. **Fixed 2026-11-03:** home operate/extract-module-data.md; the mentions and the skill link it.
 - **Key rotation** (part of Keys and secrets): the steps are bullets in advanced/security-model.md#authentication and the `sandloom-key-rotation` skill; operator-reference.md covers loading secrets, not rotating. Fix: an operate how-to. **Fixed 2026-11-03:** home operate/rotate-keys.md; security-model.md keeps its bullets as a summary and links it.
-- **Glossary terms without a link**: *Gate*, *Kernel*, *Provider, caller*, *Stub*, *Command*, *Channel*, *View*, *Consumer*, *Outbox, inbox*, *Instance*, *Backend*, *Feature*, *Composition root*. Fix: link each to the home above.
+- **Glossary terms without a link**: *Gate*, *Kernel*, *Provider, caller*, *Stub*, *Command*, *Channel*, *View*, *Consumer*, *Outbox, inbox*, *Instance*, *Backend*, *Feature*, *Composition root*. Fix: link each to the home above. **Fixed 2026-11-03:** every term links its home.
 
 Structure:
 
