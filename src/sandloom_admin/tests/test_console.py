@@ -74,8 +74,24 @@ async def test_the_entry_page_forbids_foreign_code(client: AsyncClient) -> None:
     assert "/admin/assets/" in response.text
     assert "script-src 'self'" in response.headers["content-security-policy"]
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
-    assert response.headers["cache-control"] == "no-store"
+    # Kept, but asked for again each time: a new release is seen at once.
+    assert response.headers["cache-control"] == "no-cache"
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_an_unchanged_entry_page_costs_a_bodiless_304(
+    client: AsyncClient,
+) -> None:
+    first = await client.get("/admin/users")
+    again = await client.get(
+        "/admin/users", headers={"If-None-Match": first.headers["etag"]}
+    )
+    assert again.status_code == 304
+    assert again.content == b""
+    assert "script-src 'self'" in again.headers["content-security-policy"]
+    assert (await client.get("/admin/favicon.svg")).headers[
+        "cache-control"
+    ] == "no-cache"
 
 
 async def test_the_bare_path_redirects(client: AsyncClient) -> None:
@@ -97,6 +113,26 @@ async def test_hashed_assets_are_cached_forever(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert "immutable" in response.headers["cache-control"]
     assert "javascript" in response.headers["content-type"]
+
+
+async def test_hashed_assets_come_precompressed(client: AsyncClient) -> None:
+    html = (await client.get("/admin/")).text
+    asset = html.split('src="/admin/')[1].split('"')[0]
+    plain = await client.get(f"/admin/{asset}", headers={"Accept-Encoding": "identity"})
+    assert "content-encoding" not in plain.headers
+    for coding in ("br", "gzip"):
+        response = await client.get(
+            f"/admin/{asset}", headers={"Accept-Encoding": f"{coding}, deflate"}
+        )
+        assert response.headers["content-encoding"] == coding
+        assert response.headers["vary"] == "Accept-Encoding"
+        assert "javascript" in response.headers["content-type"]
+        assert "immutable" in response.headers["cache-control"]
+        assert int(response.headers["content-length"]) < len(plain.content) / 2
+    refused = await client.get(
+        f"/admin/{asset}", headers={"Accept-Encoding": "br;q=0, gzip"}
+    )
+    assert refused.headers["content-encoding"] == "gzip"
 
 
 async def test_a_missing_file_is_not_answered_with_html(client: AsyncClient) -> None:
@@ -155,6 +191,23 @@ async def test_the_manifest_comes_from_the_application(
         "modules": ["identity"],
         "development": True,
     }
+
+
+async def test_a_large_manifest_is_sent_gzipped(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    package, _ = application_package
+    _manifest(package, padding="x" * 4096)
+    response = await client.get(
+        "/admin/admin-manifest.json", headers={"Accept-Encoding": "gzip"}
+    )
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["padding"] == "x" * 4096
+    plain = await client.get(
+        "/admin/admin-manifest.json", headers={"Accept-Encoding": "identity"}
+    )
+    assert "content-encoding" not in plain.headers
 
 
 async def test_production_config_does_not_say_development(
