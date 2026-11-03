@@ -8,6 +8,7 @@ deployed app belong to that app, not to the framework.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -38,9 +39,11 @@ async def test_swagger_ui_carries_the_bar_the_favicon_and_the_colours() -> None:
     assert response.status_code == 200
     page = response.text
     assert "<title>shop API</title>" in page
-    assert 'class="sandloom-bar"' in page and "<span>shop</span>" in page
+    assert 'class="sl-bar"' in page and "shop</a>" in page
     assert 'href="data:image/svg+xml,' in page  # the caracal in the tab
-    assert "#8b6841" in page  # the brand colour
+    assert '<a href="/docs" class="" aria-current="page">' in page
+    assert 'href="/docs/assets/api_docs.css"' in page
+    assert "dark-mode" in page  # Swagger UI's dark mode follows the system
     assert "url: '/openapi.json'" in page
     assert '"persistAuthorization": true' in page
     # Still FastAPI's Swagger UI underneath, with its OAuth2 redirect.
@@ -60,7 +63,28 @@ async def test_redoc_carries_the_favicon_and_no_google_fonts() -> None:
     assert "<title>shop API</title>" in page
     assert 'href="data:image/svg+xml,' in page
     assert "fonts.googleapis.com" not in page
-    assert "<redoc theme=" in page and "#8b6841" in page
+    assert 'scroll-y-offset=".sl-bar"' in page and "#8b6841" in page
+    assert '<html class="sl-light">' in page and 'class="sl-bar"' in page
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("docs_on")
+async def test_the_stylesheet_and_fonts_are_served_by_the_app() -> None:
+    """No font service and no network for the look: the files ship in the
+    wheel next to their licenses."""
+    app = app_factory._new_application("shop")
+    css = await _get(app, "/docs/assets/api_docs.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    for font in re.findall(r'url\("/docs/assets/([^"]+)"\)', css.text):
+        response = await _get(app, f"/docs/assets/{font}")
+        assert response.status_code == 200, font
+        assert response.headers["content-type"] == "font/woff2"
+    assert "https://" not in css.text
+    for name in ("README.md", "Manrope-OFL.txt", "../app_factory.py", "nope.css"):
+        assert (await _get(app, f"/docs/assets/{name}")).status_code == 404, name
+    licenses = app_factory._API_DOCS
+    assert (licenses / "Manrope-OFL.txt").is_file()
+    assert (licenses / "Hack-LICENSE.md").is_file()
 
 
 @pytest.mark.asyncio
@@ -72,4 +96,5 @@ async def test_production_keeps_fastapis_own_docs(
     app = app_factory._new_application("shop")
     page = (await _get(app, "/docs")).text
     assert "SwaggerUIBundle" in page
-    assert "sandloom-bar" not in page and "persistAuthorization" not in page
+    assert "sl-bar" not in page and "persistAuthorization" not in page
+    assert (await _get(app, "/docs/assets/api_docs.css")).status_code == 404

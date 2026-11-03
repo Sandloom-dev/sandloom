@@ -13,10 +13,12 @@ import asyncio
 import html
 import logging
 import os
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote, urlsplit
 
@@ -910,37 +912,29 @@ _FAVICON_SVG = (
 )
 
 
-#: ``/docs`` and ``/redoc`` outside production: the caracal in the tab, a
-#: Sandloom bar above Swagger UI, links and buttons in the brand colours
-#: (``website/assets/brand.css``). The HTTP method colours stay Swagger's.
-_DOCS_STYLE = """<style>
-body { margin: 0; background: #faf8f5; }
-.sandloom-bar { display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.65rem 1.25rem; background: #1f1d1a; color: #ece8e1;
-  font: 600 15px/1.2 system-ui, sans-serif; }
-.sandloom-bar svg { width: 26px; height: 26px; flex: none; }
-.sandloom-bar svg path { fill: #d8b892; }
-.sandloom-bar .api { color: #a39a8c; font-weight: 400; }
-.sandloom-bar nav { margin-left: auto; display: flex; gap: 1rem; }
-.sandloom-bar a { color: #d8b892; font-weight: 400; text-decoration: none; }
-.sandloom-bar a:hover { text-decoration: underline; }
-.swagger-ui .info { margin: 32px 0 24px; }
-.swagger-ui .info .title, .swagger-ui .opblock-tag { color: #1f1d1a; }
-.swagger-ui .info a, .swagger-ui .opblock-tag a { color: #8b6841; }
-.swagger-ui .scheme-container { background: #faf8f5; box-shadow: none;
-  border-bottom: 1px solid #e6dfd3; }
-.swagger-ui .btn.authorize { color: #8b6841; border-color: #8b6841; }
-.swagger-ui .btn.authorize svg { fill: #8b6841; }
-.swagger-ui .btn.execute { background: #8b6841; border-color: #8b6841; }
-.swagger-ui .operation-filter-input { border-color: #d8b892; }
-</style>"""
+#: ``/docs`` and ``/redoc`` outside production look like sandloom.dev: the
+#: stylesheet and the brand fonts ship in ``sandloom/core/http/api_docs`` and
+#: are served from ``/docs/assets/`` (never a font service).
+_API_DOCS = Path(__file__).parent / "http" / "api_docs"
+_API_DOCS_TYPES = {".css": "text/css", ".woff2": "font/woff2"}
 
+#: Swagger UI's own dark mode follows the system, as the site does.
+_DOCS_DARK = (
+    "<script>(() => { const m = matchMedia('(prefers-color-scheme: dark)');"
+    " const set = () => document.documentElement.classList.toggle('dark-mode',"
+    " m.matches); set(); m.addEventListener('change', set); })();</script>"
+)
 
-#: ReDoc's theme attribute: the brand colour for links, tags and the sidebar.
+#: ReDoc's theme: the site's fonts, accent and surfaces (light only).
 _REDOC_THEME = (
-    '<redoc theme=\'{"colors": {"primary": {"main": "#8b6841"}}, '
-    '"sidebar": {"backgroundColor": "#faf8f5"}, '
-    '"rightPanel": {"backgroundColor": "#1f1d1a"}}\' '
+    '<redoc scroll-y-offset=".sl-bar" theme=\'{'
+    '"colors": {"primary": {"main": "#8b6841"}, "text": {"primary": "#24272a"}}, '
+    '"typography": {"fontFamily": "Manrope, system-ui, sans-serif", '
+    '"headings": {"fontFamily": "Manrope, system-ui, sans-serif", '
+    '"fontWeight": "700"}, '
+    '"code": {"fontFamily": "Hack Nerd Font Mono, ui-monospace, monospace"}}, '
+    '"sidebar": {"backgroundColor": "#f7f6f2", "textColor": "#24272a"}, '
+    '"rightPanel": {"backgroundColor": "#24272a"}}\' '
 )
 
 
@@ -948,22 +942,43 @@ def _docs_favicon() -> str:
     return "data:image/svg+xml," + quote(_FAVICON_SVG)
 
 
-def _docs_bar(title: str) -> str:
-    mark = _FAVICON_SVG.replace("<style>", "<!--").replace("</style>", "-->")
-    return (
-        f'<header class="sandloom-bar">{mark}<span>{html.escape(title)}</span>'
-        '<span class="api">API</span><nav><a href="/">Start page</a>'
-        '<a href="/redoc">ReDoc</a>'
-        '<a href="https://sandloom.dev/docs/" target="_blank" rel="noopener">'
-        "Sandloom docs</a></nav></header>"
+def _docs_bar(application: FastAPI, current: str) -> str:
+    """The site's header with the app's name: the start page, the console
+    (when the app serves it), Swagger UI or ReDoc, and the Sandloom docs."""
+    mark = re.sub(r"<style>.*?</style>", "", _FAVICON_SVG)
+    console = any(
+        str(getattr(route, "path", "")).startswith("/admin")
+        for route in application.routes
     )
+    links = [("/", "Start page", "sl-wide")]
+    if console:
+        links.append(("/admin/", "Console", ""))
+    links += [("/docs", "Swagger UI", ""), ("/redoc", "ReDoc", "")]
+    nav = "".join(
+        f'<a href="{href}" class="{cls}"'
+        + (' aria-current="page"' if href == current else "")
+        + f">{label}</a>"
+        for href, label, cls in links
+    )
+    return (
+        f'<header class="sl-bar"><a class="sl-brand" href="/">{mark}'
+        f"{html.escape(application.title)}</a>"
+        '<span class="sl-pill">API</span>'
+        f"<nav>{nav}"
+        '<a class="sl-out sl-wide" href="https://sandloom.dev/docs/" target="_blank"'
+        ' rel="noopener">Sandloom docs</a></nav></header>'
+    )
+
+
+def _docs_head() -> str:
+    return '<link rel="stylesheet" href="/docs/assets/api_docs.css">'
 
 
 def _install_branded_docs(application: FastAPI) -> None:
     """Swagger UI at ``/docs`` and ReDoc at ``/redoc``, as FastAPI serves them
-    (same paths, the OAuth2 redirect, ``root_path``), with the Sandloom bar,
-    favicon and colours. Plain Starlette routes, like FastAPI's own: no
-    route policy, not in the schema."""
+    (same paths, the OAuth2 redirect, ``root_path``), in the sandloom.dev look:
+    the site's header, fonts, colours and dark mode. Plain Starlette routes,
+    like FastAPI's own: no route policy, not in the schema."""
     openapi_url = application.openapi_url or "/openapi.json"
     redirect_url = application.swagger_ui_oauth2_redirect_url
 
@@ -979,12 +994,13 @@ def _install_branded_docs(application: FastAPI) -> None:
                 "displayRequestDuration": True,
                 "filter": True,
                 "persistAuthorization": True,  # outside production only
+                "syntaxHighlight": {"theme": "tomorrow-night"},
                 **(application.swagger_ui_parameters or {}),
             },
         )
         body = bytes(page.body).decode()
-        body = body.replace("</head>", _DOCS_STYLE + "\n</head>", 1)
-        body = body.replace("<body>", "<body>\n" + _docs_bar(application.title), 1)
+        body = body.replace("</head>", _docs_head() + _DOCS_DARK + "\n</head>", 1)
+        body = body.replace("<body>", "<body>\n" + _docs_bar(application, "/docs"), 1)
         return HTMLResponse(body)
 
     async def swagger_ui_redirect(request: Request) -> HTMLResponse:
@@ -998,10 +1014,27 @@ def _install_branded_docs(application: FastAPI) -> None:
             redoc_favicon_url=_docs_favicon(),
             with_google_fonts=False,
         )
-        body = bytes(page.body).decode().replace("<redoc ", _REDOC_THEME, 1)
+        body = bytes(page.body).decode()
+        body = body.replace("<html>", '<html class="sl-light">', 1)
+        body = body.replace("</head>", _docs_head() + "\n</head>", 1)
+        body = body.replace("<body>", "<body>\n" + _docs_bar(application, "/redoc"), 1)
+        body = body.replace("<redoc ", _REDOC_THEME, 1)
         return HTMLResponse(body)
 
+    async def asset(request: Request) -> Response:
+        name = request.path_params["name"]
+        file = _API_DOCS / name
+        kind = _API_DOCS_TYPES.get(file.suffix)
+        if kind is None or "/" in name or not file.is_file():
+            return Response(status_code=404)
+        # The stylesheet changes with the framework: revalidated each time.
+        cache = "no-cache" if file.suffix == ".css" else "public, max-age=86400"
+        return Response(
+            file.read_bytes(), media_type=kind, headers={"Cache-Control": cache}
+        )
+
     application.add_route("/docs", swagger_ui, include_in_schema=False)
+    application.add_route("/docs/assets/{name}", asset, include_in_schema=False)
     if redirect_url:
         application.add_route(
             redirect_url, swagger_ui_redirect, include_in_schema=False
