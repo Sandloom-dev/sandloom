@@ -60,25 +60,12 @@ the concept page with the full detail.
     asymmetric mode `JWT_SECRET` is issuer-only: identity keys its emailed
     verification/reset tokens with it and never signs or verifies a JWT.
 - **Required claims.** Tokens must carry `exp` and `iat`.
-- **Key rotation (symmetric).** Move the old secret into `JWT_PREVIOUS_SECRETS`
-  (JSON list; still accepted for verification, never used to mint) when rotating
-  `JWT_SECRET`, keep it for at least `ACCESS_TOKEN_EXPIRE_MINUTES`, then drop it.
-  Optional `JWT_KID` is stamped as the `kid` header; a token whose `kid` matches
-  is verified with `JWT_SECRET` only. In production previous secrets must be as
-  strong as the current one, and the current one may not appear in the list.
-- **Key rotation (asymmetric) — runbook, no forced logout.**
-  1. `sandloom keys generate --kid jwt-2` (store the private key in the secret
-     store of the issuer only).
-  2. Add `"jwt-2"` to `JWT_PUBLIC_KEYS` **everywhere** next to `jwt-1` and
-     roll every service (both kids now verify).
-  3. Switch the issuer: `JWT_PRIVATE_KEY` = the new key, `JWT_KID=jwt-2`
-     (startup checks the private key is the public half of
-     `JWT_PUBLIC_KEYS["jwt-2"]`).
-  4. After `ACCESS_TOKEN_EXPIRE_MINUTES` + `JWT_LEEWAY_SECONDS`, remove
-     `jwt-1` from `JWT_PUBLIC_KEYS` everywhere. A compromised key is removed
-     at once instead (its tokens stop verifying immediately).
-  Migrating HS → asymmetric invalidates outstanding access tokens only
-  (refresh tokens are opaque): clients refresh once.
+- **Key rotation.** `JWT_PREVIOUS_SECRETS` (HS*) and extra kids in
+  `JWT_PUBLIC_KEYS` (asymmetric) keep old tokens verifying while the signer
+  changes; the order of the steps is in
+  [Rotate keys and secrets](../operate/rotate-keys.md). Migrating HS to
+  asymmetric invalidates outstanding access tokens only (refresh tokens are
+  opaque): clients refresh once.
 - **Revocation.** `revoke_user_tokens(user_id)` (from `sandloom.sdk.security`)
   writes an `after` value into the framework-owned subject-state record
   `sandloom:auth:subject:{user_id}`; every access-token check then rejects a token
@@ -420,13 +407,8 @@ There is exactly one internal-RPC authentication, the pair MAC of
   verified caller not allowed the contract/method → `403
   rpc_caller_forbidden` (logged); a command without a valid signature → `401
   rpc_auth_signature_required` / `rpc_auth_invalid`.
-- **Rotation — per service, independent.** X25519: publish the next kid in
-  `RPC_SERVICE_DH_KEYS` everywhere, switch `RPC_DH_PRIVATE_KEY` +
-  `RPC_DH_KEY_ID` (the previous private key may stay in
-  `RPC_DH_EXTRA_PRIVATE_KEYS` until callers address the new kid), then drop
-  the old kid. Ed25519: 1) add the next kid to `RPC_SERVICE_KEYS`
-  everywhere; 2) switch that service's `RPC_PRIVATE_KEY` + `RPC_KEY_ID`;
-  3) remove the old kid. No other service changes keys.
+- **Rotation.** Per service and independent of the others; the order of
+  the steps: [Rotate keys and secrets](../operate/rotate-keys.md#rotate-a-services-rpc-keys).
 - **Pair MAC properties.** Audience-bound by construction (the key and the
   tag name the provider), 128-bit per-attempt nonce with a replay guard
   (`RPC_REPLAY_GUARD`), a 60 s window (`RPC_AUTH_MAX_SKEW_SECONDS`), verified

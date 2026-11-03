@@ -107,8 +107,8 @@ sharing a chain.
 
 Moving a module's existing data out of a shared database into its own is a
 separate, offline step: `sandloom migrate extract-module` (dry run by default;
-fence, copy, verify, cut over). See the split-deploy runbook in
-`deploy/README.md` and [Deployment](../../operate/topologies.md).
+fence, copy, verify, cut over). See
+[Move a module's data to its own database](../../operate/extract-module-data.md).
 
 ### Dev and repair
 

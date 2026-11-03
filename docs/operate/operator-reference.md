@@ -37,15 +37,8 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   risk is logged as a WARNING at each start, exported as
   `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and
   `sandloom doctor`; an unknown id fails startup.
-- **Rotation.** JWT: set the new `JWT_SECRET`, move the old one into
-  `JWT_PREVIOUS_SECRETS` (still verified) and optionally set `JWT_KID`; drop it
-  after the access-token lifetime. Asymmetric JWT (`EdDSA`/`RS256`/`ES256`):
-  publish the new kid in `JWT_PUBLIC_KEYS` everywhere, switch the issuer's
-  `JWT_PRIVATE_KEY` + `JWT_KID`, drop the old kid after the access-token
-  lifetime (runbook: `docs/advanced/security-model.md`). 2FA: `TWOFA_ENCRYPTION_KEY` is a
-  comma-separated list, newest first — keep old keys until every secret is
-  re-encrypted. Internal token: rotate on every service together (RPC
-  signatures are verified with the provider's own token).
+- **Rotation.** Every key and secret, in the order that keeps tokens and
+  calls valid: [Rotate keys and secrets](rotate-keys.md).
 - **Revoking sessions.** `revoke_user_tokens(user_id)` invalidates a subject's
   already-issued access tokens (an `after` value in the subject record
   `sandloom:auth:subject:{sub}`). With `AUTH_REVOCATION_FAIL_CLOSED`
@@ -584,9 +577,9 @@ are out.
   (identical everywhere). The internal token guards the ops endpoints only;
   it is never an RPC credential.
 - RPC keys (`RPC_PRIVATE_KEY`, `RPC_DH_PRIVATE_KEY`): `sandloom keys generate
-  --purpose rpc` / `--purpose rpc-dh` for the affected service, publish the new
-  public key in `RPC_SERVICE_KEYS` / `RPC_SERVICE_DH_KEYS` everywhere (new key
-  id), redeploy, then remove the old id. A leaked PROVIDER X25519 key derives
+  --purpose rpc` / `--purpose rpc-dh` for the affected service and rotate in
+  the order of [Rotate keys and secrets](rotate-keys.md#rotate-a-services-rpc-keys),
+  removing the old id without the wait. A leaked PROVIDER X25519 key derives
   every caller's pair key — commands stay safe only with
   `RPC_COMMANDS_REQUIRE_SIGNATURE` on.
 - `TWOFA_ENCRYPTION_KEY`: as in 2.2.

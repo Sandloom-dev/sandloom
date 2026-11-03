@@ -43,9 +43,9 @@
       "P6": 13,
       "P7": 1,
       "P8": 5,
-      "P9": 72,
+      "P9": 70,
       "S11": 1,
-      "S4": 93
+      "S4": 92
     },
     "docs/advanced/write-admission.md": {
       "P6": 2,
@@ -322,7 +322,7 @@
     "docs/operate/operator-reference.md": {
       "P6": 6,
       "P8": 1,
-      "P9": 59,
+      "P9": 58,
       "S11": 1,
       "S4": 65
     },

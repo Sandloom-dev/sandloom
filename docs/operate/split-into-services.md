@@ -94,7 +94,7 @@ block, edited against generated. You can:
 
 To move a module to another service, delete it from its service's
 `SANDLOOM_MODULES` and run `sandloom add deploy <module> --service <other> --force`.
-Then move its data with the skill `sandloom-extract-module`.
+Then move its data ([Move a module's data](extract-module-data.md)).
 
 ## Check it
 
@@ -150,8 +150,8 @@ sandloom keys generate --purpose rpc-dh --service tenancy # a provider only: X25
 ```
 
 Merge the public halves into `RPC_SERVICE_KEYS` and `RPC_SERVICE_DH_KEYS`,
-identical in every service. To rotate keys, see the skill
-`sandloom-key-rotation`.
+identical in every service. To replace a key later, see
+[Rotate keys and secrets](rotate-keys.md).
 
 ## Existing data
 
@@ -161,9 +161,8 @@ database with `sandloom migrate extract-module <module> --from default --to <url
 
 The move is offline, in a maintenance window: it copies the module's tables, its
 `alembic_version_<module>` row and its pending outbox events, verifies them and
-fences the source. It is a dry run by default. The procedure is in the skill
-`sandloom-extract-module` and in
-[`deploy/README.md`](https://github.com/Sandloom-dev/sandloom/blob/main/deploy/README.md).
+fences the source. It is a dry run by default. The procedure is
+[Move a module's data to its own database](extract-module-data.md).
 Online (zero-downtime) extraction is not covered yet.
 
 ## Roll out a contract change
@@ -201,4 +200,5 @@ over RPC, `orders` calls `catalog` over RPC, and `orders` consumes
 
 - [Deploy an application](deploy.md)
 - [Deployment topologies](topologies.md)
+- [Move a module's data to its own database](extract-module-data.md)
 - [Run migrations](../modules/database/run-migrations.md)
