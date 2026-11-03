@@ -1422,7 +1422,10 @@ def _summary(
         f"      {style.prompt(line)}" for line in _start_lines(run, plan, root, answers)
     ]
     lines += ["", "  " + style.bold("Then open:")]
-    opened = [("App", style.accent(f"{url}/"))]
+    opened = [
+        ("App", style.accent(f"{url}/")),
+        ("API docs", style.accent(f"{url}/docs")),
+    ]
     if console:
         opened.append(("Admin console", style.accent(f"{url}/admin/")))
     width = max(len(label) for label, _ in opened)

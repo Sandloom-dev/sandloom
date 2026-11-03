@@ -633,6 +633,7 @@ def test_after_a_setup_the_summary_uses_the_port_dev_up_chose(
     assert lines[-1] == "uv run sandloom dev run"
     text = wizard._summary(run, plan, root, answers, admin_created=True)
     assert "http://127.0.0.1:8001/admin/" in text
+    assert "http://127.0.0.1:8001/docs" in text
     assert "8000" not in text
     # Which account is mine, and how to get back in.
     assert "Sign in as o@x.y" in text

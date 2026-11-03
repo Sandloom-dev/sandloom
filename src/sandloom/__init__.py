@@ -203,7 +203,9 @@ def _main() -> None:  # noqa: C901
         help="offline declared architecture graph and module discovery",
     )
     sub.add_parser(
-        "explore", add_help=False, help="generate and open the architecture explorer"
+        "explore",
+        add_help=False,
+        help="(experimental) open the architecture explorer",
     )
     sub.add_parser("migrate", add_help=False, help="run database migrations")
     sub.add_parser("projection", add_help=False, help="operate query projections")
