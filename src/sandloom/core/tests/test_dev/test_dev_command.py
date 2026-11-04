@@ -1351,13 +1351,13 @@ Error response from daemon: failed to set up container networking: driver
 """
 
 
-def test_a_wrapped_docker_error_is_read_whole_with_its_fix() -> None:
+def test_a_wrapped_docker_error_is_read_whole() -> None:
     """The reason starts at the line that names the error, not at its last
-    wrapped line, and a known machine problem says what to do."""
+    wrapped line: Docker's own words say what broke."""
     reason = docker.failure_reason(IPTABLES_FAILURE)
     assert reason.startswith("Error response from daemon: failed to set up")
-    assert "(exit status 4))" in reason and "\n" not in reason
-    assert "reboot" in reason and "systemctl restart docker" in reason
+    assert "Chain 'DOCKER' does not exist" in reason
+    assert reason.endswith("(exit status 4))") and "\n" not in reason
     plain = docker.failure_reason("pulling\nError: port is already allocated\n")
     assert plain == "Error: port is already allocated"
     assert docker.failure_reason("") == ""
@@ -1375,7 +1375,7 @@ def test_a_failed_up_names_the_cause_not_the_last_line(
         commands._finish_up(ctx, state, commands.UpOptions())
     message = str(raised.value)
     assert "failed to set up container networking" in message
-    assert "reboot" in message and "\n" not in message
+    assert "nf_tables" in message and "\n" not in message
 
 
 def test_shared_images_are_pulled_once(monkeypatch: pytest.MonkeyPatch) -> None:

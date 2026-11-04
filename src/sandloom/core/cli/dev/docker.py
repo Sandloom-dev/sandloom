@@ -120,22 +120,10 @@ class Compose:
         return proc.stdout.split() if proc.returncode == 0 else []
 
 
-#: Hints for Docker failures whose cause is the machine, not the app.
-_HINTS = (
-    (
-        ("iptables", "nf_tables", "programming external connectivity"),
-        "Docker cannot set up its network (iptables). On Linux this usually "
-        "follows a kernel update without a reboot: reboot, or run `sudo "
-        "systemctl restart docker`; check `docker run --rm -p 18080:80 "
-        "alpine true` works",
-    ),
-)
-
-
 def failure_reason(output: str) -> str:
     """One line for a failed Docker command: the line that names the error
     with the lines it wraps onto (Docker breaks long errors, so the last line
-    alone can be ``(exit status 4))``), then a hint when the cause is known."""
+    alone can be ``(exit status 4))``)."""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines:
         return ""
@@ -149,10 +137,6 @@ def failure_reason(output: str) -> str:
     reason = " ".join(lines[start:])
     if len(reason) > 400:
         reason = reason[:397] + "..."
-    lowered = output.lower()
-    for needles, hint in _HINTS:
-        if any(needle in lowered for needle in needles):
-            return f"{reason}. {hint}"
     return reason
 
 
