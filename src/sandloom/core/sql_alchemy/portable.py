@@ -39,9 +39,10 @@ from __future__ import annotations
 
 import threading
 import weakref
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from importlib import metadata
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import (
@@ -93,8 +94,10 @@ __all__ = [
     "UnsupportedSqlForm",
     "UtcDateTime",
     "WallClock",
+    "begin_statement_for",
     "check_lock_key",
     "check_server_version",
+    "check_unit_shape",
     "array_insert_sql_for",
     "classify_error",
     "conflict_insert",
@@ -118,6 +121,7 @@ __all__ = [
     "skips_locked_rows",
     "sql_dialect",
     "transaction_lock",
+    "transaction_options_for",
     "unlock_statement_for",
     "unrendered_dialect",
     "unrendered_partial_indexes",
@@ -259,6 +263,14 @@ def check_lock_key(key: Any) -> None:
         f"a lock key is a signed 64-bit int, a string, or a pair of a signed "
         f"32-bit namespace and a signed 32-bit int or a string; got {key!r}"
     )
+
+
+def check_unit_shape(*, write: bool, read_only: bool) -> None:
+    """Refuse a unit that both may write and is read-only (``ValueError``):
+    :meth:`SqlDialect.begin_statement` and
+    :meth:`SqlDialect.transaction_options` are never asked for one."""
+    if write and read_only:
+        raise ValueError("a unit that may write cannot be read-only")
 
 
 #: The transaction-local setting that carries the bound tenant to the
@@ -457,6 +469,35 @@ class SqlDialect(Protocol):
         timezone-aware UTC time through :class:`UtcDateTime`."""
         ...
 
+    def begin_statement(
+        self, *, write: bool, read_only: bool, snapshot: bool
+    ) -> str | None:
+        """The text that begins a unit, or ``None`` for the database's plain
+        ``BEGIN``. ``write``: the unit may write; ``read_only``: the database
+        should refuse its writes (only a renderer that declares the
+        ``readonly_transactions`` feature does); ``snapshot``: every statement
+        of the unit sees one snapshot (only with the ``snapshot_reads``
+        feature; the kernel refuses such a unit elsewhere, SANDLOOM-B027),
+        otherwise each statement sees what was committed before it started.
+        ``write`` and ``read_only`` together are refused
+        (:func:`check_unit_shape`). The kernel asks once per combination and
+        sends the text itself, where it begins a transaction by hand (the
+        planner's optimized executor)."""
+        ...
+
+    def transaction_options(
+        self, *, read_only: bool, snapshot: bool | None
+    ) -> Mapping[str, Any]:
+        """The SQLAlchemy execution options that make SQLAlchemy begin the
+        unit :meth:`begin_statement` describes (empty: none). ``snapshot=None``
+        keeps the database's default isolation; ``False`` asks for a fresh
+        snapshot per statement and ``True`` for one snapshot, explicitly. An
+        ``isolation_level`` equal to the connection's default changes nothing,
+        and the kernel may leave it out. Where SQLAlchemy (or its DBAPI)
+        begins the transaction, as in the request and read units, these
+        options are the only way to shape it. Asked once per combination."""
+        ...
+
     def row_security(self) -> RowSecurity | None:
         """The SQL of database-enforced tenant isolation, or ``None`` when
         the database has none: there ``TenantScoped`` isolation is the ORM
@@ -514,6 +555,8 @@ REQUIRED_MEMBERS = (
     "for_update",
     "relaxed_commit_clause",
     "wall_clock",
+    "begin_statement",
+    "transaction_options",
     "row_security",
 )
 
@@ -1045,6 +1088,36 @@ def row_security_for(bind: Any) -> RowSecurity | None:
 def row_security_of_url(url: str) -> RowSecurity | None:
     """:func:`row_security_for` the database a URL names (build-free)."""
     return row_security_for(dialect_of_url(url))
+
+
+_NO_OPTIONS: Mapping[str, Any] = MappingProxyType({})
+
+
+def begin_statement_for(
+    bind: Any, *, write: bool, read_only: bool, snapshot: bool
+) -> str | None:
+    """The renderer's :meth:`SqlDialect.begin_statement` for the database of
+    ``bind``; ``None`` (the plain ``BEGIN``) without a renderer. Ask once per
+    engine and combination, not per unit."""
+    check_unit_shape(write=write, read_only=read_only)
+    renderer = sql_dialect(dialect_name(bind))
+    if renderer is None:
+        return None
+    return renderer.begin_statement(write=write, read_only=read_only, snapshot=snapshot)
+
+
+def transaction_options_for(
+    bind: Any, *, read_only: bool, snapshot: bool | None
+) -> Mapping[str, Any]:
+    """The renderer's :meth:`SqlDialect.transaction_options` for the database
+    of ``bind``, read-only; empty without a renderer. Ask once per engine and
+    combination, not per unit."""
+    renderer = sql_dialect(dialect_name(bind))
+    if renderer is None:
+        return _NO_OPTIONS
+    return MappingProxyType(
+        dict(renderer.transaction_options(read_only=read_only, snapshot=snapshot))
+    )
 
 
 def relaxed_commit_clause_for(bind: Any) -> ColumnElement[bool] | None:

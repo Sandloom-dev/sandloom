@@ -791,6 +791,13 @@ def _validate_and_index_routes(application: FastAPI) -> None:
     _route_runtime.validate_store_capabilities(
         application.routes, getattr(application.state.core, "infra", None)
     )
+    # A SnapshotReads route reads one snapshot: the default database must
+    # have snapshot_reads, never a silent read without one (SANDLOOM-B027).
+    snapshot_problems = _planner.snapshot_reads_problems(
+        application.routes, getattr(application.state.core, "infra", None)
+    )
+    if snapshot_problems:
+        raise _planner.SnapshotReadsUnavailable("; ".join(snapshot_problems))
     # An idempotency guard must be solved AFTER the route's authentication
     # (A-03): refuse a route that would reserve / replay for a caller it has
     # not authenticated yet.

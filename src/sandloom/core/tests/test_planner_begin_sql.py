@@ -1,7 +1,8 @@
 """The planner's read-only BEGIN statement and its per-tenant cache.
 
-The text comes from the renderer's row security (slice 6); on PostgreSQL it
-is byte-identical to the literal the planner wrote before.
+The text comes from the renderer's ``begin_statement`` (slice 7) and its row
+security (slice 6); on PostgreSQL it is byte-identical to the literal the
+planner wrote before.
 """
 
 from __future__ import annotations
@@ -22,8 +23,22 @@ def _expected(value: str) -> str:
     )
 
 
+#: The planner's ``_READ_ONLY_BEGIN`` before slice 7, byte for byte.
+_OLD_BEGIN = "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY"
+
+
+def _read_only_begin() -> str:
+    text = POSTGRESQL.begin_statement(write=False, read_only=True, snapshot=False)
+    assert text is not None
+    return text
+
+
 def _begin() -> pa_forms.ReadOnlyBegin:
-    return pa_forms.ReadOnlyBegin(POSTGRESQL.row_security())
+    return pa_forms.ReadOnlyBegin(POSTGRESQL.row_security(), _read_only_begin())
+
+
+def test_the_renderer_begin_is_the_old_literal() -> None:
+    assert _read_only_begin() == _OLD_BEGIN
 
 
 def test_exact_uuid_statement_is_cached_and_canonical() -> None:
@@ -41,7 +56,7 @@ def test_the_rebind_statement_is_the_old_literal() -> None:
 
 
 def test_without_row_security_only_the_begin_is_sent() -> None:
-    begin = pa_forms.ReadOnlyBegin(None)
+    begin = pa_forms.ReadOnlyBegin(None, _read_only_begin())
     assert begin.sql(uuid.uuid4()) == "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY"
     assert begin.sql(None) == "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY"
     assert begin.rebind_sql is None

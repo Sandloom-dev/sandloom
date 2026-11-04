@@ -109,7 +109,15 @@ three things and stops with
 
 A database instance advertises the driver's base features plus the ones its
 renderer declares: on PostgreSQL `skip_locked`, `transaction_locks`,
-`snapshot_reads` and `readonly_transactions`; on SQLite none yet. The first
+`snapshot_reads` and `readonly_transactions`; on SQLite none yet.
+
+The renderer also says how a unit begins: its `begin_statement` text, and
+`transaction_options`, the SQLAlchemy execution options for where SQLAlchemy
+begins the transaction itself. The kernel asks once per engine. Without
+`snapshot_reads`, a `SnapshotReads` scope is refused
+([SANDLOOM-B027](../reference/error-codes.md#sandloom-b027)). Without
+`readonly_transactions`, a read-only unit relies on the read-only scope and
+the ORM read guard ([Read units](../modules/database/units.md#read-units-read-only-and-one-snapshot)). The first
 connection refuses a server older than the renderer supports (PostgreSQL 14,
 SQLite 3.35) with
 [SANDLOOM-B030](../reference/error-codes.md#sandloom-b030).

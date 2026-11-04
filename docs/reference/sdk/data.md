@@ -36,7 +36,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE the database's row security with the Sandloom tenant policy on `table`. |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
 | [`get_read_only_db`](#get_read_only_db) | function | PROTOTYPE: request session for a route DECLARED read-only. |
-| [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot: `REPEATABLE READ READ ONLY`. |
+| [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot (PostgreSQL: `REPEATABLE READ READ ONLY`). |
 | [`get_uow_reads`](#get_uow_reads) | async function | Planned reads INSIDE the request Unit of Work (mixed routes). |
 | [`InvalidCursor`](#invalidcursor) | exception | A pagination cursor that is malformed, tampered with or foreign (400). |
 | [`JoinRead`](#joinread) | class | A declared single-row read of `entity` joined to `join` on a FK. |
@@ -237,10 +237,12 @@ def get_read_only_db(request: Request) -> AsyncGenerator[AsyncSession, None]
 PROTOTYPE: request session for a route DECLARED read-only.
 
 With `DB_READ_ONLY_SESSIONS=true` statements run in a server-enforced
-READ ONLY transaction. The client policy also refuses writes, flushes,
-locking reads and raw statements before sending them. PostgreSQL remains
-the backstop for SELECT functions with side effects. Off (default):
-exactly `get_db`.
+read-only transaction where the database has `readonly_transactions`.
+The client policy also refuses writes, flushes, locking reads and raw
+statements before sending them. The database remains the backstop for
+SELECT functions with side effects. Without `readonly_transactions`
+(SQLite) nothing refuses on the server, and the client policy is
+installed on asyncpg only. Off (default): exactly `get_db`.
 
 ### `get_snapshot_reads`
 
@@ -248,12 +250,15 @@ exactly `get_db`.
 def get_snapshot_reads(request: Request) -> AsyncGenerator[Any, None]
 ```
 
-`PlannedReads` with ONE snapshot: `REPEATABLE READ READ ONLY`.
+`PlannedReads` with ONE snapshot (PostgreSQL: `REPEATABLE READ READ ONLY`).
 
 Every declared read of the route runs in the route's read unit, in one
-`REPEATABLE READ` read-only transaction (the default `PlannedReads` is
-READ COMMITTED: two reads may see different snapshots). Use it when the
-route's reads must be mutually consistent.
+read-only transaction that sees one snapshot (the default
+`PlannedReads` takes a fresh snapshot per statement: two reads may see
+different data). Use it when the route's reads must be mutually
+consistent. It needs the database's `snapshot_reads` feature: startup
+refuses such a route when the default database lacks it, and a read on
+another database without it is refused before any I/O (SANDLOOM-B027).
 
 ### `get_uow_reads`
 

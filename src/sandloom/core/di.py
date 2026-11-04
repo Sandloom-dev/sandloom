@@ -71,6 +71,7 @@ from sandloom.core.module_api._service_registry import (
 from sandloom.core.rpc import RemoteServiceUnavailable
 from sandloom.core.runtime import get_active_core
 from sandloom.core.sql_alchemy.durable_inbox import durable_inbox
+from sandloom.core.sql_alchemy.portable import transaction_options_for
 from sandloom.core.tasks.enqueue import (
     TaskEnqueueConflict,
     TaskEnqueueUnavailable,
@@ -242,7 +243,11 @@ def _read_only_uow_factory(core: CoreFacade) -> Callable[[], Any]:
     """UoW factory on the default engine with the ``sandloom_read_only`` option.
 
     Built once per provider (cached on it): an option-engine shares the pool
-    and dialect; the read executor sees the option on every statement.
+    and dialect; the read executor sees the option on every statement. The
+    transaction is read-only at the server's default isolation where the
+    database has ``readonly_transactions`` (the renderer's
+    ``transaction_options``); elsewhere the client policy is the only guard,
+    and it is installed on asyncpg only until the DBAPI adapter (slice 7b).
     """
     provider = core.database("default")
     factory = getattr(provider, "_sandloom_read_only_uow_factory", None)
@@ -256,7 +261,10 @@ def _read_only_uow_factory(core: CoreFacade) -> Callable[[], Any]:
         install_read_executor(engine)
         maker = async_sessionmaker(
             bind=engine.execution_options(
-                **{READ_ONLY_OPTION: True, "postgresql_readonly": True}
+                **{
+                    READ_ONLY_OPTION: True,
+                    **transaction_options_for(engine, read_only=True, snapshot=None),
+                }
             ),
             class_=AsyncSession,
             sync_session_class=_write_admission.KernelSession,
@@ -274,10 +282,12 @@ async def get_read_only_db(request: Request) -> AsyncGenerator[AsyncSession, Non
     """PROTOTYPE: request session for a route DECLARED read-only.
 
     With ``DB_READ_ONLY_SESSIONS=true`` statements run in a server-enforced
-    READ ONLY transaction. The client policy also refuses writes, flushes,
-    locking reads and raw statements before sending them. PostgreSQL remains
-    the backstop for SELECT functions with side effects. Off (default):
-    exactly ``get_db``.
+    read-only transaction where the database has ``readonly_transactions``.
+    The client policy also refuses writes, flushes, locking reads and raw
+    statements before sending them. The database remains the backstop for
+    SELECT functions with side effects. Without ``readonly_transactions``
+    (SQLite) nothing refuses on the server, and the client policy is
+    installed on asyncpg only. Off (default): exactly ``get_db``.
     """
     core = _get_facade(request)
     overrides = getattr(request.app, "dependency_overrides", {})
@@ -354,12 +364,15 @@ async def get_planned_reads(request: Request) -> AsyncGenerator[Any, None]:
 
 
 async def get_snapshot_reads(request: Request) -> AsyncGenerator[Any, None]:
-    """``PlannedReads`` with ONE snapshot: ``REPEATABLE READ READ ONLY``.
+    """``PlannedReads`` with ONE snapshot (PostgreSQL: ``REPEATABLE READ READ ONLY``).
 
     Every declared read of the route runs in the route's read unit, in one
-    ``REPEATABLE READ`` read-only transaction (the default ``PlannedReads`` is
-    READ COMMITTED: two reads may see different snapshots). Use it when the
-    route's reads must be mutually consistent.
+    read-only transaction that sees one snapshot (the default
+    ``PlannedReads`` takes a fresh snapshot per statement: two reads may see
+    different data). Use it when the route's reads must be mutually
+    consistent. It needs the database's ``snapshot_reads`` feature: startup
+    refuses such a route when the default database lacks it, and a read on
+    another database without it is refused before any I/O (SANDLOOM-B027).
     """
     reads_cls = _planner_reads()
     core = _get_facade(request)
@@ -452,6 +465,8 @@ def _planner_reads() -> Any:
 _NAMED_DB_DEPENDENCIES: set[Any] = set()
 for _dep in (get_read_only_db, get_planned_reads, get_snapshot_reads):
     _route_policy.register_request_session(_dep)
+# Startup refuses a SnapshotReads route without snapshot_reads (SANDLOOM-B027).
+_planner.register_snapshot_dependency(get_snapshot_reads)
 _route_policy.register_request_session(get_db, writable_database="default")
 
 
@@ -721,7 +736,7 @@ async def get_uow_reads(request: Request, db: DbSession) -> Any:
 _route_policy.register_request_session(get_uow_reads)
 
 
-#: ``PlannedReads`` with one ``REPEATABLE READ`` snapshot for all its reads.
+#: ``PlannedReads`` with one snapshot for all its reads (``snapshot_reads``).
 SnapshotReads = Annotated[Any, Depends(get_snapshot_reads, scope=_UOW_DEPENDENCY_SCOPE)]
 
 #: Declared operations inside the route's read-write Unit of Work.

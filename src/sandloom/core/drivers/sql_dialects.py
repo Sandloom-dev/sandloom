@@ -10,8 +10,9 @@ renderer the same way. This is the only place the forms meet a dialect.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import cache
+from types import MappingProxyType
 from typing import Any, cast
 
 from sqlalchemy import (
@@ -40,6 +41,7 @@ from sandloom.core.sql_alchemy.portable import (
     LockScope,
     RowSecurity,
     check_lock_key,
+    check_unit_shape,
 )
 
 #: :data:`~sandloom.core.sql_alchemy.portable.ARRAY_INSERT_TYPES` as
@@ -284,6 +286,49 @@ class PostgresqlRowSecurity:
 
 _PG_ROW_SECURITY = PostgresqlRowSecurity()
 
+#: PostgreSQL's isolation of a unit: a fresh snapshot per statement (its
+#: default) or one snapshot for the whole unit.
+_PG_ISOLATION = {False: "READ COMMITTED", True: "REPEATABLE READ"}
+
+
+def _pg_begin(*, write: bool, read_only: bool, snapshot: bool) -> str | None:
+    if read_only:
+        # Isolation stated explicitly: part of the read unit's contract.
+        return f"BEGIN ISOLATION LEVEL {_PG_ISOLATION[snapshot]} READ ONLY"
+    if snapshot:
+        return f"BEGIN ISOLATION LEVEL {_PG_ISOLATION[True]}"
+    return None  # the server's default isolation, writable
+
+
+def _pg_options(*, read_only: bool, snapshot: bool | None) -> Mapping[str, Any]:
+    options: dict[str, Any] = {}
+    if read_only:
+        # asyncpg begins ``BEGIN [ISOLATION LEVEL ...] READ ONLY`` from these.
+        options["postgresql_readonly"] = True
+    if snapshot is not None:
+        options["isolation_level"] = _PG_ISOLATION[snapshot]
+    return MappingProxyType(options)
+
+
+_UNITS = [
+    (write, read_only, snapshot)
+    for write in (False, True)
+    for read_only in (False, True)
+    for snapshot in (False, True)
+    if not (write and read_only)
+]
+#: Every unit's BEGIN and execution options, computed once (hot paths ask
+#: per adapter, the planner's read units per checkout).
+_PG_BEGINS = {
+    (w, r, s): _pg_begin(write=w, read_only=r, snapshot=s) for w, r, s in _UNITS
+}
+_PG_OPTIONS = {
+    (r, s): _pg_options(read_only=r, snapshot=s)
+    for r in (False, True)
+    for s in (None, False, True)
+}
+_NO_OPTIONS: Mapping[str, Any] = MappingProxyType({})
+
 
 __all__ = [
     "POSTGRESQL",
@@ -419,6 +464,17 @@ class PostgresqlSql:
         # every row of one transaction would tie.
         return "clock_timestamp()"
 
+    def begin_statement(
+        self, *, write: bool, read_only: bool, snapshot: bool
+    ) -> str | None:
+        check_unit_shape(write=write, read_only=read_only)
+        return _PG_BEGINS[(write, read_only, snapshot)]
+
+    def transaction_options(
+        self, *, read_only: bool, snapshot: bool | None
+    ) -> Mapping[str, Any]:
+        return _PG_OPTIONS[(read_only, snapshot)]
+
     def row_security(self) -> RowSecurity:
         return _PG_ROW_SECURITY
 
@@ -510,6 +566,21 @@ class SqliteSql:
         # time of the statement's step). Ties within a millisecond are
         # ordered by the UUIDv7 id.
         return "(strftime('%Y-%m-%d %H:%M:%f', 'now') || '000')"
+
+    def begin_statement(self, *, write: bool, read_only: bool, snapshot: bool) -> None:
+        # The plain BEGIN for now: no read-only transactions at all, and the
+        # snapshot of a deferred WAL read and BEGIN IMMEDIATE for writers come
+        # with the driver's SQLite path (spec, slice 8a). Until then SQLite
+        # declares neither snapshot_reads nor readonly_transactions: a
+        # snapshot unit is refused (SANDLOOM-B027) and a read-only one relies
+        # on the ORM read guard.
+        check_unit_shape(write=write, read_only=read_only)
+        return None
+
+    def transaction_options(
+        self, *, read_only: bool, snapshot: bool | None
+    ) -> Mapping[str, Any]:
+        return _NO_OPTIONS
 
     def row_security(self) -> None:
         # No row-level security: TenantScoped isolation is the ORM guard only

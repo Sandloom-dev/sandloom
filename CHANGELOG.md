@@ -148,6 +148,21 @@ website renders this same changelog.
   `multi_tenant_strict` still refuses it. `enable_tenant_rls_statements` (an
   internal helper) now takes `dialect=`. The kernel names a database at 23
   sites, down from 30.
+- **Read-only and snapshot units through the renderer; no silent snapshot
+  downgrade.** Renderer members `begin_statement(write=, read_only=, snapshot=)`
+  (the `BEGIN` text, `None` for the plain one) and `transaction_options(read_only=,
+  snapshot=)` (the SQLAlchemy execution options to the same effect) shape the
+  planner's read units and `ReadOnlyDbSession`. PostgreSQL returns today's
+  texts and options (pinned against the pre-slice code by tests), computed once;
+  SQLite the plain `BEGIN` and no options. A `SnapshotReads` route or a
+  `read_scope(..., isolation="repeatable_read")` on a database without
+  `snapshot_reads` is refused (SANDLOOM-B027, new): at startup when the default
+  database lacks it, else when the scope's read unit opens, before any I/O.
+  Before, the planner silently read without a snapshot there. A read-only unit
+  on a database without `readonly_transactions` relies on the read-only scope
+  and the ORM read guard. The planner adapter's `read_unit` takes
+  `snapshot=` instead of an isolation name (`ISOLATION_LEVELS` is now
+  `SNAPSHOT_ISOLATION`). The kernel names a database at 15 sites, down from 23.
 
 ### Changed
 

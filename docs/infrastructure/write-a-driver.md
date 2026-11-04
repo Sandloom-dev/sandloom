@@ -125,7 +125,13 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    `None`, `tenant_rls` is refused
    ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and tenant isolation
    there is application-enforced.
-6. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+6. Say how a unit begins: `begin_statement(write=, read_only=, snapshot=)` returns
+   the `BEGIN` text, or `None` for the plain one, and `transaction_options(read_only=,
+   snapshot=)` the SQLAlchemy execution options to the same effect. Declare
+   `snapshot_reads` and `readonly_transactions` only when they give one snapshot and
+   refuse writes; without `snapshot_reads` a one-snapshot scope is refused
+   ([SANDLOOM-B027](../reference/error-codes.md#sandloom-b027)).
+7. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
    name, and register the driver with `sql_dialects={"<name>"}`.
 
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A

@@ -1,9 +1,15 @@
 """Read-only statement policy of ``ReadOnlyDbSession`` (``DB_READ_ONLY_SESSIONS``).
 
-``ReadOnlyDbSession`` declares ``postgresql_readonly=True`` on its option-engine
-and uses this dialect hook as a second, early refusal layer for writes, locking
-reads and raw statements. The server's BEGIN READ ONLY remains authoritative
-for SELECT functions: SQL syntax alone cannot prove a read is side-effect free.
+``ReadOnlyDbSession`` begins its transactions read-only with the renderer's
+``transaction_options`` on its option-engine, and uses this dialect hook as a
+second, early refusal layer for writes, locking reads and raw statements.
+Where the database has ``readonly_transactions`` its read-only transaction
+remains authoritative for SELECT functions: SQL syntax alone cannot prove a
+read is side-effect free.
+
+The hook is installed on asyncpg only for now (a DBAPI fast path; it moves
+behind the DBAPI adapter of slice 7b). On another DBAPI the session relies on
+the database's read-only transaction, if it has one.
 """
 
 from __future__ import annotations
@@ -66,12 +72,13 @@ def _wrap_refusing(original: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def install_read_executor(engine: AsyncEngine) -> None:
-    """Install the read-only statement policy on an asyncpg ``engine`` (idempotent)."""
+    """Install the read-only statement policy on an asyncpg ``engine`` (idempotent;
+    a no-op on another DBAPI, see the module doc)."""
     sync_engine = engine.sync_engine
     if getattr(sync_engine, _INSTALLED_ATTR, False):
         return
     dialect = sync_engine.dialect
-    if dialect.driver != "asyncpg":
+    if dialect.driver != "asyncpg":  # DBAPI, not SQL dialect: slice 7b
         return
     dialect.do_execute = _wrap(dialect.do_execute)  # type: ignore[method-assign]
     dialect.do_executemany = _wrap_refusing(dialect.do_executemany)  # type: ignore[method-assign]

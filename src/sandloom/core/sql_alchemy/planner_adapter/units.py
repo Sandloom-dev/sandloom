@@ -152,10 +152,10 @@ async def _general_read(
 class _ReadUnit:
     """A lazy read-only lease shared by a scope's sequential reads.
 
-    Optimized READ COMMITTED reads share a raw transaction. If a general read
-    follows, end and release that lease before opening the ORM transaction;
-    subsequent reads use the ORM session. READ COMMITTED takes a fresh snapshot
-    per statement either way. Stronger isolation always uses one ORM unit.
+    Optimized reads (a fresh snapshot per statement) share a raw transaction.
+    If a general read follows, end and release that lease before opening the
+    ORM transaction; subsequent reads use the ORM session. Each statement sees
+    a fresh snapshot either way. A one-snapshot unit always uses one ORM unit.
     A failure aborts the unit permanently; cancellation never pools an open
     transaction. Each read rebinds the transaction-local tenant if needed.
     """
@@ -166,16 +166,16 @@ class _ReadUnit:
         "_session",
         "_raw",
         "_broken",
-        "_isolation",
+        "_snapshot",
         "_raw_active",
         "_raw_tenant",
     )
 
     def __init__(
-        self, adapter: SQLAlchemyExecutionAdapter, isolation: str = "READ COMMITTED"
+        self, adapter: SQLAlchemyExecutionAdapter, snapshot: bool = False
     ) -> None:
         self._adapter = adapter
-        self._isolation = isolation
+        self._snapshot = snapshot
         self._lease: _Lease | None = None
         self._session: AsyncSession | None = None
         self._raw: Any = None
@@ -227,11 +227,7 @@ class _ReadUnit:
         return values
 
     async def _optimized(self, plan: Plan[Any], ctx: ExecutionContext) -> Any:
-        if (
-            plan.executor != "optimized"
-            or self._session is not None
-            or self._isolation != "READ COMMITTED"
-        ):
+        if plan.executor != "optimized" or self._session is not None or self._snapshot:
             return None
         if not self._raw_active:
             lease = self._lease = _Lease(self._adapter)
@@ -260,7 +256,7 @@ class _ReadUnit:
         conn, raw = await lease.__aenter__()  # aborts itself on failure
         self._lease, self._raw = lease, raw
         try:
-            self._adapter._read_only(conn, self._isolation)
+            self._adapter._read_only(conn, self._snapshot)
             session = self._session = AsyncSession(
                 bind=conn, expire_on_commit=False, autoflush=False
             )

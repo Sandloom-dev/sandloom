@@ -2392,6 +2392,7 @@
       "kind": "class",
       "members": [
         "array_insert_sql",
+        "begin_statement",
         "case_insensitive_text",
         "classify_error",
         "conflict_insert",
@@ -2405,6 +2406,7 @@
         "row_security",
         "search_index_options",
         "search_operand",
+        "transaction_options",
         "unlock_statement",
         "wall_clock"
       ],

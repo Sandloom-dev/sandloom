@@ -1547,6 +1547,7 @@
         "src/sandloom/core/tests/test_batch_publish.py",
         "src/sandloom/core/tests/test_beat_lease.py",
         "src/sandloom/core/tests/test_before_commit.py",
+        "src/sandloom/core/tests/test_begin_statement_renderer.py",
         "src/sandloom/core/tests/test_boot_configuration_checks.py",
         "src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py",
         "src/sandloom/core/tests/test_cache_set_max.py",

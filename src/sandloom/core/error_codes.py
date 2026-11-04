@@ -931,6 +931,30 @@ with a warning, and the strict production profile refuses such an instance.
         docs="docs/modules/database/multi-tenancy.md",
     ),
     _entry(
+        "SANDLOOM-B027",
+        "snapshot-reads-missing",
+        "boot",
+        "a read scope needs one snapshot (SnapshotReads, "
+        'isolation="repeatable_read") on a database instance without the '
+        "snapshot_reads feature",
+        "use PlannedReads (a fresh snapshot per statement) for the route or "
+        "read_scope, or run its database on one with snapshot reads "
+        "(PostgreSQL)",
+        """
+SnapshotReads and read_scope(..., isolation="repeatable_read") promise that
+every read of the scope sees one snapshot, so the reads agree with each other.
+The database gives that promise only where its SQL dialect renderer declares
+the snapshot_reads feature; SQLite does not declare it yet. Reading without the
+snapshot would return data that may never have existed together, so the scope
+is refused instead: at startup for a route declaring SnapshotReads when the
+default database lacks the feature, and before any I/O when a scope's read unit
+opens on another database without it. A read-only unit on a database without
+readonly_transactions is not refused: the read-only scope and the ORM read
+guard are its only guard there.
+""",
+        docs="docs/modules/database/units.md",
+    ),
+    _entry(
         "SANDLOOM-B030",
         "database-server-too-old",
         "boot",
@@ -1416,6 +1440,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
     "RowSecurityUnavailable": "SANDLOOM-B026",
+    "SnapshotReadsUnavailable": "SANDLOOM-B027",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

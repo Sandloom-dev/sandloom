@@ -158,16 +158,12 @@ class _CompiledList:
 _TENANT_PARAM = "_sandloom_tenant"
 
 
-#: The optimized executor's transaction (the isolation is explicit: part of
-#: the contract).
-_READ_ONLY_BEGIN = "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY"
-
-
 class ReadOnlyBegin:
-    """``BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY`` + the tenant binding
-    as ONE simple-protocol message, in the words of the database's row
-    security (built once per adapter; without row security, the ``BEGIN``
-    alone: there is nothing to bind).
+    """The optimized executor's ``BEGIN`` (the renderer's
+    ``begin_statement(read_only=True)``, a fresh snapshot per statement) +
+    the tenant binding as ONE simple-protocol message, in the words of the
+    database's row security (built once per adapter; without row security,
+    the ``BEGIN`` alone: there is nothing to bind).
 
     The simple protocol has no parameters: the tenant is a literal, but only
     ever ``str(uuid.UUID(...))`` (hex digits and dashes) or ``''``. An exact
@@ -175,10 +171,11 @@ class ReadOnlyBegin:
     built once and kept in a small bounded cache; anything else is re-parsed.
     """
 
-    __slots__ = ("_cache", "_security", "rebind_sql")
+    __slots__ = ("_begin_sql", "_cache", "_security", "rebind_sql")
 
-    def __init__(self, security: RowSecurity | None) -> None:
+    def __init__(self, security: RowSecurity | None, begin: str) -> None:
         self._security = security
+        self._begin_sql = begin
         #: exact ``uuid.UUID`` tenant -> its statement (oldest dropped).
         self._cache: dict[uuid.UUID, str] = {}
         #: Re-binds another tenant inside the open transaction (``$1``), or
@@ -199,8 +196,8 @@ class ReadOnlyBegin:
 
     def _begin(self, value: str) -> str:
         if self._security is None:
-            return _READ_ONLY_BEGIN
-        return self._security.begin_and_bind(_READ_ONLY_BEGIN, value)
+            return self._begin_sql
+        return self._security.begin_and_bind(self._begin_sql, value)
 
 
 #: Bound of each :class:`ReadOnlyBegin` cache (tenants seen; oldest dropped).

@@ -432,6 +432,79 @@ class SqlDialectConformance:
                 continue
             raise AssertionError(f"lock_statement accepted the key {key!r}")
 
+    #: Every unit shape the kernel asks :meth:`SqlDialect.begin_statement` for.
+    UNITS: ClassVar[tuple[tuple[bool, bool, bool], ...]] = tuple(
+        (write, read_only, snapshot)
+        for write in (False, True)
+        for read_only in (False, True)
+        for snapshot in (False, True)
+        if not (write and read_only)
+    )
+
+    def test_begin_statement_is_a_begin_or_the_plain_one(self) -> None:
+        features = self.renderer.features()
+        for write, read_only, snapshot in self.UNITS:
+            what = (
+                f"begin_statement(write={write}, read_only={read_only}, "
+                f"snapshot={snapshot})"
+            )
+            sql = self.renderer.begin_statement(
+                write=write, read_only=read_only, snapshot=snapshot
+            )
+            if sql is None:
+                _require(
+                    not (read_only and "readonly_transactions" in features),
+                    f"{what} is the plain BEGIN, but the renderer declares "
+                    "readonly_transactions",
+                )
+                continue
+            _require(
+                isinstance(sql, str) and sql.upper().startswith("BEGIN"),
+                f"{what} must be a BEGIN statement, got {sql!r}",
+            )
+            _require(bool(self._sql(sa.text(sql))), f"{what} compiles")
+        if "snapshot_reads" in features and "readonly_transactions" in features:
+            one, fresh = (
+                self.renderer.begin_statement(
+                    write=False, read_only=True, snapshot=snapshot
+                )
+                for snapshot in (True, False)
+            )
+            _require(
+                one != fresh,
+                "a read-only unit with one snapshot must begin differently "
+                "from one with a snapshot per statement",
+            )
+
+    def test_begin_statement_refuses_a_writing_read_only_unit(self) -> None:
+        try:
+            self.renderer.begin_statement(write=True, read_only=True, snapshot=False)
+        except ValueError:
+            return
+        raise AssertionError("begin_statement accepted write=True, read_only=True")
+
+    def test_transaction_options_are_execution_options(self) -> None:
+        features = self.renderer.features()
+        for read_only in (False, True):
+            for snapshot in (None, False, True):
+                what = (
+                    f"transaction_options(read_only={read_only}, snapshot={snapshot})"
+                )
+                options = self.renderer.transaction_options(
+                    read_only=read_only, snapshot=snapshot
+                )
+                _require(isinstance(options, Mapping), f"{what} must be a mapping")
+                _require(
+                    all(isinstance(key, str) for key in options),
+                    f"{what} keys must be execution option names",
+                )
+                if read_only and "readonly_transactions" in features:
+                    _require(
+                        bool(options),
+                        f"{what} is empty, but the renderer declares "
+                        "readonly_transactions",
+                    )
+
     def test_row_security_is_whole_or_absent(self) -> None:
         security = self.renderer.row_security()
         if security is None:

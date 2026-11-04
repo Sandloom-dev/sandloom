@@ -78,6 +78,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define | active |
 | [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url or require_system_channel on a database instance whose database has no row security | active |
+| [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
@@ -992,6 +993,29 @@ with a warning, and the strict production profile refuses such an instance.
 **Fix:** remove those options from the instance (its tenant isolation is then the ORM guard only, application-enforced), or run it on a database with row security (PostgreSQL)
 
 **More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-B027
+
+**a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature**
+
+Slug: `snapshot-reads-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+SnapshotReads and read_scope(..., isolation="repeatable_read") promise that
+every read of the scope sees one snapshot, so the reads agree with each other.
+The database gives that promise only where its SQL dialect renderer declares
+the snapshot_reads feature; SQLite does not declare it yet. Reading without the
+snapshot would return data that may never have existed together, so the scope
+is refused instead: at startup for a route declaring SnapshotReads when the
+default database lacks the feature, and before any I/O when a scope's read unit
+opens on another database without it. A read-only unit on a database without
+readonly_transactions is not refused: the read-only scope and the ORM read
+guard are its only guard there.
+
+**Fix:** use PlannedReads (a fresh snapshot per statement) for the route or read_scope, or run its database on one with snapshot reads (PostgreSQL)
+
+**More:** `docs/modules/database/units.md`
 
 ### SANDLOOM-B030
 

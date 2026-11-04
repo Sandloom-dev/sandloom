@@ -281,3 +281,9 @@ The re-check found v2 ready for slice 1. These gaps must close before slice 8a.
 - **The kernel's naive `DateTime()` tables stay naive UTC everywhere** (`_utc_naive_now`) and are never compared with `UtcDateTime` values, unless they are converted together with their code paths.
 - **SQLite has one timestamp text format,** `YYYY-MM-DD HH:MM:SS.ffffff`, shared by `WallClock` and bound values.
 - **The process runs in UTC.** On PostgreSQL with asyncpg a naive value means the process's local time; on SQLite it means UTC. Slice 8a either rejects naive binds on `UtcDateTime`, with the planner's raw path doing the same, or states the UTC process requirement in the docs.
+
+## From the slice 7 review, for slices 7b and 8a
+
+- **7b, read-only guard.** The read-only policy installs through the DBAPI adapter (asyncpg today; aiosqlite and psycopg next). Otherwise startup refuses `DB_READ_ONLY_SESSIONS` on an instance that has neither the policy nor `readonly_transactions`. The optimized-executor gate becomes the adapter's decision.
+- **7b, one source of BEGIN text.** The merged row-security BEGIN (`tenant_rls.py`, the general executor and `ReadOnlyDbSession`) takes its text from `begin_statement`, so it cannot drift from the planner's.
+- **8a, real read-only and snapshot on SQLite.** Read-only uses `PRAGMA query_only=ON` per read-only checkout, after which SQLite declares `readonly_transactions`. A snapshot is a deferred `BEGIN` under WAL, after which it declares `snapshot_reads`. The conformance kit requires `transaction_options` to be non-empty when a feature is declared.
