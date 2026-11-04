@@ -72,10 +72,10 @@ class Compose:
     ) -> subprocess.CompletedProcess[str]:
         proc = _process.run(self.argv(*args), env=self.environ, capture=capture)
         if check and proc.returncode != 0:
-            detail = ((proc.stderr or "") + (proc.stdout or "")).strip()
+            detail = failure_reason((proc.stderr or "") + "\n" + (proc.stdout or ""))
             raise RuntimeError(
                 f"`docker compose {' '.join(args)}` failed (exit {proc.returncode})"
-                + (f": {detail.splitlines()[-1]}" if detail else "")
+                + (f": {detail}" if detail else "")
             )
         return proc
 
@@ -120,9 +120,45 @@ class Compose:
         return proc.stdout.split() if proc.returncode == 0 else []
 
 
+#: Hints for Docker failures whose cause is the machine, not the app.
+_HINTS = (
+    (
+        ("iptables", "nf_tables", "programming external connectivity"),
+        "Docker cannot set up its network (iptables). On Linux this usually "
+        "follows a kernel update without a reboot: reboot, or run `sudo "
+        "systemctl restart docker`; check `docker run --rm -p 18080:80 "
+        "alpine true` works",
+    ),
+)
+
+
+def failure_reason(output: str) -> str:
+    """One line for a failed Docker command: the line that names the error
+    with the lines it wraps onto (Docker breaks long errors, so the last line
+    alone can be ``(exit status 4))``), then a hint when the cause is known."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    starts = [i for i, line in enumerate(lines) if line.lower().startswith("error")]
+    mentions = [
+        i
+        for i, line in enumerate(lines)
+        if "error" in line.lower() or "failed" in line.lower()
+    ]
+    start = (starts or mentions or [len(lines) - 1])[-1]
+    reason = " ".join(lines[start:])
+    if len(reason) > 400:
+        reason = reason[:397] + "..."
+    lowered = output.lower()
+    for needles, hint in _HINTS:
+        if any(needle in lowered for needle in needles):
+            return f"{reason}. {hint}"
+    return reason
+
+
 def missing_images(images: Sequence[str], environ: Mapping[str, str]) -> list[str]:
-    out = []
-    for image in images:
+    out: list[str] = []
+    for image in dict.fromkeys(images):  # dev and test services share images
         proc = _process.run(["docker", "image", "inspect", image], env=environ)
         if proc.returncode != 0:
             out.append(image)
@@ -130,8 +166,10 @@ def missing_images(images: Sequence[str], environ: Mapping[str, str]) -> list[st
 
 
 def pull(images: Sequence[str], environ: Mapping[str, str]) -> None:
+    """Pull quietly: a failed pull is retried by ``up --pull missing``, which
+    reports it."""
     for image in images:
-        _process.run(["docker", "pull", "--quiet", image], env=environ, capture=False)
+        _process.run(["docker", "pull", "--quiet", image], env=environ)
 
 
 def legacy_projects(name: str, environ: Mapping[str, str]) -> list[str]:
@@ -158,6 +196,7 @@ __all__ = [
     "DockerUnavailable",
     "check_docker",
     "docker_host",
+    "failure_reason",
     "legacy_projects",
     "missing_images",
     "pull",

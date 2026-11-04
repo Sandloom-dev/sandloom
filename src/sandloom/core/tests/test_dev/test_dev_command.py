@@ -24,7 +24,15 @@ import pytest
 
 from sandloom.core import error_codes
 from sandloom.core.cli import dev as dev_cli
-from sandloom.core.cli.dev import commands, envfile, errors, identity, locks, ports
+from sandloom.core.cli.dev import (
+    commands,
+    docker,
+    envfile,
+    errors,
+    identity,
+    locks,
+    ports,
+)
 from sandloom.core.cli.dev.state import (
     CheckoutRow,
     State,
@@ -1326,6 +1334,62 @@ def test_a_failing_start_is_one_line(
     monkeypatch.setattr(commands, "up", up)
     with pytest.raises(commands.DevError, match="already allocated"):
         commands.run(ctx, port=None, reload=False)
+
+
+#: What `docker compose up` printed on an Arch machine whose kernel was
+#: updated without a reboot: the error wraps, its last line says nothing.
+IPTABLES_FAILURE = """\
+ Network my-app-20773e_default  Creating
+ Network my-app-20773e_default  Created
+ Container my-app-20773e-db-1  Starting
+Error response from daemon: failed to set up container networking: driver
+ failed programming external connectivity on endpoint my-app-20773e-db-1:
+ (iptables failed: iptables --wait -t nat -A DOCKER -p tcp -d 0/0 --dport
+ 15432 -j DNAT --to-destination 172.18.0.2:5432 ! -i br-1: iptables v1.8.11
+ (nf_tables): Chain 'DOCKER' does not exist
+ (exit status 4))
+"""
+
+
+def test_a_wrapped_docker_error_is_read_whole_with_its_fix() -> None:
+    """The reason starts at the line that names the error, not at its last
+    wrapped line, and a known machine problem says what to do."""
+    reason = docker.failure_reason(IPTABLES_FAILURE)
+    assert reason.startswith("Error response from daemon: failed to set up")
+    assert "(exit status 4))" in reason and "\n" not in reason
+    assert "reboot" in reason and "systemctl restart docker" in reason
+    plain = docker.failure_reason("pulling\nError: port is already allocated\n")
+    assert plain == "Error: port is already allocated"
+    assert docker.failure_reason("") == ""
+
+
+def test_a_failed_up_names_the_cause_not_the_last_line(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    failed = subprocess.CompletedProcess(["docker"], 1, "", IPTABLES_FAILURE)
+    monkeypatch.setattr(docker.Compose, "up", lambda self, *a, **k: failed)
+    monkeypatch.setattr(commands, "_apply_compose_file", lambda *a, **k: False)
+    state = State(repository=str(repo), project="my-app-20773e", machine="m")
+    with pytest.raises(commands.DevError) as raised:
+        commands._finish_up(ctx, state, commands.UpOptions())
+    message = str(raised.value)
+    assert "failed to set up container networking" in message
+    assert "reboot" in message and "\n" not in message
+
+
+def test_shared_images_are_pulled_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The dev and test services use the same images: list and pull each once."""
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        seen.append(list(argv))
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+    monkeypatch.setattr(docker._process, "run", run)
+    images = ["postgres:16-alpine", "redis:7-alpine"] * 2
+    assert docker.missing_images(images, {}) == images[:2]
+    assert len(seen) == 2
 
 
 def test_a_port_with_only_closed_connections_left_is_free() -> None:
