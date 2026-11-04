@@ -24,6 +24,7 @@ generated: it is one database's history, so run it on that database.
 - :func:`search_index`: an index that serves substring search
   (``ILIKE '%term%'``), created where the database has one.
 - :func:`conflict_insert`: ``INSERT ... ON CONFLICT DO NOTHING / DO UPDATE``.
+- :func:`greatest`: the largest of its arguments.
 - :func:`transaction_lock`: a lock held until the transaction ends.
 
 On PostgreSQL each renders exactly the SQL the standard modules wrote by hand
@@ -34,7 +35,7 @@ from __future__ import annotations
 
 import threading
 import weakref
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -63,14 +64,22 @@ __all__ = [
     "RENDERER_FEATURES",
     "SQL_DIALECTS_GROUP",
     "SQL_DIALECT_CONTRACT",
+    "ARRAY_INSERT_TYPES",
+    "ArrayInsert",
     "SqlDialect",
     "UnsupportedServerVersion",
     "UnsupportedSqlForm",
     "check_server_version",
+    "array_insert_sql_for",
     "classify_error",
     "conflict_insert",
+    "conflict_insert_for",
+    "dialect_name",
     "dialect_of_url",
+    "greatest",
+    "greatest_for",
     "has_sql_dialect",
+    "id_in_for",
     "partial_index",
     "register_sql_dialect",
     "renderer_features",
@@ -174,6 +183,13 @@ ErrorKind = Literal[
 ]
 
 
+#: The column types :meth:`SqlDialect.array_insert_sql` is asked for.
+ARRAY_INSERT_TYPES = frozenset({"uuid", "varchar", "json", "timestamp", "integer"})
+
+#: ``(table, bind prefix, ((column, type from ARRAY_INSERT_TYPES), ...))``.
+ArrayInsert = tuple[str, str, tuple[tuple[str, str], ...]]
+
+
 class SqlDialect(Protocol):
     """What a database's SQL dialect renderer provides (contract version 2).
 
@@ -221,6 +237,25 @@ class SqlDialect(Protocol):
         """An insert with ``on_conflict_do_nothing`` / ``on_conflict_do_update``."""
         ...
 
+    def greatest(self, *exprs: Any) -> ColumnElement[Any] | None:
+        """The largest of ``exprs`` (PostgreSQL ``greatest``, SQLite ``max``)."""
+        ...
+
+    def id_in(
+        self, column: Any, ids: Sequence[Any], *, key: str
+    ) -> ColumnElement[bool] | None:
+        """``column`` is one of ``ids``, bound as the parameter ``key`` so a
+        prebuilt statement takes another list at execution (``{key: [...]}``)."""
+        ...
+
+    def array_insert_sql(self, inserts: Sequence[ArrayInsert]) -> str | None:
+        """One SQL statement that inserts into each table of ``inserts`` the
+        rows bound as one array per column (``:<prefix>_<column>``), or
+        ``None`` when the database binds no arrays (the kernel then writes
+        one multi-row ``INSERT`` per table). The kernel's bulk outbox and
+        audit write; column types are :data:`ARRAY_INSERT_TYPES`."""
+        ...
+
     async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
         """Hold ``key`` until the session's transaction ends; ``False`` when
         the database has no such lock."""
@@ -256,15 +291,42 @@ class IncompatibleSqlDialect(RuntimeError):
     """A renderer this kernel cannot use (SANDLOOM-B025)."""
 
 
+#: What a contract-2 renderer must have: its facts and every form (a form may
+#: answer ``None``, but it must be there).
+REQUIRED_MEMBERS = (
+    "name",
+    "minimum_server_version",
+    "features",
+    "classify_error",
+    "case_insensitive_text",
+    "partial_index_options",
+    "search_index_options",
+    "search_operand",
+    "conflict_insert",
+    "greatest",
+    "id_in",
+    "array_insert_sql",
+    "transaction_lock",
+)
+
+
 def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
-    """Refuse a renderer of another contract major or one that declares a
-    feature outside :data:`RENDERER_FEATURES` (SANDLOOM-B025)."""
+    """Refuse a renderer of another contract major, one missing a member of
+    the contract, or one that declares a feature outside
+    :data:`RENDERER_FEATURES` (SANDLOOM-B025)."""
     version = getattr(renderer, "contract_version", 1)
     if version != SQL_DIALECT_CONTRACT:
         raise IncompatibleSqlDialect(
             f"the SQL dialect renderer {name!r} ({source}) implements contract "
             f"version {version}; this Sandloom needs {SQL_DIALECT_CONTRACT} "
             "[SANDLOOM-B025]: upgrade the driver package"
+        )
+    missing = [member for member in REQUIRED_MEMBERS if not hasattr(renderer, member)]
+    if missing:
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) lacks {missing} of "
+            f"contract version {SQL_DIALECT_CONTRACT} [SANDLOOM-B025]: a form "
+            "the database cannot write answers None, but it must be there"
         )
     unknown = set(renderer.features()) - RENDERER_FEATURES
     if unknown:
@@ -377,7 +439,24 @@ def _renderers() -> dict[str, SqlDialect]:
 
 def sql_dialect(name: str) -> SqlDialect | None:
     """The renderer for the SQLAlchemy dialect ``name``, if one is registered."""
+    if _state["loaded"]:
+        # The hot paths (claims, outbox writes) ask once per statement: a
+        # dict read, no lock and no copy, once the entry points are read.
+        return _registered.get(name)
     return _renderers().get(name)
+
+
+def dialect_name(bind: Any) -> str:
+    """The SQLAlchemy dialect name of ``bind``: a name, a ``Dialect``, a
+    connection or engine (sync or async), or a session (sync or async)."""
+    if isinstance(bind, str):
+        return bind
+    if isinstance(bind, Dialect):
+        return str(bind.name)
+    dialect = getattr(bind, "dialect", None)
+    if dialect is not None:
+        return str(dialect.name)
+    return str(bind.get_bind().dialect.name)
 
 
 def has_sql_dialect(name: str) -> bool:
@@ -542,11 +621,59 @@ def conflict_insert(table: Any, *, session: AsyncSession) -> ConflictInsert:
     ``.returning()`` and ``.excluded``. A database without ``ON CONFLICT``
     refuses with :class:`UnsupportedSqlForm`.
     """
-    dialect = session.get_bind().dialect.name
+    return conflict_insert_for(session, table)
+
+
+def conflict_insert_for(bind: Any, table: Any) -> ConflictInsert:
+    """:func:`conflict_insert` where only a dialect, a dialect name or a
+    connection is at hand (``bind``, read by :func:`dialect_name`)."""
+    dialect = dialect_name(bind)
     statement = _require(dialect, "conflict_insert").conflict_insert(table)
     if statement is None:
         raise UnsupportedSqlForm("conflict_insert", dialect)
     return statement
+
+
+def greatest_for(bind: Any, *exprs: Any) -> ColumnElement[Any]:
+    """The largest of ``exprs`` on the database of ``bind`` (see
+    :func:`dialect_name`); ``NULL`` arguments follow the database's rule."""
+    dialect = dialect_name(bind)
+    element = _require(dialect, "greatest").greatest(*exprs)
+    if element is None:
+        raise UnsupportedSqlForm("greatest", dialect)
+    return element
+
+
+def greatest(*exprs: Any, session: AsyncSession) -> ColumnElement[Any]:
+    """The largest of ``exprs``, written for ``session``'s database::
+
+        set_={"seen": greatest(Item.seen, stmt.excluded.seen, session=s)}
+
+    Give it non-``NULL`` arguments (``coalesce`` them): databases disagree on
+    what the largest of a ``NULL`` is.
+    """
+    return greatest_for(session, *exprs)
+
+
+def id_in_for(
+    bind: Any, column: Any, ids: Sequence[Any], *, key: str = "ids"
+) -> ColumnElement[bool]:
+    """``column`` is one of ``ids`` on the database of ``bind``, bound as
+    the parameter ``key`` (a prebuilt statement takes ``{key: [...]}`` at
+    execution). PostgreSQL binds one array (``= ANY(:key)``), so the
+    statement is the same for any number of ids."""
+    dialect = dialect_name(bind)
+    element = _require(dialect, "id_in").id_in(column, ids, key=key)
+    if element is None:
+        raise UnsupportedSqlForm("id_in", dialect)
+    return element
+
+
+def array_insert_sql_for(bind: Any, inserts: Sequence[ArrayInsert]) -> str | None:
+    """The renderer's :meth:`SqlDialect.array_insert_sql` for the database
+    of ``bind``; ``None`` without one (the caller writes row by row)."""
+    renderer = sql_dialect(dialect_name(bind))
+    return None if renderer is None else renderer.array_insert_sql(inserts)
 
 
 async def transaction_lock(key: int, *, session: AsyncSession) -> None:

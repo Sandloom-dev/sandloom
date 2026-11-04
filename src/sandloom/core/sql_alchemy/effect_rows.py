@@ -13,7 +13,8 @@ statement — both tables in one round trip on PostgreSQL::
 
 (or the single-table form when the flush holds rows of one table only). Each
 column is one array parameter, so the statement text (and asyncpg's prepared
-statement) is the same for any number of rows. Other dialects get one Core
+statement) is the same for any number of rows (the SQL dialect renderer
+writes it: ``array_insert_sql``). Other databases get one Core
 ``INSERT`` per table. Everything the ORM path guaranteed still holds:
 
 * **Written by the flush, at the same moment.** Plain rows do not make the
@@ -55,6 +56,7 @@ from sqlalchemy.orm import Session, registry
 import sandloom.core.sql_alchemy.models.audit as _audit
 import sandloom.core.sql_alchemy.models.outbox as _outbox
 from sandloom.core.sql_alchemy.models.audit import _utc_naive_now as _audit_now
+from sandloom.core.sql_alchemy.portable import ArrayInsert, array_insert_sql_for
 
 #: ``session.info`` key: rows registered by the stores, not yet written.
 _ROWS_KEY = "sandloom_effect_rows"
@@ -73,7 +75,9 @@ WRITTEN = 1
 ROLLED_BACK = 2
 
 _listening = False
-_statements: dict[tuple[bool, bool], Any] = {}
+_statements: dict[tuple[str, bool, bool], Any] = {}
+#: ``_statements`` value of a database that binds no arrays.
+_NO_ARRAYS = object()
 _trigger_class: Any = None
 
 
@@ -150,61 +154,50 @@ class AuditRow:
 
 
 _AUDIT_COLUMNS = (
-    ("id", "UUID[]"),
-    ("occurred_at", "TIMESTAMP[]"),
-    ("actor_id", "UUID[]"),
-    ("actor_type", "VARCHAR[]"),
-    ("action", "VARCHAR[]"),
-    ("resource_type", "VARCHAR[]"),
-    ("resource_id", "VARCHAR[]"),
-    ("data", "JSON[]"),
-    ("request_id", "VARCHAR[]"),
-    ("trace_id", "VARCHAR[]"),
+    ("id", "uuid"),
+    ("occurred_at", "timestamp"),
+    ("actor_id", "uuid"),
+    ("actor_type", "varchar"),
+    ("action", "varchar"),
+    ("resource_type", "varchar"),
+    ("resource_id", "varchar"),
+    ("data", "json"),
+    ("request_id", "varchar"),
+    ("trace_id", "varchar"),
 )
 _OUTBOX_COLUMNS = (
-    ("id", "UUID[]"),
-    ("channel", "VARCHAR[]"),
-    ("schema_version", "VARCHAR[]"),
-    ("payload", "JSON[]"),
-    ("trace_id", "VARCHAR[]"),
-    ("emitted_at", "TIMESTAMP[]"),
-    ("delivery_attempts", "INTEGER[]"),
+    ("id", "uuid"),
+    ("channel", "varchar"),
+    ("schema_version", "varchar"),
+    ("payload", "json"),
+    ("trace_id", "varchar"),
+    ("emitted_at", "timestamp"),
+    ("delivery_attempts", "integer"),
 )
 
 
-def _insert_sql(table: str, prefix: str, columns: tuple[tuple[str, str], ...]) -> str:
-    return (
-        f"INSERT INTO {table} ("  # noqa: S608 - framework table/column constants, values bound
-        + ", ".join(name for name, _ in columns)
-        + ") SELECT * FROM unnest("
-        + ", ".join(f"CAST(:{prefix}_{name} AS {cast})" for name, cast in columns)
-        + ")"
-    )
-
-
-def _statement(audit: bool, outbox: bool) -> Any:
-    """The prebuilt PostgreSQL INSERT for rows of these tables."""
-    key = (audit, outbox)
+def _statement(connection: Any, audit: bool, outbox: bool) -> Any:
+    """The prebuilt array INSERT for rows of these tables on ``connection``'s
+    database (its renderer writes it), or ``None`` when it binds no arrays."""
+    key = (connection.dialect.name, audit, outbox)
     stmt = _statements.get(key)
     if stmt is None:
-        audit_sql = _insert_sql("audit_log", "a", _AUDIT_COLUMNS)
-        outbox_sql = _insert_sql("outbox_messages", "o", _OUTBOX_COLUMNS)
-        if audit and outbox:
-            sql = f"WITH audit AS ({audit_sql}) {outbox_sql}"
-        else:
-            sql = audit_sql if audit else outbox_sql
-        parts: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+        inserts: list[ArrayInsert] = []
         if audit:
-            parts.append(("a", _AUDIT_COLUMNS))
+            inserts.append(("audit_log", "a", _AUDIT_COLUMNS))
         if outbox:
-            parts.append(("o", _OUTBOX_COLUMNS))
-        binds: list[Any] = [
-            bindparam(f"{prefix}_{name}")
-            for prefix, columns in parts
-            for name, _ in columns
-        ]
-        stmt = _statements[key] = text(sql).bindparams(*binds)
-    return stmt
+            inserts.append(("outbox_messages", "o", _OUTBOX_COLUMNS))
+        sql = array_insert_sql_for(connection, inserts)
+        if sql is None:
+            stmt = _statements[key] = _NO_ARRAYS
+        else:
+            binds: list[Any] = [
+                bindparam(f"{prefix}_{name}")
+                for _, prefix, columns in inserts
+                for name, _ in columns
+            ]
+            stmt = _statements[key] = text(sql).bindparams(*binds)
+    return None if stmt is _NO_ARRAYS else stmt
 
 
 def _trigger() -> Any:
@@ -309,8 +302,8 @@ def _audit_columns(row: AuditRow) -> dict[str, Any]:
     }
 
 
-def _write_postgresql(
-    connection: Any, outbox: list[OutboxRow], audit: list[AuditRow]
+def _write_arrays(
+    connection: Any, stmt: Any, outbox: list[OutboxRow], audit: list[AuditRow]
 ) -> None:
     dumps = _json(connection.dialect)
     params: dict[str, Any] = {}
@@ -328,7 +321,7 @@ def _write_postgresql(
             if name == "payload":
                 values = [dumps(v) for v in values]
             params[f"o_{name}"] = values
-    connection.execute(_statement(bool(audit), bool(outbox)), params)
+    connection.execute(stmt, params)
 
 
 def _write_portable(
@@ -385,8 +378,9 @@ def _before_flush(session: Any, _flush_context: Any, instances: Any) -> None:  #
     if not outbox and not audit:
         return
     connection = session.connection()
-    if connection.dialect.name == "postgresql":
-        _write_postgresql(connection, outbox, audit)
+    stmt = _statement(connection, bool(audit), bool(outbox))
+    if stmt is not None:
+        _write_arrays(connection, stmt, outbox, audit)
     else:
         _write_portable(connection, outbox, audit)
 

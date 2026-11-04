@@ -9,14 +9,28 @@ renderer the same way. This is the only place the forms meet a dialect.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, cast
 
-from sqlalchemy import String, func, select
+from sqlalchemy import ColumnElement, String, any_, bindparam, func, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import TypeEngine
+from sqlalchemy.types import TypeEngine, Uuid
 
-from sandloom.core.sql_alchemy.portable import ConflictInsert, ErrorKind
+from sandloom.core.sql_alchemy.portable import ArrayInsert, ConflictInsert, ErrorKind
+
+#: :data:`~sandloom.core.sql_alchemy.portable.ARRAY_INSERT_TYPES` as
+#: PostgreSQL array types.
+_PG_ARRAYS = {
+    "uuid": "UUID[]",
+    "varchar": "VARCHAR[]",
+    "json": "JSON[]",
+    "timestamp": "TIMESTAMP[]",
+    "integer": "INTEGER[]",
+}
+#: The CTE name of a table's insert (the kernel's statement text since it was
+#: written by hand: ``WITH audit AS (...)``).
+_CTE_NAMES = {"audit_log": "audit"}
 
 
 def _causes(exc: BaseException) -> list[BaseException]:
@@ -96,6 +110,53 @@ class PostgresqlSql:
     def conflict_insert(self, table: Any) -> ConflictInsert:
         return cast("ConflictInsert", postgresql.insert(table))
 
+    def greatest(self, *exprs: Any) -> ColumnElement[Any]:
+        return func.greatest(*exprs)
+
+    def id_in(
+        self, column: Any, ids: Sequence[Any], *, key: str
+    ) -> ColumnElement[bool]:
+        # ONE array bind parameter: the statement text (and asyncpg's prepared
+        # statement) is the same for every number of ids, unlike IN (...).
+        element_type: Any = column.type
+        if isinstance(element_type, Uuid) and not isinstance(
+            element_type, postgresql.UUID
+        ):
+            element_type = postgresql.UUID(as_uuid=True)
+            if not column.type.as_uuid:
+                element_type = postgresql.UUID(as_uuid=False)
+        array = postgresql.ARRAY(element_type)
+        return cast(
+            "ColumnElement[bool]",
+            column == any_(bindparam(key, value=list(ids), type_=array)),
+        )
+
+    def array_insert_sql(self, inserts: Sequence[ArrayInsert]) -> str:
+        # ``INSERT ... SELECT * FROM unnest(CAST(:x AS T[]), ...)``: one array
+        # bind per column, so the text (and asyncpg's prepared statement) is
+        # the same for any number of rows; every insert but the last runs as
+        # a data-modifying CTE, all in one round trip.
+        parts = [
+            f"INSERT INTO {table} ("  # noqa: S608 - kernel table/column constants, values bound
+            + ", ".join(column for column, _ in columns)
+            + ") SELECT * FROM unnest("
+            + ", ".join(
+                f"CAST(:{prefix}_{column} AS {_PG_ARRAYS[kind]})"
+                for column, kind in columns
+            )
+            + ")"
+            for table, prefix, columns in inserts
+        ]
+        *ctes, last = parts
+        if not ctes:
+            return last
+        names = [table for table, _, _ in inserts[:-1]]
+        with_ = ", ".join(
+            f"{_CTE_NAMES.get(n, n)} AS ({sql})"
+            for n, sql in zip(names, ctes, strict=True)
+        )
+        return f"WITH {with_} {last}"
+
     async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
         await session.execute(select(func.pg_advisory_xact_lock(key)))
         return True
@@ -141,6 +202,22 @@ class SqliteSql:
 
     def conflict_insert(self, table: Any) -> ConflictInsert:
         return cast("ConflictInsert", sqlite.insert(table))
+
+    def greatest(self, *exprs: Any) -> ColumnElement[Any]:
+        # SQLite's multi-argument max() is its scalar greatest.
+        return func.max(*exprs)
+
+    def id_in(
+        self, column: Any, ids: Sequence[Any], *, key: str
+    ) -> ColumnElement[bool]:
+        return cast(
+            "ColumnElement[bool]",
+            column.in_(bindparam(key, value=list(ids), expanding=True)),
+        )
+
+    def array_insert_sql(self, inserts: Sequence[ArrayInsert]) -> None:
+        # No arrays: the kernel writes one multi-row INSERT per table.
+        return None
 
     async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
         # SQLite has no lock a transaction can take before its first write:

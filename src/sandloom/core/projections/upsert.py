@@ -37,9 +37,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import Table, or_, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 
+from sandloom.core.sql_alchemy.portable import conflict_insert
 from sandloom.core.tenant_context import (
     TenantMismatchError,
     _bypass,
@@ -114,7 +114,7 @@ async def monotonic_upsert(
             )
         # Never overwrite another tenant's row that happens to share the key.
         where = where & (table.c["tenant_id"] == row_tenant)
-    stmt = pg_insert(table).values(**row)
+    stmt = conflict_insert(table, session=session).values(**row)
     stmt = stmt.on_conflict_do_update(
         index_elements=list(key.keys()),
         set_={**values, version_column: incoming_version},

@@ -20,11 +20,11 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Index, String, Text, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.portable import partial_index
 
 
 def _utc_naive_now() -> datetime:  # pragma: no cover - trivial
@@ -54,26 +54,24 @@ class OutboxMessage(Base):
     # * dead — list / requeue dead-lettered rows (``sandloom outbox``);
     # * delivered — the retention purge (``delivered_at < cutoff``).
     __table_args__ = (
-        Index(
+        partial_index(
             "ix_outbox_messages_relay",
             "emitted_at",
-            postgresql_where=text("delivered_at IS NULL AND dead_at IS NULL"),
+            where="delivered_at IS NULL AND dead_at IS NULL",
         ),
-        Index(
+        partial_index(
             "ix_outbox_messages_dead",
             "dead_at",
-            postgresql_where=text("dead_at IS NOT NULL"),
+            where="dead_at IS NOT NULL",
         ),
-        Index(
+        partial_index(
             "ix_outbox_messages_delivered",
             "delivered_at",
-            postgresql_where=text("delivered_at IS NOT NULL"),
+            where="delivered_at IS NOT NULL",
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     channel: Mapped[str] = mapped_column(String(200), nullable=False)
     schema_version: Mapped[str] = mapped_column(
         String(10), default="v1", nullable=False
@@ -102,9 +100,7 @@ class OutboxMessage(Base):
     # only acts WHERE locked_by matches, so a worker whose lease EXPIRED (and was
     # reclaimed by another worker) cannot clear or mutate the new owner's claim
     # when its own late publish finally returns.
-    locked_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    locked_by: Mapped[uuid.UUID | None] = mapped_column(Uuid(), nullable=True)
 
     # Earliest time the relay may retry this row. Set on every failed attempt
     # (exponential backoff + jitter) and on a broker-unavailable deferral, so a

@@ -1,8 +1,9 @@
 """Statement helpers shared by the relational outbox store and its relay half.
 
-The relay's claim lease and retry backoff, the PostgreSQL ``id = ANY(:ids)``
-form, the system Unit of Work the outbox's own statements run in (no tenant
-round trip) and the naive-UTC conversion of the stored timestamps.
+The relay's claim lease and retry backoff, the ``id`` membership form (one
+array bind on PostgreSQL, from the SQL dialect renderer), the system Unit of
+Work the outbox's own statements run in (no tenant round trip) and the
+naive-UTC conversion of the stored timestamps.
 """
 
 from __future__ import annotations
@@ -14,12 +15,9 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import any_, bindparam
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
+from sandloom.core.sql_alchemy.portable import id_in_for
 from sandloom.core.sql_alchemy.tenant_rls import non_tenant_statements
 
 # How long a relay worker's claim on a row stays exclusive while it publishes.
@@ -86,22 +84,21 @@ def _is_postgres(session: Any) -> bool:
         return False
 
 
-def _any_id(column_owner: Any, ids: Sequence[uuid.UUID]) -> Any:
-    """``id = ANY(:ids)`` (PostgreSQL) — ONE array bind parameter, so the
-    statement text (and asyncpg's prepared statement) is identical for every
-    batch size, unlike an expanding ``IN (...)``."""
+def _any_id(bind: Any, column_owner: Any, ids: Sequence[uuid.UUID]) -> Any:
+    """``id`` is one of ``ids`` on the database of ``bind``, bound as
+    ``outbox_ids`` (a prebuilt statement takes ``{"outbox_ids": [...]}``).
+
+    PostgreSQL's renderer writes ``id = ANY(:outbox_ids)``: ONE array bind
+    parameter, so the statement text (and asyncpg's prepared statement) is
+    identical for every batch size, unlike an expanding ``IN (...)``."""
 
     column = column_owner.c.id if hasattr(column_owner, "c") else column_owner.id
-    return column == any_(
-        bindparam("outbox_ids", value=list(ids), type_=ARRAY(PG_UUID(as_uuid=True)))
-    )
+    return id_in_for(bind, column, ids, key="outbox_ids")
 
 
 def _id_in(session: Any, ids: Sequence[uuid.UUID]) -> Any:
-    """``id = ANY(:ids)`` on PostgreSQL, an expanding ``IN (...)`` elsewhere."""
-    if _is_postgres(session):
-        return _any_id(OutboxMessage, ids)
-    return OutboxMessage.id.in_(list(ids))
+    """``id`` is one of ``ids`` on ``session``'s database (see :func:`_any_id`)."""
+    return _any_id(session, OutboxMessage, ids)
 
 
 @asynccontextmanager

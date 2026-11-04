@@ -450,7 +450,7 @@ async def test_mark_delivered_skips_only_its_own_wal_flush_wait(
         from sandloom.core.sql_alchemy.outbox_store import _mark_delivered_statement
 
         await s.execute(
-            _mark_delivered_statement(),
+            _mark_delivered_statement(s),
             {
                 "outbox_ids": more,
                 "delivered_at": datetime.now(UTC).replace(tzinfo=None),
@@ -470,11 +470,13 @@ async def test_mark_delivered_reuses_one_prebuilt_statement(
     store = SQLAlchemyOutboxStore()
     factory = lambda: SQLAlchemyUnitOfWork(session_factory=sessions)  # noqa: E731
     await store.mark_delivered(factory, await _seed_rows(sessions, 2))
-    first = outbox_store._mark_delivered_pg
+    first = outbox_store._mark_delivered_statements["postgresql"]
     assert first is not None
     later = await _seed_rows(sessions, 3)
     await store.mark_delivered(factory, later)
-    assert outbox_store._mark_delivered_pg is first  # built once, bound per call
+    assert (
+        outbox_store._mark_delivered_statements["postgresql"] is first
+    )  # built once, bound per call
     async with sessions() as s:
         rows = {r.id: r for r in (await s.execute(select(OutboxMessage))).scalars()}
     assert all(rows[i].delivered_at is not None for i in later)

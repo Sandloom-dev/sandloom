@@ -60,6 +60,24 @@ website renders this same changelog.
   place outside the driver that names a database, and the count may only shrink
   (design/infra-agnostic/spec.md).
 
+- **The kernel's claims and upserts go through the SQL dialect renderer.** A
+  renderer gains `greatest(*exprs)` (PostgreSQL `greatest`, SQLite `max`),
+  `id_in(column, ids, key=)` (PostgreSQL one array bind, `= ANY(:key)`; others
+  `IN`) and `array_insert_sql` (the outbox and audit bulk insert's SQL,
+  PostgreSQL `unnest`; `None` elsewhere). The loader refuses a renderer missing
+  any member of the contract (SANDLOOM-B025); `SqlDialectConformance` checks
+  the new forms.
+  The command, HTTP and inbox claims, the outbox writes and `id` matches, the
+  saga store, the projection upserts and watermarks build their `INSERT ... ON
+  CONFLICT` and `greatest` from it instead of naming PostgreSQL. A completed
+  command or HTTP record restarts its expiry on every database (computed in
+  Python from the claim, or read back from the row with a warning when the
+  completing session did not claim it; it was PostgreSQL-only), and a lock timeout of the
+  claim is recognised through `classify_error` (still `Busy`, the unit rolls
+  back). The kernel's outbox, inbox, audit and saga tables declare `Uuid` and
+  `partial_index`: the PostgreSQL DDL is unchanged, no migration follows. The
+  claim and the outbox statements render the same SQL on PostgreSQL.
+
 ### Changed
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and

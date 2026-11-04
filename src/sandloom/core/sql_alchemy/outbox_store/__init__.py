@@ -39,23 +39,28 @@ from sandloom.core.sql_alchemy.outbox_store.statements import (
     _naive_utc,
     _system_uow,
 )
+from sandloom.core.sql_alchemy.portable import dialect_name
 from sandloom.core.sql_alchemy.tenant_rls import non_tenant_statements
 
 #: The PostgreSQL mark-delivered UPDATE, prebuilt (ids and timestamp bound
 #: per call): it runs after EVERY committed publish, and building an
 #: ORM-enabled UPDATE each time cost more than the statement's own round trip.
-_mark_delivered_pg: Any = None
+#: Keyed by the dialect name of the bind it was built for.
+_mark_delivered_statements: dict[str, Any] = {}
 
 
-def _mark_delivered_statement() -> Any:
-    global _mark_delivered_pg
-    stmt = _mark_delivered_pg
+def _mark_delivered_statement(bind: Any) -> Any:
+    """The prebuilt PostgreSQL mark-delivered UPDATE; ``bind`` (the
+    connection or session it runs on) names the database its renderer
+    writes the ``id`` membership for, and keys the cache."""
+    dialect = dialect_name(bind)
+    stmt = _mark_delivered_statements.get(dialect)
     if stmt is None:
         table: Any = OutboxMessage.__table__
-        stmt = _mark_delivered_pg = (
+        stmt = _mark_delivered_statements[dialect] = (
             update(table)
             .where(
-                _any_id(table, ()),
+                _any_id(bind, table, ()),
                 # Never resurrect a dead-lettered row (see mark_delivered).
                 table.c.dead_at.is_(None),
                 table.c.delivered_at.is_(None),
@@ -208,7 +213,7 @@ class SQLAlchemyOutboxStore(_RelayMixin):
             with non_tenant_statements():
                 async with view.connect() as conn:
                     await conn.execute(
-                        _mark_delivered_statement(),
+                        _mark_delivered_statement(conn),
                         {"outbox_ids": list(ids), "delivered_at": _utc_naive_now()},
                     )
             return
@@ -218,7 +223,7 @@ class SQLAlchemyOutboxStore(_RelayMixin):
             await _autocommit_connection(session)
             if _is_postgres(session):
                 await session.execute(
-                    _mark_delivered_statement(),
+                    _mark_delivered_statement(session),
                     {"outbox_ids": list(ids), "delivered_at": _utc_naive_now()},
                 )
                 return

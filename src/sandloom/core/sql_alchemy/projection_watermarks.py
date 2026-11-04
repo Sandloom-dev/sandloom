@@ -35,10 +35,10 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
 from sqlalchemy import Table, case, func, select, text, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
+from sandloom.core.sql_alchemy.portable import conflict_insert_for, greatest_for
 
 _TABLE = cast(Table, ProjectionWatermark.__table__)
 _OUTBOX = cast(Table, OutboxMessage.__table__)
@@ -90,7 +90,7 @@ async def locked_watermark(session: Any, projection: str) -> StoredWatermark:
     row = (await session.execute(stmt)).first()
     if row is None:
         await session.execute(
-            pg_insert(_TABLE)
+            conflict_insert_for(session, _TABLE)
             .values(projection=projection, updated_at=_now())
             .on_conflict_do_nothing(index_elements=["projection"])
         )
@@ -136,45 +136,46 @@ class RelationalWatermarkStore:
             yield await stored_watermark(session, projection)
 
     async def raise_purged_before(self, projection: str, before: datetime) -> datetime:
-        insert = pg_insert(_TABLE).values(
-            projection=projection, purged_before=before, updated_at=_now()
-        )
-        stmt = insert.on_conflict_do_update(
-            index_elements=["projection"],
-            set_={
-                "purged_before": func.greatest(
-                    func.coalesce(
-                        _TABLE.c.purged_before, insert.excluded.purged_before
-                    ),
-                    insert.excluded.purged_before,
-                ),
-                "updated_at": insert.excluded.updated_at,
-            },
-        ).returning(_TABLE.c.purged_before)
         async with self._open() as session:
+            insert = conflict_insert_for(session, _TABLE).values(
+                projection=projection, purged_before=before, updated_at=_now()
+            )
+            stmt = insert.on_conflict_do_update(
+                index_elements=["projection"],
+                set_={
+                    "purged_before": greatest_for(
+                        session,
+                        func.coalesce(
+                            _TABLE.c.purged_before, insert.excluded.purged_before
+                        ),
+                        insert.excluded.purged_before,
+                    ),
+                    "updated_at": insert.excluded.updated_at,
+                },
+            ).returning(_TABLE.c.purged_before)
             result = (await session.execute(stmt)).scalar_one()
         return result  # type: ignore[no-any-return]
 
     async def begin_rebuild(self, projection: str, at: datetime) -> None:
-        stmt = pg_insert(_TABLE).values(
-            projection=projection,
-            rebuild_started_at=at,
-            rebuilds_active=1,
-            updated_at=_now(),
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["projection"],
-            set_={
-                # the oldest running rebuild's start (kept while one runs)
-                "rebuild_started_at": case(
-                    (_TABLE.c.rebuilds_active > 0, _TABLE.c.rebuild_started_at),
-                    else_=stmt.excluded.rebuild_started_at,
-                ),
-                "rebuilds_active": _TABLE.c.rebuilds_active + 1,
-                "updated_at": stmt.excluded.updated_at,
-            },
-        )
         async with self._open() as session:
+            stmt = conflict_insert_for(session, _TABLE).values(
+                projection=projection,
+                rebuild_started_at=at,
+                rebuilds_active=1,
+                updated_at=_now(),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["projection"],
+                set_={
+                    # the oldest running rebuild's start (kept while one runs)
+                    "rebuild_started_at": case(
+                        (_TABLE.c.rebuilds_active > 0, _TABLE.c.rebuild_started_at),
+                        else_=stmt.excluded.rebuild_started_at,
+                    ),
+                    "rebuilds_active": _TABLE.c.rebuilds_active + 1,
+                    "updated_at": stmt.excluded.updated_at,
+                },
+            )
             # wait for a purge window: a purge never deletes under a rebuild
             await session.execute(_PURGE_LOCK, {"key": purge_lock_key(projection)})
             await session.execute(stmt)
@@ -187,7 +188,9 @@ class RelationalWatermarkStore:
                 update(_TABLE)
                 .where(_TABLE.c.projection == projection)
                 .values(
-                    rebuilds_active=func.greatest(_TABLE.c.rebuilds_active - 1, 0),
+                    rebuilds_active=greatest_for(
+                        session, _TABLE.c.rebuilds_active - 1, 0
+                    ),
                     rebuild_started_at=case(
                         (_TABLE.c.rebuilds_active > 1, _TABLE.c.rebuild_started_at),
                         else_=None,

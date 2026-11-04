@@ -21,7 +21,6 @@ from datetime import datetime
 from typing import Any, Final, Literal, cast
 
 from sqlalchemy import Table, and_, delete, func, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.sql_alchemy.models.saga import (
@@ -29,6 +28,7 @@ from sandloom.core.sql_alchemy.models.saga import (
     SagaInstance,
     SagaStepRecord,
 )
+from sandloom.core.sql_alchemy.portable import conflict_insert
 
 INSTANCES = cast(Table, SagaInstance.__table__)
 STEPS = cast(Table, SagaStepRecord.__table__)
@@ -122,7 +122,7 @@ async def insert_instance(session: AsyncSession, values: Mapping[str, Any]) -> b
     other transaction, then see its row.
     """
     stmt = (
-        pg_insert(INSTANCES)
+        conflict_insert(INSTANCES, session=session)
         .values(**values)
         .on_conflict_do_nothing(index_elements=["saga_type", "saga_id"])
         .returning(INSTANCES.c.id)
@@ -182,7 +182,7 @@ async def upsert_step(session: AsyncSession, values: Mapping[str, Any]) -> None:
     ``first_attempt_at`` keeps its first value; ``attempts`` is the caller's
     running count (the instance row is locked, so no concurrent writer).
     """
-    stmt = pg_insert(STEPS).values(**values)
+    stmt = conflict_insert(STEPS, session=session).values(**values)
     updated: dict[str, Any] = {
         key: stmt.excluded[key]
         for key in values
@@ -208,7 +208,7 @@ async def mark_step_started(
     ``status``, ``outcome`` and ``first_attempt_at`` (a surviving marker of
     a call whose transition rolled back, or a recorded attempt)."""
     inserted = await session.execute(
-        pg_insert(STEPS)
+        conflict_insert(STEPS, session=session)
         .values(**values)
         .on_conflict_do_nothing(index_elements=["instance_id", "step", "direction"])
         .returning(STEPS.c.step)

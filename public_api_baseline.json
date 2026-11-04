@@ -2209,10 +2209,13 @@
     "SqlDialect": {
       "kind": "class",
       "members": [
+        "array_insert_sql",
         "case_insensitive_text",
         "classify_error",
         "conflict_insert",
         "features",
+        "greatest",
+        "id_in",
         "partial_index_options",
         "search_index_options",
         "search_operand",

@@ -260,6 +260,45 @@ class SqlDialectConformance:
         )
         _require(bool(self._sql(upsert)), "on_conflict_do_update does not compile")
 
+    def test_greatest_writes_one_expression_of_its_arguments(self) -> None:
+        table = self._table()
+        element = self.renderer.greatest(table.c.value, sa.literal(3))
+        if element is None:
+            raise AssertionError("greatest returned None")
+        sql = self._sql(sa.select(element))
+        _require(
+            "conformance_items.value" in sql,
+            f"greatest dropped an argument: {sql}",
+        )
+
+    def test_id_in_binds_the_ids_under_its_key(self) -> None:
+        table = self._table()
+        element = self.renderer.id_in(table.c.id, [1, 2], key="conformance_ids")
+        if element is None:
+            raise AssertionError("id_in returned None")
+        compiled = sa.select(table.c.id).where(element).compile(dialect=self.dialect)
+        _require(
+            list(compiled.params.get("conformance_ids") or ()) == [1, 2],
+            "id_in must bind the ids as one parameter named by key= "
+            f"(a prebuilt statement rebinds it): {compiled.params}",
+        )
+
+    def test_array_insert_binds_every_column_or_is_absent(self) -> None:
+        inserts: list[Any] = [
+            ("conformance_a", "a", (("id", "uuid"), ("at", "timestamp"))),
+            ("conformance_b", "b", (("n", "integer"), ("doc", "json"))),
+        ]
+        sql = self.renderer.array_insert_sql(inserts)
+        if sql is None:
+            return  # the kernel writes row by row
+        for table, prefix, columns in inserts:
+            _require(table in sql, f"array_insert_sql lacks {table}: {sql}")
+            for column, _ in columns:
+                _require(
+                    f":{prefix}_{column}" in sql,
+                    f"array_insert_sql does not bind :{prefix}_{column}: {sql}",
+                )
+
     @pytest.mark.asyncio
     async def test_transaction_lock_answers_whether_it_locked(self) -> None:
         statements: list[str] = []

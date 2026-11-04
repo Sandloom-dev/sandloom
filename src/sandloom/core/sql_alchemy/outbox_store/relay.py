@@ -469,7 +469,7 @@ class _RelayMixin(OutboxStore):
         delivered = 0
         if ok:
             result = await session.execute(
-                owned(_any_id(table, ok)).values(
+                owned(_any_id(session, table, ok)).values(
                     delivered_at=now,
                     last_error=None,
                     locked_until=None,
@@ -533,7 +533,7 @@ class _RelayMixin(OutboxStore):
         if released:
             # Unpublished: hand the rows straight back (no attempt, no delay).
             await session.execute(
-                owned(_any_id(table, released)).values(
+                owned(_any_id(session, table, released)).values(
                     locked_until=None, locked_by=None
                 )
             )
