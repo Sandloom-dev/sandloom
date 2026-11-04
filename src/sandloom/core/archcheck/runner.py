@@ -92,6 +92,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "consumed-contracts",
     "db-dependency-scope",
     "dialect-imports",
+    "utc-datetime-columns",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -513,6 +514,12 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
             []
             if "migrations" in p.relative_to(rules.modules_path / module).parts
             else az.find_dialect_imports(p)
+        ),
+        # A migration keeps the DDL type it was generated with.
+        "utc-datetime-columns": lambda p: (
+            []
+            if "migrations" in p.relative_to(rules.modules_path / module).parts
+            else az.find_bare_aware_datetimes(p)
         ),
         "kernel-handles": az.find_kernel_handle_access,
         "uow-boundary": az.find_uow_boundary_breaks,

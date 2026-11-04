@@ -53,6 +53,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C026`](#sandloom-c026) | `contract-union-hint` | check | a contract signature uses an ambiguous union (information) | active |
 | [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates billing with of=Account.user() | active |
 | [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
+| [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -81,6 +82,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
+| [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -96,6 +98,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
+| [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second unit of the same task began a write on a database whose writers are serial (SQLite) while the task's first unit holds the write lock | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
@@ -561,6 +564,25 @@ PostgreSQL it renders the same SQL, so switching needs no migration.
 Migrations are exempt: a migration is one database's DDL history.
 
 **Fix:** use the portable form: sqlalchemy.Uuid for ids, and from sandloom.sdk.data CaseInsensitiveText, partial_index, search_index, conflict_insert, transaction_lock
+
+**More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C029
+
+**a time column declared DateTime(timezone=True) in module code**
+
+Slug: `utc-datetime-columns` · kind: check · status: active
+
+**What happened and why it matters**
+
+SQLite keeps no time zone offset: a DateTime(timezone=True) column reads back
+naive there, and a naive time compares with nothing a module writes.
+UtcDateTime() is the same timestamptz on PostgreSQL, so moving a column onto it
+needs no migration; it writes an aware time in UTC and attaches UTC on load on
+every database, and it refuses a naive time, whose instant is not known.
+Migrations are exempt: a migration keeps the DDL type it was generated with.
+
+**Fix:** declare it UtcDateTime() from sandloom.sdk.data, and bind aware times (datetime.now(UTC))
 
 **More:** `docs/modules/database/conventions.md`
 
@@ -1051,12 +1073,34 @@ ReadOnlyDbSession promises that a route declared read-only cannot write. Two
 things keep that promise: the database's read-only transaction, where its SQL
 dialect renderer declares the readonly_transactions feature, and a client
 policy that refuses writes, locking reads and raw statements before they are
-sent, where the DBAPI adapter has one (asyncpg). A database with neither
-(SQLite through aiosqlite today) would run the session's writes, so the
+sent, where the DBAPI adapter has one (asyncpg). PostgreSQL and SQLite
+(PRAGMA query_only) have the first. A database with neither would run the
+session's writes, so the
 setting is refused: at startup, build-free, and when the first read-only
 session factory is built.
 
-**Fix:** set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), or run the database on one with read-only transactions (PostgreSQL)
+**Fix:** set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), or run the database on one with read-only transactions (PostgreSQL, SQLite)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B032
+
+**a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed**
+
+Slug: `sqlite-unavailable` · kind: boot · status: active
+
+**What happened and why it matters**
+
+The sqlalchemy driver serves SQLite through aiosqlite, for development and
+tests. An in-memory database (sqlite://, :memory:, mode=memory) has no WAL and
+exists once per connection, so a second unit, the outbox relay or a worker
+would each see another, empty database: it is refused, except the engine a
+test builds on one shared connection, and it never advertises snapshot_reads
+or transaction_locks. A URL without +aiosqlite names a blocking DBAPI, and
+aiosqlite is an optional dependency (the sqlite extra), so both are refused
+before the first connection with what to change.
+
+**Fix:** point the database at a file, sqlite+aiosqlite:///&lt;path>.db, and install the sqlite extra: pip install 'sandloom[sqlite]'
 
 **More:** `docs/infrastructure/database.md`
 
@@ -1308,6 +1352,27 @@ Usual causes:
 
 **Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs)
 
+### SANDLOOM-R016
+
+**a second unit of the same task began a write on a database whose writers are serial (SQLite) while the task's first unit holds the write lock**
+
+Slug: `nested-writer-refused` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+SQLite has one writer at a time: every unit that may write begins BEGIN
+IMMEDIATE and holds the database's write lock until it ends. A local contract
+call, a saga step or a child open_uow() opens its own unit on another pooled
+connection. Inside a unit that already holds the write lock, that second unit
+would wait for the first, which waits for it, until busy_timeout ends it with
+"database is locked". The driver refuses it at BEGIN instead, at once. The
+refusal is per task: a unit in another task still waits its turn. PostgreSQL
+runs both units side by side.
+
+**Fix:** do the nested write in the caller's unit, run it after the caller's unit commits, or run the database on PostgreSQL
+
+**More:** `docs/infrastructure/database.md`
+
 ### SANDLOOM-R015
 
 **a portable SQL form the database cannot write**
@@ -1320,7 +1385,9 @@ A portable form of sandloom.sdk.data refused instead of running other SQL: a
 partial index that cannot be restricted would index every row, and a
 transaction lock that cannot be taken would leave a check-then-act section
 unprotected. SQLite, for development and tests, has no substring-search index
-(the index is skipped) and no transaction lock (transaction_lock refuses).
+(the index is skipped), and its transaction lock is the unit's own write lock
+(BEGIN IMMEDIATE): transaction_lock refuses in a read-only unit and on an
+in-memory test database.
 
 **Fix:** run the module on a database whose renderer writes the form (PostgreSQL writes all of them), or add the form to the renderer
 

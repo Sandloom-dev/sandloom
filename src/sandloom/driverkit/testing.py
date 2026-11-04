@@ -168,6 +168,10 @@ class SqlDialectConformance:
     renderer: ClassVar[SqlDialect]
     #: An instance of the SQLAlchemy dialect it renders for.
     dialect: ClassVar[Any]
+    #: True only when every read-only transaction of the database reads one
+    #: snapshot by design (SQLite's deferred read under WAL), so a unit asking
+    #: for a fresh snapshot per statement may begin like a snapshot unit.
+    read_units_share_one_snapshot: ClassVar[bool] = False
 
     @staticmethod
     def _table() -> sa.Table:
@@ -471,10 +475,18 @@ class SqlDialectConformance:
                 for snapshot in (True, False)
             )
             _require(
-                one != fresh,
-                "a read-only unit with one snapshot must begin differently "
-                "from one with a snapshot per statement",
+                one is not None,
+                "begin_statement(write=False, read_only=True, snapshot=True) "
+                "is the plain BEGIN, but the renderer declares snapshot_reads",
             )
+            if not self.read_units_share_one_snapshot:
+                _require(
+                    one != fresh,
+                    "a read-only unit with one snapshot must begin differently "
+                    "from one with a snapshot per statement (set "
+                    "read_units_share_one_snapshot only when every read-only "
+                    "transaction of the database is one snapshot)",
+                )
 
     def test_begin_statement_refuses_a_writing_read_only_unit(self) -> None:
         try:
@@ -503,6 +515,12 @@ class SqlDialectConformance:
                         bool(options),
                         f"{what} is empty, but the renderer declares "
                         "readonly_transactions",
+                    )
+                if snapshot and "snapshot_reads" in features:
+                    _require(
+                        bool(options),
+                        f"{what} is empty, but the renderer declares "
+                        "snapshot_reads: a snapshot unit needs options of its own",
                     )
 
     def test_row_security_is_whole_or_absent(self) -> None:

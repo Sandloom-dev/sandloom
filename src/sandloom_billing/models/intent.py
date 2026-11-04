@@ -20,7 +20,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -31,7 +30,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import UpdatedAt, partial_index
+from sandloom.sdk.data import UpdatedAt, UtcDateTime, partial_index
 
 INTENT_PENDING = "pending"
 INTENT_ISSUED = "issued"
@@ -112,20 +111,18 @@ class OperationIntent(Base):
     #: When the intent became ``issued`` (its URL was handed out). A portal
     #: intent's ``issued_at`` attributes later subscription changes of its
     #: customer (ADR-0003 open item 10).
-    issued_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    issued_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     #: When the PSP will expire the checkout session (ADR-0003 open item 13):
     #: a retry of an issued checkout past it answers 410, never a dead URL.
     #: NULL on intents issued before it was stored (the PSP default applies).
     psp_session_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
     #: When billing confirmed the checkout session can no longer be paid (our
     #: expire succeeded, or the PSP reported it expired). NULL on a revoked
     #: intent with a session = its compensation is still owed (#72).
     psp_expired_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
     #: Failed reconciliation steps (PSP lookup of a stale pending intent, or
     #: the expire compensation of a revoked one) and the last error; bounded
@@ -138,8 +135,6 @@ class OperationIntent(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Set when the PSP reported a completion this intent did not authorize
     #: (revoked / pending): operator follow-up (refund is manual).
-    followup_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    followup_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     created_at: Mapped[CreatedAt]
     updated_at: Mapped[UpdatedAt]

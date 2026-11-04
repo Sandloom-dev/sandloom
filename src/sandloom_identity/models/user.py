@@ -4,11 +4,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Index, String, Uuid, false
+from sqlalchemy import Boolean, Index, String, Uuid, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import CaseInsensitiveText, UpdatedAt, search_index
+from sandloom.sdk.data import CaseInsensitiveText, UpdatedAt, UtcDateTime, search_index
 
 if TYPE_CHECKING:
     from .external_identity import ExternalIdentity
@@ -57,13 +57,11 @@ class User(Base):
     # Timestamps
     created_at: Mapped[CreatedAt]
     updated_at: Mapped[UpdatedAt]
-    last_login_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_login_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     # Email verification
     email_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
 
     # Relationships

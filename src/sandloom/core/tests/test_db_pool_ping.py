@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import sqlalchemy_database as driver
+from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.testing import reload_test_env
 
@@ -99,13 +100,13 @@ async def test_ping_only_after_idle_threshold(
     monkeypatch: pytest.MonkeyPatch, idle: float, expected_pings: int
 ) -> None:
     pings: list[Any] = []
-    real_ping = driver._ping
+    real_ping = ASYNCPG.ping
 
     def _counting(dbapi_connection: Any, dialect: Any) -> None:
         pings.append(dbapi_connection)
         real_ping(dbapi_connection, dialect)
 
-    monkeypatch.setattr(driver, "_ping", _counting)
+    monkeypatch.setattr(ASYNCPG, "ping", _counting)
     provider = await _provider(monkeypatch, idle=idle)
     try:
         engine = provider.engine

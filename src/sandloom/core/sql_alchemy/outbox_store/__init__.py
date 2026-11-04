@@ -124,10 +124,11 @@ def _autocommit_view(uow_factory: Callable[[], UnitOfWorkContract]) -> Any:
     """The cached AUTOCOMMIT engine view for ``uow_factory``, or ``None``.
 
     Only for a factory producing :class:`SQLAlchemyUnitOfWork` sessions bound
-    to a PostgreSQL ``AsyncEngine``. A factory whose sessions are bound to a
-    CONNECTION (a test harness joined to an outer transaction — its mark must
-    stay inside that transaction), to several binds, or to another dialect
-    keeps the session path.
+    to an ``AsyncEngine`` (any database: an AUTOCOMMIT statement is its own
+    transaction; on SQLite it takes the write lock for that statement alone).
+    A factory whose sessions are bound to a CONNECTION (a test harness joined
+    to an outer transaction — its mark must stay inside that transaction) or
+    to several binds keeps the session path.
     """
     try:
         view = _AUTOCOMMIT_VIEWS.get(uow_factory)
@@ -149,8 +150,6 @@ def _build_autocommit_view(uow_factory: Callable[[], UnitOfWorkContract]) -> Any
     kw = getattr(uow._session_factory, "kw", None) or {}
     bind = kw.get("bind")
     if kw.get("binds") or not isinstance(bind, AsyncEngine):
-        return _NO_VIEW
-    if bind.dialect.name != "postgresql":
         return _NO_VIEW
     return bind.execution_options(isolation_level="AUTOCOMMIT")
 

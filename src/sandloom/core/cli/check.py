@@ -36,6 +36,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
     db-dependency-scope    Depends(get_db...) carries scope="function"
     dialect-imports        no sqlalchemy.dialects outside migrations (one
                            database's types; sandloom.sdk.data is portable)
+    utc-datetime-columns   time columns are UtcDateTime(), not a bare
+                           DateTime(timezone=True) (naive on SQLite)
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

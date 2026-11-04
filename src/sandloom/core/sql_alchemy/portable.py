@@ -94,6 +94,7 @@ __all__ = [
     "UnsupportedServerVersion",
     "UnsupportedSqlForm",
     "UtcDateTime",
+    "NaiveDateTimeError",
     "WallClock",
     "begin_statement_for",
     "check_lock_key",
@@ -123,6 +124,8 @@ __all__ = [
     "skips_locked_rows",
     "sql_dialect",
     "transaction_lock",
+    "hold_transaction_lock",
+    "WRITE_LOCK_HELD",
     "transaction_options_for",
     "unlock_statement_for",
     "unrendered_dialect",
@@ -857,6 +860,19 @@ class CaseInsensitiveText(TypeDecorator[str]):
         return dialect.type_descriptor(type_)
 
 
+class NaiveDateTimeError(ValueError):
+    """A naive ``datetime`` bound to a :class:`UtcDateTime` column: its
+    instant is not known (PostgreSQL would read it in the process's local
+    time zone, SQLite as UTC), so it is refused rather than guessed."""
+
+    def __init__(self, value: datetime) -> None:
+        super().__init__(
+            f"a naive datetime ({value.isoformat()}) bound to a UtcDateTime "
+            "column: pass an aware one, e.g. datetime.now(UTC) or "
+            "value.replace(tzinfo=UTC)"
+        )
+
+
 class UtcDateTime(TypeDecorator[datetime]):
     """A timezone-aware time that always reads back in UTC.
 
@@ -865,11 +881,12 @@ class UtcDateTime(TypeDecorator[datetime]):
     database that keeps no offset (SQLite stores the text of the time) hands
     back a naive value: this type writes an aware time in UTC and attaches UTC
     to what it reads, so a module compares and orders the same aware values on
-    every database. Write aware times: a naive one is passed to the database
-    as it is. On SQLite a naive time means UTC; on PostgreSQL asyncpg takes it
-    in the Python process's local time zone (it converts with
-    ``astimezone(utc)``), as for ``DateTime(timezone=True)``. Sandloom expects
-    its processes to run in UTC.
+    every database. Bind aware times: a naive one has no known instant (on
+    PostgreSQL asyncpg would read it in the process's local time zone, on
+    SQLite it would mean UTC), so it is refused with
+    :class:`NaiveDateTimeError`, in a value and in a comparison alike. The
+    planner's raw executor, which skips bind processing, takes no caller's
+    value of this type: such a key or filter runs on the general executor.
     """
 
     impl = DateTime(timezone=True)
@@ -878,13 +895,22 @@ class UtcDateTime(TypeDecorator[datetime]):
     def process_bind_param(
         self, value: datetime | None, dialect: Dialect
     ) -> datetime | None:
-        """An aware value as the same instant in UTC; a naive one unchanged."""
+        """An aware value as the same instant in UTC; a naive one refused."""
         # The same instant in UTC: SQLite stores the text of the time and
-        # drops the offset. A naive value is left as it is, so PostgreSQL
-        # behaves as before and the planner's raw executor binds it alike.
-        if value is None or value.tzinfo is None:
+        # drops the offset.
+        if value is None:
             return value
+        if value.tzinfo is None:
+            raise NaiveDateTimeError(value)
         return value.astimezone(UTC)
+
+    def coerce_compared_value(self, op: Any, value: Any) -> Any:
+        """A time compared with the column is bound as this type (an aware
+        time is required); anything else (``column - timedelta(...)``) as
+        ``DateTime`` would bind it (an interval)."""
+        if isinstance(value, datetime):
+            return self
+        return self.impl_instance.coerce_compared_value(op, value)
 
     def process_result_value(
         self, value: datetime | None, dialect: Dialect
@@ -1175,18 +1201,54 @@ def relaxed_commit_clause_for(bind: Any) -> ColumnElement[bool] | None:
     return None if renderer is None else renderer.relaxed_commit_clause()
 
 
+#: Connection ``info`` key the driver sets while the running transaction
+#: holds the database's only write lock (a database whose writers are serial:
+#: SQLite's ``BEGIN IMMEDIATE``), and clears when it ends. There every
+#: transaction lock is already held, so a renderer answers
+#: :meth:`SqlDialect.lock_statement` with ``None`` and the kernel's
+#: transaction locks succeed only inside such a transaction.
+WRITE_LOCK_HELD = "sandloom.write_lock_held"
+
+
+async def hold_transaction_lock(
+    session: AsyncSession, key: LockKey, *, form: str = "transaction_lock"
+) -> None:
+    """Hold the lock ``key`` in ``session``'s transaction until it ends.
+
+    The renderer's ``lock_statement(scope="transaction", wait=True)`` where
+    the database has named locks. Where it has none but its writers are
+    serial (the ``transaction_locks`` feature without a statement), the
+    transaction must already hold the write lock (:data:`WRITE_LOCK_HELD`;
+    the session begins one if it has not yet). Anything else refuses
+    (:class:`UnsupportedSqlForm`, SANDLOOM-R015) rather than run the section
+    unlocked.
+    """
+    dialect = dialect_name(session)
+    renderer = _require(dialect, form)
+    statement = renderer.lock_statement(key, scope="transaction", wait=True)
+    if statement is not None:
+        await session.execute(statement)
+        return
+    if "transaction_locks" in renderer_features(dialect):
+        connection = await session.connection()
+        if connection.info.get(WRITE_LOCK_HELD):
+            return
+        raise UnsupportedSqlForm(
+            f"{form} outside a unit that may write (a read-only unit holds no "
+            "write lock)",
+            dialect,
+        )
+    raise UnsupportedSqlForm(form, dialect)
+
+
 async def transaction_lock(key: int, *, session: AsyncSession) -> None:
     """Hold the lock ``key`` until ``session``'s transaction ends.
 
     Two transactions that take the same key run the code after it one at a
     time; the lock is released by the commit or the rollback, never by hand.
     ``key`` is a signed 64-bit integer the module chooses and keeps stable. A
-    database without such a lock refuses rather than run the section unlocked.
+    database without such a lock refuses rather than run the section unlocked;
+    on SQLite, whose writers are serial, every unit that may write already
+    holds it and a read-only unit is refused.
     """
-    dialect = dialect_name(session)
-    statement = _require(dialect, "transaction_lock").lock_statement(
-        key, scope="transaction", wait=True
-    )
-    if statement is None:
-        raise UnsupportedSqlForm("transaction_lock", dialect)
-    await session.execute(statement)
+    await hold_transaction_lock(session, key)

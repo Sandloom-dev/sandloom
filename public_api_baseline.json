@@ -2332,12 +2332,16 @@
       "kind": "class",
       "members": [
         "capabilities",
+        "config_problem",
         "connect_args",
+        "connection_closed",
         "connection_lost",
         "contract_version",
         "merged_begin",
         "name",
         "never_sent",
+        "ping",
+        "prepare_engine",
         "raw_result_only_types",
         "recoverable",
         "recovery_supported",
@@ -2435,6 +2439,9 @@
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "TENANT_SETTING": {
+      "kind": "value"
+    },
+    "WRITE_LOCK_HELD": {
       "kind": "value"
     },
     "register_dbapi_adapter": {

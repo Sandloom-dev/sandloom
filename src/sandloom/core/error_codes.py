@@ -537,6 +537,23 @@ Migrations are exempt: a migration is one database's DDL history.
 """,
         docs="docs/modules/database/conventions.md",
     ),
+    _entry(
+        "SANDLOOM-C029",
+        "utc-datetime-columns",
+        "check",
+        "a time column declared DateTime(timezone=True) in module code",
+        "declare it UtcDateTime() from sandloom.sdk.data, and bind aware times "
+        "(datetime.now(UTC))",
+        """
+SQLite keeps no time zone offset: a DateTime(timezone=True) column reads back
+naive there, and a naive time compares with nothing a module writes.
+UtcDateTime() is the same timestamptz on PostgreSQL, so moving a column onto it
+needs no migration; it writes an aware time in UTC and attaches UTC on load on
+every database, and it refuses a naive time, whose instant is not known.
+Migrations are exempt: a migration keeps the DDL type it was generated with.
+""",
+        docs="docs/modules/database/conventions.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",
@@ -980,16 +997,38 @@ runs on the engine's first connection, before any statement.
         "DB_READ_ONLY_SESSIONS=true on a default database that has neither "
         "read-only transactions nor a client read-only policy for its DBAPI",
         "set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), "
-        "or run the database on one with read-only transactions (PostgreSQL)",
+        "or run the database on one with read-only transactions (PostgreSQL, "
+        "SQLite)",
         """
 ReadOnlyDbSession promises that a route declared read-only cannot write. Two
 things keep that promise: the database's read-only transaction, where its SQL
 dialect renderer declares the readonly_transactions feature, and a client
 policy that refuses writes, locking reads and raw statements before they are
-sent, where the DBAPI adapter has one (asyncpg). A database with neither
-(SQLite through aiosqlite today) would run the session's writes, so the
+sent, where the DBAPI adapter has one (asyncpg). PostgreSQL and SQLite
+(PRAGMA query_only) have the first. A database with neither would run the
+session's writes, so the
 setting is refused: at startup, build-free, and when the first read-only
 session factory is built.
+""",
+        docs="docs/infrastructure/database.md",
+    ),
+    _entry(
+        "SANDLOOM-B032",
+        "sqlite-unavailable",
+        "boot",
+        "a SQLite database the driver cannot open: in memory, without an async "
+        "DBAPI in its URL, or without aiosqlite installed",
+        "point the database at a file, sqlite+aiosqlite:///<path>.db, and "
+        "install the sqlite extra: pip install 'sandloom[sqlite]'",
+        """
+The sqlalchemy driver serves SQLite through aiosqlite, for development and
+tests. An in-memory database (sqlite://, :memory:, mode=memory) has no WAL and
+exists once per connection, so a second unit, the outbox relay or a worker
+would each see another, empty database: it is refused, except the engine a
+test builds on one shared connection, and it never advertises snapshot_reads
+or transaction_locks. A URL without +aiosqlite names a blocking DBAPI, and
+aiosqlite is an optional dependency (the sqlite extra), so both are refused
+before the first connection with what to change.
 """,
         docs="docs/infrastructure/database.md",
     ),
@@ -1207,6 +1246,27 @@ Usual causes:
 """,
     ),
     _entry(
+        "SANDLOOM-R016",
+        "nested-writer-refused",
+        "runtime",
+        "a second unit of the same task began a write on a database whose "
+        "writers are serial (SQLite) while the task's first unit holds the "
+        "write lock",
+        "do the nested write in the caller's unit, run it after the caller's "
+        "unit commits, or run the database on PostgreSQL",
+        """
+SQLite has one writer at a time: every unit that may write begins BEGIN
+IMMEDIATE and holds the database's write lock until it ends. A local contract
+call, a saga step or a child open_uow() opens its own unit on another pooled
+connection. Inside a unit that already holds the write lock, that second unit
+would wait for the first, which waits for it, until busy_timeout ends it with
+"database is locked". The driver refuses it at BEGIN instead, at once. The
+refusal is per task: a unit in another task still waits its turn. PostgreSQL
+runs both units side by side.
+""",
+        docs="docs/infrastructure/database.md",
+    ),
+    _entry(
         "SANDLOOM-R015",
         "sql-form-unsupported",
         "runtime",
@@ -1218,7 +1278,9 @@ A portable form of sandloom.sdk.data refused instead of running other SQL: a
 partial index that cannot be restricted would index every row, and a
 transaction lock that cannot be taken would leave a check-then-act section
 unprotected. SQLite, for development and tests, has no substring-search index
-(the index is skipped) and no transaction lock (transaction_lock refuses).
+(the index is skipped), and its transaction lock is the unit's own write lock
+(BEGIN IMMEDIATE): transaction_lock refuses in a read-only unit and on an
+in-memory test database.
 """,
         docs="docs/infrastructure/database.md",
     ),
@@ -1469,6 +1531,8 @@ EXCEPTION_CODES: dict[str, str] = {
     "RowSecurityUnavailable": "SANDLOOM-B026",
     "SnapshotReadsUnavailable": "SANDLOOM-B027",
     "ReadOnlySessionsUnavailable": "SANDLOOM-B031",
+    "SqliteUnavailable": "SANDLOOM-B032",
+    "NestedWriterRefused": "SANDLOOM-R016",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

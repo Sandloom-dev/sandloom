@@ -343,6 +343,10 @@ __all__ = [
     "SQLITE",
     "PostgresqlRowSecurity",
     "PostgresqlSql",
+    "SQLITE_BEGIN_OPTION",
+    "SQLITE_QUERY_ONLY_OPTION",
+    "SQLITE_READ_BEGIN",
+    "SQLITE_WRITE_BEGIN",
     "SqliteSql",
     "pg_connection_lost",
 ]
@@ -488,9 +492,77 @@ class PostgresqlSql:
         return _PG_ROW_SECURITY
 
 
+#: Execution options the SQLite renderer's ``transaction_options`` set and
+#: the aiosqlite adapter's ``begin`` hook reads
+#: (:mod:`sandloom.core.drivers.dbapi_aiosqlite`): the unit's BEGIN text, and
+#: whether the connection refuses writes (``PRAGMA query_only``) until it ends.
+SQLITE_BEGIN_OPTION = "sandloom_sqlite_begin"
+SQLITE_QUERY_ONLY_OPTION = "sandloom_sqlite_query_only"
+#: A unit that may write takes the database's one write lock at BEGIN, so
+#: writers are serial and every lock the kernel asks for is already held.
+SQLITE_WRITE_BEGIN = "BEGIN IMMEDIATE"
+#: A read unit: no lock at BEGIN; under WAL its first read fixes one snapshot
+#: that later commits do not change.
+SQLITE_READ_BEGIN = "BEGIN DEFERRED"
+
+#: ``transaction_options`` per ``(read_only, snapshot)``. A read-only unit
+#: begins deferred and refuses writes; a writable unit begins IMMEDIATE
+#: whatever its snapshot (one writer at a time sees one database), so only an
+#: explicit snapshot request is stated.
+_SQLITE_OPTIONS = {
+    (r, s): MappingProxyType(
+        {SQLITE_BEGIN_OPTION: SQLITE_READ_BEGIN, SQLITE_QUERY_ONLY_OPTION: True}
+        if r
+        else ({SQLITE_BEGIN_OPTION: SQLITE_WRITE_BEGIN} if s else {})
+    )
+    for r in (False, True)
+    for s in (None, False, True)
+}
+
+
+def _sqlite_error(error: BaseException) -> ErrorKind | None:
+    """The kind of one sqlite3 error, from its extended result code name
+    (Python 3.11+) or, failing that, its numeric extended code."""
+    name = getattr(error, "sqlite_errorname", None)
+    if not isinstance(name, str):
+        code = getattr(error, "sqlite_errorcode", None)
+        name = _SQLITE_CODES.get(code) if isinstance(code, int) else None
+    if name is None:
+        return None
+    if name in ("SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"):
+        return "unique_violation"
+    if name == "SQLITE_BUSY_SNAPSHOT":
+        # A read transaction tried to write after another writer committed:
+        # its snapshot is stale, as PostgreSQL's 40001.
+        return "serialization_failure"
+    if name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+        return "lock_not_available"
+    return None
+
+
+#: sqlite3 extended result codes by number, for an error without a name.
+_SQLITE_CODES = {
+    5: "SQLITE_BUSY",
+    6: "SQLITE_LOCKED",
+    261: "SQLITE_BUSY_RECOVERY",
+    517: "SQLITE_BUSY_SNAPSHOT",
+    773: "SQLITE_BUSY_TIMEOUT",
+    262: "SQLITE_LOCKED_SHAREDCACHE",
+    1555: "SQLITE_CONSTRAINT_PRIMARYKEY",
+    2067: "SQLITE_CONSTRAINT_UNIQUE",
+}
+
+
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
-    ``ON CONFLICT``; no substring-search index and no named lock."""
+    ``ON CONFLICT``; no substring-search index and no named lock (its
+    writers are serial instead).
+
+    Writers are serial: a unit that may write begins ``BEGIN IMMEDIATE``
+    (the aiosqlite adapter emits it, implicit transactions off), so a
+    transaction lock is held by every such unit; a read-only unit begins
+    deferred under WAL (one snapshot) with ``PRAGMA query_only`` on.
+    """
 
     contract_version = 2
     name = "sqlite"
@@ -498,19 +570,18 @@ class SqliteSql:
     minimum_server_version: tuple[int, ...] | None = (3, 35)
 
     def features(self) -> frozenset[str]:
-        # Serial writers (BEGIN IMMEDIATE, WAL) come with the driver's SQLite
-        # path; until then SQLite declares nothing (spec section 10, slice 8a).
-        return frozenset()
+        # An in-memory database (one connection, no WAL) withholds
+        # snapshot_reads and transaction_locks: the driver's instance
+        # features (sandloom.core.drivers.sqlalchemy_database).
+        return frozenset(
+            {"transaction_locks", "snapshot_reads", "readonly_transactions"}
+        )
 
     def classify_error(self, exc: BaseException) -> ErrorKind:
         for error in _causes(exc):
-            name = getattr(error, "sqlite_errorname", None)
-            if not isinstance(name, str):
-                continue
-            if name in ("SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"):
-                return "unique_violation"
-            if name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
-                return "lock_not_available"
+            kind = _sqlite_error(error)
+            if kind is not None:
+                return kind
         return "other"
 
     def case_insensitive_text(self, length: int | None) -> TypeEngine[Any]:
@@ -548,9 +619,10 @@ class SqliteSql:
     def lock_statement(
         self, key: LockKey, *, scope: LockScope, wait: bool
     ) -> Executable | None:
-        # SQLite has no named lock: serial writers (BEGIN IMMEDIATE) arrive
-        # with the driver's SQLite path (spec, slice 8a). Until then the
-        # kernel refuses rather than run a check-then-act section unlocked.
+        # No named lock: a unit that may write holds the database's one
+        # write lock from its BEGIN IMMEDIATE, which already excludes every
+        # other writer, so the kernel's transaction_lock succeeds there and
+        # refuses elsewhere (SANDLOOM-R015).
         check_lock_key(key)
         return None
 
@@ -561,8 +633,8 @@ class SqliteSql:
     def for_update(
         self, stmt: Select[Any], *, skip_locked: bool, read: bool = False
     ) -> Select[Any]:
-        # No row locks: SQLite writers are serial (BEGIN IMMEDIATE, slice 8a),
-        # and it does not declare skip_locked, so no queue relies on skipping.
+        # No row locks: writers are serial (BEGIN IMMEDIATE), and SQLite does
+        # not declare skip_locked, so no queue relies on skipping.
         return stmt
 
     def relaxed_commit_clause(self) -> None:
@@ -576,20 +648,20 @@ class SqliteSql:
         # ordered by the UUIDv7 id.
         return "(strftime('%Y-%m-%d %H:%M:%f', 'now') || '000')"
 
-    def begin_statement(self, *, write: bool, read_only: bool, snapshot: bool) -> None:
-        # The plain BEGIN for now: no read-only transactions at all, and the
-        # snapshot of a deferred WAL read and BEGIN IMMEDIATE for writers come
-        # with the driver's SQLite path (spec, slice 8a). Until then SQLite
-        # declares neither snapshot_reads nor readonly_transactions: a
-        # snapshot unit is refused (SANDLOOM-B027) and a read-only one relies
-        # on the ORM read guard.
+    def begin_statement(self, *, write: bool, read_only: bool, snapshot: bool) -> str:
+        # Every unit not declared read-only begins IMMEDIATE: the lazy request
+        # unit cannot know at BEGIN whether it will write, and a deferred
+        # transaction that writes after another writer committed fails
+        # (SQLITE_BUSY_SNAPSHOT). A read-only unit begins deferred: under WAL
+        # it reads one snapshot, so a unit asking for a fresh snapshot per
+        # statement gets the stronger answer.
         check_unit_shape(write=write, read_only=read_only)
-        return None
+        return SQLITE_READ_BEGIN if read_only else SQLITE_WRITE_BEGIN
 
     def transaction_options(
         self, *, read_only: bool, snapshot: bool | None
     ) -> Mapping[str, Any]:
-        return _NO_OPTIONS
+        return _SQLITE_OPTIONS[(read_only, snapshot)]
 
     def row_security(self) -> None:
         # No row-level security: TenantScoped isolation is the ORM guard only

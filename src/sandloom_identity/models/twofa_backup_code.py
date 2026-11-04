@@ -6,10 +6,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Uuid
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt
+from sandloom.sdk.data import UtcDateTime
 
 if TYPE_CHECKING:
     from .user import User
@@ -29,9 +30,7 @@ class TwoFABackupCode(Base):
     )
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    used_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     created_at: Mapped[CreatedAt]
 
     # Relationships

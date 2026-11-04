@@ -359,6 +359,7 @@ class _PlannerCompiler:
                 + [cols_j[k].columns[0] for k in op.join_by.values()],
                 constants=[(cols_e[k].columns[0], v) for k, v in op.where.items()]
                 + [(cols_j[k].columns[0], v) for k, v in op.join_where.items()],
+                ordered=[cols_e[k].columns[0] for k in order_keys],
             )
             if safety:
                 reason = safety

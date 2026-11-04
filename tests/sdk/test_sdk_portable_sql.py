@@ -78,12 +78,17 @@ def _ddl(element: Any, dialect: Any) -> str:
 class _Session:
     """The calls the forms make on an AsyncSession."""
 
-    def __init__(self, dialect: Any) -> None:
+    def __init__(self, dialect: Any, info: dict[str, Any] | None = None) -> None:
         self._bind = type("Bind", (), {"dialect": dialect})()
         self.statements: list[str] = []
+        #: the connection's info (the driver marks a held write lock there)
+        self.info: dict[str, Any] = info or {}
 
     def get_bind(self) -> Any:
         return self._bind
+
+    async def connection(self) -> Any:
+        return type("Connection", (), {"info": self.info})()
 
     async def execute(self, statement: Any) -> None:
         self.statements.append(str(statement.compile(dialect=self._bind.dialect)))
@@ -254,6 +259,14 @@ async def test_transaction_lock_refuses_rather_than_run_unlocked(dialect: Any) -
     assert session.statements == []
 
 
+async def test_transaction_lock_on_sqlite_is_the_units_write_lock() -> None:
+    """SQLite's writers are serial: a unit holding the write lock (BEGIN
+    IMMEDIATE, marked by the driver) already holds every transaction lock."""
+    session: Any = _Session(LITE, {portable.WRITE_LOCK_HELD: True})
+    await transaction_lock(42, session=session)
+    assert session.statements == []
+
+
 # ---------------------------------------------------------------- the registry
 
 
@@ -413,7 +426,11 @@ def test_instance_features_come_from_the_urls_renderer() -> None:
     on_postgres = sqlalchemy_db_features({"url": "postgresql+asyncpg://h/d"})
     on_sqlite = sqlalchemy_db_features({"url": "sqlite+aiosqlite:///x.db"})
     assert {"skip_locked", "transaction_locks"} <= on_postgres
-    assert not on_sqlite & portable.RENDERER_FEATURES
+    assert on_sqlite & portable.RENDERER_FEATURES == {
+        "transaction_locks",
+        "snapshot_reads",
+        "readonly_transactions",
+    }
     assert "transactions" in on_sqlite
     assert "tenant_rls" in sqlalchemy_db_features(
         {"url": "postgresql+asyncpg://h/d", "tenant_rls": True}

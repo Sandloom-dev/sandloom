@@ -103,9 +103,11 @@ query = sa.select(Note).order_by(Note.created_at.desc(), Note.id.desc())
   `server_default=sa.text('clock_timestamp()')`.
 - **They read back as timezone-aware UTC times** on every database. SQLite
   keeps no offset, so a column of your own that holds a time uses
-  `UtcDateTime()` from `sandloom.sdk.data` rather than `DateTime(timezone=True)`.
+  `UtcDateTime()` from `sandloom.sdk.data` rather than `DateTime(timezone=True)`
+  ([SANDLOOM-C029](../../reference/error-codes.md#sandloom-c029)).
   It writes aware times in UTC and attaches UTC on load; on PostgreSQL it is
-  the same `timestamptz`. Write aware times.
+  the same `timestamptz`. Write aware times: a naive one is refused, since
+  its instant is not known.
 - **`new_id()`** returns a UUIDv7: its first 48 bits are the time in
   milliseconds and a counter orders the ids one process makes in the same
   millisecond, so ids sort in creation order and B-tree inserts stay at the

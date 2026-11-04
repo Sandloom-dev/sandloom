@@ -685,11 +685,12 @@ PostgreSQL, which keeps the instant and returns an aware value). A
 database that keeps no offset (SQLite stores the text of the time) hands
 back a naive value: this type writes an aware time in UTC and attaches UTC
 to what it reads, so a module compares and orders the same aware values on
-every database. Write aware times: a naive one is passed to the database
-as it is. On SQLite a naive time means UTC; on PostgreSQL asyncpg takes it
-in the Python process's local time zone (it converts with
-`astimezone(utc)`), as for `DateTime(timezone=True)`. Sandloom expects
-its processes to run in UTC.
+every database. Bind aware times: a naive one has no known instant (on
+PostgreSQL asyncpg would read it in the process's local time zone, on
+SQLite it would mean UTC), so it is refused with
+`NaiveDateTimeError`, in a value and in a comparison alike. The
+planner's raw executor, which skips bind processing, takes no caller's
+value of this type: such a key or filter runs on the general executor.
 
 #### `UtcDateTime.process_bind_param`
 
@@ -701,7 +702,17 @@ def process_bind_param(
 ) -> datetime | None
 ```
 
-An aware value as the same instant in UTC; a naive one unchanged.
+An aware value as the same instant in UTC; a naive one refused.
+
+#### `UtcDateTime.coerce_compared_value`
+
+```python
+def coerce_compared_value(self, op: Any, value: Any) -> Any
+```
+
+A time compared with the column is bound as this type (an aware
+time is required); anything else (`column - timedelta(...)`) as
+`DateTime` would bind it (an interval).
 
 #### `UtcDateTime.process_result_value`
 

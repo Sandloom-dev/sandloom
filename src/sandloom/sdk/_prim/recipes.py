@@ -436,10 +436,11 @@ The table, keyed by the tenant first, and its migration:
     import uuid
     from datetime import datetime
 
-    from sqlalchemy import DateTime, Integer, PrimaryKeyConstraint, String
+    from sqlalchemy import Integer, PrimaryKeyConstraint, String
     from sqlalchemy.orm import Mapped, mapped_column
 
     from sandloom.sdk import Base, TenantScoped
+    from sandloom.sdk.data import UtcDateTime  # sandloom: advanced UTC on every database
 
 
     class Member(TenantScoped, Base):
@@ -453,7 +454,7 @@ The table, keyed by the tenant first, and its migration:
         role: Mapped[str | None] = mapped_column(String(32), nullable=True)
         version: Mapped[int | None] = mapped_column(Integer, nullable=True)
         deleted_at: Mapped[datetime | None] = mapped_column(
-            DateTime(timezone=True), nullable=True
+            UtcDateTime(), nullable=True
         )
 
     uv run sandloom migrate new <module> "members read model"

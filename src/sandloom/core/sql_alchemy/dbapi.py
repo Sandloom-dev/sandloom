@@ -27,6 +27,8 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import exc
+
 from sandloom.core.sql_alchemy.portable import is_error_kind
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -172,6 +174,31 @@ class DbapiAdapter:
         ``None``: the plain path (``BEGIN``, then the binding)."""
         return None
 
+    def config_problem(self, url: str) -> str | None:
+        """Why the driver cannot open the database ``url`` with this DBAPI
+        (an in-memory SQLite, the DBAPI package missing), stated with its
+        error code; ``None``: none. Build-free: the URL and the installed
+        packages only. Plain: none."""
+        return None
+
+    def connection_closed(self, dbapi_connection: Any) -> bool:
+        """True when the pooled ``dbapi_connection`` (SQLAlchemy's adapted
+        connection) already reports itself closed, read without a round
+        trip; the pool then replaces it at checkout. Plain: never known."""
+        return False
+
+    def ping(self, dbapi_connection: Any, dialect: Any) -> None:
+        """Probe a pooled connection that sat idle, outside a transaction;
+        raise when it is dead. Plain: the dialect's own ping."""
+        if not dialect.do_ping(dbapi_connection):
+            raise exc.DisconnectionError("database ping failed")
+
+    def prepare_engine(self, engine: Any, *, statement_timeout_ms: int) -> None:
+        """Install on a newly built ``engine`` (sync or async) what this DBAPI
+        needs before its first connection: how it begins transactions, the
+        settings each connection opens with. ``statement_timeout_ms`` is the
+        runtime pools' statement timeout (0: the default). Plain: nothing."""
+
 
 #: The adapter of a DBAPI nobody registered one for.
 PLAIN_DBAPI = DbapiAdapter()
@@ -253,6 +280,12 @@ def dbapi_adapter_of(bind: Any) -> DbapiAdapter:
     return dbapi_adapter(str(getattr(dialect, "driver", "")))
 
 
+def dbapi_config_problem(url: str) -> str | None:
+    """:meth:`DbapiAdapter.config_problem` of the adapter ``url``'s DBAPI
+    (startup asks it for every configured database, build-free)."""
+    return dbapi_adapter(dbapi_of_url(url)).config_problem(url)
+
+
 def dbapi_of_url(url: str) -> str:
     """The DBAPI a database URL names (``postgresql+asyncpg://`` ->
     ``asyncpg``); empty when the URL names none (the dialect's default)."""
@@ -274,6 +307,7 @@ __all__ = [
     "MergedBegin",
     "dbapi_adapter",
     "dbapi_adapter_of",
+    "dbapi_config_problem",
     "dbapi_of_url",
     "error_chain",
     "register_dbapi_adapter",

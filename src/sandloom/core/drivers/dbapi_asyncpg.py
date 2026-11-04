@@ -602,6 +602,25 @@ class AsyncpgAdapter(DbapiAdapter):
             return None
         return _MergedBegin(self, security, begin_texts(renderer))
 
+    def connection_closed(self, dbapi_connection: Any) -> bool:
+        """asyncpg's ``is_closed()``: its backend died while it sat in the
+        pool and the close was processed (an attribute read, no round trip;
+        :mod:`sandloom.core.sql_alchemy.dead_connection` covers the one whose
+        close is still in flight)."""
+        raw = getattr(dbapi_connection, "_connection", None)
+        return raw is not None and bool(raw.is_closed())
+
+    def ping(self, dbapi_connection: Any, dialect: Any) -> None:
+        """``SELECT 1`` over the simple-query protocol: ONE round trip, where
+        SQLAlchemy's own asyncpg ping wraps a ``;`` in BEGIN/ROLLBACK (three)."""
+        raw = getattr(dbapi_connection, "_connection", None)
+        if raw is None:
+            super().ping(dbapi_connection, dialect)
+            return
+        # (SQLAlchemy 2.1's adapter has no ``await_`` attribute: the module
+        # function, as the tenant_rls hook uses.)
+        await_(raw.execute("SELECT 1"))
+
 
 #: The adapter the SQLAlchemy driver registers for ``postgresql+asyncpg``.
 ASYNCPG = AsyncpgAdapter()

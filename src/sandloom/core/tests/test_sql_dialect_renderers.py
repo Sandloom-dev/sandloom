@@ -57,6 +57,8 @@ class TestPostgresqlRenderer(SqlDialectConformance):
 class TestSqliteRenderer(SqlDialectConformance):
     renderer: ClassVar[SqlDialect] = SQLITE
     dialect: ClassVar[Any] = sqlite.dialect()
+    # A deferred read transaction under WAL is one snapshot (slice 8a).
+    read_units_share_one_snapshot: ClassVar[bool] = True
 
 
 class _HalfSearch(PostgresqlSql):
@@ -64,6 +66,19 @@ class _HalfSearch(PostgresqlSql):
 
     def search_operand(self, column: str, case_insensitive: bool) -> None:  # type: ignore[override]
         return None
+
+
+class _OneReadOnlyBegin(PostgresqlSql):
+    """Begins every read-only unit alike: a snapshot scope reads several."""
+
+    def begin_statement(
+        self, *, write: bool, read_only: bool, snapshot: bool
+    ) -> str | None:
+        if read_only:
+            return "BEGIN READ ONLY"
+        return super().begin_statement(
+            write=write, read_only=read_only, snapshot=snapshot
+        )
 
 
 class _WrongOptions(PostgresqlSql):
@@ -78,6 +93,7 @@ class _WrongOptions(PostgresqlSql):
     [
         (_HalfSearch(), "test_search_index_is_whole_or_absent"),
         (_WrongOptions(), "test_partial_index_options_restrict_the_index"),
+        (_OneReadOnlyBegin(), "test_begin_statement_is_a_begin_or_the_plain_one"),
     ],
 )
 def test_the_suite_fails_a_renderer_that_breaks_the_contract(
@@ -90,6 +106,20 @@ def test_the_suite_fails_a_renderer_that_breaks_the_contract(
     Broken.dialect = postgresql.dialect()  # type: ignore[no-untyped-call]
     with pytest.raises(AssertionError):
         getattr(Broken(), check)()
+
+
+def test_only_a_one_snapshot_database_may_begin_read_units_alike() -> None:
+    """SQLite states it by design and passes; the same flag off fails it."""
+
+    class Lite(SqlDialectConformance):
+        renderer = SQLITE
+        dialect = sqlite.dialect()
+        read_units_share_one_snapshot = True
+
+    Lite().test_begin_statement_is_a_begin_or_the_plain_one()
+    Lite.read_units_share_one_snapshot = False
+    with pytest.raises(AssertionError, match="begin differently"):
+        Lite().test_begin_statement_is_a_begin_or_the_plain_one()
 
 
 # -- greatest, id_in and the kernel sites on them (slice 2) ----------------- #

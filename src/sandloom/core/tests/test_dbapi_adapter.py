@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sandloom.core import app_factory, error_codes
 from sandloom.core.drivers import dbapi_asyncpg
 from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG, begin_texts
-from sandloom.core.drivers.sql_dialects import POSTGRESQL
+from sandloom.core.drivers.sql_dialects import POSTGRESQL, SQLITE
 from sandloom.core.facade._claims import _in_failed_transaction as claims_failed
 from sandloom.core.module_api._read_scope import (
     _in_failed_transaction as scope_failed,
@@ -114,7 +114,7 @@ def _old_failed_transaction(exc: BaseException) -> bool:
 
 
 def test_an_unknown_dbapi_gets_the_plain_path() -> None:
-    plain = dbapi.dbapi_adapter("aiosqlite")
+    plain = dbapi.dbapi_adapter("pysqlite")
     assert plain is dbapi.PLAIN_DBAPI
     assert plain.capabilities == frozenset()
     assert dbapi.dbapi_adapter_of(sqlite.dialect()) is dbapi.PLAIN_DBAPI
@@ -125,6 +125,7 @@ def test_an_unknown_dbapi_gets_the_plain_path() -> None:
     assert not plain.refuses_connections(error)
     assert plain.merged_begin(POSTGRESQL.row_security(), POSTGRESQL) is None
     assert plain.connect_args(connect_timeout=5, server_settings={"a": "b"}) == {}
+    assert not plain.connection_closed(object())
     # Only a socket error counts as a lost connection there.
     assert is_dead_connection_error(ConnectionResetError(), plain)
     assert not is_dead_connection_error(error, plain)
@@ -335,7 +336,7 @@ def test_merged_begin_follows_the_probe(monkeypatch: pytest.MonkeyPatch) -> None
         ("postgresql+asyncpg://u@h/db", False),  # both guards
         ("postgresql+psycopg://u@h/db", False),  # the read-only transaction
         ("postgresql://u@h/db", False),
-        ("sqlite+aiosqlite:///x.db", True),  # neither
+        ("sqlite+aiosqlite:///x.db", False),  # the read-only transaction
     ],
 )
 def test_read_only_sessions_need_a_guard(url: str, refused: bool) -> None:
@@ -345,6 +346,20 @@ def test_read_only_sessions_need_a_guard(url: str, refused: bool) -> None:
         assert problem is not None and "SANDLOOM-B031" in problem
 
 
+@pytest.fixture
+def without_readonly_transactions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SQLite's renderer before slice 8a: no read-only transactions, and
+    aiosqlite has no client policy, so nothing guards a read-only session."""
+    monkeypatch.setattr(type(SQLITE), "features", lambda self: frozenset())
+
+
+@pytest.mark.usefixtures("without_readonly_transactions")
+def test_read_only_sessions_without_either_guard_are_refused() -> None:
+    problem = read_only_sessions_problem("default", "sqlite+aiosqlite:///x.db")
+    assert problem is not None and "SANDLOOM-B031" in problem
+
+
+@pytest.mark.usefixtures("without_readonly_transactions")
 def test_a_client_policy_alone_is_a_guard() -> None:
     policy = type(
         "Policy",
@@ -363,6 +378,7 @@ def _load_infra(monkeypatch: pytest.MonkeyPatch, url: str | None) -> None:
     )
 
 
+@pytest.mark.usefixtures("without_readonly_transactions")
 def test_startup_refuses_b031_build_free(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = SimpleNamespace(
         infra={},

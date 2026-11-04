@@ -46,6 +46,7 @@ import sandloom.core.http.route_runtime as _route_runtime
 import sandloom.core.observability.tracing as _tracing
 import sandloom.core.route_markers as _route_markers
 import sandloom.core.route_policy as _route_policy
+import sandloom.core.sql_alchemy.dbapi as _dbapi
 import sandloom.core.tasks.pool_metrics as _pool_metrics
 import sandloom.core.unit_of_work.dispatch as _dispatch
 from sandloom.core import contract_cache_shadow, rpc_binding, rpc_identity, rpc_pair_mac
@@ -234,6 +235,23 @@ def row_security_config_problem(cfg: Any) -> str | None:
     return "; ".join(problems) or None
 
 
+def dbapi_config_problem(cfg: Any) -> str | None:
+    """A configured database its DBAPI adapter cannot open, as the adapter
+    states it (SQLite: in memory, or aiosqlite not installed, SANDLOOM-B032).
+    Build-free: the URLs and the installed packages only."""
+    try:
+        databases = load_infra_config(cfg).get("database", {})
+    except InfraConfigError:
+        return None  # refused where the infrastructure is built
+    problems: list[str] = []
+    for name, instance in sorted(databases.items()):
+        url = instance.options.get("url") or getattr(cfg, "database_url", None)
+        problem = _dbapi.dbapi_config_problem(str(url)) if url else None
+        if problem is not None:
+            problems.append(f"database/{name}: {problem}")
+    return "; ".join(problems) or None
+
+
 def read_only_sessions_config_problem(cfg: Any) -> str | None:
     """``DB_READ_ONLY_SESSIONS`` on a default database with nothing to refuse
     a write: no read-only transactions in its renderer and no client
@@ -358,8 +376,9 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       ``configuration_problem``);
     * a SQL dialect renderer for every configured database
       (:func:`sql_dialect_problem`), with row security where an instance
-      asks for it (:func:`row_security_config_problem`, SANDLOOM-B026), and
-      a guard for ``DB_READ_ONLY_SESSIONS``
+      asks for it (:func:`row_security_config_problem`, SANDLOOM-B026), a
+      database its DBAPI adapter can open (:func:`dbapi_config_problem`,
+      SANDLOOM-B032 on SQLite), and a guard for ``DB_READ_ONLY_SESSIONS``
       (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
@@ -373,6 +392,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         rpc_identity.configuration_problem,
         sql_dialect_problem,
         row_security_config_problem,
+        dbapi_config_problem,
         read_only_sessions_config_problem,
     ):
         problem = check(cfg)

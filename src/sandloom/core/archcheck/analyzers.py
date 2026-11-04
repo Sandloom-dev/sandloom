@@ -775,6 +775,35 @@ def find_dialect_imports(file_path: Path) -> list[str]:
     return violations
 
 
+def _is_true(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is True
+
+
+def _aware_datetime_type(node: ast.Call) -> bool:
+    """``DateTime`` / ``TIMESTAMP`` called with ``timezone=True`` or a
+    positional ``True`` (their first parameter)."""
+    if _callee(node) not in ("DateTime", "TIMESTAMP"):
+        return False
+    if node.args and _is_true(node.args[0]):
+        return True
+    return any(k.arg == "timezone" and _is_true(k.value) for k in node.keywords)
+
+
+def find_bare_aware_datetimes(file_path: Path) -> list[str]:
+    """A column type ``DateTime(timezone=True)`` (``sa.DateTime(True)``,
+    ``TIMESTAMP(timezone=True)`` too): SQLite keeps no offset, so it reads
+    back naive there and compares with nothing a module writes;
+    ``UtcDateTime()`` of ``sandloom.sdk.data`` is the same ``timestamptz`` on
+    PostgreSQL and reads back in UTC everywhere (SANDLOOM-C029)."""
+    tree = parse_file(file_path)
+    return [
+        f"Line {node.lineno}: {_callee(node)}(timezone=True); use UtcDateTime() "
+        "from sandloom.sdk.data (the same timestamptz, UTC on every database)"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _aware_datetime_type(node)
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # 3b. Kernel handles: no core.event_bus / .infra / .service_registry / state.core
 # --------------------------------------------------------------------------- #

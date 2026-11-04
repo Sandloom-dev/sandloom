@@ -126,22 +126,42 @@ def test_a_writing_read_only_unit_is_refused() -> None:
         )
 
 
-def test_sqlite_has_the_plain_begin_and_no_options() -> None:
-    assert "snapshot_reads" not in SQLITE.features()
-    assert "readonly_transactions" not in SQLITE.features()
-    for read_only in (False, True):
-        for snapshot in (False, True):
+def test_sqlite_begins_immediate_unless_read_only() -> None:
+    """Slice 8a: a unit not declared read-only takes the write lock at BEGIN;
+    a read-only one begins deferred (one WAL snapshot) and refuses writes."""
+    assert {"snapshot_reads", "readonly_transactions"} <= SQLITE.features()
+    for snapshot in (False, True):
+        for write in (False, True):
             assert (
-                SQLITE.begin_statement(
-                    write=False, read_only=read_only, snapshot=snapshot
-                )
-                is None
+                SQLITE.begin_statement(write=write, read_only=False, snapshot=snapshot)
+                == "BEGIN IMMEDIATE"
             )
-        for level in (None, False, True):
-            assert (
-                dict(SQLITE.transaction_options(read_only=read_only, snapshot=level))
-                == {}
-            )
+        assert (
+            SQLITE.begin_statement(write=False, read_only=True, snapshot=snapshot)
+            == "BEGIN DEFERRED"
+        )
+    for level in (None, False, True):
+        assert dict(SQLITE.transaction_options(read_only=True, snapshot=level)) == {
+            "sandloom_sqlite_begin": "BEGIN DEFERRED",
+            "sandloom_sqlite_query_only": True,
+        }
+    assert dict(SQLITE.transaction_options(read_only=False, snapshot=None)) == {}
+    assert dict(SQLITE.transaction_options(read_only=False, snapshot=False)) == {}
+    assert dict(SQLITE.transaction_options(read_only=False, snapshot=True)) == {
+        "sandloom_sqlite_begin": "BEGIN IMMEDIATE"
+    }
+
+
+@pytest.fixture
+def plain_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A SQLite renderer without read-only transactions or snapshot reads
+    (the renderer before slice 8a): what a database without them gets."""
+    monkeypatch.setattr(type(SQLITE), "features", lambda self: frozenset())
+    monkeypatch.setattr(
+        type(SQLITE),
+        "transaction_options",
+        lambda self, *, read_only, snapshot: {},
+    )
 
 
 def test_helpers_without_a_renderer() -> None:
@@ -185,6 +205,7 @@ def test_adapter_optimized_begin_is_the_old_literal(pg_engine: Any) -> None:
     assert adapter._snapshot_reads is True
 
 
+@pytest.mark.usefixtures("plain_sqlite")
 def test_adapter_without_readonly_transactions_sets_nothing() -> None:
     adapter = SQLAlchemyExecutionAdapter(_lite_engine())
     sync = _Sync()
@@ -193,6 +214,17 @@ def test_adapter_without_readonly_transactions_sets_nothing() -> None:
     assert adapter._raw_executor is False
 
 
+def test_adapter_on_sqlite_sets_the_read_only_begin() -> None:
+    adapter = SQLAlchemyExecutionAdapter(_lite_engine())
+    sync = _Sync()
+    adapter._read_only(_conn(sync, "SERIALIZABLE"), True)
+    assert [dict(c) for c in sync.calls] == [
+        {"sandloom_sqlite_begin": "BEGIN DEFERRED", "sandloom_sqlite_query_only": True}
+    ]
+    assert adapter.read_unit(snapshot=True) is not None
+
+
+@pytest.mark.usefixtures("plain_sqlite")
 def test_snapshot_unit_without_snapshot_reads_is_refused_before_io() -> None:
     adapter = SQLAlchemyExecutionAdapter(_lite_engine())
     assert adapter.read_unit() is not None  # a fresh snapshot per statement

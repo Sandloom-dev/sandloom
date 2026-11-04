@@ -8,7 +8,6 @@ from typing import Protocol
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -17,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base
-from sandloom.sdk.data import partial_index
+from sandloom.sdk.data import UtcDateTime, partial_index
 
 logger = logging.getLogger("sandloom_billing.subscription")
 
@@ -96,14 +95,10 @@ class BillingSubscription(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     current_period_end: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
-    trial_end: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    canceled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    trial_end: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     cancel_at_period_end: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )

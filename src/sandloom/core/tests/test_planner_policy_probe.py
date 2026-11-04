@@ -97,3 +97,33 @@ def test_a_case_insensitive_column_is_native_as_a_result_like_citext(
     assert optimized_reason(engine, [], columns) is None
     reason = optimized_reason(engine, [], columns, parameters=[table.c.email])
     assert reason is not None and "email" in reason
+
+
+def test_a_utc_time_key_goes_general_a_keyset_column_stays_native(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Slice 8a: ``UtcDateTime`` refuses a naive time in its bind processing,
+    which the raw executor skips. A caller's key, filter or constant of that
+    type takes the general executor; a keyset (order) column, whose value was
+    read back aware from the last page, stays on the raw executor."""
+    import sqlalchemy as sa
+
+    import sandloom.core.sql_alchemy.planner_safety as safety
+    from sandloom.core.sql_alchemy.planner_safety import optimized_reason
+    from sandloom.core.sql_alchemy.portable import UtcDateTime
+
+    monkeypatch.setattr(safety, "policy_reason", lambda *_a: None)
+    table = sa.Table(
+        "probe_stamps",
+        sa.MetaData(),
+        sa.Column("id", sa.Uuid, primary_key=True),
+        sa.Column("at", UtcDateTime(), nullable=False),
+    )
+    engine = sa.create_engine("sqlite://")
+    columns = [table.c.id, table.c.at]
+    assert optimized_reason(engine, [], columns) is None
+    at = table.c.at
+    assert optimized_reason(engine, [], columns, parameters=[at], ordered=[at]) is None
+    for bound in ({"parameters": [at]}, {"constants": [(at, None)]}):
+        reason = optimized_reason(engine, [], columns, **bound)  # type: ignore[arg-type]
+        assert reason is not None and "naive" in reason

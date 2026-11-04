@@ -42,7 +42,7 @@ from sandloom.core.sql_alchemy.portable import (
     conflict_insert_for,
     for_update_for,
     greatest_for,
-    lock_statement_for,
+    hold_transaction_lock,
 )
 
 _TABLE = cast(Table, ProjectionWatermark.__table__)
@@ -64,11 +64,10 @@ def purge_lock_key(projection: str) -> str:
 async def _take_purge_lock(session: Any, projection: str) -> None:
     """Purge window vs rebuild entry, per projection, until the unit ends
     (PostgreSQL: ``pg_advisory_xact_lock(hashtextextended(:key, 0))``, the
-    string hashed on the server, so two releases exclude each other)."""
-    await session.execute(
-        lock_statement_for(
-            session, purge_lock_key(projection), scope="transaction", wait=True
-        )
+    string hashed on the server, so two releases exclude each other; SQLite:
+    the unit's own write lock, BEGIN IMMEDIATE)."""
+    await hold_transaction_lock(
+        session, purge_lock_key(projection), form="projection purge lock"
     )
 
 

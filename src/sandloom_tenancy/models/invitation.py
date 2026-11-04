@@ -14,11 +14,11 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid
+from sqlalchemy import ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import CaseInsensitiveText, partial_index
+from sandloom.sdk.data import CaseInsensitiveText, UtcDateTime, partial_index
 
 INVITATION_TTL_DAYS = 14
 
@@ -70,14 +70,10 @@ class OrganizationInvitation(Base):
     invited_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=default_expiry
+        UtcDateTime(), nullable=False, default=default_expiry
     )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    accepted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     created_at: Mapped[CreatedAt]
 

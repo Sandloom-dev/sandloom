@@ -1,6 +1,5 @@
 {
   "core/migrations/alembic_support.py": 2,
   "core/migrations/migrations.py": 2,
-  "core/sql_alchemy/outbox_store/__init__.py": 1,
   "core/testing/database.py": 1
 }

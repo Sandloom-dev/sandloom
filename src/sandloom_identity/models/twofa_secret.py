@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
+from sandloom.sdk.data import UtcDateTime
 
 if TYPE_CHECKING:
     from .user import User
@@ -31,9 +32,7 @@ class TwoFASecret(Base):
     last_used_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     created_at: Mapped[CreatedAt]
-    enabled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    enabled_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="twofa_secret")

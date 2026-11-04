@@ -129,9 +129,14 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    the `BEGIN` text, or `None` for the plain one, and `transaction_options(read_only=,
    snapshot=)` the SQLAlchemy execution options to the same effect. Declare
    `snapshot_reads` and `readonly_transactions` only when they give one snapshot and
-   refuse writes; without `snapshot_reads` a one-snapshot scope is refused
+   refuse writes. Their units then need options of their own. Without
+   `snapshot_reads` a one-snapshot scope is refused
    ([SANDLOOM-B027](../reference/error-codes.md#sandloom-b027)).
-7. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+7. A database whose writers are serial may declare `transaction_locks` with no
+   lock statement. Its driver marks a transaction that holds the write lock:
+   `WRITE_LOCK_HELD` in the connection's `info`. SQLite's `BEGIN IMMEDIATE`
+   does so. The kernel's locks then succeed only in such a transaction.
+8. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
    name, and register the driver with `sql_dialects={"<name>"}`.
 
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
@@ -152,7 +157,14 @@ on the plain path as it is. Add a DBAPI adapter only if it needs the speed
 3. Override what those capabilities use. `connect_args` and `server_settings`
    carry the timeouts, and `connection_lost` and `refuses_connections` classify
    connection errors.
-4. Call `register_dbapi_adapter(adapter)` when the driver package loads, before
+4. Override the pool's probes if the DBAPI has cheaper ones. `ping` checks an
+   idle pooled connection. `connection_closed` spots a dead one without a round
+   trip.
+5. Override `prepare_engine` for setup on each new engine. The aiosqlite adapter
+   uses it to emit every unit's `BEGIN` itself.
+   `config_problem(url)` refuses a database the DBAPI cannot open, before
+   anything starts. Name the error code in its message.
+6. Call `register_dbapi_adapter(adapter)` when the driver package loads, before
    the first engine is built. Your adapter replaces the one Sandloom ships for
    the same DBAPI, and the shipped one never replaces yours.
 

@@ -21,8 +21,10 @@ that writes to several needs `writes(...)` or `allow_multi_db_write(...)`
 
 ### `sqlalchemy`
 
-PostgreSQL through asyncpg, and the only relational backend. Set `DATABASE_URL`. The URL must
+PostgreSQL through asyncpg, the relational backend. Set `DATABASE_URL`. The URL must
 name its driver, `postgresql+asyncpg://`; never rely on a bare `postgresql://`.
+The same driver serves SQLite through aiosqlite, for development and tests
+([SQLite](#sqlite-for-development-and-tests)).
 
 | Option | Meaning |
 | --- | --- |
@@ -77,7 +79,7 @@ renderer belongs to the database's driver package. It names itself in the
 | `partial_index` | `CREATE INDEX ... WHERE` | `CREATE INDEX ... WHERE` |
 | `search_index` | `pg_trgm` GIN index | not created; the search runs unindexed |
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
-| `transaction_lock` | `pg_advisory_xact_lock` | refuses: SQLite has no such lock |
+| `transaction_lock` | `pg_advisory_xact_lock` | the unit's own write lock (`BEGIN IMMEDIATE`); refused in a read-only unit |
 
 The kernel's own locks come from the same renderer. Its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
@@ -101,15 +103,17 @@ three things and stops with
 [SANDLOOM-B024](../reference/error-codes.md#sandloom-b024) or R015:
 
 - each database's URL names a dialect its driver declares it serves (the
-  `sql_dialects=` of the driver's registration; `sqlalchemy` serves PostgreSQL);
+  `sql_dialects=` of the driver's registration; `sqlalchemy` serves PostgreSQL
+  and SQLite);
 - that dialect has a renderer;
 - every `partial_index` has a condition there, so none would index every row.
   The migration environment checks the same before it writes or applies a
   revision.
 
-A database instance advertises the driver's base features plus the ones its
-renderer declares: on PostgreSQL `skip_locked`, `transaction_locks`,
-`snapshot_reads` and `readonly_transactions`; on SQLite none yet.
+A database instance advertises the driver's base features plus its renderer's.
+PostgreSQL's renderer declares `skip_locked`, `transaction_locks`,
+`snapshot_reads` and `readonly_transactions`. SQLite's declares all but
+`skip_locked`.
 
 The renderer also says how a unit begins: its `begin_statement` text, and
 `transaction_options`, the SQLAlchemy execution options for where SQLAlchemy
@@ -134,6 +138,50 @@ stops startup ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and
 its tenant isolation is application-enforced
 ([Multi-tenancy](../modules/database/multi-tenancy.md#database-enforced-and-application-enforced-isolation)).
 
+## SQLite, for development and tests
+
+Install the `sqlite` extra (`pip install 'sandloom[sqlite]'`) and point a
+database at a file: `sqlite+aiosqlite:///var/app.db`. The aiosqlite adapter
+sets the database up the way the renderer's features promise:
+
+- **Implicit transactions are off.** The driver emits each unit's `BEGIN`
+  itself, so savepoints (`begin_nested()`) work.
+- **Writers are serial.** Every unit not declared read-only begins
+  `BEGIN IMMEDIATE` and holds the database's one write lock from its first
+  statement, reads before its first write included. A second writer waits for
+  it. That is why `transaction_lock`, `FOR UPDATE` and the claims hold
+  without SQL of their own.
+- **A read-only unit** begins deferred and turns `PRAGMA query_only` on until
+  it ends: the database refuses its writes, and under WAL it reads one
+  snapshot.
+- **Each connection opens with** WAL, `foreign_keys` and `busy_timeout`. A
+  waiting writer gives up with a lock error after `DB_STATEMENT_TIMEOUT_MS`:
+  30 seconds by default, 5 seconds when it is set to 0.
+
+A concurrent duplicate of an HTTP request with an `Idempotency-Key` waits at
+`BEGIN IMMEDIATE` until the first one commits, then replays its answer. It
+never answers busy as on PostgreSQL; past `busy_timeout` it gets the lock
+error.
+
+One task holds the write lock through one unit at a time. A local contract
+call, a saga step or a child `open_uow()` opens a unit of its own on another
+connection. If it writes while the caller's unit holds the lock, it would wait
+for itself until `busy_timeout`. The driver refuses it at its `BEGIN`
+instead ([SANDLOOM-R016](../reference/error-codes.md#sandloom-r016)). Do the
+nested write in the caller's unit or after it commits.
+
+An in-memory database such as `sqlite://` has no WAL, and every connection
+sees another one. Startup refuses it with
+[SANDLOOM-B032](../reference/error-codes.md#sandloom-b032), and so does a
+missing aiosqlite. The driver also refuses a SQLite URL without `+aiosqlite`
+when it builds the engine. Only a test engine on one shared connection may be
+in memory. It advertises neither snapshot reads nor transaction locks, so its
+`transaction_lock` refuses.
+
+SQLite keeps no time zone offset. A time column is `UtcDateTime()`, which
+reads back in UTC on every database and refuses a naive time
+([SANDLOOM-C029](../reference/error-codes.md#sandloom-c029)).
+
 ## The DBAPI adapter
 
 The renderer knows the SQL of a database. The Python client library under
@@ -152,8 +200,11 @@ engine.
 | `connection_recovery` | a dead connection answers 503, and a first message never sent is sent again on a new connection | yes |
 | `reconnect_backoff` | connection attempts after an outage are admitted one at a time | yes |
 
-Any other DBAPI, such as `aiosqlite` or `psycopg`, takes the plain path. It is
-slower and never wrong. Each fast path checks the private state it drives once
+Any other DBAPI, such as `psycopg`, takes the plain path. It is
+slower and never wrong. The aiosqlite adapter claims no capability: it adds
+the engine setup of [SQLite](#sqlite-for-development-and-tests) to the plain
+path. The pool's idle probe and its check for a connection already closed are
+the adapter's too (`ping`, `connection_closed`). Each fast path checks the private state it drives once
 per process. On a mismatch it logs one warning and falls back.
 
 `DB_READ_ONLY_SESSIONS=true` needs a guard on the default database: the
@@ -165,8 +216,10 @@ package adds an adapter.
 
 ## What still needs PostgreSQL
 
-The kernel itself still needs PostgreSQL: the outbox and
-idempotency stores, and the projection upserts. `CreatedAt` / `UpdatedAt`
-are stamped by each database's clock (`clock_timestamp()` on PostgreSQL, UTC
-milliseconds on SQLite). Identity's claims query uses `array_agg` and `LATERAL`. Until those
-move behind the driver too, run Sandloom on PostgreSQL.
+The kernel's units and stores run on SQLite, from the outbox to the
+projection watermarks. `CreatedAt` / `UpdatedAt` are stamped by each
+database's clock (`clock_timestamp()` on PostgreSQL, UTC milliseconds on
+SQLite). Three gaps remain. `DATABASE_URL` accepts only PostgreSQL. No command
+builds the schema on SQLite yet, since the migration chains are PostgreSQL's.
+Identity's claims query uses `array_agg` and `LATERAL`. Until those close, run
+applications on PostgreSQL.

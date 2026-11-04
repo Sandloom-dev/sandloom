@@ -13,6 +13,20 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`UtcDateTime` refuses a naive `datetime`** (`NaiveDateTimeError`), in a
+  value and in a comparison: its instant is not known (asyncpg reads it in the
+  process's local time zone, SQLite as UTC). `CreatedAt`, `UpdatedAt` and every
+  `UtcDateTime()` column are affected. `column - timedelta(...)` still binds an
+  interval. The planner's raw executor takes no caller's key or filter of this
+  type (it runs on the general executor, whose bind processing refuses a naive
+  time); keyset columns, read back aware, stay on the raw executor.
+
+  **Upgrade:** bind aware times to `CreatedAt`, `UpdatedAt` and `UtcDateTime`
+  columns (`datetime.now(UTC)`, `value.replace(tzinfo=UTC)`); replace a module's
+  `DateTime(timezone=True)` with `UtcDateTime()` (no migration on PostgreSQL).
+
 ### Added
 
 - **Modules write no SQL dialect** (SANDLOOM-C028). `sandloom check` fails on a
@@ -183,6 +197,46 @@ website renders this same changelog.
   `DB_READ_ONLY_SESSIONS=true` on a default database with neither
   `readonly_transactions` nor a client read-only policy stops startup
   (SANDLOOM-B031, new). The kernel names a database at 6 sites, down from 15.
+- **SQLite in the `sqlalchemy` driver, for development and tests.** The driver
+  serves `sqlite+aiosqlite://` (the new `sqlite` extra:
+  `pip install 'sandloom[sqlite]'`). The aiosqlite adapter
+  (`sandloom.core.drivers.dbapi_aiosqlite`) turns pysqlite's implicit
+  transactions off and emits each unit's `BEGIN` itself, so savepoints work.
+  Every unit not declared read-only begins `BEGIN IMMEDIATE`, reads before its
+  first write included, so writers are serial; a read-only unit begins deferred
+  with `PRAGMA query_only` on. Each connection opens with WAL, `foreign_keys`
+  and `busy_timeout` (`DB_STATEMENT_TIMEOUT_MS`: 30 s by default, 5 s when it
+  is 0). SQLite now
+  declares `transaction_locks` (`transaction_lock` and the projection purge
+  lock succeed inside a unit that may write, R015 in a read-only one; new
+  `WRITE_LOCK_HELD` in `sandloom.driverkit`), `snapshot_reads` and
+  `readonly_transactions`. `SQLITE_BUSY`/`LOCKED` classify as
+  `lock_not_available`, `SQLITE_BUSY_SNAPSHOT` as `serialization_failure`. An
+  in-memory database, a SQLite URL without `+aiosqlite` and a missing aiosqlite
+  stop startup (SANDLOOM-B032, new); only a test engine on one shared
+  connection may be in memory, and it advertises neither `snapshot_reads` nor
+  `transaction_locks` (its `transaction_lock` refuses, R015). A second unit of
+  the same task that begins a write while the task's first unit holds the
+  write lock (a local contract call, a saga step, a child `open_uow()`) is
+  refused at its BEGIN (SANDLOOM-R016, new) instead of waiting for itself until
+  `busy_timeout`. Startup asks each database's DBAPI adapter for a
+  build-free `config_problem(url)`. The outbox's AUTOCOMMIT mark-delivered runs on any
+  database. `DbapiAdapter` gains `config_problem`, `ping`, `connection_closed`
+  and `prepare_engine`: the pool's idle probe and closed-connection check are the
+  adapter's (asyncpg's unchanged). The conformance kit requires non-empty
+  `transaction_options` for a snapshot unit when `snapshot_reads` is declared;
+  a per-statement read unit may begin like the snapshot one only when the
+  test sets `read_units_share_one_snapshot` (SQLite). The
+  kernel names a database at 5 sites, down from 6. `DATABASE_URL` still accepts
+  only PostgreSQL (slice 8b).
+- **Time columns read back in UTC on every database** (SANDLOOM-C029, new).
+  `sandloom check` flags a bare `DateTime(timezone=True)` (also
+  `DateTime(True)` and `TIMESTAMP(timezone=True)`) in module code outside
+  migrations; use `UtcDateTime()` from `sandloom.sdk.data`, the same
+  `timestamptz` on PostgreSQL, so no migration. Identity's token expiries,
+  tenancy's invitation times, billing's `*_at` columns, the projection
+  generator's `deleted_at` and the members recipe moved onto it. Naive times:
+  see Breaking changes.
 
 ### Changed
 

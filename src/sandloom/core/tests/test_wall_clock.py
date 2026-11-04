@@ -25,6 +25,7 @@ from sqlalchemy.schema import CreateTable
 from sandloom.core.migrations.alembic_support import _render_item
 from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, new_id
 from sandloom.core.sql_alchemy.portable import (
+    NaiveDateTimeError,
     UnsupportedSqlForm,
     UtcDateTime,
     WallClock,
@@ -132,16 +133,47 @@ def test_utc_datetime_writes_utc_and_attaches_it_on_load() -> None:
             table.insert(),
             [
                 {"id": 1, "at": datetime(2026, 1, 1, 12, 0, tzinfo=plus_three)},
-                {"id": 2, "at": datetime(2026, 1, 1, 12, 0)},  # SQLite: UTC
+                {"id": 2, "at": datetime(2026, 1, 1, 12, 0, tzinfo=UTC)},
                 {"id": 3, "at": None},
             ],
         )
         got = connection.execute(sa.select(table.c.at).order_by(table.c.id)).all()
+        # A stored naive text (another writer's) still reads back aware.
+        connection.execute(
+            sa.text("INSERT INTO wall_clock_times VALUES (4, '2026-01-01 12:00:00')")
+        )
+        legacy = connection.execute(
+            sa.select(table.c.at).where(table.c.id == 4)
+        ).scalar_one()
     assert [r.at for r in got] == [
         datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
         datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
         None,
     ]
+    assert legacy == datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+
+def test_utc_datetime_refuses_a_naive_time() -> None:
+    """Slice 8a: a naive time has no known instant (PostgreSQL through asyncpg
+    reads it in the process's zone, SQLite as UTC), so it is refused, in a
+    value and in a comparison alike; an interval still binds as DateTime's."""
+    engine = sa.create_engine("sqlite://")
+    table = sa.Table(
+        "wall_clock_naive",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("at", UtcDateTime()),
+    )
+    table.metadata.create_all(engine)
+    naive = datetime(2026, 1, 1, 12, 0)
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.StatementError) as raised:
+            connection.execute(table.insert(), [{"id": 1, "at": naive}])
+        assert isinstance(raised.value.orig, NaiveDateTimeError)
+        with pytest.raises(sa.exc.StatementError, match="naive datetime"):
+            connection.execute(sa.select(table.c.id).where(table.c.at < naive))
+    shifted = table.c.at - timedelta(seconds=60)
+    assert isinstance(shifted.right.type, sa.Interval)
 
 
 def test_utc_datetime_ddl_is_timestamptz_on_postgresql() -> None:

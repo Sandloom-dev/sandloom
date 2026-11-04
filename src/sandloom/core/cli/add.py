@@ -1017,10 +1017,11 @@ def add_projection(module: str, name: str, where: Layout) -> list[Path]:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, TenantScoped
+from sandloom.sdk.data import UtcDateTime  # sandloom: advanced UTC on every database
 
 
 class {cls}Row(TenantScoped, Base):
@@ -1029,9 +1030,7 @@ class {cls}Row(TenantScoped, Base):
     {name}_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 '''
     projection = f'''"""The {module}.{name} projection (spec §6.4).
 

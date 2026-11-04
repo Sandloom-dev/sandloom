@@ -13,7 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from sandloom.core.archcheck.analyzers import find_dialect_imports
+from sandloom.core.archcheck.analyzers import (
+    find_bare_aware_datetimes,
+    find_dialect_imports,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -87,3 +90,39 @@ def test_the_kernel_side_of_the_portable_forms_names_no_database() -> None:
     """Only the renderers (drivers) know dialects; the forms ask them."""
     portable = REPO / "src" / "sandloom" / "core" / "sql_alchemy" / "portable.py"
     assert find_dialect_imports(portable) == []
+
+
+# -- SANDLOOM-C029: time columns read back in UTC on every database -----------
+
+
+@pytest.mark.parametrize("root", MODULE_ROOTS, ids=lambda p: p.name)
+def test_module_declares_no_bare_aware_datetime(root: Path) -> None:
+    offences = [
+        f"{path.relative_to(REPO)}: {hit}"
+        for path in sorted(root.rglob("*.py"))
+        if "migrations" not in path.relative_to(root).parts
+        for hit in find_bare_aware_datetimes(path)
+    ]
+    assert offences == [], "\n".join(offences)
+
+
+@pytest.mark.parametrize(
+    ("source", "hits"),
+    [
+        ("from sqlalchemy import DateTime\nc = DateTime(timezone=True)\n", 1),
+        ("import sqlalchemy as sa\nc = sa.DateTime(timezone=True)\n", 1),
+        ("from sqlalchemy import DateTime\nc = DateTime(True)\n", 1),
+        ("import sqlalchemy as sa\nc = sa.DateTime(True)\n", 1),
+        ("from sqlalchemy import TIMESTAMP\nc = TIMESTAMP(timezone=True)\n", 1),
+        ("import sqlalchemy as sa\nc = sa.TIMESTAMP(True)\n", 1),
+        ("import sqlalchemy as sa\nc = sa.TIMESTAMP()\n", 0),
+        ("from sqlalchemy import DateTime\nc = DateTime(False)\n", 0),
+        ("from sqlalchemy import DateTime\nc = DateTime()\n", 0),
+        ("from sqlalchemy import DateTime\nc = DateTime(timezone=False)\n", 0),
+        ("from sandloom.sdk.data import UtcDateTime\nc = UtcDateTime()\n", 0),
+    ],
+)
+def test_the_c029_analyzer(tmp_path: Path, source: str, hits: int) -> None:
+    sample = tmp_path / "models.py"
+    sample.write_text(source)
+    assert len(find_bare_aware_datetimes(sample)) == hits, source

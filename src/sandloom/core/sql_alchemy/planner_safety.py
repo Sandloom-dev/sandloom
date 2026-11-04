@@ -36,10 +36,11 @@ _NATIVE_TYPES = (
 #: stay general.
 _RESULT_ONLY_TYPES: tuple[type, ...] = (CaseInsensitiveText,)
 #: Sandloom's portable types whose processing is the identity on what the raw
-#: executor binds and reads: ``UtcDateTime`` (``CreatedAt`` / ``UpdatedAt``)
-#: is a ``timestamptz``, which asyncpg returns aware, and it binds a naive
-#: value unchanged (asyncpg then takes it in the process's local time zone,
-#: as without the type) and an aware one as the same instant in UTC.
+#: executor reads and on the keyset values it binds: ``UtcDateTime``
+#: (``CreatedAt`` / ``UpdatedAt``) is a ``timestamptz``, which asyncpg returns
+#: aware, and a keyset value comes from such a row. A caller's key or filter
+#: of this type goes to the general executor, whose bind processing refuses a
+#: naive time (``NaiveDateTimeError``).
 _PORTABLE_NATIVE_TYPES: tuple[type, ...] = (UtcDateTime,)
 _ENGINE_EVENTS = (
     "before_execute",
@@ -124,7 +125,14 @@ def optimized_reason(  # noqa: C901
     *,
     parameters: Sequence[Any] = (),
     constants: Sequence[tuple[Any, Any]] = (),
+    ordered: Sequence[Any] = (),
 ) -> str | None:
+    """Why ``columns`` cannot run on the raw executor, or ``None``.
+
+    ``parameters`` are the columns bound per call (keys, filters and the
+    ``ordered`` keyset columns, whose values come from a page already read),
+    ``constants`` the columns bound to a declared value.
+    """
     reason = policy_reason(engine, mappers)
     if reason:
         return reason
@@ -156,6 +164,9 @@ def optimized_reason(  # noqa: C901
             return "custom column comparator requires the general executor"
     bound = {id(column) for column in parameters}
     bound.update(id(column) for column, _ in constants)
+    #: bound from a caller's value: a key, a filter or a declared constant
+    #: (a keyset column's value was read back, aware, from the last page)
+    supplied = bound - {id(column) for column in ordered}
     result_only = (
         *dbapi_adapter_of(engine).raw_result_only_types,
         *_RESULT_ONLY_TYPES,
@@ -172,6 +183,14 @@ def optimized_reason(  # noqa: C901
                 )
             continue
         if type(kind) in _PORTABLE_NATIVE_TYPES:
+            if id(column) in supplied:
+                # UtcDateTime refuses a naive time in its bind processing,
+                # which the raw executor skips.
+                return (
+                    f"column {column.name!r}: a {type(kind).__name__} key or "
+                    "filter requires SQLAlchemy bind processing (a naive time "
+                    "is refused)"
+                )
             continue
         if (
             type(kind).__module__ != "sqlalchemy.sql.sqltypes"
