@@ -1,0 +1,250 @@
+/* /docs (Swagger UI) and /redoc outside production: the sandloom.dev look.
+   Tokens and fonts follow website/assets/brand.css; the fonts are served by
+   the app itself from /docs/assets/ (README.md: licenses). */
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 200 800;
+  font-display: swap;
+  src: url("/docs/assets/manrope-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD; }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 200 800;
+  font-display: swap;
+  src: url("/docs/assets/manrope-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Hack Nerd Font Mono"; font-weight: 400; font-display: swap;
+  src: url("/docs/assets/hack-nerd-mono-regular.woff2") format("woff2"); }
+@font-face { font-family: "Hack Nerd Font Mono"; font-weight: 700; font-display: swap;
+  src: url("/docs/assets/hack-nerd-mono-bold.woff2") format("woff2"); }
+
+:root {
+  color-scheme: light;
+  --sl-font: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --sl-code-font: "Hack Nerd Font Mono", ui-monospace, monospace;
+  --sl-bg: #f7f6f2; --sl-surface: #ffffff; --sl-ink: #24272a; --sl-muted: #686c6f;
+  --sl-line: #dedfda; --sl-accent: #8b6841; --sl-button-bg: #282a2d;
+  --sl-button-fg: #faf9f5; --sl-code-bg: #eeede8;
+  --sl-get: #4d7590; --sl-post: #5b7d4b; --sl-put: #a87326; --sl-patch: #8b6841;
+  --sl-delete: #a24f3a; --sl-other: #686c6f;
+}
+/* api_docs.js sets sl-dark or sl-light from the switch; without it, the system. */
+:root.sl-dark {
+    color-scheme: dark;
+    --sl-bg: #111213; --sl-surface: #191b1d; --sl-ink: #edeee9; --sl-muted: #a5aaa8;
+    --sl-line: #303337; --sl-accent: #d8b892; --sl-button-bg: #d8b892;
+    --sl-button-fg: #1a1815; --sl-code-bg: #222528;
+    --sl-get: #7fa6c0; --sl-post: #8fb07c; --sl-put: #d3a35a; --sl-patch: #d8b892;
+    --sl-delete: #d0826d; --sl-other: #a5aaa8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.sl-light) {
+    color-scheme: dark;
+    --sl-bg: #111213; --sl-surface: #191b1d; --sl-ink: #edeee9; --sl-muted: #a5aaa8;
+    --sl-line: #303337; --sl-accent: #d8b892; --sl-button-bg: #d8b892;
+    --sl-button-fg: #1a1815; --sl-code-bg: #222528;
+    --sl-get: #7fa6c0; --sl-post: #8fb07c; --sl-put: #d3a35a; --sl-patch: #d8b892;
+    --sl-delete: #d0826d; --sl-other: #a5aaa8;
+  }
+}
+
+html, body { margin: 0; background: var(--sl-bg); }
+
+/* The bar: the site's header, with the app's name. */
+.sl-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+  gap: 28px; min-height: 64px; padding: 0 32px; box-sizing: border-box;
+  background: var(--sl-bg); color: var(--sl-ink); border-bottom: 1px solid var(--sl-line);
+  font: 500 14px/1.5 var(--sl-font); }
+.sl-bar a { color: inherit; text-decoration: none; }
+.sl-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 21px;
+  font-weight: 750; letter-spacing: -.045em; }
+.sl-brand svg { width: 28px; height: 28px; }
+.sl-brand svg path { fill: var(--sl-ink); }
+.sl-pill { padding: 2px 9px; border: 1px solid var(--sl-line); border-radius: 999px;
+  color: var(--sl-muted); font: 500 12px/1.5 var(--sl-code-font); letter-spacing: 0; }
+.sl-bar nav { margin-left: auto; display: flex; gap: 22px; color: var(--sl-muted); }
+.sl-bar nav a:hover, .sl-bar nav a[aria-current] { color: var(--sl-ink); }
+.sl-bar nav a.sl-out::after { content: " \2197"; }
+.sl-theme { display: inline-grid; place-items: center; width: 34px; height: 34px;
+  margin-left: 6px; padding: 0; border: 1px solid var(--sl-line); border-radius: 999px;
+  background: transparent; color: var(--sl-ink); cursor: pointer; }
+.sl-theme:hover { border-color: var(--sl-muted); }
+.sl-theme:focus-visible { outline: 2px solid var(--sl-accent); outline-offset: 2px; }
+.sl-theme svg { width: 17px; height: 17px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: none; }
+.sl-theme[data-mode="system"] .sl-i-system, .sl-theme[data-mode="light"] .sl-i-light,
+.sl-theme[data-mode="dark"] .sl-i-dark, .sl-theme:not([data-mode]) .sl-i-system {
+  display: block; }
+@media (max-width: 720px) {
+  .sl-bar { gap: 12px; padding: 0 16px; }
+  .sl-bar nav { gap: 14px; font-size: 13px; }
+  .sl-bar nav .sl-wide { display: none; }
+  .swagger-ui .wrapper { padding: 0 16px; }
+  .swagger-ui .info .title { font-size: 32px; }
+}
+
+/* Swagger UI: text in Manrope, code in Hack, surfaces and lines from the site. */
+.swagger-ui, .swagger-ui .info .title, .swagger-ui .opblock-tag,
+.swagger-ui .opblock .opblock-summary-description, .swagger-ui .opblock-description-wrapper p,
+.swagger-ui .tab li, .swagger-ui table thead tr td, .swagger-ui table thead tr th,
+.swagger-ui .parameter__name, .swagger-ui .response-col_status, .swagger-ui .btn,
+.swagger-ui .model-title, .swagger-ui section.models h4, .swagger-ui .info p,
+.swagger-ui .info li, .swagger-ui .opblock-section-header h4, .swagger-ui label,
+.swagger-ui .dialog-ux .modal-ux-header h3, .swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5, .swagger-ui .scheme-container .schemes > label {
+  font-family: var(--sl-font); }
+.swagger-ui .opblock-summary-path, .swagger-ui .opblock-summary-path__deprecated,
+.swagger-ui code, .swagger-ui pre, .swagger-ui .microlight, .swagger-ui .model,
+.swagger-ui .parameter__type, .swagger-ui .prop-type, .swagger-ui .opblock-summary-method,
+.swagger-ui .response-col_links, .swagger-ui textarea {
+  font-family: var(--sl-code-font) !important; }
+.swagger-ui .wrapper { max-width: 1180px; padding: 0 32px; }
+.swagger-ui .info { margin: 44px 0 28px; }
+.swagger-ui .info .title { color: var(--sl-ink); font-size: 40px; font-weight: 750;
+  letter-spacing: -.045em; }
+/* Version and OAS: quiet outlined labels next to the title, not filled pills. */
+.swagger-ui .info .title small { background: transparent; border: 1px solid var(--sl-line);
+  border-radius: 999px; padding: 3px 10px; top: -10px; margin-left: 8px;
+  vertical-align: middle; }
+.swagger-ui .info .title small pre { color: var(--sl-muted); font-size: 12px; font-weight: 600;
+  line-height: 1.2; letter-spacing: 0; font-family: var(--sl-font) !important; }
+.swagger-ui .info .title small.version-stamp { background: transparent;
+  border-color: color-mix(in srgb, var(--sl-accent) 55%, transparent); margin-left: 4px; }
+.swagger-ui .info .title small.version-stamp pre { color: var(--sl-accent); }
+.swagger-ui .info a, .swagger-ui .info .link, .swagger-ui a.nostyle,
+.swagger-ui .opblock-tag small a, .swagger-ui .info .base-url { color: var(--sl-accent); }
+.swagger-ui .info p, .swagger-ui .info li, .swagger-ui .opblock-tag small,
+.swagger-ui .opblock .opblock-summary-description { color: var(--sl-muted); }
+.swagger-ui .scheme-container { background: transparent; box-shadow: none; padding: 0 0 20px;
+  margin: 0; }
+.swagger-ui .filter-container { margin: 0; }
+.swagger-ui .filter .operation-filter-input { border: 1px solid var(--sl-line);
+  border-radius: 10px; background: var(--sl-surface); color: var(--sl-ink);
+  font-family: var(--sl-font); padding: 10px 14px; margin: 0 0 12px; }
+.swagger-ui .opblock-tag { color: var(--sl-ink); font-size: 22px; font-weight: 700;
+  letter-spacing: -.03em; border-bottom: 1px solid var(--sl-line); }
+.swagger-ui .opblock-tag:hover { background: transparent; }
+
+/* An operation is a card; its method is a solid badge in a sand-friendly hue. */
+.swagger-ui .opblock { --m: var(--sl-other); background: var(--sl-surface);
+  border: 1px solid var(--sl-line); border-left: 4px solid var(--m); border-radius: 10px;
+  box-shadow: none; margin: 0 0 10px; }
+.swagger-ui .opblock.opblock-get { --m: var(--sl-get); }
+.swagger-ui .opblock.opblock-post { --m: var(--sl-post); }
+.swagger-ui .opblock.opblock-put { --m: var(--sl-put); }
+.swagger-ui .opblock.opblock-patch { --m: var(--sl-patch); }
+.swagger-ui .opblock.opblock-delete { --m: var(--sl-delete); }
+/* Swagger colours each method with two-class selectors: match them. */
+.swagger-ui .opblock.opblock-get, .swagger-ui .opblock.opblock-post,
+.swagger-ui .opblock.opblock-put, .swagger-ui .opblock.opblock-patch,
+.swagger-ui .opblock.opblock-delete, .swagger-ui .opblock.opblock-head,
+.swagger-ui .opblock.opblock-options, .swagger-ui .opblock.opblock-deprecated {
+  background: var(--sl-surface); border-color: var(--sl-line); border-left-color: var(--m); }
+.swagger-ui .opblock.opblock-get .opblock-summary, .swagger-ui .opblock.opblock-post .opblock-summary,
+.swagger-ui .opblock.opblock-put .opblock-summary, .swagger-ui .opblock.opblock-patch .opblock-summary,
+.swagger-ui .opblock.opblock-delete .opblock-summary, .swagger-ui .opblock .opblock-summary {
+  border: 0; padding: 8px 12px; }
+.swagger-ui .opblock.opblock-get .opblock-summary-method,
+.swagger-ui .opblock.opblock-post .opblock-summary-method,
+.swagger-ui .opblock.opblock-put .opblock-summary-method,
+.swagger-ui .opblock.opblock-patch .opblock-summary-method,
+.swagger-ui .opblock.opblock-delete .opblock-summary-method,
+.swagger-ui .opblock .opblock-summary-method {
+  background: var(--m); color: #fff; border-radius: 6px; min-width: 76px; font-size: 13px;
+  padding: 6px 0; text-shadow: none; }
+.swagger-ui .opblock.opblock-get .tab-header .tab-item.active h4 span::after,
+.swagger-ui .opblock.opblock-post .tab-header .tab-item.active h4 span::after,
+.swagger-ui .opblock.opblock-put .tab-header .tab-item.active h4 span::after,
+.swagger-ui .opblock.opblock-patch .tab-header .tab-item.active h4 span::after,
+.swagger-ui .opblock.opblock-delete .tab-header .tab-item.active h4 span::after {
+  background: var(--m); }
+.swagger-ui .opblock.is-open { box-shadow: 0 1px 0 var(--sl-line); }
+.swagger-ui .opblock-tag a.nostyle, .swagger-ui .opblock-tag a.nostyle span { color: var(--sl-ink); }
+.swagger-ui .opblock .opblock-summary-path { color: var(--sl-ink); font-size: 14px; }
+.swagger-ui .opblock .opblock-section-header { background: var(--sl-bg); box-shadow: none;
+  border-top: 1px solid var(--sl-line); border-bottom: 1px solid var(--sl-line); }
+.swagger-ui .opblock .opblock-section-header h4, .swagger-ui .opblock-description-wrapper p,
+.swagger-ui .parameter__name, .swagger-ui .response-col_status,
+.swagger-ui table thead tr td, .swagger-ui table thead tr th,
+.swagger-ui .responses-inner h4, .swagger-ui .responses-inner h5 { color: var(--sl-ink); }
+.swagger-ui .opblock-body pre.microlight, .swagger-ui .highlight-code > .microlight {
+  background: #1d1f21 !important; border-radius: 8px; }
+
+/* Buttons: the site's dark button, the accent for Authorize. */
+.swagger-ui .btn { border-radius: 8px; box-shadow: none; font-weight: 600; }
+.swagger-ui .btn.execute { background: var(--sl-button-bg); border-color: var(--sl-button-bg);
+  color: var(--sl-button-fg); }
+.swagger-ui .btn.authorize, .swagger-ui .btn.try-out__btn { color: var(--sl-accent);
+  border-color: var(--sl-accent); background: transparent; }
+.swagger-ui .btn.authorize svg { fill: var(--sl-accent); }
+.swagger-ui .btn.cancel { color: var(--sl-delete); border-color: var(--sl-delete); }
+.swagger-ui select { border-radius: 8px; border-color: var(--sl-line); box-shadow: none; }
+
+.swagger-ui section.models { border: 1px solid var(--sl-line); border-radius: 10px;
+  background: var(--sl-surface); }
+.swagger-ui section.models h4 { color: var(--sl-ink); }
+.swagger-ui section.models .model-container { background: var(--sl-bg); border-radius: 8px; }
+.swagger-ui .model-box { background: transparent; }
+.swagger-ui .dialog-ux .modal-ux { border-radius: 12px; border: 1px solid var(--sl-line);
+  background: var(--sl-surface); }
+
+/* Dark: Swagger UI's own dark mode (html.dark-mode, set from the system),
+   on the site's dark surfaces. Its rules start with html.dark-mode: ours add
+   body to win. */
+html.dark-mode, html.dark-mode body, html.dark-mode body .swagger-ui, html.dark-mode body .swagger-ui .wrapper,
+html.dark-mode body .swagger-ui .information-container,
+html.dark-mode body .swagger-ui .scheme-container { background: var(--sl-bg); }
+html.dark-mode body .swagger-ui .opblock.opblock-get,
+html.dark-mode body .swagger-ui .opblock.opblock-post,
+html.dark-mode body .swagger-ui .opblock.opblock-put,
+html.dark-mode body .swagger-ui .opblock.opblock-patch,
+html.dark-mode body .swagger-ui .opblock.opblock-delete,
+html.dark-mode body .swagger-ui .opblock.opblock-head,
+html.dark-mode body .swagger-ui .opblock.opblock-options,
+html.dark-mode body .swagger-ui .opblock.opblock-deprecated {
+  background: var(--sl-surface); border-color: var(--sl-line); border-left-color: var(--m); }
+html.dark-mode body .swagger-ui .opblock.opblock-get .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-post .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-put .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-patch .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-delete .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-head .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-options .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock.opblock-deprecated .opblock-section-header,
+html.dark-mode body .swagger-ui .opblock .opblock-section-header {
+  background: var(--sl-bg); }
+html.dark-mode body .swagger-ui .btn.execute { background: var(--sl-button-bg);
+  border-color: var(--sl-button-bg); color: var(--sl-button-fg); }
+html.dark-mode body .swagger-ui section.models { background: var(--sl-surface);
+  border-color: var(--sl-line); }
+html.dark-mode body .swagger-ui section.models .model-container { background: var(--sl-bg); }
+html.dark-mode body .swagger-ui .filter .operation-filter-input { background: var(--sl-surface);
+  color: var(--sl-ink); border-color: var(--sl-line); }
+html.dark-mode body .swagger-ui .opblock .opblock-summary-description,
+html.dark-mode body .swagger-ui .info p, html.dark-mode body .swagger-ui .info li {
+  color: var(--sl-muted); }
+
+html.dark-mode body .swagger-ui .opblock.opblock-get .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-post .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-put .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-patch .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-delete .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-head .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-options .opblock-summary-method,
+html.dark-mode body .swagger-ui .opblock.opblock-deprecated .opblock-summary-method {
+  background: var(--m); color: #111213; }
+html.dark-mode body .swagger-ui .info .title small,
+html.dark-mode body .swagger-ui .info .title small.version-stamp { background: transparent; }
+html.dark-mode body .swagger-ui .info .title small { border-color: var(--sl-line); }
+html.dark-mode body .swagger-ui .info .title small.version-stamp {
+  border-color: color-mix(in srgb, var(--sl-accent) 55%, transparent); }
+html.dark-mode body .swagger-ui .info .title small pre { color: var(--sl-muted); }
+html.dark-mode body .swagger-ui .info .title small.version-stamp pre { color: var(--sl-accent); }
+html.dark-mode body .swagger-ui .info a, html.dark-mode body .swagger-ui .info .link,
+html.dark-mode body .swagger-ui a.nostyle, html.dark-mode body .swagger-ui .info .base-url {
+  color: var(--sl-accent); }
+html.dark-mode body .swagger-ui .opblock-tag a.nostyle,
+html.dark-mode body .swagger-ui .opblock-tag a.nostyle span { color: var(--sl-ink); }
+
+/* ReDoc under the same bar; api_docs.js redraws it with the theme. */
+#redoc { min-height: calc(100vh - 65px); }
