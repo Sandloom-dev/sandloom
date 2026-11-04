@@ -2,8 +2,7 @@
 
 import uuid
 
-from sqlalchemy import CheckConstraint, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import CheckConstraint, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, new_id
@@ -24,13 +23,13 @@ class BillingCustomer(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     stripe_customer_id: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True, index=True
     )
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID, unique=True, nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True, nullable=True)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, unique=True, nullable=True
+        Uuid, unique=True, nullable=True
     )
 
     @property

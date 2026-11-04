@@ -4,8 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt
@@ -19,16 +18,16 @@ class RefreshToken(Base):
 
     __tablename__ = "refresh_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
     # Rotation family: every token minted by refreshing descends from one login
     # and shares its family_id. Presenting an already-rotated (revoked) token is
     # a reuse signal and revokes the whole family.
     family_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, nullable=False, default=uuid.uuid4
+        Uuid, nullable=False, default=uuid.uuid4
     )
 
     # Instant of the PRIMARY authentication (password / SSO / 2FA login) that

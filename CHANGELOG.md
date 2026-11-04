@@ -13,6 +13,35 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **Modules write no SQL dialect** (SANDLOOM-C028). `sandloom check` fails on a
+  `sqlalchemy.dialects` import in module code (also `sa.dialects...` and dialect
+  options such as `postgresql_where=`; migrations are exempt). `sandloom.sdk.data`
+  gains the portable forms modules used dialects for: `CaseInsensitiveText`,
+  `partial_index`, `search_index`, `conflict_insert(Model)`,
+  `await transaction_lock(key)` (the two statements run on `db()` unless given
+  `session=`), and `ConflictInsert` for annotations; ids use `sqlalchemy.Uuid`.
+  The kernel names no database: each database's SQL dialect renderer writes the
+  forms, found in the new `sandloom.sql_dialects` entry-point group (shipped:
+  PostgreSQL and SQLite). No form falls back to other SQL: one the database
+  cannot write refuses (SANDLOOM-R015), and a configured database without a
+  renderer stops startup (SANDLOOM-B024). Migrations write the database's own
+  type (`postgresql.CITEXT()`). On PostgreSQL every form renders the SQL the
+  modules wrote before, so the schema and the migrations do not change.
+  Identity, tenancy, billing and every example moved onto them.
+  Still PostgreSQL-only, and planned to move behind the driver: the kernel's
+  row-level security, outbox and idempotency stores, `CreatedAt`'s
+  `clock_timestamp()`, the projection upserts, and identity's claims query
+  (`array_agg`, `LATERAL`). The check does not see SQL functions only one
+  database has.
+  Upgrade: in your modules, replace `from sqlalchemy.dialects.postgresql import
+  UUID` with `from sqlalchemy import Uuid`, `CITEXT` with `CaseInsensitiveText`,
+  `postgresql_where=` indexes with `partial_index(...)`, `pg_insert(Model)` with
+  `conflict_insert(Model)`, and `func.pg_advisory_xact_lock(key)` with
+  `await transaction_lock(key)`; `sandloom migrate drift` confirms no migration
+  follows.
+
 ### Changed
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and

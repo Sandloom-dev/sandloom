@@ -29,6 +29,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
+| [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
+| [`ConflictInsert`](#conflictinsert) | class | For annotations only: the shape `conflict_insert` returns (`.on_conflict_do_nothing(index_elements=, index_where=)`, `.on_conflict_do_upd... |
 | [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable RLS on `table` (for downgrade). |
 | [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on `table`. |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
@@ -44,11 +47,14 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 | [`Page`](#page) | class | One page of a `ListOperation`: the DTOs and the next cursor. |
 | [`PageLimitError`](#pagelimiterror) | exception | `limit` missing, &lt; 1 or above the operation's page cap (400). |
+| [`partial_index`](#partial_index) | function | An index over the rows `where` selects, for `__table_args__`. |
 | [`PlannedReads`](#plannedreads) | annotated type |  |
 | [`ReadOperation`](#readoperation) | class | A declared single-row read: `entity` WHERE `by` columns = arguments. |
 | [`Reads`](#reads) | class | Handle that runs declared operations. |
+| [`search_index`](#search_index) | function | An index that serves substring search (`column.ilike('%term%')`). |
 | [`session_reads`](#session_reads) | function | Run declared operations ON `session` (an open Unit of Work). |
 | [`SnapshotReads`](#snapshotreads) | annotated type |  |
+| [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
 
@@ -117,6 +123,63 @@ Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
 
 ## Advanced names
+
+### `CaseInsensitiveText`
+
+```python
+class CaseInsensitiveText(TypeDecorator)(length: int | None = None) -> None
+```
+
+Text that compares, sorts and enforces uniqueness without regard to case.
+
+The stored value keeps the case it was written with: `Ann@Example.com`
+reads back as written and is equal to `ann@example.com`.
+`CaseInsensitiveText(80)` caps the length where the database stores one.
+How far case folding reaches is the database's: PostgreSQL's `citext`
+folds every letter, SQLite's `NOCASE` only ASCII letters.
+
+#### `CaseInsensitiveText.load_dialect_impl`
+
+```python
+def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]
+```
+
+The database's own type for this column, from its renderer.
+
+### `conflict_insert`
+
+```python
+def conflict_insert(
+    table: Any,
+    *,
+    session: AsyncSession | None = None,
+) -> ConflictInsert
+```
+
+`INSERT ... ON CONFLICT` for `table` (a model class or a table):
+
+```python
+stmt = conflict_insert(Counter).values(key=k, n=1)
+stmt = stmt.on_conflict_do_update(
+    index_elements=[Counter.key], set_={"n": Counter.n + 1}
+)
+await db().execute(stmt)
+```
+
+The database of `session` (default: `db`) writes it; one without
+`ON CONFLICT` refuses (SANDLOOM-R015).
+
+### `ConflictInsert`
+
+```python
+class ConflictInsert(Insert)(table: _DMLTableArgument)
+```
+
+For annotations only: the shape `conflict_insert` returns
+(`.on_conflict_do_nothing(index_elements=, index_where=)`,
+`.on_conflict_do_update(index_elements=, index_where=, set_=,
+where=)`, `.excluded`). The statement itself is the database's own
+insert, not an instance of this class.
 
 ### `disable_tenant_rls`
 
@@ -401,6 +464,30 @@ class PageLimitError(ValueError)(detail: str) -> None
 
 `limit` missing, &lt; 1 or above the operation's page cap (400).
 
+### `partial_index`
+
+```python
+def partial_index(
+    name: str,
+    *columns: str | ColumnElement[Any],
+    where: str | ColumnElement[bool] | TextClause,
+    unique: bool = False,
+) -> Index
+```
+
+An index over the rows `where` selects, for `__table_args__`.
+
+`unique=True` makes the columns unique among those rows only, such as
+one pending invitation per email:
+
+```python
+partial_index("uq_inv", "email", where="accepted_at IS NULL", unique=True)
+```
+
+Each database's renderer writes the condition its own way; a database
+whose renderer cannot refuses to create the index rather than create it
+over every row.
+
 ### `PlannedReads`
 
 ```python
@@ -506,6 +593,24 @@ async def aclose(self) -> None
 
 End the scope's read units (the scope owner calls it, once).
 
+### `search_index`
+
+```python
+def search_index(
+    name: str,
+    *columns: str,
+    case_insensitive: Iterable[str] = (),
+) -> Index
+```
+
+An index that serves substring search (`column.ilike('%term%')`).
+
+Name each `CaseInsensitiveText` column in `case_insensitive`; a
+search on it compares `cast(column, Text)` to use the index. The index
+is created only on a database whose renderer has one (PostgreSQL: a
+`pg_trgm` GIN index, the extension the generated deploy files create);
+elsewhere the search runs unindexed.
+
 ### `session_reads`
 
 ```python
@@ -526,6 +631,22 @@ SnapshotReads = Annotated[Any, Depends(dependency=<function get_snapshot_reads>,
 ```
 
 *(no docstring)*
+
+### `transaction_lock`
+
+```python
+async def transaction_lock(key: int, *, session: AsyncSession | None = None) -> None
+```
+
+Hold the lock `key` until the transaction of `session` ends:
+
+```python
+await transaction_lock(ADMIN_LOCK_KEY)   # the section runs one at a time
+```
+
+`key` is a signed 64-bit integer the module chooses and keeps stable; the
+commit or the rollback releases it. `session` defaults to `db`. A
+database without such a lock refuses (SANDLOOM-R015).
 
 ### `UowReads`
 

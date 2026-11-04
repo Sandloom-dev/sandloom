@@ -14,11 +14,11 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, text
-from sqlalchemy.dialects.postgresql import CITEXT, UUID
+from sqlalchemy import DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
+from sandloom.sdk.data import CaseInsensitiveText, partial_index
 
 INVITATION_TTL_DAYS = 14
 
@@ -43,31 +43,31 @@ class OrganizationInvitation(Base):
     __tablename__ = "tenancy_invitations"
     __table_args__ = (
         # At most ONE open (not accepted, not revoked) invitation per org+email.
-        # ``email`` is CITEXT, so the uniqueness is case-insensitive. Expiry is
+        # ``email`` is CaseInsensitiveText, so the uniqueness ignores case. Expiry is
         # not in the predicate (now() is not immutable): creating a new
         # invitation first supersedes (revokes) the expired open ones.
-        Index(
+        partial_index(
             "uq_tenancy_invitations_open_email",
             "organization_id",
             "email",
             unique=True,
-            postgresql_where=text("accepted_at IS NULL AND revoked_at IS NULL"),
+            where="accepted_at IS NULL AND revoked_at IS NULL",
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("tenancy_organizations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    email: Mapped[str] = mapped_column(CITEXT, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(CaseInsensitiveText, nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="member")
     token_hash: Mapped[str] = mapped_column(
         String(64), unique=True, nullable=False, index=True
     )
-    invited_by: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    invited_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=default_expiry

@@ -7,8 +7,7 @@ referenced by plain UUID — no cross-module foreign keys into tenancy/identity
 
 import uuid
 
-from sqlalchemy import Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -31,9 +30,9 @@ class Ticket(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
-    organization_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
-    created_by: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    organization_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")

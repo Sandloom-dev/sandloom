@@ -84,8 +84,8 @@ class UserService:
             search_filter = f"%{escaped}%"
             query = query.where(
                 (User.full_name.ilike(search_filter, escape="\\"))
-                # ``email::text``: the same case-insensitive match as citext's
-                # ILIKE, but servable by ix_users_search_trgm (pg_trgm).
+                # The email as text: ILIKE already ignores case, and the text
+                # form is what ix_users_search_trgm indexes.
                 | (cast(User.email, Text).ilike(search_filter, escape="\\"))
                 | (User.username.ilike(search_filter, escape="\\"))
             )

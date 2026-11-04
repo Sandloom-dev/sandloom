@@ -2,9 +2,10 @@
 
 Expose only the SQLAlchemy Declarative Base type for model definitions, the
 ``TenantScoped`` mixin, the id default and timestamp columns (``new_id``,
-``CreatedAt``, ``UpdatedAt``), and the PostgreSQL Row-Level Security migration helpers
-(``enable_tenant_rls`` / ``disable_tenant_rls``, for
-module Alembic migrations).
+``CreatedAt``, ``UpdatedAt``), the portable column types, indexes and
+statements (``sandloom.core.sql_alchemy.portable``), and the PostgreSQL
+Row-Level Security migration helpers (``enable_tenant_rls`` /
+``disable_tenant_rls``, for module Alembic migrations).
 Internals (engine, sessions, etc.) remain hidden behind DI/facade.
 """
 
@@ -26,6 +27,14 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, new_id
 from sandloom.core.sql_alchemy.money_ledger import MoneyLedger
+from sandloom.core.sql_alchemy.portable import (
+    CaseInsensitiveText,
+    ConflictInsert,
+    conflict_insert,
+    partial_index,
+    search_index,
+    transaction_lock,
+)
 from sandloom.core.sql_alchemy.rls import (
     disable_tenant_rls,
     enable_tenant_rls,
@@ -50,6 +59,8 @@ def session_reads(session: Any) -> Reads:
 
 __all__ = [
     "Base",
+    "CaseInsensitiveText",
+    "ConflictInsert",
     "CreatedAt",
     "InvalidCursor",
     "JoinRead",
@@ -61,9 +72,13 @@ __all__ = [
     "Reads",
     "TenantScoped",
     "UpdatedAt",
-    "make_cursor",
-    "new_id",
-    "session_reads",
+    "conflict_insert",
     "disable_tenant_rls",
     "enable_tenant_rls",
+    "make_cursor",
+    "new_id",
+    "partial_index",
+    "search_index",
+    "session_reads",
+    "transaction_lock",
 ]

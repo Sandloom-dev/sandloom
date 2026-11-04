@@ -3,18 +3,22 @@
 ``db()`` is the session of the running unit, ``open_uow()`` opens a unit
 (today ``db_session``), ``MoneyLedger`` names a money ledger's unique
 operation-key column (ADR-0009). All three are the kernel's (H1, WS-A).
+``conflict_insert`` and ``transaction_lock`` run on ``db()`` unless given a
+session (the portable SQL forms, SANDLOOM-C028).
 """
 
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.di import db as _kernel_db
 from sandloom.core.di import db_session
-from sandloom.core.orm import MoneyLedger, Page, TenantScoped
+from sandloom.core.orm import ConflictInsert, MoneyLedger, Page, TenantScoped
+from sandloom.core.orm import conflict_insert as _conflict_insert
+from sandloom.core.orm import transaction_lock as _transaction_lock
 
 
 def db() -> AsyncSession:
@@ -45,3 +49,32 @@ def open_uow(database: str | None = None) -> AbstractAsyncContextManager[AsyncSe
 
 
 __all__ = ["MoneyLedger", "Page", "TenantScoped", "db", "open_uow"]
+
+
+def conflict_insert(
+    table: Any, *, session: AsyncSession | None = None
+) -> ConflictInsert:
+    """``INSERT ... ON CONFLICT`` for ``table`` (a model class or a table)::
+
+        stmt = conflict_insert(Counter).values(key=k, n=1)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[Counter.key], set_={"n": Counter.n + 1}
+        )
+        await db().execute(stmt)
+
+    The database of ``session`` (default: :func:`db`) writes it; one without
+    ``ON CONFLICT`` refuses (SANDLOOM-R015).
+    """
+    return _conflict_insert(table, session=session if session is not None else db())
+
+
+async def transaction_lock(key: int, *, session: AsyncSession | None = None) -> None:
+    """Hold the lock ``key`` until the transaction of ``session`` ends::
+
+        await transaction_lock(ADMIN_LOCK_KEY)   # the section runs one at a time
+
+    ``key`` is a signed 64-bit integer the module chooses and keeps stable; the
+    commit or the rollback releases it. ``session`` defaults to :func:`db`. A
+    database without such a lock refuses (SANDLOOM-R015).
+    """
+    await _transaction_lock(key, session=session if session is not None else db())

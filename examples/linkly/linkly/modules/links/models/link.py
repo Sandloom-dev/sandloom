@@ -7,8 +7,7 @@ plain UUID.
 
 import uuid
 
-from sqlalchemy import BigInteger, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -19,7 +18,7 @@ class Shortlink(Base):
 
     __tablename__ = "links_shortlinks"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     code: Mapped[str] = mapped_column(
         String(16), unique=True, nullable=False, index=True
     )

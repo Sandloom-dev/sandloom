@@ -649,6 +649,119 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
     return violations
 
 
+#: Database dialects: a module asks ``sandloom.sdk.data`` for what a dialect
+#: offers (``CaseInsensitiveText``, ``partial_index``, ``conflict_insert``, ...).
+DIALECT_MODULE = "sqlalchemy.dialects"
+#: SQLAlchemy's built-in dialect names: ``<name>_<option>=`` keyword arguments
+#: (``postgresql_where=``, ``sqlite_where=``) are that database's options.
+DIALECT_NAMES = ("mssql", "mysql", "oracle", "postgresql", "sqlite")
+
+
+def _is_dialect_module(module: str) -> bool:
+    return module == DIALECT_MODULE or module.startswith(DIALECT_MODULE + ".")
+
+
+#: The schema constructs whose ``<dialect>_<option>=`` keywords are dialect
+#: options. Elsewhere such a keyword is an ordinary argument
+#: (``sqlite_path=``, ``postgresql_dsn=``).
+SCHEMA_CALLEES = frozenset(
+    {
+        "Index",
+        "UniqueConstraint",
+        "PrimaryKeyConstraint",
+        "ForeignKeyConstraint",
+        "CheckConstraint",
+        "Table",
+        "Column",
+        "mapped_column",
+        "ForeignKey",
+        "create_index",
+        "create_unique_constraint",
+    }
+)
+_DIALECT_PREFIXES = tuple(f"{d}_" for d in DIALECT_NAMES)
+
+
+def _callee(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _keyword_names(node: ast.Call) -> list[str]:
+    """Keyword names of a call, including the keys of a literal ``**{...}``."""
+    names: list[str] = []
+    for keyword in node.keywords:
+        if keyword.arg is not None:
+            names.append(keyword.arg)
+        elif isinstance(keyword.value, ast.Dict):
+            names.extend(
+                key.value
+                for key in keyword.value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            )
+    return names
+
+
+def _sqlalchemy_aliases(tree: ast.AST) -> set[str]:
+    """Names bound to the ``sqlalchemy`` package (``import sqlalchemy as sa``)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "sqlalchemy" or alias.name.startswith("sqlalchemy."):
+                    names.add(alias.asname or "sqlalchemy")
+    return names
+
+
+def find_dialect_imports(file_path: Path) -> list[str]:
+    """Code that only runs on one database: a ``sqlalchemy.dialects`` import
+    (static, ``from sqlalchemy import dialects``, dynamic), the package reached
+    by attribute (``sa.dialects.postgresql``), or a dialect's own option on a
+    schema construct (``Index(..., postgresql_where=...)``). SQL functions only
+    one database has (``func.array_agg``) are not visible to a static check."""
+    tree = parse_file(file_path)
+    aliases = _sqlalchemy_aliases(tree)
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names = ", ".join(a.name for a in node.names)
+            if _is_dialect_module(node.module) or (
+                node.module == "sqlalchemy"
+                and any(a.name == "dialects" for a in node.names)
+            ):
+                violations.append(
+                    f"Line {node.lineno}: from {node.module} import {names}"
+                )
+        elif isinstance(node, ast.Import):
+            violations.extend(
+                f"Line {node.lineno}: import {alias.name}"
+                for alias in node.names
+                if _is_dialect_module(alias.name)
+            )
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == "dialects"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in aliases
+        ):
+            violations.append(f"Line {node.lineno}: {node.value.id}.dialects")
+        elif isinstance(node, ast.Call) and _callee(node) in SCHEMA_CALLEES:
+            violations.extend(
+                f"Line {node.lineno}: dialect option {name}= "
+                "(use partial_index / search_index)"
+                for name in _keyword_names(node)
+                if name.startswith(_DIALECT_PREFIXES)
+            )
+    for line, name, _text in dynamic_imports(tree):
+        if _is_dialect_module(name):
+            violations.append(f"Line {line}: dynamic import of {name}")
+    return violations
+
+
 # --------------------------------------------------------------------------- #
 # 3b. Kernel handles: no core.event_bus / .infra / .service_registry / state.core
 # --------------------------------------------------------------------------- #

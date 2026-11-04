@@ -3,8 +3,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ForeignKey, Index, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -19,12 +18,12 @@ class RolePermission(Base):
 
     __tablename__ = "role_permissions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
     )
     permission_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False
     )
 
     assigned_at: Mapped[CreatedAt]

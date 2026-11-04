@@ -47,7 +47,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | module | holds |
 |---|---|
 | `sandloom.sdk.web` | `TenantId`, `TenantScope`, `DbSession`, `Database`, `idempotency_guard`, `no_idempotency`, `replay_safe`, `sensitive`, `at_commit`, `operation_intent`, `writes`, `CurrentService`, `rate_limiter` |
-| `sandloom.sdk.data` / `.tenant` | `open_uow`, `UpdatedAt`, `MoneyLedger`, `enable_tenant_rls`, the read planner / `bind_tenant`, `unscoped`, `current_tenant_id`, `tenant_kind` |
+| `sandloom.sdk.data` / `.tenant` | `open_uow`, `UpdatedAt`, `MoneyLedger`, `enable_tenant_rls`, the read planner, the portable SQL forms (`CaseInsensitiveText`, `partial_index`, `search_index`, `conflict_insert`, `transaction_lock`; C028) / `bind_tenant`, `unscoped`, `current_tenant_id`, `tenant_kind` |
 | `sandloom.sdk.events` / `.effects` | `EventMeta`, `publish_event_versions` (dual-publish) / `before_commit`, `durable_inbox`, `operation_key`, `run_async`, `sensitive_effect` |
 | `sandloom.sdk.contracts` | `ContractRef`, `service`, `contract_method`, the provider runtime |
 | `sandloom.sdk.authz` | `Account`, `Role`, `Perm`, `Feature`, `WithinLimit`, `Not`, `authorize`, access facts |

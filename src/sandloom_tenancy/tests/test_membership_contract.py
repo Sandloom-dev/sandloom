@@ -198,13 +198,14 @@ def test_prebuilt_membership_reads_are_the_inline_sql() -> None:
     import re
     import uuid
 
-    from sqlalchemy import select
-    from sqlalchemy.dialects import postgresql
+    from sqlalchemy import create_mock_engine, select
 
     from sandloom_tenancy.models import Organization, OrganizationMember
     from sandloom_tenancy.services import membership_service as ms
 
-    dialect = postgresql.asyncpg.dialect()  # type: ignore[attr-defined]
+    # The database the module runs on in production, named by URL: no
+    # dialect import (SANDLOOM-C028).
+    dialect = create_mock_engine("postgresql+asyncpg://", lambda *_a: None).dialect
 
     def sql(stmt: object) -> str:
         return re.sub(r"\$\d+(::\w+)?", "?", str(stmt.compile(dialect=dialect)))  # type: ignore[attr-defined]

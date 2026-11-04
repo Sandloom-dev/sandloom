@@ -60,3 +60,33 @@ code. A database driver advertises them as the `write_admission` feature
 refuses (SANDLOOM-B010) a database that hosts request units without
 `write_admission`. Another relational driver must implement these features
 to host request units; a driver conformance suite for them is planned.
+
+## Portable SQL forms
+
+A module writes no SQL dialect ([SANDLOOM-C028](../reference/error-codes.md#sandloom-c028)).
+For the few things a dialect used to give it, `sandloom.sdk.data` has portable forms
+([Module tables](../modules/database/conventions.md#columns-and-statements-on-any-database)).
+Each database's **SQL dialect renderer** writes them in that database's SQL. A
+renderer belongs to the database's driver package. It names itself in the
+`sandloom.sql_dialects` entry-point group under its SQLAlchemy dialect name. The
+`sandloom` package ships the PostgreSQL and SQLite renderers.
+
+| Form | PostgreSQL | SQLite (development and tests) |
+| --- | --- | --- |
+| `CaseInsensitiveText` | `citext` | `VARCHAR COLLATE NOCASE` (ASCII letters only) |
+| `partial_index` | `CREATE INDEX ... WHERE` | `CREATE INDEX ... WHERE` |
+| `search_index` | `pg_trgm` GIN index | not created; the search runs unindexed |
+| `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
+| `transaction_lock` | `pg_advisory_xact_lock` | refuses: SQLite has no such lock |
+
+No form falls back to other SQL. A form the database cannot write refuses with
+[SANDLOOM-R015](../reference/error-codes.md#sandloom-r015), and a configured
+database without a renderer stops startup with
+[SANDLOOM-B024](../reference/error-codes.md#sandloom-b024). Migrations write
+the database's own type (`postgresql.CITEXT()`), since each one is the DDL
+history of one database.
+
+The kernel itself still needs PostgreSQL: row-level security, the outbox and
+idempotency stores, `CreatedAt`'s `clock_timestamp()`, and the projection
+upserts. Identity's claims query uses `array_agg` and `LATERAL`. Until those
+move behind the driver too, run Sandloom on PostgreSQL.

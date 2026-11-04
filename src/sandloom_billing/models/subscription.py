@@ -10,15 +10,14 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     String,
-    text,
+    Uuid,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base
+from sandloom.sdk.data import partial_index
 
 logger = logging.getLogger("sandloom_billing.subscription")
 
@@ -74,17 +73,17 @@ class BillingSubscription(Base):
 
     __tablename__ = "billing_subscriptions"
     __table_args__ = (
-        Index(
+        partial_index(
             "uq_billing_subscriptions_intent_id",
             "intent_id",
             unique=True,
-            postgresql_where=text("intent_id IS NOT NULL"),
+            where="intent_id IS NOT NULL",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -128,7 +127,7 @@ class BillingSubscription(Base):
     #: The checkout intent that authorized this subscription (``origin =
     #: 'intent'``); UNIQUE when set — one intent yields at most one
     #: subscription (ADR-0003 open item 16).
-    intent_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    intent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     @property
     def is_terminal(self) -> bool:

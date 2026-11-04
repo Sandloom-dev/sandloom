@@ -71,11 +71,10 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
-from sandloom.sdk.data import open_uow
+from sandloom.sdk.data import conflict_insert, open_uow
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.web import ResolvedAccount, external_call, release_check
 from sandloom_billing.models import (
@@ -341,7 +340,7 @@ class OperationIntentService:
     ) -> OperationIntent:
         intent_id = uuid4()
         inserted = await db.execute(
-            pg_insert(OperationIntent)
+            conflict_insert(OperationIntent, session=db)
             .values(
                 id=intent_id,
                 operation=operation,

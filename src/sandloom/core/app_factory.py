@@ -77,6 +77,7 @@ from sandloom.core.idempotency.durable import (
     validate_money_guards,
 )
 from sandloom.core.infra.active import set_active_infra
+from sandloom.core.infra.config import InfraConfigError, load_infra_config
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.internal_auth import (
     has_internal_access,
@@ -110,6 +111,7 @@ from sandloom.core.rpc import (
 from sandloom.core.runtime import set_active_core
 from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
+from sandloom.core.sql_alchemy.portable import unrendered_dialect
 
 
 async def _core_health() -> HealthResult:
@@ -159,6 +161,36 @@ class ConfigurationError(SystemExit):
     """
 
 
+def sql_dialect_problem(cfg: Any) -> str | None:
+    """A configured SQL database whose dialect has no SQL dialect renderer.
+
+    Modules write the portable forms of ``sandloom.sdk.data`` and the database's
+    renderer turns them into SQL (SANDLOOM-B024); without one the first table
+    or statement that uses a form would fail, so the process does not start.
+    """
+    try:
+        databases = load_infra_config(cfg).get("database", {})
+    except InfraConfigError:
+        # An invalid INFRA is refused where the infrastructure is built; this
+        # check has nothing to read.
+        return None
+    missing: list[str] = []
+    for name, instance in databases.items():
+        url = instance.options.get("url") or getattr(cfg, "database_url", None)
+        if not url:
+            continue
+        dialect = unrendered_dialect(str(url))
+        if dialect is not None:
+            missing.append(f"{name} ({dialect})")
+    if not missing:
+        return None
+    return (
+        "no SQL dialect renderer for the database(s) "
+        + ", ".join(missing)
+        + " [SANDLOOM-B024]: install the driver package that provides one"
+    )
+
+
 def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[str]:
     """Every startup configuration problem of ``cfg`` (empty = usable).
 
@@ -173,6 +205,8 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
     * the internal-RPC keys, bindings and allowlist
       (``rpc_binding`` / ``rpc_pair_mac`` / ``rpc_identity``
       ``configuration_problem``);
+    * a SQL dialect renderer for every configured database
+      (:func:`sql_dialect_problem`);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
       ``include_profile=False`` (``sandloom doctor`` reports the profile itself).
@@ -183,6 +217,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         rpc_binding.configuration_problem,
         rpc_pair_mac.configuration_problem,
         rpc_identity.configuration_problem,
+        sql_dialect_problem,
     ):
         problem = check(cfg)
         if problem:

@@ -34,6 +34,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            after the auth / TenantScope() they need
     consumed-contracts     get_service literals are declared in consumes=
     db-dependency-scope    Depends(get_db...) carries scope="function"
+    dialect-imports        no sqlalchemy.dialects outside migrations (one
+                           database's types; sandloom.sdk.data is portable)
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

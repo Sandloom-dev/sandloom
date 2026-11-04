@@ -110,6 +110,30 @@ query = sa.select(Note).order_by(Note.created_at.desc(), Note.id.desc())
   order of one process; across processes it follows their clocks.
 - Recipe: `uv run sandloom docs recipe list-order`.
 
+## Columns and statements on any database
+
+The driver in configuration chooses the database, so a module never imports
+`sqlalchemy.dialects`: that fails `sandloom check` with
+[SANDLOOM-C028](../../reference/error-codes.md#sandloom-c028). Migrations are
+exempt, since each one is the DDL history of one database. For what a dialect
+used to give, use the portable form; on PostgreSQL each renders the same SQL.
+
+| For | Use |
+| --- | --- |
+| a UUID column | `sqlalchemy.Uuid` |
+| an email or another value compared without case | `CaseInsensitiveText` |
+| an index over some rows, or unique among them | `partial_index(name, *columns, where=..., unique=...)` |
+| substring search, `column.ilike("%term%")` | `search_index(name, *columns)` |
+| insert unless the row exists, or insert or update | `conflict_insert(Model).on_conflict_do_nothing(...)`, `.on_conflict_do_update(...)` |
+| one transaction at a time through a section | `await transaction_lock(key)` |
+
+All but `Uuid` come from `sandloom.sdk.data`, and the two statements run on
+`db()` unless given `session=`. The database driver writes each form in its
+own SQL, and a database that cannot write one refuses instead of running
+other SQL ([Infrastructure](../../infrastructure/database.md#portable-sql-forms)).
+The check sees imports and dialect options such as `postgresql_where=`, not SQL
+functions only one database has, such as `func.array_agg`.
+
 ## Related reading
 
 - [What a module is](../index.md)

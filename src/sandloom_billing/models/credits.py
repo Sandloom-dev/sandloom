@@ -5,18 +5,17 @@ import uuid
 from sqlalchemy import (
     BigInteger,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt
-from sandloom.sdk.data import MoneyLedger, UpdatedAt
+from sandloom.sdk.data import MoneyLedger, UpdatedAt, partial_index
 
 
 class CreditBalance(Base):
@@ -31,7 +30,7 @@ class CreditBalance(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
@@ -65,7 +64,7 @@ class CreditLedgerEntry(MoneyLedger, Base):
     # No standalone index: the idempotency UNIQUE (customer_id, operation_key)
     # leads with it and serves every per-customer lookup (dropped in 0003).
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -102,17 +101,17 @@ class CreditGrant(Base):
 
     __tablename__ = "billing_credit_grants"
     __table_args__ = (
-        Index(
+        partial_index(
             "uq_billing_credit_grants_payment_intent",
             "psp_payment_intent_id",
             unique=True,
-            postgresql_where=text("psp_payment_intent_id IS NOT NULL"),
+            where="psp_payment_intent_id IS NOT NULL",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

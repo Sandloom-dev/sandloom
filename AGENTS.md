@@ -27,7 +27,7 @@ module may import: `src/sandloom/AGENTS.md`.
 | an `Event` class: versioned channel, wire fields, one producer; same `.vN` only gains optional fields | SANDLOOM-B015, SANDLOOM-T005, C025 |
 | a `@contract` class: stateless, async, wire types; DTOs in its own `schemas`, copied by `sandloom generate` | SANDLOOM-B018, C012, SANDLOOM-T004, SANDLOOM-T007 |
 | an `@on` consumer takes exactly its event; billing atoms state `of=` | SANDLOOM-B016; SANDLOOM-B017, C027 |
-| endpoints in `api`, SQLAlchemy only in `models`/`services`, pure `schemas`; no backend SDK or raw client | `sandloom check` C009–C011, C003, C004 |
+| endpoints in `api`, SQLAlchemy only in `models`/`services`, pure `schemas`; no backend SDK or raw client, no SQL dialect (`sandloom.sdk.data` has the portable forms) | `sandloom check` C009–C011, C003, C004, C028 |
 | the public surface and the beginner tier (kernel work) | SANDLOOM-T008, SANDLOOM-T009, `lint-imports` |
 
 Rules **no check enforces yet** (rows owned through a tenant row, effect dedupe in tasks and commands, `.v2`

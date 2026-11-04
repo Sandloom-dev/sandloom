@@ -39,10 +39,12 @@ import os
 from collections.abc import Iterable, Sequence
 from logging.config import fileConfig
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import Dialect, make_url
+from sqlalchemy.types import TypeDecorator
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import module_name as _module_name
@@ -124,11 +126,15 @@ def run_migrations(  # noqa: C901
             return True
         return table_prefix is not None and name.startswith(table_prefix)
 
+    dialect: Dialect | None = None
+
     def include_object(
         obj: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
     ) -> bool:
         if type_ == "table":
             return _owns(name)
+        if type_ == "index" and not reflected and not _created_on(obj, dialect):
+            return False
         parent = getattr(obj, "table", None)
         if parent is not None:
             return _owns(parent.name)
@@ -145,8 +151,10 @@ def run_migrations(  # noqa: C901
     )
 
     if context.is_offline_mode():
+        dialect = make_url(url).get_dialect()()
         context.configure(
             url=url,
+            render_item=_render_item,
             target_metadata=target_metadata,
             literal_binds=True,
             dialect_opts={"paramstyle": "named"},
@@ -164,8 +172,10 @@ def run_migrations(  # noqa: C901
     )
     try:
         with connectable.connect() as connection:
+            dialect = connection.dialect
             context.configure(
                 connection=connection,
+                render_item=_render_item,
                 target_metadata=target_metadata,
                 include_object=include_object,
                 version_table=version_table,
@@ -203,6 +213,62 @@ def module_package_of(env_file: str | os.PathLike[str]) -> str:
         parts.append(current.name)
         current = current.parent
     return ".".join(reversed(parts))
+
+
+def _created_on(obj: Any, dialect: Dialect | None) -> bool:
+    """Whether ``obj``'s ``ddl_if`` lets ``dialect`` create it.
+
+    Alembic does not read ``ddl_if``; without this, autogenerate would emit an
+    index a database never creates (such as a substring-search index where the
+    database has none).
+    """
+    # Only the indexes of the portable forms (``sandloom.rendered_on`` in their
+    # info): another library's ddl_if callable may need arguments this check
+    # cannot give it.
+    condition = getattr(obj, "_ddl_if", None)
+    info = getattr(obj, "info", None) or {}
+    if condition is None or dialect is None or "sandloom.rendered_on" not in info:
+        return True
+    names = condition.dialect
+    if names is not None:
+        allowed = (names,) if isinstance(names, str) else tuple(names)
+        if dialect.name not in allowed:
+            return False
+    check = condition.callable_
+    return check is None or bool(
+        check(
+            None,
+            obj,
+            None,
+            tables=None,
+            state=None,
+            dialect=dialect,
+            compiler=None,
+            checkfirst=False,
+        )
+    )
+
+
+def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
+    """Write a Sandloom column type as the database's own type.
+
+    A migration is one database's DDL history, so it may name the dialect type
+    (``postgresql.CITEXT()``) and imports it; the Sandloom type itself is a
+    kernel class a migration must not depend on.
+    """
+    if (
+        type_ != "type"
+        or not isinstance(obj, TypeDecorator)
+        or not type(obj).__module__.startswith("sandloom.")
+    ):
+        return False
+    impl = obj.load_dialect_impl(autogen_context.dialect)
+    module = type(impl).__module__
+    if module.startswith("sqlalchemy.dialects."):
+        dialect_module = module.split(".")[2]
+        autogen_context.imports.add(f"from sqlalchemy.dialects import {dialect_module}")
+        return f"{dialect_module}.{impl!r}"
+    return f"sa.{impl!r}"
 
 
 def run_module_migrations(

@@ -100,6 +100,12 @@ sentry = [
 [project.scripts]
 sandloom = "sandloom:main"
 
+# The SQL dialect renderers of the portable forms in sandloom.sdk.data
+# (sandloom.core.sql_alchemy.portable); a database driver package adds its own.
+[project.entry-points."sandloom.sql_dialects"]
+postgresql = "sandloom.core.drivers.sql_dialects:POSTGRESQL"
+sqlite = "sandloom.core.drivers.sql_dialects:SQLITE"
+
 [build-system]
 requires = [
     "hatchling>=1.27",

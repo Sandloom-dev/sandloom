@@ -52,6 +52,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C025`](#sandloom-c025) | `event-view-compat` | check | an event view is incompatible with (or unverified against) its producer, or a view calls .publish() | active |
 | [`SANDLOOM-C026`](#sandloom-c026) | `contract-union-hint` | check | a contract signature uses an ambiguous union (information) | active |
 | [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates billing with of=Account.user() | active |
+| [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -74,6 +75,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
+| [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -89,6 +91,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
+| [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -537,6 +540,25 @@ the combination unless the atom states why (spec §7.3).
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
+### SANDLOOM-C028
+
+**a database dialect (sqlalchemy.dialects) imported in module code**
+
+Slug: `dialect-imports` · kind: check · status: active
+
+**What happened and why it matters**
+
+Business logic is isolated from the infrastructure: the driver chosen in
+configuration decides which database runs a module, not the module. A dialect
+import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
+one database. sandloom.sdk.data offers what modules used dialects for, and on
+PostgreSQL it renders the same SQL, so switching needs no migration.
+Migrations are exempt: a migration is one database's DDL history.
+
+**Fix:** use the portable form: sqlalchemy.Uuid for ids, and from sandloom.sdk.data CaseInsensitiveText, partial_index, search_index, conflict_insert, transaction_lock
+
+**More:** `docs/modules/database/conventions.md`
+
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
 ### SANDLOOM-B001
@@ -907,6 +929,26 @@ reports it.
 
 **More:** `docs/reference/configuration.md`
 
+### SANDLOOM-B024
+
+**a configured SQL database has no SQL dialect renderer**
+
+Slug: `sql-dialect-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Modules write the portable forms of sandloom.sdk.data (CaseInsensitiveText,
+partial_index, search_index, conflict_insert, transaction_lock), and each
+database's SQL dialect renderer turns them into that database's SQL. Renderers
+are found by the SQLAlchemy dialect name in the sandloom.sql_dialects
+entry-point group; the sandloom package ships PostgreSQL and SQLite. Without
+one, the first table or statement that uses a form would fail, so the process
+does not start.
+
+**Fix:** install the driver package that provides the renderer for that database, or point the database at one Sandloom renders (PostgreSQL)
+
+**More:** `docs/infrastructure/database.md`
+
 ### SANDLOOM-B020
 
 **a requested module name has two providers (two installed packages, or an installed package and a local module)**
@@ -1154,6 +1196,24 @@ Usual causes:
   Docker Desktop): `sandloom dev up` checks from the host and recreates it.
 
 **Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs)
+
+### SANDLOOM-R015
+
+**a portable SQL form the database cannot write**
+
+Slug: `sql-form-unsupported` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+A portable form of sandloom.sdk.data refused instead of running other SQL: a
+partial index that cannot be restricted would index every row, and a
+transaction lock that cannot be taken would leave a check-then-act section
+unprotected. SQLite, for development and tests, has no substring-search index
+(the index is skipped) and no transaction lock (transaction_lock refuses).
+
+**Fix:** run the module on a database whose renderer writes the form (PostgreSQL writes all of them), or add the form to the renderer
+
+**More:** `docs/infrastructure/database.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
 

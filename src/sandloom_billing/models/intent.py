@@ -22,17 +22,16 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
+    Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import UpdatedAt
+from sandloom.sdk.data import UpdatedAt, partial_index
 
 INTENT_PENDING = "pending"
 INTENT_ISSUED = "issued"
@@ -57,47 +56,45 @@ class OperationIntent(Base):
         # One LIVE intent per (actor, operation, request Idempotency-Key): a
         # retry of the same request finds it; a revoked / failed one frees the
         # key (its PSP session is dead), so a later retry starts afresh.
-        Index(
+        partial_index(
             "uq_billing_intent_live_request",
             "actor_id",
             "operation",
             "request_key",
             unique=True,
-            postgresql_where=text("status IN ('pending', 'issued')"),
+            where="status IN ('pending', 'issued')",
         ),
         # The periodic reconciler's two selections (IntentReconciler): stale
         # pending intents, and revoked checkouts whose session expire failed.
         # Both rows are rare and transient, so the partial indexes stay tiny
         # while the table grows with every checkout / portal session.
-        Index(
+        partial_index(
             "ix_billing_intents_pending_created",
             "created_at",
-            postgresql_where=text("status = 'pending'"),
+            where="status = 'pending'",
         ),
-        Index(
+        partial_index(
             "ix_billing_intents_owed_expiry",
             "created_at",
-            postgresql_where=text(
-                "status = 'revoked' AND operation = 'checkout' "
-                "AND psp_expired_at IS NULL AND reconcile_attempts > 0"
-            ),
+            where="status = 'revoked' AND operation = 'checkout' "
+            "AND psp_expired_at IS NULL AND reconcile_attempts > 0",
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     #: ``user`` | ``organization`` and its id (the billing tenant).
     tenant_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     #: The user who was authorized (references identity by plain UUID).
-    actor_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     #: sha256 of the request's Idempotency-Key (NULL: no key, never reused).
     request_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: sha256 of the operation's parameters (tenant, price).

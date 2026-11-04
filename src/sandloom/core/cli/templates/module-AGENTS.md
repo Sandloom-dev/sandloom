@@ -79,8 +79,8 @@ To talk to another module:
 7. **Billing atoms name their account:** `Subscribed(of=Account.user())`,
    `Credits(1, of=Account.org(param="org_id"))` (SANDLOOM-B017). An organization
    route gating with `of=Account.user()` needs `reason=` (C027).
-8. **No backend SDK or raw client:** `cache()`, `notifier()` (`sandloom.sdk.infra`),
-   `Database(name)` (C003, C004). `sandloom.driverkit` and drivers are not for modules.
+8. **No backend SDK, raw client or SQL dialect:** `cache()`, `notifier()`, `Database(name)` (C003, C004);
+   `Uuid` and `sandloom.sdk.data`'s portable forms outside `migrations/` (C028). No `sandloom.driverkit`.
 
 ## Rules no check enforces yet (get these right yourself)
 

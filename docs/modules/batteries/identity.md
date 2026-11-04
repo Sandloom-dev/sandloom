@@ -202,6 +202,10 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
 ## Capabilities & configuration
 
 - **Requires:** `database`, `cache`, `eventbus`. Descriptor: `required=True`.
+  The database must be PostgreSQL: role administration serialises on
+  `transaction_lock`, which SQLite refuses
+  ([SANDLOOM-R015](../../reference/error-codes.md#sandloom-r015)), and the claims
+  query uses `array_agg`.
 - **Auth tokens** must carry `token_type: "access"` (guards reject otherwise).
 - `TWOFA_ENCRYPTION_KEY` — key(s) encrypting TOTP secrets at rest
   (comma-separated, newest first, for rotation). **Required with

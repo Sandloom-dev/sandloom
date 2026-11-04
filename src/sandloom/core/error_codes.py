@@ -519,6 +519,24 @@ or credits almost always meant the organization's account. The check refuses
 the combination unless the atom states why (spec §7.3).
 """,
     ),
+    _entry(
+        "SANDLOOM-C028",
+        "dialect-imports",
+        "check",
+        "a database dialect (sqlalchemy.dialects) imported in module code",
+        "use the portable form: sqlalchemy.Uuid for ids, and from "
+        "sandloom.sdk.data CaseInsensitiveText, partial_index, search_index, "
+        "conflict_insert, transaction_lock",
+        """
+Business logic is isolated from the infrastructure: the driver chosen in
+configuration decides which database runs a module, not the module. A dialect
+import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
+one database. sandloom.sdk.data offers what modules used dialects for, and on
+PostgreSQL it renders the same SQL, so switching needs no migration.
+Migrations are exempt: a migration is one database's DDL history.
+""",
+        docs="docs/modules/database/conventions.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",
@@ -855,6 +873,24 @@ reports it.
         docs="docs/reference/configuration.md",
     ),
     _entry(
+        "SANDLOOM-B024",
+        "sql-dialect-missing",
+        "boot",
+        "a configured SQL database has no SQL dialect renderer",
+        "install the driver package that provides the renderer for that "
+        "database, or point the database at one Sandloom renders (PostgreSQL)",
+        """
+Modules write the portable forms of sandloom.sdk.data (CaseInsensitiveText,
+partial_index, search_index, conflict_insert, transaction_lock), and each
+database's SQL dialect renderer turns them into that database's SQL. Renderers
+are found by the SQLAlchemy dialect name in the sandloom.sql_dialects
+entry-point group; the sandloom package ships PostgreSQL and SQLite. Without
+one, the first table or statement that uses a form would fail, so the process
+does not start.
+""",
+        docs="docs/infrastructure/database.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -1066,6 +1102,22 @@ Usual causes:
 - the container runs but its port is not published to the host (seen with
   Docker Desktop): `sandloom dev up` checks from the host and recreates it.
 """,
+    ),
+    _entry(
+        "SANDLOOM-R015",
+        "sql-form-unsupported",
+        "runtime",
+        "a portable SQL form the database cannot write",
+        "run the module on a database whose renderer writes the form "
+        "(PostgreSQL writes all of them), or add the form to the renderer",
+        """
+A portable form of sandloom.sdk.data refused instead of running other SQL: a
+partial index that cannot be restricted would index every row, and a
+transaction lock that cannot be taken would leave a check-then-act section
+unprotected. SQLite, for development and tests, has no substring-search index
+(the index is skipped) and no transaction lock (transaction_lock refuses).
+""",
+        docs="docs/infrastructure/database.md",
     ),
     # ------------------------------------------------------- tests/snapshots
     _entry(

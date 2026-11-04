@@ -91,6 +91,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "guard-order",
     "consumed-contracts",
     "db-dependency-scope",
+    "dialect-imports",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -506,6 +507,12 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
         "infra-imports": lambda p: (
             az.find_legacy_infra_imports(p)
             + driver_import_violations(p, rules, drivers)
+        ),
+        # A migration is one database's DDL history: dialect types belong there.
+        "dialect-imports": lambda p: (
+            []
+            if "migrations" in p.relative_to(rules.modules_path / module).parts
+            else az.find_dialect_imports(p)
         ),
         "kernel-handles": az.find_kernel_handle_access,
         "uow-boundary": az.find_uow_boundary_breaks,

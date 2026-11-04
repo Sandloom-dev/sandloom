@@ -79,6 +79,7 @@ def test_rule_ids_are_stable() -> None:
         "guard-order",
         "consumed-contracts",
         "db-dependency-scope",
+        "dialect-imports",  # infra-agnostic: no database dialect in a module
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.

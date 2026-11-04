@@ -4,12 +4,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Index, String, false, text
-from sqlalchemy.dialects.postgresql import CITEXT, UUID
+from sqlalchemy import Boolean, DateTime, Index, String, Uuid, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import UpdatedAt
+from sandloom.sdk.data import CaseInsensitiveText, UpdatedAt, search_index
 
 if TYPE_CHECKING:
     from .external_identity import ExternalIdentity
@@ -25,8 +24,10 @@ class User(Base):
     __tablename__ = "users"
 
     # Primary identification
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
-    email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(
+        CaseInsensitiveText, unique=True, nullable=False, index=True
+    )
     username: Mapped[str | None] = mapped_column(
         String(50), unique=True, nullable=True, index=True
     )
@@ -89,14 +90,14 @@ class User(Base):
         Index("ix_users_created_at", "created_at"),
         Index("ix_users_last_login_at", "last_login_at"),
         # Admin user search (``UserService.list_users``): substring ILIKE on
-        # these three columns. pg_trgm GIN serves ``%term%`` for terms of 3+
-        # characters; the email is indexed (and searched) as text because a
-        # text opclass cannot serve citext's own ILIKE operator.
-        Index(
+        # these three columns, indexed where the database has such an index
+        # (PostgreSQL: pg_trgm GIN, for terms of 3+ characters). The
+        # case-insensitive email is indexed (and searched) as text.
+        search_index(
             "ix_users_search_trgm",
-            text("full_name gin_trgm_ops"),
-            text("(email::text) gin_trgm_ops"),
-            text("username gin_trgm_ops"),
-            postgresql_using="gin",
+            "full_name",
+            "email",
+            "username",
+            case_insensitive=["email"],
         ),
     )
