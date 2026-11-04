@@ -395,7 +395,8 @@ checkout (`LingeringQueuePool`, probe `pool_fast_checkout`; fallback: SQLAlchemy
 `sandloom.core.sql_alchemy.driver_compat`
 probes those internals once per process (names, kinds, and an I/O-free
 self-test against asyncpg's real `Transaction` and an in-memory SQLAlchemy
-`Session`). If anything changed, the process logs ONE warning
+`Session`). The asyncpg probes belong to its DBAPI adapter,
+`sandloom.core.drivers.dbapi_asyncpg`. If anything changed, the process logs ONE warning
 (`event=db.driver_fast_path_disabled`), increments
 `sandloom_db_driver_fast_path_disabled_total{probe=...}` and uses the plain path
 (separate `BEGIN` + `set_config`; a normal transactional mark-delivered).

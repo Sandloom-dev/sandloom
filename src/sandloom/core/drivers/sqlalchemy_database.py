@@ -42,6 +42,7 @@ import sandloom.core.sql_alchemy.planner_adapter as _planner_adapter
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG
 from sandloom.core.drivers.linger_pool import LingeringQueuePool
 from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
@@ -53,6 +54,14 @@ from sandloom.core.infra.contracts import (
     RequestLogStore,
 )
 from sandloom.core.sql_alchemy.command_log import sql_alchemy_command_log_store
+from sandloom.core.sql_alchemy.dbapi import (
+    CONNECTION_RECOVERY,
+    DbapiAdapter,
+    dbapi_adapter,
+    dbapi_adapter_of,
+    dbapi_of_url,
+    register_shipped_dbapi_adapter,
+)
 from sandloom.core.sql_alchemy.dead_connection import install_dead_connection_handling
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,
@@ -409,12 +418,13 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         # Readiness must not queue behind saturated application requests.
         # NullPool bounds this probe to one short-lived connection, separate
         # from both request and contract pool capacity.
-        connect_args: dict[str, object] = {}
-        if self._engine.url.drivername == "postgresql+asyncpg":
-            connect_args["timeout"] = min(
+        connect_args = dbapi_adapter_of(self._engine).connect_args(
+            connect_timeout=min(
                 settings.db_connect_timeout_seconds,
                 settings.health_check_timeout_seconds,
-            )
+            ),
+            server_settings={},
+        )
         engine = create_async_engine(
             self._engine.url, poolclass=NullPool, connect_args=connect_args
         )
@@ -457,25 +467,30 @@ logger = logging.getLogger(__name__)
 _LAST_USED_KEY = "sandloom_last_used"
 
 
-def _is_asyncpg(url: str) -> bool:
-    return url.startswith("postgresql+asyncpg")
+#: The DBAPI adapters this driver ships (``design/infra-agnostic/spec.md``,
+#: "Where driver code lives"); registered before any engine is built. Any
+#: other DBAPI (aiosqlite, psycopg) gets the plain path. A driver package's
+#: adapter registered first for the same DBAPI is kept.
+for _adapter in (ASYNCPG,):
+    register_shipped_dbapi_adapter(_adapter)
+
+
+def _dbapi(url: str) -> DbapiAdapter:
+    """The DBAPI adapter of ``url`` (``postgresql+asyncpg`` -> asyncpg's)."""
+    return dbapi_adapter(dbapi_of_url(url))
 
 
 def _server_settings(
     url: str, extra: Mapping[str, str] | None = None
 ) -> dict[str, str]:
-    """PostgreSQL GUCs sent in the startup packet (zero extra round trips)."""
-    if not _is_asyncpg(url):
-        return {}
-    values: dict[str, str] = {}
-    if settings.db_statement_timeout_ms:
-        values["statement_timeout"] = str(settings.db_statement_timeout_ms)
-    if settings.db_idle_in_tx_timeout_ms:
-        values["idle_in_transaction_session_timeout"] = str(
-            settings.db_idle_in_tx_timeout_ms
-        )
-    values.update(extra or {})
-    return values
+    """The server settings (statement and idle-in-transaction timeouts) the
+    DBAPI sends when a connection opens (zero extra round trips); empty where
+    it cannot."""
+    return _dbapi(url).server_settings(
+        statement_timeout_ms=settings.db_statement_timeout_ms,
+        idle_in_transaction_timeout_ms=settings.db_idle_in_tx_timeout_ms,
+        extra=extra,
+    )
 
 
 def _ping(dbapi_connection: Any, dialect: Any) -> None:
@@ -548,7 +563,7 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
     if ping:
         event.listen(sync_engine, "connect", _fresh)
         event.listen(sync_engine, "checkin", _stamp)
-    if ping or dialect.driver == "asyncpg":
+    if ping or CONNECTION_RECOVERY in dbapi_adapter_of(dialect).capabilities:
         event.listen(sync_engine, "checkout", _checkout)
 
 
@@ -576,12 +591,10 @@ def _pooled_engine(
     ``DB_POOL_OVERFLOW_LINGER_SECONDS`` instead of churning connect/close while
     load hovers above ``pool_size``.
     """
-    connect_args: dict[str, object] = {}
-    if _is_asyncpg(url):
-        connect_args["timeout"] = settings.db_connect_timeout_seconds
-    guc = _server_settings(url, server_settings)
-    if guc:
-        connect_args["server_settings"] = guc
+    connect_args = _dbapi(url).connect_args(
+        connect_timeout=settings.db_connect_timeout_seconds,
+        server_settings=_server_settings(url, server_settings),
+    )
     pool_kw: dict[str, Any] = {}
     if not url.startswith("sqlite"):
         # SQLite keeps the dialect's own pool choice (StaticPool for :memory:).
@@ -609,12 +622,12 @@ def _pooled_engine(
         cap=settings.db_reconnect_max_seconds,
         wait_timeout=settings.db_pool_timeout,
     )
-    if engine.dialect.driver == "asyncpg":
+    dbapi = dbapi_adapter_of(engine)
+    if dbapi.capabilities:
         # Verify (once per process) the private driver internals the round-trip
         # fast paths use; a mismatch warns + counts and they fall back.
-        _driver_compat.asyncpg_fast_paths_ok()
+        dbapi.verify()
         _driver_compat.session_connections_ok()
-        _driver_compat.dead_connection_retry_ok()
     # BEFORE the other dialect wrappers (read-only policy here, tenant_rls by the
     # caller): they run outside it and it only ever retries the statement.
     install_dead_connection_handling(engine)
@@ -853,9 +866,10 @@ def get_system_engine(name: str = DEFAULT_INSTANCE) -> AsyncEngine:
             pool_size=2,
             max_overflow=2,
             pool_timeout=settings.db_pool_timeout,
-            connect_args={"timeout": settings.db_connect_timeout_seconds}
-            if _is_asyncpg(url)
-            else {},
+            connect_args=_dbapi(url).connect_args(
+                connect_timeout=settings.db_connect_timeout_seconds,
+                server_settings={},
+            ),
         )
         install_reconnect_backoff(
             engine,

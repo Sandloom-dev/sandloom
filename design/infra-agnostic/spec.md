@@ -274,6 +274,16 @@ The re-check found v2 ready for slice 1. These gaps must close before slice 8a.
 
 **Done for this spec** means the ratchet allowlist is empty except the ops tools.
 
+## Slice 7b, as built
+
+- **The seam.** `core/sql_alchemy/dbapi.py` holds `DbapiAdapter` (contract 1; the base class is the plain path) and its registry, chosen by `dialect.driver`. `core/drivers/dbapi_asyncpg.py` holds asyncpg's adapter.
+- **What moved there.** `driver_compat`'s asyncpg probes, `begin_sql` and `adopt_started_transaction`. The asyncpg parts of `dead_connection`. The merged row-security `BEGIN` from `tenant_rls`. The 53300 check from `reconnect`. The connect arguments and server timeouts. The raw executor's `citext` rule from `planner_safety`.
+- **What the adapter decides.** The gates of the read-only policy, the planner's raw executor, connection recovery and reconnect backoff. `merged_begin`, `raw_executor` and `connection_recovery` are kernel-only; a driver package may claim `read_only_policy` and `reconnect_backoff` (B025).
+- **One BEGIN source.** The merged `BEGIN` of the units the kernel opens is the renderer's `begin_statement`.
+- **25P02** is the renderer's `transaction_aborted` kind.
+- **B031** refuses `DB_READ_ONLY_SESSIONS` without `readonly_transactions` or a client policy.
+- **Still duck-typing asyncpg, adapter candidates for 8a:** `_checkout` (`raw.is_closed()`) and `_ping` (`SELECT 1` on the raw connection) in `core/drivers/sqlalchemy_database.py`, and the raw executor's `fetchrow` / `$n` calls in the planner adapter.
+
 ## Naive and aware timestamps (from the slice 5 review), for slice 8a
 
 - **Every module-facing `DateTime(timezone=True)` moves to `UtcDateTime`.** This includes the projection generator's `deleted_at`, billing's `*_at` columns, tenancy's `expires_at` and identity's token expiries. On PostgreSQL the DDL is the same, so no migration is needed.

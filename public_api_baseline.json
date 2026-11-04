@@ -2325,6 +2325,28 @@
       ],
       "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
     },
+    "DBAPI_CAPABILITIES": {
+      "kind": "value"
+    },
+    "DbapiAdapter": {
+      "kind": "class",
+      "members": [
+        "capabilities",
+        "connect_args",
+        "connection_lost",
+        "contract_version",
+        "merged_begin",
+        "name",
+        "never_sent",
+        "raw_result_only_types",
+        "recoverable",
+        "recovery_supported",
+        "refuses_connections",
+        "server_settings",
+        "verify"
+      ],
+      "signature": "()"
+    },
     "HealthResult": {
       "kind": "class",
       "members": [
@@ -2414,6 +2436,10 @@
     },
     "TENANT_SETTING": {
       "kind": "value"
+    },
+    "register_dbapi_adapter": {
+      "kind": "function",
+      "signature": "(adapter:POSITIONAL_OR_KEYWORD|DbapiAdapter) -> None"
     }
   },
   "sandloom.sdk": {

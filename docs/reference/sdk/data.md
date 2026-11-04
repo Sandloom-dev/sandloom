@@ -240,9 +240,9 @@ With `DB_READ_ONLY_SESSIONS=true` statements run in a server-enforced
 read-only transaction where the database has `readonly_transactions`.
 The client policy also refuses writes, flushes, locking reads and raw
 statements before sending them. The database remains the backstop for
-SELECT functions with side effects. Without `readonly_transactions`
-(SQLite) nothing refuses on the server, and the client policy is
-installed on asyncpg only. Off (default): exactly `get_db`.
+SELECT functions with side effects. A database without
+`readonly_transactions` needs the DBAPI's client policy, else startup
+refuses the setting (SANDLOOM-B031). Off (default): exactly `get_db`.
 
 ### `get_snapshot_reads`
 

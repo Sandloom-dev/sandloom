@@ -54,30 +54,18 @@ statement, ORM eager loads included; cached per compiled form). Raw SQL
 logged + counted and the tenant setting is synced anyway (fail-safe).
 
 Merged BEGIN (``DB_RLS_MERGED_BEGIN``, default ON; kill switch
-``DB_RLS_MERGED_BEGIN=false``; asyncpg only): normally the first statement of
-a transaction costs two round trips before it runs — asyncpg's ``BEGIN``
-(sent lazily by SQLAlchemy's adapter) and the ``set_config``. With the
-option, when that first statement finds the adapter with no transaction yet,
-the hook sends ONE simple-query message
-(PostgreSQL's simple protocol runs the statements in order and answers with
-one ReadyForQuery)::
-    BEGIN [ISOLATION LEVEL …] [READ ONLY] [DEFERRABLE];
-    SELECT set_config('sandloom.tenant_id', '<canonical uuid or empty>', true)
-
-The tenant is a LITERAL here (the simple protocol has no parameters); it is
-only ever ``str(uuid.UUID(...))`` — hex digits and dashes — or ``''``. The
-BEGIN text is built exactly as asyncpg's ``Transaction.start`` builds it for
-the adapter's isolation / readonly / deferrable. After the reply the hook
-gives the adapter what ``_start_transaction`` would have: a started asyncpg
-``Transaction`` registered as the connection's top transaction, so
-SQLAlchemy's COMMIT / ROLLBACK / savepoints proceed unchanged. Any failure or
-cancellation while that message is in flight TERMINATES the driver
-connection (the server aborts the transaction, the GUC dies with it) and the
-error reaches SQLAlchemy as a disconnect, which invalidates the pooled
-connection — a connection whose transaction state is unknown is never pooled.
+``DB_RLS_MERGED_BEGIN=false``; where the DBAPI adapter supports it): normally
+the first statement of a transaction costs two round trips before it runs —
+the DBAPI's ``BEGIN`` (sent lazily by SQLAlchemy's adapter) and the
+``set_config``. The DBAPI adapter's
+:meth:`~sandloom.core.sql_alchemy.dbapi.DbapiAdapter.merged_begin` sends both
+in ONE message instead, its ``BEGIN`` text the renderer's ``begin_statement``
+(the planner's, so the two cannot drift) and the binding the renderer's
+``begin_and_bind`` (asyncpg's: :mod:`sandloom.core.drivers.dbapi_asyncpg`).
+The tenant is a LITERAL there (the simple protocol has no parameters); it is
+only ever ``str(uuid.UUID(...))`` — hex digits and dashes — or ``''``.
 Nothing is merged when the adapter already has a transaction, in autocommit,
-on a non-asyncpg driver, or when the driver-internals probe
-(:mod:`sandloom.core.sql_alchemy.driver_compat`) finds the private asyncpg /
+on a DBAPI without the fast path, or when its probe finds the private DBAPI /
 SQLAlchemy state it relies on changed — then the plain path (separate BEGIN +
 ``set_config``) is used, with one warning and a metric.
 
@@ -112,20 +100,16 @@ from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.sql.expression import RollbackToSavepointClause
 from sqlalchemy.sql.selectable import TableClause
-from sqlalchemy.util.concurrency import await_
 
 import sandloom.core.observability.metrics as _metrics
 from sandloom.core.config.settings import settings
-from sandloom.core.sql_alchemy.dead_connection import (
-    never_sent,
-    recoverable,
-    replace_connection,
+from sandloom.core.sql_alchemy.dbapi import (
+    PLAIN_DBAPI,
+    DbapiAdapter,
+    MergedBegin,
+    dbapi_adapter_of,
 )
-from sandloom.core.sql_alchemy.driver_compat import (
-    adopt_started_transaction,
-    asyncpg_fast_paths_ok,
-    begin_sql,
-)
+from sandloom.core.sql_alchemy.dead_connection import replace_connection
 from sandloom.core.sql_alchemy.portable import (
     RowSecurity,
     UnsupportedSqlForm,
@@ -304,12 +288,21 @@ def _warn_unscoped_without_tenant(conn: Any, info: dict[str, Any]) -> None:
 
 class _Binding:
     """The renderer's tenant binding for one engine, built once at install:
-    the parameterised statement in the driver's paramstyle, and the row
-    security that writes the merged ``BEGIN`` text."""
+    the parameterised statement in the driver's paramstyle, the row security,
+    the engine's DBAPI adapter and its merged ``BEGIN`` (``None``: plain)."""
 
-    __slots__ = ("named", "security", "sql")
+    __slots__ = ("dbapi", "merge", "named", "security", "sql")
 
-    def __init__(self, security: RowSecurity, paramstyle: str) -> None:
+    def __init__(
+        self,
+        security: RowSecurity,
+        paramstyle: str,
+        *,
+        dbapi: DbapiAdapter = PLAIN_DBAPI,
+        merge: MergedBegin | None = None,
+    ) -> None:
+        self.dbapi = dbapi
+        self.merge = merge
         # A bound parameter (not an inlined literal) keeps ONE prepared
         # statement per connection instead of one per tenant id.
         if paramstyle == "pyformat":
@@ -326,82 +319,6 @@ class _Binding:
             self.named = False
         self.sql = security.bind_statement(mark)
         self.security = security
-
-
-def _merged_begin_sql(adapter: Any, value: str, binding: _Binding) -> str:
-    """``BEGIN …;`` exactly as asyncpg's ``Transaction.start`` builds it for the
-    adapter's settings, followed by the tenant binding (literal), in the
-    renderer's words."""
-    if value:
-        value = str(uuid.UUID(value))  # canonical: hex digits and dashes only
-    begin = begin_sql(adapter.isolation_level, adapter.readonly, adapter.deferrable)
-    return binding.security.begin_and_bind(begin, value)
-
-
-async def _merged_begin(adapter: Any, value: str, binding: _Binding) -> bool:
-    """Open the adapter's transaction AND set the tenant in one message.
-
-    Returns False (nothing sent) when the adapter already has a transaction.
-    """
-    async with adapter._execute_mutex:
-        if adapter._transaction is not None:
-            return False
-        con = adapter._connection
-        if con._top_xact is not None or con._protocol.is_in_transaction():
-            # the same refusal as asyncpg's Transaction.start
-            raise RuntimeError("tenant_rls: connection already inside a transaction")
-        transaction = con.transaction(
-            isolation=adapter.isolation_level,
-            readonly=adapter.readonly,
-            deferrable=adapter.deferrable,
-        )
-        sql = _merged_begin_sql(adapter, value, binding)
-        try:
-            await con.execute(sql)  # no args → simple-query protocol
-        except BaseException:
-            # Transaction state on the server is unknown (BEGIN may have run,
-            # the SELECT may have failed or been cancelled mid-flight): never
-            # pool this connection. Terminating aborts any server transaction;
-            # SQLAlchemy then sees a closed connection → disconnect → invalidate.
-            con.terminate()
-            raise
-        adopt_started_transaction(adapter, con, transaction)
-        return True
-
-
-def _try_merged_begin(
-    context: Any, conn: Any, value: str, binding: _Binding
-) -> bool | None:
-    """True: merged; False: not applicable (plain path); None: merged, after
-    replacing a connection that was found dead (``context.cursor`` is new)."""
-    adapter = getattr(conn.connection, "dbapi_connection", None)
-    if (
-        adapter is None
-        or getattr(adapter, "_transaction", "missing") is not None
-        or getattr(adapter, "isolation_level", "autocommit") == "autocommit"
-        or not hasattr(adapter, "_execute_mutex")
-    ):
-        return False
-    try:
-        return await_(_merged_begin(adapter, value, binding))
-    except Exception as error:
-        # The merged message IS the transaction's BEGIN: when asyncpg refused
-        # it before writing a byte (the connection died while idle), the
-        # connection is replaced and the message sent on the new one
-        # (``sandloom.core.sql_alchemy.dead_connection``). Once sent: never.
-        if not (
-            never_sent(error) and replace_connection(context, error, "merged_begin")
-        ):
-            # translated to the DBAPI error SQLAlchemy expects
-            adapter._handle_exception(error)
-            raise  # pragma: no cover - _handle_exception always raises
-    adapter = conn.connection.dbapi_connection
-    try:
-        await_(_merged_begin(adapter, value, binding))
-    except Exception as error:
-        adapter._handle_exception(error)
-        raise  # pragma: no cover - _handle_exception always raises
-    return None
 
 
 def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
@@ -434,7 +351,7 @@ def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
     value = str(uuid.UUID(str(tenant))) if tenant is not None else ""
     binding: _Binding = getattr(conn.dialect, _BINDING_ATTR)
     if merged_begin:
-        merged = _try_merged_begin(context, conn, value, binding)
+        merged = binding.merge(context, conn, value)  # type: ignore[misc]
         if merged is not False:
             _info(conn.connection)[_STATE_KEY] = tenant
             return merged is None
@@ -446,11 +363,13 @@ def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
     try:
         raw.execute(sql, params)
     except Exception as error:
-        # asyncpg refused the transaction's lazy BEGIN before writing a byte
-        # (the connection died while idle): replace it, send again on the new.
+        # The DBAPI refused the transaction's lazy BEGIN before writing a
+        # byte (the connection died while idle): replace it, send again on
+        # the new one.
+        dbapi = binding.dbapi
         if not (
-            recoverable(conn.connection.dbapi_connection, error)
-            and replace_connection(context, error, "tenant_sync")
+            dbapi.recoverable(conn.connection.dbapi_connection, error)
+            and replace_connection(context, error, "tenant_sync", dbapi)
         ):
             raise
         replaced = True
@@ -599,7 +518,8 @@ def install_tenant_rls(
     ``system=True`` marks a system-channel engine (its sessions run inside
     ``unscoped()`` by design, so the misuse warning is suppressed).
     ``merged_begin`` (default: ``DB_RLS_MERGED_BEGIN``, on) enables the
-    one-message ``BEGIN; set_config`` on asyncpg (see the module docstring).
+    one-message ``BEGIN; set_config`` where the engine's DBAPI adapter has it
+    (see the module docstring).
     """
     if merged_begin is None:
         merged_begin = settings.db_rls_merged_begin
@@ -621,12 +541,22 @@ def install_tenant_rls(
     # from the dialect, never from the renderer registry per statement. Built
     # at install, per engine: a renderer re-registered later (tests only) is
     # not picked up by an engine already installed.
-    setattr(dialect, _BINDING_ATTR, _Binding(security, dialect.paramstyle))
-    # The probe runs once per process; on changed driver internals it warns,
-    # counts and leaves the plain (separate BEGIN + set_config) path.
-    merged = (
-        bool(merged_begin) and dialect.driver == "asyncpg" and asyncpg_fast_paths_ok()
+    # The DBAPI adapter's probe runs once per process; on changed driver
+    # internals it warns, counts and leaves the plain (separate BEGIN +
+    # set_config) path. The BEGIN texts are the renderer's.
+    dbapi = dbapi_adapter_of(dialect)
+    renderer = sql_dialect(dialect.name)
+    merge = (
+        dbapi.merged_begin(security, renderer)
+        if merged_begin and renderer is not None
+        else None
     )
+    setattr(
+        dialect,
+        _BINDING_ATTR,
+        _Binding(security, dialect.paramstyle, dbapi=dbapi, merge=merge),
+    )
+    merged = merge is not None
     dialect.do_execute = _wrap_execute(dialect.do_execute, merged)  # type: ignore[method-assign]
     # executemany has the same (cursor, statement, parameters, context) shape.
     dialect.do_executemany = _wrap_execute(dialect.do_executemany, merged)  # type: ignore[method-assign]

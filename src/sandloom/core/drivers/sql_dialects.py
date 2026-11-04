@@ -74,6 +74,7 @@ def _causes(exc: BaseException) -> list[BaseException]:
 #: PostgreSQL SQLSTATE codes and what they mean to the kernel.
 _PG_SQLSTATES: dict[str, ErrorKind] = {
     "23505": "unique_violation",
+    "25P02": "transaction_aborted",
     "40001": "serialization_failure",
     "40P01": "deadlock",
     "55P03": "lock_not_available",
@@ -81,6 +82,13 @@ _PG_SQLSTATES: dict[str, ErrorKind] = {
     "57P02": "connection_lost",
     "57P03": "connection_lost",
 }
+
+
+def pg_connection_lost(code: str) -> bool:
+    """True for a PostgreSQL SQLSTATE meaning the session is gone: class 08
+    or an admin / crash shutdown (57P01-57P03). Shared with the asyncpg
+    adapter, which reads the code off the driver's own error."""
+    return _PG_SQLSTATES.get(code) == "connection_lost" or code.startswith("08")
 
 
 #: PostgreSQL's advisory lock function per ``(scope, wait)``.
@@ -336,6 +344,7 @@ __all__ = [
     "PostgresqlRowSecurity",
     "PostgresqlSql",
     "SqliteSql",
+    "pg_connection_lost",
 ]
 
 

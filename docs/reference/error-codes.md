@@ -76,10 +76,11 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
-| [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define | active |
+| [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
 | [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url or require_system_channel on a database instance whose database has no row security | active |
 | [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
+| [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -955,7 +956,7 @@ does not start.
 
 ### SANDLOOM-B025
 
-**a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define**
+**a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself**
 
 Slug: `sql-dialect-incompatible` · kind: boot · status: active
 
@@ -967,9 +968,14 @@ kernel loads only renderers of its own version, so a renderer never answers a
 question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
 readonly_transactions, arrays, fulltext_search, json_path, json_contains):
-anything else would be advertised to modules without a meaning.
+anything else would be advertised to modules without a meaning. A DBAPI
+adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
+way. Outside the kernel it may claim only read_only_policy and
+reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
+asyncpg's API and SQLAlchemy's private state, so only the kernel's adapters
+claim them.
 
-**Fix:** upgrade the driver package that ships the renderer, or remove the unknown feature from its features()
+**Fix:** upgrade the driver package that ships the renderer or adapter, or remove the unknown feature or capability
 
 **More:** `docs/infrastructure/write-a-driver.md`
 
@@ -1030,6 +1036,27 @@ SQL it writes (ON CONFLICT, RETURNING, advisory locks) needs it. The check
 runs on the engine's first connection, before any statement.
 
 **Fix:** upgrade the database server (PostgreSQL 14 or newer, SQLite 3.35 or newer)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B031
+
+**DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI**
+
+Slug: `read-only-sessions-unguarded` · kind: boot · status: active
+
+**What happened and why it matters**
+
+ReadOnlyDbSession promises that a route declared read-only cannot write. Two
+things keep that promise: the database's read-only transaction, where its SQL
+dialect renderer declares the readonly_transactions feature, and a client
+policy that refuses writes, locking reads and raw statements before they are
+sent, where the DBAPI adapter has one (asyncpg). A database with neither
+(SQLite through aiosqlite today) would run the session's writes, so the
+setting is refused: at startup, build-free, and when the first read-only
+session factory is built.
+
+**Fix:** set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), or run the database on one with read-only transactions (PostgreSQL)
 
 **More:** `docs/infrastructure/database.md`
 

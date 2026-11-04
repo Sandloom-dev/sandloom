@@ -124,6 +124,7 @@ from sandloom.core.sql_alchemy.portable import (
     unrendered_dialect,
     unrendered_partial_indexes,
 )
+from sandloom.core.sql_alchemy.read_only_policy import read_only_sessions_problem
 from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
 
 
@@ -233,6 +234,25 @@ def row_security_config_problem(cfg: Any) -> str | None:
     return "; ".join(problems) or None
 
 
+def read_only_sessions_config_problem(cfg: Any) -> str | None:
+    """``DB_READ_ONLY_SESSIONS`` on a default database with nothing to refuse
+    a write: no read-only transactions in its renderer and no client
+    read-only policy in its DBAPI adapter (SANDLOOM-B031). Build-free."""
+    if not getattr(cfg, "db_read_only_sessions", False):
+        return None
+    try:
+        databases = load_infra_config(cfg).get("database", {})
+    except InfraConfigError:
+        return None  # refused where the infrastructure is built
+    instance = databases.get(DEFAULT_INSTANCE)
+    url = (instance.options.get("url") if instance else None) or getattr(
+        cfg, "database_url", None
+    )
+    if not url:
+        return None
+    return read_only_sessions_problem(DEFAULT_INSTANCE, str(url))
+
+
 def application_enforced_isolation(
     infra: InfraRegistry, metadata: Any
 ) -> list[tuple[str, str]]:
@@ -338,7 +358,9 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       ``configuration_problem``);
     * a SQL dialect renderer for every configured database
       (:func:`sql_dialect_problem`), with row security where an instance
-      asks for it (:func:`row_security_config_problem`, SANDLOOM-B026);
+      asks for it (:func:`row_security_config_problem`, SANDLOOM-B026), and
+      a guard for ``DB_READ_ONLY_SESSIONS``
+      (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
       ``include_profile=False`` (``sandloom doctor`` reports the profile itself).
@@ -351,6 +373,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         rpc_identity.configuration_problem,
         sql_dialect_problem,
         row_security_config_problem,
+        read_only_sessions_config_problem,
     ):
         problem = check(cfg)
         if problem:

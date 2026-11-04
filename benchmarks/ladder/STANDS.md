@@ -333,7 +333,8 @@ post-commit dispatch runs as in production. The container CPU readings are
 `DB_RLS_MERGED_BEGIN` (default ON since #46) sends `BEGIN; SELECT
 set_config(...)` as one simple-query message and then hand-adopts the
 transaction into asyncpg + SQLAlchemy private state
-(`sql_alchemy/tenant_rls.py`, guarded by `sql_alchemy/driver_compat.py`).
+(`sql_alchemy/tenant_rls.py` through the asyncpg DBAPI adapter
+`drivers/dbapi_asyncpg.py`, guarded by its probe in `sql_alchemy/driver_compat.py`).
 This stand checks that the shortcut stays correct when requests are cancelled
 at random points and backends die, by running BOTH configurations at the same
 time under the same load and comparing. Code: `ladder/soak.py` (orchestrator
@@ -348,7 +349,7 @@ time under the same load and comparing. Code: `ladder/soak.py` (orchestrator
 | load | one client process per instance, 12 keep-alive connections, two tenants picked per request: `/s5/{own}` 30, `/s5/{foreign}` 8 (must 404), `/s5plan/{own}` 10, `/s5list` 7 (every row must be own), `POST /dw/3` 30 (row + outbox + audit), `POST /dw/4c/{own}` 10 (UPDATE), `POST /dw/4c/{foreign}` 5 (must 404) |
 | client aborts | phases of `--phase-seconds` (120 s) cycle: `early` 7 % aborted at U(0, 0.6)×median latency of the route, `spread` 7 % at U(0, 1.5)×, `heavy` 10 % at U(0.2, 1.2)×. The client resets the socket; `soak_app.py` turns the disconnect into a real `task.cancel()` of the handler (uvicorn alone never cancels it), so the CancelledError lands in auth, the pool checkout, the merged message, a statement or COMMIT |
 | backend kills | every `--kill-every` s (U(0.5, 1.5)× 2.5 s) `pg_terminate_backend` of a random app-role backend of each database (idle or busy, the relay's included) |
-| counters | `soak_app.py` wraps `tenant_rls._merged_begin` (calls / ok / errors by type), listens to the pool's `connect` / `checkout` / `invalidate` and serves them with the pool state on `GET /_soak/state`. Reuses = checkouts - connects |
+| counters | `soak_app.py` wraps `dbapi_asyncpg._merged_begin` (calls / ok / errors by type), listens to the pool's `connect` / `checkout` / `invalidate` and serves them with the pool state on `GET /_soak/state`. Reuses = checkouts - connects |
 
 ### Invariants (every `--tick` s; the first violation aborts with `pg_stat_activity`, the server state and the log tail)
 

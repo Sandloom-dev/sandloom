@@ -29,6 +29,7 @@ from sandloom.core.planner import (
     PlanningError,
     ReadOperation,
 )
+from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _TENANT_PARAM,
     Checkpoint,
@@ -77,12 +78,11 @@ class _PlannerCompiler:
         #: TEST SEAM: awaited at every executor phase boundary when set.
         self.checkpoint: Checkpoint | None = None
         dialect = engine.sync_engine.dialect
-        #: DBAPI, not SQL dialect: the optimized executors are asyncpg's raw
-        #: ``$1`` statements (they move behind a DBAPI adapter in slice 7b).
-        #: Wider than HEAD's "postgresql and asyncpg": any asyncpg dialect with
-        #: a renderer qualifies; today only PostgreSQL has one (B024 refuses
-        #: the rest), and 7b makes the adapter the one that decides.
-        self._raw_executor = dialect.driver == "asyncpg"
+        #: The engine's DBAPI adapter: it classifies a dead connection and
+        #: decides whether the optimized executors (raw ``$1`` statements on
+        #: the driver connection) may run at all.
+        self._dbapi = dbapi_adapter_of(dialect)
+        self._raw_executor = RAW_EXECUTOR in self._dbapi.capabilities
         #: OPTIMIZED: the BEGIN + tenant binding text, from the renderer once.
         self._read_only_begin = ReadOnlyBegin(
             row_security_for(engine),

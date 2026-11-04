@@ -24,6 +24,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from sandloom.core.di import bind_tenant
+from sandloom.core.drivers import dbapi_asyncpg
 from sandloom.core.sql_alchemy import tenant_rls
 from sandloom.core.sql_alchemy.tenant_rls import (
     NonTenantStatementError,
@@ -49,14 +50,14 @@ def syncs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         sent.append(tenant)
         return original(binding, tenant)
 
-    original_merged = tenant_rls._merged_begin_sql
+    original_merged = dbapi_asyncpg._merged_begin_sql
 
-    def counting_merged(adapter: Any, tenant: str, binding: Any) -> str:
+    def counting_merged(adapter: Any, tenant: str, security: Any, texts: Any) -> str:
         sent.append(tenant)  # DB_RLS_MERGED_BEGIN: BEGIN + setting, one message
-        return original_merged(adapter, tenant, binding)
+        return original_merged(adapter, tenant, security, texts)
 
     monkeypatch.setattr(tenant_rls, "_set_config_sql", counting)
-    monkeypatch.setattr(tenant_rls, "_merged_begin_sql", counting_merged)
+    monkeypatch.setattr(dbapi_asyncpg, "_merged_begin_sql", counting_merged)
     return sent
 
 

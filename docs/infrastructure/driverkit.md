@@ -25,6 +25,9 @@ A contract is public only with a conformance kit, so `cache`, `objectstore` and
 | `HealthResult` | What `health()` returns. |
 | `CapabilitySpec` | Declares a capability: `name`, `version`, `provider_contract`, `config_schema`, `features`, `description`, `stability`. |
 | `CapabilityRef` | A typed key callers resolve a capability with: `CapabilityRef[VectorIndex]("vector_index.v1")`. |
+| `DbapiAdapter` | One DBAPI as the `sqlalchemy` driver sees it; the base class is the plain path. A subclass sets `name`, `contract_version` (1) and `capabilities` and overrides what it speeds up ([Add a DBAPI adapter](write-a-driver.md#add-a-dbapi-adapter)). |
+| `DBAPI_CAPABILITIES` | Every capability of a `DbapiAdapter`. A driver package may claim `read_only_policy` and `reconnect_backoff`; `merged_begin`, `raw_executor` and `connection_recovery` are the kernel's own (SANDLOOM-B025). |
+| `register_dbapi_adapter` | Registers an adapter for the DBAPI it names, replacing the one Sandloom ships; call it before the first engine is built. |
 
 ## `sandloom.driverkit.testing`
 

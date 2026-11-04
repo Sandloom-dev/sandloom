@@ -25,7 +25,6 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.dead_connection import (
     count_recovery,
     is_dead_connection_error,
-    never_sent,
     recovery_enabled,
 )
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
@@ -217,7 +216,7 @@ class _ReadUnit:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 raise DatabaseUnavailable(exc) from exc
             raise
@@ -308,7 +307,7 @@ class _ReadUnit:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 raise DatabaseUnavailable(exc) from exc
             raise
@@ -405,7 +404,7 @@ class _Lease:
     async def first(self, method: str, *args: Any) -> Any:
         """The OPTIMIZED executor's FIRST message on this lease.
 
-        It is ``BEGIN READ ONLY; set_config``. When asyncpg refuses it BEFORE
+        It is ``BEGIN READ ONLY; set_config``. When the DBAPI refuses it BEFORE
         writing a byte because
         the pooled connection died while idle, the lease is aborted, a fresh
         connection leased and the message sent on it (nothing reached the
@@ -415,7 +414,8 @@ class _Lease:
         try:
             result = await getattr(self._raw, method)(*args)
         except Exception as error:
-            if not (never_sent(error) and recovery_enabled()):
+            dbapi = self._adapter._dbapi
+            if not (dbapi.never_sent(error) and recovery_enabled(dbapi)):
                 raise
             await self._abort()
             await self._acquire()
@@ -429,7 +429,7 @@ class _Lease:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 # the optimized executor's raw driver errors: a 503, as on
                 # the SQLAlchemy path (sandloom.core.sql_alchemy.dead_connection)

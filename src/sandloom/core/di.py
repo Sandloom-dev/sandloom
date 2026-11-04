@@ -246,19 +246,25 @@ def _read_only_uow_factory(core: CoreFacade) -> Callable[[], Any]:
     and dialect; the read executor sees the option on every statement. The
     transaction is read-only at the server's default isolation where the
     database has ``readonly_transactions`` (the renderer's
-    ``transaction_options``); elsewhere the client policy is the only guard,
-    and it is installed on asyncpg only until the DBAPI adapter (slice 7b).
+    ``transaction_options``), and the client policy refuses writes early
+    where the DBAPI adapter has one (asyncpg). A database with neither is
+    refused at startup and here (SANDLOOM-B031).
     """
     provider = core.database("default")
     factory = getattr(provider, "_sandloom_read_only_uow_factory", None)
     if factory is None:
         from sandloom.core.sql_alchemy.read_only_policy import (  # noqa: PLC0415 - cold: loaded with the first read-only UoW factory
             READ_ONLY_OPTION,
+            ReadOnlySessionsUnavailable,
             install_read_executor,
+            read_only_sessions_problem,
         )
 
         engine = provider.engine
-        install_read_executor(engine)
+        if not install_read_executor(engine):
+            problem = read_only_sessions_problem("default", str(engine.url))
+            if problem is not None:
+                raise ReadOnlySessionsUnavailable(problem)
         maker = async_sessionmaker(
             bind=engine.execution_options(
                 **{
@@ -285,9 +291,9 @@ async def get_read_only_db(request: Request) -> AsyncGenerator[AsyncSession, Non
     read-only transaction where the database has ``readonly_transactions``.
     The client policy also refuses writes, flushes, locking reads and raw
     statements before sending them. The database remains the backstop for
-    SELECT functions with side effects. Without ``readonly_transactions``
-    (SQLite) nothing refuses on the server, and the client policy is
-    installed on asyncpg only. Off (default): exactly ``get_db``.
+    SELECT functions with side effects. A database without
+    ``readonly_transactions`` needs the DBAPI's client policy, else startup
+    refuses the setting (SANDLOOM-B031). Off (default): exactly ``get_db``.
     """
     core = _get_facade(request)
     overrides = getattr(request.app, "dependency_overrides", {})

@@ -163,6 +163,26 @@ website renders this same changelog.
   and the ORM read guard. The planner adapter's `read_unit` takes
   `snapshot=` instead of an isolation name (`ISOLATION_LEVELS` is now
   `SNAPSHOT_ISOLATION`). The kernel names a database at 15 sites, down from 23.
+- **The DBAPI adapter; `DB_READ_ONLY_SESSIONS` needs a guard.** What the
+  `sqlalchemy` driver knows about one DBAPI moved behind a `DbapiAdapter`
+  (`sandloom.driverkit`: `DbapiAdapter`, `DBAPI_CAPABILITIES`,
+  `register_dbapi_adapter`), chosen by the URL's DBAPI: how a lost connection
+  looks, the connect arguments carrying the server timeouts, and the fast paths
+  (the merged row-security `BEGIN`, the planner's raw executor, the client
+  read-only policy, the dead-connection recovery, the reconnect backoff). The
+  asyncpg code lives in `sandloom.core.drivers.dbapi_asyncpg`; any other DBAPI
+  takes the plain path. An adapter states `contract_version` (1); a driver
+  package's adapter may claim only `read_only_policy` and `reconnect_backoff`
+  and is never replaced by the shipped one (SANDLOOM-B025). The plain path
+  classifies a lost connection through the renderer, so `postgresql+psycopg`
+  answers 503 too. The merged `BEGIN` takes its text from the renderer's
+  `begin_statement`, the planner's source. On PostgreSQL with asyncpg every SQL
+  text, connect argument and error classification is unchanged (pinned against
+  the pre-slice code by tests). A new error kind, `transaction_aborted`
+  (PostgreSQL's 25P02), replaces the kernel's own SQLSTATE checks.
+  `DB_READ_ONLY_SESSIONS=true` on a default database with neither
+  `readonly_transactions` nor a client read-only policy stops startup
+  (SANDLOOM-B031, new). The kernel names a database at 6 sites, down from 15.
 
 ### Changed
 

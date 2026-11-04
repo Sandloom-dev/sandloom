@@ -134,6 +134,37 @@ stops startup ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and
 its tenant isolation is application-enforced
 ([Multi-tenancy](../modules/database/multi-tenancy.md#database-enforced-and-application-enforced-isolation)).
 
+## The DBAPI adapter
+
+The renderer knows the SQL of a database. The Python client library under
+SQLAlchemy, its DBAPI, needs knowledge of its own. It reports a lost connection
+in its own way, takes the server timeouts as its own connection arguments, and
+has private state the fast paths drive. A **DBAPI adapter** holds it. The
+`sqlalchemy` driver chooses one by the URL's DBAPI (`asyncpg` in
+`postgresql+asyncpg://`) and registers the asyncpg adapter before it builds an
+engine.
+
+| Capability | What it gives | asyncpg |
+| --- | --- | --- |
+| `merged_begin` | the transaction's `BEGIN` and the tenant binding in one round trip; the `BEGIN` text is the renderer's `begin_statement` | yes |
+| `raw_executor` | the planner's optimized executor, raw statements on the driver connection | yes |
+| `read_only_policy` | `ReadOnlyDbSession` refuses writes in the client, before sending them | yes |
+| `connection_recovery` | a dead connection answers 503, and a first message never sent is sent again on a new connection | yes |
+| `reconnect_backoff` | connection attempts after an outage are admitted one at a time | yes |
+
+Any other DBAPI, such as `aiosqlite` or `psycopg`, takes the plain path. It is
+slower and never wrong. Each fast path checks the private state it drives once
+per process. On a mismatch it logs one warning and falls back.
+
+`DB_READ_ONLY_SESSIONS=true` needs a guard on the default database: the
+renderer's `readonly_transactions` or the adapter's `read_only_policy`. With
+neither, startup stops with
+[SANDLOOM-B031](../reference/error-codes.md#sandloom-b031).
+[Write a driver](write-a-driver.md#add-a-dbapi-adapter) shows how a driver
+package adds an adapter.
+
+## What still needs PostgreSQL
+
 The kernel itself still needs PostgreSQL: the outbox and
 idempotency stores, and the projection upserts. `CreatedAt` / `UpdatedAt`
 are stamped by each database's clock (`clock_timestamp()` on PostgreSQL, UTC

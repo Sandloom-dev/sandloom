@@ -37,14 +37,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sandloom.core.config.settings import settings
 from sandloom.core.di import publish_event, record_audit
 from sandloom.core.drivers import sqlalchemy_database as driver
+from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG, never_sent
 from sandloom.core.exceptions import DatabaseUnavailable
 from sandloom.core.http.error_handlers import http_status_of
 from sandloom.core.observability.metrics import db_dead_connection_replaced_total
 from sandloom.core.orm import Base
-from sandloom.core.sql_alchemy.dead_connection import (
-    is_dead_connection_error,
-    never_sent,
-)
+from sandloom.core.sql_alchemy import dead_connection
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.planner_adapter import SQLAlchemyExecutionAdapter
@@ -56,6 +54,12 @@ from sandloom.core.testing import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+
+def is_dead_connection_error(error: BaseException) -> bool:
+    """The classification the asyncpg engines of this suite install."""
+    return dead_connection.is_dead_connection_error(error, ASYNCPG)
+
 
 KINDS = ("plain", "rls_merged", "rls_unmerged")
 _PHASE = {"plain": "begin", "rls_merged": "merged_begin", "rls_unmerged": "tenant_sync"}

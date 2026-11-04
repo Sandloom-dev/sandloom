@@ -894,10 +894,11 @@ does not start.
         "SANDLOOM-B025",
         "sql-dialect-incompatible",
         "boot",
-        "a SQL dialect renderer of another contract version, or one that "
-        "declares a feature the database capability does not define",
-        "upgrade the driver package that ships the renderer, or remove the "
-        "unknown feature from its features()",
+        "a SQL dialect renderer or DBAPI adapter of another contract version, "
+        "or one that declares a feature or capability the kernel does not "
+        "define or keeps to itself",
+        "upgrade the driver package that ships the renderer or adapter, or "
+        "remove the unknown feature or capability",
         """
 A SQL dialect renderer (the sandloom.sql_dialects entry-point group) states
 the contract version it implements; a renderer without one is version 1. The
@@ -905,7 +906,12 @@ kernel loads only renderers of its own version, so a renderer never answers a
 question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
 readonly_transactions, arrays, fulltext_search, json_path, json_contains):
-anything else would be advertised to modules without a meaning.
+anything else would be advertised to modules without a meaning. A DBAPI
+adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
+way. Outside the kernel it may claim only read_only_policy and
+reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
+asyncpg's API and SQLAlchemy's private state, so only the kernel's adapters
+claim them.
 """,
         docs="docs/infrastructure/write-a-driver.md",
     ),
@@ -964,6 +970,26 @@ guard are its only guard there.
 Each SQL dialect renderer states the oldest server version it supports; the
 SQL it writes (ON CONFLICT, RETURNING, advisory locks) needs it. The check
 runs on the engine's first connection, before any statement.
+""",
+        docs="docs/infrastructure/database.md",
+    ),
+    _entry(
+        "SANDLOOM-B031",
+        "read-only-sessions-unguarded",
+        "boot",
+        "DB_READ_ONLY_SESSIONS=true on a default database that has neither "
+        "read-only transactions nor a client read-only policy for its DBAPI",
+        "set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), "
+        "or run the database on one with read-only transactions (PostgreSQL)",
+        """
+ReadOnlyDbSession promises that a route declared read-only cannot write. Two
+things keep that promise: the database's read-only transaction, where its SQL
+dialect renderer declares the readonly_transactions feature, and a client
+policy that refuses writes, locking reads and raw statements before they are
+sent, where the DBAPI adapter has one (asyncpg). A database with neither
+(SQLite through aiosqlite today) would run the session's writes, so the
+setting is refused: at startup, build-free, and when the first read-only
+session factory is built.
 """,
         docs="docs/infrastructure/database.md",
     ),
@@ -1439,8 +1465,10 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
+    "InvalidDbapiAdapter": "SANDLOOM-B025",
     "RowSecurityUnavailable": "SANDLOOM-B026",
     "SnapshotReadsUnavailable": "SANDLOOM-B027",
+    "ReadOnlySessionsUnavailable": "SANDLOOM-B031",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

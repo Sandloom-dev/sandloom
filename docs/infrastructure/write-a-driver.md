@@ -137,6 +137,32 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
 form the database cannot write returns `None`, and the kit checks that it is refused.
 
+#### Add a DBAPI adapter
+
+A new DBAPI for a database Sandloom already renders needs no renderer. It works
+on the plain path as it is. Add a DBAPI adapter only if it needs the speed
+([Database](database.md#the-dbapi-adapter)):
+
+1. Subclass `DbapiAdapter` from `sandloom.driverkit`. Set `name` to SQLAlchemy's
+   `dialect.driver` for the DBAPI. Keep `contract_version = 1`: another major is
+   refused ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)).
+2. Set `capabilities`. A driver package may claim only `read_only_policy` and
+   `reconnect_backoff`. The other three drive asyncpg's API and SQLAlchemy's
+   private state, so only the kernel's own adapters claim them (B025).
+3. Override what those capabilities use. `connect_args` and `server_settings`
+   carry the timeouts, and `connection_lost` and `refuses_connections` classify
+   connection errors.
+4. Call `register_dbapi_adapter(adapter)` when the driver package loads, before
+   the first engine is built. Your adapter replaces the one Sandloom ships for
+   the same DBAPI, and the shipped one never replaces yours.
+
+Every member you do not override keeps the plain answer. The plain
+`connection_lost` asks the renderer, so a lost connection is a 503 on any
+DBAPI that reports the server's error code. A DBAPI with no
+`read_only_policy` on a database without `readonly_transactions` refuses
+`DB_READ_ONLY_SESSIONS`
+([SANDLOOM-B031](../reference/error-codes.md#sandloom-b031)).
+
 ### 5. Prove the application uses it
 
 A passing application test does not show the driver was selected: the default `log` driver

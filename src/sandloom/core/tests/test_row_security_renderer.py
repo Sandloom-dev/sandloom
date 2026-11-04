@@ -23,6 +23,7 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from sandloom.core import app_factory, error_codes, production_profile
+from sandloom.core.drivers.dbapi_asyncpg import _merged_begin_sql, begin_texts
 from sandloom.core.drivers.sql_dialects import POSTGRESQL, SQLITE
 from sandloom.core.guarantee_lattice import (
     APPLICATION_ENFORCED_ISOLATION,
@@ -30,13 +31,11 @@ from sandloom.core.guarantee_lattice import (
     tenant_isolation_label,
 )
 from sandloom.core.sql_alchemy import portable, rls, tenant_rls
-from sandloom.core.sql_alchemy.driver_compat import begin_sql
 from sandloom.core.sql_alchemy.portable import UnsupportedSqlForm
 from sandloom.core.sql_alchemy.tenant_rls import (
     RowSecurityUnavailable,
     TenantRLSConfigError,
     _Binding,
-    _merged_begin_sql,
     _set_config_sql,
     install_tenant_rls,
     row_security_problem,
@@ -224,11 +223,35 @@ def test_binding_statement_is_byte_identical(paramstyle: str, tenant: str) -> No
     )
 
 
+#: driver_compat.begin_sql before slice 7b (asyncpg's Transaction.start text).
+_OLD_ISOLATION_SQL = {
+    "read_committed": " ISOLATION LEVEL READ COMMITTED",
+    "read_uncommitted": " ISOLATION LEVEL READ UNCOMMITTED",
+    "repeatable_read": " ISOLATION LEVEL REPEATABLE READ",
+    "serializable": " ISOLATION LEVEL SERIALIZABLE",
+}
+
+
+def begin_sql(isolation: str | None, readonly: bool, deferrable: bool) -> str:
+    sql = "BEGIN" + _OLD_ISOLATION_SQL.get(isolation or "", "")
+    if readonly:
+        sql += " READ ONLY"
+    if deferrable:
+        sql += " DEFERRABLE"
+    return sql
+
+
 @pytest.mark.parametrize(
     ("isolation", "readonly", "deferrable"),
     list(
         itertools.product(
-            [None, "read_committed", "repeatable_read", "serializable"],
+            [
+                None,
+                "read_committed",
+                "read_uncommitted",
+                "repeatable_read",
+                "serializable",
+            ],
             [False, True],
             [False, True],
         )
@@ -246,14 +269,15 @@ def test_merged_begin_is_byte_identical(
         f"{begin_sql(isolation, readonly, deferrable)}; "
         f"SELECT set_config('{_OLD_SETTING}', '{value}', true)"
     )
-    binding = _Binding(PG, "numeric_dollar")
-    assert _merged_begin_sql(adapter, tenant, binding) == old
+    # The BEGIN texts are the renderer's (slice 7b) for the units it writes,
+    # asyncpg's for the rest: on PostgreSQL every one is the old text.
+    assert _merged_begin_sql(adapter, tenant, PG, begin_texts(POSTGRESQL)) == old
 
 
 def test_merged_begin_refuses_a_non_uuid_value() -> None:
     adapter = SimpleNamespace(isolation_level=None, readonly=False, deferrable=False)
     with pytest.raises(ValueError):
-        _merged_begin_sql(adapter, "x', true); --", _Binding(PG, "numeric_dollar"))
+        _merged_begin_sql(adapter, "x', true); --", PG, begin_texts(POSTGRESQL))
 
 
 @pytest.mark.parametrize("name", sorted(_OLD_QUERIES))

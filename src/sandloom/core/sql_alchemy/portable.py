@@ -37,6 +37,7 @@ before, so moving a module onto them changes no schema and needs no migration.
 
 from __future__ import annotations
 
+import logging
 import threading
 import weakref
 from collections.abc import Iterable, Mapping, Sequence
@@ -108,6 +109,7 @@ __all__ = [
     "greatest",
     "greatest_for",
     "has_sql_dialect",
+    "is_error_kind",
     "id_in_for",
     "lock_statement_for",
     "optional_lock_statement_for",
@@ -216,6 +218,9 @@ ErrorKind = Literal[
     "deadlock",
     "lock_not_available",
     "connection_lost",
+    # The transaction already failed and refuses every statement until it
+    # ends (PostgreSQL's 25P02); a unit shared by several reads is rerun alone.
+    "transaction_aborted",
     "other",
 ]
 
@@ -632,6 +637,49 @@ def classify_error(dialect: str, exc: BaseException) -> ErrorKind:
     """What ``exc`` means on ``dialect``; ``"other"`` without a renderer."""
     renderer = sql_dialect(dialect)
     return "other" if renderer is None else renderer.classify_error(exc)
+
+
+def _classified(renderer: SqlDialect, exc: BaseException) -> ErrorKind:
+    """``renderer.classify_error(exc)``; ``"other"`` when the renderer itself
+    raises, so it never masks the error being classified."""
+    try:
+        return renderer.classify_error(exc)
+    except Exception:
+        logging.getLogger("sandloom.sql_dialects").warning(
+            "the %s renderer's classify_error raised; the error is classified as other",
+            getattr(renderer, "name", "?"),
+            exc_info=True,
+        )
+        return "other"
+
+
+def is_error_kind(exc: BaseException, kind: ErrorKind) -> bool:
+    """True when a registered renderer classifies ``exc``, or an error it
+    wraps (``orig`` / ``__cause__`` / ``__context__``), as ``kind``.
+
+    For a caller that holds an error and no bind (the database is not known
+    there); an error path only, never per statement.
+    """
+    renderers = tuple(_renderers().values())
+    seen: set[int] = set()
+    stack: list[Any] = [exc]
+    while stack:
+        current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, BaseException) and any(
+            _classified(renderer, current) == kind for renderer in renderers
+        ):
+            return True
+        stack.extend(
+            (
+                getattr(current, "orig", None),
+                getattr(current, "__cause__", None),
+                getattr(current, "__context__", None),
+            )
+        )
+    return False
 
 
 class UnsupportedServerVersion(RuntimeError):
