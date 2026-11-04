@@ -1363,25 +1363,6 @@ def test_a_wrapped_docker_error_is_read_whole_with_its_fix() -> None:
     assert docker.failure_reason("") == ""
 
 
-def test_a_kernel_updated_without_a_reboot_is_named(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Arch after `pacman -Syu`: the running kernel's modules are gone, so the
-    hint says to reboot, not to guess."""
-    modules = tmp_path / "modules"
-    (modules / "6.17.7-arch1-1").mkdir(parents=True)
-    monkeypatch.setattr(docker.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(docker.platform, "release", lambda: "6.17.6-arch1-1")
-    assert docker.stale_kernel(modules) == "6.17.6-arch1-1"
-    reason = docker.failure_reason(IPTABLES_FAILURE, kernel="6.17.6-arch1-1")
-    assert "running kernel 6.17.6-arch1-1 has no modules installed" in reason
-    assert "Reboot" in reason
-    monkeypatch.setattr(docker.platform, "release", lambda: "6.17.7-arch1-1")
-    assert docker.stale_kernel(modules) is None
-    monkeypatch.setattr(docker.platform, "system", lambda: "Darwin")
-    assert docker.stale_kernel(modules) is None
-
-
 def test_a_failed_up_names_the_cause_not_the_last_line(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

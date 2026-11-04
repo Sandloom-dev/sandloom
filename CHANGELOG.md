@@ -17,9 +17,8 @@ website renders this same changelog.
 
 - **A failed `sandloom dev up` names the cause.** Docker wraps long errors, and the
   message showed only the last wrapped line (`(exit status 4))`); it now starts at the
-  line that names the error. A Docker network failure (iptables) says to reboot or
-  restart Docker; on Linux, when the running kernel's modules are gone (updated, not
-  rebooted, as on Arch after `pacman -Syu`), it says so and to reboot. Images the dev
+  line that names the error. A Docker network failure (iptables, common on Linux after
+  a kernel update without a reboot) says to reboot or restart Docker. Images the dev
   and test services share are listed and pulled once, without `docker pull` output.
 
 ## [0.7.0a10] — 2026-11-03

@@ -4,7 +4,6 @@ CLI's own copy of the compose file (never ``--remove-orphans``)."""
 from __future__ import annotations
 
 import json
-import platform
 import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -133,17 +132,7 @@ _HINTS = (
 )
 
 
-def stale_kernel(modules: Path = Path("/lib/modules")) -> str | None:
-    """Linux: the running kernel's release when its modules are gone (the
-    kernel was updated and the machine not rebooted: Docker cannot load the
-    netfilter modules it needs), else ``None``."""
-    if platform.system() != "Linux" or not modules.is_dir():
-        return None
-    release = platform.release()
-    return None if (modules / release).exists() else release
-
-
-def failure_reason(output: str, *, kernel: str | None = None) -> str:
+def failure_reason(output: str) -> str:
     """One line for a failed Docker command: the line that names the error
     with the lines it wraps onto (Docker breaks long errors, so the last line
     alone can be ``(exit status 4))``), then a hint when the cause is known."""
@@ -163,12 +152,6 @@ def failure_reason(output: str, *, kernel: str | None = None) -> str:
     lowered = output.lower()
     for needles, hint in _HINTS:
         if any(needle in lowered for needle in needles):
-            if kernel is not None:
-                hint = (
-                    f"The running kernel {kernel} has no modules installed: it "
-                    "was updated and the machine not rebooted. Reboot, then run "
-                    "this again"
-                )
             return f"{reason}. {hint}"
     return reason
 
@@ -214,7 +197,6 @@ __all__ = [
     "check_docker",
     "docker_host",
     "failure_reason",
-    "stale_kernel",
     "legacy_projects",
     "missing_images",
     "pull",
