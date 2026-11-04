@@ -48,7 +48,6 @@ from sandloom.core.sql_alchemy.planner_adapter.compiler import _PlannerCompiler
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _Compiled,
     _CompiledList,
-    begin_read_only_sql,
 )
 from sandloom.core.sql_alchemy.planner_adapter.units import (
     _general_page,
@@ -109,7 +108,7 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
         """OPTIMIZED executor scope: BEGIN READ ONLY + GUC | ... | COMMIT."""
         lease = self.lease()
         async with lease:
-            raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+            raw = await lease.first("execute", self._begin_read_only_sql(ctx.tenant))
             await self._cp("begun")
             yield raw
             await self._cp("fetched")
@@ -166,7 +165,9 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
             )
             lease = _Lease(self)
             async with lease:
-                raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+                raw = await lease.first(
+                    "execute", self._begin_read_only_sql(ctx.tenant)
+                )
                 if cp is not None:
                     await cp("begun")
                 row = await raw.fetchrow(c.sql, *args)
@@ -239,7 +240,9 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
             args = c.sql_args(key, ctx.tenant, after, limit)
             lease = _Lease(self)
             async with lease:
-                raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+                raw = await lease.first(
+                    "execute", self._begin_read_only_sql(ctx.tenant)
+                )
                 if cp is not None:
                     await cp("begun")
                 rows = await raw.fetch(sql, *args)

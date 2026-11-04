@@ -2371,6 +2371,23 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "RowSecurity": {
+      "kind": "class",
+      "members": [
+        "begin_and_bind",
+        "bind_statement",
+        "disable_statements",
+        "enable_statements",
+        "owned_secured_tables",
+        "policy_name",
+        "privileged_memberships",
+        "role_attributes",
+        "secured_tables",
+        "table_policies",
+        "unconditional_policies"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
     "SqlDialect": {
       "kind": "class",
       "members": [
@@ -2385,12 +2402,16 @@
         "lock_statement",
         "partial_index_options",
         "relaxed_commit_clause",
+        "row_security",
         "search_index_options",
         "search_operand",
         "unlock_statement",
         "wall_clock"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TENANT_SETTING": {
+      "kind": "value"
     }
   },
   "sandloom.sdk": {

@@ -9,6 +9,7 @@ renderer the same way. This is the only place the forms meet a dialect.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from functools import cache
 from typing import Any, cast
@@ -27,14 +28,17 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.sql.base import Executable
+from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.types import NullType, TypeEngine, Uuid
 
 from sandloom.core.sql_alchemy.portable import (
+    TENANT_SETTING,
     ArrayInsert,
     ConflictInsert,
     ErrorKind,
     LockKey,
     LockScope,
+    RowSecurity,
     check_lock_key,
 )
 
@@ -128,7 +132,166 @@ def _pg_lock(function: str, key: LockKey, *, answers: bool) -> Executable:
     return cast("Executable", base.bindparams(ns=namespace, k=inner))
 
 
-__all__ = ["POSTGRESQL", "SQLITE", "PostgresqlSql", "SqliteSql"]
+# --- PostgreSQL row security ------------------------------------------------
+
+#: An identifier PostgreSQL keeps whole (NAMEDATALEN - 1 bytes).
+_PG_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]{0,62}$")
+#: Canonical lowercase UUID text (what the driver binds).
+_UUID_RE = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+
+def _pg_quote(ident: str, what: str) -> str:
+    if not _PG_IDENT.match(ident):
+        raise ValueError(f"invalid {what} identifier for RLS: {ident!r}")
+    return f'"{ident}"'
+
+
+def _pg_qualified(table: str, schema: str | None) -> str:
+    quoted = _pg_quote(table, "table")
+    return f"{_pg_quote(schema, 'schema')}.{quoted}" if schema else quoted
+
+
+def _pg_system_policy_name(table: str) -> str:
+    name = f"{table}_system_access"[:63]
+    if name == f"{table}_tenant_isolation"[:63]:  # pragma: no cover - 63-char names
+        raise ValueError(f"table name too long for RLS policies: {table!r}")
+    return name
+
+
+def _pg_tenant_predicate(column: str) -> str:
+    """USING and WITH CHECK of the tenant policy. No bypass branch; ``CASE``
+    casts only a canonical UUID, so an unset, empty or malformed setting is
+    NULL (zero rows, refused writes) instead of a cast error."""
+    setting = f"current_setting('{TENANT_SETTING}', true)"
+    expression = f"CASE WHEN {setting} ~ '{_UUID_RE}' THEN {setting}::uuid END"
+    return f"({_pg_quote(column, 'column')} = ({expression}))"
+
+
+_PG_ROLE_ATTRIBUTES = text(
+    "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles "
+    "WHERE rolname = current_user"
+)
+#: Superuser / BYPASSRLS roles the current role could ``SET ROLE`` to.
+_PG_PRIVILEGED_MEMBERSHIPS = text(
+    "SELECT rolname FROM pg_roles WHERE (rolsuper OR rolbypassrls) "
+    "AND rolname <> current_user AND pg_has_role(current_user, oid, 'MEMBER') "
+    "ORDER BY rolname"
+)
+#: RLS tables the current role owns (directly or via membership) — an owner can
+#: ALTER TABLE ... DISABLE/NO FORCE ROW LEVEL SECURITY or drop the policy.
+_PG_OWNED_RLS_TABLES = text(
+    "SELECT n.nspname || '.' || c.relname FROM pg_class c "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE c.relrowsecurity AND pg_has_role(current_user, c.relowner, 'MEMBER') "
+    "ORDER BY 1"
+)
+#: Unconditional (``USING (true)``) policies granted to a role the current role
+#: belongs to — e.g. the system-channel policies.
+_PG_UNCONDITIONAL_POLICIES = text(
+    "SELECT DISTINCT p.schemaname || '.' || p.tablename || ':' || p.policyname "
+    "FROM pg_policies p, unnest(p.roles) AS r(role) "
+    "WHERE r.role <> 'public' AND pg_has_role(current_user, r.role, 'MEMBER') "
+    "AND (p.qual = 'true' OR p.with_check = 'true') ORDER BY 1"
+)
+_PG_RLS_TABLES = text(
+    "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity "
+    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE c.relkind IN ('r', 'p') AND c.relname = ANY(:names) "
+    "AND n.nspname = ANY(current_schemas(false))"
+)
+_PG_RLS_POLICIES = text(
+    "SELECT tablename, policyname FROM pg_policies "
+    "WHERE tablename = ANY(:names) AND schemaname = ANY(current_schemas(false))"
+)
+
+
+class PostgresqlRowSecurity:
+    """PostgreSQL Row-Level Security: an ENABLEd and FORCEd policy per table
+    comparing ``tenant_id`` with the transaction-local setting, a permissive
+    policy for the system role on ``system_access`` tables, and the catalogue
+    queries of the startup role and coverage checks."""
+
+    def policy_name(self, table: str) -> str:
+        return f"{table}_tenant_isolation"[:63]
+
+    def enable_statements(
+        self,
+        table: str,
+        *,
+        column: str,
+        schema: str | None,
+        system_access: bool,
+        system_role: str,
+    ) -> list[str]:
+        target = _pg_qualified(table, schema)
+        policy = _pg_quote(self.policy_name(table), "policy")
+        sys_policy = _pg_quote(_pg_system_policy_name(table), "policy")
+        predicate = _pg_tenant_predicate(column)
+        statements = [
+            f"ALTER TABLE {target} ENABLE ROW LEVEL SECURITY",
+            f"ALTER TABLE {target} FORCE ROW LEVEL SECURITY",
+            f"DROP POLICY IF EXISTS {policy} ON {target}",
+            f"CREATE POLICY {policy} ON {target} AS PERMISSIVE FOR ALL "
+            f"USING {predicate} WITH CHECK {predicate}",
+            f"DROP POLICY IF EXISTS {sys_policy} ON {target}",
+        ]
+        if system_access:
+            role = _pg_quote(system_role, "role")
+            statements += [
+                f"CREATE POLICY {sys_policy} ON {target} AS PERMISSIVE FOR ALL "
+                f"TO {role} USING (true) WITH CHECK (true)",
+                f"GRANT SELECT, INSERT, UPDATE, DELETE ON {target} TO {role}",
+            ]
+        return statements
+
+    def disable_statements(self, table: str, *, schema: str | None) -> list[str]:
+        target = _pg_qualified(table, schema)
+        policy = _pg_quote(self.policy_name(table), "policy")
+        sys_policy = _pg_quote(_pg_system_policy_name(table), "policy")
+        return [
+            f"DROP POLICY IF EXISTS {sys_policy} ON {target}",
+            f"DROP POLICY IF EXISTS {policy} ON {target}",
+            f"ALTER TABLE {target} NO FORCE ROW LEVEL SECURITY",
+            f"ALTER TABLE {target} DISABLE ROW LEVEL SECURITY",
+        ]
+
+    def bind_statement(self, placeholder: str) -> str:
+        # ``is_local => true``: SET LOCAL, gone at COMMIT / ROLLBACK.
+        return f"SELECT set_config('{TENANT_SETTING}', {placeholder}, true)"
+
+    def begin_and_bind(self, begin: str, value: str) -> str:
+        # PostgreSQL's simple protocol runs both in order, one ReadyForQuery.
+        return f"{begin}; SELECT set_config('{TENANT_SETTING}', '{value}', true)"
+
+    def role_attributes(self) -> TextClause:
+        return _PG_ROLE_ATTRIBUTES
+
+    def privileged_memberships(self) -> TextClause:
+        return _PG_PRIVILEGED_MEMBERSHIPS
+
+    def owned_secured_tables(self) -> TextClause:
+        return _PG_OWNED_RLS_TABLES
+
+    def unconditional_policies(self) -> TextClause:
+        return _PG_UNCONDITIONAL_POLICIES
+
+    def secured_tables(self) -> TextClause:
+        return _PG_RLS_TABLES
+
+    def table_policies(self) -> TextClause:
+        return _PG_RLS_POLICIES
+
+
+_PG_ROW_SECURITY = PostgresqlRowSecurity()
+
+
+__all__ = [
+    "POSTGRESQL",
+    "SQLITE",
+    "PostgresqlRowSecurity",
+    "PostgresqlSql",
+    "SqliteSql",
+]
 
 
 class PostgresqlSql:
@@ -256,6 +419,9 @@ class PostgresqlSql:
         # every row of one transaction would tie.
         return "clock_timestamp()"
 
+    def row_security(self) -> RowSecurity:
+        return _PG_ROW_SECURITY
+
 
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
@@ -344,6 +510,11 @@ class SqliteSql:
         # time of the statement's step). Ties within a millisecond are
         # ordered by the UUIDv7 id.
         return "(strftime('%Y-%m-%d %H:%M:%f', 'now') || '000')"
+
+    def row_security(self) -> None:
+        # No row-level security: TenantScoped isolation is the ORM guard only
+        # (application-enforced); tenant_rls is refused (SANDLOOM-B026).
+        return None
 
 
 POSTGRESQL = PostgresqlSql()

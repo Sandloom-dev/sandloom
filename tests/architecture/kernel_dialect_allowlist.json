@@ -9,6 +9,6 @@
   "core/sql_alchemy/planner_safety.py": 1,
   "core/sql_alchemy/read_only_policy.py": 1,
   "core/sql_alchemy/reconnect.py": 1,
-  "core/sql_alchemy/tenant_rls.py": 8,
+  "core/sql_alchemy/tenant_rls.py": 1,
   "core/testing/database.py": 1
 }

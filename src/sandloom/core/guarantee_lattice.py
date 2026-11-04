@@ -14,6 +14,9 @@ never declared: the configured provider (does the database keep a command
 log? is the bus durable?), its windows (does the dedupe TTL cover the
 caller's retry horizon? does the inbox outlive stream retention?) and the
 effect's boundary (same database as the inbox? a conditional write?).
+Tenant isolation is labelled the same way (:func:`tenant_isolation_label`):
+database-enforced where the instance runs row security (its ``tenant_rls``
+feature), application-enforced (the ORM guard only) everywhere else.
 Nothing is labelled unconditionally. A label is shown only where it deviates
 from the full guarantee (:meth:`Guarantee.deviation`).
 
@@ -22,8 +25,9 @@ Pure data: no I/O, no kernel imports.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 ATOMIC = "atomic"
 NO_LOSS = "no_loss"
@@ -38,6 +42,9 @@ PARKS_ON_POISON_OR_BUDGET = "parks_on_poison_or_budget"
 PARKS_ON_EXPLICIT_POISON = "parks_on_explicit_poison"
 #: ``no_loss`` of a command holds while the caller retries with its key.
 CALLER_RETRIES = "caller_retries_with_the_same_key"
+#: Tenant isolation held by the ORM guard alone: no database row security
+#: confines a statement that bypasses it (spec infra-agnostic §7).
+APPLICATION_ENFORCED_ISOLATION = "application-enforced tenant isolation"
 
 
 @dataclass(frozen=True)
@@ -133,6 +140,20 @@ class Mechanism:
     #: the publish is the intent recorded with the write (always, through
     #: the transactional outbox)
     outbox: bool = True
+    #: the database confines each row to the bound tenant (the ``tenant_rls``
+    #: feature: row security on, its policies and roles verified)
+    row_security: bool = False
+
+    @classmethod
+    def from_features(cls, features: Iterable[str], **facts: Any) -> Mechanism:
+        """The facts a database instance's features state (its advertised
+        ``database`` features, build-free), plus ``facts`` known elsewhere."""
+        have = frozenset(features)
+        return cls(
+            command_log="command_idempotency" in have,
+            row_security="tenant_rls" in have,
+            **facts,
+        )
 
 
 def _consumer_no_loss(m: Mechanism) -> tuple[set[str], set[str]]:
@@ -195,6 +216,14 @@ _LABELS = {
 }
 
 
+def tenant_isolation_label(mechanism: Mechanism | None = None) -> str | None:
+    """How ``TenantScoped`` isolation holds on an instance: ``None`` where the
+    database enforces it (row security), else
+    :data:`APPLICATION_ENFORCED_ISOLATION` (shown only where it deviates)."""
+    m = mechanism if mechanism is not None else Mechanism()
+    return None if m.row_security else APPLICATION_ENFORCED_ISOLATION
+
+
 def effect_label(kind: EffectKind, mechanism: Mechanism | None = None) -> Guarantee:
     """The guarantee of one effect, derived from its mechanism (spec §6.3)."""
     derive = _LABELS.get(kind)
@@ -204,6 +233,7 @@ def effect_label(kind: EffectKind, mechanism: Mechanism | None = None) -> Guaran
 
 
 __all__ = [
+    "APPLICATION_ENFORCED_ISOLATION",
     "ATOMIC",
     "CALLER_RETRIES",
     "DELIVERY",
@@ -215,4 +245,5 @@ __all__ = [
     "Guarantee",
     "Mechanism",
     "effect_label",
+    "tenant_isolation_label",
 ]

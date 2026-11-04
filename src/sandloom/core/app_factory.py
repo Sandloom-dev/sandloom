@@ -69,6 +69,7 @@ from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.core_events import register_core_event_schemas
 from sandloom.core.eventing.event_bus import set_active_event_bus
 from sandloom.core.facade import CoreFacade
+from sandloom.core.guarantee_lattice import Mechanism, tenant_isolation_label
 from sandloom.core.guarantee_windows import enforce_guarantee_windows
 from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.http.middlewares import register_middlewares
@@ -77,7 +78,11 @@ from sandloom.core.idempotency.durable import (
     validate_money_guards,
 )
 from sandloom.core.infra.active import set_active_infra
-from sandloom.core.infra.config import InfraConfigError, load_infra_config
+from sandloom.core.infra.config import (
+    DEFAULT_INSTANCE,
+    InfraConfigError,
+    load_infra_config,
+)
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.internal_auth import (
     has_internal_access,
@@ -100,7 +105,7 @@ from sandloom.core.observability.logging import init_logging
 from sandloom.core.observability.metrics import render_metrics
 from sandloom.core.observability.observability import init_sentry
 from sandloom.core.orm import Base
-from sandloom.core.production_profile import config_problems
+from sandloom.core.production_profile import config_problems, tenant_scoped_tables
 from sandloom.core.production_profile import (
     enforce_runtime as enforce_production_profile,
 )
@@ -114,9 +119,12 @@ from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.portable import (
     dialect_of_url,
+    row_security_of_url,
+    sql_dialect,
     unrendered_dialect,
     unrendered_partial_indexes,
 )
+from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
 
 
 async def _core_health() -> HealthResult:
@@ -196,6 +204,88 @@ def sql_dialect_problem(cfg: Any) -> str | None:
     )
 
 
+def row_security_config_problem(cfg: Any) -> str | None:
+    """A database instance that asks for row security its database lacks.
+
+    ``tenant_rls``, ``system_url`` and ``require_system_channel`` need a
+    renderer with row security (SANDLOOM-B026). Build-free: the options and
+    the URL's renderer only, so every entry point refuses before it starts.
+    """
+    try:
+        databases = load_infra_config(cfg).get("database", {})
+    except InfraConfigError:
+        return None  # refused where the infrastructure is built
+    problems: list[str] = []
+    for name, instance in sorted(databases.items()):
+        url = instance.options.get("url") or getattr(cfg, "database_url", None)
+        if not url:
+            continue
+        system_url = (
+            getattr(cfg, "database_system_url", None)
+            if name == DEFAULT_INSTANCE
+            else None
+        )
+        problem = row_security_problem(
+            name, str(url), instance.options, system_url=system_url
+        )
+        if problem is not None:
+            problems.append(problem)
+    return "; ".join(problems) or None
+
+
+def application_enforced_isolation(
+    infra: InfraRegistry, metadata: Any
+) -> list[tuple[str, str]]:
+    """``(instance, label)`` for each SQL database whose renderer has no row
+    security, when ``metadata`` maps a ``TenantScoped`` table: their
+    isolation there is the ORM guard only. The label is the guarantee
+    lattice's, computed from the instance's features.
+
+    Which instance hosts which table is not known before a database is
+    reached, so any mapped ``TenantScoped`` table counts for every such
+    instance. A PostgreSQL instance without ``tenant_rls`` is
+    application-enforced too, by the operator's choice: it is not reported.
+    """
+    found: list[tuple[str, str]] = []
+    mapped = set(getattr(metadata, "tables", {}))
+    if not mapped.intersection(tenant_scoped_tables()):
+        return found
+    for name in infra.instances("database"):
+        served = infra.sql_dialects("database", name)
+        config = infra.instance_config("database", name)
+        url = (config.options.get("url") if config else None) or getattr(
+            settings, "database_url", None
+        )
+        if served is None or not served[1] or not url:
+            continue
+        if sql_dialect(dialect_of_url(str(url))) is None:
+            continue  # SANDLOOM-B024's refusal
+        if row_security_of_url(str(url)) is not None:
+            continue
+        features = infra.advertised_features("database", name) or frozenset()
+        label = tenant_isolation_label(Mechanism.from_features(features))
+        if label is not None:
+            found.append((name, label))
+    return found
+
+
+def warn_application_enforced_isolation(
+    infra: InfraRegistry, metadata: Any, log: logging.Logger
+) -> None:
+    """One startup warning per :func:`application_enforced_isolation`
+    instance: said aloud, never weakened silently (spec infra-agnostic,
+    decision 3)."""
+    for name, label in application_enforced_isolation(infra, metadata):
+        log.warning(
+            "database/%s has no row security: %s (the ORM guard only; raw SQL "
+            "is not confined to the bound tenant). The strict production "
+            "profile refuses it.",
+            name,
+            label,
+            extra={"event": "tenant_isolation.application_enforced"},
+        )
+
+
 def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     """The SQL databases a process cannot use as configured.
 
@@ -247,7 +337,8 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (``rpc_binding`` / ``rpc_pair_mac`` / ``rpc_identity``
       ``configuration_problem``);
     * a SQL dialect renderer for every configured database
-      (:func:`sql_dialect_problem`);
+      (:func:`sql_dialect_problem`), with row security where an instance
+      asks for it (:func:`row_security_config_problem`, SANDLOOM-B026);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
       ``include_profile=False`` (``sandloom doctor`` reports the profile itself).
@@ -259,6 +350,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         rpc_pair_mac.configuration_problem,
         rpc_identity.configuration_problem,
         sql_dialect_problem,
+        row_security_config_problem,
     ):
         problem = check(cfg)
         if problem:
@@ -337,6 +429,7 @@ def create_app(
     storage_problems = sql_storage_problems(infra, Base.metadata)
     if storage_problems:
         raise ConfigurationError(INVALID_CONFIGURATION + "; ".join(storage_problems))
+    warn_application_enforced_isolation(infra, Base.metadata, main_logger)
     # The application manifest (spec §5.7), built from the load pass, no I/O.
     application.state.app_manifest = AppManifest.from_summary(module_summary)
     # Sagas (ADR-0008): check every registered definition against its

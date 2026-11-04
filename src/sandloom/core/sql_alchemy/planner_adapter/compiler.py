@@ -32,6 +32,7 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _TENANT_PARAM,
     Checkpoint,
+    ReadOnlyBegin,
     _Compiled,
     _CompiledList,
     _fk_to,
@@ -57,6 +58,7 @@ from sandloom.core.sql_alchemy.planner_safety import (
     policy_reason,
     unique_keys,
 )
+from sandloom.core.sql_alchemy.portable import row_security_for
 from sandloom.core.sql_alchemy.tenant_rls import is_tenant_rls_installed
 from sandloom.core.tenant import TenantScoped
 
@@ -70,6 +72,9 @@ class _PlannerCompiler:
         #: TEST SEAM: awaited at every executor phase boundary when set.
         self.checkpoint: Checkpoint | None = None
         self._postgresql = engine.sync_engine.dialect.name == "postgresql"
+        #: OPTIMIZED: the BEGIN + tenant binding text, from the renderer once.
+        self._read_only_begin = ReadOnlyBegin(row_security_for(engine))
+        self._begin_read_only_sql = self._read_only_begin.sql
         #: the server default isolation is READ COMMITTED (None = not known yet)
         self._rc_default: bool | None = None
 

@@ -119,7 +119,13 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
 2. Give the oldest server it supports in `minimum_server_version`.
 3. Return the features the database can give from `features()`.
 4. Map the database's errors to kinds in `classify_error`.
-5. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+5. Return a `RowSecurity` from `row_security()` when the database can confine rows
+   to the tenant a transaction binds (the setting `TENANT_SETTING`), or `None`. It
+   writes the policies and binds the tenant; its queries also check the roles at startup. With
+   `None`, `tenant_rls` is refused
+   ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and tenant isolation
+   there is application-enforced.
+6. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
    name, and register the driver with `sql_dialects={"<name>"}`.
 
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A

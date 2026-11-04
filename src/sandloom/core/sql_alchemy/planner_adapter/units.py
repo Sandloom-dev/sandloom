@@ -34,9 +34,7 @@ from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _Compiled,
     _CompiledList,
     _ListForm,
-    begin_read_only_sql,
 )
-from sandloom.core.sql_alchemy.rls import TENANT_SETTING
 from sandloom.core.tenant_context import _current_tenant
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -238,16 +236,19 @@ class _ReadUnit:
         if not self._raw_active:
             lease = self._lease = _Lease(self._adapter)
             await lease.__aenter__()
-            self._raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+            self._raw = await lease.first(
+                "execute", self._adapter._begin_read_only_sql(ctx.tenant)
+            )
             self._raw_active, self._raw_tenant = True, ctx.tenant
             cp = self._adapter.checkpoint
             if cp is not None:
                 await cp("begun")
         elif self._raw_tenant != ctx.tenant:
-            await self._raw.execute(
-                f"SELECT set_config('{TENANT_SETTING}', $1, true)",
-                "" if ctx.tenant is None else str(ctx.tenant),
-            )
+            rebind = self._adapter._read_only_begin.rebind_sql
+            if rebind is not None:
+                await self._raw.execute(
+                    rebind, "" if ctx.tenant is None else str(ctx.tenant)
+                )
             self._raw_tenant = ctx.tenant
         return self._raw
 

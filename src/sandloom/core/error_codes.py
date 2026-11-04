@@ -910,6 +910,27 @@ anything else would be advertised to modules without a meaning.
         docs="docs/infrastructure/write-a-driver.md",
     ),
     _entry(
+        "SANDLOOM-B026",
+        "row-security-missing",
+        "boot",
+        "tenant_rls, system_url or require_system_channel on a database "
+        "instance whose database has no row security",
+        "remove those options from the instance (its tenant isolation is then "
+        "the ORM guard only, application-enforced), or run it on a database "
+        "with row security (PostgreSQL)",
+        """
+With tenant_rls the database itself confines every statement to the bound
+tenant: the SQL dialect renderer writes the policy DDL, the per-transaction
+binding and the startup role checks (its row_security()). The system channel
+is the privileged path around those policies, so it needs them too. A
+database whose renderer has no row security (SQLite) cannot enforce any of
+it, and running on would promise isolation nothing provides. Without these
+options TenantScoped isolation there is the ORM guard alone; startup says so
+with a warning, and the strict production profile refuses such an instance.
+""",
+        docs="docs/modules/database/multi-tenancy.md",
+    ),
+    _entry(
         "SANDLOOM-B030",
         "database-server-too-old",
         "boot",
@@ -1394,6 +1415,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
+    "RowSecurityUnavailable": "SANDLOOM-B026",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

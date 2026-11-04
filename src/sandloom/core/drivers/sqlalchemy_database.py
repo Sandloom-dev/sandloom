@@ -66,8 +66,10 @@ from sandloom.core.sql_alchemy.portable import (
 from sandloom.core.sql_alchemy.reconnect import install_reconnect_backoff
 from sandloom.core.sql_alchemy.request_log import sql_alchemy_request_log_store
 from sandloom.core.sql_alchemy.tenant_rls import (
+    RowSecurityUnavailable,
     TenantRLSConfigError,
     install_tenant_rls,
+    row_security_problem,
     tenant_rls_coverage,
     verify_tenant_rls_roles,
 )
@@ -877,6 +879,16 @@ async def _dispose_system_engine(name: str) -> None:
 def create_sqlalchemy_database(cfg: InstanceConfig) -> SQLAlchemyDatabaseProvider:
     """Driver factory for ``database`` capability / ``sqlalchemy`` driver."""
     url = str(cfg.options.get("url") or settings.database_url)
+    problem = row_security_problem(
+        cfg.name,
+        url,
+        cfg.options,
+        system_url=(
+            settings.database_system_url if cfg.name == DEFAULT_INSTANCE else None
+        ),
+    )
+    if problem is not None:
+        raise RowSecurityUnavailable(problem)
     rls_options = _validated_rls_options(cfg.name, cfg.options)
     tenant_rls = rls_options.tenant_rls
     _register_system_channel(cfg.name, rls_options)

@@ -20,11 +20,13 @@ from sandloom.core.infra.contracts import NotificationChannel
 from sandloom.core.infra.registry import versions_compatible
 from sandloom.core.sql_alchemy.portable import (
     RENDERER_FEATURES,
+    ROW_SECURITY_MEMBERS,
     UtcDateTime,
     WallClock,
     sql_dialect,
 )
 from sandloom.driverkit import (
+    TENANT_SETTING,
     ConflictInsert,
     HealthResult,
     Notification,
@@ -429,6 +431,73 @@ class SqlDialectConformance:
             except TypeError:
                 continue
             raise AssertionError(f"lock_statement accepted the key {key!r}")
+
+    def test_row_security_is_whole_or_absent(self) -> None:
+        security = self.renderer.row_security()
+        if security is None:
+            return  # tenant_rls refused (SANDLOOM-B026); the ORM guard only
+        missing = [m for m in ROW_SECURITY_MEMBERS if not hasattr(security, m)]
+        _require(not missing, f"row_security() lacks {missing}")
+        table = "conformance_items"
+        _require(bool(security.policy_name(table)), "policy_name must name the policy")
+        for system_access in (False, True):
+            ddl = security.enable_statements(
+                table,
+                column="tenant_id",
+                schema=None,
+                system_access=system_access,
+                system_role="conformance_system",
+            )
+            _require(bool(ddl), "enable_statements wrote no DDL")
+            for statement in ddl:
+                _require(
+                    bool(self._sql(sa.text(statement))),
+                    f"enable_statements: {statement!r} does not compile",
+                )
+            _require(
+                any(table in statement for statement in ddl),
+                f"enable_statements does not name the table: {ddl}",
+            )
+        revert = security.disable_statements(table, schema=None)
+        _require(bool(revert), "disable_statements wrote no DDL")
+        for statement in revert:
+            _require(bool(self._sql(sa.text(statement))), f"{statement!r} compiles")
+        try:
+            security.enable_statements(
+                'x"; DROP TABLE t; --',
+                column="tenant_id",
+                schema=None,
+                system_access=False,
+                system_role="conformance_system",
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("enable_statements accepted an unsafe identifier")
+        bind = security.bind_statement("$1")
+        _require(
+            "$1" in bind and TENANT_SETTING in bind,
+            f"bind_statement must set {TENANT_SETTING} to the placeholder: {bind}",
+        )
+        value = "00000000-0000-0000-0000-00000000000a"
+        merged = security.begin_and_bind("BEGIN", value)
+        _require(
+            merged.startswith("BEGIN") and value in merged,
+            f"begin_and_bind must open with the BEGIN and bind the value: {merged}",
+        )
+        for name in (
+            "role_attributes",
+            "privileged_memberships",
+            "owned_secured_tables",
+            "unconditional_policies",
+        ):
+            _require(bool(self._sql(getattr(security, name)())), f"{name} compiles")
+        for name in ("secured_tables", "table_policies"):
+            compiled = getattr(security, name)().compile(dialect=self.dialect)
+            _require(
+                "names" in compiled.params,
+                f"{name} must bind the table list as 'names': {compiled.params}",
+            )
 
 
 __all__ = ["NotifierConformance", "SqlDialectConformance"]

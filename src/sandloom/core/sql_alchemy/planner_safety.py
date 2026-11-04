@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import ColumnProperty, Session
 from sqlalchemy.sql import sqltypes
 
-from sandloom.core.sql_alchemy.portable import UtcDateTime
+from sandloom.core.sql_alchemy.portable import CaseInsensitiveText, UtcDateTime
 
 _NATIVE_TYPES = (
     sqltypes.Integer,
@@ -32,7 +32,8 @@ _NATIVE_TYPES = (
 #: same ``str`` (text I/O) on both executors. As a key, filter or order column
 #: its comparison semantics depend on the parameter's inferred type (``citext``
 #: vs a cast ``varchar``/``text`` is case-sensitive), so those stay general.
-_RESULT_ONLY_TYPES: tuple[type, ...] = (postgresql.CITEXT,)
+#: ``CaseInsensitiveText`` is ``citext`` on PostgreSQL, with the same rule.
+_RESULT_ONLY_TYPES: tuple[type, ...] = (postgresql.CITEXT, CaseInsensitiveText)
 #: Sandloom's portable types whose processing is the identity on what the raw
 #: executor binds and reads: ``UtcDateTime`` (``CreatedAt`` / ``UpdatedAt``)
 #: is a ``timestamptz``, which asyncpg returns aware, and it binds a naive

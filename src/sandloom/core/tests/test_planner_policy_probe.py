@@ -70,3 +70,30 @@ def test_the_probe_is_built_once_per_process(
     for _ in range(3):
         assert planner_safety.policy_reason(engine, []) is None
     assert len(built) == 1
+
+
+def test_a_case_insensitive_column_is_native_as_a_result_like_citext(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``CaseInsensitiveText`` is ``citext`` on PostgreSQL: a result column keeps
+    the optimized path; a key, filter or order column needs bind processing."""
+    import sqlalchemy as sa
+
+    import sandloom.core.sql_alchemy.planner_safety as safety
+    from sandloom.core.sql_alchemy.planner_safety import optimized_reason
+    from sandloom.core.sql_alchemy.portable import CaseInsensitiveText
+
+    # Only the column-type rule is under test, not the engine's listeners.
+    monkeypatch.setattr(safety, "policy_reason", lambda *_a: None)
+
+    table = sa.Table(
+        "probe_people",
+        sa.MetaData(),
+        sa.Column("id", sa.Uuid, primary_key=True),
+        sa.Column("email", CaseInsensitiveText, nullable=False),
+    )
+    engine = sa.create_engine("sqlite://")
+    columns = [table.c.id, table.c.email]
+    assert optimized_reason(engine, [], columns) is None
+    reason = optimized_reason(engine, [], columns, parameters=[table.c.email])
+    assert reason is not None and "email" in reason

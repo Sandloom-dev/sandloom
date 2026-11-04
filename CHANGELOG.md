@@ -31,7 +31,7 @@ website renders this same changelog.
   modules wrote before, so the schema and the migrations do not change.
   Identity, tenancy, billing and every example moved onto them.
   Still PostgreSQL-only, and planned to move behind the driver: the kernel's
-  row-level security, outbox and idempotency stores, the projection
+  outbox and idempotency stores, the projection
   upserts, and identity's claims query
   (`array_agg`, `LATERAL`). The check does not see SQL functions only one
   database has.
@@ -132,6 +132,22 @@ website renders this same changelog.
   by `SqlDialectConformance`; the PostgreSQL SQL is byte-identical (pinned by
   tests). The kernel's row locks and the mark-delivered statement use them, and
   the kernel names a database at 33 sites, down from 40.
+- **Row security through the renderer; application-enforced isolation said
+  aloud.** The renderer member `row_security()` returns a `RowSecurity`
+  (`sandloom.driverkit`, with `TENANT_SETTING`): the tenant policy DDL of
+  `enable_tenant_rls` / `disable_tenant_rls`, the per-transaction binding of
+  the tenant (the merged `BEGIN` text included) and the startup role and
+  coverage queries. PostgreSQL returns them byte-identical to before (pinned
+  by tests); SQLite returns `None`. The binding text is built once per engine.
+  `tenant_rls`, `system_url` or `require_system_channel` on a database without
+  row security stops startup (SANDLOOM-B026, new). Without them, its
+  `TenantScoped` isolation is the ORM guard only: startup warns
+  "application-enforced tenant isolation" for the instance, the guarantee
+  lattice computes that label from the instance's features
+  (`Mechanism.from_features`, `tenant_isolation_label`), and
+  `multi_tenant_strict` still refuses it. `enable_tenant_rls_statements` (an
+  internal helper) now takes `dialect=`. The kernel names a database at 23
+  sites, down from 30.
 
 ### Changed
 

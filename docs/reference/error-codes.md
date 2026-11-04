@@ -77,6 +77,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define | active |
+| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url or require_system_channel on a database instance whose database has no row security | active |
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
@@ -970,6 +971,27 @@ anything else would be advertised to modules without a meaning.
 **Fix:** upgrade the driver package that ships the renderer, or remove the unknown feature from its features()
 
 **More:** `docs/infrastructure/write-a-driver.md`
+
+### SANDLOOM-B026
+
+**tenant_rls, system_url or require_system_channel on a database instance whose database has no row security**
+
+Slug: `row-security-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+With tenant_rls the database itself confines every statement to the bound
+tenant: the SQL dialect renderer writes the policy DDL, the per-transaction
+binding and the startup role checks (its row_security()). The system channel
+is the privileged path around those policies, so it needs them too. A
+database whose renderer has no row security (SQLite) cannot enforce any of
+it, and running on would promise isolation nothing provides. Without these
+options TenantScoped isolation there is the ORM guard alone; startup says so
+with a warning, and the strict production profile refuses such an instance.
+
+**Fix:** remove those options from the instance (its tenant isolation is then the ORM guard only, application-enforced), or run it on a database with row security (PostgreSQL)
+
+**More:** `docs/modules/database/multi-tenancy.md`
 
 ### SANDLOOM-B030
 

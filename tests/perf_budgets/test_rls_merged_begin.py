@@ -108,7 +108,7 @@ async def env(pg_proxy: PgCountingProxy) -> AsyncIterator[Env]:
                 "name text NOT NULL)"
             )
         )
-        for sql in enable_tenant_rls_statements(name):
+        for sql in enable_tenant_rls_statements(name, dialect=conn):
             await conn.execute(text(sql))
         # A table whose COMMIT takes 0.5 s (deferred constraint trigger).
         await conn.execute(text(f"CREATE TABLE {name}_slow (id int)"))
@@ -313,7 +313,7 @@ async def test_server_error_inside_the_merged_message(
         monkeypatch.setattr(
             tenant_rls,
             "_merged_begin_sql",
-            lambda adapter, value: original(adapter, value).replace(
+            lambda adapter, value, binding: original(adapter, value, binding).replace(
                 "set_config('sandloom.tenant_id', ",
                 "set_config('sandloom.tenant_id', (1/0)::text || ",
             ),
@@ -367,8 +367,8 @@ async def test_cancellation_leaves_nothing_on_the_pooled_connection(
             monkeypatch.setattr(
                 tenant_rls,
                 "_merged_begin_sql",
-                lambda adapter, value: (
-                    original(adapter, value) + "; SELECT pg_sleep(1)"
+                lambda adapter, value, binding: (
+                    original(adapter, value, binding) + "; SELECT pg_sleep(1)"
                 ),
             )
         if point == "between":  # BEGIN + tenant done, SELECT not sent yet

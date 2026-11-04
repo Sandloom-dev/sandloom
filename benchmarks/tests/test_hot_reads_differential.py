@@ -673,7 +673,9 @@ async def hot(
         await admin.execute("DROP TABLE IF EXISTS bench_tenant_items CASCADE")
         for sql in s5_statements(ROLE, PASSWORD):
             await admin.execute(sql)
-        for sql in enable_tenant_rls_statements("notifications_inapp"):
+        for sql in enable_tenant_rls_statements(
+            "notifications_inapp", dialect="postgresql"
+        ):
             await admin.execute(sql)
         await _seed(admin, user)
         app_url = make_url(_url()).set(

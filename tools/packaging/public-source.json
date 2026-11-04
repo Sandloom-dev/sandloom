@@ -1698,6 +1698,7 @@
         "src/sandloom/core/tests/test_route_index.py",
         "src/sandloom/core/tests/test_route_markers.py",
         "src/sandloom/core/tests/test_route_policy_auth.py",
+        "src/sandloom/core/tests/test_row_security_renderer.py",
         "src/sandloom/core/tests/test_rpc_allowlist.py",
         "src/sandloom/core/tests/test_rpc_binding_key_caches.py",
         "src/sandloom/core/tests/test_rpc_binding_reasons.py",
@@ -2643,6 +2644,7 @@
       "paths": [
         "design/infra-agnostic/design.md",
         "design/infra-agnostic/inventory-kernel-postgres.md",
+        "design/infra-agnostic/ledger-proposal-tenant.md",
         "design/infra-agnostic/research-orm-backends.md",
         "design/infra-agnostic/research-reliability-mechanisms.md",
         "design/infra-agnostic/review-relational-interface.md",

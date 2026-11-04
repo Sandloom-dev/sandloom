@@ -119,7 +119,14 @@ one is the DDL history of one database. The test suite builds every module's
 and example's schema on SQLite, which catches a column type or index a second
 database cannot write.
 
-The kernel itself still needs PostgreSQL: row-level security, the outbox and
+Row security comes from the renderer too (`row_security()`). It writes the
+tenant policy that `enable_tenant_rls` creates and binds the tenant in each
+transaction. The startup role checks are its SQL as well. SQLite has none, so `tenant_rls` there
+stops startup ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and
+its tenant isolation is application-enforced
+([Multi-tenancy](../modules/database/multi-tenancy.md#database-enforced-and-application-enforced-isolation)).
+
+The kernel itself still needs PostgreSQL: the outbox and
 idempotency stores, and the projection upserts. `CreatedAt` / `UpdatedAt`
 are stamped by each database's clock (`clock_timestamp()` on PostgreSQL, UTC
 milliseconds on SQLite). Identity's claims query uses `array_agg` and `LATERAL`. Until those

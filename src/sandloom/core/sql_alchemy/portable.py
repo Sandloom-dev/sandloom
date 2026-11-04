@@ -81,11 +81,14 @@ __all__ = [
     "LockKey",
     "LockScope",
     "RENDERER_FEATURES",
+    "ROW_SECURITY_MEMBERS",
+    "RowSecurity",
     "SQL_DIALECTS_GROUP",
     "SQL_DIALECT_CONTRACT",
     "ARRAY_INSERT_TYPES",
     "ArrayInsert",
     "SqlDialect",
+    "TENANT_SETTING",
     "UnsupportedServerVersion",
     "UnsupportedSqlForm",
     "UtcDateTime",
@@ -109,6 +112,8 @@ __all__ = [
     "register_sql_dialect",
     "relaxed_commit_clause_for",
     "renderer_features",
+    "row_security_for",
+    "row_security_of_url",
     "search_index",
     "skips_locked_rows",
     "sql_dialect",
@@ -256,6 +261,91 @@ def check_lock_key(key: Any) -> None:
     )
 
 
+#: The transaction-local setting that carries the bound tenant to the
+#: database: the driver binds it at each transaction's first statement, and
+#: the tenant policy of :class:`RowSecurity` compares each row with it.
+TENANT_SETTING = "sandloom.tenant_id"
+
+
+class RowSecurity(Protocol):
+    """The SQL of database-enforced tenant isolation (contract version 2).
+
+    A renderer whose database confines each row to the tenant its
+    transaction binds returns one from :meth:`SqlDialect.row_security`.
+    It writes text only: the driver runs it, binds the tenant at each
+    transaction and verifies the roles at startup. ``table``, ``column``,
+    ``schema`` and ``system_role`` are identifiers it checks and quotes
+    (``ValueError`` for anything else).
+    """
+
+    def policy_name(self, table: str) -> str:
+        """The name of ``table``'s tenant policy (what
+        :meth:`table_policies` reports for a covered table)."""
+        ...
+
+    def enable_statements(
+        self,
+        table: str,
+        *,
+        column: str,
+        schema: str | None,
+        system_access: bool,
+        system_role: str,
+    ) -> list[str]:
+        """The DDL that confines ``table`` to the bound tenant (re-runnable):
+        rows whose ``column`` equals :data:`TENANT_SETTING`, none for an
+        unset or malformed setting, and no bypass for the table's owner.
+        ``system_access=True`` also lets ``system_role`` reach every tenant's
+        rows of this table; without it that access is removed."""
+        ...
+
+    def disable_statements(self, table: str, *, schema: str | None) -> list[str]:
+        """The DDL that reverts :meth:`enable_statements` on ``table``."""
+        ...
+
+    def bind_statement(self, placeholder: str) -> str:
+        """A statement that sets :data:`TENANT_SETTING` until the transaction
+        ends to the one bound parameter ``placeholder`` (the DBAPI's mark,
+        such as ``$1``)."""
+        ...
+
+    def begin_and_bind(self, begin: str, value: str) -> str:
+        """``begin`` (the transaction's ``BEGIN`` text) and the binding of
+        ``value`` as ONE message, the value inlined: it is only ever a
+        canonical UUID (hex digits and dashes) or ``''``."""
+        ...
+
+    def role_attributes(self) -> Executable:
+        """Selects one row: the current role, whether it is a superuser, and
+        whether it bypasses row security."""
+        ...
+
+    def privileged_memberships(self) -> Executable:
+        """Selects the superuser or bypassing roles the current role can
+        assume."""
+        ...
+
+    def owned_secured_tables(self) -> Executable:
+        """Selects the row-secured tables the current role owns (an owner
+        can switch the security off)."""
+        ...
+
+    def unconditional_policies(self) -> Executable:
+        """Selects the policies without a condition that cover the current
+        role (the system role's)."""
+        ...
+
+    def secured_tables(self) -> Executable:
+        """Selects ``(table, enabled, forced)`` for each table named in the
+        bound list ``names``."""
+        ...
+
+    def table_policies(self) -> Executable:
+        """Selects ``(table, policy)`` for each policy on a table named in
+        the bound list ``names``."""
+        ...
+
+
 class SqlDialect(Protocol):
     """What a database's SQL dialect renderer provides (contract version 2).
 
@@ -367,6 +457,13 @@ class SqlDialect(Protocol):
         timezone-aware UTC time through :class:`UtcDateTime`."""
         ...
 
+    def row_security(self) -> RowSecurity | None:
+        """The SQL of database-enforced tenant isolation, or ``None`` when
+        the database has none: there ``TenantScoped`` isolation is the ORM
+        guard only (application-enforced), and ``tenant_rls`` and the system
+        channel are refused at startup (SANDLOOM-B026)."""
+        ...
+
 
 _lock = threading.RLock()
 _registered: dict[str, SqlDialect] = {}
@@ -417,6 +514,22 @@ REQUIRED_MEMBERS = (
     "for_update",
     "relaxed_commit_clause",
     "wall_clock",
+    "row_security",
+)
+
+#: What a :class:`RowSecurity` must have.
+ROW_SECURITY_MEMBERS = (
+    "policy_name",
+    "enable_statements",
+    "disable_statements",
+    "bind_statement",
+    "begin_and_bind",
+    "role_attributes",
+    "privileged_memberships",
+    "owned_secured_tables",
+    "unconditional_policies",
+    "secured_tables",
+    "table_policies",
 )
 
 
@@ -437,6 +550,15 @@ def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
             f"the SQL dialect renderer {name!r} ({source}) lacks {missing} of "
             f"contract version {SQL_DIALECT_CONTRACT} [SANDLOOM-B025]: a form "
             "the database cannot write answers None, but it must be there"
+        )
+    security = renderer.row_security()
+    lacking = [m for m in ROW_SECURITY_MEMBERS if not hasattr(security, m)]
+    if security is not None and lacking:
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) answers row_security() "
+            f"with an object that lacks {lacking} of contract version "
+            f"{SQL_DIALECT_CONTRACT} [SANDLOOM-B025]: return None when the "
+            "database has no row security"
         )
     unknown = set(renderer.features()) - RENDERER_FEATURES
     if unknown:
@@ -910,6 +1032,19 @@ def for_update_for(
     return _require(dialect_name(bind), "for_update").for_update(
         stmt, skip_locked=skip_locked, read=read
     )
+
+
+def row_security_for(bind: Any) -> RowSecurity | None:
+    """The renderer's :meth:`SqlDialect.row_security` for the database of
+    ``bind`` (see :func:`dialect_name`); ``None`` without a renderer or
+    without row security. Ask once per engine, not per statement."""
+    renderer = sql_dialect(dialect_name(bind))
+    return None if renderer is None else renderer.row_security()
+
+
+def row_security_of_url(url: str) -> RowSecurity | None:
+    """:func:`row_security_for` the database a URL names (build-free)."""
+    return row_security_for(dialect_of_url(url))
 
 
 def relaxed_commit_clause_for(bind: Any) -> ColumnElement[bool] | None:

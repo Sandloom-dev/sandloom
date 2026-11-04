@@ -32,8 +32,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
 | [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
 | [`ConflictInsert`](#conflictinsert) | class | For annotations only: the shape `conflict_insert` returns (`.on_conflict_do_nothing(index_elements=, index_where=)`, `.on_conflict_do_upd... |
-| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable RLS on `table` (for downgrade). |
-| [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on `table`. |
+| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable row security on `table` (for downgrade). |
+| [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE the database's row security with the Sandloom tenant policy on `table`. |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
 | [`get_read_only_db`](#get_read_only_db) | function | PROTOTYPE: request session for a route DECLARED read-only. |
 | [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot: `REPEATABLE READ READ ONLY`. |
@@ -189,7 +189,7 @@ insert, not an instance of this class.
 def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None
 ```
 
-Drop the Sandloom tenant policies and disable RLS on
+Drop the Sandloom tenant policies and disable row security on
 `table` (for downgrade).
 
 ### `enable_tenant_rls`
@@ -206,14 +206,15 @@ def enable_tenant_rls(
 ) -> None
 ```
 
-Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on `table`.
+Enable + FORCE the database's row security with the Sandloom tenant
+policy on `table`.
 
-`op` is the Alembic `op` module (or any object with `execute(str)`).
-`column` must be the table's `uuid` tenant column (`TenantScoped`
-declares `tenant_id`). `system_access=True` lets the system-channel
-role (`system_role`, default `sandloom_system`; it must already exist) read
-and write every tenant's rows of THIS table. Re-running is safe (policies
-are replaced).
+`op` is the Alembic `op` module; its migration context names the
+database, whose renderer writes the SQL. `column` must be the table's
+`uuid` tenant column (`TenantScoped` declares `tenant_id`).
+`system_access=True` lets the system-channel role (`system_role`,
+default `sandloom_system`; it must already exist) read and write every
+tenant's rows of THIS table. Re-running is safe (policies are replaced).
 
 ### `get_planned_reads`
 

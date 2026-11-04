@@ -36,7 +36,7 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.planner_safety import (
     unique_keys,
 )
-from sandloom.core.sql_alchemy.rls import TENANT_SETTING
+from sandloom.core.sql_alchemy.portable import RowSecurity
 from sandloom.core.tenant import TenantScoped
 
 Checkpoint = Callable[[str], Awaitable[None]]
@@ -158,36 +158,53 @@ class _CompiledList:
 _TENANT_PARAM = "_sandloom_tenant"
 
 
-def begin_read_only_sql(tenant: uuid.UUID | None) -> str:
-    """``BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY`` + the tenant GUC as ONE
-    simple-protocol message (the isolation is explicit: part of the contract).
+#: The optimized executor's transaction (the isolation is explicit: part of
+#: the contract).
+_READ_ONLY_BEGIN = "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY"
+
+
+class ReadOnlyBegin:
+    """``BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY`` + the tenant binding
+    as ONE simple-protocol message, in the words of the database's row
+    security (built once per adapter; without row security, the ``BEGIN``
+    alone: there is nothing to bind).
 
     The simple protocol has no parameters: the tenant is a literal, but only
     ever ``str(uuid.UUID(...))`` (hex digits and dashes) or ``''``. An exact
     ``uuid.UUID`` (the bound tenant) is already canonical: its statement is
     built once and kept in a small bounded cache; anything else is re-parsed.
     """
-    if type(tenant) is uuid.UUID:
-        sql = _BEGIN_SQL.get(tenant)
-        if sql is None:
-            if len(_BEGIN_SQL) >= _BEGIN_SQL_CACHE_SIZE:
-                _BEGIN_SQL.pop(next(iter(_BEGIN_SQL)), None)
-            sql = _BEGIN_SQL[tenant] = _begin_sql(str(tenant))
-        return sql
-    return _begin_sql(str(uuid.UUID(str(tenant))) if tenant is not None else "")
+
+    __slots__ = ("_cache", "_security", "rebind_sql")
+
+    def __init__(self, security: RowSecurity | None) -> None:
+        self._security = security
+        #: exact ``uuid.UUID`` tenant -> its statement (oldest dropped).
+        self._cache: dict[uuid.UUID, str] = {}
+        #: Re-binds another tenant inside the open transaction (``$1``), or
+        #: ``None`` without row security.
+        self.rebind_sql = None if security is None else security.bind_statement("$1")
+
+    def sql(self, tenant: uuid.UUID | None) -> str:
+        """The statement that opens the read for ``tenant``."""
+        if type(tenant) is uuid.UUID:
+            cache = self._cache
+            sql = cache.get(tenant)
+            if sql is None:
+                if len(cache) >= _BEGIN_SQL_CACHE_SIZE:
+                    cache.pop(next(iter(cache)), None)
+                sql = cache[tenant] = self._begin(str(tenant))
+            return sql
+        return self._begin(str(uuid.UUID(str(tenant))) if tenant is not None else "")
+
+    def _begin(self, value: str) -> str:
+        if self._security is None:
+            return _READ_ONLY_BEGIN
+        return self._security.begin_and_bind(_READ_ONLY_BEGIN, value)
 
 
-def _begin_sql(value: str) -> str:
-    return (
-        "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; "
-        f"SELECT set_config('{TENANT_SETTING}', '{value}', true)"
-    )
-
-
-#: Bound of :data:`_BEGIN_SQL` (tenants seen by this process; oldest dropped).
+#: Bound of each :class:`ReadOnlyBegin` cache (tenants seen; oldest dropped).
 _BEGIN_SQL_CACHE_SIZE = 4096
-#: exact ``uuid.UUID`` tenant -> its read-only BEGIN statement.
-_BEGIN_SQL: dict[uuid.UUID, str] = {}
 
 
 def _mapper(op: ReadOperation[Any], entity: Any) -> Any:

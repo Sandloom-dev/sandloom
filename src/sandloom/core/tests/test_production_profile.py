@@ -279,9 +279,9 @@ async def test_rls_coverage_reports_unprotected_tenant_tables() -> None:
                 await conn.execute(
                     text(f"CREATE TABLE {table} (id uuid PRIMARY KEY, tenant_id uuid)")
                 )
-            for sql in enable_tenant_rls_statements(covered):
+            for sql in enable_tenant_rls_statements(covered, dialect=conn):
                 await conn.execute(text(sql))
-            for sql in enable_tenant_rls_statements(unforced):
+            for sql in enable_tenant_rls_statements(unforced, dialect=conn):
                 await conn.execute(text(sql))
             await conn.execute(
                 text(f"ALTER TABLE {unforced} NO FORCE ROW LEVEL SECURITY")

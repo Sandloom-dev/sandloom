@@ -141,10 +141,10 @@ async def env() -> AsyncGenerator[_Env, None]:
             )
         # `table` grants the system channel cross-tenant access; `plain` not.
         for sql in enable_tenant_rls_statements(
-            table, system_access=True, system_role=sys_role
+            table, dialect=conn, system_access=True, system_role=sys_role
         ):
             await conn.execute(text(sql))
-        for sql in enable_tenant_rls_statements(plain):
+        for sql in enable_tenant_rls_statements(plain, dialect=conn):
             await conn.execute(text(sql))
         await conn.execute(text(f"GRANT SELECT ON {plain} TO {sys_role}"))
         await conn.execute(text(f"GRANT INSERT ON audit_log TO {sys_role}"))
