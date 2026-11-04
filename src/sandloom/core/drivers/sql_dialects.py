@@ -16,6 +16,7 @@ from typing import Any, cast
 from sqlalchemy import (
     Boolean,
     ColumnElement,
+    Select,
     String,
     any_,
     bindparam,
@@ -237,6 +238,19 @@ class PostgresqlSql:
     def unlock_statement(self, key: LockKey) -> Executable:
         return _pg_lock("pg_advisory_unlock", key, answers=True)
 
+    def for_update(
+        self, stmt: Select[Any], *, skip_locked: bool, read: bool = False
+    ) -> Select[Any]:
+        return stmt.with_for_update(skip_locked=skip_locked, read=read)
+
+    def relaxed_commit_clause(self) -> ColumnElement[bool]:
+        # ``SET LOCAL synchronous_commit = off`` evaluated as a WHERE term, so
+        # it costs no round trip of its own.
+        return cast(
+            "ColumnElement[bool]",
+            text("set_config('synchronous_commit', 'off', true) IS NOT NULL"),
+        )
+
 
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
@@ -306,6 +320,16 @@ class SqliteSql:
 
     def unlock_statement(self, key: LockKey) -> Executable | None:
         check_lock_key(key)
+        return None
+
+    def for_update(
+        self, stmt: Select[Any], *, skip_locked: bool, read: bool = False
+    ) -> Select[Any]:
+        # No row locks: SQLite writers are serial (BEGIN IMMEDIATE, slice 8a),
+        # and it does not declare skip_locked, so no queue relies on skipping.
+        return stmt
+
+    def relaxed_commit_clause(self) -> None:
         return None
 
 

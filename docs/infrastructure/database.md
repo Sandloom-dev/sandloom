@@ -83,6 +83,16 @@ The kernel's own locks come from the same renderer: its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
 locks (PostgreSQL advisory locks), and `transaction_lock` is built on it.
 
+The outbox relay and the saga sweep are work queues. Where the renderer
+declares `skip_locked`, as PostgreSQL's does, parallel workers split them with
+`FOR UPDATE SKIP LOCKED`; the relay claims a whole batch in one statement when
+the database also has `UPDATE ... RETURNING`. Without `skip_locked`, a worker
+claims each row by compare-and-set: the outbox row's lease (`locked_until`,
+`locked_by`) or the saga instance's `swept_at`, and the row is its own only
+when its `UPDATE` changed one row. On that path workers run safely in parallel
+but do not split the work: a claim waits for a row another worker holds
+instead of skipping it. The outbox still delivers at least once.
+
 No form falls back to other SQL. A statement the database cannot write refuses
 with [SANDLOOM-R015](../reference/error-codes.md#sandloom-r015). Startup checks
 three things and stops with

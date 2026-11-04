@@ -670,3 +670,199 @@ def test_a_direct_alembic_run_takes_no_lock_while_sandloom_migrate_holds_it(
     assert asked == []
     assert support._direct_run_lock(object(), "postgresql+psycopg2://h/free") == "LOCK"
     assert asked == ["asked"]
+
+
+# -- row locks and the relaxed commit through the renderer (slice 4) --------- #
+
+
+class _Rows:
+    """A session of ``dialect`` that records the SQL and reads no rows."""
+
+    def __init__(self, dialect: Any) -> None:
+        self.dialect = dialect
+        self.statements: list[tuple[str, dict[str, Any]]] = []
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        self.statements.append(_compiled(statement, self.dialect))
+
+        class _Result:
+            rowcount = 0
+
+            def all(self) -> list[Any]:
+                return []
+
+            def first(self) -> None:
+                return None
+
+            def mappings(self) -> Any:
+                return self
+
+        return _Result()
+
+
+def test_for_update_is_todays_lock_on_postgresql_and_none_on_sqlite() -> None:
+    table = OutboxMessage.__table__
+    stmt = sa.select(table.c.id).where(table.c.id == uuid.uuid4())
+    pg = asyncpg.dialect()
+    for skip_locked in (True, False):
+        for read in (True, False):
+            ours = portable.for_update_for(
+                "postgresql", stmt, skip_locked=skip_locked, read=read
+            )
+            today = stmt.with_for_update(skip_locked=skip_locked, read=read)
+            assert _compiled(ours, pg) == _compiled(today, pg)
+            assert (
+                portable.for_update_for(
+                    "sqlite", stmt, skip_locked=skip_locked, read=read
+                )
+                is stmt
+            )
+    assert _compiled(
+        portable.for_update_for("postgresql", stmt, skip_locked=False), pg
+    ) == _compiled(stmt.with_for_update(), pg)
+
+
+async def test_the_saga_locks_are_todays_statements_on_postgresql() -> None:
+    from datetime import datetime
+
+    from sandloom.core.sql_alchemy import saga_store
+
+    pg = asyncpg.dialect()
+    instances = saga_store.INSTANCES
+    instance_id = uuid.uuid4()
+    for skip_locked in (True, False):
+        session = _Rows(pg)
+        await saga_store.lock_instance(
+            cast(Any, session),
+            instance_id,
+            tenant=saga_store.ANY_TENANT,
+            skip_locked=skip_locked,
+        )
+        today = (
+            sa.select(instances)
+            .where(instances.c.id == instance_id)
+            .with_for_update(skip_locked=skip_locked)
+        )
+        assert session.statements == [_compiled(today, pg)]
+
+    now = datetime(2026, 1, 1)
+    before = datetime(2025, 12, 31)
+    session = _Rows(pg)
+    await saga_store.claim_due(
+        cast(Any, session), now=now, swept_before=before, limit=7
+    )
+    today = (
+        sa.select(
+            instances.c.id,
+            instances.c.saga_type,
+            instances.c.tenant_id,
+            instances.c.version,
+        )
+        .where(
+            saga_store._due_clause(now, before),
+            sa.or_(instances.c.swept_at.is_(None), instances.c.swept_at <= before),
+        )
+        .order_by(instances.c.next_attempt_at)
+        .limit(7)
+        .with_for_update(skip_locked=True)
+    )
+    assert session.statements == [_compiled(today, pg)]
+    assert "FOR UPDATE SKIP LOCKED" in session.statements[0][0]
+
+
+async def test_the_relay_batch_claim_is_todays_statement_on_postgresql() -> None:
+    from datetime import datetime
+
+    from sandloom.core.sql_alchemy.outbox_store.relay import _RelayMixin
+
+    pg = asyncpg.dialect()
+    session = _Rows(pg)
+    await _RelayMixin._claim_batch(session, 5, 0.0, 10)
+    ((sql, _params),) = session.statements
+    table = OutboxMessage.__table__
+    now = datetime(2026, 1, 1)
+    due = (
+        sa.select(table.c.id)
+        .where(
+            table.c.delivered_at.is_(None),
+            table.c.dead_at.is_(None),
+            table.c.delivery_attempts < 5,
+            table.c.emitted_at < now,
+            sa.or_(table.c.next_attempt_at.is_(None), table.c.next_attempt_at <= now),
+            sa.or_(table.c.locked_until.is_(None), table.c.locked_until < now),
+        )
+        .order_by(table.c.emitted_at)
+        .limit(10)
+        .with_for_update(skip_locked=True)
+        .cte("due")
+    )
+    today = (
+        sa.update(table)
+        .where(table.c.id == due.c.id)
+        .values(locked_until=now, locked_by=uuid.uuid4())
+        .returning(
+            table.c.id,
+            table.c.channel,
+            table.c.payload,
+            table.c.schema_version,
+            table.c.emitted_at,
+            table.c.trace_id,
+            table.c.delivery_attempts,
+        )
+    )
+    assert sql == _compiled(today, pg)[0]
+    assert "FOR UPDATE SKIP LOCKED" in sql
+
+
+async def test_the_watermark_share_lock_is_todays_statement_on_postgresql() -> None:
+    from sandloom.core.sql_alchemy import projection_watermarks
+
+    pg = asyncpg.dialect()
+    session = _Rows(pg)
+    await projection_watermarks.locked_watermark(session, "orders")
+    table = projection_watermarks._TABLE
+    today = (
+        sa.select(table.c.purged_before, table.c.rebuild_started_at)
+        .where(table.c.projection == "orders")
+        .with_for_update(read=True)
+    )
+    assert session.statements[0] == _compiled(today, pg)
+    assert session.statements[0][0].endswith("FOR SHARE")
+
+
+def test_the_mark_delivered_statement_is_todays_on_postgresql() -> None:
+    from sandloom.core.sql_alchemy import outbox_store
+
+    class _Pg:
+        dialect = asyncpg.dialect()
+
+    class _Lite:
+        dialect = sqlite.dialect()
+
+    outbox_store._mark_delivered_statements.clear()
+    try:
+        table = OutboxMessage.__table__
+        today = (
+            sa.update(table)
+            .where(
+                _any_id(_Pg, table, ()),
+                table.c.dead_at.is_(None),
+                table.c.delivered_at.is_(None),
+                sa.text("set_config('synchronous_commit', 'off', true) IS NOT NULL"),
+            )
+            .values(delivered_at=sa.bindparam("delivered_at"), last_error=None)
+        )
+        ours = outbox_store._mark_delivered_statement(_Pg)
+        assert _compiled(ours, _Pg.dialect) == _compiled(today, _Pg.dialect)
+        lite = str(
+            outbox_store._mark_delivered_statement(_Lite).compile(dialect=_Lite.dialect)
+        )
+        assert "set_config" not in lite and "outbox_messages.id IN" in lite
+    finally:
+        outbox_store._mark_delivered_statements.clear()
+
+
+def test_relaxed_commit_is_postgresqls_synchronous_commit_only() -> None:
+    clause = POSTGRESQL.relaxed_commit_clause()
+    assert str(clause) == "set_config('synchronous_commit', 'off', true) IS NOT NULL"
+    assert SQLITE.relaxed_commit_clause() is None

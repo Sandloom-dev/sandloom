@@ -4,6 +4,7 @@ One transition per advance, in the advance consumer's own Unit of Work on the
 owning module's database::
 
     row ← SELECT … FOR UPDATE SKIP LOCKED     # none → another worker owns it
+                                              # (FOR UPDATE without skip_locked)
     row terminal / version ≠ nudge's → no-op   # duplicate / stale / reordered
     deadline due → timeout transition          # compensate, or park
     next_attempt_at > now → no-op              # early (backoff not elapsed)

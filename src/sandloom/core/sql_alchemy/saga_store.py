@@ -9,6 +9,11 @@ Per step the protocol costs four statements in the transition's own UoW:
 ``publish_event``). The start adds one :func:`insert_instance` to the caller's
 transaction. The timer sweep runs :func:`claim_due` (``FOR UPDATE SKIP
 LOCKED LIMIT n`` + the ``swept_at`` stamp).
+
+A database without ``skip_locked`` (:func:`skips_locked_rows`) claims each due
+instance by compare-and-set on ``swept_at`` instead (:func:`stamp_due`, which
+waits for a running transition rather than skipping it), and a transition
+takes the instance row lock waiting.
 """
 
 from __future__ import annotations
@@ -28,7 +33,11 @@ from sandloom.core.sql_alchemy.models.saga import (
     SagaInstance,
     SagaStepRecord,
 )
-from sandloom.core.sql_alchemy.portable import conflict_insert
+from sandloom.core.sql_alchemy.portable import (
+    conflict_insert,
+    for_update_for,
+    skips_locked_rows,
+)
 
 INSTANCES = cast(Table, SagaInstance.__table__)
 STEPS = cast(Table, SagaStepRecord.__table__)
@@ -156,12 +165,13 @@ async def lock_instance(
     ``skip_locked`` (the advance path): another worker holding the row means
     it owns this transition — ``None``, and the nudge is acknowledged as a
     no-op. Operator commands wait instead (bounded by the session's
-    ``lock_timeout``). An instance of another ``tenant`` is ``None`` too.
+    ``lock_timeout``), and so does every transition on a database without
+    ``skip_locked``. An instance of another ``tenant`` is ``None`` too.
     """
-    stmt = (
-        select(INSTANCES)
-        .where(INSTANCES.c.id == instance_id, *_of_tenant(tenant))
-        .with_for_update(skip_locked=skip_locked)
+    stmt = for_update_for(
+        session,
+        select(INSTANCES).where(INSTANCES.c.id == instance_id, *_of_tenant(tenant)),
+        skip_locked=skip_locked,
     )
     row = (await session.execute(stmt)).mappings().first()
     return InstanceRow.from_mapping(row) if row is not None else None
@@ -271,6 +281,17 @@ def _due_clause(now: datetime, swept_before: datetime) -> Any:
     return or_(running, compensating)
 
 
+def claims_by_stamp(session: AsyncSession) -> bool:
+    """Whether the sweep on ``session``'s database claims with
+    :func:`due_candidates` + :func:`stamp_due` (no ``skip_locked``) rather
+    than :func:`claim_due`."""
+    return not skips_locked_rows(session)
+
+
+def _not_swept(swept_before: datetime) -> Any:
+    return or_(INSTANCES.c.swept_at.is_(None), INSTANCES.c.swept_at <= swept_before)
+
+
 async def claim_due(
     session: AsyncSession, *, now: datetime, swept_before: datetime, limit: int
 ) -> list[DueInstance]:
@@ -278,22 +299,31 @@ async def claim_due(
 
     ``FOR UPDATE SKIP LOCKED``: an instance whose step is running right now is
     skipped (its own transition publishes the next nudge, or the next tick
-    finds it again).
+    finds it again). Without ``skip_locked`` the sweep reads
+    :func:`due_candidates` and claims each with :func:`stamp_due` in its own
+    short transaction; here, in one transaction, for a single caller.
     """
-    stmt = (
+    if claims_by_stamp(session):
+        candidates = await due_candidates(
+            session, now=now, swept_before=swept_before, limit=limit
+        )
+        return [
+            d
+            for d in candidates
+            if await stamp_due(session, d, now=now, swept_before=swept_before)
+        ]
+    stmt = for_update_for(
+        session,
         select(
             INSTANCES.c.id,
             INSTANCES.c.saga_type,
             INSTANCES.c.tenant_id,
             INSTANCES.c.version,
         )
-        .where(
-            _due_clause(now, swept_before),
-            or_(INSTANCES.c.swept_at.is_(None), INSTANCES.c.swept_at <= swept_before),
-        )
+        .where(_due_clause(now, swept_before), _not_swept(swept_before))
         .order_by(INSTANCES.c.next_attempt_at)
-        .limit(limit)
-        .with_for_update(skip_locked=True)
+        .limit(limit),
+        skip_locked=True,
     )
     rows = (await session.execute(stmt)).all()
     due = [DueInstance(r.id, r.saga_type, r.tenant_id, r.version) for r in rows]
@@ -304,6 +334,59 @@ async def claim_due(
             .values(swept_at=now)
         )
     return due
+
+
+async def due_candidates(
+    session: AsyncSession, *, now: datetime, swept_before: datetime, limit: int
+) -> list[DueInstance]:
+    """The due instances :func:`claim_due` would take, read without a lock
+    (the sweep without ``skip_locked``; each is then claimed by
+    :func:`stamp_due`)."""
+    rows = (
+        await session.execute(
+            select(
+                INSTANCES.c.id,
+                INSTANCES.c.saga_type,
+                INSTANCES.c.tenant_id,
+                INSTANCES.c.version,
+            )
+            .where(_due_clause(now, swept_before), _not_swept(swept_before))
+            .order_by(INSTANCES.c.next_attempt_at)
+            .limit(limit)
+        )
+    ).all()
+    return [DueInstance(r.id, r.saga_type, r.tenant_id, r.version) for r in rows]
+
+
+async def stamp_due(
+    session: AsyncSession,
+    instance: DueInstance,
+    *,
+    now: datetime,
+    swept_before: datetime,
+) -> bool:
+    """Claim one :func:`due_candidates` instance by compare-and-set on
+    ``swept_at``; ``True`` when this call stamped it.
+
+    The ``UPDATE`` re-checks the read: still unswept, still due and still at
+    the version read (a transition that committed meanwhile publishes its own
+    nudge). Two sweeps racing for it both run the ``UPDATE``; the database
+    applies one, and the other's re-checked condition no longer matches. On a
+    database with row locks it WAITS for a transition holding the instance
+    rather than skipping it, so the sweep runs it in its own short
+    transaction.
+    """
+    stamped = await session.execute(
+        update(INSTANCES)
+        .where(
+            INSTANCES.c.id == instance.id,
+            INSTANCES.c.version == instance.version,
+            _due_clause(now, swept_before),
+            _not_swept(swept_before),
+        )
+        .values(swept_at=now)
+    )
+    return int(getattr(stamped, "rowcount", 0) or 0) == 1
 
 
 async def count_by_status(session: AsyncSession) -> list[tuple[str, str, int]]:
@@ -422,6 +505,9 @@ __all__ = [
     "ListFilter",
     "attention_counts",
     "claim_due",
+    "claims_by_stamp",
+    "due_candidates",
+    "stamp_due",
     "count_by_status",
     "find_instance",
     "insert_instance",

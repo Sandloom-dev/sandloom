@@ -41,7 +41,15 @@ from collections.abc import Iterable, Sequence
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from sqlalchemy import ColumnElement, Index, MetaData, String, TextClause, text
+from sqlalchemy import (
+    ColumnElement,
+    Index,
+    MetaData,
+    Select,
+    String,
+    TextClause,
+    text,
+)
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
@@ -82,6 +90,7 @@ __all__ = [
     "conflict_insert_for",
     "dialect_name",
     "dialect_of_url",
+    "for_update_for",
     "greatest",
     "greatest_for",
     "has_sql_dialect",
@@ -90,8 +99,10 @@ __all__ = [
     "optional_lock_statement_for",
     "partial_index",
     "register_sql_dialect",
+    "relaxed_commit_clause_for",
     "renderer_features",
     "search_index",
+    "skips_locked_rows",
     "sql_dialect",
     "transaction_lock",
     "unlock_statement_for",
@@ -323,6 +334,23 @@ class SqlDialect(Protocol):
         :meth:`lock_statement` has no session lock."""
         ...
 
+    def for_update(
+        self, stmt: Select[Any], *, skip_locked: bool, read: bool = False
+    ) -> Select[Any]:
+        """``stmt`` locking the rows it reads until the transaction ends:
+        exclusively, or shared with ``read=True``. ``skip_locked=True`` skips
+        rows another transaction holds; only a renderer that declares the
+        ``skip_locked`` feature honours it, any other takes the lock waiting
+        (or none at all, when its writers are serial)."""
+        ...
+
+    def relaxed_commit_clause(self) -> ColumnElement[bool] | None:
+        """A ``WHERE`` term, always true, that lets the running transaction
+        commit without waiting for its durable flush (the outbox's
+        mark-delivered, whose loss only means a redelivery); ``None`` when the
+        database has no such setting."""
+        ...
+
 
 _lock = threading.RLock()
 _registered: dict[str, SqlDialect] = {}
@@ -370,6 +398,8 @@ REQUIRED_MEMBERS = (
     "array_insert_sql",
     "lock_statement",
     "unlock_statement",
+    "for_update",
+    "relaxed_commit_clause",
 )
 
 
@@ -406,6 +436,14 @@ def renderer_features(dialect: str) -> frozenset[str]:
     if renderer is None:
         return frozenset()
     return frozenset(renderer.features()) & RENDERER_FEATURES
+
+
+def skips_locked_rows(bind: Any) -> bool:
+    """Whether the database of ``bind`` has ``skip_locked``: concurrent
+    workers split a queue with ``FOR UPDATE SKIP LOCKED``. Without it the
+    kernel's queues (the outbox relay, the saga sweep) claim a row by
+    compare-and-set on its own lease column instead."""
+    return "skip_locked" in renderer_features(dialect_name(bind))
 
 
 def classify_error(dialect: str, exc: BaseException) -> ErrorKind:
@@ -777,6 +815,23 @@ def unlock_statement_for(bind: Any, key: LockKey) -> Executable:
     if statement is None:
         raise UnsupportedSqlForm("unlock_statement", dialect)
     return statement
+
+
+def for_update_for(
+    bind: Any, stmt: Select[Any], *, skip_locked: bool, read: bool = False
+) -> Select[Any]:
+    """The renderer's :meth:`SqlDialect.for_update` of ``stmt`` for the
+    database of ``bind``; refuses a database without a renderer."""
+    return _require(dialect_name(bind), "for_update").for_update(
+        stmt, skip_locked=skip_locked, read=read
+    )
+
+
+def relaxed_commit_clause_for(bind: Any) -> ColumnElement[bool] | None:
+    """The renderer's :meth:`SqlDialect.relaxed_commit_clause` for the
+    database of ``bind``; ``None`` without a renderer or without one."""
+    renderer = sql_dialect(dialect_name(bind))
+    return None if renderer is None else renderer.relaxed_commit_clause()
 
 
 async def transaction_lock(key: int, *, session: AsyncSession) -> None:

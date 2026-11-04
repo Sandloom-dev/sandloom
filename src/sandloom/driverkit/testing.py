@@ -299,6 +299,38 @@ class SqlDialectConformance:
                     f"array_insert_sql does not bind :{prefix}_{column}: {sql}",
                 )
 
+    def test_for_update_keeps_the_query_and_skips_only_with_the_feature(
+        self,
+    ) -> None:
+        table = self._table()
+        stmt = sa.select(table.c.id).where(table.c.state == "due")
+        base = self._sql(stmt)
+        rendered: dict[tuple[bool, bool], str] = {}
+        for skip_locked in (True, False):
+            for read in (True, False):
+                what = f"for_update(skip_locked={skip_locked}, read={read})"
+                locked = self.renderer.for_update(
+                    stmt, skip_locked=skip_locked, read=read
+                )
+                _require(isinstance(locked, sa.Select), f"{what} must return a Select")
+                sql = self._sql(locked)
+                _require(sql.startswith(base), f"{what} changed the query: {sql}")
+                rendered[(skip_locked, read)] = sql
+        if "skip_locked" in self.renderer.features():
+            _require(
+                rendered[(True, False)] != rendered[(False, False)],
+                "a renderer that declares skip_locked must write it in "
+                "for_update(skip_locked=True)",
+            )
+
+    def test_relaxed_commit_clause_is_a_where_term_or_absent(self) -> None:
+        clause = self.renderer.relaxed_commit_clause()
+        if clause is None:
+            return  # the kernel commits as usual
+        table = self._table()
+        sql = self._sql(sa.update(table).where(table.c.id == 1, clause))
+        _require(bool(sql), "relaxed_commit_clause does not compile in a WHERE")
+
     #: One key of each shape a lock takes (``portable.LockKey``).
     LOCK_KEYS: ClassVar[tuple[Any, ...]] = (
         42,

@@ -10,8 +10,11 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
+import sandloom.core.sql_alchemy.portable as _portable
+from sandloom.core.drivers.sql_dialects import PostgresqlSql
 from sandloom.core.module_api import Saga, SagaContext, local_step, step
 
 BILLING = "sgbilling.credits.v1"
@@ -119,3 +122,24 @@ def install_fakes(harness: Any, ledger: Ledger) -> None:
 
 def enroll_input(price: int = 30) -> EnrollInput:
     return EnrollInput(customer_id=uuid.uuid4(), course_id=uuid.uuid4(), price=price)
+
+
+class _PostgresqlWithoutSkipLocked(PostgresqlSql):
+    """PostgreSQL's renderer as a database without ``skip_locked`` would be:
+    it does not declare the feature and takes every row lock waiting."""
+
+    def features(self) -> frozenset[str]:
+        return super().features() - {"skip_locked"}
+
+    def for_update(self, stmt: Any, *, skip_locked: bool, read: bool = False) -> Any:
+        return super().for_update(stmt, skip_locked=False, read=read)
+
+
+def without_skip_locked_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve PostgreSQL with :class:`_PostgresqlWithoutSkipLocked` for one
+    test (restored after it), so every kernel path takes its compare-and-set
+    claim on a real database."""
+    _portable.sql_dialect("postgresql")  # the entry points are read first
+    monkeypatch.setitem(
+        _portable._registered, "postgresql", _PostgresqlWithoutSkipLocked()
+    )

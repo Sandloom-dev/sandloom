@@ -2214,10 +2214,12 @@
         "classify_error",
         "conflict_insert",
         "features",
+        "for_update",
         "greatest",
         "id_in",
         "lock_statement",
         "partial_index_options",
+        "relaxed_commit_clause",
         "search_index_options",
         "search_operand",
         "unlock_statement"

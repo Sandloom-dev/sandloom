@@ -1673,6 +1673,7 @@
         "src/sandloom/core/tests/test_projection_upsert_guards.py",
         "src/sandloom/core/tests/test_projection_watermarks_db.py",
         "src/sandloom/core/tests/test_projections.py",
+        "src/sandloom/core/tests/test_queue_claim_without_skip_locked.py",
         "src/sandloom/core/tests/test_quickstart.py",
         "src/sandloom/core/tests/test_quiet_boot.py",
         "src/sandloom/core/tests/test_reconnect_backoff.py",

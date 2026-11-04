@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
-from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.portable import id_in_for
 from sandloom.core.sql_alchemy.tenant_rls import non_tenant_statements
 
@@ -77,13 +76,6 @@ def default_backoff(attempts: int) -> float:
     return delay / 2 + random.random() * delay / 2  # noqa: S311 - backoff jitter, not a secret
 
 
-def _is_postgres(session: Any) -> bool:
-    try:
-        return bool(session.get_bind().dialect.name == "postgresql")
-    except Exception:  # noqa: BLE001 - unknown bind: use the portable form
-        return False
-
-
 def _any_id(bind: Any, column_owner: Any, ids: Sequence[uuid.UUID]) -> Any:
     """``id`` is one of ``ids`` on the database of ``bind``, bound as
     ``outbox_ids`` (a prebuilt statement takes ``{"outbox_ids": [...]}``).
@@ -94,11 +86,6 @@ def _any_id(bind: Any, column_owner: Any, ids: Sequence[uuid.UUID]) -> Any:
 
     column = column_owner.c.id if hasattr(column_owner, "c") else column_owner.id
     return id_in_for(bind, column, ids, key="outbox_ids")
-
-
-def _id_in(session: Any, ids: Sequence[uuid.UUID]) -> Any:
-    """``id`` is one of ``ids`` on ``session``'s database (see :func:`_any_id`)."""
-    return _any_id(session, OutboxMessage, ids)
 
 
 @asynccontextmanager

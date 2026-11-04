@@ -40,6 +40,7 @@ from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
 from sandloom.core.sql_alchemy.portable import (
     conflict_insert_for,
+    for_update_for,
     greatest_for,
     lock_statement_for,
 )
@@ -93,10 +94,13 @@ async def locked_watermark(session: Any, projection: str) -> StoredWatermark:
     ``FOR SHARE`` until that unit ends: a purge's watermark raise waits for
     the apply. A missing row is created first (``ON CONFLICT DO NOTHING``,
     once per projection), so even the first purge has a row to wait on."""
-    stmt = (
-        select(_TABLE.c.purged_before, _TABLE.c.rebuild_started_at)
-        .where(_TABLE.c.projection == projection)
-        .with_for_update(read=True)
+    stmt = for_update_for(
+        session,
+        select(_TABLE.c.purged_before, _TABLE.c.rebuild_started_at).where(
+            _TABLE.c.projection == projection
+        ),
+        skip_locked=False,
+        read=True,
     )
     row = (await session.execute(stmt)).first()
     if row is None:

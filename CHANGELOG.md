@@ -101,6 +101,27 @@ website renders this same changelog.
   refuses a key that is not a 64-bit integer (a `bool` included) with
   `TypeError` before it reaches the database.
 
+- **Queue claims without `SKIP LOCKED`.** On a database whose renderer lacks
+  `skip_locked`, the outbox relay claims each due row by compare-and-set on its
+  lease (`locked_until`/`locked_by`, taken when one row changed, re-checking
+  that the row is still due) and the saga sweep claims each due instance by
+  compare-and-set on `swept_at`, one short transaction per instance, skipping
+  an instance a transition moved since the sweep read it. On this path relays
+  and sweeps run safely in parallel but do not split the work: a claim waits
+  for a row another worker holds instead of skipping it, and a saga transition
+  waits for the instance row lock. Delivery stays at-least-once. The batched
+  relay claim needs `skip_locked` and `UPDATE ... RETURNING`; other databases
+  use the per-row relay. On PostgreSQL nothing changes; no migration.
+- **Two more renderer forms.** `for_update(stmt, *, skip_locked, read=False)`
+  locks the rows a query reads (PostgreSQL: `FOR UPDATE [SKIP LOCKED]` /
+  `FOR SHARE`, as before; SQLite: unchanged, its writers are serial) and
+  `relaxed_commit_clause()` lets the outbox's mark-delivered commit without a
+  durable-flush wait (PostgreSQL: today's `synchronous_commit` term; SQLite:
+  none). Both are required members of renderer contract version 2 and checked
+  by `SqlDialectConformance`; the PostgreSQL SQL is byte-identical (pinned by
+  tests). The kernel's row locks and the mark-delivered statement use them, and
+  the kernel names a database at 33 sites, down from 40.
+
 ### Changed
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and
