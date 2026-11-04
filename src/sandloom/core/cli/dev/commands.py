@@ -956,10 +956,12 @@ def _finish_up(ctx: Context, state: State, options: UpOptions) -> int:
     save_state(ctx.state_dir, state)
     proc = ctx.compose(state).up()
     if proc.returncode != 0:
-        detail = ((proc.stderr or "") + (proc.stdout or "")).strip().splitlines()
+        detail = _docker.failure_reason(
+            (proc.stderr or "") + "\n" + (proc.stdout or "")
+        )
         raise DevError(
             "`docker compose up` failed"
-            + (f": {detail[-1]}" if detail else "")
+            + (f": {detail}" if detail else "")
             + f" (project {state.project}; `uv run sandloom dev logs` shows the logs)"
         )
     if changed:
