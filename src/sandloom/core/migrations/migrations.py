@@ -47,6 +47,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.sql.base import Executable
 
 from sandloom.core.config.settings import settings
 from sandloom.core.config.settings import settings as _settings
@@ -63,6 +64,12 @@ from sandloom.core.sql_alchemy.models import (
     OutboxMessage,
 )
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
+from sandloom.core.sql_alchemy.portable import (
+    dialect_of_url,
+    lock_statement_for,
+    optional_lock_statement_for,
+    unlock_statement_for,
+)
 
 logger = logging.getLogger("sandloom.core.migrations.migrations")
 
@@ -263,12 +270,15 @@ MIGRATION_LOCK_NOTICE_SECONDS = 5.0
 
 #: ``pg_advisory_lock(bigint)`` splits the key into classid (high 32 bits) and
 #: objid (low 32 bits) with objsubid = 1; covers the xact-level lock too.
-_LOCK_HOLDERS_SQL = (
+#: PostgreSQL's catalogues, read only for the diagnostics of a wait, which
+#: only a database whose renderer has a session lock (PostgreSQL's) reaches;
+#: never fails the wait (:func:`migration_lock_holders`).
+_LOCK_HOLDERS_SQL = text(
     "SELECT a.pid, a.application_name, a.state, a.backend_start, a.query_start, "
     "a.xact_start, a.usename, a.client_addr "
     "FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid "
     "WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 "
-    "AND l.classid = {classid} AND l.objid = {objid} "
+    "AND l.classid = :classid AND l.objid = :objid "
     "AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())"
 )
 
@@ -282,11 +292,9 @@ def migration_lock_holders(conn: Any) -> list[dict[str, Any]]:
     ``pg_read_all_stats``). Never raises: diagnostics must not fail the wait.
     """
     key = MIGRATION_LOCK_KEY
-    sql = _LOCK_HOLDERS_SQL.format(
-        classid=(key >> 32) & 0xFFFFFFFF, objid=key & 0xFFFFFFFF
-    )
+    params = {"classid": (key >> 32) & 0xFFFFFFFF, "objid": key & 0xFFFFFFFF}
     try:
-        rows = conn.exec_driver_sql(sql).mappings().all()
+        rows = conn.execute(_LOCK_HOLDERS_SQL, params).mappings().all()
         conn.commit()
     except Exception:  # noqa: BLE001 - best-effort diagnostics
         try:
@@ -323,20 +331,23 @@ def describe_lock_holders(holders: Sequence[dict[str, Any]]) -> str:
 def migration_lock(
     database_urls: Iterable[str], *, timeout: float | None = None
 ) -> Iterator[None]:
-    """Hold a PostgreSQL advisory lock on every target database for the block.
+    """Hold the migration session lock on every target database for the block.
 
     Two concurrent ``sandloom-migrate`` processes (two replicas' migrate jobs, a
     retried CI step) would otherwise race DDL and the ``alembic_version_*``
-    rows. Each database gets its own dedicated connection holding
-    ``pg_advisory_lock(MIGRATION_LOCK_KEY)`` for the WHOLE run; a second runner
-    waits (``pg_try_advisory_lock`` polling) until the first finishes, then
-    sees an up-to-date schema and no-ops. The wait is bounded by ``timeout``
-    (``sandloom-migrate --lock-timeout``) or ``MIGRATION_LOCK_TIMEOUT_SECONDS``;
-    every :data:`MIGRATION_LOCK_NOTICE_SECONDS` the waiting runner logs WHO
-    holds the lock (pid, application_name, query start — see
+    rows. Each database gets its own dedicated connection holding the
+    renderer's session lock on :data:`MIGRATION_LOCK_KEY` (PostgreSQL:
+    ``pg_advisory_lock``) for the WHOLE run; a second runner waits (polling
+    the never-waiting form, ``pg_try_advisory_lock``) until the first
+    finishes, then sees an up-to-date schema and no-ops. The wait is bounded
+    by ``timeout`` (``sandloom-migrate --lock-timeout``) or
+    ``MIGRATION_LOCK_TIMEOUT_SECONDS``; every
+    :data:`MIGRATION_LOCK_NOTICE_SECONDS` the waiting runner logs WHO holds
+    the lock (pid, application_name, query start — see
     :func:`migration_lock_holders`) and the timeout error names them too.
     Databases are locked in sorted order so two runners never deadlock.
-    Non-PostgreSQL URLs are skipped. The per-chain runner
+    A database whose SQL dialect renderer has no session lock (any but
+    PostgreSQL today) is skipped. The per-chain runner
     (:func:`sandloom.core.migrations.alembic_support.run_migrations`) also takes a
     transaction-scoped lock when invoked outside this block (plain
     ``alembic upgrade``) and skips it for URLs held here.
@@ -346,10 +357,20 @@ def migration_lock(
     )
     if not wait_budget > 0:
         raise ValueError("migration lock timeout must be > 0 seconds")
-    urls = sorted({u for u in database_urls if u.startswith("postgresql")})
+    # A database whose renderer has no session lock (none but PostgreSQL's
+    # today) is skipped, as non-PostgreSQL URLs always were.
+    locks: dict[str, Executable] = {}
+    for url in set(database_urls):
+        lock = optional_lock_statement_for(
+            dialect_of_url(url), MIGRATION_LOCK_KEY, scope="session", wait=False
+        )
+        if lock is not None:
+            locks[url] = lock
+    urls = sorted(locks)
     held: list[tuple[str, Engine, Connection]] = []
     try:
         for url in urls:
+            try_lock = locks[url]
             engine = create_engine(
                 url,
                 poolclass=pool.NullPool,
@@ -361,9 +382,7 @@ def migration_lock(
             started = time.monotonic()
             deadline = started + wait_budget
             next_notice = started
-            while not conn.exec_driver_sql(
-                f"SELECT pg_try_advisory_lock({MIGRATION_LOCK_KEY})"
-            ).scalar_one():
+            while not conn.execute(try_lock).scalar_one():
                 conn.commit()
                 now = time.monotonic()
                 if now >= deadline:
@@ -392,7 +411,7 @@ def migration_lock(
         for url, engine, conn in reversed(held):
             alembic_support.LOCKED_URLS.discard(url)
             try:
-                conn.exec_driver_sql(f"SELECT pg_advisory_unlock({MIGRATION_LOCK_KEY})")
+                conn.execute(unlock_statement_for(conn, MIGRATION_LOCK_KEY))
                 conn.commit()
             except Exception:  # noqa: BLE001 - closing the session frees it anyway
                 logger.warning("[migrations] could not release lock on %s", url)
@@ -443,20 +462,18 @@ def ensure_database(
         isolation_level="AUTOCOMMIT",
         connect_args={"application_name": MIGRATION_LOCK_APPLICATION_NAME},
     )
-    key = {"cls": PROVISION_LOCK_CLASS, "name": name}
+    key = (PROVISION_LOCK_CLASS, name)
     try:
         with admin.connect() as conn:
             # session level: CREATE DATABASE cannot run in a transaction
-            conn.execute(text("SELECT pg_advisory_lock(:cls, hashtext(:name))"), key)
+            conn.execute(lock_statement_for(conn, key, scope="session", wait=True))
             try:
                 created = _create_database(conn, name)
                 if created:
                     logger.info("[migrations] created database %s", _mask_url(str(url)))
                 _ensure_extensions(url)
             finally:
-                conn.execute(
-                    text("SELECT pg_advisory_unlock(:cls, hashtext(:name))"), key
-                )
+                conn.execute(unlock_statement_for(conn, key))
     finally:
         admin.dispose()
     return created

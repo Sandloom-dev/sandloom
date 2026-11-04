@@ -10,14 +10,32 @@ renderer the same way. This is the only place the forms meet a dialect.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import cache
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, String, any_, bindparam, func, select
+from sqlalchemy import (
+    Boolean,
+    ColumnElement,
+    String,
+    any_,
+    bindparam,
+    column,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import TypeEngine, Uuid
+from sqlalchemy.sql.base import Executable
+from sqlalchemy.types import NullType, TypeEngine, Uuid
 
-from sandloom.core.sql_alchemy.portable import ArrayInsert, ConflictInsert, ErrorKind
+from sandloom.core.sql_alchemy.portable import (
+    ArrayInsert,
+    ConflictInsert,
+    ErrorKind,
+    LockKey,
+    LockScope,
+    check_lock_key,
+)
 
 #: :data:`~sandloom.core.sql_alchemy.portable.ARRAY_INSERT_TYPES` as
 #: PostgreSQL array types.
@@ -56,6 +74,57 @@ _PG_SQLSTATES: dict[str, ErrorKind] = {
     "57P02": "connection_lost",
     "57P03": "connection_lost",
 }
+
+
+#: PostgreSQL's advisory lock function per ``(scope, wait)``.
+_PG_LOCKS = {
+    ("transaction", True): "pg_advisory_xact_lock",
+    ("transaction", False): "pg_try_advisory_xact_lock",
+    ("session", True): "pg_advisory_lock",
+    ("session", False): "pg_try_advisory_lock",
+}
+
+
+@cache
+def _pg_textual_lock(
+    function: str, hashed: str | None, pair: bool, answers: bool
+) -> Any:
+    """``SELECT <function>(...)`` for a string or pair key, with UNTYPED
+    binds (``$1``, as the hand-written statements had), built once."""
+    if hashed is None:
+        key = ":k"
+    elif hashed == "hashtextextended":
+        key = "hashtextextended(:k, 0)"
+    else:
+        key = f"{hashed}(:k)"
+    args = f":ns, {key}" if pair else key
+    names = ("ns", "k") if pair else ("k",)
+    sql = f"SELECT {function}({args})"
+    statement: Any = text(sql).bindparams(
+        *(bindparam(name, type_=NullType()) for name in names)
+    )
+    if answers:
+        statement = statement.columns(column("locked", Boolean))
+    return statement
+
+
+def _pg_lock(function: str, key: LockKey, *, answers: bool) -> Executable:
+    """``function`` (an advisory lock or unlock) on ``key``; ``answers``: it
+    returns whether it locked (or unlocked), as a boolean column."""
+    check_lock_key(key)
+    if isinstance(key, int):
+        # A bound bigint: ``transaction_lock``'s statement since it was written.
+        call = getattr(func, function)
+        return select(call(key, type_=Boolean) if answers else call(key))
+    if isinstance(key, str):
+        # Hashed ON THE SERVER, so processes of two releases exclude each
+        # other during a rolling deploy.
+        base: Any = _pg_textual_lock(function, "hashtextextended", False, answers)
+        return cast("Executable", base.bindparams(k=key))
+    namespace, inner = key
+    hashed = "hashtext" if isinstance(inner, str) else None
+    base = _pg_textual_lock(function, hashed, True, answers)
+    return cast("Executable", base.bindparams(ns=namespace, k=inner))
 
 
 __all__ = ["POSTGRESQL", "SQLITE", "PostgresqlSql", "SqliteSql"]
@@ -157,14 +226,21 @@ class PostgresqlSql:
         )
         return f"WITH {with_} {last}"
 
-    async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
-        await session.execute(select(func.pg_advisory_xact_lock(key)))
-        return True
+    def lock_statement(
+        self, key: LockKey, *, scope: LockScope, wait: bool
+    ) -> Executable:
+        # Advisory locks: an int is one bigint key, a pair two int4 keys (a
+        # string second key hashed with hashtext), a string one bigint hashed
+        # with hashtextextended(:k, 0).
+        return _pg_lock(_PG_LOCKS[(scope, wait)], key, answers=not wait)
+
+    def unlock_statement(self, key: LockKey) -> Executable:
+        return _pg_lock("pg_advisory_unlock", key, answers=True)
 
 
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
-    ``ON CONFLICT``; no substring-search index and no transaction lock."""
+    ``ON CONFLICT``; no substring-search index and no named lock."""
 
     contract_version = 2
     name = "sqlite"
@@ -219,11 +295,18 @@ class SqliteSql:
         # No arrays: the kernel writes one multi-row INSERT per table.
         return None
 
-    async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
-        # SQLite has no lock a transaction can take before its first write:
-        # reads before it run outside any lock. Refuse rather than run a
-        # check-then-act section unprotected.
-        return False
+    def lock_statement(
+        self, key: LockKey, *, scope: LockScope, wait: bool
+    ) -> Executable | None:
+        # SQLite has no named lock: serial writers (BEGIN IMMEDIATE) arrive
+        # with the driver's SQLite path (spec, slice 8a). Until then the
+        # kernel refuses rather than run a check-then-act section unlocked.
+        check_lock_key(key)
+        return None
+
+    def unlock_statement(self, key: LockKey) -> Executable | None:
+        check_lock_key(key)
+        return None
 
 
 POSTGRESQL = PostgresqlSql()

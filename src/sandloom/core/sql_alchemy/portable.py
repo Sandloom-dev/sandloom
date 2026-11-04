@@ -25,7 +25,9 @@ generated: it is one database's history, so run it on that database.
   (``ILIKE '%term%'``), created where the database has one.
 - :func:`conflict_insert`: ``INSERT ... ON CONFLICT DO NOTHING / DO UPDATE``.
 - :func:`greatest`: the largest of its arguments.
-- :func:`transaction_lock`: a lock held until the transaction ends.
+- :func:`transaction_lock`: a lock held until the transaction ends, built
+  on the renderer's :meth:`SqlDialect.lock_statement` like the kernel's own
+  locks (:func:`lock_statement_for`).
 
 On PostgreSQL each renders exactly the SQL the standard modules wrote by hand
 before, so moving a module onto them changes no schema and needs no migration.
@@ -43,6 +45,7 @@ from sqlalchemy import ColumnElement, Index, MetaData, String, TextClause, text
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.types import TypeDecorator, TypeEngine
@@ -61,6 +64,8 @@ __all__ = [
     "ConflictInsert",
     "ErrorKind",
     "IncompatibleSqlDialect",
+    "LockKey",
+    "LockScope",
     "RENDERER_FEATURES",
     "SQL_DIALECTS_GROUP",
     "SQL_DIALECT_CONTRACT",
@@ -69,6 +74,7 @@ __all__ = [
     "SqlDialect",
     "UnsupportedServerVersion",
     "UnsupportedSqlForm",
+    "check_lock_key",
     "check_server_version",
     "array_insert_sql_for",
     "classify_error",
@@ -80,12 +86,15 @@ __all__ = [
     "greatest_for",
     "has_sql_dialect",
     "id_in_for",
+    "lock_statement_for",
+    "optional_lock_statement_for",
     "partial_index",
     "register_sql_dialect",
     "renderer_features",
     "search_index",
     "sql_dialect",
     "transaction_lock",
+    "unlock_statement_for",
     "unrendered_dialect",
     "unrendered_partial_indexes",
 ]
@@ -189,6 +198,44 @@ ARRAY_INSERT_TYPES = frozenset({"uuid", "varchar", "json", "timestamp", "integer
 #: ``(table, bind prefix, ((column, type from ARRAY_INSERT_TYPES), ...))``.
 ArrayInsert = tuple[str, str, tuple[tuple[str, str], ...]]
 
+#: A named lock's key: a signed 64-bit integer; a pair of a signed 32-bit
+#: namespace and a signed 32-bit integer or a string; or a string. A string
+#: is hashed by the database itself, so every process (of any release) maps
+#: it to the same lock.
+LockKey = int | str | tuple[int, int] | tuple[int, str]
+
+#: How long a lock is held: until the transaction ends, or until the session
+#: (the connection) unlocks it with :meth:`SqlDialect.unlock_statement`.
+LockScope = Literal["transaction", "session"]
+
+_INT64 = (-(1 << 63), (1 << 63) - 1)
+_INT32 = (-(1 << 31), (1 << 31) - 1)
+
+
+def _is_int(value: Any, bounds: tuple[int, int]) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and bounds[0] <= value <= bounds[1]
+    )
+
+
+def check_lock_key(key: Any) -> None:
+    """Refuse a value that is not a :data:`LockKey` (``TypeError``)."""
+    if _is_int(key, _INT64) or isinstance(key, str):
+        return
+    if (
+        isinstance(key, tuple)
+        and len(key) == 2
+        and _is_int(key[0], _INT32)
+        and (_is_int(key[1], _INT32) or isinstance(key[1], str))
+    ):
+        return
+    raise TypeError(
+        f"a lock key is a signed 64-bit int, a string, or a pair of a signed "
+        f"32-bit namespace and a signed 32-bit int or a string; got {key!r}"
+    )
+
 
 class SqlDialect(Protocol):
     """What a database's SQL dialect renderer provides (contract version 2).
@@ -256,9 +303,24 @@ class SqlDialect(Protocol):
         audit write; column types are :data:`ARRAY_INSERT_TYPES`."""
         ...
 
-    async def transaction_lock(self, session: AsyncSession, key: int) -> bool:
-        """Hold ``key`` until the session's transaction ends; ``False`` when
-        the database has no such lock."""
+    def lock_statement(
+        self, key: LockKey, *, scope: LockScope, wait: bool
+    ) -> Executable | None:
+        """The statement that takes the named lock ``key`` (check it with
+        :func:`check_lock_key`), or ``None`` when the database has no such lock.
+
+        ``scope="transaction"``: held until the transaction ends;
+        ``"session"``: until :meth:`unlock_statement` runs on the same
+        connection. ``wait=True`` waits for the lock; ``wait=False`` never
+        waits and selects one boolean, whether it locked. The kernel runs it
+        on sync connections (migrations) and async sessions alike.
+        """
+        ...
+
+    def unlock_statement(self, key: LockKey) -> Executable | None:
+        """The statement that releases the session lock ``key`` (selecting
+        one boolean, whether it was held); ``None`` exactly when
+        :meth:`lock_statement` has no session lock."""
         ...
 
 
@@ -306,7 +368,8 @@ REQUIRED_MEMBERS = (
     "greatest",
     "id_in",
     "array_insert_sql",
-    "transaction_lock",
+    "lock_statement",
+    "unlock_statement",
 )
 
 
@@ -676,6 +739,46 @@ def array_insert_sql_for(bind: Any, inserts: Sequence[ArrayInsert]) -> str | Non
     return None if renderer is None else renderer.array_insert_sql(inserts)
 
 
+def optional_lock_statement_for(
+    bind: Any, key: LockKey, *, scope: LockScope, wait: bool
+) -> Executable | None:
+    """The renderer's :meth:`SqlDialect.lock_statement` for the database of
+    ``bind`` (see :func:`dialect_name`: a sync connection or an async
+    session alike); ``None`` without a renderer or without such a lock, for
+    a caller that has a correct answer unlocked."""
+    renderer = sql_dialect(dialect_name(bind))
+    if renderer is None:
+        check_lock_key(key)
+        return None
+    return renderer.lock_statement(key, scope=scope, wait=wait)
+
+
+def lock_statement_for(
+    bind: Any, key: LockKey, *, scope: LockScope, wait: bool
+) -> Executable:
+    """:func:`optional_lock_statement_for` that refuses a database without
+    such a lock (:class:`UnsupportedSqlForm`, SANDLOOM-R015) rather than run
+    the section unlocked. The caller executes it; ``wait=False`` selects
+    whether it locked."""
+    dialect = dialect_name(bind)
+    statement = _require(dialect, "lock_statement").lock_statement(
+        key, scope=scope, wait=wait
+    )
+    if statement is None:
+        raise UnsupportedSqlForm(f"lock_statement(scope={scope!r})", dialect)
+    return statement
+
+
+def unlock_statement_for(bind: Any, key: LockKey) -> Executable:
+    """The statement that releases the session lock ``key`` taken with
+    :func:`lock_statement_for` on the same connection."""
+    dialect = dialect_name(bind)
+    statement = _require(dialect, "unlock_statement").unlock_statement(key)
+    if statement is None:
+        raise UnsupportedSqlForm("unlock_statement", dialect)
+    return statement
+
+
 async def transaction_lock(key: int, *, session: AsyncSession) -> None:
     """Hold the lock ``key`` until ``session``'s transaction ends.
 
@@ -684,6 +787,10 @@ async def transaction_lock(key: int, *, session: AsyncSession) -> None:
     ``key`` is a signed 64-bit integer the module chooses and keeps stable. A
     database without such a lock refuses rather than run the section unlocked.
     """
-    dialect = session.get_bind().dialect.name
-    if not await _require(dialect, "transaction_lock").transaction_lock(session, key):
+    dialect = dialect_name(session)
+    statement = _require(dialect, "transaction_lock").lock_statement(
+        key, scope="transaction", wait=True
+    )
+    if statement is None:
         raise UnsupportedSqlForm("transaction_lock", dialect)
+    await session.execute(statement)

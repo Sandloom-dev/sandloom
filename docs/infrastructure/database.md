@@ -79,6 +79,10 @@ renderer belongs to the database's driver package. It names itself in the
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
 | `transaction_lock` | `pg_advisory_xact_lock` | refuses: SQLite has no such lock |
 
+The kernel's own locks come from the same renderer: its `lock_statement` gives
+the HTTP idempotency try-lock, the projection purge lock and the migration
+locks (PostgreSQL advisory locks), and `transaction_lock` is built on it.
+
 No form falls back to other SQL. A statement the database cannot write refuses
 with [SANDLOOM-R015](../reference/error-codes.md#sandloom-r015). Startup checks
 three things and stops with

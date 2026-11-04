@@ -12,6 +12,8 @@ transaction. See :mod:`sandloom.core.sql_alchemy.models.http_idempotency`.
 
 Claim protocol (two statements on the happy path)::
 
+    -- the renderer's lock_statement((namespace, key hash),
+    --     scope="transaction", wait=False); on PostgreSQL:
     SELECT pg_try_advisory_xact_lock(<namespace>, <key hash>)   -- never waits
     INSERT INTO http_idempotency_log (...) VALUES (...)
     ON CONFLICT (dedupe_key) DO UPDATE SET ...  -- take over an EXPIRED row only
@@ -32,7 +34,8 @@ Claim protocol (two statements on the happy path)::
 
 Lock namespace: the two-``int4`` advisory form (``objsubid = 2``) with
 :data:`ADVISORY_NAMESPACE`, disjoint from the ``bigint`` form the migration
-lock uses.
+lock uses. A database whose renderer has no named lock claims without it
+(SQLite's serial writers make the duplicate wait instead: spec, slice 8a).
 """
 
 from __future__ import annotations
@@ -40,7 +43,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, cast
 
-from sqlalchemy import Table, text
+from sqlalchemy import Table
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.effects import PENDING, DedupeBusy, DedupeRecordSpec
@@ -50,6 +53,7 @@ from sandloom.core.sql_alchemy.models.http_idempotency import (
     HttpIdempotencyRecord,
     _utc_naive_now,
 )
+from sandloom.core.sql_alchemy.portable import optional_lock_statement_for
 
 #: ``classid`` of the guard's transaction-scoped advisory locks ("SANDLOOMH").
 ADVISORY_NAMESPACE = 0x414A4148
@@ -82,8 +86,6 @@ REQUEST_LOG = RelationalDedupeLog(
     REQUEST_RECORD, lambda: cast(Table, HttpIdempotencyRecord.__table__)
 )
 
-_TRY_LOCK = text("SELECT pg_try_advisory_xact_lock(:ns, :k)")
-
 
 def advisory_key(dedupe_key: str) -> int:
     """Signed ``int4`` lock key from the record's hex digest."""
@@ -104,16 +106,17 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
         fingerprint: str,
         ttl_seconds: int,
     ) -> CommandClaim:
-        if session.sync_session.get_bind().dialect.name == "postgresql":
+        try_lock = optional_lock_statement_for(
+            session,
+            (ADVISORY_NAMESPACE, advisory_key(dedupe_key)),
+            scope="transaction",
+            wait=False,
+        )
+        if try_lock is not None:
             # autoflush off, like the claim: a flush of the caller's pending
             # objects here would surface the caller's own errors in the guard.
             with session.no_autoflush:
-                locked = (
-                    await session.execute(
-                        _TRY_LOCK,
-                        {"ns": ADVISORY_NAMESPACE, "k": advisory_key(dedupe_key)},
-                    )
-                ).scalar()
+                locked = (await session.execute(try_lock)).scalar()
             if not locked:
                 raise RequestLogBusy(dedupe_key)
         now = _utc_naive_now()

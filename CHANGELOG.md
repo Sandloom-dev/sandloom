@@ -78,6 +78,29 @@ website renders this same changelog.
   `partial_index`: the PostgreSQL DDL is unchanged, no migration follows. The
   claim and the outbox statements render the same SQL on PostgreSQL.
 
+- **The kernel's locks go through the SQL dialect renderer.** A renderer's
+  `transaction_lock` form becomes `lock_statement(key, *, scope=, wait=)` and
+  `unlock_statement(key)`: the statement that takes (or releases) a named lock,
+  or `None` when the database has none. A key is a 64-bit `int`, a
+  `(namespace, int | str)` pair or a `str`; PostgreSQL hashes a string on the
+  server (`hashtextextended`, or `hashtext` in a pair), so two releases still
+  exclude each other during a rolling deploy. The HTTP idempotency try-lock
+  (still "busy, never wait"), the projection purge and rebuild lock, the
+  migration run-wide and provisioning locks and the chain lock of a direct
+  `alembic upgrade` ask it instead of naming PostgreSQL; on PostgreSQL the SQL
+  is the same (the migration locks bind the key instead of inlining it).
+  `transaction_lock` keeps its signature and SQL and still refuses on SQLite
+  (SANDLOOM-R015). `SqlDialectConformance` checks that each lock compiles or is
+  absent, that a never-waiting lock selects a boolean, and that a session lock
+  has its unlock.
+
+- **Locks through the renderer.** The kernel's advisory locks (the HTTP
+  idempotency try-lock, the projection purge lock, the migration and
+  provisioning locks) come from the SQL dialect renderer's `lock_statement`;
+  PostgreSQL takes the same locks with the same keys. `transaction_lock(key)` now
+  refuses a key that is not a 64-bit integer (a `bool` included) with
+  `TypeError` before it reaches the database.
+
 ### Changed
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and

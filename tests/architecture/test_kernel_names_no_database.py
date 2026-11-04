@@ -50,9 +50,10 @@ PG_FUNCTIONS = frozenset(
         "greatest",
     }
 )
-#: PostgreSQL-only SQL inside a string passed to ``text()``/``exec_driver_sql()``.
+#: PostgreSQL-only SQL inside a string passed to ``text()``/``exec_driver_sql()``:
+#: functions and system catalogues (``pg_locks``, ``pg_roles``), casts, RLS DDL.
 PG_SQL = re.compile(
-    r"pg_\w+\(|set_config\(|current_setting\(|clock_timestamp\(|::\w|"
+    r"\bpg_[a-z_]+\b|set_config\(|current_setting\(|clock_timestamp\(|::\w|"
     r"SKIP LOCKED|ROW LEVEL SECURITY|CREATE POLICY|ANY\(|unnest\(",
     re.IGNORECASE,
 )

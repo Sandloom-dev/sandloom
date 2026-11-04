@@ -2216,10 +2216,11 @@
         "features",
         "greatest",
         "id_in",
+        "lock_statement",
         "partial_index_options",
         "search_index_options",
         "search_operand",
-        "transaction_lock"
+        "unlock_statement"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     }

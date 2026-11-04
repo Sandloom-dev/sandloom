@@ -34,11 +34,15 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
-from sqlalchemy import Table, case, func, select, text, update
+from sqlalchemy import Table, case, func, select, update
 
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.models.projection_watermark import ProjectionWatermark
-from sandloom.core.sql_alchemy.portable import conflict_insert_for, greatest_for
+from sandloom.core.sql_alchemy.portable import (
+    conflict_insert_for,
+    greatest_for,
+    lock_statement_for,
+)
 
 _TABLE = cast(Table, ProjectionWatermark.__table__)
 _OUTBOX = cast(Table, OutboxMessage.__table__)
@@ -51,13 +55,20 @@ class StoredWatermark(NamedTuple):
     rebuild_started_at: datetime | None = None
 
 
-#: Purge window vs rebuild entry, per projection (transaction scoped).
-_PURGE_LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
-
-
 def purge_lock_key(projection: str) -> str:
     """The text whose 64-bit hash keys ``projection``'s purge lock."""
     return f"sandloom.projection_purge:{projection}"
+
+
+async def _take_purge_lock(session: Any, projection: str) -> None:
+    """Purge window vs rebuild entry, per projection, until the unit ends
+    (PostgreSQL: ``pg_advisory_xact_lock(hashtextextended(:key, 0))``, the
+    string hashed on the server, so two releases exclude each other)."""
+    await session.execute(
+        lock_statement_for(
+            session, purge_lock_key(projection), scope="transaction", wait=True
+        )
+    )
 
 
 def _now() -> datetime:
@@ -131,7 +142,7 @@ class RelationalWatermarkStore:
     @asynccontextmanager
     async def purge_window(self, projection: str) -> AsyncIterator[StoredWatermark]:
         async with self._open() as session:
-            await session.execute(_PURGE_LOCK, {"key": purge_lock_key(projection)})
+            await _take_purge_lock(session, projection)
             # read after the lock: every begun rebuild has committed its count
             yield await stored_watermark(session, projection)
 
@@ -177,7 +188,7 @@ class RelationalWatermarkStore:
                 },
             )
             # wait for a purge window: a purge never deletes under a rebuild
-            await session.execute(_PURGE_LOCK, {"key": purge_lock_key(projection)})
+            await _take_purge_lock(session, projection)
             await session.execute(stmt)
 
     async def end_rebuild(self, projection: str) -> None:

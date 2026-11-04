@@ -299,22 +299,58 @@ class SqlDialectConformance:
                     f"array_insert_sql does not bind :{prefix}_{column}: {sql}",
                 )
 
-    @pytest.mark.asyncio
-    async def test_transaction_lock_answers_whether_it_locked(self) -> None:
-        statements: list[str] = []
-        dialect = self.dialect
+    #: One key of each shape a lock takes (``portable.LockKey``).
+    LOCK_KEYS: ClassVar[tuple[Any, ...]] = (
+        42,
+        0x414A_4152_4241_4331,
+        (0x414A4148, -7),
+        "sandloom.conformance:lock",
+        (0x414A4150, "conformance"),
+    )
 
-        class Session:
-            def get_bind(self) -> Any:
-                return type("Bind", (), {"dialect": dialect})()
+    def _lock_answers_a_boolean(self, statement: Any, what: str) -> None:
+        columns = list(getattr(statement, "selected_columns", ()))
+        _require(
+            len(columns) == 1 and isinstance(columns[0].type, sa.Boolean),
+            f"{what} must select one boolean column (whether it locked), "
+            f"selects {columns}",
+        )
 
-            async def execute(self, statement: Any) -> None:
-                statements.append(str(statement.compile(dialect=dialect)))
+    def test_lock_statement_compiles_or_is_absent(self) -> None:
+        for key in self.LOCK_KEYS:
+            for scope in ("transaction", "session"):
+                for wait in (True, False):
+                    what = f"lock_statement({key!r}, scope={scope!r}, wait={wait})"
+                    statement = self.renderer.lock_statement(
+                        key, scope=scope, wait=wait
+                    )
+                    if statement is None:
+                        continue  # the kernel refuses rather than run unlocked
+                    _require(bool(self._sql(statement)), f"{what} compiles to nothing")
+                    if not wait:
+                        self._lock_answers_a_boolean(statement, what)
 
-        locked = await self.renderer.transaction_lock(cast(Any, Session()), 42)
-        _require(isinstance(locked, bool), "transaction_lock must return a bool")
-        if not locked:
-            _require(statements == [], "a refused lock must run no statement")
+    def test_a_session_lock_has_its_unlock(self) -> None:
+        for key in self.LOCK_KEYS:
+            locks = self.renderer.lock_statement(key, scope="session", wait=True)
+            unlock = self.renderer.unlock_statement(key)
+            _require(
+                (locks is None) == (unlock is None),
+                f"unlock_statement({key!r}) must exist exactly when a session "
+                "lock does",
+            )
+            if unlock is not None:
+                _require(bool(self._sql(unlock)), "unlock_statement compiles")
+                self._lock_answers_a_boolean(unlock, "unlock_statement")
+
+    def test_lock_statement_refuses_a_key_of_no_shape(self) -> None:
+        keys: tuple[Any, ...] = (1.5, True, (1, 2, 3), (1 << 40, 2), None)
+        for key in keys:
+            try:
+                self.renderer.lock_statement(key, scope="transaction", wait=True)
+            except TypeError:
+                continue
+            raise AssertionError(f"lock_statement accepted the key {key!r}")
 
 
 __all__ = ["NotifierConformance", "SqlDialectConformance"]

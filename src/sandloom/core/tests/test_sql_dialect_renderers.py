@@ -3,13 +3,15 @@ and the suite fails a renderer that breaks the contract."""
 
 from __future__ import annotations
 
+import contextlib
+import types
 import uuid
 from typing import Any, ClassVar, cast
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.dialects.postgresql import asyncpg
+from sqlalchemy.dialects.postgresql import asyncpg, psycopg2
 from sqlalchemy.orm import Session
 
 from sandloom.core.drivers.sql_dialects import (
@@ -18,7 +20,14 @@ from sandloom.core.drivers.sql_dialects import (
     PostgresqlSql,
     SqliteSql,
 )
-from sandloom.core.sql_alchemy import portable
+from sandloom.core.infra.contracts import RequestLogBusy
+from sandloom.core.migrations import alembic_support
+from sandloom.core.migrations.migrations import (
+    MIGRATION_LOCK_KEY,
+    PROVISION_LOCK_CLASS,
+    migration_lock,
+)
+from sandloom.core.sql_alchemy import portable, request_log
 from sandloom.core.sql_alchemy.command_log import COMMAND_LOG
 from sandloom.core.sql_alchemy.durable_inbox import INBOX_LOG
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
@@ -31,6 +40,10 @@ from sandloom.core.sql_alchemy.portable import (
     greatest_for,
     id_in_for,
     register_sql_dialect,
+)
+from sandloom.core.sql_alchemy.projection_watermarks import (
+    _take_purge_lock,
+    purge_lock_key,
 )
 from sandloom.driverkit import SqlDialect
 from sandloom.driverkit.testing import SqlDialectConformance
@@ -422,3 +435,238 @@ def test_the_outbox_array_insert_is_the_renderers() -> None:
     assert sql.startswith("WITH audit AS (INSERT INTO audit_log (id, occurred_at")
     assert "SELECT * FROM unnest(CAST(:o_id AS UUID[])" in sql
     assert effect_rows._statement(_Lite, True, True) is None
+
+
+# -- locks through the renderer (slice 3) ------------------------------------ #
+
+
+class _Recording:
+    """An async session of ``dialect`` that records the SQL it is given and
+    answers ``answer`` to a scalar read."""
+
+    def __init__(self, dialect: Any, answer: Any = True) -> None:
+        self.dialect = dialect
+        self.answer = answer
+        self.statements: list[tuple[str, dict[str, Any]]] = []
+
+    @property
+    def no_autoflush(self) -> Any:
+        return contextlib.nullcontext()
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        compiled = statement.compile(dialect=self.dialect)
+        self.statements.append((str(compiled), dict(compiled.params)))
+        answer = self.answer
+
+        class _Result:
+            def scalar(self) -> Any:
+                return answer
+
+        return _Result()
+
+
+def _compiled(statement: Any, dialect: Any) -> tuple[str, dict[str, Any]]:
+    compiled = statement.compile(dialect=dialect)
+    return str(compiled), dict(compiled.params)
+
+
+async def test_transaction_lock_is_todays_statement_on_postgresql() -> None:
+    session = _Recording(asyncpg.dialect())
+    await portable.transaction_lock(0x414A_4152_4241_4331, session=cast(Any, session))
+    before = _compiled(
+        sa.select(sa.func.pg_advisory_xact_lock(0x414A_4152_4241_4331)),
+        asyncpg.dialect(),
+    )
+    assert session.statements == [before]
+    assert before[0] == (
+        "SELECT pg_advisory_xact_lock($1::BIGINT) AS pg_advisory_xact_lock_1"
+    )
+
+
+async def test_the_request_log_try_lock_is_todays_statement_and_busy_is_busy() -> None:
+    key = "f" * 64
+    session = _Recording(asyncpg.dialect(), answer=False)
+    with pytest.raises(RequestLogBusy):
+        await request_log.SQLAlchemyRequestLogStore().claim(
+            session,
+            dedupe_key=key,
+            scope="s",
+            tenant=None,
+            fingerprint="fp",
+            ttl_seconds=60,
+        )
+    # only the try-lock ran: a lock held elsewhere never waits and never claims
+    old = sa.text("SELECT pg_try_advisory_xact_lock(:ns, :k)")
+    assert session.statements == [
+        (
+            str(old.compile(dialect=asyncpg.dialect())),
+            {"ns": request_log.ADVISORY_NAMESPACE, "k": request_log.advisory_key(key)},
+        )
+    ]
+    assert session.statements[0][0] == "SELECT pg_try_advisory_xact_lock($1, $2)"
+
+
+async def test_the_projection_purge_lock_hashes_the_name_on_the_server() -> None:
+    session = _Recording(asyncpg.dialect())
+    await _take_purge_lock(session, "orders")
+    old = sa.text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+    assert session.statements == [
+        (
+            str(old.compile(dialect=asyncpg.dialect())),
+            {"k": purge_lock_key("orders")},
+        )
+    ]
+
+
+def test_the_migration_locks_are_todays_on_psycopg2() -> None:
+    dialect = psycopg2.dialect()
+
+    def literal(statement: Any) -> str:
+        return str(
+            statement.compile(dialect=dialect, compile_kwargs={"literal_binds": True})
+        )
+
+    key = MIGRATION_LOCK_KEY
+    run_wide = portable.lock_statement_for(
+        "postgresql", key, scope="session", wait=False
+    )
+    assert literal(run_wide) == (
+        f"SELECT pg_try_advisory_lock({key}) AS pg_try_advisory_lock_1"
+    )
+    (answer,) = cast(Any, run_wide).selected_columns
+    assert isinstance(answer.type, sa.Boolean)
+    assert literal(portable.unlock_statement_for("postgresql", key)) == (
+        f"SELECT pg_advisory_unlock({key}) AS pg_advisory_unlock_1"
+    )
+    chain = portable.lock_statement_for(
+        "postgresql", key, scope="transaction", wait=True
+    )
+    assert (
+        literal(chain)
+        == f"SELECT pg_advisory_xact_lock({key}) AS pg_advisory_xact_lock_1"
+    )
+    provision = (PROVISION_LOCK_CLASS, "app_db")
+    for statement, old in (
+        (
+            portable.lock_statement_for(
+                "postgresql", provision, scope="session", wait=True
+            ),
+            "SELECT pg_advisory_lock(:ns, hashtext(:k))",
+        ),
+        (
+            portable.unlock_statement_for("postgresql", provision),
+            "SELECT pg_advisory_unlock(:ns, hashtext(:k))",
+        ),
+    ):
+        assert _compiled(statement, dialect) == (
+            str(sa.text(old).compile(dialect=dialect)),
+            {"ns": PROVISION_LOCK_CLASS, "k": "app_db"},
+        )
+
+
+def test_sqlite_has_no_named_lock_yet() -> None:
+    for scope in ("transaction", "session"):
+        assert (
+            portable.optional_lock_statement_for(
+                "sqlite", 1, scope=cast(Any, scope), wait=True
+            )
+            is None
+        )
+        with pytest.raises(UnsupportedSqlForm, match="lock_statement"):
+            portable.lock_statement_for("sqlite", 1, scope=cast(Any, scope), wait=True)
+    with pytest.raises(UnsupportedSqlForm, match="unlock_statement"):
+        portable.unlock_statement_for("sqlite", 1)
+    with pytest.raises(UnsupportedSqlForm, match="no SQL dialect"):
+        portable.lock_statement_for("mysql", 1, scope="transaction", wait=True)
+
+
+async def test_the_request_log_claims_unlocked_without_a_named_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SQLite: no try-lock runs before the claim (its writers queue at BEGIN
+    IMMEDIATE instead, slice 8a)."""
+    claims: list[Any] = []
+
+    class _Log:
+        async def claim(self, session: Any, values: Any, *, now: Any) -> Any:
+            claims.append(values["dedupe_key"])
+            return types.SimpleNamespace(outcome="claimed")
+
+    monkeypatch.setattr(request_log, "REQUEST_LOG", _Log())
+    session = _Recording(sqlite.dialect())
+    claim = await request_log.SQLAlchemyRequestLogStore().claim(
+        session,
+        dedupe_key="a" * 64,
+        scope="s",
+        tenant=None,
+        fingerprint="fp",
+        ttl_seconds=60,
+    )
+    assert claim.outcome == "claimed" and claims == ["a" * 64]
+    assert session.statements == []
+
+
+def test_the_run_wide_migration_lock_skips_a_database_without_one() -> None:
+    with migration_lock(["sqlite:///never-opened.db"], timeout=1):
+        assert alembic_support.LOCKED_URLS == set()
+
+
+@pytest.mark.parametrize("key", [1.5, True, (1, 2, 3), (1 << 40, 2), 1 << 64, None])
+def test_a_lock_key_of_no_shape_is_refused(key: Any) -> None:
+    with pytest.raises(TypeError, match="lock key"):
+        portable.lock_statement_for("postgresql", key, scope="transaction", wait=True)
+
+
+class _LockWithoutUnlock(PostgresqlSql):
+    """Has a session lock it cannot release."""
+
+    def unlock_statement(self, key: Any) -> None:  # type: ignore[override]
+        return None
+
+
+class _TryLockAnswersNothing(PostgresqlSql):
+    """A never-waiting lock that does not say whether it locked."""
+
+    def lock_statement(self, key: Any, *, scope: Any, wait: bool) -> Any:
+        return sa.text("SELECT 1")
+
+
+@pytest.mark.parametrize(
+    ("renderer", "check"),
+    [
+        (_LockWithoutUnlock(), "test_a_session_lock_has_its_unlock"),
+        (_TryLockAnswersNothing(), "test_lock_statement_compiles_or_is_absent"),
+    ],
+)
+def test_the_suite_fails_a_renderer_with_broken_locks(
+    renderer: SqlDialect, check: str
+) -> None:
+    class Broken(SqlDialectConformance):
+        pass
+
+    Broken.renderer = renderer
+    Broken.dialect = postgresql.dialect()  # type: ignore[no-untyped-call]
+    with pytest.raises(AssertionError):
+        getattr(Broken(), check)()
+
+
+def test_a_direct_alembic_run_takes_no_lock_while_sandloom_migrate_holds_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A URL under the run-wide session lock must not take the transaction
+    lock on the same key from another connection: it would wait for itself."""
+    import sandloom.core.migrations.alembic_support as support
+
+    asked: list[str] = []
+
+    def lock_statement(*_args: Any, **_kwargs: Any) -> str:
+        asked.append("asked")
+        return "LOCK"
+
+    monkeypatch.setattr(support, "optional_lock_statement_for", lock_statement)
+    url = "postgresql+psycopg2://h/held"
+    monkeypatch.setattr(support, "LOCKED_URLS", {url})
+    assert support._direct_run_lock(object(), url) is None
+    assert asked == []
+    assert support._direct_run_lock(object(), "postgresql+psycopg2://h/free") == "LOCK"
+    assert asked == ["asked"]

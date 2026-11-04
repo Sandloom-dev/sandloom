@@ -51,6 +51,7 @@ from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
+from sandloom.core.sql_alchemy.portable import optional_lock_statement_for
 
 #: Sync DSN injected by ``sandloom-migrate`` to target a named database instance.
 MIGRATE_URL_ENV = "SANDLOOM_MIGRATE_DATABASE_URL"
@@ -183,13 +184,12 @@ def run_migrations(  # noqa: C901
                 version_table=version_table,
             )
             with context.begin_transaction():
-                if url not in LOCKED_URLS and connection.dialect.name == "postgresql":
+                lock = _direct_run_lock(connection, url)
+                if lock is not None:
                     # Direct ``alembic upgrade`` (outside sandloom-migrate's
                     # run-wide lock): serialise concurrent runners for the
                     # duration of this chain's transaction.
-                    connection.exec_driver_sql(
-                        f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})"
-                    )
+                    connection.execute(lock)
                 context.run_migrations()
     finally:
         connectable.dispose()
@@ -272,6 +272,21 @@ def _refuse_unrestricted_partial_indexes(metadata: Any, dialect: Dialect) -> Non
             + " [SANDLOOM-R015]: the database's SQL dialect renderer cannot "
             "restrict them; run this chain on a database that can (PostgreSQL)"
         )
+
+
+def _direct_run_lock(connection: Any, url: str) -> Any:
+    """The transaction lock a direct ``alembic upgrade`` takes, or ``None``.
+
+    ``None`` for a URL whose run-wide session lock ``sandloom migrate`` already
+    holds (``LOCKED_URLS``): taking the transaction lock on the same key from
+    another connection would wait for ourselves. ``None`` too where the
+    database has no transaction lock.
+    """
+    if url in LOCKED_URLS:
+        return None
+    return optional_lock_statement_for(
+        connection, MIGRATION_LOCK_KEY, scope="transaction", wait=True
+    )
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
