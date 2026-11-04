@@ -97,6 +97,10 @@ class DriverRegistration:
     # of ``features`` that instance actually advertises (e.g. ``tenant_rls``
     # only when the option is on). Still build-free — options only, no I/O.
     instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None
+    # The SQLAlchemy dialect names a database driver serves (``postgresql``):
+    # startup checks that an instance's URL names one of them and that a SQL
+    # dialect renderer exists for it (SANDLOOM-B024). Empty for non-SQL drivers.
+    sql_dialects: frozenset[str] = field(default_factory=frozenset)
 
     def features_for(self, options: Mapping[str, Any]) -> frozenset[str]:
         if self.instance_features is None:
@@ -306,6 +310,7 @@ class InfraRegistry:
         config_schema: type[Any] | None = None,
         instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None,
         capability_version: str | None = None,
+        sql_dialects: frozenset[str] | set[str] | None = None,
     ) -> None:
         """Register a driver for a capability (idempotent override).
 
@@ -352,6 +357,7 @@ class InfraRegistry:
             features=feats,
             config_schema=config_schema,
             instance_features=instance_features,
+            sql_dialects=frozenset(sql_dialects or ()),
         )
 
     def has_driver(self, capability: str, driver: str) -> bool:
@@ -431,6 +437,19 @@ class InfraRegistry:
         if registration is None:
             return None
         return registration.features_for(cfg.options)
+
+    def sql_dialects(
+        self, capability: str, name: str = DEFAULT_INSTANCE
+    ) -> tuple[str, frozenset[str]] | None:
+        """``(driver, the SQL dialects it serves)`` for instance
+        ``capability/name``, build-free; ``None`` when not configured."""
+        cfg = self._config.get(capability, {}).get(name)
+        if cfg is None:
+            return None
+        registration = self._drivers.get((capability, cfg.driver))
+        if registration is None:
+            return None
+        return cfg.driver, registration.sql_dialects
 
     def instances(self, capability: str) -> list[str]:
         """Return configured instance names for a capability."""

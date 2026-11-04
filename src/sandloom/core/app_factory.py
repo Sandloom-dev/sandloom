@@ -99,6 +99,7 @@ from sandloom.core.observability import metrics
 from sandloom.core.observability.logging import init_logging
 from sandloom.core.observability.metrics import render_metrics
 from sandloom.core.observability.observability import init_sentry
+from sandloom.core.orm import Base
 from sandloom.core.production_profile import config_problems
 from sandloom.core.production_profile import (
     enforce_runtime as enforce_production_profile,
@@ -111,7 +112,11 @@ from sandloom.core.rpc import (
 from sandloom.core.runtime import set_active_core
 from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.sql_alchemy.portable import unrendered_dialect
+from sandloom.core.sql_alchemy.portable import (
+    dialect_of_url,
+    unrendered_dialect,
+    unrendered_partial_indexes,
+)
 
 
 async def _core_health() -> HealthResult:
@@ -189,6 +194,42 @@ def sql_dialect_problem(cfg: Any) -> str | None:
         + ", ".join(missing)
         + " [SANDLOOM-B024]: install the driver package that provides one"
     )
+
+
+def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
+    """The SQL databases a process cannot use as configured.
+
+    Each database instance's URL must name a dialect its driver declares it
+    serves (``sql_dialects=`` at driver registration, SANDLOOM-B024), and every
+    :func:`~sandloom.sdk.data.partial_index` must have a condition on each of
+    those dialects (SANDLOOM-R015): otherwise it would index every row.
+    """
+    problems: list[str] = []
+    dialects: set[str] = set()
+    for name in infra.instances("database"):
+        served = infra.sql_dialects("database", name)
+        config = infra.instance_config("database", name)
+        url = (config.options.get("url") if config else None) or getattr(
+            settings, "database_url", None
+        )
+        if served is None or not served[1] or not url:
+            continue
+        driver, names = served
+        dialect = dialect_of_url(str(url))
+        dialects.add(dialect)
+        if dialect not in names:
+            problems.append(
+                f"database {name!r}: driver {driver!r} serves {sorted(names)}, "
+                f"not {dialect!r} [SANDLOOM-B024]"
+            )
+    unrestricted = unrendered_partial_indexes(metadata, dialects)
+    if unrestricted:
+        problems.append(
+            "partial indexes with no condition on their database: "
+            + ", ".join(unrestricted)
+            + " [SANDLOOM-R015]"
+        )
+    return problems
 
 
 def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[str]:
@@ -291,6 +332,11 @@ def create_app(
     # Load modules; a failed required module must abort startup loudly.
     module_summary: ModuleLoadSummary = load_modules_with_summary(core_facade)
     application.state.module_summary = module_summary
+    # Every model is declared now: each SQL database is one its driver serves,
+    # and every partial index can be restricted there (B024, R015).
+    storage_problems = sql_storage_problems(infra, Base.metadata)
+    if storage_problems:
+        raise ConfigurationError(INVALID_CONFIGURATION + "; ".join(storage_problems))
     # The application manifest (spec §5.7), built from the load pass, no I/O.
     application.state.app_manifest = AppManifest.from_summary(module_summary)
     # Sagas (ADR-0008): check every registered definition against its

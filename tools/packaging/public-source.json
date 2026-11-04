@@ -1292,6 +1292,7 @@
         "src/sandloom/core/drivers/memory_document_store.py",
         "src/sandloom/core/drivers/redis_cache.py",
         "src/sandloom/core/drivers/smtp_notifier.py",
+        "src/sandloom/core/drivers/sql_dialects.py",
         "src/sandloom/core/drivers/sqlalchemy_database.py",
         "src/sandloom/core/drivers/system_db.py",
         "src/sandloom/core/effects.py",
@@ -1472,6 +1473,7 @@
         "src/sandloom/core/sql_alchemy/planner_adapter/forms.py",
         "src/sandloom/core/sql_alchemy/planner_adapter/units.py",
         "src/sandloom/core/sql_alchemy/planner_safety.py",
+        "src/sandloom/core/sql_alchemy/portable.py",
         "src/sandloom/core/sql_alchemy/projection_watermarks.py",
         "src/sandloom/core/sql_alchemy/read_guard.py",
         "src/sandloom/core/sql_alchemy/read_only_policy.py",
@@ -1730,6 +1732,7 @@
         "src/sandloom/core/tests/test_server_errors.py",
         "src/sandloom/core/tests/test_service_rpc.py",
         "src/sandloom/core/tests/test_split_readiness.py",
+        "src/sandloom/core/tests/test_sql_dialect_renderers.py",
         "src/sandloom/core/tests/test_start_page.py",
         "src/sandloom/core/tests/test_static_cli_no_env.py",
         "src/sandloom/core/tests/test_storage_security.py",
@@ -2295,6 +2298,7 @@
         "tests/architecture/test_lint_suppression_ratchet.py",
         "tests/architecture/test_module_boundaries.py",
         "tests/architecture/test_module_rules.py",
+        "tests/architecture/test_no_dialect_imports.py",
         "tests/architecture/test_no_endpoints_outside_api_layer.py",
         "tests/architecture/test_no_kernel_handle_access.py",
         "tests/architecture/test_no_legacy_infra_imports.py",
@@ -2310,6 +2314,7 @@
         "tests/architecture/test_relational_paradigm_boundary.py",
         "tests/architecture/test_release_sync.py",
         "tests/architecture/test_required_ci.py",
+        "tests/architecture/test_schema_on_a_second_database.py",
         "tests/architecture/test_schemas_no_orm_imports.py",
         "tests/architecture/test_sdk_import_isolation.py",
         "tests/architecture/test_sdk_reference.py",
@@ -2420,6 +2425,7 @@
         "tests/sdk/test_sdk_generators.py",
         "tests/sdk/test_sdk_l1_registration.py",
         "tests/sdk/test_sdk_module_names.py",
+        "tests/sdk/test_sdk_portable_sql.py",
         "tests/sdk/test_sdk_projection_ops.py",
         "tests/sdk/test_sdk_projection_purge_race.py",
         "tests/sdk/test_sdk_projections.py",
@@ -2626,6 +2632,16 @@
         "design/context-and-graph/research.md",
         "design/context-and-graph/spec.md",
         "design/driver-api/research.md"
+      ]
+    },
+    {
+      "reason": "Database-agnostic kernel design: research, code inventory, review of the relational interface, and the proposal.",
+      "paths": [
+        "design/infra-agnostic/design.md",
+        "design/infra-agnostic/inventory-kernel-postgres.md",
+        "design/infra-agnostic/research-orm-backends.md",
+        "design/infra-agnostic/research-reliability-mechanisms.md",
+        "design/infra-agnostic/review-relational-interface.md"
       ]
     },
     {

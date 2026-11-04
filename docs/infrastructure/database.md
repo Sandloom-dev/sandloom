@@ -79,12 +79,22 @@ renderer belongs to the database's driver package. It names itself in the
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
 | `transaction_lock` | `pg_advisory_xact_lock` | refuses: SQLite has no such lock |
 
-No form falls back to other SQL. A form the database cannot write refuses with
-[SANDLOOM-R015](../reference/error-codes.md#sandloom-r015), and a configured
-database without a renderer stops startup with
-[SANDLOOM-B024](../reference/error-codes.md#sandloom-b024). Migrations write
-the database's own type (`postgresql.CITEXT()`), since each one is the DDL
-history of one database.
+No form falls back to other SQL. A statement the database cannot write refuses
+with [SANDLOOM-R015](../reference/error-codes.md#sandloom-r015). Startup checks
+three things and stops with
+[SANDLOOM-B024](../reference/error-codes.md#sandloom-b024) or R015:
+
+- each database's URL names a dialect its driver declares it serves (the
+  `sql_dialects=` of the driver's registration; `sqlalchemy` serves PostgreSQL);
+- that dialect has a renderer;
+- every `partial_index` has a condition there, so none would index every row.
+  The migration environment checks the same before it writes or applies a
+  revision.
+
+Migrations write the database's own type (`postgresql.CITEXT()`), since each
+one is the DDL history of one database. The test suite builds every module's
+and example's schema on SQLite, which catches a column type or index a second
+database cannot write.
 
 The kernel itself still needs PostgreSQL: row-level security, the outbox and
 idempotency stores, `CreatedAt`'s `clock_timestamp()`, and the projection

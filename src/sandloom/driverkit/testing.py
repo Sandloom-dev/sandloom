@@ -8,15 +8,23 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping
-from typing import ClassVar, cast, get_args
+from typing import Any, ClassVar, cast, get_args
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
+from sqlalchemy.schema import CreateIndex
 
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.contracts import NotificationChannel
 from sandloom.core.infra.registry import versions_compatible
-from sandloom.driverkit import HealthResult, Notification, NotifierProvider
+from sandloom.driverkit import (
+    ConflictInsert,
+    HealthResult,
+    Notification,
+    NotifierProvider,
+    SqlDialect,
+)
 
 _MARKER = "sandloom-conformance-marker"
 
@@ -139,4 +147,112 @@ class NotifierConformance:
         await provider.aclose()
 
 
-__all__ = ["NotifierConformance"]
+class SqlDialectConformance:
+    """What a SQL dialect renderer must do for the portable forms of
+    ``sandloom.sdk.data``. Subclass it in the renderer's tests and set
+    ``renderer`` and ``dialect`` (the SQLAlchemy dialect the renderer is named
+    for). The checks compile SQL only; a renderer that writes a form may still
+    need a test against its real database. A form the renderer returns ``None``
+    for is checked to be refused, not run.
+    """
+
+    #: The renderer under test.
+    renderer: ClassVar[SqlDialect]
+    #: An instance of the SQLAlchemy dialect it renders for.
+    dialect: ClassVar[Any]
+
+    @staticmethod
+    def _table() -> sa.Table:
+        return sa.Table(
+            "conformance_items",
+            sa.MetaData(),
+            sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+            sa.Column("key", sa.String(40), nullable=False),
+            sa.Column("value", sa.Integer, nullable=False),
+            sa.Column("state", sa.String(16), nullable=False),
+        )
+
+    def _sql(self, element: Any) -> str:
+        return " ".join(str(element.compile(dialect=self.dialect)).split())
+
+    def test_case_insensitive_text_is_a_type_of_this_database(self) -> None:
+        type_ = self.renderer.case_insensitive_text(80)
+        if type_ is None:
+            raise AssertionError("case_insensitive_text returned None")
+        column = sa.Column("email", type_)
+        sa.Table("conformance_people", sa.MetaData(), column)
+        _require(
+            bool(str(type_.compile(dialect=self.dialect))),
+            "the case-insensitive type does not compile on its database",
+        )
+
+    def test_partial_index_options_restrict_the_index(self) -> None:
+        condition = sa.text("state = 'live'")
+        options = self.renderer.partial_index_options(condition)
+        if options is None:
+            return  # refused: startup and migrations check it (R015)
+        _require(
+            all(name.startswith(f"{self.dialect.name}_") for name in options),
+            f"partial_index_options must be {self.dialect.name}_* options: {options}",
+        )
+        index = sa.Index("ix_conformance_live", "key", unique=True, **options)
+        self._table().append_constraint(index)
+        sql = self._sql(CreateIndex(index))
+        _require("state = 'live'" in sql, f"the condition is missing from: {sql}")
+
+    def test_search_index_is_whole_or_absent(self) -> None:
+        options = self.renderer.search_index_options()
+        operand = self.renderer.search_operand("key", False)
+        folded = self.renderer.search_operand("key", True)
+        if options is None:
+            _require(
+                operand is None and folded is None,
+                "search_operand must be None when search_index_options is",
+            )
+            return
+        _require(
+            bool(operand) and bool(folded),
+            "a renderer with a search index must write both operand forms",
+        )
+
+    def test_conflict_insert_has_the_on_conflict_shape(self) -> None:
+        table = self._table()
+        statement = self.renderer.conflict_insert(table)
+        if statement is None:
+            return  # refused at the call (R015)
+        for name in ("on_conflict_do_nothing", "on_conflict_do_update", "excluded"):
+            _require(hasattr(statement, name), f"conflict_insert lacks .{name}")
+        ignore = statement.values(id=1, key="k", value=1, state="s")
+        ignore = ignore.on_conflict_do_nothing(index_elements=["id"])
+        _require(
+            "ON CONFLICT" in self._sql(ignore).upper()
+            or "MERGE" in self._sql(ignore).upper(),
+            f"on_conflict_do_nothing wrote no conflict clause: {self._sql(ignore)}",
+        )
+        upsert = cast(ConflictInsert, self.renderer.conflict_insert(table))
+        upsert = upsert.values(id=1, key="k", value=1, state="s")
+        upsert = upsert.on_conflict_do_update(
+            index_elements=["id"],
+            set_={"value": table.c.value + upsert.excluded.value},
+        )
+        _require(bool(self._sql(upsert)), "on_conflict_do_update does not compile")
+
+    @pytest.mark.asyncio
+    async def test_transaction_lock_answers_whether_it_locked(self) -> None:
+        statements: list[str] = []
+        dialect = self.dialect
+
+        class Session:
+            def get_bind(self) -> Any:
+                return type("Bind", (), {"dialect": dialect})()
+
+            async def execute(self, statement: Any) -> None:
+                statements.append(str(statement.compile(dialect=dialect)))
+
+        locked = await self.renderer.transaction_lock(cast(Any, Session()), 42)
+        _require(isinstance(locked, bool), "transaction_lock must return a bool")
+        if not locked:
+            _require(statements == [], "a refused lock must run no statement")
+
+
+__all__ = ["NotifierConformance", "SqlDialectConformance"]

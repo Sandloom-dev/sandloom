@@ -721,7 +721,8 @@ def find_dialect_imports(file_path: Path) -> list[str]:
     """Code that only runs on one database: a ``sqlalchemy.dialects`` import
     (static, ``from sqlalchemy import dialects``, dynamic), the package reached
     by attribute (``sa.dialects.postgresql``), or a dialect's own option on a
-    schema construct (``Index(..., postgresql_where=...)``). SQL functions only
+    schema construct (``Index(..., postgresql_where=...)``), or a PostgreSQL
+    cast (``::``) in ``text()``. SQL functions only
     one database has (``func.array_agg``) are not visible to a static check."""
     tree = parse_file(file_path)
     aliases = _sqlalchemy_aliases(tree)
@@ -749,6 +750,18 @@ def find_dialect_imports(file_path: Path) -> list[str]:
             and node.value.id in aliases
         ):
             violations.append(f"Line {node.lineno}: {node.value.id}.dialects")
+        elif (
+            isinstance(node, ast.Call)
+            and _callee(node) == "text"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and "::" in node.args[0].value
+        ):
+            violations.append(
+                f"Line {node.lineno}: a PostgreSQL cast (::) in text(); "
+                "use sa.cast(expr, Type)"
+            )
         elif isinstance(node, ast.Call) and _callee(node) in SCHEMA_CALLEES:
             violations.extend(
                 f"Line {node.lineno}: dialect option {name}= "

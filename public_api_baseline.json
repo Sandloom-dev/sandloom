@@ -2099,6 +2099,67 @@
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable') -> None"
     },
+    "ConflictInsert": {
+      "kind": "class",
+      "members": [
+        "add_cte",
+        "allows_lambda",
+        "apply_syntax_extension_point",
+        "argument_for",
+        "compare",
+        "compile",
+        "corresponding_column",
+        "cte",
+        "description",
+        "dialect_kwargs",
+        "dialect_options",
+        "entity_description",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "ext",
+        "from_select",
+        "get_children",
+        "get_dialect_option",
+        "get_execution_options",
+        "include_insert_from_select_defaults",
+        "inherit_cache",
+        "inline",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "kwargs",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "name_cte_columns",
+        "named_with_column",
+        "options",
+        "params",
+        "prefix_with",
+        "reflect_only_elements",
+        "return_defaults",
+        "returning",
+        "returning_column_descriptions",
+        "select",
+        "selectable",
+        "self_group",
+        "stringify_dialect",
+        "supports_execution",
+        "unique_params",
+        "uses_inspection",
+        "values",
+        "with_dialect_options",
+        "with_hint"
+      ],
+      "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
+    },
     "HealthResult": {
       "kind": "class",
       "members": [
@@ -2144,6 +2205,18 @@
         "supported_features"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "SqlDialect": {
+      "kind": "class",
+      "members": [
+        "case_insensitive_text",
+        "conflict_insert",
+        "partial_index_options",
+        "search_index_options",
+        "search_operand",
+        "transaction_lock"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     }
   },
   "sandloom.sdk": {

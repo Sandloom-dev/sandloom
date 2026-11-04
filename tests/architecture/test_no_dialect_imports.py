@@ -55,6 +55,7 @@ def test_module_imports_no_dialect(root: Path) -> None:
         "from sqlalchemy import Index\nIndex('i', 'a', sqlite_where='a > 1')\n",
         "from sqlalchemy import Index\nIndex('i', 'a', **{'postgresql_where': 'a'})\n",
         "import sqlalchemy as sa\nsa.Column('a', sa.Text, postgresql_using='gin')\n",
+        "from sqlalchemy import text\ntext('SELECT id::text FROM t')\n",
     ],
 )
 def test_the_analyzer_catches_every_spelling(tmp_path: Path, source: str) -> None:
@@ -77,6 +78,7 @@ def test_an_ordinary_argument_named_like_a_dialect_passes(tmp_path: Path) -> Non
     sample.write_text(
         "connect(sqlite_path='a.db')\n"
         "Settings(postgresql_dsn='postgresql://h/d', mysql_charset='utf8')\n"
+        "text('SELECT a FROM t WHERE b = :b')\n"
     )
     assert find_dialect_imports(sample) == []
 

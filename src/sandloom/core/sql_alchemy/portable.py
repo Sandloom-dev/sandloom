@@ -13,10 +13,10 @@ they are found by name rather than handed over by the driver bootstrap.
 No form falls back silently. A database without a renderer, or whose renderer
 lacks a form, refuses with :class:`UnsupportedSqlForm` (SANDLOOM-R015) when
 the statement or the DDL is compiled, and startup refuses a configured
-database without a renderer (SANDLOOM-B024). The partial-index refusal is a
-``@compiles(CreateIndex)`` hook that hands every other index to the dialect's
-own compiler; an application that registers its own ``CreateIndex`` hook
-replaces it. A migration keeps the options its renderers wrote when it was
+database without a renderer, served by a driver that does not declare its
+dialect (SANDLOOM-B024), or with a partial index its renderer cannot restrict
+(SANDLOOM-R015, :func:`unrendered_partial_indexes`; the migration environment
+checks the same). A migration keeps the options its renderers wrote when it was
 generated: it is one database's history, so run it on that database.
 
 - :class:`CaseInsensitiveText`: text compared without regard to case.
@@ -38,11 +38,10 @@ from collections.abc import Iterable
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import ColumnElement, Index, String, TextClause, text
+from sqlalchemy import ColumnElement, Index, MetaData, String, TextClause, text
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.schema import CreateIndex
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.types import TypeDecorator, TypeEngine
@@ -61,6 +60,7 @@ __all__ = [
     "SqlDialect",
     "UnsupportedSqlForm",
     "conflict_insert",
+    "dialect_of_url",
     "has_sql_dialect",
     "partial_index",
     "register_sql_dialect",
@@ -68,6 +68,7 @@ __all__ = [
     "sql_dialect",
     "transaction_lock",
     "unrendered_dialect",
+    "unrendered_partial_indexes",
 ]
 
 #: The entry-point group a database driver package names its renderer in:
@@ -272,10 +273,32 @@ def has_sql_dialect(name: str) -> bool:
     return sql_dialect(name) is not None
 
 
+def dialect_of_url(url: str) -> str:
+    """The SQLAlchemy dialect name a database URL names (``postgresql``)."""
+    return make_url(url).get_backend_name()
+
+
+def unrendered_partial_indexes(
+    metadata: MetaData, dialects: Iterable[str]
+) -> list[str]:
+    """``table.index (dialect)`` for each :func:`partial_index` that has no
+    condition on one of ``dialects``: created there, it would index every row.
+    Startup and the migration environment refuse on any (SANDLOOM-R015)."""
+    wanted = set(dialects)
+    found: list[str] = []
+    for table in metadata.tables.values():
+        for index in table.indexes:
+            if PARTIAL_WHERE not in index.info:
+                continue
+            missing = wanted - set(index.info.get(RENDERED_ON, ()))
+            found.extend(f"{table.name}.{index.name} ({d})" for d in sorted(missing))
+    return found
+
+
 def unrendered_dialect(url: str) -> str | None:
     """The dialect name of the database ``url`` when it has no renderer
     (the startup check, SANDLOOM-B024), else ``None``."""
-    dialect = make_url(url).get_backend_name()
+    dialect = dialect_of_url(url)
     return None if has_sql_dialect(dialect) else dialect
 
 
@@ -336,9 +359,9 @@ def partial_index(
 
         partial_index("uq_inv", "email", where="accepted_at IS NULL", unique=True)
 
-    Each database's renderer writes the condition its own way; a database
-    whose renderer cannot refuses to create the index rather than create it
-    over every row.
+    Each database's renderer writes the condition its own way. A database
+    whose renderer cannot is refused at startup and by the migration
+    environment rather than given an index over every row.
     """
     index = Index(name, *columns, unique=unique)
     index.info[PARTIAL_WHERE] = _condition(where)
@@ -397,16 +420,6 @@ def search_index(
     operands = [_SearchOperand(column, column in folded) for column in columns]
     index = Index(name, *operands).ddl_if(callable_=_creates_search_index)
     return _track(index)
-
-
-@compiles(CreateIndex)
-def _create_index_where_rendered(create: CreateIndex, compiler: Any, **kw: Any) -> str:
-    """Refuse a partial index on a database that cannot restrict it."""
-    index = create.element
-    dialect = compiler.dialect.name
-    if PARTIAL_WHERE in index.info and dialect not in index.info.get(RENDERED_ON, ()):
-        raise UnsupportedSqlForm("partial_index", dialect)
-    return str(compiler.visit_create_index(create, **kw))
 
 
 def conflict_insert(table: Any, *, session: AsyncSession) -> ConflictInsert:

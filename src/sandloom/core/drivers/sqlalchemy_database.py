@@ -90,6 +90,11 @@ SQLALCHEMY_DB_BASE_FEATURES = frozenset(
 #: instance's option of the same name is on.
 SQLALCHEMY_DB_OPTIONAL_FEATURES = frozenset({"tenant_rls"})
 
+#: The SQL dialects this driver serves. The kernel's own relational code (row-
+#: level security, the outbox and idempotency stores) runs on PostgreSQL only
+#: until it moves behind the driver; see docs/infrastructure/database.md.
+SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql"})
+
 #: Driver-level declaration (what the driver CAN provide) used for the
 #: build-free registry registration. A built provider's ``features()`` is the
 #: instance-accurate subset — see :func:`sqlalchemy_db_features`.

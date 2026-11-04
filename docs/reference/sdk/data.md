@@ -484,9 +484,9 @@ one pending invitation per email:
 partial_index("uq_inv", "email", where="accepted_at IS NULL", unique=True)
 ```
 
-Each database's renderer writes the condition its own way; a database
-whose renderer cannot refuses to create the index rather than create it
-over every row.
+Each database's renderer writes the condition its own way. A database
+whose renderer cannot is refused at startup and by the migration
+environment rather than given an index over every row.
 
 ### `PlannedReads`
 

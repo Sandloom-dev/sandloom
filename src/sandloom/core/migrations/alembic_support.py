@@ -152,6 +152,7 @@ def run_migrations(  # noqa: C901
 
     if context.is_offline_mode():
         dialect = make_url(url).get_dialect()()
+        _refuse_unrestricted_partial_indexes(target_metadata, dialect)
         context.configure(
             url=url,
             render_item=_render_item,
@@ -173,6 +174,7 @@ def run_migrations(  # noqa: C901
     try:
         with connectable.connect() as connection:
             dialect = connection.dialect
+            _refuse_unrestricted_partial_indexes(target_metadata, dialect)
             context.configure(
                 connection=connection,
                 render_item=_render_item,
@@ -247,6 +249,29 @@ def _created_on(obj: Any, dialect: Dialect | None) -> bool:
             checkfirst=False,
         )
     )
+
+
+def _refuse_unrestricted_partial_indexes(metadata: Any, dialect: Dialect) -> None:
+    """Refuse when a ``partial_index`` has no condition on ``dialect``.
+
+    Autogenerate would otherwise write, and an upgrade create, an index over
+    every row (SANDLOOM-R015). Read from the ``Index.info`` keys the portable
+    forms leave, so the environment needs no import of them.
+    """
+    unrestricted = [
+        f"{table.name}.{index.name}"
+        for table in metadata.tables.values()
+        for index in table.indexes
+        if "sandloom.partial_where" in index.info
+        and dialect.name not in index.info.get("sandloom.rendered_on", ())
+    ]
+    if unrestricted:
+        raise RuntimeError(
+            f"partial indexes with no condition on {dialect.name!r}: "
+            + ", ".join(unrestricted)
+            + " [SANDLOOM-R015]: the database's SQL dialect renderer cannot "
+            "restrict them; run this chain on a database that can (PostgreSQL)"
+        )
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:

@@ -35,6 +35,13 @@ website renders this same changelog.
   `clock_timestamp()`, the projection upserts, and identity's claims query
   (`array_agg`, `LATERAL`). The check does not see SQL functions only one
   database has.
+  A database driver declares the dialects it serves (`register_driver(...,
+  sql_dialects={...})`), and startup refuses a database URL its driver does not
+  serve or a `partial_index` without a condition there (B024, R015); the
+  migration environment checks the same. `sandloom.driverkit.testing` gains
+  `SqlDialectConformance` for renderers, and the suite builds every module's and
+  example's schema on SQLite. `sandloom check` also flags a PostgreSQL `::` cast
+  in `text()`.
   Upgrade: in your modules, replace `from sqlalchemy.dialects.postgresql import
   UUID` with `from sqlalchemy import Uuid`, `CITEXT` with `CaseInsensitiveText`,
   `postgresql_where=` indexes with `partial_index(...)`, `pg_insert(Model)` with

@@ -22,7 +22,11 @@ import sandloom.core.app_factory as app_factory
 import sandloom.core.sql_alchemy.portable as portable
 from sandloom.core.app_factory import sql_dialect_problem
 from sandloom.core.drivers.sql_dialects import PostgresqlSql
-from sandloom.core.migrations.alembic_support import _created_on, _render_item
+from sandloom.core.migrations.alembic_support import (
+    _created_on,
+    _refuse_unrestricted_partial_indexes,
+    _render_item,
+)
 from sandloom.core.sql_alchemy.portable import UnsupportedSqlForm, register_sql_dialect
 from sandloom.sdk.data import (
     CaseInsensitiveText,
@@ -125,9 +129,48 @@ def test_partial_index_without_a_renderer_refuses_instead_of_indexing_every_row(
     no_renderers: None,
 ) -> None:
     index = partial_index("uq_pending", "email", where="status = 'p'", unique=True)
-    sa.Table("t", sa.MetaData(), sa.Column("email", sa.String(9)), index)
-    with pytest.raises(UnsupportedSqlForm, match="partial_index.*'postgresql'"):
-        CreateIndex(index).compile(dialect=PG)
+    metadata = sa.MetaData()
+    sa.Table("t", metadata, sa.Column("email", sa.String(9)), index)
+    assert portable.unrendered_partial_indexes(metadata, ["postgresql"]) == [
+        "t.uq_pending (postgresql)"
+    ]
+    with pytest.raises(RuntimeError, match=r"t\.uq_pending.*SANDLOOM-R015"):
+        _refuse_unrestricted_partial_indexes(metadata, PG)
+
+
+def test_a_restricted_partial_index_passes_both_checks() -> None:
+    index = partial_index("uq_pending", "email", where="status = 'p'", unique=True)
+    metadata = sa.MetaData()
+    sa.Table("t", metadata, sa.Column("email", sa.String(9)), index)
+    assert portable.unrendered_partial_indexes(metadata, ["postgresql", "sqlite"]) == []
+    _refuse_unrestricted_partial_indexes(metadata, PG)
+
+
+def _no_provider(_config: Any) -> Any:
+    raise AssertionError("the check is build-free")
+
+
+def test_startup_refuses_a_database_its_driver_does_not_serve() -> None:
+    from sandloom.core.infra.config import InstanceConfig
+    from sandloom.core.infra.registry import InfraRegistry
+
+    registry = InfraRegistry()
+    registry.register_driver(
+        "database", "sql", _no_provider, sql_dialects={"postgresql"}
+    )
+    registry.configure_instance(
+        InstanceConfig(
+            capability="database",
+            name="default",
+            driver="sql",
+            options={"url": "sqlite+aiosqlite:///x.db"},
+        )
+    )
+    problems = app_factory.sql_storage_problems(registry, sa.MetaData())
+    assert problems == [
+        "database 'default': driver 'sql' serves ['postgresql'], not 'sqlite' "
+        "[SANDLOOM-B024]"
+    ]
 
 
 def test_a_renderer_registered_later_reaches_an_existing_index(
