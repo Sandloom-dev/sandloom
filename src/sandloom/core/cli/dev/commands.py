@@ -957,7 +957,8 @@ def _finish_up(ctx: Context, state: State, options: UpOptions) -> int:
     proc = ctx.compose(state).up()
     if proc.returncode != 0:
         detail = _docker.failure_reason(
-            (proc.stderr or "") + "\n" + (proc.stdout or "")
+            (proc.stderr or "") + "\n" + (proc.stdout or ""),
+            kernel=_docker.stale_kernel(),
         )
         raise DevError(
             "`docker compose up` failed"
