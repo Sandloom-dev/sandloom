@@ -13,6 +13,18 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and
+  `/redoc` get the site's header with the app's name and links (console, Swagger UI,
+  ReDoc, Sandloom docs), the caracal in the tab, Manrope and Hack, the
+  site's surfaces and accent, operation cards with method colours that fit them, and
+  a theme switch in the header (system, light or dark, kept in the browser; ReDoc is
+  redrawn in a dark theme of its own). The fonts ship in the wheel with their licenses and are
+  served by the app (no font service). Swagger UI keeps the authorization across
+  reloads and shows request durations. Production keeps FastAPI's own pages: a
+  deployed app's API docs are the app's.
+
 ### Fixed
 
 - **A failed `sandloom dev up` names the cause.** Docker wraps long errors, and the
