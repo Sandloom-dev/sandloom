@@ -2210,7 +2210,9 @@
       "kind": "class",
       "members": [
         "case_insensitive_text",
+        "classify_error",
         "conflict_insert",
+        "features",
         "partial_index_options",
         "search_index_options",
         "search_operand",

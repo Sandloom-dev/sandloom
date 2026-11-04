@@ -43,6 +43,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.linger_pool import LingeringQueuePool
+from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import (
     AuditStore,
@@ -56,6 +57,11 @@ from sandloom.core.sql_alchemy.dead_connection import install_dead_connection_ha
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,
     sql_alchemy_outbox_store,
+)
+from sandloom.core.sql_alchemy.portable import (
+    check_server_version,
+    dialect_of_url,
+    renderer_features,
 )
 from sandloom.core.sql_alchemy.reconnect import install_reconnect_backoff
 from sandloom.core.sql_alchemy.request_log import sql_alchemy_request_log_store
@@ -98,7 +104,11 @@ SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql"})
 #: Driver-level declaration (what the driver CAN provide) used for the
 #: build-free registry registration. A built provider's ``features()`` is the
 #: instance-accurate subset — see :func:`sqlalchemy_db_features`.
-SQLALCHEMY_DB_FEATURES = SQLALCHEMY_DB_BASE_FEATURES | SQLALCHEMY_DB_OPTIONAL_FEATURES
+SQLALCHEMY_DB_FEATURES = (
+    SQLALCHEMY_DB_BASE_FEATURES
+    | SQLALCHEMY_DB_OPTIONAL_FEATURES
+    | DATABASE_RENDERER_FEATURES
+)
 
 
 class SQLAlchemyDatabaseOptions(BaseModel):
@@ -145,16 +155,19 @@ class SQLAlchemyDatabaseOptions(BaseModel):
 def sqlalchemy_db_features(options: Mapping[str, object]) -> frozenset[str]:
     """The features an instance configured with ``options`` advertises.
 
-    ``tenant_rls`` is included only when that option is on, so a module's
-    ``CapabilityRequirement("database", features=frozenset({"tenant_rls"}))``
-    is satisfied only by an instance that actually installs the RLS hooks.
+    The base features, plus what the SQL dialect renderer of the instance's
+    URL declares (``skip_locked``, ``transaction_locks``, …), plus
+    ``tenant_rls`` when that option is on. Build-free: options and the URL's
+    dialect only, never the server, so the registry's preflight stays exact.
     """
+    url = str(options.get("url") or settings.database_url)
+    features = SQLALCHEMY_DB_BASE_FEATURES | renderer_features(dialect_of_url(url))
     tenant_rls = SQLAlchemyDatabaseOptions.model_validate(
         {"tenant_rls": options.get("tenant_rls", False)}
     ).tenant_rls
     if tenant_rls:
-        return SQLALCHEMY_DB_BASE_FEATURES | {"tenant_rls"}
-    return SQLALCHEMY_DB_BASE_FEATURES
+        features |= {"tenant_rls"}
+    return features
 
 
 def _pool_snapshot(pool: Any) -> dict[str, int] | None:
@@ -537,6 +550,15 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
         event.listen(sync_engine, "checkout", _checkout)
 
 
+def _refuse_old_servers(engine: AsyncEngine) -> None:
+    """Refuse a server below its renderer's minimum version on the engine's
+    first connection, before any statement runs (SANDLOOM-B030)."""
+
+    @event.listens_for(engine.sync_engine, "first_connect")
+    def _check(dbapi_connection: Any, connection_record: Any) -> None:
+        check_server_version(engine.sync_engine.dialect)
+
+
 def _pooled_engine(
     url: str,
     *,
@@ -578,6 +600,7 @@ def _pooled_engine(
         **pool_kw,
     )
     install_idle_ping(engine, float(settings.db_pool_ping_idle_seconds))
+    _refuse_old_servers(engine)
     install_reconnect_backoff(
         engine,
         base=settings.db_reconnect_base_seconds,

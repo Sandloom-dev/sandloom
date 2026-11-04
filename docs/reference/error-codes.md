@@ -76,6 +76,8 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
+| [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define | active |
+| [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -946,6 +948,42 @@ one, the first table or statement that uses a form would fail, so the process
 does not start.
 
 **Fix:** install the driver package that provides the renderer for that database, or point the database at one Sandloom renders (PostgreSQL)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B025
+
+**a SQL dialect renderer of another contract version, or one that declares a feature the database capability does not define**
+
+Slug: `sql-dialect-incompatible` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A SQL dialect renderer (the sandloom.sql_dialects entry-point group) states
+the contract version it implements; a renderer without one is version 1. The
+kernel loads only renderers of its own version, so a renderer never answers a
+question it does not know. A renderer may declare only the database
+capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
+readonly_transactions, arrays, fulltext_search, json_path, json_contains):
+anything else would be advertised to modules without a meaning.
+
+**Fix:** upgrade the driver package that ships the renderer, or remove the unknown feature from its features()
+
+**More:** `docs/infrastructure/write-a-driver.md`
+
+### SANDLOOM-B030
+
+**the database server is older than its SQL dialect renderer supports**
+
+Slug: `database-server-too-old` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Each SQL dialect renderer states the oldest server version it supports; the
+SQL it writes (ON CONFLICT, RETURNING, advisory locks) needs it. The check
+runs on the engine's first connection, before any statement.
+
+**Fix:** upgrade the database server (PostgreSQL 14 or newer, SQLite 3.35 or newer)
 
 **More:** `docs/infrastructure/database.md`
 

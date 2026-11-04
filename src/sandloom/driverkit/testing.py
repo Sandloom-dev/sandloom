@@ -18,6 +18,7 @@ from sqlalchemy.schema import CreateIndex
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.contracts import NotificationChannel
 from sandloom.core.infra.registry import versions_compatible
+from sandloom.core.sql_alchemy.portable import RENDERER_FEATURES
 from sandloom.driverkit import (
     ConflictInsert,
     HealthResult,
@@ -174,6 +175,28 @@ class SqlDialectConformance:
 
     def _sql(self, element: Any) -> str:
         return " ".join(str(element.compile(dialect=self.dialect)).split())
+
+    def test_states_contract_version_2_and_its_dialect(self) -> None:
+        _require(
+            getattr(self.renderer, "contract_version", 1) == 2,
+            "contract_version must be 2",
+        )
+        _require(
+            getattr(self.renderer, "name", None) == self.dialect.name,
+            f"name must be the SQLAlchemy dialect name {self.dialect.name!r}",
+        )
+
+    def test_declares_only_database_renderer_features(self) -> None:
+        declared = self.renderer.features()
+        unknown = set(declared) - RENDERER_FEATURES
+        _require(not unknown, f"features outside the capability: {sorted(unknown)}")
+
+    def test_classifies_an_unknown_error_as_other(self) -> None:
+        _require(
+            self.renderer.classify_error(RuntimeError("not a database error"))
+            == "other",
+            "classify_error must answer 'other' for an error it does not know",
+        )
 
     def test_case_insensitive_text_is_a_type_of_this_database(self) -> None:
         type_ = self.renderer.case_insensitive_text(80)

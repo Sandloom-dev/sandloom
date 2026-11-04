@@ -36,7 +36,7 @@ import threading
 import weakref
 from collections.abc import Iterable
 from importlib import metadata
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import ColumnElement, Index, MetaData, String, TextClause, text
 from sqlalchemy.engine import Dialect, make_url
@@ -46,6 +46,8 @@ from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.types import TypeDecorator, TypeEngine
 
+from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
+
 if TYPE_CHECKING:
     from typing import Self
 
@@ -54,16 +56,24 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.elements import KeyedColumnElement
 
 __all__ = [
-    "SQL_DIALECTS_GROUP",
     "CaseInsensitiveText",
     "ConflictInsert",
+    "ErrorKind",
+    "IncompatibleSqlDialect",
+    "RENDERER_FEATURES",
+    "SQL_DIALECTS_GROUP",
+    "SQL_DIALECT_CONTRACT",
     "SqlDialect",
+    "UnsupportedServerVersion",
     "UnsupportedSqlForm",
+    "check_server_version",
+    "classify_error",
     "conflict_insert",
     "dialect_of_url",
     "has_sql_dialect",
     "partial_index",
     "register_sql_dialect",
+    "renderer_features",
     "search_index",
     "sql_dialect",
     "transaction_lock",
@@ -143,11 +153,52 @@ else:
         """
 
 
-class SqlDialect(Protocol):
-    """What a database's SQL dialect renderer provides.
+#: The contract major this kernel speaks. A renderer of another major is
+#: refused when it loads (SANDLOOM-B025); a renderer without
+#: ``contract_version`` is version 1.
+SQL_DIALECT_CONTRACT = 2
 
-    A method returns ``None`` for a form its database cannot write.
+#: The ``database`` capability features a renderer may declare
+#: (design/infra-agnostic/spec.md, section 2), owned by the capability spec.
+#: A renderer declaring anything else is refused when it loads (B025).
+RENDERER_FEATURES = DATABASE_RENDERER_FEATURES
+
+#: What a database error means to the kernel, whatever the database said.
+ErrorKind = Literal[
+    "unique_violation",
+    "serialization_failure",
+    "deadlock",
+    "lock_not_available",
+    "connection_lost",
+    "other",
+]
+
+
+class SqlDialect(Protocol):
+    """What a database's SQL dialect renderer provides (contract version 2).
+
+    Required: ``contract_version``, ``name``, ``minimum_server_version``,
+    :meth:`features` and :meth:`classify_error`. A form method returns
+    ``None`` for a form its database cannot write.
     """
+
+    #: The contract major the renderer implements (2).
+    contract_version: int
+    #: The SQLAlchemy dialect name it renders for.
+    name: str
+    #: The oldest server version it supports, or ``None`` (SANDLOOM-B030).
+    minimum_server_version: tuple[int, ...] | None
+
+    def features(self) -> frozenset[str]:
+        """The ``database`` features this database can give, from
+        :data:`RENDERER_FEATURES`. They depend on the dialect only, never on
+        the server, so the registry's build-free preflight stays exact."""
+        ...
+
+    def classify_error(self, exc: BaseException) -> ErrorKind:
+        """What ``exc`` (a SQLAlchemy ``DBAPIError`` or the driver's own
+        exception) means; ``"other"`` when it is none of the kinds."""
+        ...
 
     def case_insensitive_text(self, length: int | None) -> TypeEngine[Any] | None:
         """The column type for :class:`CaseInsensitiveText`."""
@@ -201,12 +252,71 @@ def _apply_options(index: Index, renderers: dict[str, SqlDialect]) -> None:
             rendered.add(name)
 
 
+class IncompatibleSqlDialect(RuntimeError):
+    """A renderer this kernel cannot use (SANDLOOM-B025)."""
+
+
+def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
+    """Refuse a renderer of another contract major or one that declares a
+    feature outside :data:`RENDERER_FEATURES` (SANDLOOM-B025)."""
+    version = getattr(renderer, "contract_version", 1)
+    if version != SQL_DIALECT_CONTRACT:
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) implements contract "
+            f"version {version}; this Sandloom needs {SQL_DIALECT_CONTRACT} "
+            "[SANDLOOM-B025]: upgrade the driver package"
+        )
+    unknown = set(renderer.features()) - RENDERER_FEATURES
+    if unknown:
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) declares features "
+            f"{sorted(unknown)} outside the database capability's renderer "
+            f"features {sorted(RENDERER_FEATURES)} [SANDLOOM-B025]"
+        )
+
+
+def renderer_features(dialect: str) -> frozenset[str]:
+    """The features the renderer of ``dialect`` declares (empty without one)."""
+    renderer = sql_dialect(dialect)
+    if renderer is None:
+        return frozenset()
+    return frozenset(renderer.features()) & RENDERER_FEATURES
+
+
+def classify_error(dialect: str, exc: BaseException) -> ErrorKind:
+    """What ``exc`` means on ``dialect``; ``"other"`` without a renderer."""
+    renderer = sql_dialect(dialect)
+    return "other" if renderer is None else renderer.classify_error(exc)
+
+
+class UnsupportedServerVersion(RuntimeError):
+    """The server is older than its renderer supports (SANDLOOM-B030)."""
+
+
+def check_server_version(dialect: Dialect) -> None:
+    """Refuse a server below its renderer's minimum (SANDLOOM-B030). Called
+    on the engine's first connection, when the version is known."""
+    renderer = sql_dialect(dialect.name)
+    minimum = None if renderer is None else renderer.minimum_server_version
+    found = getattr(dialect, "server_version_info", None)
+    if minimum is None or found is None:
+        return
+    if tuple(found[: len(minimum)]) < minimum:
+        shown = ".".join(str(part) for part in found)
+        needed = ".".join(str(part) for part in minimum)
+        raise UnsupportedServerVersion(
+            f"the {dialect.name} server is version {shown}; Sandloom needs "
+            f"{needed} or newer [SANDLOOM-B030]"
+        )
+
+
 def register_sql_dialect(name: str, renderer: SqlDialect) -> None:
     """Register ``renderer`` for the SQLAlchemy dialect ``name``.
 
     A driver package normally names its renderer in the entry-point group
     instead; this is for tests and for a renderer built at run time.
     """
+    _check_renderer(name, renderer, source="register_sql_dialect")
     with _lock:
         _registered[name] = renderer
         for index in list(_indexes):
@@ -241,12 +351,14 @@ def _load_entry_points_once() -> None:
     loaded: dict[str, SqlDialect] = {}
     for name, entry in found:
         try:
-            loaded[name] = entry.load()
+            renderer = entry.load()
         except Exception as exc:
             raise RuntimeError(
                 f"the SQL dialect renderer {name!r} ({entry.value}) in "
                 f"{SQL_DIALECTS_GROUP!r} failed to load: {exc}"
             ) from exc
+        _check_renderer(name, renderer, source=entry.value)
+        loaded[name] = renderer
     with _lock:
         if _state["loaded"]:
             return

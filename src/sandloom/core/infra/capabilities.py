@@ -117,6 +117,22 @@ class CapabilityRef(Generic[P]):
 # that publishes events requires it — so the guarantee is capability-gated, not
 # assumed. Sibling storage paradigms (document_store, graph_store, …) are
 # separate specs in ``extra_capabilities`` with their own, weaker features.
+#: The ``database`` features a SQL dialect renderer may declare for its
+#: database (design/infra-agnostic/spec.md, section 2): an instance advertises
+#: them only when its URL's renderer does.
+DATABASE_RENDERER_FEATURES = frozenset(
+    {
+        "skip_locked",
+        "transaction_locks",
+        "snapshot_reads",
+        "readonly_transactions",
+        "arrays",
+        "fulltext_search",
+        "json_path",
+        "json_contains",
+    }
+)
+
 DATABASE_CAPABILITY = CapabilitySpec(
     name="database",
     version="v1",
@@ -145,6 +161,7 @@ DATABASE_CAPABILITY = CapabilitySpec(
             "command_idempotency",
             "http_idempotency",
         }
+        | DATABASE_RENDERER_FEATURES
     ),
     description="Relational (transactional) persistence — Unit of Work factory.",
 )

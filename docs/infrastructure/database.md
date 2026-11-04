@@ -91,6 +91,13 @@ three things and stops with
   The migration environment checks the same before it writes or applies a
   revision.
 
+A database instance advertises the driver's base features plus the ones its
+renderer declares: on PostgreSQL `skip_locked`, `transaction_locks`,
+`snapshot_reads` and `readonly_transactions`; on SQLite none yet. The first
+connection refuses a server older than the renderer supports (PostgreSQL 14,
+SQLite 3.35) with
+[SANDLOOM-B030](../reference/error-codes.md#sandloom-b030).
+
 Migrations write the database's own type (`postgresql.CITEXT()`), since each
 one is the DDL history of one database. The test suite builds every module's
 and example's schema on SQLite, which catches a column type or index a second

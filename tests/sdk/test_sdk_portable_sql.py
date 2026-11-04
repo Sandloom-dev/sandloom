@@ -329,3 +329,92 @@ def test_startup_refuses_a_database_without_a_renderer(
         app_factory, "load_infra_config", infra("postgresql+asyncpg://h/d")
     )
     assert sql_dialect_problem(object()) is None
+
+
+# ------------------------------------------------------- renderer contract v2
+
+
+class _AsyncpgError(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+@pytest.mark.parametrize(
+    ("sqlstate", "kind"),
+    [
+        ("23505", "unique_violation"),
+        ("40001", "serialization_failure"),
+        ("40P01", "deadlock"),
+        ("55P03", "lock_not_available"),
+        ("08006", "connection_lost"),
+        ("57P01", "connection_lost"),
+        ("42P01", "other"),
+    ],
+)
+def test_postgresql_errors_are_classified_through_the_wrapper(
+    sqlstate: str, kind: str
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    wrapped = DBAPIError("stmt", {}, _AsyncpgError(sqlstate))
+    assert portable.classify_error("postgresql", wrapped) == kind
+
+
+def test_sqlite_errors_are_classified_by_their_name() -> None:
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE t (k TEXT PRIMARY KEY)")
+    connection.execute("INSERT INTO t VALUES ('a')")
+    with pytest.raises(sqlite3.IntegrityError) as caught:
+        connection.execute("INSERT INTO t VALUES ('a')")
+    assert portable.classify_error("sqlite", caught.value) == "unique_violation"
+    assert portable.classify_error("mysql", caught.value) == "other"
+
+
+def test_a_renderer_of_another_contract_version_is_refused(
+    isolated_registry: None,
+) -> None:
+    class Old(PostgresqlSql):
+        contract_version = 1
+
+    with pytest.raises(portable.IncompatibleSqlDialect, match="SANDLOOM-B025"):
+        register_sql_dialect("old", Old())
+
+
+def test_a_renderer_declaring_an_unknown_feature_is_refused(
+    isolated_registry: None,
+) -> None:
+    class Inventive(PostgresqlSql):
+        def features(self) -> frozenset[str]:
+            return frozenset({"time_travel"})
+
+    with pytest.raises(portable.IncompatibleSqlDialect, match="time_travel"):
+        register_sql_dialect("inventive", Inventive())
+
+
+@pytest.mark.parametrize(
+    ("version", "refused"), [((13, 9), True), ((14, 0), False), ((17, 2), False)]
+)
+def test_an_old_server_is_refused(version: tuple[int, ...], refused: bool) -> None:
+    dialect: Any = postgresql.dialect()  # type: ignore[no-untyped-call]
+    dialect.server_version_info = version
+    if refused:
+        with pytest.raises(portable.UnsupportedServerVersion, match="SANDLOOM-B030"):
+            portable.check_server_version(dialect)
+    else:
+        portable.check_server_version(dialect)
+
+
+def test_instance_features_come_from_the_urls_renderer() -> None:
+    from sandloom.core.drivers.sqlalchemy_database import sqlalchemy_db_features
+
+    on_postgres = sqlalchemy_db_features({"url": "postgresql+asyncpg://h/d"})
+    on_sqlite = sqlalchemy_db_features({"url": "sqlite+aiosqlite:///x.db"})
+    assert {"skip_locked", "transaction_locks"} <= on_postgres
+    assert not on_sqlite & portable.RENDERER_FEATURES
+    assert "transactions" in on_sqlite
+    assert "tenant_rls" in sqlalchemy_db_features(
+        {"url": "postgresql+asyncpg://h/d", "tenant_rls": True}
+    )

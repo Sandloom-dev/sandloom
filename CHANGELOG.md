@@ -49,6 +49,17 @@ website renders this same changelog.
   `await transaction_lock(key)`; `sandloom migrate drift` confirms no migration
   follows.
 
+- **SQL dialect renderers, contract version 2.** A renderer states its
+  `contract_version`, `name`, `minimum_server_version`, the database features it
+  can give (`features()`) and what an error means (`classify_error`). The loader
+  refuses another version or an unknown feature (SANDLOOM-B025). A database
+  instance now advertises the renderer's features (`skip_locked`,
+  `transaction_locks`, `snapshot_reads`, `readonly_transactions` on PostgreSQL),
+  and the first connection refuses a server older than the renderer supports
+  (SANDLOOM-B030: PostgreSQL 14, SQLite 3.35). An architecture test counts every
+  place outside the driver that names a database, and the count may only shrink
+  (design/infra-agnostic/spec.md).
+
 ### Changed
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and

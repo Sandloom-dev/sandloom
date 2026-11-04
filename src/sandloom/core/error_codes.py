@@ -891,6 +891,38 @@ does not start.
         docs="docs/infrastructure/database.md",
     ),
     _entry(
+        "SANDLOOM-B025",
+        "sql-dialect-incompatible",
+        "boot",
+        "a SQL dialect renderer of another contract version, or one that "
+        "declares a feature the database capability does not define",
+        "upgrade the driver package that ships the renderer, or remove the "
+        "unknown feature from its features()",
+        """
+A SQL dialect renderer (the sandloom.sql_dialects entry-point group) states
+the contract version it implements; a renderer without one is version 1. The
+kernel loads only renderers of its own version, so a renderer never answers a
+question it does not know. A renderer may declare only the database
+capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
+readonly_transactions, arrays, fulltext_search, json_path, json_contains):
+anything else would be advertised to modules without a meaning.
+""",
+        docs="docs/infrastructure/write-a-driver.md",
+    ),
+    _entry(
+        "SANDLOOM-B030",
+        "database-server-too-old",
+        "boot",
+        "the database server is older than its SQL dialect renderer supports",
+        "upgrade the database server (PostgreSQL 14 or newer, SQLite 3.35 or newer)",
+        """
+Each SQL dialect renderer states the oldest server version it supports; the
+SQL it writes (ON CONFLICT, RETURNING, advisory locks) needs it. The check
+runs on the engine's first connection, before any statement.
+""",
+        docs="docs/infrastructure/database.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -1361,6 +1393,9 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverConflictError": "SANDLOOM-B021",
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
+    "IncompatibleSqlDialect": "SANDLOOM-B025",
+    "UnsupportedServerVersion": "SANDLOOM-B030",
+    "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",
     "MissingTenantError": "SANDLOOM-R001",
     "UnitOfWorkRequiredError": "SANDLOOM-R002",

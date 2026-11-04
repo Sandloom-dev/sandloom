@@ -235,3 +235,21 @@ The review of v1 found four blockers and twelve should-fixes. What changed:
 - **Features.** The algebra is fixed. `row_security` and `search_index` are no longer features, and the JSON feature is split in two.
 - **Settings and labels.** The settings gate stays in `core.config`; labels are computed, not declared.
 - **New ground.** New error codes, SQLite types, multi-process SQLite, the production refusal, and the ADR amendment.
+
+## Before slice 8a (from the re-check of v2)
+
+The re-check found v2 ready for slice 1. These gaps must close before slice 8a.
+
+- **Which units begin IMMEDIATE.** On SQLite, every unit not declared read-only begins `BEGIN IMMEDIATE`. The lazy request unit cannot know at BEGIN whether it will write, so reads before its first write must be covered too.
+- **Locks on SQLite.** `lock_statement` returns no SQL on SQLite. The `transaction_lock` helper succeeds there only inside an IMMEDIATE unit, which already holds the database, and refuses (R015) otherwise. Identity's role administration therefore works on SQLite.
+- **In-memory databases.** `sqlite://` and `:memory:` have no WAL and no second connection. They are refused, except the test harness's `StaticPool`, and they never advertise `snapshot_reads` or `transaction_locks`.
+- **The saga sweep's compare-and-set.** `saga_instances` has no lease columns. The sweep claims by `UPDATE ... SET swept_at=:now WHERE id=:id AND (swept_at IS NULL OR swept_at <= :swept_before)`, adding `swept_at` in a core migration if it does not exist.
+- **The request-log row is not "same on both".** On SQLite a concurrent duplicate waits at `BEGIN IMMEDIATE` until the first commits, then replays; it never answers Busy, and past `busy_timeout` it gets a lock error. That is labelled.
+- **UTC on load.** `CreatedAt`/`UpdatedAt` and the kernel models use a portable `UtcDateTime` type that attaches UTC to naive values. Modules that declare `DateTime(timezone=True)` themselves are told to use it.
+- **Slice dependencies, corrected:**
+  - 8a also needs 4 and 7;
+  - 8b also needs 5;
+  - 8c also needs 6.
+- **`DATABASE_SYSTEM_URL`.** Its validator is relaxed like `DATABASE_URL`'s.
+- **`create_all` never alters a table.** After a model change, `sandloom dev` recreates the SQLite file.
+- **The kernel's own `postgresql_where` partial indexes** (`models/outbox.py`, `models/saga.py`) are listed in the ratchet. They move to `partial_index`.

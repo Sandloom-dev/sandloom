@@ -110,13 +110,20 @@ each obligation is its own test, so a failure names what to fix. The kit needs `
 A skipped test means the driver advertises no channel, so nothing was sent. Read the skip
 reason rather than treating it as a pass.
 
-A database driver for a new SQL database also ships a **SQL dialect renderer**, which
+A database driver for a new SQL database also ships a **SQL dialect renderer**. It
 writes the portable forms of `sandloom.sdk.data` in that database's SQL
-([Database](database.md#portable-sql-forms)). Implement `SqlDialect` from
-`sandloom.driverkit`, name it in the `sandloom.sql_dialects` entry-point group under the
-SQLAlchemy dialect name, and register the driver with `sql_dialects={"<name>"}`. Check it
-with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A form the
-database cannot write returns `None`, and the kit checks that it is refused, not run.
+([Database](database.md#portable-sql-forms)).
+
+1. Implement `SqlDialect` from `sandloom.driverkit`, with `contract_version = 2` and the
+   SQLAlchemy dialect `name`.
+2. Give the oldest server it supports in `minimum_server_version`.
+3. Return the features the database can give from `features()`.
+4. Map the database's errors to kinds in `classify_error`.
+5. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+   name, and register the driver with `sql_dialects={"<name>"}`.
+
+Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
+form the database cannot write returns `None`, and the kit checks that it is refused.
 
 ### 5. Prove the application uses it
 
