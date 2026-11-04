@@ -2641,7 +2641,8 @@
         "design/infra-agnostic/inventory-kernel-postgres.md",
         "design/infra-agnostic/research-orm-backends.md",
         "design/infra-agnostic/research-reliability-mechanisms.md",
-        "design/infra-agnostic/review-relational-interface.md"
+        "design/infra-agnostic/review-relational-interface.md",
+        "design/infra-agnostic/spec.md"
       ]
     },
     {
