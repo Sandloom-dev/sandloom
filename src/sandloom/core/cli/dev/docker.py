@@ -120,6 +120,10 @@ class Compose:
         return proc.stdout.split() if proc.returncode == 0 else []
 
 
+#: The longest reason a one-line error carries, and how much of its end it keeps.
+LIMIT, TAIL = 400, 160
+
+
 def failure_reason(output: str) -> str:
     """One line for a failed Docker command: the line that names the error
     with the lines it wraps onto (Docker breaks long errors, so the last line
@@ -135,8 +139,10 @@ def failure_reason(output: str) -> str:
     ]
     start = (starts or mentions or [len(lines) - 1])[-1]
     reason = " ".join(lines[start:])
-    if len(reason) > 400:
-        reason = reason[:397] + "..."
+    if len(reason) > LIMIT:
+        # Keep both ends: the start names the error, the end holds its cause
+        # (``(nf_tables): Chain 'DOCKER' does not exist (exit status 4))``).
+        reason = reason[: LIMIT - TAIL - 5] + " ... " + reason[-TAIL:]
     return reason
 
 

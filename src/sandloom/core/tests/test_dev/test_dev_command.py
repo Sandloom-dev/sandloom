@@ -1358,6 +1358,12 @@ def test_a_wrapped_docker_error_is_read_whole() -> None:
     assert reason.startswith("Error response from daemon: failed to set up")
     assert "Chain 'DOCKER' does not exist" in reason
     assert reason.endswith("(exit status 4))") and "\n" not in reason
+    # A long error keeps its end, where the cause is.
+    long_error = IPTABLES_FAILURE.replace("--dport", "--dport " + "x " * 200)
+    shortened = docker.failure_reason(long_error)
+    assert len(shortened) <= docker.LIMIT
+    assert shortened.startswith("Error response from daemon")
+    assert shortened.endswith("Chain 'DOCKER' does not exist (exit status 4))")
     plain = docker.failure_reason("pulling\nError: port is already allocated\n")
     assert plain == "Error: port is already allocated"
     assert docker.failure_reason("") == ""
