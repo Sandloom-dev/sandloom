@@ -1,7 +1,6 @@
 {
   "core/migrations/alembic_support.py": 2,
   "core/migrations/migrations.py": 2,
-  "core/sql_alchemy/columns.py": 3,
   "core/sql_alchemy/dead_connection.py": 2,
   "core/sql_alchemy/driver_compat.py": 2,
   "core/sql_alchemy/outbox_store/__init__.py": 1,

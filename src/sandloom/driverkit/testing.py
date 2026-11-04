@@ -13,12 +13,17 @@ from typing import Any, ClassVar, cast, get_args
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
-from sqlalchemy.schema import CreateIndex
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.contracts import NotificationChannel
 from sandloom.core.infra.registry import versions_compatible
-from sandloom.core.sql_alchemy.portable import RENDERER_FEATURES
+from sandloom.core.sql_alchemy.portable import (
+    RENDERER_FEATURES,
+    UtcDateTime,
+    WallClock,
+    sql_dialect,
+)
 from sandloom.driverkit import (
     ConflictInsert,
     HealthResult,
@@ -330,6 +335,47 @@ class SqlDialectConformance:
         table = self._table()
         sql = self._sql(sa.update(table).where(table.c.id == 1, clause))
         _require(bool(sql), "relaxed_commit_clause does not compile in a WHERE")
+
+    def test_wall_clock_is_a_default_and_an_update_value(self) -> None:
+        sql = self.renderer.wall_clock()
+        _require(
+            isinstance(sql, str) and bool(sql.strip()),
+            "wall_clock must return the SQL of the time of the call",
+        )
+        table = sa.Table(
+            "conformance_stamped",
+            sa.MetaData(),
+            sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+            sa.Column(
+                "at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text(sql),
+                nullable=False,
+            ),
+        )
+        ddl = self._sql(CreateTable(table))
+        _require(sql in ddl, f"wall_clock is not the column's default: {ddl}")
+        update = self._sql(sa.update(table).values(at=sa.text(sql)))
+        _require(sql in update, f"wall_clock is not an update value: {update}")
+        if sql_dialect(self.dialect.name) is not self.renderer:
+            return  # WallClock() compiles through the registered renderer
+        stamped = sa.Table(
+            "conformance_wall_clock",
+            sa.MetaData(),
+            sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+            sa.Column(
+                "at",
+                UtcDateTime(),
+                server_default=WallClock(),
+                onupdate=WallClock(),
+                nullable=False,
+            ),
+            sa.Column("n", sa.Integer),
+        )
+        ddl = self._sql(CreateTable(stamped))
+        _require(sql in ddl, f"WallClock() is not written as wall_clock: {ddl}")
+        update = self._sql(sa.update(stamped).values(n=1))
+        _require(sql in update, f"WallClock() is not the update value: {update}")
 
     #: One key of each shape a lock takes (``portable.LockKey``).
     LOCK_KEYS: ClassVar[tuple[Any, ...]] = (

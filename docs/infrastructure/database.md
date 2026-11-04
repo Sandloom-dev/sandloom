@@ -79,19 +79,21 @@ renderer belongs to the database's driver package. It names itself in the
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
 | `transaction_lock` | `pg_advisory_xact_lock` | refuses: SQLite has no such lock |
 
-The kernel's own locks come from the same renderer: its `lock_statement` gives
+The kernel's own locks come from the same renderer. Its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
-locks (PostgreSQL advisory locks), and `transaction_lock` is built on it.
+locks, which are advisory locks on PostgreSQL. `transaction_lock` is built on it
+too.
 
 The outbox relay and the saga sweep are work queues. Where the renderer
 declares `skip_locked`, as PostgreSQL's does, parallel workers split them with
-`FOR UPDATE SKIP LOCKED`; the relay claims a whole batch in one statement when
-the database also has `UPDATE ... RETURNING`. Without `skip_locked`, a worker
-claims each row by compare-and-set: the outbox row's lease (`locked_until`,
-`locked_by`) or the saga instance's `swept_at`, and the row is its own only
-when its `UPDATE` changed one row. On that path workers run safely in parallel
-but do not split the work: a claim waits for a row another worker holds
-instead of skipping it. The outbox still delivers at least once.
+`FOR UPDATE SKIP LOCKED`. The relay claims a whole batch in one statement when
+the database also has `UPDATE ... RETURNING`.
+
+Without `skip_locked`, a worker claims each row by compare-and-set: the outbox
+row's lease (`locked_until`, `locked_by`) or the saga instance's `swept_at`. The
+row is the worker's only when its `UPDATE` changed one row. Workers then run
+safely in parallel but do not split the work: a claim waits for a row another
+worker holds instead of skipping it. The outbox still delivers at least once.
 
 No form falls back to other SQL. A statement the database cannot write refuses
 with [SANDLOOM-R015](../reference/error-codes.md#sandloom-r015). Startup checks
@@ -118,6 +120,7 @@ and example's schema on SQLite, which catches a column type or index a second
 database cannot write.
 
 The kernel itself still needs PostgreSQL: row-level security, the outbox and
-idempotency stores, `CreatedAt`'s `clock_timestamp()`, and the projection
-upserts. Identity's claims query uses `array_agg` and `LATERAL`. Until those
+idempotency stores, and the projection upserts. `CreatedAt` / `UpdatedAt`
+are stamped by each database's clock (`clock_timestamp()` on PostgreSQL, UTC
+milliseconds on SQLite). Identity's claims query uses `array_agg` and `LATERAL`. Until those
 move behind the driver too, run Sandloom on PostgreSQL.

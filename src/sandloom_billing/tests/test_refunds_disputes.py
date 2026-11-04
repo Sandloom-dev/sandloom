@@ -837,3 +837,21 @@ async def test_paid_credit_pack_without_a_payment_intent_grants_nothing(
     assert await _audits(test_db, "billing.credits.grant_refused") == 1
     flagged = await test_db.get(OperationIntent, intent.id, populate_existing=True)
     assert flagged is not None and flagged.followup_at is not None
+
+
+async def test_payment_state_upsert_bumps_updated_at_with_clock_timestamp(
+    test_db: AsyncSession,
+) -> None:
+    """The touch is ``clock_timestamp()`` on PostgreSQL, as it was written
+    before ``WallClock()``: the orphan purge re-checks ``updated_at``."""
+    from sandloom_billing.services.webhook_service import payment_state_upsert
+
+    statement = payment_state_upsert("pi_pin", test_db)
+    sql = " ".join(str(statement.compile(dialect=test_db.bind.dialect)).split())
+    assert sql.startswith(
+        "INSERT INTO billing_psp_payment_states (psp_payment_intent_id"
+    ), sql
+    assert (
+        "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET "
+        "updated_at = clock_timestamp() RETURNING"
+    ) in sql, sql

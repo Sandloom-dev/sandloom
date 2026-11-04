@@ -104,11 +104,12 @@ and list newest first by the database clock, then the id:
 Why: `server_default=func.now()` stamps every row of one transaction with
 the transaction's start, so they tie and come back in any order (a request
 that inserts several rows, and every test: the `client` fixture runs a test
-in one transaction). `CreatedAt` / `UpdatedAt` default to
-`clock_timestamp()`, the time of the statement; `sandloom migrate new` renders
-`server_default=sa.text("clock_timestamp()")`. `new_id()` is a UUIDv7:
-time-ordered, and ids one process makes in the same millisecond still
-increase, so the `id` breaks the rare tie of one microsecond. Keep
+in one transaction). `CreatedAt` / `UpdatedAt` default to the database's
+clock at the statement: `clock_timestamp()` on PostgreSQL (`sandloom migrate
+new` renders `server_default=sa.text('clock_timestamp()')`), the UTC time to
+the millisecond on SQLite; both read back as timezone-aware UTC times.
+`new_id()` is a UUIDv7: time-ordered, and ids one process makes in the same
+millisecond still increase, so the `id` breaks a tie of the clock. Keep
 `uuid.uuid4` for an id that must not reveal its creation time (a credential,
 an unguessable link).
 

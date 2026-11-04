@@ -8,10 +8,11 @@ Public API 1.0 (spec §2.2, Appendix C).
 beginner: Base, CreatedAt, TenantScoped, db, new_id
 advanced: CaseInsensitiveText, ConflictInsert, InvalidCursor, JoinRead,
     ListOperation, MoneyLedger, Page, PageLimitError, PlannedReads,
-    ReadOperation, Reads, SnapshotReads, UowReads, UpdatedAt, conflict_insert,
-    disable_tenant_rls, enable_tenant_rls, get_planned_reads, get_read_only_db,
-    get_snapshot_reads, get_uow_reads, make_cursor, make_db_dependency,
-    open_uow, partial_index, search_index, session_reads, transaction_lock
+    ReadOperation, Reads, SnapshotReads, UowReads, UpdatedAt, UtcDateTime,
+    WallClock, conflict_insert, disable_tenant_rls, enable_tenant_rls,
+    get_planned_reads, get_read_only_db, get_snapshot_reads, get_uow_reads,
+    make_cursor, make_db_dependency, open_uow, partial_index, search_index,
+    session_reads, transaction_lock
 docs: docs/reference/sdk/data.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -40,6 +41,8 @@ from sandloom.core.orm import (
     Reads,
     TenantScoped,
     UpdatedAt,
+    UtcDateTime,
+    WallClock,
     disable_tenant_rls,
     enable_tenant_rls,
     make_cursor,
@@ -74,6 +77,8 @@ __all__ = [
     "TenantScoped",
     "UowReads",
     "UpdatedAt",
+    "UtcDateTime",
+    "WallClock",
     "conflict_insert",
     "db",
     "disable_tenant_rls",

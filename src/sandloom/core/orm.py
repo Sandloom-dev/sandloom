@@ -30,6 +30,8 @@ from sandloom.core.sql_alchemy.money_ledger import MoneyLedger
 from sandloom.core.sql_alchemy.portable import (
     CaseInsensitiveText,
     ConflictInsert,
+    UtcDateTime,
+    WallClock,
     conflict_insert,
     partial_index,
     search_index,
@@ -72,6 +74,8 @@ __all__ = [
     "Reads",
     "TenantScoped",
     "UpdatedAt",
+    "UtcDateTime",
+    "WallClock",
     "conflict_insert",
     "disable_tenant_rls",
     "enable_tenant_rls",

@@ -86,6 +86,8 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.orm.UpdatedAt": "sandloom.sdk.data",
     # The portable SQL forms (2026-11-04, SANDLOOM-C028).
     "core.orm.CaseInsensitiveText": "sandloom.sdk.data",
+    "core.orm.UtcDateTime": "sandloom.sdk.data",
+    "core.orm.WallClock": "sandloom.sdk.data",
     "core.orm.ConflictInsert": "sandloom.sdk.data",
     "core.orm.partial_index": "sandloom.sdk.data",
     "core.orm.search_index": "sandloom.sdk.data",

@@ -251,6 +251,11 @@ class PostgresqlSql:
             text("set_config('synchronous_commit', 'off', true) IS NOT NULL"),
         )
 
+    def wall_clock(self) -> str:
+        # The time of the statement; now() is the transaction's start, so
+        # every row of one transaction would tie.
+        return "clock_timestamp()"
+
 
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
@@ -331,6 +336,14 @@ class SqliteSql:
 
     def relaxed_commit_clause(self) -> None:
         return None
+
+    def wall_clock(self) -> str:
+        # UTC to the millisecond, padded to the text SQLAlchemy's SQLite
+        # DATETIME binds ('YYYY-MM-DD HH:MM:SS.ffffff'), so a stamped value
+        # compares equal to itself read back and bound again ('now' is the
+        # time of the statement's step). Ties within a millisecond are
+        # ordered by the UUIDv7 id.
+        return "(strftime('%Y-%m-%d %H:%M:%f', 'now') || '000')"
 
 
 POSTGRESQL = PostgresqlSql()

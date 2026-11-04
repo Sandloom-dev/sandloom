@@ -1771,6 +1771,7 @@
         "src/sandloom/core/tests/test_uow_outbox.py",
         "src/sandloom/core/tests/test_verified_token_cache.py",
         "src/sandloom/core/tests/test_volatile_bus_guards.py",
+        "src/sandloom/core/tests/test_wall_clock.py",
         "src/sandloom/core/tests/test_worker.py",
         "src/sandloom/core/tests/vectors/rpc_pair_mac_v1.json",
         "src/sandloom/core/unit_of_work/__init__.py",

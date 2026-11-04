@@ -93,21 +93,29 @@ query = sa.select(Note).order_by(Note.created_at.desc(), Note.id.desc())
 ```
 
 - **`CreatedAt` / `UpdatedAt`** are `timestamptz NOT NULL` columns the
-  database stamps with `clock_timestamp()`, the time of the statement.
-  `server_default=func.now()` is the trap: `now()` is the start of the
+  database stamps with its clock at the call, the time of the statement. That
+  is `clock_timestamp()` on PostgreSQL and the UTC time to the millisecond on
+  SQLite. `server_default=func.now()` is the trap: `now()` is the start of the
   transaction, so every row one transaction writes gets the same time. A
-  request that inserts several rows, and a test (the `client` fixture runs a
-  whole test in one transaction), would see them tie and come back in any
-  order. `sandloom migrate new` renders `server_default=sa.text("clock_timestamp()")`.
+  request that inserts several rows would see them tie and come back in any
+  order, and so would a test, since the `client` fixture runs a whole test in
+  one transaction. On PostgreSQL `sandloom migrate new` renders
+  `server_default=sa.text('clock_timestamp()')`.
+- **They read back as timezone-aware UTC times** on every database. SQLite
+  keeps no offset, so a column of your own that holds a time uses
+  `UtcDateTime()` from `sandloom.sdk.data` rather than `DateTime(timezone=True)`.
+  It writes aware times in UTC and attaches UTC on load; on PostgreSQL it is
+  the same `timestamptz`. Write aware times.
 - **`new_id()`** returns a UUIDv7: its first 48 bits are the time in
   milliseconds and a counter orders the ids one process makes in the same
   millisecond, so ids sort in creation order and B-tree inserts stay at the
   right edge of the index. Keep `uuid.uuid4` for an id that must not reveal
   when it was made (a credential, an unguessable link).
-- **Order by `created_at`, then `id`.** `created_at` is one clock, the
-  database's; `id` breaks the rare tie of two rows stamped in the same
-  microsecond (a multi-row `INSERT`). `order_by(id)` alone is the creation
-  order of one process; across processes it follows their clocks.
+- **Order by `created_at`, then `id`.** The first is one clock, the
+  database's. The id breaks a tie of two rows stamped at the same time, as a
+  multi-row `INSERT` or the same millisecond on SQLite gives. Ordering by the
+  id alone gives the creation order of one process; across processes it
+  follows their clocks.
 - Recipe: `uv run sandloom docs recipe list-order`.
 
 ## Columns and statements on any database

@@ -253,3 +253,31 @@ The re-check found v2 ready for slice 1. These gaps must close before slice 8a.
 - **`DATABASE_SYSTEM_URL`.** Its validator is relaxed like `DATABASE_URL`'s.
 - **`create_all` never alters a table.** After a model change, `sandloom dev` recreates the SQLite file.
 - **The kernel's own `postgresql_where` partial indexes** (`models/outbox.py`, `models/saga.py`) are listed in the ratchet. They move to `partial_index`.
+
+## Where driver code lives (owner, 2026-11-04)
+
+`core/sql_alchemy` is the `sqlalchemy` driver's code. Three kinds of knowledge sit in or around it, separated by what changes when a database is added:
+
+| knowledge | examples | lives in | changes for a new database |
+|---|---|---|---|
+| dialect-neutral driver code | unit of work, the stores, the tenant guard, `Base`/`CreatedAt`, the portable forms | `core/sql_alchemy` | no |
+| SQL dialect | `ON CONFLICT`, advisory locks, RLS DDL, `clock_timestamp()` | the renderer (`core/drivers/sql_dialects.py`) | a new renderer |
+| DBAPI | asyncpg's merged `BEGIN; set_config`, dead-connection detection by asyncpg exceptions, the planner's raw executors, the read-only policy fast path | a DBAPI adapter in `core/drivers/` | a new adapter, only if it needs the speed |
+
+**The ratchet stays on `core/sql_alchemy`.** It is the guarantee that a new SQL database needs only a renderer and no change to the driver's code.
+
+**The asyncpg specifics move into `core/drivers/` as a DBAPI adapter.** The driver already installs them when it builds the engine (`install_dead_connection_handling`, `install_tenant_rls`, `install_idle_ping`), so they move without breaking the layers. aiosqlite gets the plain path.
+
+**`core/sql_alchemy` is not renamed.** Modules use part of it (`Base`, `TenantScoped`, the forms) through `sandloom.sdk.data` as the relational paradigm.
+
+**New slice 7b, the DBAPI adapter,** comes before 8a. It moves `driver_compat`, the asyncpg parts of `dead_connection`, `read_only_policy`, the planner's raw executors and the RLS `BEGIN` fast path behind an adapter chosen by the URL's DBAPI. The cachegrind numbers on PostgreSQL must not change.
+
+**Done for this spec** means the ratchet allowlist is empty except the ops tools.
+
+## Naive and aware timestamps (from the slice 5 review), for slice 8a
+
+- **Every module-facing `DateTime(timezone=True)` moves to `UtcDateTime`.** This includes the projection generator's `deleted_at`, billing's `*_at` columns, tenancy's `expires_at` and identity's token expiries. On PostgreSQL the DDL is the same, so no migration is needed.
+- **A check flags a bare `DateTime(timezone=True)` in module models.** It is a `sandloom check` rule, or part of the second-database schema lane.
+- **The kernel's naive `DateTime()` tables stay naive UTC everywhere** (`_utc_naive_now`) and are never compared with `UtcDateTime` values, unless they are converted together with their code paths.
+- **SQLite has one timestamp text format,** `YYYY-MM-DD HH:MM:SS.ffffff`, shared by `WallClock` and bound values.
+- **The process runs in UTC.** On PostgreSQL with asyncpg a naive value means the process's local time; on SQLite it means UTC. Slice 8a either rejects naive binds on `UtcDateTime`, with the planner's raw path doing the same, or states the UTC process requirement in the docs.

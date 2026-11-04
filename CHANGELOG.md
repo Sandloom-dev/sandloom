@@ -31,8 +31,8 @@ website renders this same changelog.
   modules wrote before, so the schema and the migrations do not change.
   Identity, tenancy, billing and every example moved onto them.
   Still PostgreSQL-only, and planned to move behind the driver: the kernel's
-  row-level security, outbox and idempotency stores, `CreatedAt`'s
-  `clock_timestamp()`, the projection upserts, and identity's claims query
+  row-level security, outbox and idempotency stores, the projection
+  upserts, and identity's claims query
   (`array_agg`, `LATERAL`). The check does not see SQL functions only one
   database has.
   A database driver declares the dialects it serves (`register_driver(...,
@@ -112,6 +112,17 @@ website renders this same changelog.
   waits for the instance row lock. Delivery stays at-least-once. The batched
   relay claim needs `skip_locked` and `UPDATE ... RETURNING`; other databases
   use the per-row relay. On PostgreSQL nothing changes; no migration.
+- **Timestamps on any database.** `CreatedAt` / `UpdatedAt` are stamped by
+  the database's clock at the call through the new renderer member
+  `wall_clock()` (PostgreSQL: `clock_timestamp()`, as before; SQLite: the UTC
+  time to the millisecond, ties ordered by the UUIDv7 id), and read back as
+  timezone-aware UTC times through `UtcDateTime`, new in `sandloom.sdk.data`
+  (advanced): a `DateTime(timezone=True)` that writes aware times in UTC and
+  attaches UTC to the naive values SQLite returns (the planner's raw executor
+  still serves these columns). Use it for your own time columns. On
+  PostgreSQL the DDL, the update SQL and the migrations `sandloom migrate new`
+  writes do not change; no migration. `wall_clock()` is a required member of
+  renderer contract version 2 and checked by `SqlDialectConformance`.
 - **Two more renderer forms.** `for_update(stmt, *, skip_locked, read=False)`
   locks the rows a query reads (PostgreSQL: `FOR UPDATE [SKIP LOCKED]` /
   `FOR SHARE`, as before; SQLite: unchanged, its writers are serial) and

@@ -57,6 +57,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
+| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time that always reads back in UTC. |
+| [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
 
@@ -663,6 +665,65 @@ UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn
 ```
 
 *(no docstring)*
+
+### `UtcDateTime`
+
+```python
+class UtcDateTime(TypeDecorator)(*args: Any, **kwargs: Any)
+```
+
+A timezone-aware time that always reads back in UTC.
+
+The column is `DateTime(timezone=True)` (`TIMESTAMP WITH TIME ZONE` on
+PostgreSQL, which keeps the instant and returns an aware value). A
+database that keeps no offset (SQLite stores the text of the time) hands
+back a naive value: this type writes an aware time in UTC and attaches UTC
+to what it reads, so a module compares and orders the same aware values on
+every database. Write aware times: a naive one is passed to the database
+as it is. On SQLite a naive time means UTC; on PostgreSQL asyncpg takes it
+in the Python process's local time zone (it converts with
+`astimezone(utc)`), as for `DateTime(timezone=True)`. Sandloom expects
+its processes to run in UTC.
+
+#### `UtcDateTime.process_bind_param`
+
+```python
+def process_bind_param(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+An aware value as the same instant in UTC; a naive one unchanged.
+
+#### `UtcDateTime.process_result_value`
+
+```python
+def process_result_value(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+A loaded value with UTC attached when the database kept no offset.
+
+### `WallClock`
+
+```python
+class WallClock(FunctionElement)(
+    *clauses: _ColumnExpressionOrLiteralArgument[Any],
+) -> None
+```
+
+The database's clock when the statement runs ("now, at the call").
+
+A column's `server_default=WallClock()` or `onupdate=WallClock()`;
+each database's renderer writes it (`SqlDialect.wall_clock`):
+PostgreSQL `clock_timestamp()`, SQLite the current UTC time to the
+millisecond. Unlike a transaction's start time (`now()`), rows one
+transaction writes get ordered times; order ties by a UUIDv7 id.
 
 ## Examples and related guides
 

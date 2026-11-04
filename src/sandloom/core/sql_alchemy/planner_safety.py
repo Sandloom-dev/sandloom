@@ -15,6 +15,8 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import ColumnProperty, Session
 from sqlalchemy.sql import sqltypes
 
+from sandloom.core.sql_alchemy.portable import UtcDateTime
+
 _NATIVE_TYPES = (
     sqltypes.Integer,
     sqltypes.String,
@@ -31,6 +33,12 @@ _NATIVE_TYPES = (
 #: its comparison semantics depend on the parameter's inferred type (``citext``
 #: vs a cast ``varchar``/``text`` is case-sensitive), so those stay general.
 _RESULT_ONLY_TYPES: tuple[type, ...] = (postgresql.CITEXT,)
+#: Sandloom's portable types whose processing is the identity on what the raw
+#: executor binds and reads: ``UtcDateTime`` (``CreatedAt`` / ``UpdatedAt``)
+#: is a ``timestamptz``, which asyncpg returns aware, and it binds a naive
+#: value unchanged (asyncpg then takes it in the process's local time zone,
+#: as without the type) and an aware one as the same instant in UTC.
+_PORTABLE_NATIVE_TYPES: tuple[type, ...] = (UtcDateTime,)
 _ENGINE_EVENTS = (
     "before_execute",
     "after_execute",
@@ -156,6 +164,8 @@ def optimized_reason(  # noqa: C901
                     f"column {column.name!r}: a {type(kind).__name__} key, filter "
                     "or order column requires SQLAlchemy bind processing"
                 )
+            continue
+        if type(kind) in _PORTABLE_NATIVE_TYPES:
             continue
         if (
             type(kind).__module__ != "sqlalchemy.sql.sqltypes"

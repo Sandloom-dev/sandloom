@@ -25,6 +25,8 @@ generated: it is one database's history, so run it on that database.
   (``ILIKE '%term%'``), created where the database has one.
 - :func:`conflict_insert`: ``INSERT ... ON CONFLICT DO NOTHING / DO UPDATE``.
 - :func:`greatest`: the largest of its arguments.
+- :class:`WallClock`: the database's clock at the statement (a timestamp's
+  default), and :class:`UtcDateTime`, a time that reads back in UTC.
 - :func:`transaction_lock`: a lock held until the transaction ends, built
   on the renderer's :meth:`SqlDialect.lock_statement` like the kernel's own
   locks (:func:`lock_statement_for`).
@@ -38,11 +40,13 @@ from __future__ import annotations
 import threading
 import weakref
 from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import (
     ColumnElement,
+    DateTime,
     Index,
     MetaData,
     Select,
@@ -54,8 +58,10 @@ from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.base import Executable
+from sqlalchemy.sql.compiler import StrSQLCompiler
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnClause
+from sqlalchemy.sql.functions import FunctionElement
 from sqlalchemy.types import TypeDecorator, TypeEngine
 
 from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
@@ -82,6 +88,8 @@ __all__ = [
     "SqlDialect",
     "UnsupportedServerVersion",
     "UnsupportedSqlForm",
+    "UtcDateTime",
+    "WallClock",
     "check_lock_key",
     "check_server_version",
     "array_insert_sql_for",
@@ -351,6 +359,14 @@ class SqlDialect(Protocol):
         database has no such setting."""
         ...
 
+    def wall_clock(self) -> str:
+        """The SQL of "now, at the call": the database's clock when the
+        statement runs, not when its transaction began, so rows one
+        transaction writes get ordered times. It is a column's server default
+        and an ORM update's value (:class:`WallClock`), and it reads back as a
+        timezone-aware UTC time through :class:`UtcDateTime`."""
+        ...
+
 
 _lock = threading.RLock()
 _registered: dict[str, SqlDialect] = {}
@@ -400,6 +416,7 @@ REQUIRED_MEMBERS = (
     "unlock_statement",
     "for_update",
     "relaxed_commit_clause",
+    "wall_clock",
 )
 
 
@@ -625,6 +642,74 @@ class CaseInsensitiveText(TypeDecorator[str]):
         if type_ is None:
             raise UnsupportedSqlForm("CaseInsensitiveText", dialect.name)
         return dialect.type_descriptor(type_)
+
+
+class UtcDateTime(TypeDecorator[datetime]):
+    """A timezone-aware time that always reads back in UTC.
+
+    The column is ``DateTime(timezone=True)`` (``TIMESTAMP WITH TIME ZONE`` on
+    PostgreSQL, which keeps the instant and returns an aware value). A
+    database that keeps no offset (SQLite stores the text of the time) hands
+    back a naive value: this type writes an aware time in UTC and attaches UTC
+    to what it reads, so a module compares and orders the same aware values on
+    every database. Write aware times: a naive one is passed to the database
+    as it is. On SQLite a naive time means UTC; on PostgreSQL asyncpg takes it
+    in the Python process's local time zone (it converts with
+    ``astimezone(utc)``), as for ``DateTime(timezone=True)``. Sandloom expects
+    its processes to run in UTC.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(
+        self, value: datetime | None, dialect: Dialect
+    ) -> datetime | None:
+        """An aware value as the same instant in UTC; a naive one unchanged."""
+        # The same instant in UTC: SQLite stores the text of the time and
+        # drops the offset. A naive value is left as it is, so PostgreSQL
+        # behaves as before and the planner's raw executor binds it alike.
+        if value is None or value.tzinfo is None:
+            return value
+        return value.astimezone(UTC)
+
+    def process_result_value(
+        self, value: datetime | None, dialect: Dialect
+    ) -> datetime | None:
+        """A loaded value with UTC attached when the database kept no offset."""
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
+
+
+class WallClock(FunctionElement[datetime]):
+    """The database's clock when the statement runs ("now, at the call").
+
+    A column's ``server_default=WallClock()`` or ``onupdate=WallClock()``;
+    each database's renderer writes it (:meth:`SqlDialect.wall_clock`):
+    PostgreSQL ``clock_timestamp()``, SQLite the current UTC time to the
+    millisecond. Unlike a transaction's start time (``now()``), rows one
+    transaction writes get ordered times; order ties by a UUIDv7 id.
+    """
+
+    type = UtcDateTime()
+    name = "wall_clock"
+    inherit_cache = True
+
+
+@compiles(WallClock)
+def _compile_wall_clock(_element: WallClock, compiler: SQLCompiler, **_kw: Any) -> str:
+    if isinstance(compiler, StrSQLCompiler):
+        # ``str(statement)`` only: SQLAlchemy's stringifier names no database,
+        # so neither does this. Compiling for a dialect without a renderer,
+        # SQLAlchemy's bare ``DefaultDialect()`` ('default') included, refuses
+        # below, so no DDL or executed statement ever carries this text.
+        return "wall_clock()"
+    dialect = compiler.dialect.name
+    sql = _require(dialect, "WallClock").wall_clock()
+    if not sql:
+        raise UnsupportedSqlForm("WallClock", dialect)
+    return sql
 
 
 def _condition(where: str | ColumnElement[bool] | TextClause) -> Any:
