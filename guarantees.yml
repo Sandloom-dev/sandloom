@@ -561,6 +561,28 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_open_uow.py::test_single_tenant_scope_bound_only_inside
   - src/sandloom/core/tests/test_open_uow.py::test_tenant_scope_failure_on_enter_rolls_back
+- id: G-UOW-09
+  statement: On a database whose renderer declares serial_writers (SQLite), a write unit opened inside a writing
+    unit of the same task on the same database instance (a local contract call, a saga step's unit, a child
+    open_uow()) runs as a SAVEPOINT of the caller and commits with it. The caller's rollback undoes its rows,
+    outbox rows and command-log claim. Its outbox dispatch, on_commit callbacks and command-record amendment run
+    only after the caller's COMMIT. Its own failure rolls back only to its savepoint. Units of other tasks nest
+    one task at a time. A read-only unit (a read contract's included) never nests. The weakening has the computed
+    label "commits with the caller" (nested_unit_label) and a startup warning per such instance. On PostgreSQL a
+    nested unit opens its own transaction and commits on its own, unchanged.
+  sources:
+  - docs/infrastructure/database.md#Nested units commit with their caller
+  - docs/advanced/guarantees.md#Labels per effect
+  tests:
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_contract_command_in_a_unit_commits_with_the_outer
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_an_outer_rollback_undoes_the_inner_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_an_inner_failure_rolls_back_only_the_inner_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_savepoint_rollback_around_the_call_drops_its_effects
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_units_of_concurrent_tasks_nest_one_task_at_a_time
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_read_contract_in_a_writing_unit_reads_committed_rows_only
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_postgresql_still_opens_a_fresh_independent_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_startup_warns_once_per_serial_writer_instance
+  startup_checks: warn_nested_units_join_caller at create_app
 - id: G-UNIT-01
   statement: 'db() is the session of the innermost open unit of the current context; outside any unit it is SANDLOOM-R002;
     the first db() in a request creates the lazy request unit (handler task only), committed on success and rolled
@@ -4137,6 +4159,19 @@ guarantees:
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_default_client_is_rebuilt_on_a_new_loop
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_named_instance_client_follows_the_loop
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_injected_default_client_is_never_replaced
+- id: G-INFRA-09
+  statement: A module using a database feature form of sdk.data (Array, fulltext_index / matches, json_path,
+    json_contains) declares its database feature (C030); module load refuses an instance lacking a feature its
+    tables use or it declares (B033, DatabaseFeatureMissing); a statement compiled without the feature refuses
+    naming it (R015).
+  sources:
+  - docs/infrastructure/database.md#Forms that need a feature
+  - docs/modules/database/conventions.md#Forms that need a database feature
+  tests:
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_sqlite_writes_json_path_and_refuses_the_rest
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_a_module_using_array_is_refused_on_sqlite
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_a_declared_feature_is_refused_with_the_same_code
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_the_c030_analyzer
 - id: G-CONFIG-01
   statement: Every Settings field is classified in exactly one configuration tier (semantic or ops), and
     every semantic setting defines a value for every profile (dev / test / prod / prod+multi_tenant_strict).
@@ -7261,7 +7296,7 @@ issued:
   G-HTTP: 12
   G-IDEM: 18
   G-INBOX: 4
-  G-INFRA: 8
+  G-INFRA: 9
   G-KERNEL: 13
   G-MIGRATE: 12
   G-MODULE: 19
@@ -7281,7 +7316,7 @@ issued:
   G-TASK: 5
   G-TENANT: 18
   G-UNIT: 3
-  G-UOW: 8
+  G-UOW: 9
   G-WINDOW: 3
 
 adr_sections:
