@@ -664,3 +664,82 @@ measurable except item 1's statement building; the RLS `BEGIN` is cheaper;
 policy are one call per unit each (`L5` −0.04 %).
 
 Data: `ladder/results/cg_infra_agnostic_2026-11-05.json`.
+
+### After the perf fixes (infra-perf-regressions, 2026-11-05)
+
+The four fixes of `design/infra-agnostic/spec.md` "Perf fixes, as built",
+measured the same way: `main` `10be493` against the branch at `0fa1f85` plus
+the fixes (uncommitted, its `src/` copied over a `git archive`), one database
+per build (`cg_main_perf`, `cg_fix_perf`), its own Redis, K = 200,
+`LADDER_CG_GC=freeze`. Two independent pairs, A and B; the fixed tree of A
+lacks the last two refinements (the tighter `BinaryExpression` / `coalesce`
+dispatch and the session read of `dialect_name`), B has all of them.
+"before" is the Δ of the table above (run 1 / run 2).
+
+| rung | path | before Δ % | main A | fixed A | Δ % | main B | fixed B | Δ % |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `HW7` | class F write (idempotency guard) | +2.85 / +3.03 | 8,630,823 | 8,673,849 | +0.50 | 8,656,796 | 8,685,999 | +0.34 |
+| `XCmp` | compile-cache miss | +4.72 | 2,053,349 | 2,074,490 | +1.03 | 2,046,703 | 2,060,237 | +0.66 |
+| `HTr` | refresh | +2.33 / +1.88 | 8,767,802 | 8,895,291 | +1.45 | 8,672,906 | 8,907,061 | +2.70 |
+| `WLc` | credits spend (command) | +1.27 / +2.11 | 9,443,400 | 9,355,816 | -0.93 | 9,457,321 | 9,544,549 | +0.92 |
+| `XSgS` | saga start | +1.86 / +1.64 | 6,303,315 | 6,479,214 | +2.79 | 6,422,580 | 6,543,394 | +1.88 |
+| `XSgL` | saga local step | +2.11 / +2.08 | 10,680,256 | 10,910,967 | +2.16 | 10,584,465 | 10,850,544 | +2.51 |
+| `XSgC` | saga command step | +1.52 / +1.15 | 14,661,555 | 14,935,510 | +1.87 | 14,574,048 | 14,861,304 | +1.97 |
+| `L6` | /s3 read | +1.52 / +1.56 | 2,232,388 | 2,219,974 | -0.56 | 2,252,146 | 2,215,434 | -1.63 |
+
+**Drift.** Unlike the first table's databases, these two were reused from A
+to B, and the same build moved between the pairs: main's `HTr` by −1.1 %,
+`XSgS` by +1.9 %, `XSgL` by −0.9 %, `L6` by +0.9 %, the fixed tree's `XSgS`
+by +1.0 %. On this stand a delta of 1–2 % on those rungs is within its
+resolution; `HW7` and `XCmp` moved by 0.3 % or less.
+
+What the fixes did, and what is left:
+
+- **`HW7`: +2.9 % → +0.3 to +0.5 %.** The lock is a cached statement plus
+  parameters (`LockStatement`); the per-claim clone and cache-key work is
+  gone. Left: one `dialect_name` and the TTL bookkeeping of the durable
+  claim (the expiry is computed in Python, which is what lets SQLite share
+  the claim).
+- **`XCmp`: +4.7 % → +0.7 %.** No `sqlalchemy.ext.compiler` dispatch per
+  binary expression any more: `BinaryExpression` and `coalesce` dispatch
+  through one function each that does what SQLAlchemy's generated dispatch
+  does, after a `frozenset` membership test and, for a comparison, two type
+  checks. That check is what remains (about 3 k instructions per binary on
+  a compile-cache miss; a cached statement pays nothing). After review the dispatch
+  hands over to an application's earlier `@compiles` hook (one module-global
+  test on the fast path) and drops two `typing.cast` calls; re-measured
+  without a database (`--network none`, `XCmp` only): fixed 2,064,002 against
+  pair B's 2,060,237 (+0.2 %), main 2,030,509 there (16 k below its pair-B
+  count in that environment), so +1.65 % against main in that run. The
+  remaining calls per op over main are the checks' `isinstance` / `getattr`
+  only (+16, C-level). It cannot move to
+  build time: for `Model.id == json_path(...)` the left side's comparator
+  builds the expression and SQLAlchemy consults nothing of the right side's
+  type there.
+- **`L6`: +1.5 % → −0.6 to −1.6 %;** **`WLc`: +1.3 / +2.1 % → −0.9 / +0.9 %**
+  (`WLc` moves 1–2 % between runs of one build, see above). The policy
+  cached on the session factory, the inlined close and the per-call renderer
+  lookups without `_require` / `sql_dialect` frames.
+- **`HTr`: +2.3 % → +1.5 to +2.7 % (main itself moved 1.1 %).**
+  `UtcDateTime` on PostgreSQL now has no result processor and only refuses a
+  naive time on bind: its 14 `process_result_value`, 18 `type_api.process`
+  and 3 `astimezone` calls per op are gone. What remains is not the kernel:
+  the branch's identity module reads the refresh token joined with its user
+  and then runs an ORM `UPDATE ... RETURNING`, where main ran a `SELECT` and
+  a CTE `UPDATE ... SELECT users` (the SQL per op differs; the extra
+  annotation, cache-key and `bulk_persistence` calls follow from it).
+  `src/sandloom_identity` is outside this change; follow-up: measure that
+  query against main's.
+- **Sagas (`XSgS` / `XSgL` / `XSgC`): +1.9 to +2.8 %, not reduced.** The
+  SQL each op sends is identical on both builds (logged per statement), and
+  the fixed tree makes only about 15 more Python calls per op than main
+  (`dialect_name`, `_mark_in_line`, `_cancelling`, `connection_closed`, the
+  renderer's `conflict_insert`), worth a few thousand instructions. A
+  callgrind pair of `XSgS` (K = 100) puts the excess (+128 k per op) inside
+  `libpython` (+107 k: allocation, attribute misses, object teardown) and
+  `libc` (+18 k, `malloc`), not in any Python function: it scales with the
+  heap, not with a code path. With main's own drift of 1–2 % on these rungs,
+  this is not pinned down; follow-up: a heap and GC probe of the saga rung
+  (object counts per op on both builds).
+
+Data: `ladder/results/cg_infra_agnostic_2026-11-05.json` (`after_fixes`).

@@ -47,7 +47,6 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.sql.base import Executable
 
 from sandloom.core.config.settings import settings
 from sandloom.core.config.settings import settings as _settings
@@ -65,6 +64,7 @@ from sandloom.core.sql_alchemy.models import (
 )
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
 from sandloom.core.sql_alchemy.portable import (
+    LockStatement,
     dialect_of_url,
     lock_statement_for,
     optional_lock_statement_for,
@@ -380,7 +380,7 @@ def migration_lock(
         raise ValueError("migration lock timeout must be > 0 seconds")
     # A database whose renderer has no session lock (none but PostgreSQL's
     # today) is skipped, as non-PostgreSQL URLs always were.
-    locks: dict[str, Executable] = {}
+    locks: dict[str, LockStatement] = {}
     for url in set(database_urls):
         lock = optional_lock_statement_for(
             dialect_of_url(url), MIGRATION_LOCK_KEY, scope="session", wait=False
@@ -403,7 +403,9 @@ def migration_lock(
             started = time.monotonic()
             deadline = started + wait_budget
             next_notice = started
-            while not conn.execute(try_lock).scalar_one():
+            while not conn.execute(
+                try_lock.statement, try_lock.parameters
+            ).scalar_one():
                 conn.commit()
                 now = time.monotonic()
                 if now >= deadline:
@@ -432,7 +434,8 @@ def migration_lock(
         for url, engine, conn in reversed(held):
             alembic_support.LOCKED_URLS.discard(url)
             try:
-                conn.execute(unlock_statement_for(conn, MIGRATION_LOCK_KEY))
+                unlock = unlock_statement_for(conn, MIGRATION_LOCK_KEY)
+                conn.execute(unlock.statement, unlock.parameters)
                 conn.commit()
             except Exception:  # noqa: BLE001 - closing the session frees it anyway
                 logger.warning("[migrations] could not release lock on %s", url)
@@ -487,14 +490,16 @@ def ensure_database(
     try:
         with admin.connect() as conn:
             # session level: CREATE DATABASE cannot run in a transaction
-            conn.execute(lock_statement_for(conn, key, scope="session", wait=True))
+            lock = lock_statement_for(conn, key, scope="session", wait=True)
+            conn.execute(lock.statement, lock.parameters)
             try:
                 created = _create_database(conn, name)
                 if created:
                     logger.info("[migrations] created database %s", _mask_url(str(url)))
                 _ensure_extensions(url)
             finally:
-                conn.execute(unlock_statement_for(conn, key))
+                unlock = unlock_statement_for(conn, key)
+                conn.execute(unlock.statement, unlock.parameters)
     finally:
         admin.dispose()
     return created

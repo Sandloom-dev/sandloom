@@ -67,8 +67,8 @@ class SqlDialect(Protocol):
 
     # SQL the driver runs (sync or async, its choice)
     def lock_statement(self, key: str | int, *, scope: Literal["transaction", "session"],
-                       wait: bool) -> Executable | None: ...
-    def unlock_statement(self, key) -> Executable | None: ...
+                       wait: bool) -> LockStatement | None: ...  # (statement, parameters)
+    def unlock_statement(self, key) -> LockStatement | None: ...
     def begin_statement(self, *, write: bool, read_only: bool, snapshot: bool) -> str | None: ...
     def transaction_options(self, *, read_only: bool, snapshot: bool) -> dict: ...
     def row_security(self) -> RowSecurity | None: ...    # policy DDL, binding SQL, role checks
@@ -78,6 +78,8 @@ class SqlDialect(Protocol):
                                  # the instance feature concurrent_writers is derived from it
     schema_from_models: bool     # create_all at startup, no migration chain (B028)
     development_only: bool       # refused in production without the accepted risk (B029)
+    aware_times: bool            # timestamptz keeps the instant, the DBAPI reads aware:
+                                 # UtcDateTime converts nothing (only refuses naive times)
 
     # OPTIONAL forms, both or neither (B025): a literal prefix filter
     def prefix_pattern(self, prefix: str, *, ignore_case: bool) -> str: ...
@@ -648,3 +650,112 @@ Independent final review of the branch; the fixes, in its order.
 - **`has_serial_writers` is internal.** Removed from `sandloom.sdk.testing` and from `sandloom.core.testing`'s exports (unreleased, no deprecation); the kernel and law tests import it from `sandloom.core.testing.infra`. `public_api_baseline.json`, the public-API spec fixture row and `docs/reference/sdk/testing.md` updated. C031's fix and finding text point a race test at `skip_unless_db_feature("concurrent_writers")`. `has_optimized_reads` stays public: billing's and tenancy's declared-read tests use it.
 - **C031 reads database URL literals.** A string starting `postgresql://`, `postgresql+asyncpg://`, `sqlite+aiosqlite://` (and the other SQLAlchemy backends) in module code or tests is a finding, admitted only by the raw-sql marker, in feature-gated tests too. Tenancy's prebuilt-membership test compiles for the test session's dialect; billing's operations-view test looks for the configured database URL's secret parts (the URL, its scheme, password, a file's path), so it bites on both lanes. Tests in `tests/architecture/test_portable_sql.py`.
 - **Nits.** `projections/upsert.py` and `config/sagas.py` docstrings say what the code does now; the dispatcher cancellation tests wait `CANCELLATION_BOUND_SECONDS` (10); `sagas/runtime.py` and ADR-0008 A14 state the accepted race of the marked continuation (a nudge reaching another worker first adopts the marker as attempt 2; one call, same key).
+
+## Perf fixes, as built
+
+The cachegrind A/B of the branch against `main` (`benchmarks/ladder/STANDS.md`
+section D) found four hot-path regressions; each is fixed at its cause,
+behaviour unchanged. Numbers: section D, "After the perf fixes".
+
+- **Locks are a cached statement and parameters (`HW7` +2.9 % → +0.3 to
+  +0.5 %).** `SqlDialect.lock_statement` and `unlock_statement` return
+  `LockStatement(statement, parameters)` (a `NamedTuple`, exported from
+  `sandloom.driverkit`; one new name in `public_api_baseline.json`). The
+  PostgreSQL renderer builds one statement per lock function and key shape
+  (`_pg_lock_statement`, `functools.cache`: `int` as a `BIGINT` bind, `str`
+  through `hashtextextended(:k, 0)`, a pair with an `int` or `hashtext(:k)`
+  second key) and puts the key in the parameters; the request log's pair key
+  is checked inline, without `check_lock_key`. Every caller runs
+  `execute(lock.statement, lock.parameters)`: the request log's try-lock,
+  `hold_transaction_lock` (behind `transaction_lock` and the projection
+  purge lock), the migration locks (`migration_lock`, `ensure_database`,
+  alembic's `_direct_run_lock`). SQLite still answers `None`. The statements
+  are the same SQL as before. The conformance kit requires the shape
+  (`_lock_runs`: a `LockStatement` whose parameters bind its statement) and
+  `test_a_lock_binds_its_key_at_execution` (two keys of one shape share the
+  SQL and differ in parameters); a renderer returning a bare statement, or
+  one with the key written into it, fails the kit (tests in
+  `test_sql_dialect_renderers.py`). The contract stays 2: the protocol is new
+  on this branch. The request log's TTL bookkeeping reads the claim's columns
+  once per log (`_ttl_columns`), not per claim.
+- **No compiler extension per binary expression (`XCmp` +4.7 % → +0.7 %).**
+  The `json_path` refusals at compile time no longer use
+  `@compiles(BinaryExpression)` / `@compiles(coalesce)`, which put
+  `sqlalchemy.ext.compiler`'s dispatcher in front of every binary expression
+  and `coalesce` of every statement. `BinaryExpression._compiler_dispatch`
+  and `coalesce._compiler_dispatch` are one function each
+  (`portable._binary_dispatch`, `_coalesce_dispatch`) that check, then call
+  `visitor.visit_binary` / `visit_function` as SQLAlchemy's generated
+  dispatch does (falling back to it for a visitor without that method). An
+  expression without a `json_path` pays one `frozenset` membership test and,
+  for a comparison, two `isinstance` checks of its operands' types. A
+  build-time check cannot replace it: for `Model.id == json_path(...)` the
+  left side's comparator builds the expression, and SQLAlchemy consults
+  nothing of the right side's type for a non-literal operand
+  (`coerce_compared_value` is asked only of literals). The comparator still
+  refuses the json_path-on-the-left cases when the expression is built; the
+  16 refused operand shapes and the accepted ones pass on both dialects, and
+  `test_a_comparison_without_a_json_path_takes_no_compiler_extension` pins
+  the dispatch. An application's own `@compiles(BinaryExpression |
+  coalesce, "<dialect>")` keeps working: the refusing dispatch hands over to
+  the dispatch installed before it (`_BINARY_DISPATCH_BEFORE`; for
+  `coalesce`, its own earlier hook or its parent's dispatch, looked up per
+  compile), so a hook registered first runs after the refusal and later
+  hooks join that dispatcher; a binary hook registered after Sandloom (with
+  none before) owns its dialect's binary compile, the refusal included, as
+  any `@compiles` override does. Without an earlier hook the fast path is
+  unchanged (one module-global test). Both orders are tested in a subprocess
+  (`test_an_applications_compile_hooks_keep_working`).
+- **`UtcDateTime` converts nothing where the database keeps the instant
+  (`HTr`: the type's per-row work gone).** A fourth optional renderer fact,
+  `aware_times` (`portable.aware_times`, default `False`; not a Protocol
+  member), set by `PostgresqlSql`: `timestamptz` keeps the instant of an
+  aware time in any offset and the DBAPI reads it back aware. Where it holds,
+  `UtcDateTime.bind_processor` is `_refuse_naive` alone (no `astimezone`;
+  composed with the column's own processor if it has one) and
+  `result_processor` is the column's own (none on asyncpg). SQLAlchemy
+  memoises both per dialect, so the fact is read once. A naive time is still
+  refused on PostgreSQL, in a value and in a comparison
+  (`test_utc_datetime.py`, round trips on both databases). The fact is a
+  renderer's but holds per DBAPI (aware in UTC on asyncpg, in the session's
+  `TimeZone` on psycopg); the kit's live hook `read_aware_time` must show an
+  aware time read back on the database for a renderer stating it
+  (`test_aware_times_read_back_aware`; a renderer claiming it over a DBAPI
+  that reads naive values fails). An expression typed `UtcDateTime` that
+  PostgreSQL answers as `timestamp without time zone` (`AT TIME ZONE`) reads
+  back naive there. Behaviour differs
+  only for a `UtcDateTime` model over a column migrated as a naive
+  `timestamp` (model drift), whose naive reads are no longer given UTC on
+  PostgreSQL. `HTr`'s remaining excess is identity's refresh query (it reads
+  the token joined with its user and runs an ORM `UPDATE ... RETURNING`
+  where `main` ran a CTE), outside this change.
+- **Per-unit and per-statement lookups (`L6` +1.5 % → −0.6 to −1.6 %, `WLc`
+  within the stand's drift).** `SQLAlchemyUnitOfWork.__aenter__` reads the
+  nesting policy cached on the session factory with its bind
+  (`nesting.FACTORY_POLICY_ATTR`, `factory_policy`; `savepoint_host` reads
+  it too; a factory without `kw`, a plain function, caches `None` as its
+  bind), one attribute read per unit; the unit's close is inlined (no
+  `_close` helper). `dialect_name` reads a session's dialect through the
+  sync session's plain `bind` and the engine's plain `dialect` (not the
+  async session's proxied properties or `get_bind()`), and
+  `conflict_insert_for`, `for_update_for` and `optional_lock_statement_for`
+  read the registry directly instead of through `_require` / `sql_dialect`.
+  `_require` itself still calls `sql_dialect` (a test seam patches it).
+  `connection_closed` stays one adapter call per checkout (asyncpg's
+  `is_closed()`), the price of the adapter abstraction.
+- **Not reduced: the saga rungs (+1.9 to +2.8 %).** Their SQL is identical
+  on both builds and the fixed tree makes about 15 more Python calls per op;
+  callgrind puts the excess in `libpython` allocation, attribute misses and
+  object teardown, not in a function. `main`'s own saga rows drift 1–2 %
+  between runs on this stand. Follow-up: a heap and GC probe of the saga
+  rung.
+
+Tests: on PostgreSQL the core, billing, identity and `tests/sdk` suites
+pass (serial, own Redis indexes); on SQLite the lane's kernel suites, the
+renderer, feature-form and `UtcDateTime` tests, billing, identity and
+`tests/sdk` pass except three PostgreSQL-only `tests/sdk` tests that fail
+the same way at `0fa1f85`. `tests/sdk/test_sdk_portable_sql.py`'s fake
+session takes the lock's parameters and asserts the key is bound there.
+`tools/packaging/public-source.json` classifies `benchmarks/ladder/infra_rungs.py`,
+the new test file, and excludes the raw result trees `benchmarks/dx/results`
+and `benchmarks/ladder/results`.

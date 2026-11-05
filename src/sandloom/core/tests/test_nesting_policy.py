@@ -55,7 +55,7 @@ from sqlalchemy import (
     insert,
     select,
 )
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import sandloom.core.runtime as _runtime
 from sandloom.core.drivers import sqlalchemy_database as driver
@@ -71,6 +71,7 @@ from sandloom.core.sql_alchemy.nesting import (
     JoinCallerAsSavepoint,
     nesting_policy,
     pin_test_host,
+    savepoint_host,
 )
 from sandloom.core.sql_alchemy.portable import transaction_options_for
 from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
@@ -676,6 +677,24 @@ async def test_the_policy_is_chosen_once_per_engine(lite: _Backend) -> None:
             assert nesting_policy(provider.session_factory) is INDEPENDENT_UNITS
         finally:
             await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_plain_function_factory_opens_unit_after_unit(lite: _Backend) -> None:
+    """The policy cached on the factory (one attribute read per unit) also
+    serves a factory without ``kw``, a plain function: its second unit reads
+    the cache instead of failing on the missing attribute."""
+    engine = lite.provider.engine
+
+    def factory() -> AsyncSession:
+        return AsyncSession(engine)
+
+    for _ in range(3):
+        async with SQLAlchemyUnitOfWork(factory) as uow:  # type: ignore[arg-type]
+            assert uow.session is not None
+            assert (await uow.session.execute(select(1))).scalar_one() == 1
+    assert factory._sandloom_unit_nesting == (None, INDEPENDENT_UNITS)  # type: ignore[attr-defined]
+    assert savepoint_host(factory) is None
 
 
 @pytest.mark.asyncio

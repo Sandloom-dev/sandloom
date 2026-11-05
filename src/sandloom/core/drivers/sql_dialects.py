@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     ColumnElement,
     Select,
@@ -37,7 +38,6 @@ from sqlalchemy import (
     cast as sql_cast,
 )
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.types import NullType, TypeDecorator, TypeEngine, Uuid
 
@@ -49,6 +49,7 @@ from sandloom.core.sql_alchemy.portable import (
     JsonPathKey,
     LockKey,
     LockScope,
+    LockStatement,
     RowSecurity,
     check_lock_key,
     check_unit_shape,
@@ -111,21 +112,27 @@ _PG_LOCKS = {
 
 
 @cache
-def _pg_textual_lock(
-    function: str, hashed: str | None, pair: bool, answers: bool
-) -> Any:
-    """``SELECT <function>(...)`` for a string or pair key, with UNTYPED
-    binds (``$1``, as the hand-written statements had), built once."""
-    if hashed is None:
-        key = ":k"
-    elif hashed == "hashtextextended":
-        key = "hashtextextended(:k, 0)"
-    else:
-        key = f"{hashed}(:k)"
-    args = f":ns, {key}" if pair else key
+def _pg_lock_statement(function: str, shape: str, answers: bool) -> Any:
+    """``SELECT <function>(...)`` for one key shape, built once; the key is
+    bound at execution (:class:`LockStatement`). ``int``: one bigint
+    (``transaction_lock``'s statement since it was written); ``str``: one
+    bigint hashed on the server (``hashtextextended(:k, 0)``); ``pair`` /
+    ``pair_str``: two int4 keys, a string second key hashed with
+    ``hashtext``, with UNTYPED binds (``$1``, as the hand-written statements
+    had)."""
+    if shape == "int":
+        call = getattr(func, function)
+        key = bindparam("k", type_=BigInteger)
+        return select(call(key, type_=Boolean) if answers else call(key))
+    key_sql = {
+        "str": "hashtextextended(:k, 0)",
+        "pair": ":k",
+        "pair_str": "hashtext(:k)",
+    }
+    pair = shape != "str"
+    args = f":ns, {key_sql[shape]}" if pair else key_sql[shape]
     names = ("ns", "k") if pair else ("k",)
-    sql = f"SELECT {function}({args})"
-    statement: Any = text(sql).bindparams(
+    statement: Any = text(f"SELECT {function}({args})").bindparams(
         *(bindparam(name, type_=NullType()) for name in names)
     )
     if answers:
@@ -133,23 +140,37 @@ def _pg_textual_lock(
     return statement
 
 
-def _pg_lock(function: str, key: LockKey, *, answers: bool) -> Executable:
+_INT32_MIN, _INT32_MAX = -(1 << 31), (1 << 31) - 1
+
+
+def _pg_lock(function: str, key: LockKey, *, answers: bool) -> LockStatement:
     """``function`` (an advisory lock or unlock) on ``key``; ``answers``: it
-    returns whether it locked (or unlocked), as a boolean column."""
+    returns whether it locked (or unlocked), as a boolean column. The
+    statement is built once per shape; the key is a parameter."""
+    if type(key) is tuple and len(key) == 2:
+        # The request log's key: checked inline (no check_lock_key call).
+        namespace, inner = key
+        if type(namespace) is int and _INT32_MIN <= namespace <= _INT32_MAX:
+            if type(inner) is str:
+                statement = _pg_lock_statement(function, "pair_str", answers)
+                return LockStatement(statement, {"ns": namespace, "k": inner})
+            if type(inner) is int and _INT32_MIN <= inner <= _INT32_MAX:
+                statement = _pg_lock_statement(function, "pair", answers)
+                return LockStatement(statement, {"ns": namespace, "k": inner})
     check_lock_key(key)
     if isinstance(key, int):
-        # A bound bigint: ``transaction_lock``'s statement since it was written.
-        call = getattr(func, function)
-        return select(call(key, type_=Boolean) if answers else call(key))
+        statement = _pg_lock_statement(function, "int", answers)
+        return LockStatement(statement, {"k": int(key)})
     if isinstance(key, str):
         # Hashed ON THE SERVER, so processes of two releases exclude each
         # other during a rolling deploy.
-        base: Any = _pg_textual_lock(function, "hashtextextended", False, answers)
-        return cast("Executable", base.bindparams(k=key))
+        statement = _pg_lock_statement(function, "str", answers)
+        return LockStatement(statement, {"k": key})
     namespace, inner = key
-    hashed = "hashtext" if isinstance(inner, str) else None
-    base = _pg_textual_lock(function, hashed, True, answers)
-    return cast("Executable", base.bindparams(ns=namespace, k=inner))
+    shape = "pair_str" if isinstance(inner, str) else "pair"
+    value = inner if isinstance(inner, str) else int(inner)
+    parameters = {"ns": int(namespace), "k": value}
+    return LockStatement(_pg_lock_statement(function, shape, answers), parameters)
 
 
 # --- PostgreSQL row security ------------------------------------------------
@@ -428,6 +449,9 @@ class PostgresqlSql:
     name = "postgresql"
     #: The oldest PostgreSQL release still supported by its vendor.
     minimum_server_version: tuple[int, ...] | None = (14,)
+    #: ``timestamptz`` keeps the instant of an aware time in any offset and
+    #: the DBAPIs read it back aware: ``UtcDateTime`` converts nothing.
+    aware_times = True
 
     def features(self) -> frozenset[str]:
         return frozenset(
@@ -569,13 +593,13 @@ class PostgresqlSql:
 
     def lock_statement(
         self, key: LockKey, *, scope: LockScope, wait: bool
-    ) -> Executable:
+    ) -> LockStatement:
         # Advisory locks: an int is one bigint key, a pair two int4 keys (a
         # string second key hashed with hashtext), a string one bigint hashed
         # with hashtextextended(:k, 0).
         return _pg_lock(_PG_LOCKS[(scope, wait)], key, answers=not wait)
 
-    def unlock_statement(self, key: LockKey) -> Executable:
+    def unlock_statement(self, key: LockKey) -> LockStatement:
         return _pg_lock("pg_advisory_unlock", key, answers=True)
 
     def for_update(
@@ -837,7 +861,7 @@ class SqliteSql:
 
     def lock_statement(
         self, key: LockKey, *, scope: LockScope, wait: bool
-    ) -> Executable | None:
+    ) -> LockStatement | None:
         # No named lock: a unit that may write holds the database's one
         # write lock from its BEGIN IMMEDIATE, which already excludes every
         # other writer, so the kernel's transaction_lock succeeds there and
@@ -845,7 +869,7 @@ class SqliteSql:
         check_lock_key(key)
         return None
 
-    def unlock_statement(self, key: LockKey) -> Executable | None:
+    def unlock_statement(self, key: LockKey) -> LockStatement | None:
         check_lock_key(key)
         return None
 

@@ -64,7 +64,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from importlib import metadata
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, cast
 
 from sqlalchemy import (
     JSON,
@@ -83,6 +83,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session
 from sqlalchemy.sql import coercions, operators, roles
 from sqlalchemy.sql import functions as sql_functions
 from sqlalchemy.sql.base import Executable
@@ -136,6 +137,7 @@ __all__ = [
     "IncompatibleSqlDialect",
     "LockKey",
     "LockScope",
+    "LockStatement",
     "RENDERER_FEATURES",
     "ROW_SECURITY_MEMBERS",
     "RowSecurity",
@@ -183,6 +185,7 @@ __all__ = [
     "renderer_features",
     "row_security_for",
     "row_security_of_url",
+    "aware_times",
     "schema_from_models",
     "serial_writers",
     "search_index",
@@ -346,6 +349,20 @@ LockKey = int | str | tuple[int, int] | tuple[int, str]
 #: (the connection) unlocks it with :meth:`SqlDialect.unlock_statement`.
 LockScope = Literal["transaction", "session"]
 
+
+class LockStatement(NamedTuple):
+    """A lock (or unlock) statement and the parameters that carry its key.
+
+    Run it as ``execute(lock.statement, lock.parameters)``. A renderer builds
+    the statement once per lock function and key shape and binds the key at
+    execution, so taking a lock per request builds nothing (its compiled
+    form stays cached).
+    """
+
+    statement: Executable
+    parameters: Mapping[str, Any]
+
+
 _INT64 = (-(1 << 63), (1 << 63) - 1)
 _INT32 = (-(1 << 31), (1 << 31) - 1)
 
@@ -479,7 +496,7 @@ class SqlDialect(Protocol):
 
     Optional facts, read with their default when absent
     (:func:`schema_from_models`, :func:`development_only`,
-    :func:`serial_writers`):
+    :func:`serial_writers`, :func:`aware_times`):
 
     * ``schema_from_models: bool`` (default ``False``): the database takes
       its schema from the models (``metadata.create_all`` at startup), not
@@ -493,7 +510,12 @@ class SqlDialect(Protocol):
       writer at a time, so a second write unit of the same task would wait
       for its own caller; a nested unit of the same task on the same
       instance runs as a SAVEPOINT on the caller's connection instead and
-      commits with the caller (``docs/infrastructure/database.md``).
+      commits with the caller (``docs/infrastructure/database.md``);
+    * ``aware_times: bool`` (default ``False``): ``DateTime(timezone=True)``
+      keeps the instant of an aware time bound in any offset and its DBAPI
+      returns aware values, so :class:`UtcDateTime` converts nothing either
+      way (it still refuses a naive time). Without it the type binds the
+      time in UTC and attaches UTC to what it reads.
     """
 
     #: The contract major the renderer implements (2).
@@ -556,9 +578,12 @@ class SqlDialect(Protocol):
 
     def lock_statement(
         self, key: LockKey, *, scope: LockScope, wait: bool
-    ) -> Executable | None:
+    ) -> LockStatement | None:
         """The statement that takes the named lock ``key`` (check it with
-        :func:`check_lock_key`), or ``None`` when the database has no such lock.
+        :func:`check_lock_key`) and its parameters, or ``None`` when the
+        database has no such lock. Build the statement once per key shape and
+        put the key in :attr:`LockStatement.parameters`: the kernel takes a
+        lock per request.
 
         ``scope="transaction"``: held until the transaction ends;
         ``"session"``: until :meth:`unlock_statement` runs on the same
@@ -568,9 +593,10 @@ class SqlDialect(Protocol):
         """
         ...
 
-    def unlock_statement(self, key: LockKey) -> Executable | None:
+    def unlock_statement(self, key: LockKey) -> LockStatement | None:
         """The statement that releases the session lock ``key`` (selecting
-        one boolean, whether it was held); ``None`` exactly when
+        one boolean, whether it was held) and its parameters; ``None``
+        exactly when
         :meth:`lock_statement` has no session lock."""
         ...
 
@@ -887,6 +913,14 @@ def serial_writers(dialect: str) -> bool:
     return bool(getattr(sql_dialect(dialect), "serial_writers", False))
 
 
+def aware_times(dialect: str) -> bool:
+    """The renderer of ``dialect`` says ``DateTime(timezone=True)`` keeps
+    the instant and its DBAPI reads it back aware (UTC on asyncpg, the
+    session's ``TimeZone`` on psycopg): :class:`UtcDateTime` converts nothing
+    there. ``False`` without a renderer."""
+    return bool(getattr(sql_dialect(dialect), "aware_times", False))
+
+
 def skips_locked_rows(bind: Any) -> bool:
     """Whether the database of ``bind`` has ``skip_locked``: concurrent
     workers split a queue with ``FOR UPDATE SKIP LOCKED``. Without it the
@@ -1044,12 +1078,26 @@ def dialect_name(bind: Any) -> str:
     connection or engine (sync or async), or a session (sync or async)."""
     if isinstance(bind, str):
         return bind
-    if isinstance(bind, Dialect):
-        return str(bind.name)
-    dialect = getattr(bind, "dialect", None)
-    if dialect is not None:
-        return str(dialect.name)
-    return str(bind.get_bind().dialect.name)
+    # A session (the hot callers pass one): its own bind is what
+    # ``get_bind()`` answers without a mapper. Read on the sync session,
+    # whose ``bind`` and the engine's ``dialect`` are plain attributes (the
+    # async session's are proxies).
+    session = getattr(bind, "sync_session", None)
+    if session is None and isinstance(bind, Session):
+        session = bind
+    if session is not None:
+        engine = session.bind
+        dialect = (engine if engine is not None else session.get_bind()).dialect
+    elif isinstance(bind, Dialect):
+        dialect = bind
+    else:
+        # a connection or an engine (sync or async); else anything with
+        # ``get_bind()``
+        dialect = getattr(bind, "dialect", None)
+        if dialect is None:
+            dialect = bind.get_bind().dialect
+    name: str = dialect.name
+    return name
 
 
 def has_sql_dialect(name: str) -> bool:
@@ -1132,15 +1180,26 @@ class NaiveDateTimeError(ValueError):
         )
 
 
+def _refuse_naive(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        raise NaiveDateTimeError(value)
+    return value
+
+
 class UtcDateTime(TypeDecorator[datetime]):
-    """A timezone-aware time that always reads back in UTC.
+    """A timezone-aware time: always read back aware, in UTC on asyncpg and
+    SQLite.
 
     The column is ``DateTime(timezone=True)`` (``TIMESTAMP WITH TIME ZONE`` on
-    PostgreSQL, which keeps the instant and returns an aware value). A
-    database that keeps no offset (SQLite stores the text of the time) hands
-    back a naive value: this type writes an aware time in UTC and attaches UTC
+    PostgreSQL, which keeps the instant and returns an aware value: in UTC
+    on asyncpg, in the session's ``TimeZone`` on psycopg). There
+    (the renderer's ``aware_times``) the type converts nothing. A database
+    that keeps no offset (SQLite stores the text of the time) hands back a
+    naive value: there this type writes an aware time in UTC and attaches UTC
     to what it reads, so a module compares and orders the same aware values on
-    every database. Bind aware times: a naive one has no known instant (on
+    every database. An expression typed ``UtcDateTime`` that PostgreSQL
+    answers as ``timestamp without time zone`` (``... AT TIME ZONE 'UTC'``)
+    reads back naive there. Bind aware times: a naive one has no known instant (on
     PostgreSQL asyncpg would read it in the process's local time zone, on
     SQLite it would mean UTC), so it is refused with
     :class:`NaiveDateTimeError`, in a value and in a comparison alike. The
@@ -1150,6 +1209,25 @@ class UtcDateTime(TypeDecorator[datetime]):
 
     impl = DateTime(timezone=True)
     cache_ok = True
+
+    # SQLAlchemy memoises both processors per dialect: the fact is read once.
+    def bind_processor(self, dialect: Dialect) -> Any:
+        """Where the database keeps the instant (``aware_times``), only the
+        refusal of a naive time; elsewhere :meth:`process_bind_param`."""
+        if not aware_times(dialect.name):
+            return super().bind_processor(dialect)
+        impl = self.impl_instance.bind_processor(dialect)
+        if impl is None:
+            return _refuse_naive
+        return lambda value: impl(_refuse_naive(value))
+
+    def result_processor(self, dialect: Dialect, coltype: Any) -> Any:
+        """Where the DBAPI reads aware values (``aware_times``), the
+        column's own processor (none on asyncpg); elsewhere
+        :meth:`process_result_value`."""
+        if not aware_times(dialect.name):
+            return super().result_processor(dialect, coltype)
+        return self.impl_instance.result_processor(dialect, coltype)
 
     def process_bind_param(
         self, value: datetime | None, dialect: Dialect
@@ -1317,7 +1395,10 @@ def conflict_insert_for(bind: Any, table: Any) -> ConflictInsert:
     """:func:`conflict_insert` where only a dialect, a dialect name or a
     connection is at hand (``bind``, read by :func:`dialect_name`)."""
     dialect = dialect_name(bind)
-    statement = _require(dialect, "conflict_insert").conflict_insert(table)
+    renderer = _registered.get(dialect) if _state["loaded"] else sql_dialect(dialect)
+    if renderer is None:
+        raise UnsupportedSqlForm("conflict_insert", dialect, renderer=False)
+    statement = renderer.conflict_insert(table)
     if statement is None:
         raise UnsupportedSqlForm("conflict_insert", dialect)
     return statement
@@ -1367,12 +1448,14 @@ def array_insert_sql_for(bind: Any, inserts: Sequence[ArrayInsert]) -> str | Non
 
 def optional_lock_statement_for(
     bind: Any, key: LockKey, *, scope: LockScope, wait: bool
-) -> Executable | None:
+) -> LockStatement | None:
     """The renderer's :meth:`SqlDialect.lock_statement` for the database of
     ``bind`` (see :func:`dialect_name`: a sync connection or an async
     session alike); ``None`` without a renderer or without such a lock, for
-    a caller that has a correct answer unlocked."""
-    renderer = sql_dialect(dialect_name(bind))
+    a caller that has a correct answer unlocked. Run it as
+    ``execute(lock.statement, lock.parameters)``."""
+    dialect = dialect_name(bind)
+    renderer = _registered.get(dialect) if _state["loaded"] else sql_dialect(dialect)
     if renderer is None:
         check_lock_key(key)
         return None
@@ -1381,7 +1464,7 @@ def optional_lock_statement_for(
 
 def lock_statement_for(
     bind: Any, key: LockKey, *, scope: LockScope, wait: bool
-) -> Executable:
+) -> LockStatement:
     """:func:`optional_lock_statement_for` that refuses a database without
     such a lock (:class:`UnsupportedSqlForm`, SANDLOOM-R015) rather than run
     the section unlocked. The caller executes it; ``wait=False`` selects
@@ -1395,7 +1478,7 @@ def lock_statement_for(
     return statement
 
 
-def unlock_statement_for(bind: Any, key: LockKey) -> Executable:
+def unlock_statement_for(bind: Any, key: LockKey) -> LockStatement:
     """The statement that releases the session lock ``key`` taken with
     :func:`lock_statement_for` on the same connection."""
     dialect = dialect_name(bind)
@@ -1410,9 +1493,11 @@ def for_update_for(
 ) -> Select[Any]:
     """The renderer's :meth:`SqlDialect.for_update` of ``stmt`` for the
     database of ``bind``; refuses a database without a renderer."""
-    return _require(dialect_name(bind), "for_update").for_update(
-        stmt, skip_locked=skip_locked, read=read
-    )
+    dialect = dialect_name(bind)
+    renderer = _registered.get(dialect) if _state["loaded"] else sql_dialect(dialect)
+    if renderer is None:
+        raise UnsupportedSqlForm("for_update", dialect, renderer=False)
+    return renderer.for_update(stmt, skip_locked=skip_locked, read=read)
 
 
 def row_security_for(bind: Any) -> RowSecurity | None:
@@ -1497,9 +1582,9 @@ async def hold_transaction_lock(
     """
     dialect = dialect_name(session)
     renderer = _require(dialect, form)
-    statement = renderer.lock_statement(key, scope="transaction", wait=True)
-    if statement is not None:
-        await session.execute(statement)
+    lock = renderer.lock_statement(key, scope="transaction", wait=True)
+    if lock is not None:
+        await session.execute(lock.statement, lock.parameters)
         return
     if "transaction_locks" in renderer_features(dialect):
         connection = await session.connection()
@@ -1861,33 +1946,89 @@ class _JsonPathText(TypeDecorator[str]):
         return None  # unreachable: a non-str value is refused
 
 
-@compiles(BinaryExpression)
-def _compile_binary(
-    element: BinaryExpression[Any], compiler: SQLCompiler, **kw: Any
-) -> str:
-    # The comparator refuses a number on the right of a json_path; this sees
-    # the other order (``Model.id == json_path(...)``: the left side's
-    # comparator built it) and anything typed after the fact.
+#: The compile dispatch ``BinaryExpression`` had when this module was
+#: imported: SQLAlchemy's generated one, or a ``sqlalchemy.ext.compiler``
+#: dispatcher an application registered first (``@compiles(BinaryExpression,
+#: "<dialect>")``). The refusing dispatch runs its check, then hands over to
+#: it, so such a hook keeps working; with none, it calls ``visit_binary``
+#: itself (no extra frame). A hook registered later wraps the refusing
+#: dispatch as its default, or joins the earlier dispatcher (which it calls).
+_BINARY_DISPATCH_BEFORE = BinaryExpression.__dict__["_compiler_dispatch"]
+_BINARY_HOOKED = _BINARY_DISPATCH_BEFORE is not BinaryExpression.__dict__.get(
+    "_original_compiler_dispatch"
+)
+#: ``coalesce``'s own dispatch when this module was imported (an application's
+#: ``@compiles(coalesce)``), else ``None``: the refusing dispatch then hands
+#: over to its parent's dispatch, looked up at each compile (a ``coalesce`` is
+#: rare; a hook on ``Function`` registered later still applies).
+_COALESCE_DISPATCH_BEFORE = sql_functions.coalesce.__dict__.get("_compiler_dispatch")
+_COALESCE_PARENT: Any = sql_functions.coalesce.__mro__[1]
+_COALESCE_PARENT_GENERATED = _COALESCE_PARENT._original_compiler_dispatch
+
+
+def _binary_dispatch(element: BinaryExpression[Any], visitor: Any, **kw: Any) -> str:
+    """``BinaryExpression``'s compile dispatch: refuse a json_path compared
+    with a number, then compile as before (SQLAlchemy's ``visit_binary``, or
+    the dispatch installed before this module, see
+    :data:`_BINARY_DISPATCH_BEFORE`).
+
+    The comparator refuses a number on the right of a json_path when the
+    expression is built; this sees the other order (``Model.id ==
+    json_path(...)``: the left side's comparator built it, and no hook of
+    the json_path's type is consulted there) and anything typed after the
+    fact. It replaces the generated dispatch (one frame, as before), so an
+    expression without a json_path pays one ``frozenset`` membership and,
+    for a comparison, two type checks: no ``sqlalchemy.ext.compiler``
+    dispatch per binary (measured: ``XCmp``, STANDS.md section D)."""
     if element.operator in _JSON_PATH_COMPARISONS:
-        if _is_json_path_text(element.right) and not _is_json_path_text(element.left):
+        try:
+            left = isinstance(element.left.type, _JsonPathText)
+            right = isinstance(element.right.type, _JsonPathText)
+        except AttributeError:  # an operand without a type (a clause list)
+            left = isinstance(getattr(element.left, "type", None), _JsonPathText)
+            right = isinstance(getattr(element.right, "type", None), _JsonPathText)
+        if right and not left:
             _refuse_json_path_clause(element.left)
-        elif _is_json_path_text(element.left) and not _is_json_path_text(element.right):
+        elif left and not right:
             _refuse_json_path_clause(element.right)
-    return str(compiler.visit_binary(element, **kw))  # type: ignore[no-untyped-call]
+    # (no typing.cast here: it is a call per binary expression)
+    if _BINARY_HOOKED:
+        return _BINARY_DISPATCH_BEFORE(element, visitor, **kw)  # type: ignore[no-any-return]
+    try:
+        visit = visitor.visit_binary
+    except AttributeError:
+        return _BINARY_DISPATCH_BEFORE(element, visitor, **kw)  # type: ignore[no-any-return]
+    return visit(element, **kw)  # type: ignore[no-any-return]
 
 
-@compiles(sql_functions.coalesce)
-def _compile_coalesce(
-    element: sql_functions.coalesce[Any], compiler: SQLCompiler, **kw: Any
+def _coalesce_dispatch(
+    element: sql_functions.coalesce[Any], visitor: Any, **kw: Any
 ) -> str:
-    # ``coalesce(json_path(...), 0)``: text or a number, by row on SQLite, an
-    # error on PostgreSQL.
-    arguments = list(element.clauses)
-    if any(map(_is_json_path_text, arguments)):
-        for argument in arguments:
-            if not _is_json_path_text(argument):
-                _refuse_json_path_clause(argument)
-    return str(compiler.visit_function(element, **kw))
+    """``coalesce``'s compile dispatch: ``coalesce(json_path(...), 0)`` is
+    text or a number, by row on SQLite, an error on PostgreSQL. Then the
+    dispatch it had before (see :data:`_COALESCE_DISPATCH_BEFORE`)."""
+    arguments = element.clauses.clauses
+    for argument in arguments:
+        if isinstance(getattr(argument, "type", None), _JsonPathText):
+            for other in arguments:
+                if not _is_json_path_text(other):
+                    _refuse_json_path_clause(other)
+            break
+    if _COALESCE_DISPATCH_BEFORE is not None:
+        return _COALESCE_DISPATCH_BEFORE(element, visitor, **kw)  # type: ignore[no-any-return]
+    parent = _COALESCE_PARENT._compiler_dispatch
+    if parent is _COALESCE_PARENT_GENERATED:  # no hook on a parent: visit directly
+        try:
+            visit = visitor.visit_function
+        except AttributeError:
+            pass
+        else:
+            return visit(element, **kw)  # type: ignore[no-any-return]
+    return parent(element, visitor, **kw)  # type: ignore[no-any-return]
+
+
+BinaryExpression._compiler_dispatch = _binary_dispatch  # type: ignore[method-assign,assignment]
+sql_functions.coalesce._compiler_dispatch = _coalesce_dispatch  # type: ignore[method-assign,assignment]
 
 
 def _refuse_json_path_clause(other: ClauseElement) -> None:

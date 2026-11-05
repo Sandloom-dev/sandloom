@@ -104,9 +104,13 @@ feature of the `database` capability; there is no namespace per database.
      `classify_error`. Also required: the forms the kernel's guarantees need
      (`REQUIRED_MEMBERS`, such as `conflict_insert` and `wall_clock`).
    - **Optional, in whole groups:** the members of one feature
-     (`FEATURE_FORM_MEMBERS`), the two prefix members, and three facts read as
+     (`FEATURE_FORM_MEMBERS`), the two prefix members, and four facts read as
      `False` when absent (`schema_from_models`, `development_only`,
-     `serial_writers`).
+     `serial_writers`, `aware_times`).
+   - **Locks:** `lock_statement` and `unlock_statement` return a
+     `LockStatement` (the statement, built once per key shape, and the
+     parameters carrying the key), exported from `sandloom.driverkit`. A lock
+     taken per request then builds no statement.
    - **Versioning:** the loader refuses another major version, a missing
      required member, an unknown feature, and a feature or group with members
      missing (SANDLOOM-B025).
@@ -142,7 +146,7 @@ feature of the `database` capability; there is no namespace per database.
    would leave a gap between release and commit, and it would need a second
    backend for what the database already gives. So the feature is
    `transaction_locks` of `database`, written by
-   `lock_statement(scope="transaction")`.
+   `lock_statement(scope="transaction")`, run with its parameters.
    - **PostgreSQL:** an advisory lock. A string key is still hashed on the
      server, so old and new processes exclude each other during a rolling
      deploy.

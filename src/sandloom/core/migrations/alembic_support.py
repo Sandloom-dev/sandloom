@@ -53,7 +53,10 @@ from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
-from sandloom.core.sql_alchemy.portable import optional_lock_statement_for
+from sandloom.core.sql_alchemy.portable import (
+    LockStatement,
+    optional_lock_statement_for,
+)
 
 #: Sync DSN injected by ``sandloom-migrate`` to target a named database instance.
 MIGRATE_URL_ENV = "SANDLOOM_MIGRATE_DATABASE_URL"
@@ -185,7 +188,7 @@ def run_migrations(
                     # Direct ``alembic upgrade`` (outside sandloom-migrate's
                     # run-wide lock): serialise concurrent runners for the
                     # duration of this chain's transaction.
-                    connection.execute(lock)
+                    connection.execute(lock.statement, lock.parameters)
                 context.run_migrations()
     finally:
         connectable.dispose()
@@ -346,7 +349,7 @@ def _refuse_unrestricted_partial_indexes(metadata: Any, dialect: Dialect) -> Non
         )
 
 
-def _direct_run_lock(connection: Any, url: str) -> Any:
+def _direct_run_lock(connection: Any, url: str) -> LockStatement | None:
     """The transaction lock a direct ``alembic upgrade`` takes, or ``None``.
 
     ``None`` for a URL whose run-wide session lock ``sandloom migrate`` already

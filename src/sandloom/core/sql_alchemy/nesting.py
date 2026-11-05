@@ -51,6 +51,11 @@ from sandloom.core.unit_of_work.scope import (
 
 #: Sync-engine attribute caching the engine's nesting policy.
 _POLICY_ATTR = "_sandloom_nesting_policy"
+#: A factory without ``kw`` (a plain function): no bind.
+NO_FACTORY_KW: dict[str, Any] = {}
+#: Session-factory attribute caching ``(its bind, the policy)``: a unit reads
+#: it with one attribute access (:func:`factory_policy`).
+FACTORY_POLICY_ATTR = "_sandloom_unit_nesting"
 
 
 class IndependentUnits:
@@ -92,6 +97,18 @@ def nesting_policy(session_factory: Any) -> IndependentUnits | JoinCallerAsSavep
             setattr(engine, _POLICY_ATTR, policy)
         except AttributeError:  # pragma: no cover - an engine without attributes
             pass
+    return policy
+
+
+def factory_policy(session_factory: Any) -> IndependentUnits | JoinCallerAsSavepoint:
+    """:func:`nesting_policy`, cached on the session factory as well (keyed
+    by its bind, which a factory keeps): what a unit asks at its entry."""
+    bind = getattr(session_factory, "kw", NO_FACTORY_KW).get("bind")
+    policy = nesting_policy(session_factory)
+    try:
+        setattr(session_factory, FACTORY_POLICY_ATTR, (bind, policy))
+    except AttributeError:  # pragma: no cover - a factory without attributes
+        pass
     return policy
 
 
@@ -172,7 +189,16 @@ def _holds_for_task(sync: Any, engine: Any, task: Any) -> bool:
 def savepoint_host(session_factory: Any) -> AsyncSession | None:
     """The unit a new unit of ``session_factory`` nests in under its engine's
     policy, or ``None`` (a transaction of its own; PostgreSQL: always)."""
-    return nesting_policy(session_factory).host_for(session_factory)
+    cached = getattr(session_factory, FACTORY_POLICY_ATTR, None)
+    policy: IndependentUnits | JoinCallerAsSavepoint
+    bind = getattr(session_factory, "kw", NO_FACTORY_KW).get("bind")
+    if cached is not None and cached[0] is bind:
+        policy = cached[1]
+    else:
+        policy = factory_policy(session_factory)
+    if not policy.nests:
+        return None
+    return policy.host_for(session_factory)
 
 
 #: ``session.info`` key of a host: the gate of its nested units.
@@ -328,6 +354,9 @@ __all__ = [
     "IndependentUnits",
     "JoinCallerAsSavepoint",
     "nesting_policy",
+    "factory_policy",
+    "FACTORY_POLICY_ATTR",
+    "NO_FACTORY_KW",
     "pin_test_host",
     "savepoint_host",
 ]

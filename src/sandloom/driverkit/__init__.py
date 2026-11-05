@@ -27,6 +27,7 @@ from sandloom.core.sql_alchemy.portable import (
     TENANT_SETTING,
     WRITE_LOCK_HELD,
     ConflictInsert,
+    LockStatement,
     RowSecurity,
     SqlDialect,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "ConflictInsert",
     "DBAPI_CAPABILITIES",
     "DbapiAdapter",
+    "LockStatement",
     "RowSecurity",
     "SqlDialect",
     "TENANT_SETTING",

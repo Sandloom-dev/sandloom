@@ -116,7 +116,9 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
             # autoflush off, like the claim: a flush of the caller's pending
             # objects here would surface the caller's own errors in the guard.
             with session.no_autoflush:
-                locked = (await session.execute(try_lock)).scalar()
+                locked = (
+                    await session.execute(try_lock.statement, try_lock.parameters)
+                ).scalar()
             if not locked:
                 raise RequestLogBusy(dedupe_key)
         now = _utc_naive_now()

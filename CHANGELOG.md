@@ -343,8 +343,11 @@ website renders this same changelog.
 
 - **The kernel's locks go through the SQL dialect renderer.** A renderer's
   `transaction_lock` form becomes `lock_statement(key, *, scope=, wait=)` and
-  `unlock_statement(key)`: the statement that takes (or releases) a named lock,
-  or `None` when the database has none. A key is a 64-bit `int`, a
+  `unlock_statement(key)`: a `LockStatement(statement, parameters)` (from
+  `sandloom.driverkit`) that takes (or releases) a named lock, or `None` when
+  the database has none. The statement is built once per key shape and the key
+  travels in `parameters`; the kernel runs `execute(lock.statement,
+  lock.parameters)`, so a lock taken per request builds no SQL. A key is a 64-bit `int`, a
   `(namespace, int | str)` pair or a `str`; PostgreSQL hashes a string on the
   server (`hashtextextended`, or `hashtext` in a pair), so two releases still
   exclude each other during a rolling deploy. The HTTP idempotency try-lock
@@ -353,9 +356,15 @@ website renders this same changelog.
   `alembic upgrade` ask it instead of naming PostgreSQL; on PostgreSQL the SQL
   is the same (the migration locks bind the key instead of inlining it).
   `transaction_lock` keeps its signature and SQL and still refuses on SQLite
-  (SANDLOOM-R015). `SqlDialectConformance` checks that each lock compiles or is
-  absent, that a never-waiting lock selects a boolean, and that a session lock
-  has its unlock.
+  (SANDLOOM-R015). `SqlDialectConformance` checks that each lock is a
+  `LockStatement` whose parameters bind its statement, or absent, that a
+  never-waiting lock selects a boolean, that a session lock has its unlock,
+  and that two keys of one shape share the statement and differ in their
+  parameters (`test_a_lock_binds_its_key_at_execution`). A renderer may state
+  the optional fact `aware_times` (PostgreSQL does): `DateTime(timezone=True)`
+  keeps the instant and its DBAPI reads values back aware, so `UtcDateTime`
+  converts nothing there and only refuses a naive time; a renderer stating it
+  overrides the kit's `read_aware_time` to show it on the database.
 
 - **Locks through the renderer.** The kernel's advisory locks (the HTTP
   idempotency try-lock, the projection purge lock, the migration and

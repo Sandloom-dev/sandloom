@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar, cast, get_args
 
 import pytest
@@ -29,6 +30,7 @@ from sandloom.driverkit import (
     TENANT_SETTING,
     ConflictInsert,
     HealthResult,
+    LockStatement,
     Notification,
     NotifierProvider,
     SqlDialect,
@@ -468,19 +470,55 @@ class SqlDialectConformance:
             f"selects {columns}",
         )
 
+    def _lock_runs(self, lock: Any, what: str) -> str:
+        """``lock`` is a ``LockStatement`` whose parameters bind its statement."""
+        _require(
+            isinstance(lock, LockStatement),
+            f"{what} must return a LockStatement(statement, parameters), "
+            f"returns {lock!r}",
+        )
+        sql = self._sql(lock.statement)
+        _require(bool(sql), f"{what} compiles to nothing")
+        try:
+            lock.statement.compile(dialect=self.dialect).construct_params(
+                dict(lock.parameters)
+            )
+        except sa.exc.InvalidRequestError as exc:
+            raise AssertionError(
+                f"{what}: its parameters do not bind its statement: {exc}"
+            ) from exc
+        return sql
+
     def test_lock_statement_compiles_or_is_absent(self) -> None:
         for key in self.LOCK_KEYS:
             for scope in ("transaction", "session"):
                 for wait in (True, False):
                     what = f"lock_statement({key!r}, scope={scope!r}, wait={wait})"
-                    statement = self.renderer.lock_statement(
-                        key, scope=scope, wait=wait
-                    )
-                    if statement is None:
+                    lock = self.renderer.lock_statement(key, scope=scope, wait=wait)
+                    if lock is None:
                         continue  # the kernel refuses rather than run unlocked
-                    _require(bool(self._sql(statement)), f"{what} compiles to nothing")
+                    self._lock_runs(lock, what)
                     if not wait:
-                        self._lock_answers_a_boolean(statement, what)
+                        self._lock_answers_a_boolean(lock.statement, what)
+
+    def test_a_lock_binds_its_key_at_execution(self) -> None:
+        """The kernel takes a lock per request: the key is a parameter, so
+        the statement (and its compiled form) is the same for every key of
+        one shape."""
+        pairs = ((42, 43), ("a", "b"), ((1, 2), (1, 3)), ((1, "a"), (1, "b")))
+        for one, other in pairs:
+            first = self.renderer.lock_statement(one, scope="transaction", wait=False)
+            second = self.renderer.lock_statement(
+                other, scope="transaction", wait=False
+            )
+            if first is None or second is None:
+                continue
+            _require(
+                self._sql(first.statement) == self._sql(second.statement)
+                and first.parameters != second.parameters,
+                f"lock_statement({one!r}) and ({other!r}) must share one "
+                "statement and differ in their parameters",
+            )
 
     def test_a_session_lock_has_its_unlock(self) -> None:
         for key in self.LOCK_KEYS:
@@ -492,8 +530,8 @@ class SqlDialectConformance:
                 "lock does",
             )
             if unlock is not None:
-                _require(bool(self._sql(unlock)), "unlock_statement compiles")
-                self._lock_answers_a_boolean(unlock, "unlock_statement")
+                self._lock_runs(unlock, f"unlock_statement({key!r})")
+                self._lock_answers_a_boolean(unlock.statement, "unlock_statement")
 
     def test_lock_statement_refuses_a_key_of_no_shape(self) -> None:
         keys: tuple[Any, ...] = (1.5, True, (1, 2, 3), (1 << 40, 2), None)
@@ -697,6 +735,36 @@ class SqlDialectConformance:
             "json_path must read the scalar's JSON text as stored (a number "
             "as written, not as the database's float): " + "; ".join(wrong),
         )
+
+    async def read_aware_time(self, value: datetime) -> Any:
+        """Store the aware ``value`` (an offset other than UTC) in a
+        ``DateTime(timezone=True)`` column on the real database and answer
+        what its DBAPI reads back, with no type processing (a plain
+        ``DateTime(timezone=True)``, not ``UtcDateTime``). A renderer that
+        states ``aware_times`` must override it: the kit checks that the
+        value comes back aware, the same instant."""
+        raise NotImplementedError
+
+    @pytest.mark.asyncio
+    async def test_aware_times_read_back_aware(self) -> None:
+        if not getattr(self.renderer, "aware_times", False):
+            return  # UtcDateTime converts on this database
+        value = datetime(
+            2026, 11, 5, 12, 30, 15, 123456, tzinfo=timezone(timedelta(hours=2))
+        )
+        try:
+            read = await self.read_aware_time(value)
+        except NotImplementedError:
+            raise AssertionError(
+                "the renderer states aware_times: override read_aware_time to "
+                "read an aware time back from the database"
+            ) from None
+        _require(
+            isinstance(read, datetime) and read.tzinfo is not None,
+            f"aware_times: the DBAPI must read an aware time back, read {read!r} "
+            "(UtcDateTime converts nothing on this database)",
+        )
+        _require(read == value, f"aware_times: read {read!r}, stored {value!r}")
 
     def test_json_contains_binds_its_document(self) -> None:
         if not self._declares("json_contains"):

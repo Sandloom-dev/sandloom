@@ -2456,6 +2456,16 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "LockStatement": {
+      "kind": "class",
+      "members": [
+        "count",
+        "index",
+        "parameters",
+        "statement"
+      ],
+      "signature": "(statement:POSITIONAL_OR_KEYWORD|ForwardRef('Executable'), parameters:POSITIONAL_OR_KEYWORD|ForwardRef('Mapping[str, Any]'))"
+    },
     "Notification": {
       "kind": "class",
       "members": [

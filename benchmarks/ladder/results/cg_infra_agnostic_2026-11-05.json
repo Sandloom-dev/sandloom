@@ -164,5 +164,110 @@
     "delta_pct": 1.15
    }
   }
+ },
+ "after_fixes": {
+  "main": "10be493",
+  "fixed": "0fa1f85 + infra-perf-regressions (uncommitted)",
+  "k": 200,
+  "gc": "freeze",
+  "rungs": {
+   "HW7": {
+    "A": {
+     "main": 8630823,
+     "fixed": 8673849,
+     "delta_pct": 0.5
+    },
+    "B": {
+     "main": 8656796,
+     "fixed": 8685999,
+     "delta_pct": 0.34
+    }
+   },
+   "XCmp": {
+    "A": {
+     "main": 2053349,
+     "fixed": 2074490,
+     "delta_pct": 1.03
+    },
+    "B": {
+     "main": 2046703,
+     "fixed": 2060237,
+     "delta_pct": 0.66
+    }
+   },
+   "HTr": {
+    "A": {
+     "main": 8767802,
+     "fixed": 8895291,
+     "delta_pct": 1.45
+    },
+    "B": {
+     "main": 8672906,
+     "fixed": 8907061,
+     "delta_pct": 2.7
+    }
+   },
+   "WLc": {
+    "A": {
+     "main": 9443400,
+     "fixed": 9355816,
+     "delta_pct": -0.93
+    },
+    "B": {
+     "main": 9457321,
+     "fixed": 9544549,
+     "delta_pct": 0.92
+    }
+   },
+   "XSgS": {
+    "A": {
+     "main": 6303315,
+     "fixed": 6479214,
+     "delta_pct": 2.79
+    },
+    "B": {
+     "main": 6422580,
+     "fixed": 6543394,
+     "delta_pct": 1.88
+    }
+   },
+   "XSgL": {
+    "A": {
+     "main": 10680256,
+     "fixed": 10910967,
+     "delta_pct": 2.16
+    },
+    "B": {
+     "main": 10584465,
+     "fixed": 10850544,
+     "delta_pct": 2.51
+    }
+   },
+   "XSgC": {
+    "A": {
+     "main": 14661555,
+     "fixed": 14935510,
+     "delta_pct": 1.87
+    },
+    "B": {
+     "main": 14574048,
+     "fixed": 14861304,
+     "delta_pct": 1.97
+    }
+   },
+   "L6": {
+    "A": {
+     "main": 2232388,
+     "fixed": 2219974,
+     "delta_pct": -0.56
+    },
+    "B": {
+     "main": 2252146,
+     "fixed": 2215434,
+     "delta_pct": -1.63
+    }
+   }
+  },
+  "notes": "pair A's fixed tree lacks the tighter compile dispatch and the session read of dialect_name; main's XSgS of pair B was rerun alone (the first ran out of disk)"
  }
 }

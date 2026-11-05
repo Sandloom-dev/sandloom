@@ -96,7 +96,8 @@ renderer belongs to the database's driver package. It names itself in the
 The kernel's own locks come from the same renderer. Its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
 locks, which are advisory locks on PostgreSQL. `transaction_lock` is built on it
-too.
+too. It returns a `LockStatement`: one statement per lock and key shape, with
+the key in its parameters, so a lock taken per request builds no SQL.
 
 The outbox relay and the saga sweep are work queues. Where the renderer
 declares `skip_locked`, as PostgreSQL's does, parallel workers split them with

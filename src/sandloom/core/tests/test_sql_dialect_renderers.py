@@ -7,6 +7,7 @@ import contextlib
 import tempfile
 import types
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -50,7 +51,7 @@ from sandloom.core.sql_alchemy.projection_watermarks import (
     purge_lock_key,
 )
 from sandloom.core.testing.workers import worker_env_values
-from sandloom.driverkit import SqlDialect
+from sandloom.driverkit import LockStatement, SqlDialect
 from sandloom.driverkit.testing import SqlDialectConformance
 
 REPO = Path(__file__).resolve().parents[4]
@@ -98,6 +99,32 @@ class TestPostgresqlRenderer(SqlDialectConformance):
             pytest.skip("the test database is not PostgreSQL")
         engine = driver.build_disposable_engine(url)
         return await _json_path_reads(engine, document, paths)
+
+    async def read_aware_time(self, value: datetime) -> Any:
+        url = worker_env_values(REPO / ".env.test")["DATABASE_URL"]
+        if not url.startswith("postgresql"):
+            pytest.skip("the test database is not PostgreSQL")
+        return await _aware_time_read(driver.build_disposable_engine(url), value)
+
+
+async def _aware_time_read(engine: AsyncEngine, value: datetime) -> Any:
+    """``value`` stored in a ``DateTime(timezone=True)`` column, read back raw."""
+    table = sa.Table(
+        "conformance_aware_time",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+        sa.Column("at", sa.DateTime(timezone=True)),
+    )
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            await connection.run_sync(table.metadata.create_all)
+            await connection.execute(table.insert().values(id=1, at=value))
+            read = (await connection.execute(sa.select(table.c.at))).scalar_one()
+            await transaction.rollback()
+    finally:
+        await engine.dispose()
+    return read
 
 
 class TestSqliteRenderer(SqlDialectConformance):
@@ -162,6 +189,34 @@ def test_the_suite_fails_a_renderer_that_breaks_the_contract(
 
 
 @pytest.mark.asyncio
+class _AwareSqlite(SqliteSql):
+    """Claims aware_times on a database whose DBAPI reads naive times."""
+
+    aware_times = True
+
+
+async def test_the_suite_fails_an_aware_times_renderer_it_cannot_show(
+    tmp_path: Path,
+) -> None:
+    class Unrun(SqlDialectConformance):
+        pass
+
+    Unrun.renderer = _AwareSqlite()
+    Unrun.dialect = sqlite.dialect()
+    with pytest.raises(AssertionError, match="override read_aware_time"):
+        await Unrun().test_aware_times_read_back_aware()
+
+    class Naive(SqlDialectConformance):
+        async def read_aware_time(self, value: datetime) -> Any:
+            engine = driver._build_engine(f"sqlite+aiosqlite:///{tmp_path / 'a.db'}")
+            return await _aware_time_read(engine, value)
+
+    Naive.renderer = _AwareSqlite()
+    Naive.dialect = sqlite.dialect()
+    with pytest.raises(AssertionError, match="must read an aware time back"):
+        await Naive().test_aware_times_read_back_aware()
+
+
 async def test_the_suite_fails_a_json_path_renderer_without_read_json_paths() -> None:
     """A renderer declaring json_path that never runs it on its database
     fails the kit (risk fix 3): its number text is unchecked otherwise."""
@@ -551,7 +606,7 @@ class _Recording:
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         compiled = statement.compile(dialect=self.dialect)
-        self.statements.append((str(compiled), dict(compiled.params)))
+        self.statements.append((str(compiled), compiled.construct_params(params)))
         answer = self.answer
 
         class _Result:
@@ -562,6 +617,10 @@ class _Recording:
 
 
 def _compiled(statement: Any, dialect: Any) -> tuple[str, dict[str, Any]]:
+    """The SQL and the parameters of a statement or a ``LockStatement``."""
+    if isinstance(statement, LockStatement):
+        compiled = statement.statement.compile(dialect=dialect)
+        return str(compiled), dict(compiled.construct_params(statement.parameters))
     compiled = statement.compile(dialect=dialect)
     return str(compiled), dict(compiled.params)
 
@@ -573,10 +632,30 @@ async def test_transaction_lock_is_todays_statement_on_postgresql() -> None:
         sa.select(sa.func.pg_advisory_xact_lock(0x414A_4152_4241_4331)),
         asyncpg.dialect(),
     )
-    assert session.statements == [before]
+    # The same SQL; the key is bound at execution (LockStatement).
+    assert [(sql, list(params.values())) for sql, params in session.statements] == [
+        (before[0], list(before[1].values()))
+    ]
     assert before[0] == (
         "SELECT pg_advisory_xact_lock($1::BIGINT) AS pg_advisory_xact_lock_1"
     )
+
+
+def test_a_lock_statement_is_built_once_per_shape() -> None:
+    """The request log's per-request lock builds nothing: one statement per
+    lock function and key shape, the key in the parameters."""
+    keys = ((1, 2), (1, 3), (5, "a"), (5, "b"), 7, 8, "a", "b")
+    built = [
+        portable.lock_statement_for("postgresql", key, scope="transaction", wait=False)
+        for key in keys
+    ]
+    for one, other in zip(built[::2], built[1::2], strict=True):
+        assert one.statement is other.statement
+        assert one.parameters != other.parameters
+    assert built[0].parameters == {"ns": 1, "k": 2}
+    assert built[2].parameters == {"ns": 5, "k": "a"}
+    assert built[4].parameters == {"k": 7}
+    assert built[6].parameters == {"k": "a"}
 
 
 async def test_the_request_log_try_lock_is_todays_statement_and_busy_is_busy() -> None:
@@ -617,7 +696,8 @@ async def test_the_projection_purge_lock_hashes_the_name_on_the_server() -> None
 def test_the_migration_locks_are_todays_on_psycopg2() -> None:
     dialect = psycopg2.dialect()
 
-    def literal(statement: Any) -> str:
+    def literal(lock: Any) -> str:
+        statement = lock.statement.params(lock.parameters)
         return str(
             statement.compile(dialect=dialect, compile_kwargs={"literal_binds": True})
         )
@@ -629,7 +709,7 @@ def test_the_migration_locks_are_todays_on_psycopg2() -> None:
     assert literal(run_wide) == (
         f"SELECT pg_try_advisory_lock({key}) AS pg_try_advisory_lock_1"
     )
-    (answer,) = cast(Any, run_wide).selected_columns
+    (answer,) = cast(Any, run_wide.statement).selected_columns
     assert isinstance(answer.type, sa.Boolean)
     assert literal(portable.unlock_statement_for("postgresql", key)) == (
         f"SELECT pg_advisory_unlock({key}) AS pg_advisory_unlock_1"
@@ -724,7 +804,25 @@ class _TryLockAnswersNothing(PostgresqlSql):
     """A never-waiting lock that does not say whether it locked."""
 
     def lock_statement(self, key: Any, *, scope: Any, wait: bool) -> Any:
-        return sa.text("SELECT 1")
+        return LockStatement(sa.text("SELECT 1"), {})
+
+
+class _LockWithTheKeyInTheStatement(PostgresqlSql):
+    """Builds a statement per key: the key is not a parameter."""
+
+    def lock_statement(self, key: Any, *, scope: Any, wait: bool) -> Any:
+        return LockStatement(
+            sa.select(sa.func.pg_try_advisory_xact_lock(sa.literal_column(repr(key)))),
+            {},
+        )
+
+
+class _LockAsABareStatement(PostgresqlSql):
+    """Returns the statement without its parameters (contract 2's first draft)."""
+
+    def lock_statement(self, key: Any, *, scope: Any, wait: bool) -> Any:
+        lock = super().lock_statement(key, scope=scope, wait=wait)
+        return lock.statement.params(lock.parameters)
 
 
 @pytest.mark.parametrize(
@@ -732,6 +830,8 @@ class _TryLockAnswersNothing(PostgresqlSql):
     [
         (_LockWithoutUnlock(), "test_a_session_lock_has_its_unlock"),
         (_TryLockAnswersNothing(), "test_lock_statement_compiles_or_is_absent"),
+        (_LockAsABareStatement(), "test_lock_statement_compiles_or_is_absent"),
+        (_LockWithTheKeyInTheStatement(), "test_a_lock_binds_its_key_at_execution"),
     ],
 )
 def test_the_suite_fails_a_renderer_with_broken_locks(

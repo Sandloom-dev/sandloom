@@ -67,7 +67,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
-| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time that always reads back in UTC. |
+| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 | [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
@@ -870,19 +870,43 @@ UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn
 class UtcDateTime(TypeDecorator)(*args: Any, **kwargs: Any)
 ```
 
-A timezone-aware time that always reads back in UTC.
+A timezone-aware time: always read back aware, in UTC on asyncpg and
+SQLite.
 
 The column is `DateTime(timezone=True)` (`TIMESTAMP WITH TIME ZONE` on
-PostgreSQL, which keeps the instant and returns an aware value). A
-database that keeps no offset (SQLite stores the text of the time) hands
-back a naive value: this type writes an aware time in UTC and attaches UTC
+PostgreSQL, which keeps the instant and returns an aware value: in UTC
+on asyncpg, in the session's `TimeZone` on psycopg). There
+(the renderer's `aware_times`) the type converts nothing. A database
+that keeps no offset (SQLite stores the text of the time) hands back a
+naive value: there this type writes an aware time in UTC and attaches UTC
 to what it reads, so a module compares and orders the same aware values on
-every database. Bind aware times: a naive one has no known instant (on
+every database. An expression typed `UtcDateTime` that PostgreSQL
+answers as `timestamp without time zone` (`... AT TIME ZONE 'UTC'`)
+reads back naive there. Bind aware times: a naive one has no known instant (on
 PostgreSQL asyncpg would read it in the process's local time zone, on
 SQLite it would mean UTC), so it is refused with
 `NaiveDateTimeError`, in a value and in a comparison alike. The
 planner's raw executor, which skips bind processing, takes no caller's
 value of this type: such a key or filter runs on the general executor.
+
+#### `UtcDateTime.bind_processor`
+
+```python
+def bind_processor(self, dialect: Dialect) -> Any
+```
+
+Where the database keeps the instant (`aware_times`), only the
+refusal of a naive time; elsewhere `process_bind_param`.
+
+#### `UtcDateTime.result_processor`
+
+```python
+def result_processor(self, dialect: Dialect, coltype: Any) -> Any
+```
+
+Where the DBAPI reads aware values (`aware_times`), the
+column's own processor (none on asyncpg); elsewhere
+`process_result_value`.
 
 #### `UtcDateTime.process_bind_param`
 

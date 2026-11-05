@@ -134,11 +134,15 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    refuse writes. Their units then need options of their own. Without
    `snapshot_reads` a one-snapshot scope is refused
    ([SANDLOOM-B027](../reference/error-codes.md#sandloom-b027)).
-7. A database whose writers are serial may declare `transaction_locks` with no
+7. Return a `LockStatement(statement, parameters)` from `lock_statement` and
+   `unlock_statement`, or `None` where the database has no such lock. Build the
+   statement once per key shape and put the key in `parameters`: the kernel
+   takes a lock per request and runs `execute(lock.statement, lock.parameters)`.
+   A database whose writers are serial may declare `transaction_locks` with no
    lock statement. Its driver marks a transaction that holds the write lock:
    `WRITE_LOCK_HELD` in the connection's `info`. SQLite's `BEGIN IMMEDIATE`
    does so. The kernel's locks then succeed only in such a transaction.
-8. Three renderer facts are optional, and all default to `False`. If the database runs no
+8. Four renderer facts are optional, and all default to `False`. If the database runs no
    migration chain, set `schema_from_models = True`. The app
    then builds its schema with `create_all` at startup, and `sandloom migrate` refuses it
    ([SANDLOOM-B028](../reference/error-codes.md#sandloom-b028)). If it serves only
@@ -148,7 +152,10 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    writer at a time, set `serial_writers = True`. A nested write unit then
    commits with its caller
    ([Nested units](database.md#nested-units-commit-with-their-caller)). Without that
-   fact the database has `concurrent_writers`, which race tests ask for.
+   fact the database has `concurrent_writers`, which race tests ask for. Set
+   `aware_times = True` if `DateTime(timezone=True)` keeps the instant and the
+   DBAPI reads it back aware. `UtcDateTime` then converts nothing and only
+   refuses a naive time. The kit's `read_aware_time` must show it on the database.
    Optionally write the read planner's literal prefix filter, both members or
    neither: `prefix_pattern(prefix, ignore_case=)` answers the value to bind,
    and `prefix_match(column, pattern, ignore_case=)` the condition. Every

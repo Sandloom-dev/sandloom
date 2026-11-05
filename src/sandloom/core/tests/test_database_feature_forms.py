@@ -753,3 +753,88 @@ def test_an_unreadable_declaration_is_a_finding(tmp_path: Path, declared: str) -
     messages = [message for _, message, _ in found]
     assert any("cannot be read statically" in m for m in messages), messages
     assert any("json_path needs the database feature" in m for m in messages)
+
+
+def test_a_comparison_without_a_json_path_takes_no_compiler_extension() -> None:
+    """The refusals above cost an expression without a json_path nothing at
+    compile time but one membership test: ``BinaryExpression`` and
+    ``coalesce`` dispatch directly (no ``sqlalchemy.ext.compiler``
+    dispatcher, measured as ``XCmp`` in ``benchmarks/ladder/STANDS.md``)."""
+    from sqlalchemy.sql import functions as sql_functions
+    from sqlalchemy.sql.elements import BinaryExpression
+
+    assert "_compiler_dispatcher" not in BinaryExpression.__dict__
+    assert "_compiler_dispatcher" not in sql_functions.coalesce.__dict__
+    items = _ITEMS
+    statement = sa.select(items.c.id).where(
+        items.c.id == 1, items.c.name.in_(["a"]), sa.func.coalesce(items.c.price, 0) > 1
+    )
+    for dialect in (PG, LITE):
+        assert "coalesce" in _sql(statement, dialect)
+
+
+_HOOKS_SCRIPT = """
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql import functions as F
+from sqlalchemy.sql.elements import BinaryExpression
+
+def lite(element, compiler, **kw):
+    return "LITE(" + compiler.visit_binary(element, **kw) + ")"
+
+def pg(element, compiler, **kw):
+    return "PG(" + compiler.visit_binary(element, **kw) + ")"
+
+def co(element, compiler, **kw):
+    return "CO(" + compiler.visit_function(element, **kw) + ")"
+
+if BEFORE:
+    compiles(BinaryExpression, "sqlite")(lite)
+    compiles(F.coalesce, "sqlite")(co)
+import sandloom.sdk.data as data  # installs the json_path refusals
+compiles(BinaryExpression, "postgresql")(pg)
+if not BEFORE:
+    compiles(F.coalesce, "sqlite")(co)
+
+t = sa.table("t", sa.column("a", sa.Integer), sa.column("doc", sa.JSON))
+stmt = sa.select(t.c.a).where(t.c.a == 1, sa.func.coalesce(t.c.a, 0) > 0)
+for d in (sqlite.dialect(), postgresql.dialect()):
+    print("sql", d.name, " ".join(str(stmt.compile(dialect=d)).split()))
+    try:
+        sa.select(t.c.a).where(t.c.a == data.json_path(t.c.doc, "n")).compile(dialect=d)
+        print("json_path", d.name, "accepted")
+    except TypeError:
+        print("json_path", d.name, "refused")
+"""
+
+
+@pytest.mark.parametrize("before", [True, False], ids=["hooks-first", "sandloom-first"])
+def test_an_applications_compile_hooks_keep_working(before: bool) -> None:
+    """A ``@compiles(BinaryExpression | coalesce, "<dialect>")`` of the
+    application, registered before or after Sandloom is imported, still
+    compiles its dialect. The refusal runs before handing over to hooks
+    registered first; a binary hook registered after Sandloom owns its
+    dialect's binary compile, the refusal included (as any ``@compiles``
+    override does), and the other dialects keep the refusal."""
+    import subprocess
+    import sys
+
+    found = subprocess.run(
+        [sys.executable, "-c", f"BEFORE = {before}\n" + _HOOKS_SCRIPT],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
+    ).stdout.splitlines()
+    sql = {
+        name: rest
+        for kind, name, rest in (line.split(" ", 2) for line in found)
+        if kind == "sql"
+    }
+    assert "CO(" in sql["sqlite"], found
+    assert ("LITE(" in sql["sqlite"]) is before, found
+    assert "PG(" in sql["postgresql"] and "LITE(" not in sql["postgresql"], found
+    assert "json_path sqlite refused" in found
+    # Hooks registered first: the refusing dispatch runs before them everywhere.
+    assert ("json_path postgresql refused" in found) is before

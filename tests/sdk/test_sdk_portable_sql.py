@@ -81,6 +81,8 @@ class _Session:
     def __init__(self, dialect: Any, info: dict[str, Any] | None = None) -> None:
         self._bind = type("Bind", (), {"dialect": dialect})()
         self.statements: list[str] = []
+        #: the parameters each statement ran with (a lock binds its key here)
+        self.parameters: list[Any] = []
         #: the connection's info (the driver marks a held write lock there)
         self.info: dict[str, Any] = info or {}
 
@@ -90,8 +92,9 @@ class _Session:
     async def connection(self) -> Any:
         return type("Connection", (), {"info": self.info})()
 
-    async def execute(self, statement: Any) -> None:
+    async def execute(self, statement: Any, params: Any = None) -> None:
         self.statements.append(str(statement.compile(dialect=self._bind.dialect)))
+        self.parameters.append(params)
 
 
 # --------------------------------------------------------------- column type
@@ -249,6 +252,8 @@ async def test_transaction_lock_takes_an_advisory_lock_on_postgres() -> None:
     await transaction_lock(42, session=session)
     assert len(session.statements) == 1
     assert session.statements[0].startswith("SELECT pg_advisory_xact_lock(")
+    # The key is bound at execution, not built into the statement.
+    assert session.parameters == [{"k": 42}]
 
 
 @pytest.mark.parametrize("dialect", [LITE, MYSQL], ids=["sqlite", "mysql"])

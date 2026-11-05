@@ -102,6 +102,7 @@ class RelationalDedupeLog:
         "_amend",
         "_stored_window",
         "_key_params",
+        "_ttl_columns",
     )
 
     def __init__(self, spec: DedupeRecordSpec, table: Callable[[], Table]) -> None:
@@ -118,6 +119,13 @@ class RelationalDedupeLog:
         self._amend: Any = None
         self._stored_window: Any = None
         self._key_params = tuple(_KEY + name for name in spec.conflict)
+        #: ``(expires_at, created_at)`` of a TTL record whose claim keeps its
+        #: TTL for the completion, else ``None`` (read once per claim).
+        self._ttl_columns = (
+            (spec.expires_at, spec.created_at)
+            if spec.expires_at is not None and spec.created_at is not None
+            else None
+        )
 
     # -- statements -------------------------------------------------------- #
 
@@ -238,7 +246,7 @@ class RelationalDedupeLog:
                 else:  # pragma: no cover - no ON CONFLICT: savepoint fallback
                     claimed = await self._generic_claim(session, values, now)
                 if claimed:
-                    if spec.expires_at is not None and spec.created_at is not None:
+                    if self._ttl_columns is not None:
                         self._remember_ttl(session, values)
                     return _CLAIMED
                 if not spec.replays:
@@ -269,17 +277,17 @@ class RelationalDedupeLog:
     def _remember_ttl(self, session: Any, values: Mapping[str, Any]) -> None:
         """Keep the claimed record's TTL for :meth:`complete` (same
         transaction; a rolled-back claim leaves an entry nobody reads)."""
-        spec = self.spec
-        info = session.info
+        expires_at, created_at = cast("tuple[str, str]", self._ttl_columns)
+        info = session.sync_session.info
         ttls = info.get(_CLAIMED_TTLS)
         if ttls is None:
             ttls = info[_CLAIMED_TTLS] = {}
-        ttls[(self, *map(values.__getitem__, spec.conflict))] = (
-            values[cast(str, spec.expires_at)] - values[cast(str, spec.created_at)]
+        ttls[(self, *map(values.__getitem__, self.spec.conflict))] = (
+            values[expires_at] - values[created_at]
         )
 
     def _claimed_ttl(self, session: Any, key: Mapping[str, Any]) -> timedelta | None:
-        ttls = session.info.get(_CLAIMED_TTLS)
+        ttls = session.sync_session.info.get(_CLAIMED_TTLS)
         if not ttls:
             return None
         found: timedelta | None = ttls.pop(
