@@ -84,7 +84,7 @@ These 21 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.tasks`](tasks.md) | 0 | 3 |  |
 | [`sandloom.sdk.tenant`](tenant.md) | 0 | 8 |  |
 | [`sandloom.sdk.testing`](testing.md) | 5 | 76 |  |
-| [`sandloom.sdk.testing.fixtures`](testing/fixtures.md) | 0 | 28 |  |
+| [`sandloom.sdk.testing.fixtures`](testing/fixtures.md) | 0 | 30 |  |
 | [`sandloom.sdk.testing.plugin`](testing/plugin.md) | 1 | 18 |  |
 | [`sandloom.sdk.tooling`](tooling.md) | 0 | 2 |  |
 | [`sandloom.sdk.web`](web.md) | 3 | 30 |  |

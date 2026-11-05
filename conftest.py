@@ -56,8 +56,11 @@ _seed_test_env()
 
 from sandloom.core.testing.connections import apply_test_pool_profile  # noqa: E402
 from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtures
+    _sandloom_cancel_leftover_tasks,
     _sandloom_isolate_module_globals,
     _sandloom_isolate_process_globals,
+    end_post_commit_dispatch,
+    runs_on_session_loop,
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
 
@@ -92,17 +95,24 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> Generator[None, int,
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _release_default_engine_pool() -> AsyncIterator[None]:
-    """Return the process-wide ``default`` engine's pool after every test.
+async def _release_default_engine_pool(
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[None]:
+    """End the test's post-commit dispatch; return the process-wide
+    ``default`` engine's pool after a sync test.
 
-    The engine outlives a test, but its pooled asyncpg connections belong to
-    the event loop of the test that opened them. pytest-asyncio gives each test
-    its own loop, so a later test reusing a pooled connection fails with
-    "attached to a different loop" (order-dependent, so it flakes). Disposing on
-    the test's own loop closes those connections cleanly; the engine object is
-    kept, so providers holding it simply reconnect on the next test's loop.
+    The suite runs every async test on one event loop per process
+    (``asyncio_default_test_loop_scope = "session"``), so the pooled asyncpg
+    connections an async test opened stay usable by the next one. A sync test
+    may have opened some on a loop of its own (``asyncio.run``), which is gone
+    when it ends: those are closed here, on this loop, so the next test never
+    checks out a connection "attached to a different loop". The engine object
+    is kept; providers holding it reconnect.
     """
     yield
+    await end_post_commit_dispatch()
+    if runs_on_session_loop(request.node):
+        return
     from sandloom.core.drivers import sqlalchemy_database
 
     for engine in (

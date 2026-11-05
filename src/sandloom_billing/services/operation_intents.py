@@ -99,6 +99,17 @@ from sandloom_billing.psp import (
 from sandloom_billing.services.billing_service import BillingService, CheckoutPlan
 from sandloom_billing.services.tenant_resolver import TenantContext, reverify_authority
 
+#: The live-request index's own predicate, as literal SQL. Bound parameters in
+#: the ON CONFLICT predicate stop matching the partial index once PostgreSQL
+#: plans the prepared INSERT generically (from its sixth run on one pooled
+#: connection): "no unique or exclusion constraint matching the ON CONFLICT
+#: specification".
+_LIVE_REQUEST_PREDICATE = next(
+    index
+    for index in OperationIntent.metadata.tables[OperationIntent.__tablename__].indexes
+    if index.name == "uq_billing_intent_live_request"
+).dialect_options["postgresql"]["where"]
+
 logger = logging.getLogger("sandloom_billing.intents")
 
 _T = TypeVar("_T")
@@ -359,7 +370,7 @@ class OperationIntentService:
             # UNIQUE request key on the intent row itself
             .on_conflict_do_nothing(
                 index_elements=["actor_id", "operation", "request_key"],
-                index_where=OperationIntent.status.in_(LIVE_INTENT_STATUSES),
+                index_where=_LIVE_REQUEST_PREDICATE,
             )
             .returning(OperationIntent.id)
         )

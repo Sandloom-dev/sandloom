@@ -223,6 +223,11 @@ markers = [
     "guarantees: an enforcing test of the guarantee ledger (guarantees.yml; applied automatically by src/conftest.py)",
 ]
 asyncio_mode = "auto"
+# One event loop per process (per pytest-xdist worker) for every async test and
+# fixture: the test engine and its pool live for the run, each test resets only
+# the rows (sandloom.core.testing.engine_cache).
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 filterwarnings = [
     "error::DeprecationWarning:sandloom",
 ]
