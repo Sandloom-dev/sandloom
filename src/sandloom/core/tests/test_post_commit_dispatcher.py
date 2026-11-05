@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncGenerator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +116,12 @@ async def _commit_events(
             for payload in payloads:
                 await di.publish_event("core.test_event.v1", payload)
     await uow_mod._dispatch_outbox_after_commit(session, wait=wait)
+
+
+def _an_hour_ago() -> datetime:
+    """Past the relay's grace period (``emitted_at`` is naive UTC), computed
+    here rather than by SQL interval arithmetic, which SQLite lacks."""
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
 
 
 async def _delivered(sessions: async_sessionmaker[AsyncSession]) -> list[int]:
@@ -426,6 +432,8 @@ async def test_mark_delivered_skips_only_its_own_wal_flush_wait(
 ) -> None:
     """The mark runs with synchronous_commit = off LOCAL to its transaction:
     the next UoW on the same pooled connection commits synchronously."""
+    if engine.dialect.name != "postgresql":
+        pytest.skip("synchronous_commit is PostgreSQL's")
     store = SQLAlchemyOutboxStore()
     factory = lambda: SQLAlchemyUnitOfWork(session_factory=sessions)  # noqa: E731
     ids = await _seed_rows(sessions, 2)
@@ -463,19 +471,21 @@ async def test_mark_delivered_skips_only_its_own_wal_flush_wait(
 
 @pytest.mark.asyncio
 async def test_mark_delivered_reuses_one_prebuilt_statement(
-    sessions: async_sessionmaker[AsyncSession],
+    engine: AsyncEngine, sessions: async_sessionmaker[AsyncSession]
 ) -> None:
     from sandloom.core.sql_alchemy import outbox_store
+
+    dialect = engine.dialect.name
 
     store = SQLAlchemyOutboxStore()
     factory = lambda: SQLAlchemyUnitOfWork(session_factory=sessions)  # noqa: E731
     await store.mark_delivered(factory, await _seed_rows(sessions, 2))
-    first = outbox_store._mark_delivered_statements["postgresql"]
+    first = outbox_store._mark_delivered_statements[dialect]
     assert first is not None
     later = await _seed_rows(sessions, 3)
     await store.mark_delivered(factory, later)
     assert (
-        outbox_store._mark_delivered_statements["postgresql"] is first
+        outbox_store._mark_delivered_statements[dialect] is first
     )  # built once, bound per call
     async with sessions() as s:
         rows = {r.id: r for r in (await s.execute(select(OutboxMessage))).scalars()}
@@ -539,11 +549,7 @@ async def test_crash_between_publish_and_mark_is_redelivered_by_the_relay(
     assert len(store.mark_calls) == 1 and await _delivered(sessions) == []
     # past the relay's grace period
     async with sessions() as s, s.begin():
-        await s.execute(
-            update(OutboxMessage).values(
-                emitted_at=OutboxMessage.emitted_at - text("interval '1 hour'")
-            )
-        )
+        await s.execute(update(OutboxMessage).values(emitted_at=_an_hour_ago()))
     attempted = await relay._relay_once_for_store(
         factory, SQLAlchemyOutboxStore(), bus, sweep=False
     )
@@ -551,6 +557,78 @@ async def test_crash_between_publish_and_mark_is_redelivered_by_the_relay(
     assert bus.published == [{"n": 7}, {"n": 7}]
     assert len(bus.ids) == 2 and bus.ids[0] == bus.ids[1]  # same event id
     assert await _delivered(sessions) == [7]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("in_process", [False, True])
+async def test_an_in_line_publish_that_swallowed_the_cancel_reraises_it(
+    sessions: async_sessionmaker[AsyncSession], in_process: bool
+) -> None:
+    """Review of risk fix 1: the ``wait=True`` path (``db_session()``) and an
+    in-process bus publish in the committing task; a bus turning the cancel
+    into an error no longer spends it. Nothing is marked: the relay's."""
+    started = asyncio.Event()
+
+    class _SwallowingBus(_Bus):
+        async def publish_event(
+            self, channel: str, payload: dict[str, Any], *_a: Any, **_k: Any
+        ) -> None:
+            await _swallowing_wait(started)
+
+    bus = _SwallowingBus()
+    bus.in_process = in_process  # type: ignore[misc]
+    store = _CountingStore()
+    factory = lambda: SQLAlchemyUnitOfWork(session_factory=sessions)  # noqa: E731
+    commit = asyncio.create_task(
+        _commit_events(sessions, store, bus, factory, [{"n": 9}], wait=not in_process)
+    )
+    await asyncio.wait_for(started.wait(), 5)
+    commit.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(commit, 5)
+    assert store.mark_calls == [] and await _delivered(sessions) == []
+
+
+@pytest.mark.asyncio
+async def test_a_coalescer_cancelled_in_its_mark_leaves_the_row_to_the_relay(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Risk fix 1 on the production path: the coalescer, cancelled while
+    marking (the cancel turned into a driver error), ends; the committed row
+    stays undelivered and the relay re-publishes it."""
+    from sqlalchemy import update
+
+    from sandloom.core.tasks import relay
+
+    started = asyncio.Event()
+
+    class _Swallows(_CountingStore):
+        async def mark_delivered(self, uow_factory: Any, ids: Sequence[Any]) -> None:
+            self.mark_calls.append(list(ids))
+            await _swallowing_wait(started)
+
+    store, bus = _Swallows(), _Bus()
+    factory = lambda: SQLAlchemyUnitOfWork(session_factory=sessions)  # noqa: E731
+    await _commit_events(sessions, store, bus, factory, [{"n": 8}])
+    await asyncio.wait_for(started.wait(), 5)
+    dispatcher = uow_mod_dispatch.post_commit_dispatcher()
+    task = dispatcher._task
+    assert task is not None
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=1)
+    if not done:  # the bug: free the loop before failing
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert done and task.cancelled()
+    assert bus.published == [{"n": 8}] and await _delivered(sessions) == []
+    async with sessions() as s, s.begin():
+        await s.execute(update(OutboxMessage).values(emitted_at=_an_hour_ago()))
+    attempted = await relay._relay_once_for_store(
+        factory, SQLAlchemyOutboxStore(), bus, sweep=False
+    )
+    assert attempted == 1
+    assert bus.published == [{"n": 8}, {"n": 8}]
+    assert await _delivered(sessions) == [8]
 
 
 @pytest.mark.asyncio
@@ -586,6 +664,111 @@ async def test_concurrent_drains_never_strand_each_other(
     await asyncio.wait_for(second, timeout=5)
     assert sorted(p["n"] for p in bus.published) == [0, 1]
     assert await _delivered(sessions) == [0, 1]
+
+
+class _SwallowedCancel(RuntimeError):
+    """What a driver raised in place of the ``CancelledError`` it was given
+    (aiosqlite through SQLAlchemy: ``PendingRollbackError`` from the
+    rollback of the connection the cancel invalidated)."""
+
+
+async def _swallowing_wait(started: asyncio.Event) -> None:
+    started.set()
+    try:
+        await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        raise _SwallowedCancel("the cancel became another error") from None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("where", ["mark", "publish"])
+async def test_a_cancelled_coalescer_ends_when_a_driver_swallows_the_cancel(
+    where: str,
+) -> None:
+    """Risk fix 1: a cancel that reached the coalescer inside a mark (or a
+    publish) and came back as another error left it waiting on its queue
+    forever, so the event loop's close (a test's teardown) never returned.
+    It now ends within a bound; the rows are the relay's."""
+    import uuid
+
+    from sandloom.core.infra.contracts import OutboxHandle
+
+    started = asyncio.Event()
+
+    class _Store(_CountingStore):
+        async def mark_delivered(self, uow_factory: Any, ids: Sequence[Any]) -> None:
+            self.mark_calls.append(list(ids))
+            await _swallowing_wait(started)
+
+    class _SwallowingBus(_Bus):
+        async def publish_event(
+            self, channel: str, payload: dict[str, Any], *_a: Any, **_k: Any
+        ) -> None:
+            await _swallowing_wait(started)
+
+    dispatcher = uow_mod_dispatch.PostCommitDispatcher(asyncio.get_running_loop())
+    event = uow_mod_scope._PendingEvent(
+        OutboxHandle(id=uuid.uuid4()), "c.e.v1", "v1", {}
+    )
+    if where == "mark":
+        job = uow_mod_dispatch._DispatchJob(
+            _Bus(), _Store(), lambda: None, (), (event.handle.id,)
+        )
+    else:
+        job = uow_mod_dispatch._DispatchJob(
+            _SwallowingBus(), _Store(), lambda: None, (event,), ()
+        )
+    dispatcher.submit(job)
+    await asyncio.wait_for(started.wait(), 5)
+    task = dispatcher._task
+    assert task is not None
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=1)
+    if not done:  # the bug: free the loop before failing
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert done, f"the coalescer outlived its cancellation ({where})"
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_a_flush_whose_mark_swallowed_the_cancel_reraises_it() -> None:
+    import uuid
+
+    started = asyncio.Event()
+
+    class _Store(_CountingStore):
+        async def mark_delivered(self, uow_factory: Any, ids: Sequence[Any]) -> None:
+            await _swallowing_wait(started)
+
+    dispatcher = uow_mod_dispatch.PostCommitDispatcher(asyncio.get_running_loop())
+    job = uow_mod_dispatch._DispatchJob(_Bus(), _Store(), lambda: None, (), ())
+    dispatcher._collect(job, [uuid.uuid4()])
+    flush = asyncio.create_task(dispatcher.flush())
+    await asyncio.wait_for(started.wait(), 5)
+    flush.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(flush, 1)
+
+
+@pytest.mark.asyncio
+async def test_an_in_line_mark_that_swallowed_the_cancel_reraises_it() -> None:
+    """The ``wait=True`` path (a request marking its own events)."""
+    import uuid
+
+    started = asyncio.Event()
+
+    class _Store(_CountingStore):
+        async def mark_delivered(self, uow_factory: Any, ids: Sequence[Any]) -> None:
+            await _swallowing_wait(started)
+
+    mark = asyncio.create_task(
+        uow_mod_dispatch._mark_in_line(_Store(), lambda: None, [uuid.uuid4()])  # type: ignore[arg-type, return-value]
+    )
+    await asyncio.wait_for(started.wait(), 5)
+    mark.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(mark, 1)
 
 
 @pytest.mark.parametrize(
@@ -637,6 +820,11 @@ async def test_mark_delivered_keeps_a_connection_bound_session_in_its_transactio
 ) -> None:
     """A factory whose sessions join an outer transaction (test harnesses)
     gets no AUTOCOMMIT view: its mark stays inside that transaction."""
+    if engine.dialect.name != "postgresql":
+        # this file's plain engine leaves pysqlite's own transaction handling
+        # on, so the outer BEGIN is not SQLite's (the driver's engine turns
+        # it off; test_sqlite_driver.py covers the SQLite mark)
+        pytest.skip("the plain test engine has no SQLite transaction control")
     from sandloom.core.sql_alchemy import outbox_store
 
     store = SQLAlchemyOutboxStore()

@@ -342,6 +342,11 @@ def worker_env_values(path: str | os.PathLike[str]) -> dict[str, str]:
     return {**values, **changed}
 
 
+#: Seconds ``ensure_database`` waits for the server (an unreachable host
+#: fails the run instead of hanging it; risk fix 1).
+ENSURE_DATABASE_CONNECT_TIMEOUT = 5
+
+
 def ensure_database(url: str) -> None:
     """Create the (PostgreSQL) database ``url`` names if missing (once/process).
 
@@ -368,7 +373,9 @@ def ensure_database(url: str) -> None:
         return urlunsplit(plain)
 
     created = False
-    conn = psycopg2.connect(dsn("postgres"))
+    conn = psycopg2.connect(
+        dsn("postgres"), connect_timeout=ENSURE_DATABASE_CONNECT_TIMEOUT
+    )
     try:
         conn.autocommit = True
         with conn.cursor() as cur:
@@ -383,7 +390,7 @@ def ensure_database(url: str) -> None:
                     pass
     finally:
         conn.close()
-    conn = psycopg2.connect(dsn(name))
+    conn = psycopg2.connect(dsn(name), connect_timeout=ENSURE_DATABASE_CONNECT_TIMEOUT)
     try:
         conn.autocommit = True
         with conn.cursor() as cur:

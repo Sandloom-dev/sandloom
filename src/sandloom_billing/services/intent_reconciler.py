@@ -391,9 +391,14 @@ class IntentReconciler:
                 .values(
                     reconcile_error=error,
                     followup_at=func.coalesce(OperationIntent.followup_at, now),
-                    # Exhausted: never selected again.
-                    reconcile_attempts=func.greatest(
-                        OperationIntent.reconcile_attempts, max_attempts
+                    # Exhausted: never selected again. The larger of the two
+                    # as a CASE (``greatest`` is PostgreSQL's; SQLite has none).
+                    reconcile_attempts=case(
+                        (
+                            OperationIntent.reconcile_attempts > max_attempts,
+                            OperationIntent.reconcile_attempts,
+                        ),
+                        else_=max_attempts,
                     ),
                 )
                 .execution_options(synchronize_session=False)

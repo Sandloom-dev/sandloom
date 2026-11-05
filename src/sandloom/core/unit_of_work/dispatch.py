@@ -192,7 +192,8 @@ async def _publish_prefix_with_origin(
                     **extra,
                 )
             except Exception:  # noqa: BLE001 - the relay redelivers
-                logger.warning(
+                logger.log(
+                    _failure_level(),
                     "Post-commit dispatch failed for outbox=%s channel=%s; "
                     "relay will deliver it and the %d later event(s) of this "
                     "batch",
@@ -231,6 +232,25 @@ _ROUND_MAX_JOBS = 64
 #: ... or until it holds at least this many events, and publishes them in one
 #: batch (one broker round trip on Redis Streams).
 _ROUND_MAX_EVENTS = 512
+
+
+def _cancelling() -> bool:
+    """Whether the running task was asked to stop.
+
+    A driver may turn a ``CancelledError`` into its own error on the way out
+    (aiosqlite through SQLAlchemy raised ``PendingRollbackError`` from the
+    rollback of the connection the cancel invalidated). The request to stop
+    stays counted on the task, so a caller that catches ``Exception`` asks
+    this before it carries on.
+    """
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
+
+
+def _failure_level() -> int:
+    """The log level of a failed publish or mark: a warning, or debug while
+    the task is stopping (the cancel is re-raised; the relay delivers)."""
+    return logging.DEBUG if _cancelling() else logging.WARNING
 
 
 #: Retained Python bytes charged per JSON element separator (``,``): an
@@ -344,7 +364,11 @@ class PostCommitDispatcher:
 
     # -- the background task ------------------------------------------------
     async def _run(self) -> None:
-        while True:
+        # Never outlives a cancellation, even one a driver turned into an
+        # error below a ``flush()`` or a round: it would wait on the queue
+        # forever, and an event loop closing (a test's teardown, a worker's
+        # shutdown) waits for it. Whatever it held is left to the relay.
+        while not _cancelling():
             timeout: float | None = None
             if self._first_mark_at is not None:
                 timeout = max(
@@ -374,7 +398,9 @@ class PostCommitDispatcher:
             try:
                 await self._process_round(jobs)
             except Exception:  # never kill the coalescer
-                logger.warning("Post-commit dispatch round failed", exc_info=True)
+                logger.log(
+                    _failure_level(), "Post-commit dispatch round failed", exc_info=True
+                )
             finally:
                 self._retained_bytes -= round_bytes
                 for _ in range(len(jobs)):
@@ -388,6 +414,7 @@ class PostCommitDispatcher:
                 >= _MARK_FLUSH_INTERVAL_SECONDS
             ):
                 await self.flush()
+        raise asyncio.CancelledError
 
     def _take_round(
         self, job: _DispatchJob, size: int
@@ -466,14 +493,22 @@ class PostCommitDispatcher:
             for store, factory, ids in marks.values():
                 for start in range(0, len(ids), _MARK_BATCH_MAX):
                     chunk = ids[start : start + _MARK_BATCH_MAX]
+                    failed = False
                     try:
                         await store.mark_delivered(factory, chunk)
                     except Exception:  # relay may re-publish
-                        logger.warning(
+                        failed = True
+                        logger.log(
+                            _failure_level(),
                             "Failed to mark %d outbox message(s) delivered",
                             len(chunk),
                             exc_info=True,
                         )
+                    if failed and _cancelling():
+                        # Raised outside the except block (no chained error,
+                        # no reference cycle). The unmarked rows are the
+                        # relay's, as after any failed mark.
+                        raise asyncio.CancelledError
 
     async def drain(self, timeout: float | None = None) -> None:  # noqa: ASYNC109 - explicit per-call timeout is the API
         """Wait until every queued job is published AND marked (tests, shutdown).
@@ -562,6 +597,29 @@ def set_committed_events_hook(hook: Callable[[list[Any]], None] | None) -> None:
     _committed_events_hook = hook
 
 
+async def _mark_in_line(
+    store: OutboxStore,
+    uow_factory: Callable[[], UnitOfWorkContract],
+    delivered: list[_uuid.UUID],
+) -> None:
+    """Mark a ``wait=True`` unit's published events delivered in line (the
+    ``db_session()`` path: workers, scripts, consumers)."""
+    failed = False
+    try:
+        # a kernel unit: its own admission scope (spec §4.4 rule 3)
+        with _request.fresh_admission_scope():
+            await store.mark_delivered(uow_factory, delivered)
+    except Exception:  # at-least-once: relay may re-publish
+        failed = True
+        logger.log(
+            _failure_level(),
+            "Failed to mark outbox messages delivered",
+            exc_info=True,
+        )
+    if failed and _cancelling():
+        raise asyncio.CancelledError  # see _cancelling
+
+
 async def _dispatch_pending_events(session: AsyncSession, *, wait: bool) -> None:
     """Best-effort post-commit dispatch of events enqueued via publish_event.
 
@@ -597,14 +655,14 @@ async def _dispatch_pending_events(session: AsyncSession, *, wait: bool) -> None
 
     if wait:
         delivered = await _publish_in_order(bus, pending)
+        if _cancelling():
+            # The publish ran in this task: a bus that turned the cancel into
+            # an error spent it (see _cancelling). Nothing is marked; the
+            # relay delivers.
+            raise asyncio.CancelledError
         if not delivered:
             return
-        try:
-            # a kernel unit: its own admission scope (spec §4.4 rule 3)
-            with _request.fresh_admission_scope():
-                await store.mark_delivered(uow_factory, delivered)
-        except Exception:  # at-least-once: relay may re-publish
-            logger.warning("Failed to mark outbox messages delivered", exc_info=True)
+        await _mark_in_line(store, uow_factory, delivered)
         return
 
     # The bus's publish only hands the event to the transport: no bus runs
@@ -618,6 +676,8 @@ async def _dispatch_pending_events(session: AsyncSession, *, wait: bool) -> None
     delivered_inline: tuple[_uuid.UUID, ...] = ()
     if getattr(bus, "in_process", False):
         delivered_inline = tuple(await _publish_in_order(bus, events))
+        if _cancelling():
+            raise asyncio.CancelledError  # as on the wait=True path
         events = ()
         if not delivered_inline:
             return

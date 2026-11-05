@@ -480,6 +480,82 @@ async def test_mark_delivered_runs_as_one_autocommit_statement(
 
 
 @pytest.mark.asyncio
+async def test_a_mark_cancelled_mid_statement_raises_the_cancel(
+    engine: AsyncEngine, factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Risk fix 1: a cancel inside the statement invalidates the connection;
+    the adapter's rollback listener read ``conn.info`` on it, raised
+    ``PendingRollbackError`` and so replaced the ``CancelledError`` (a caller
+    catching ``Exception`` swallowed the cancel: the dispatcher hang). The
+    cancel now comes out, and the pool's connection serves the next mark."""
+    import aiosqlite.cursor
+
+    ids = await _seed(factory, 1)
+    original = aiosqlite.cursor.Cursor.execute
+    started = asyncio.Event()
+
+    async def slow_mark(self: Any, sql: str, parameters: Any = None) -> Any:
+        if sql.lstrip().upper().startswith("UPDATE OUTBOX_MESSAGES"):
+            started.set()
+            await asyncio.Event().wait()  # the cancel lands here
+        return await original(self, sql, parameters)
+
+    monkeypatch.setattr(aiosqlite.cursor.Cursor, "execute", slow_mark)
+    store = sql_alchemy_outbox_store()
+    mark = asyncio.create_task(store.mark_delivered(factory, ids))
+    await asyncio.wait_for(started.wait(), 5)
+    mark.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(mark, 5)
+    monkeypatch.setattr(aiosqlite.cursor.Cursor, "execute", original)
+    await store.mark_delivered(factory, ids)
+    async with factory() as uow:
+        delivered = (
+            await uow.session.execute(
+                select(OutboxMessage.delivered_at).where(OutboxMessage.id.in_(ids))
+            )
+        ).scalar_one()
+    assert delivered is not None
+
+
+@pytest.mark.asyncio
+async def test_a_writer_interrupted_mid_statement_leaves_no_stale_lock(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Risk fix 1 (review): a write timed out inside its statement
+    invalidates the connection; the pool checks the record straight back in
+    and clears its info only at its next checkout. Its write-lock mark is
+    released at the invalidation, so the same task's retry on another pooled
+    connection is no nested writer (R016)."""
+    import aiosqlite.cursor
+
+    eng = driver._build_engine(url)
+    try:
+        async with eng.begin() as conn:
+            await conn.execute(text("CREATE TABLE t (x int)"))
+        other = await eng.connect()  # another pooled connection, held
+        original = aiosqlite.cursor.Cursor.execute
+
+        async def slow(self: Any, sql: str, parameters: Any = None) -> Any:
+            if sql.lstrip().upper().startswith("INSERT INTO T VALUES (1)"):
+                await asyncio.Event().wait()
+            return await original(self, sql, parameters)
+
+        monkeypatch.setattr(aiosqlite.cursor.Cursor, "execute", slow)
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(0.2), eng.begin() as conn:
+                await conn.execute(text("INSERT INTO t VALUES (1)"))
+        await other.close()  # checked in after the invalidated one: reused first
+        async with eng.begin() as conn:  # the same task retries
+            await conn.execute(text("INSERT INTO t VALUES (2)"))
+        async with eng.connect() as conn:
+            rows = (await conn.execute(text("SELECT x FROM t"))).scalars().all()
+        assert list(rows) == [2]
+    finally:
+        await eng.dispose()
+
+
+@pytest.mark.asyncio
 async def test_a_saga_sweep_claims_an_instance_once(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:

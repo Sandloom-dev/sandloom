@@ -242,3 +242,43 @@ def test_skip_unless_db_feature_names_what_is_missing() -> None:
 @skip_unless_db_feature("a_feature_no_database_has")
 def test_a_marked_test_is_skipped_by_the_harness() -> None:
     raise AssertionError("the harness skips this test before it runs")
+
+
+def test_ensure_database_bounds_its_connects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Risk fix 1: an unreachable server fails the run instead of hanging it."""
+    import psycopg2  # type: ignore[import-untyped]
+
+    seen: list[dict[str, Any]] = []
+
+    class _Cursor:
+        def __enter__(self) -> _Cursor:
+            return self
+
+        def __exit__(self, *_a: Any) -> None:
+            return None
+
+        def execute(self, *_a: Any) -> None:
+            return None
+
+        def fetchone(self) -> tuple[int]:
+            return (1,)  # the database exists: no CREATE, no stamp
+
+    class _Conn:
+        autocommit = False
+
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            return None
+
+    def _connect(*_a: Any, **kw: Any) -> Any:
+        seen.append(kw)
+        return _Conn()
+
+    monkeypatch.setattr(psycopg2, "connect", _connect)
+    monkeypatch.setattr(workers, "_created_databases", set())
+    workers.ensure_database("postgresql://u:p@127.0.0.1:1/never_created_test_db")
+    # both connects: the server's ``postgres`` database, then the test database
+    bound = {"connect_timeout": workers.ENSURE_DATABASE_CONNECT_TIMEOUT}
+    assert seen == [bound, bound]

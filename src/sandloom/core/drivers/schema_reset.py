@@ -22,7 +22,8 @@ lives here, beside the renderers, and the harness asks
 * :class:`PostgresqlSchemaReset`: the extensions the schemas use, a probe of
   the tables that hold a row (``row_security = off``, so a policy never hides
   one), ``DELETE`` children-first or ``TRUNCATE`` for a large table, and every
-  owned sequence rewound.
+  owned sequence rewound. Each reset transaction waits at most
+  :data:`PG_RESET_LOCK_TIMEOUT` for a lock.
 
 Test-only: the application never calls it.
 """
@@ -38,6 +39,13 @@ from sandloom.core.drivers.dbapi_aiosqlite import BEGIN_AT_FIRST_WRITE
 
 #: The extensions the framework's PostgreSQL schemas use.
 PG_EXTENSIONS = ("uuid-ossp", "citext", "pg_trgm")
+
+#: How long a reset statement waits for a lock another session holds (another
+#: run's open transaction on a database shared by mistake): it then fails
+#: with ``lock_timeout`` instead of waiting without bound (risk fix 1).
+PG_RESET_LOCK_TIMEOUT = "30s"
+_SET_LOCK_TIMEOUT = f"SET LOCAL lock_timeout = '{PG_RESET_LOCK_TIMEOUT}'"
+_LOCK_NOT_AVAILABLE = "55P03"
 
 _OWNED_SEQUENCES = """
 SELECT quote_ident(sn.nspname) || '.' || quote_ident(s.relname)
@@ -99,6 +107,12 @@ class SchemaReset:
     async def _after_delete(self, conn: Any) -> None:
         """What else a database keeps per table (its id counters)."""
 
+    def is_lock_timeout(self, error: BaseException) -> bool:
+        """Whether ``error`` is a reset statement giving up on another
+        session's lock (the harness then fails at once instead of falling
+        back to a reset that waits again)."""
+        return False
+
     def caller_engine(self, engine: AsyncEngine) -> AsyncEngine:
         """The engine of the sessions a test opens itself (``db_engine``)."""
         return engine
@@ -133,8 +147,15 @@ class SqliteSchemaReset(SchemaReset):
 class PostgresqlSchemaReset(SchemaReset):
     """PostgreSQL (module doc)."""
 
+    def is_lock_timeout(self, error: BaseException) -> bool:
+        """SQLSTATE ``55P03`` (``lock_not_available``: ``lock_timeout``)."""
+        orig = getattr(error, "orig", error)
+        code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        return code == _LOCK_NOT_AVAILABLE
+
     async def rebuild(self, engine: AsyncEngine, metadata: MetaData) -> None:
         async with engine.begin() as conn:
+            await conn.execute(text(_SET_LOCK_TIMEOUT))
             for ext in PG_EXTENSIONS:
                 await conn.execute(text(f'CREATE EXTENSION IF NOT EXISTS "{ext}"'))
             await conn.run_sync(metadata.drop_all)
@@ -184,6 +205,7 @@ class PostgresqlSchemaReset(SchemaReset):
             # (or spare one from the DELETE): with row_security off, a
             # statement RLS would filter fails instead.
             await conn.execute(text("SET LOCAL row_security = off"))
+            await conn.execute(text(_SET_LOCK_TIMEOUT))
             rows = {int(n): int(c) for n, c in await conn.execute(probe)}
             big = sorted(n for n, c in rows.items() if c > row_limit)
             if big:
@@ -204,6 +226,7 @@ class PostgresqlSchemaReset(SchemaReset):
     async def empty_all(self, engine: AsyncEngine, metadata: MetaData) -> None:
         tables = qualified_tables(engine, metadata)
         async with engine.begin() as conn:
+            await conn.execute(text(_SET_LOCK_TIMEOUT))
             await conn.execute(
                 text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
             )
@@ -224,6 +247,7 @@ def schema_reset_for(engine: AsyncEngine) -> SchemaReset:
 
 __all__ = [
     "PG_EXTENSIONS",
+    "PG_RESET_LOCK_TIMEOUT",
     "PostgresqlSchemaReset",
     "SchemaReset",
     "SqliteSchemaReset",

@@ -376,6 +376,29 @@ website renders this same changelog.
   message showed only the last wrapped line (`(exit status 4))`); it now starts at the
   line that names the error and joins the lines it wraps onto. Images the dev and test
   services share are listed and pulled once, without `docker pull` output.
+- **A cancelled post-commit dispatcher no longer outlives its event loop.**
+  On SQLite a cancel landing in a statement came back as
+  `PendingRollbackError`: the SQLite adapter's rollback hook read the state of
+  the connection the cancel had invalidated. The dispatcher logged it and waited
+  on its queue forever, and the loop's close (a test's teardown, a worker's
+  shutdown) never returned: a third to half of the runs of a test file hung. The
+  hook now skips an invalidated connection, so the cancel comes out, and the
+  write-lock mark of an invalidated connection is released when the pool
+  invalidates it: the same task's retry on another connection is no longer
+  refused as a nested writer (SANDLOOM-R016). The dispatcher, its marks, and the
+  in-line publish and mark of a `db_session()` unit (workers, scripts) end on a
+  cancellation whatever error a driver turns it into. The unmarked rows stay
+  the relay's, as before.
+- **Billing's reconciler could not escalate an intent on SQLite.** Closing an
+  owed compensation whose checkout session was paid meanwhile wrote
+  `greatest(...)`, which SQLite does not have; it is a `CASE` now.
+- **The test harness never waits without bound.** The PostgreSQL schema reset
+  sets `lock_timeout` (30 s), so a database shared by mistake with another
+  run's open transaction fails at once instead of hanging (no fallback reset
+  waits again); creating a worker's database connects with a 5 s timeout. The
+  SQLite and PostgreSQL fixtures of the nested-units tests, and
+  `open_test_engine`, finish the post-commit dispatch before closing their
+  engine (bounded; a slow drain never fails the teardown).
 
 ## [0.7.0a10] — 2026-11-03
 

@@ -53,6 +53,7 @@ from sandloom.core.testing.database import assert_disposable_test_database
 from sandloom.core.testing.ownership import claim_database
 from sandloom.core.testing.workers import worker_env_values
 from sandloom.core.unit_of_work import db_session, open_uow
+from sandloom.core.unit_of_work.dispatch import drain_post_commit
 from sandloom.core.unit_of_work.effects import publish_event
 from sandloom.core.unit_of_work.hooks import on_commit
 from sandloom.core.unit_of_work.request import (
@@ -134,8 +135,13 @@ async def core(tmp_path: Path) -> AsyncGenerator[CoreFacade, None]:
     try:
         yield facade
     finally:
-        _runtime.clear_active_core()
-        await provider.aclose()
+        try:
+            # The dispatch of the test's events marks rows on this provider:
+            # finish it before the provider and the loop close (risk fix 1).
+            await drain_post_commit(timeout=5)
+        finally:
+            _runtime.clear_active_core()
+            await provider.aclose()
 
 
 @pytest.fixture
@@ -417,10 +423,15 @@ async def pg_core() -> AsyncGenerator[tuple[CoreFacade, Table], None]:
     try:
         yield facade, table
     finally:
-        _runtime.clear_active_core()
-        async with provider.engine.begin() as conn:
-            await conn.run_sync(table.metadata.drop_all)
-        await provider.aclose()
+        try:
+            await drain_post_commit(timeout=5)
+        finally:
+            _runtime.clear_active_core()
+            try:
+                async with provider.engine.begin() as conn:
+                    await conn.run_sync(table.metadata.drop_all)
+            finally:
+                await provider.aclose()
 
 
 @pytest.mark.asyncio

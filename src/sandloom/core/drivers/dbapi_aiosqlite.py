@@ -346,7 +346,25 @@ def _commit(database: str | None, conn: Any) -> None:
 def _rollback(database: str | None, conn: Any) -> None:
     # No statement here (the transaction may be failing): a pragma left on
     # is turned off by this connection's next BEGIN.
+    if conn.invalidated:
+        # A statement interrupted (its task cancelled or timed out)
+        # invalidated the connection: ``conn.info`` would raise
+        # ``PendingRollbackError`` here and replace the ``CancelledError``
+        # being raised. Its marks were released by ``_invalidated`` when the
+        # pool invalidated its record.
+        return
     _release(database, conn.info)
+
+
+def _invalidated(
+    database: str | None, _dbapi_connection: Any, record: Any, _exc: Any
+) -> None:
+    # The pool checks an invalidated record straight back in and clears its
+    # info only at the record's next checkout: until then a write-lock mark
+    # left on it (and ``_WRITERS`` naming it) would refuse the same task's
+    # next writer on another connection (R016) although the lock died with
+    # the connection.
+    _release(database, record.info)
 
 
 class AiosqliteAdapter(DbapiAdapter):
@@ -373,6 +391,7 @@ class AiosqliteAdapter(DbapiAdapter):
         event.listen(sync_engine, "begin", partial(_begin, database))
         event.listen(sync_engine, "commit", partial(_commit, database))
         event.listen(sync_engine, "rollback", partial(_rollback, database))
+        event.listen(sync_engine, "invalidate", partial(_invalidated, database))
         if database is not None:
             # transactions begun at their first write (BEGIN_AT_FIRST_WRITE)
             event.listen(sync_engine, "before_cursor_execute", _before_statement)

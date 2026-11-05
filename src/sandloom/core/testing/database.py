@@ -57,6 +57,7 @@ from sandloom.core.testing.connections import (
     TEST_ENGINE_POOL_SIZE,
 )
 from sandloom.core.testing.ownership import claim_database
+from sandloom.core.unit_of_work.dispatch import drain_post_commit
 
 logger = logging.getLogger(__name__)
 
@@ -98,16 +99,21 @@ async def _truncate_all(engine: AsyncEngine, metadata: MetaData) -> None:
 async def reset_schema(engine: AsyncEngine, metadata: MetaData) -> None:
     """Leave every table of ``metadata`` present and empty, sequences rewound."""
     key = _key(engine, metadata)
+    reset = schema_reset_for(engine)
     if key in _built and metadata.sorted_tables:
         try:
             await _truncate_dirty(engine, metadata, _sequences.get(key, []))
             return
-        except DBAPIError:
+        except DBAPIError as exc:
+            if reset.is_lock_timeout(exc):
+                raise  # another session holds the tables: no fallback waits again
             logger.debug("dirty-table reset failed; truncating all", exc_info=True)
         try:
             await _truncate_all(engine, metadata)
             return
-        except DBAPIError:
+        except DBAPIError as exc:
+            if reset.is_lock_timeout(exc):
+                raise
             logger.debug("truncate failed; rebuilding test schema", exc_info=True)
             _built.discard(key)
     await _rebuild(engine, metadata)
@@ -213,7 +219,16 @@ async def open_test_engine(
         # read never waits for the ``db`` fixture's write lock)
         yield schema_reset_for(engine).caller_engine(engine)
     finally:
-        await engine.dispose()
+        try:
+            # The post-commit dispatch of what the test committed may still
+            # be marking rows on this engine: finish it before the engine
+            # goes. Bounded: what is left is the relay's, and a slow drain
+            # never fails the teardown.
+            await drain_post_commit(timeout=10)
+        except TimeoutError:
+            logger.warning("post-commit dispatch still running at teardown")
+        finally:
+            await engine.dispose()
 
 
 @asynccontextmanager
