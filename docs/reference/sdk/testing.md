@@ -29,6 +29,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`apply_worker_env`](#apply_worker_env) | function | Point `environ` (default `os.environ`) at this worker's backends. |
 | [`assert_contract_conformance`](#assert_contract_conformance) | async function | Assert `contract_name` behaves identically locally and over RPC. |
+| [`assert_migrations_match_models`](#assert_migrations_match_models) | function | Fail with every difference between `module`'s chain and its models. |
 | [`assert_route_snapshot`](#assert_route_snapshot) | function | Fail unless each module's routes equal its committed `routes.snapshot.json`. |
 | [`bind_contract_session`](#bind_contract_session) | function | Run contract calls in this block on `session` (TEST SEAM). |
 | [`bind_test_uow`](#bind_test_uow) | function | Bind `session` as the active UoW for `database` in this context. |
@@ -54,6 +55,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`keyed_rpc_settings`](#keyed_rpc_settings) | function | A copy of `cfg` keyed as `service_id` calling ITSELF. |
 | [`migrate_module`](#migrate_module) | function | Move `package`'s own chain in `url` to `revision`. |
 | [`migration_chains`](#migration_chains) | function | The core chain plus the chain of every loaded module that has one. |
+| [`migration_drift`](#migration_drift) | function | How a module's migration chain at head differs from its models. |
 | [`MigrationChain`](#migrationchain) | class | One Alembic chain: the kernel's core chain or a module's own. |
 | [`model_tables`](#model_tables) | function | `{table: owning chain}` for every ORM table of the core and the loaded modules — the owner is the package that DECLARES the model. |
 | [`ModuleBootError`](#modulebooterror) | exception | The module started alone, but logged errors while doing so. |
@@ -229,6 +231,20 @@ async def assert_contract_conformance(
 ```
 
 Assert `contract_name` behaves identically locally and over RPC.
+
+### `assert_migrations_match_models`
+
+```python
+def assert_migrations_match_models(module: str, *, core: Any = None) -> None
+```
+
+Fail with every difference between `module`'s chain and its models.
+
+Skips (with the reason) on a test database that takes its schema from the
+models: SQLite never runs the chains (SANDLOOM-B028), and this gate is what
+keeps the PostgreSQL schema the chains build equal to the models. Skips
+too for a loaded module with no `migrations/` directory; a name no
+loaded module has raises `ValueError`.
 
 ### `assert_route_snapshot`
 
@@ -717,6 +733,33 @@ The core chain plus the chain of every loaded module that has one.
 Derived from the loaded descriptors (`migrations_path`,
 `migration_chain_key`), so a new module's chain is covered without
 editing any list. `core` defaults to the composition root's.
+
+### `migration_drift`
+
+```python
+def migration_drift(module: str, *, core: Any = None) -> list[str]
+```
+
+How a module's migration chain at head differs from its models.
+
+On a scratch database next to the test database: the core chain, the
+chains `module` depends on, then its own chain, each to head; then
+Alembic's autogenerate comparison (`compare_metadata`) of the result
+with the models, over the tables the chain owns, with the options and the
+filter `sandloom migrate new` uses (`COMPARE_OPTIONS`: types and
+server defaults; a model index the database never creates is skipped),
+plus each index as the database reflects it (access method, operator
+classes, sort order, included columns, `NULLS NOT DISTINCT`, a partial
+index's condition) against the same index created from the models in a
+second scratch database, which Alembic does not compare. Not compared:
+what the models cannot declare (RLS policies, extensions, triggers), CHECK
+constraints (Alembic does not reflect them) and an index's collation
+(SQLAlchemy does not reflect it). Each difference is one line naming the
+table and the object; an empty list means they match.
+
+`module` is a loaded module's name, its package (`"sandloom_billing"`)
+or `"core"` for the kernel's chain. PostgreSQL only: a test database that
+takes its schema from the models (SQLite) has no chain to compare.
 
 ### `MigrationChain`
 

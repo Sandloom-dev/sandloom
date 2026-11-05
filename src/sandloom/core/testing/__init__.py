@@ -18,7 +18,9 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   :func:`upgrade_core_chain`, :func:`migrate_module` and :func:`run_sql`;
   :func:`migration_chains` / :func:`chain_coverage_problems` derive every
   chain from the loaded modules and report tables / indexes their owning
-  chain does not create;
+  chain does not create; :func:`migration_drift` /
+  :func:`assert_migrations_match_models` compare a chain at head with its
+  models (PostgreSQL);
 * :func:`deliver_event` — drive an event through the registered consumers
   (UoW, durable claim, tenant binding) without a bus;
   :func:`fake_access_fact` — answer an entitlement without its owner module;
@@ -89,9 +91,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     )
     from sandloom.core.testing.migrations import (
         MigrationChain,
+        assert_migrations_match_models,
         chain_coverage_problems,
         migrate_module,
         migration_chains,
+        migration_drift,
         model_tables,
         run_sql,
         tables_created_by,
@@ -149,6 +153,8 @@ _EXPORTS: dict[str, str] = {
     "override_instance": "sandloom.core.testing.infra",
     "skip_unless_db_feature": "sandloom.core.testing.infra",
     "MigrationChain": "sandloom.core.testing.migrations",
+    "assert_migrations_match_models": "sandloom.core.testing.migrations",
+    "migration_drift": "sandloom.core.testing.migrations",
     "chain_coverage_problems": "sandloom.core.testing.migrations",
     "migration_chains": "sandloom.core.testing.migrations",
     "model_tables": "sandloom.core.testing.migrations",
@@ -210,6 +216,7 @@ __all__ = [
     "RoutePolicy",
     "TestResourceOwnershipError",
     "apply_worker_env",
+    "assert_migrations_match_models",
     "assert_route_snapshot",
     "bind_test_uow",
     "boot_module_alone",
@@ -226,6 +233,7 @@ __all__ = [
     "make_user_headers",
     "migrate_module",
     "migration_chains",
+    "migration_drift",
     "model_tables",
     "override_instance",
     "record_revocation_checks",

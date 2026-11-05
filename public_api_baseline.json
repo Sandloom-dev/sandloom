@@ -2174,6 +2174,10 @@
       "kind": "function",
       "signature": "(environ:POSITIONAL_OR_KEYWORD|MutableMapping[str, str] | None=None, create_database:KEYWORD_ONLY|bool=True) -> dict[str, str]"
     },
+    "assert_migrations_match_models": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> None"
+    },
     "assert_route_snapshot": {
       "kind": "function",
       "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
@@ -2237,6 +2241,10 @@
     "migration_chains": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "migration_drift": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
     "model_tables": {
       "kind": "function",
@@ -5426,6 +5434,10 @@
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> None"
     },
+    "assert_migrations_match_models": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> None"
+    },
     "assert_route_snapshot": {
       "kind": "function",
       "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
@@ -5509,6 +5521,10 @@
     "migration_chains": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "migration_drift": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
     "model_tables": {
       "kind": "function",

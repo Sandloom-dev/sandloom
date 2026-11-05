@@ -352,6 +352,41 @@ async def test_boots_alone(db_engine) -> None:
     assert outcome.started or outcome.missing_contracts == {"stats.quota.v1"}
 ```
 
+## Migrations match models
+
+On SQLite the test database takes its schema from the models and runs no
+migration chain. Production on PostgreSQL takes it from the chain. One test
+per module keeps the two equal: the chain at head must build the schema the
+models declare. `sandloom add module` writes it as `tests/test_migrations.py`:
+
+```python
+from sandloom.sdk.testing import assert_migrations_match_models  # sandloom: advanced gate
+def test_migrations_match_models() -> None:
+    assert_migrations_match_models("notes")
+```
+
+The test makes a scratch PostgreSQL database next to the test database. It
+runs the core chain there, then the chains the module depends on, then the
+module's own chain to head. It compares the result with the models. The comparison is
+Alembic's autogenerate with the options of `sandloom migrate new`: types and
+server defaults, over the tables the chain owns. Indexes are compared as the
+database reflects them, against the same indexes created from the models in a
+second scratch database. That covers access method, operator classes, sort
+order, included columns, `NULLS NOT DISTINCT` and a partial index's
+condition. It fails with one line per difference and the fix:
+
+```text
+the notes migration chain at head differs from its models (SANDLOOM-T006):
+  column notes_items.priority (INTEGER): in the models, not created by the chain
+fix: sandloom migrate new notes "<message>" (or correct the model), then review the revision
+```
+
+On SQLite it skips with the reason, and for a module with no `migrations/`
+directory. `migration_drift("notes")` returns the lines instead of failing.
+It does not compare what models cannot declare: RLS policies, extensions,
+triggers. CHECK constraints and an index's collation are not compared either,
+since neither is reflected.
+
 ## Tests that need a database feature
 
 A module's tests run on PostgreSQL and on a SQLite file

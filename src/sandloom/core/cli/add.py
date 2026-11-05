@@ -365,6 +365,22 @@ run_module_migrations(__file__)
     files["migrations/script.py.mako"] = _MAKO
     files[f"migrations/versions/0001_{name}_baseline.py"] = _baseline(name)
     files["tests/__init__.py"] = ""
+    files["tests/test_migrations.py"] = f'''\
+"""The chain at head builds the schema the models declare.
+
+A test database on SQLite takes its schema from the models and runs no chain;
+on PostgreSQL this compares the two (it skips on SQLite). A model change
+without its revision fails here: ``sandloom migrate new {name} "<message>"``.
+"""
+
+from sandloom.sdk.testing import (  # sandloom: advanced migrations gate
+    assert_migrations_match_models,
+)
+
+
+def test_migrations_match_models() -> None:
+    assert_migrations_match_models("{name}")
+'''
     items = f'"/api/v1/{name}/items"'
     create = _call(
         "    created = await client.post",

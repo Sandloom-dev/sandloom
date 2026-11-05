@@ -14,7 +14,11 @@ and the module's chain moved to a given revision:
 * :func:`migration_chains` / :func:`chain_coverage_problems` — every chain of
   the loaded modules (derived from their descriptors, never a hand-kept list)
   and the tables / indexes a model declares that its OWNING chain does not
-  create (SANDLOOM-T002).
+  create (SANDLOOM-T002);
+* :func:`migration_drift` / :func:`assert_migrations_match_models` — a
+  chain upgraded to head on a scratch PostgreSQL database, compared with its
+  models by Alembic's autogenerate (the gate that keeps the PostgreSQL schema,
+  built by the chains, equal to the SQLite one, built from the models).
 
 URLs are SYNC (psycopg2) DSNs, as Alembic and ``run_sql`` use them.
 """
@@ -26,6 +30,7 @@ import importlib
 import importlib.util
 import os
 import re
+import unittest
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
@@ -41,10 +46,12 @@ from alembic.config import Config
 from sandloom.core.composition import load_composition_core
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.migrations.migrations import (
+    _order_by_dependencies,
     core_chain_dir,
     run_core_upgrade,
     version_table_for,
 )
+from sandloom.core.migrations.schema_compare import schema_differences
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 
@@ -213,11 +220,18 @@ def _string_constants(tree: ast.AST) -> dict[str, str]:
     return constants
 
 
-def _created_tables(source: str) -> set[str]:
+def _created_tables(source: str, *, upgrade_only: bool = False) -> set[str]:
     tree = ast.parse(source)
     constants = _string_constants(tree)
     found: set[str] = set()
-    for node in ast.walk(tree):
+    roots: list[ast.AST] = [tree]
+    if upgrade_only:  # not the tables a downgrade() re-creates
+        roots = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+        ]
+    for node in (n for root in roots for n in ast.walk(root)):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
@@ -306,11 +320,164 @@ def chain_coverage_problems(core: Any = None) -> list[str]:
     return problems
 
 
+def _find_chain(chains: list[MigrationChain], module: str) -> MigrationChain:
+    for chain in chains:
+        if module in (chain.key, chain.module) or (
+            chain.module is None and module in ("sandloom.core", "sandloom")
+        ):
+            return chain
+    name = _module_name(module)
+    for chain in chains:
+        if name in (chain.key, chain.module):
+            return chain
+    known = ", ".join(sorted(c.module or c.key for c in chains))
+    raise ValueError(
+        f"no migration chain for {module!r} among the loaded modules ({known}); "
+        "name a loaded module that has a migrations/ directory, or 'core'"
+    )
+
+
+def _chains_to_upgrade(chain: MigrationChain, core: Any) -> list[MigrationChain]:
+    """``chain`` after the module chains it depends on, in ``upgrade-all``
+    order (the core chain is applied separately, always first)."""
+    if chain.module is None:
+        return []
+    descriptors = {
+        d.name: d
+        for d in _composition_core(core).module_descriptors
+        if d.migrations_path
+    }
+    needed: set[str] = set()
+    pending = [chain.module]
+    while pending:
+        name = pending.pop()
+        if name in needed or name not in descriptors:
+            continue
+        needed.add(name)
+        pending += list(getattr(descriptors[name], "depends_on", []) or [])
+    by_module = {c.module: c for c in migration_chains(core) if c.module}
+    return [by_module[n] for n in _order_by_dependencies(descriptors, needed)]
+
+
+def _upgrade(url: str, chain: MigrationChain) -> None:
+    cfg = Config()
+    cfg.set_main_option("script_location", str(chain.script_location))
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    cfg.set_main_option("version_table", chain.version_table)
+    command.upgrade(cfg, "head")
+
+
+def _owned_tables(chain: MigrationChain, core: Any) -> frozenset[str]:
+    """The tables ``chain`` answers for: those its models declare and those
+    its revisions' ``upgrade()`` creates (a table dropped from the models but
+    not from the chain is reported, not ignored; a table a ``downgrade()``
+    re-creates, after it moved to another module, is not this chain's)."""
+    declared = {t for t, c in model_tables(core).items() if c.key == chain.key}
+    upgraded: set[str] = set()
+    for revision in chain.versions.glob("*.py"):
+        source = revision.read_text(encoding="utf-8")
+        upgraded |= _created_tables(source, upgrade_only=True)
+    return frozenset(declared | upgraded)
+
+
+_NEEDS_POSTGRESQL = (
+    "migrations match models needs PostgreSQL: this test database takes its "
+    "schema from the models and runs no migration chain (SANDLOOM-B028), or "
+    "no DATABASE_URL is set"
+)
+
+
+def _skip(reason: str) -> None:
+    """Skip the running test: ``pytest.skip`` when pytest is installed (the
+    skip is reported at the caller), else unittest's, so this module stays
+    importable without pytest (the CLI's lean install)."""
+    try:
+        pytest = importlib.import_module("pytest")
+    except ImportError:
+        raise unittest.SkipTest(reason) from None
+    pytest.skip(reason)
+
+
+def _has_no_chain(module: str, core: Any) -> bool:
+    """``module`` is loaded and has no ``migrations/`` (no chain to compare)."""
+    names = {module, _module_name(module)}
+    for descriptor in _composition_core(core).module_descriptors:
+        if descriptor.name in names:
+            return not descriptor.migrations_path
+    return False
+
+
+def migration_drift(module: str, *, core: Any = None) -> list[str]:
+    """How a module's migration chain at head differs from its models.
+
+    On a scratch database next to the test database: the core chain, the
+    chains ``module`` depends on, then its own chain, each to head; then
+    Alembic's autogenerate comparison (``compare_metadata``) of the result
+    with the models, over the tables the chain owns, with the options and the
+    filter ``sandloom migrate new`` uses (:data:`COMPARE_OPTIONS`: types and
+    server defaults; a model index the database never creates is skipped),
+    plus each index as the database reflects it (access method, operator
+    classes, sort order, included columns, ``NULLS NOT DISTINCT``, a partial
+    index's condition) against the same index created from the models in a
+    second scratch database, which Alembic does not compare. Not compared:
+    what the models cannot declare (RLS policies, extensions, triggers), CHECK
+    constraints (Alembic does not reflect them) and an index's collation
+    (SQLAlchemy does not reflect it). Each difference is one line naming the
+    table and the object; an empty list means they match.
+
+    ``module`` is a loaded module's name, its package (``"sandloom_billing"``)
+    or ``"core"`` for the kernel's chain. PostgreSQL only: a test database that
+    takes its schema from the models (SQLite) has no chain to compare.
+    """
+    database_url = os.getenv("DATABASE_URL") or ""
+    if not database_url or runs_no_chains(database_url):
+        raise RuntimeError(_NEEDS_POSTGRESQL)
+    chain = _find_chain(migration_chains(core), module)
+    owned = _owned_tables(chain, core)
+    with temporary_database() as url, temporary_database() as models_url:
+        upgrade_core_chain(url)
+        for each in _chains_to_upgrade(chain, core):
+            _upgrade(url, each)
+        return schema_differences(url, owned, models_url)
+
+
+def assert_migrations_match_models(module: str, *, core: Any = None) -> None:
+    """Fail with every difference between ``module``'s chain and its models.
+
+    Skips (with the reason) on a test database that takes its schema from the
+    models: SQLite never runs the chains (SANDLOOM-B028), and this gate is what
+    keeps the PostgreSQL schema the chains build equal to the models. Skips
+    too for a loaded module with no ``migrations/`` directory; a name no
+    loaded module has raises ``ValueError``.
+    """
+    url = os.getenv("DATABASE_URL") or ""
+    if not url or runs_no_chains(url):
+        _skip(_NEEDS_POSTGRESQL)
+    if _has_no_chain(module, core):
+        _skip(f"{module} has no migrations/ directory: no chain to compare")
+    drift = migration_drift(module, core=core)
+    if drift:
+        chain = _find_chain(migration_chains(core), module)
+        lines = "\n  ".join(drift)
+        fix = (
+            f"the core chain is the kernel's: add a revision under {chain.versions}"
+            if chain.module is None
+            else f'sandloom migrate new {chain.module} "<message>"'
+        )
+        raise AssertionError(
+            f"the {chain.module or 'core'} migration chain at head differs from "
+            f"its models (SANDLOOM-T006):\n  {lines}\nfix: {fix} (or correct "
+            "the model), then review the revision"
+        )
+
+
 __all__ = [
     "MigrationChain",
+    "assert_migrations_match_models",
     "chain_coverage_problems",
     "migrate_module",
     "migration_chains",
+    "migration_drift",
     "model_tables",
     "run_sql",
     "tables_created_by",

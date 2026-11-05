@@ -1537,7 +1537,13 @@ reports breaking changes.
         "test",
         "the models differ from the head of their migration chain",
         'run `sandloom migrate new <module> "<message>"` and review the revision',
-        "sandloom test compares the module's models with its chain head (spec §5.6).",
+        "sandloom test compares the module's models with its chain head (spec "
+        "§5.6): the migration drift step for every chain, and each module's "
+        "`assert_migrations_match_models` test (types, server defaults, and "
+        "indexes as the database reflects them: access method, operator "
+        "classes, sort order, included columns, condition) on PostgreSQL. "
+        "SQLite builds its schema from "
+        "the models and runs no chain, so this is what keeps the two equal.",
     ),
     _landed(
         "SANDLOOM-T007",

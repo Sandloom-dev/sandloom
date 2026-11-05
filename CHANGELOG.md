@@ -26,6 +26,19 @@ website renders this same changelog.
   **Upgrade:** bind aware times to `CreatedAt`, `UpdatedAt` and `UtcDateTime`
   columns (`datetime.now(UTC)`, `value.replace(tzinfo=UTC)`); replace a module's
   `DateTime(timezone=True)` with `UtcDateTime()` (no migration on PostgreSQL).
+- **Autogenerate and the migration drift step compare server defaults**
+  (SANDLOOM-T006). `sandloom migrate new`, `sandloom migrate drift` (the drift
+  step of `sandloom test`) and the migrations-match-models test share one set
+  of options, `COMPARE_OPTIONS` in the migration environment: types and, now,
+  column server defaults. A chain whose default differs from its model's fails
+  the step, and `migrate new` writes the change. A JSON column's default is
+  compared as the value it writes (PostgreSQL's `json` has no `=`). The
+  standard modules and the examples had no such difference.
+
+  **Upgrade:** run `uv run sandloom migrate drift` on PostgreSQL. For each
+  `server default differs` it reports, add a revision with
+  `uv run sandloom migrate new <module> "<message>"` and review it, or correct
+  the model's `server_default`.
 - **SQLite 3.38 or newer** (was 3.35): `json_path` uses its built-in JSON
   functions (SANDLOOM-B030 refuses an older one).
 
@@ -73,6 +86,25 @@ website renders this same changelog.
 
 ### Added
 
+- **Migrations match models: `migration_drift(module)` and
+  `assert_migrations_match_models(module)` in `sandloom.sdk.testing`**
+  (advanced). On a scratch PostgreSQL database the helper applies the core
+  chain, the chains the module depends on and its own chain to head, then
+  compares the result with the module's models through Alembic's
+  `compare_metadata`, with the options `sandloom migrate new` uses. It also
+  compares each index as the database reflects it (access method, operator
+  classes, sort order, included columns, `NULLS NOT DISTINCT`, a partial
+  index's condition) with the same index created from the models in a second
+  scratch database. Not compared: RLS policies, extensions, triggers, CHECK
+  constraints and an index's collation. It returns one line per difference;
+  the assertion fails naming each and the fix. A loaded module with no
+  `migrations/` directory skips. On SQLite it skips: SQLite builds its schema from
+  the models and never runs a chain (SANDLOOM-B028), and this test is what
+  keeps the PostgreSQL schema the chains build equal to those models. Each
+  standard module with a chain (identity, tenancy, billing) and the core chain
+  has the test; `sandloom add module` writes `tests/test_migrations.py` with
+  it. **Upgrade:** add the same one-line test to each of your modules that has
+  a chain: `assert_migrations_match_models("<module>")`.
 - **`has_serial_writers(bind)` and `has_optimized_reads(bind)` in
   `sandloom.sdk.testing`** (advanced): whether the test database's writers take
   turns, and whether the planner's optimized executor can run on it. They are

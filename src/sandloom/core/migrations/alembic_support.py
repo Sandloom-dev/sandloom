@@ -35,8 +35,10 @@ a shared ``alembic_version`` table.
 from __future__ import annotations
 
 import importlib
+import json
 import os
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Callable, Iterable, Sequence
 from logging.config import fileConfig
 from pathlib import Path
 from typing import Any, Literal
@@ -44,7 +46,7 @@ from typing import Any, Literal
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Dialect, make_url
-from sqlalchemy.types import TypeDecorator, TypeEngine
+from sqlalchemy.types import JSON, TypeDecorator, TypeEngine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import module_name as _module_name
@@ -84,7 +86,7 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
-def run_migrations(  # noqa: C901
+def run_migrations(
     table_names: Iterable[str] = (),
     model_modules: Sequence[str] = (),
     *,
@@ -132,14 +134,7 @@ def run_migrations(  # noqa: C901
     def include_object(
         obj: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
     ) -> bool:
-        if type_ == "table":
-            return _owns(name)
-        if type_ == "index" and not reflected and not _created_on(obj, dialect):
-            return False
-        parent = getattr(obj, "table", None)
-        if parent is not None:
-            return _owns(parent.name)
-        return True
+        return chain_includes(_owns, dialect, obj, name, type_, reflected)
 
     url = _resolve_sync_url(config.get_main_option("sqlalchemy.url"))
     # Keep generated table policies consistent with the runtime tenant hook.
@@ -182,6 +177,7 @@ def run_migrations(  # noqa: C901
                 target_metadata=target_metadata,
                 include_object=include_object,
                 version_table=version_table,
+                **COMPARE_OPTIONS,
             )
             with context.begin_transaction():
                 lock = _direct_run_lock(connection, url)
@@ -193,6 +189,82 @@ def run_migrations(  # noqa: C901
                 context.run_migrations()
     finally:
         connectable.dispose()
+
+
+#: The autogenerate comparison every chain uses: ``sandloom migrate new``,
+#: ``sandloom migrate drift`` and ``migration_drift`` (the "migrations match
+#: models" test helper) all compare with these, so a difference one of them
+#: reports is one the others write or see.
+def _default_value(text: str | None) -> Any:
+    """A JSON column's server default as the value it writes: outer
+    parentheses, trailing casts and the quotes around the literal removed,
+    then parsed (``'{}'::json``, ``'{}'`` and ``'{ }'`` are the same)."""
+    if text is None:
+        return None
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+    text = re.sub(r"(::[\w ]+)+$", "", text).strip()
+    if len(text) >= 2 and text[0] == text[-1] == "'":
+        text = text[1:-1].replace("''", "'")
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def compare_server_default(
+    context: Any,
+    inspected_column: Any,
+    metadata_column: Any,
+    inspected_default: str | None,
+    metadata_default: Any,
+    rendered_metadata_default: str | None,
+) -> bool | None:
+    """Whether a column's server default differs (``None``: Alembic decides).
+
+    Alembic compares a default by asking the database whether the two
+    expressions are equal; a ``json`` value has no equality operator, so the
+    question fails. A JSON column's defaults are compared here as the values
+    they write; every other column is left to Alembic.
+    """
+    column_type = metadata_column.type
+    impl = getattr(column_type, "impl", column_type)
+    if not isinstance(impl, JSON):
+        return None
+    return bool(
+        _default_value(inspected_default) != _default_value(rendered_metadata_default)
+    )
+
+
+COMPARE_OPTIONS: dict[str, Any] = {
+    "compare_type": True,
+    "compare_server_default": compare_server_default,
+}
+
+
+def chain_includes(
+    owns: Callable[[str | None], bool],
+    dialect: Dialect | None,
+    obj: Any,
+    name: str | None,
+    type_: str,
+    reflected: bool,
+) -> bool:
+    """The ``include_object`` of a chain that owns the tables ``owns`` accepts.
+
+    A table is compared when the chain owns it; an index, constraint or column
+    when its table is; a model index whose ``ddl_if`` keeps it off ``dialect``
+    never (the database never creates it).
+    """
+    if type_ == "table":
+        return owns(name)
+    if type_ == "index" and not reflected and not _created_on(obj, dialect):
+        return False
+    parent = getattr(obj, "table", None)
+    if parent is not None:
+        return owns(parent.name)
+    return True
 
 
 def module_package_of(env_file: str | os.PathLike[str]) -> str:
