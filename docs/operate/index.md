@@ -19,3 +19,4 @@ and what to do when something breaks.
 | react to an incident or do a routine task | [Runbook](runbook.md) |
 | look up a command, flag, metric or alert | [Operator reference](operator-reference.md) |
 | move to a new Sandloom version | [Upgrade](upgrade.md) |
+| upgrade past 0.7.0a10: portable SQL, or run on SQLite | [Upgrade to portable SQL and SQLite](upgrade-sqlite-and-portable-sql.md) |
