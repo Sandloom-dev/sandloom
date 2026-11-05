@@ -568,6 +568,11 @@ class SqliteSql:
     name = "sqlite"
     #: ``RETURNING`` (3.35) and ``ON CONFLICT`` (3.24) are needed.
     minimum_server_version: tuple[int, ...] | None = (3, 35)
+    #: The migration chains are PostgreSQL's DDL history: a SQLite file
+    #: takes its schema from the models (SANDLOOM-B028).
+    schema_from_models = True
+    #: For development and tests (SANDLOOM-B029).
+    development_only = True
 
     def features(self) -> frozenset[str]:
         # An in-memory database (one connection, no WAL) withholds

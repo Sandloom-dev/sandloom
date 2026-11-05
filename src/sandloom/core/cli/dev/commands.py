@@ -1404,6 +1404,10 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
     for key in _envfile.exported_drift(block, env):
         ctx.warn(f"{key} is exported in this shell; dev run uses this checkout's block")
     env.update(block)
+    # A database built from the models (SQLite) whose tables lag them is set
+    # aside and built fresh under `dev run` only, never by an app started
+    # otherwise (SANDLOOM-B028). An explicit setting wins.
+    env.setdefault(RECREATE_ON_MODEL_CHANGE_ENV, "true")
     argv = [
         sys.executable,
         "-m",
@@ -1423,6 +1427,11 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
             data = json.loads(marker.read_text(encoding="utf-8"))
             if data.get("pid") == os.getpid():
                 marker.unlink()
+
+
+#: The setting ``dev run`` turns on for the app it serves
+#: (``DB_RECREATE_ON_MODEL_CHANGE``, SANDLOOM-B028).
+RECREATE_ON_MODEL_CHANGE_ENV = "DB_RECREATE_ON_MODEL_CHANGE"
 
 
 #: How long ``dev run`` waits for the app to answer before it gives up on

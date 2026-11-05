@@ -76,10 +76,12 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
-| [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer | active |
+| [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
-| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url or require_system_channel on a database instance whose database has no row security | active |
+| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security | active |
 | [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
+| [`SANDLOOM-B028`](#sandloom-b028) | `schema-from-models` | boot | sandloom migrate on a database that takes its schema from the models (SQLite), or such a database whose tables differ from the models | active |
+| [`SANDLOOM-B029`](#sandloom-b029) | `development-database-in-prod` | boot | ENVIRONMENT=prod on a database that serves development and tests only (SQLite), without the accepted risk development_database_in_prod, or under PRODUCTION_PROFILE=multi_tenant_strict | active |
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
@@ -958,7 +960,7 @@ reports it.
 
 ### SANDLOOM-B024
 
-**a configured SQL database has no SQL dialect renderer**
+**a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one**
 
 Slug: `sql-dialect-missing` · kind: boot · status: active
 
@@ -970,9 +972,12 @@ database's SQL dialect renderer turns them into that database's SQL. Renderers
 are found by the SQLAlchemy dialect name in the sandloom.sql_dialects
 entry-point group; the sandloom package ships PostgreSQL and SQLite. Without
 one, the first table or statement that uses a form would fail, so the process
-does not start.
+does not start. The settings check only the URL's shape
+(&lt;dialect>+&lt;dbapi>://); this check, at boot, also refuses a DBAPI SQLAlchemy
+has no dialect class for and a synchronous one, since the driver builds async
+engines only.
 
-**Fix:** install the driver package that provides the renderer for that database, or point the database at one Sandloom renders (PostgreSQL)
+**Fix:** install the driver package that provides the renderer for that database, or point the database at one Sandloom renders (PostgreSQL, SQLite) through an async DBAPI (postgresql+asyncpg, sqlite+aiosqlite)
 
 **More:** `docs/infrastructure/database.md`
 
@@ -1003,7 +1008,7 @@ claim them.
 
 ### SANDLOOM-B026
 
-**tenant_rls, system_url or require_system_channel on a database instance whose database has no row security**
+**tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security**
 
 Slug: `row-security-missing` · kind: boot · status: active
 
@@ -1033,7 +1038,8 @@ Slug: `snapshot-reads-missing` · kind: boot · status: active
 SnapshotReads and read_scope(..., isolation="repeatable_read") promise that
 every read of the scope sees one snapshot, so the reads agree with each other.
 The database gives that promise only where its SQL dialect renderer declares
-the snapshot_reads feature; SQLite does not declare it yet. Reading without the
+the snapshot_reads feature: PostgreSQL and a SQLite file do, an in-memory SQLite
+test engine does not. Reading without the
 snapshot would return data that may never have existed together, so the scope
 is refused instead: at startup for a route declaring SnapshotReads when the
 default database lacks the feature, and before any I/O when a scope's read unit
@@ -1044,6 +1050,54 @@ guard are its only guard there.
 **Fix:** use PlannedReads (a fresh snapshot per statement) for the route or read_scope, or run its database on one with snapshot reads (PostgreSQL)
 
 **More:** `docs/modules/database/units.md`
+
+### SANDLOOM-B028
+
+**sandloom migrate on a database that takes its schema from the models (SQLite), or such a database whose tables differ from the models**
+
+Slug: `schema-from-models` · kind: boot · status: active
+
+**What happened and why it matters**
+
+The migration chains are PostgreSQL's DDL history (row-security policies,
+clock_timestamp() defaults, trigram indexes), so a database whose SQL dialect
+renderer says schema_from_models (SQLite) runs none of them: sandloom migrate
+refuses it, except `sandloom migrate databases`, which only lists. The app and
+the worker build that database's schema at startup with metadata.create_all
+over every mapped table, the kernel's included. create_all creates a missing
+table and never alters an existing one, so a file whose tables differ from the
+models (a column, its nullability, an index or a unique constraint) is refused
+at startup with each difference named, instead of failing on the first
+statement that touches it. Only DB_RECREATE_ON_MODEL_CHANGE=true, which
+sandloom dev run sets for the app it serves, changes that: the file and its
+WAL are renamed to &lt;file>.stale-&lt;UTC time> and a fresh file is built. No
+table is dropped, the environment alone never triggers it, a worker never
+does it, and production ignores the setting. The data is not migrated.
+
+**Fix:** after a model change, move the SQLite file away or start the app with sandloom dev run, which sets the file aside and builds a fresh one; write and apply migrations against a PostgreSQL DATABASE_URL
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B029
+
+**ENVIRONMENT=prod on a database that serves development and tests only (SQLite), without the accepted risk development_database_in_prod, or under PRODUCTION_PROFILE=multi_tenant_strict**
+
+Slug: `development-database-in-prod` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A SQLite database is one file on one host: no replication, no row security
+(tenant isolation is the ORM guard only), its schema built from the models with
+no migration path, and writers serialised on one lock. Its SQL dialect renderer
+says development_only, so a production process refuses it at startup,
+build-free, before any connection. A deployment that accepts these limits names
+the accepted risk; it is logged at every start like every accepted risk. The
+strict production profile refuses it even when accepted, as it refuses any
+database without row security.
+
+**Fix:** point DATABASE_URL at a production database (PostgreSQL); a deployment that knowingly runs on SQLite sets SANDLOOM_ACCEPTED_RISKS=["development_database_in_prod"] (refused under the strict profile)
+
+**More:** `docs/infrastructure/database.md`
 
 ### SANDLOOM-B030
 

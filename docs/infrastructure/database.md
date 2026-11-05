@@ -22,9 +22,14 @@ that writes to several needs `writes(...)` or `allow_multi_db_write(...)`
 ### `sqlalchemy`
 
 PostgreSQL through asyncpg, the relational backend. Set `DATABASE_URL`. The URL must
-name its driver, `postgresql+asyncpg://`; never rely on a bare `postgresql://`.
-The same driver serves SQLite through aiosqlite, for development and tests
-([SQLite](#sqlite-for-development-and-tests)).
+name its dialect and its async DBAPI, `postgresql+asyncpg://`; never rely on a bare
+`postgresql://`. The same driver serves SQLite through aiosqlite, for development and tests
+([SQLite](#sqlite-for-development-and-tests)): `sqlite+aiosqlite:///var/app.db`.
+
+The settings check only the URL's shape: `<dialect>+<dbapi>://`. Startup
+checks the rest before it connects. The dialect needs a renderer. The DBAPI
+must be one SQLAlchemy knows, and async. Each failure stops it with
+[SANDLOOM-B024](../reference/error-codes.md#sandloom-b024).
 
 | Option | Meaning |
 | --- | --- |
@@ -182,6 +187,48 @@ SQLite keeps no time zone offset. A time column is `UtcDateTime()`, which
 reads back in UTC on every database and refuses a naive time
 ([SANDLOOM-C029](../reference/error-codes.md#sandloom-c029)).
 
+### The schema comes from the models
+
+The migration chains are PostgreSQL's DDL history: row-security policies,
+`clock_timestamp()` defaults, trigram indexes. A SQLite file runs none of
+them. Its renderer says `schema_from_models`, so the app builds the schema at
+startup with `metadata.create_all` over every mapped table, the kernel's
+included. Every SQLite instance gets every table.
+`sandloom migrate` refuses such a database with
+[SANDLOOM-B028](../reference/error-codes.md#sandloom-b028); only
+`sandloom migrate databases`, which lists, still runs. Write and apply a
+module's migrations against PostgreSQL.
+
+`create_all` creates a missing table and never alters an existing one. After a
+model change the file's tables lag the models. Startup compares the columns,
+their nullability, the indexes and the unique constraints. On any difference
+it stops with SANDLOOM-B028 and names each one. A worker runs the same check
+before it forks.
+
+To go on, move the file away or start the app with `sandloom dev run`. That
+command sets `DB_RECREATE_ON_MODEL_CHANGE=true` for the app it serves. The app
+then renames the file and its WAL to `<file>.stale-<UTC time>` and builds a
+fresh file. Its warning names the old one.
+
+No table is dropped, and the stale file still opens. `ENVIRONMENT` alone never
+sets a file aside. Neither does a worker. Production ignores the setting.
+
+### Not in production
+
+SQLite is one file on one host: no replication, no row security, and no
+migration path. Its renderer says `development_only`. With `ENVIRONMENT=prod`
+startup stops with
+[SANDLOOM-B029](../reference/error-codes.md#sandloom-b029), unless the
+deployment accepts the risk
+(`SANDLOOM_ACCEPTED_RISKS=["development_database_in_prod"]`). The strict
+production profile refuses it even then.
+
+SQLite has no roles, so there is no system channel to log in as.
+`DATABASE_SYSTEM_URL` on a SQLite database stops startup with
+[SANDLOOM-B026](../reference/error-codes.md#sandloom-b026), as the instance
+options of row security do. Tenant isolation there is the ORM guard alone
+(application-enforced). Startup says so when a `TenantScoped` table is mapped.
+
 ## The DBAPI adapter
 
 The renderer knows the SQL of a database. The Python client library under
@@ -219,7 +266,8 @@ package adds an adapter.
 The kernel's units and stores run on SQLite, from the outbox to the
 projection watermarks. `CreatedAt` / `UpdatedAt` are stamped by each
 database's clock (`clock_timestamp()` on PostgreSQL, UTC milliseconds on
-SQLite). Three gaps remain. `DATABASE_URL` accepts only PostgreSQL. No command
-builds the schema on SQLite yet, since the migration chains are PostgreSQL's.
-Identity's claims query uses `array_agg` and `LATERAL`. Until those close, run
-applications on PostgreSQL.
+SQLite). The platform's modules start on a SQLite file and serve requests.
+Gaps remain. A nested write unit refuses
+([SANDLOOM-R016](../reference/error-codes.md#sandloom-r016)). The test harness
+and `sandloom new` do not yet run on SQLite. Identity's claims query uses
+`array_agg` and `LATERAL`. Until those close, run applications on PostgreSQL.

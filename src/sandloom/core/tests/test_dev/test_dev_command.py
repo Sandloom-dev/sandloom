@@ -1154,6 +1154,26 @@ def test_dev_run_without_port_serves_the_checkouts_port(
     assert f"http://127.0.0.1:{sticky}" in _text(ctx.out)
 
 
+def test_dev_run_signals_the_app_to_set_a_stale_database_aside(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SANDLOOM-B028: only the app `dev run` serves sets a SQLite file whose
+    tables lag the models aside; an explicit setting wins."""
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=True)
+    envs: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env, **kw: envs.append(env) or 0
+    )
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert envs[0]["DB_RECREATE_ON_MODEL_CHANGE"] == "true"
+    assert "DB_RECREATE_ON_MODEL_CHANGE" not in environ
+
+
 def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

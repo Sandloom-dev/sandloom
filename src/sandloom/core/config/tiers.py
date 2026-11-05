@@ -571,6 +571,7 @@ OPS: frozenset[str] = frozenset(
         "DB_POOL_PING_IDLE_SECONDS",
         "DB_DEAD_CONNECTION_RETRY",
         "DB_READ_ONLY_SESSIONS",
+        "DB_RECREATE_ON_MODEL_CHANGE",
         "DB_RLS_MERGED_BEGIN",
         "DB_SESSION_OWNER_CHECKS",
         "PLANNER_OPTIMIZED_EXECUTOR",

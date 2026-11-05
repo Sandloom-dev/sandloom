@@ -47,12 +47,14 @@ import sandloom.core.observability.tracing as _tracing
 import sandloom.core.route_markers as _route_markers
 import sandloom.core.route_policy as _route_policy
 import sandloom.core.sql_alchemy.dbapi as _dbapi
+import sandloom.core.sql_alchemy.model_schema as _model_schema
 import sandloom.core.tasks.pool_metrics as _pool_metrics
 import sandloom.core.unit_of_work.dispatch as _dispatch
 from sandloom.core import contract_cache_shadow, rpc_binding, rpc_identity, rpc_pair_mac
 from sandloom.core import planner as _planner
 from sandloom.core._internal.db_provider import get_db
 from sandloom.core.auth.tokens import jwt_key_material_problem
+from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.config import tiers
 from sandloom.core.config.common import INVALID_CONFIGURATION, strict_profile_active
 from sandloom.core.config.password_params import meets_owasp_minimum
@@ -82,6 +84,7 @@ from sandloom.core.infra.active import set_active_infra
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     InfraConfigError,
+    database_instance_url,
     load_infra_config,
 )
 from sandloom.core.infra.registry import InfraRegistry
@@ -119,6 +122,7 @@ from sandloom.core.runtime import set_active_core
 from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.portable import (
+    development_only,
     dialect_of_url,
     row_security_of_url,
     sql_dialect,
@@ -176,6 +180,30 @@ class ConfigurationError(SystemExit):
     """
 
 
+def configured_database_urls(cfg: Any) -> list[tuple[str, str]]:
+    """``(label, url)`` for every database URL of ``cfg``: each instance's
+    URL, its ``system_url`` option, and ``DATABASE_SYSTEM_URL`` for the
+    default instance. Empty when ``INFRA`` is invalid (refused where the
+    infrastructure is built)."""
+    try:
+        databases = load_infra_config(cfg).get("database", {})
+    except InfraConfigError:
+        return []
+    found: list[tuple[str, str]] = []
+    for name, instance in sorted(databases.items()):
+        url = database_instance_url(instance.options, cfg)
+        if url:
+            found.append((name, url))
+        system = instance.options.get("system_url") or (
+            getattr(cfg, "database_system_url", None)
+            if name == DEFAULT_INSTANCE
+            else None
+        )
+        if system:
+            found.append((f"{name} system channel", str(system)))
+    return found
+
+
 def sql_dialect_problem(cfg: Any) -> str | None:
     """A configured SQL database whose dialect has no SQL dialect renderer.
 
@@ -183,18 +211,9 @@ def sql_dialect_problem(cfg: Any) -> str | None:
     renderer turns them into SQL (SANDLOOM-B024); without one the first table
     or statement that uses a form would fail, so the process does not start.
     """
-    try:
-        databases = load_infra_config(cfg).get("database", {})
-    except InfraConfigError:
-        # An invalid INFRA is refused where the infrastructure is built; this
-        # check has nothing to read.
-        return None
     missing: list[str] = []
-    for name, instance in databases.items():
-        url = instance.options.get("url") or getattr(cfg, "database_url", None)
-        if not url:
-            continue
-        dialect = unrendered_dialect(str(url))
+    for name, url in configured_database_urls(cfg):
+        dialect = unrendered_dialect(url)
         if dialect is not None:
             missing.append(f"{name} ({dialect})")
     if not missing:
@@ -219,7 +238,7 @@ def row_security_config_problem(cfg: Any) -> str | None:
         return None  # refused where the infrastructure is built
     problems: list[str] = []
     for name, instance in sorted(databases.items()):
-        url = instance.options.get("url") or getattr(cfg, "database_url", None)
+        url = database_instance_url(instance.options, cfg)
         if not url:
             continue
         system_url = (
@@ -239,17 +258,50 @@ def dbapi_config_problem(cfg: Any) -> str | None:
     """A configured database its DBAPI adapter cannot open, as the adapter
     states it (SQLite: in memory, or aiosqlite not installed, SANDLOOM-B032).
     Build-free: the URLs and the installed packages only."""
+    problems: list[str] = []
+    for name, url in configured_database_urls(cfg):
+        problem = _dbapi.dbapi_config_problem(url)
+        if problem is not None:
+            problems.append(f"database/{name}: {problem}")
+    return "; ".join(problems) or None
+
+
+#: The accepted risk that admits a development database in production.
+DEVELOPMENT_DATABASE_RISK = "development_database_in_prod"
+
+
+def development_database_config_problem(cfg: Any) -> str | None:
+    """A production process on a database whose renderer serves development
+    and tests only (SQLite, SANDLOOM-B029): refused unless the deployment
+    accepts the risk ``development_database_in_prod``, and always under
+    ``PRODUCTION_PROFILE=multi_tenant_strict``. Build-free."""
+    if not getattr(cfg, "is_prod", False):
+        return None
     try:
         databases = load_infra_config(cfg).get("database", {})
     except InfraConfigError:
         return None  # refused where the infrastructure is built
-    problems: list[str] = []
+    strict = strict_profile_active(cfg)
+    if not strict and _risks.accepts(cfg, DEVELOPMENT_DATABASE_RISK):
+        return None
+    found = []
     for name, instance in sorted(databases.items()):
-        url = instance.options.get("url") or getattr(cfg, "database_url", None)
-        problem = _dbapi.dbapi_config_problem(str(url)) if url else None
-        if problem is not None:
-            problems.append(f"database/{name}: {problem}")
-    return "; ".join(problems) or None
+        url = database_instance_url(instance.options, cfg)
+        if url and development_only(dialect_of_url(url)):
+            found.append(f"database/{name} ({dialect_of_url(url)})")
+    if not found:
+        return None
+    fix = (
+        "PRODUCTION_PROFILE=multi_tenant_strict refuses it even when accepted: "
+        "use a production database"
+        if strict
+        else "use a production database, or accept the risk with "
+        f'SANDLOOM_ACCEPTED_RISKS=["{DEVELOPMENT_DATABASE_RISK}"]'
+    )
+    return (
+        f"{', '.join(found)} serve(s) development and tests only, and "
+        f"ENVIRONMENT=prod [SANDLOOM-B029]: {fix}"
+    )
 
 
 def read_only_sessions_config_problem(cfg: Any) -> str | None:
@@ -263,12 +315,10 @@ def read_only_sessions_config_problem(cfg: Any) -> str | None:
     except InfraConfigError:
         return None  # refused where the infrastructure is built
     instance = databases.get(DEFAULT_INSTANCE)
-    url = (instance.options.get("url") if instance else None) or getattr(
-        cfg, "database_url", None
-    )
+    url = database_instance_url(instance.options if instance else None, cfg)
     if not url:
         return None
-    return read_only_sessions_problem(DEFAULT_INSTANCE, str(url))
+    return read_only_sessions_problem(DEFAULT_INSTANCE, url)
 
 
 def application_enforced_isolation(
@@ -291,9 +341,7 @@ def application_enforced_isolation(
     for name in infra.instances("database"):
         served = infra.sql_dialects("database", name)
         config = infra.instance_config("database", name)
-        url = (config.options.get("url") if config else None) or getattr(
-            settings, "database_url", None
-        )
+        url = database_instance_url(config.options if config else None, settings)
         if served is None or not served[1] or not url:
             continue
         if sql_dialect(dialect_of_url(str(url))) is None:
@@ -337,9 +385,7 @@ def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     for name in infra.instances("database"):
         served = infra.sql_dialects("database", name)
         config = infra.instance_config("database", name)
-        url = (config.options.get("url") if config else None) or getattr(
-            settings, "database_url", None
-        )
+        url = database_instance_url(config.options if config else None, settings)
         if served is None or not served[1] or not url:
             continue
         driver, names = served
@@ -378,7 +424,9 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (:func:`sql_dialect_problem`), with row security where an instance
       asks for it (:func:`row_security_config_problem`, SANDLOOM-B026), a
       database its DBAPI adapter can open (:func:`dbapi_config_problem`,
-      SANDLOOM-B032 on SQLite), and a guard for ``DB_READ_ONLY_SESSIONS``
+      SANDLOOM-B032 on SQLite), no development-only database in production
+      (:func:`development_database_config_problem`, SANDLOOM-B029), and a
+      guard for ``DB_READ_ONLY_SESSIONS``
       (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
@@ -393,6 +441,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         sql_dialect_problem,
         row_security_config_problem,
         dbapi_config_problem,
+        development_database_config_problem,
         read_only_sessions_config_problem,
     ):
         problem = check(cfg)
@@ -621,6 +670,19 @@ def _bind_infrastructure(
     return infra
 
 
+async def ensure_model_schemas(
+    infra: InfraRegistry, metadata: Any, *, recreate: bool | None = None
+) -> list[str]:
+    """:func:`sandloom.core.sql_alchemy.model_schema.ensure_model_schemas`;
+    ``recreate`` defaults to ``DB_RECREATE_ON_MODEL_CHANGE`` (set by
+    ``sandloom dev run``), never in prod."""
+    if recreate is None:
+        recreate = bool(settings.db_recreate_on_model_change) and not settings.is_prod
+    return await _model_schema.ensure_model_schemas(
+        infra, metadata, settings, recreate=recreate
+    )
+
+
 def _register_infra_lifecycle(
     core_facade: CoreFacade,
     schema_registry_service: InMemorySchemaRegistry,
@@ -655,6 +717,15 @@ def _register_infra_lifecycle(
     core_facade.add_startup_task(
         infra_warm_instances, critical=settings.is_prod, phase="infra"
     )
+
+    async def infra_model_schema() -> None:
+        """A database that takes its schema from the models (SQLite) gets
+        it now, every module declared; one whose tables differ from the
+        models refuses to start, or is set aside and built fresh under
+        ``sandloom dev run`` (SANDLOOM-B028)."""
+        await ensure_model_schemas(infra, Base.metadata)
+
+    core_facade.add_startup_task(infra_model_schema, critical=True, phase="infra")
 
     if strict_profile_active(settings):
 

@@ -111,7 +111,9 @@ deprecation period of Decision 2 is dropped:
   `command_dedupe_below_retry_horizon`, `saga_horizon_beyond_command_dedupe`
   — the last one added by ADR-0008 — and `log_links_in_prod`, added on
   2026-11-03 with `NOTIFIER_LOG_LINKS`, which prints the links an email
-  carries for local development).
+  carries for local development, and `development_database_in_prod`, added on
+  2026-11-04 with the SQLite database (SANDLOOM-B029; the strict profile
+  refuses it even when accepted).
 - The *migration* tier and its "deprecated value" reporting are gone: every
   setting is *semantic* or *ops*. The RPC auth settings kept semantic above
   are removed too (`RPC_AUTH_MODE`, `RPC_RESPONSE_BINDING`; ADR-0004

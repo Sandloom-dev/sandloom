@@ -105,6 +105,7 @@ __all__ = [
     "conflict_insert",
     "conflict_insert_for",
     "dialect_name",
+    "development_only",
     "dialect_of_url",
     "for_update_for",
     "greatest",
@@ -120,6 +121,7 @@ __all__ = [
     "renderer_features",
     "row_security_for",
     "row_security_of_url",
+    "schema_from_models",
     "search_index",
     "skips_locked_rows",
     "sql_dialect",
@@ -372,6 +374,18 @@ class SqlDialect(Protocol):
     Required: ``contract_version``, ``name``, ``minimum_server_version``,
     :meth:`features` and :meth:`classify_error`. A form method returns
     ``None`` for a form its database cannot write.
+
+    Optional facts, read with their default when absent
+    (:func:`schema_from_models`, :func:`development_only`):
+
+    * ``schema_from_models: bool`` (default ``False``): the database takes
+      its schema from the models (``metadata.create_all`` at startup), not
+      from the migration chains; ``sandloom migrate`` refuses it and a file
+      whose tables lag the models refuses to start (SANDLOOM-B028);
+    * ``development_only: bool`` (default ``False``): the database serves
+      development and tests; in production it needs the accepted risk
+      ``development_database_in_prod`` and the strict profile refuses it
+      (SANDLOOM-B029).
     """
 
     #: The contract major the renderer implements (2).
@@ -626,6 +640,19 @@ def renderer_features(dialect: str) -> frozenset[str]:
     if renderer is None:
         return frozenset()
     return frozenset(renderer.features()) & RENDERER_FEATURES
+
+
+def schema_from_models(dialect: str) -> bool:
+    """The renderer of ``dialect`` says its database takes its schema from
+    the models, not the migration chains (SANDLOOM-B028). ``False`` without
+    a renderer."""
+    return bool(getattr(sql_dialect(dialect), "schema_from_models", False))
+
+
+def development_only(dialect: str) -> bool:
+    """The renderer of ``dialect`` says its database serves development and
+    tests only (SANDLOOM-B029). ``False`` without a renderer."""
+    return bool(getattr(sql_dialect(dialect), "development_only", False))
 
 
 def skips_locked_rows(bind: Any) -> bool:

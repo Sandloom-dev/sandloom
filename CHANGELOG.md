@@ -29,6 +29,30 @@ website renders this same changelog.
 
 ### Added
 
+- **An application starts on a SQLite file** (slice 8b of the database
+  capability). `DATABASE_URL` and `DATABASE_SYSTEM_URL` accept any
+  `<dialect>+<dbapi>://` URL, such as `sqlite+aiosqlite:///var/app.db`; startup
+  refuses a dialect without a renderer, a DBAPI SQLAlchemy does not know and a
+  synchronous DBAPI (SANDLOOM-B024). A database whose renderer says
+  `schema_from_models` (SQLite) takes its schema from the models: the app runs
+  `metadata.create_all` over every mapped table at startup, and a worker does
+  too (`DatabaseProvider.ensure_model_schema`, default no-op). `create_all`
+  never alters a table: a file whose columns, nullability, indexes or unique
+  constraints differ from the models stops startup naming each difference
+  (SANDLOOM-B028, new). Only the new ops setting
+  `DB_RECREATE_ON_MODEL_CHANGE=true`, which `sandloom dev run` sets for the app
+  it serves, sets such a file aside instead (renamed
+  `<file>.stale-<UTC time>` with its WAL; nothing dropped) and builds a fresh
+  one; a worker never does, production ignores it.
+  `sandloom migrate` refuses such a database (B028; `migrate databases` still
+  lists). A renderer that says `development_only` (SQLite) stops a production
+  process unless it accepts the new risk `development_database_in_prod`, and
+  the strict profile refuses it always (SANDLOOM-B029, new).
+  `DATABASE_SYSTEM_URL` on a database without row security is refused instead
+  of ignored (SANDLOOM-B026), and every system URL (`DATABASE_SYSTEM_URL`, an
+  instance's `system_url`) gets B024's checks too. The platform's modules (identity, tenancy,
+  billing, admin) start on SQLite and serve requests; the test harness on
+  SQLite is next (slice 8c).
 - **Modules write no SQL dialect** (SANDLOOM-C028). `sandloom check` fails on a
   `sqlalchemy.dialects` import in module code (also `sa.dialects...` and dialect
   options such as `postgresql_where=`; migrations are exempt). `sandloom.sdk.data`
@@ -227,8 +251,7 @@ website renders this same changelog.
   `transaction_options` for a snapshot unit when `snapshot_reads` is declared;
   a per-statement read unit may begin like the snapshot one only when the
   test sets `read_units_share_one_snapshot` (SQLite). The
-  kernel names a database at 5 sites, down from 6. `DATABASE_URL` still accepts
-  only PostgreSQL (slice 8b).
+  kernel names a database at 5 sites, down from 6.
 - **Time columns read back in UTC on every database** (SANDLOOM-C029, new).
   `sandloom check` flags a bare `DateTime(timezone=True)` (also
   `DateTime(True)` and `TIMESTAMP(timezone=True)`) in module code outside

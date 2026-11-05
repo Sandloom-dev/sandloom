@@ -667,6 +667,17 @@ class DatabaseProvider(InfraProvider):
         """
         return None
 
+    async def ensure_model_schema(
+        self, metadata: Any = None, *, recreate: bool
+    ) -> bool:
+        """Build the schema of ``metadata`` (the mapped tables; ``None``: every
+        table the driver's models map) when this
+        database takes its schema from the models instead of the migration
+        chains; refuse one whose tables differ from the models, or recreate
+        it with ``recreate`` (SANDLOOM-B028). Called once at startup. False
+        (the default): the migration chains own this database's schema."""
+        return False
+
     def execution_adapter(self) -> Any:
         """PROTOTYPE: the execution-planner adapter of this database.
 

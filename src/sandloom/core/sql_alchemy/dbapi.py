@@ -28,8 +28,9 @@ from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import exc
+from sqlalchemy.engine import make_url
 
-from sandloom.core.sql_alchemy.portable import is_error_kind
+from sandloom.core.sql_alchemy.portable import is_error_kind, unrendered_dialect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.sql_alchemy.portable import RowSecurity, SqlDialect
@@ -281,9 +282,48 @@ def dbapi_adapter_of(bind: Any) -> DbapiAdapter:
 
 
 def dbapi_config_problem(url: str) -> str | None:
-    """:meth:`DbapiAdapter.config_problem` of the adapter ``url``'s DBAPI
-    (startup asks it for every configured database, build-free)."""
-    return dbapi_adapter(dbapi_of_url(url)).config_problem(url)
+    """:meth:`DbapiAdapter.config_problem` of the adapter ``url``'s DBAPI,
+    then :func:`async_dbapi_problem` (startup asks it for every configured
+    database, build-free)."""
+    return dbapi_adapter(dbapi_of_url(url)).config_problem(url) or async_dbapi_problem(
+        url
+    )
+
+
+def async_dbapi_problem(url: str) -> str | None:
+    """The DBAPI ``url`` names is not one SQLAlchemy knows for its dialect,
+    or is not async (the driver builds async engines only), stated with
+    SANDLOOM-B024; ``None`` otherwise, and for a dialect without a SQL
+    dialect renderer (:func:`~sandloom.core.sql_alchemy.portable.unrendered_dialect`
+    refuses that one). Build-free: loads the dialect class, opens nothing."""
+    try:
+        parsed = make_url(url)
+    except exc.ArgumentError:
+        return f"{_masked(url)} is not a database URL [SANDLOOM-B024]"
+    if unrendered_dialect(url) is not None:
+        return None
+    try:
+        dialect = parsed.get_dialect()
+    except exc.NoSuchModuleError:
+        return (
+            f"{_masked(url)}: SQLAlchemy has no DBAPI "
+            f"{parsed.get_driver_name()!r} for {parsed.get_backend_name()!r} "
+            "[SANDLOOM-B024]"
+        )
+    if not getattr(dialect, "is_async", False):
+        return (
+            f"{_masked(url)} names the synchronous DBAPI "
+            f"{parsed.get_driver_name()!r}; the sqlalchemy driver needs an "
+            "async one [SANDLOOM-B024]"
+        )
+    return None
+
+
+def _masked(url: str) -> str:
+    try:
+        return repr(make_url(url).render_as_string(hide_password=True))
+    except exc.ArgumentError:
+        return "the database URL"
 
 
 def dbapi_of_url(url: str) -> str:
@@ -305,6 +345,7 @@ __all__ = [
     "DbapiAdapter",
     "InvalidDbapiAdapter",
     "MergedBegin",
+    "async_dbapi_problem",
     "dbapi_adapter",
     "dbapi_adapter_of",
     "dbapi_config_problem",

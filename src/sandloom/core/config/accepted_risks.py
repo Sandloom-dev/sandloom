@@ -110,6 +110,15 @@ RISKS: tuple[Risk, ...] = (
         refused=frozenset({"prod_strict"}),
     ),
     Risk(
+        "development_database_in_prod",
+        "A database for development and tests (SQLite) in prod: one file on "
+        "one host, no row security, no replication, its schema from the "
+        "models with no migration path.",
+        "startup configuration check "
+        "(sandloom.core.app_factory.development_database_config_problem)",
+        refused=frozenset({"prod_strict"}),
+    ),
+    Risk(
         "relay_disabled",
         "OUTBOX_RELAY_ENABLED=off in a prod app process: no relay retries the "
         "outbox, so delivery degrades from at-least-once to the post-commit "

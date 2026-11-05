@@ -54,6 +54,7 @@ def test_accepted_risk_ids_are_pinned() -> None:
     deliberate change of this list, ADR-0006 and the ledger."""
     assert sorted(RISK_IDS) == [
         "command_dedupe_below_retry_horizon",
+        "development_database_in_prod",
         "experimental_capability",
         "fake_psp_in_prod",
         "local_storage_in_prod",

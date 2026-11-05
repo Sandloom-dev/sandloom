@@ -199,6 +199,16 @@ a dev/repair tool (refused in prod without `--force` plus the accepted risk
 publishes events owns its own transactional outbox; the audit log lives in the
 database of the active Unit of Work.
 
+A SQLite database runs no migration chain. `sandloom migrate` refuses it
+([SANDLOOM-B028](../reference/error-codes.md#sandloom-b028)). The app builds
+its schema from the models at startup. The app and the worker refuse a file
+whose tables differ from the models. Only `DB_RECREATE_ON_MODEL_CHANGE=true`
+sets such a file aside, as `<file>.stale-<UTC time>`. `sandloom dev run` sets
+it, and production ignores it. A production process refuses SQLite without the accepted risk
+`development_database_in_prod`, and the strict profile refuses it always
+([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029);
+[Database](../infrastructure/database.md#the-schema-comes-from-the-models)).
+
 ## Events: outbox relay and dead letters
 
 What the outbox and its relay guarantee:

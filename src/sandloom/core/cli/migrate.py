@@ -55,6 +55,7 @@ from sandloom.core.migrations.migrations import (
     ensure_database,
     list_database_instances,
     migration_lock,
+    migration_path_problem,
     resolve_database_sync_url,
     revision_module,
     run_core_upgrade,
@@ -442,6 +443,11 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI wr
     # SystemExit carrying the reason), also for the commands that never
     # build the application.
     enforce_configuration(settings)
+    if args.cmd != "databases":
+        refusal = migration_path_problem()
+        if refusal is not None:
+            print(refusal, file=sys.stderr)
+            return 2
 
     # Migration failures must produce a non-zero exit code: CI/CD treats 0
     # as "deploy may proceed". _load_core() runs load_modules(), which raises

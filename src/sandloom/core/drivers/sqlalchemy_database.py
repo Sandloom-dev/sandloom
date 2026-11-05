@@ -37,6 +37,7 @@ from sqlalchemy.pool import NullPool, StaticPool
 import sandloom.core.observability.metrics as _metrics
 import sandloom.core.runtime as _runtime
 import sandloom.core.sql_alchemy.driver_compat as _driver_compat
+import sandloom.core.sql_alchemy.model_schema as _model_schema
 import sandloom.core.sql_alchemy.planner_adapter as _planner_adapter
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.uow import UnitOfWorkContract
@@ -47,6 +48,7 @@ from sandloom.core.drivers.dbapi_aiosqlite import (
     SqliteUnavailable,
     in_memory,
     is_sqlite_url,
+    set_aside_database_file,
     sqlite_url_problem,
 )
 from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG
@@ -60,6 +62,7 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     RequestLogStore,
 )
+from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.command_log import sql_alchemy_command_log_store
 from sandloom.core.sql_alchemy.dbapi import (
     CONNECTION_RECOVERY,
@@ -76,8 +79,10 @@ from sandloom.core.sql_alchemy.outbox_store import (
 )
 from sandloom.core.sql_alchemy.portable import (
     check_server_version,
+    dialect_name,
     dialect_of_url,
     renderer_features,
+    schema_from_models,
 )
 from sandloom.core.sql_alchemy.reconnect import install_reconnect_backoff
 from sandloom.core.sql_alchemy.request_log import sql_alchemy_request_log_store
@@ -371,6 +376,36 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
 
             factory = self._contract_factory = _factory
         return factory
+
+    async def ensure_model_schema(
+        self, metadata: Any = None, *, recreate: bool
+    ) -> bool:
+        """Build the schema of ``metadata`` here when this database takes its
+        schema from the models (its renderer's ``schema_from_models``:
+        SQLite); ``None``: every mapped table. A database whose tables
+        differ from the models refuses (SANDLOOM-B028); with ``recreate``
+        its file is set aside (``<file>.stale-<UTC time>``, nothing dropped)
+        and a fresh one built.
+        The engine's pool is released afterwards, so no connection opened on
+        this event loop outlives it (a worker forks after). False: this
+        database runs the migration chains, nothing was done."""
+        if not schema_from_models(dialect_name(self._engine)):
+            return False
+        url = self._engine.url
+
+        async def set_aside() -> str:
+            return set_aside_database_file(url)
+
+        try:
+            await _model_schema.ensure_model_schema(
+                self._engine,
+                Base.metadata if metadata is None else metadata,
+                where=f"database/{self.name} ({url.database})",
+                set_aside=set_aside if recreate else None,
+            )
+        finally:
+            await self._engine.dispose()
+        return True
 
     async def aopen(self) -> None:
         """Verify the RLS role setup at startup (``tenant_rls`` instances only).

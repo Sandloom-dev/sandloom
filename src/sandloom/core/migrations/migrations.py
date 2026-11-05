@@ -68,6 +68,7 @@ from sandloom.core.sql_alchemy.portable import (
     dialect_of_url,
     lock_statement_for,
     optional_lock_statement_for,
+    schema_from_models,
     unlock_statement_for,
 )
 
@@ -174,6 +175,26 @@ def list_database_instances() -> dict[str, str]:
         if isinstance(raw, str) and raw:
             result[name] = to_sync_url(raw)
     return result
+
+
+def migration_path_problem() -> str | None:
+    """The configured databases that take their schema from the models and
+    run no migration chain (SQLite, SANDLOOM-B028), as the refusal of
+    ``sandloom migrate``; ``None``: every database has a migration path."""
+    found = sorted(
+        f"database/{name} ({dialect_of_url(url)})"
+        for name, url in list_database_instances().items()
+        if schema_from_models(dialect_of_url(url))
+    )
+    if not found:
+        return None
+    return (
+        f"sandloom migrate: {', '.join(found)} take(s) the schema from the "
+        "models, not from the migration chains [SANDLOOM-B028]: the app "
+        "builds it at startup (create_all, never altering a table; recreate "
+        "the file after a model change). Write and apply a module's "
+        "migrations against a PostgreSQL DATABASE_URL"
+    )
 
 
 def resolve_database_sync_url(name: str = "default") -> str:

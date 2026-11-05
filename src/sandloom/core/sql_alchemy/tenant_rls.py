@@ -221,14 +221,20 @@ def row_security_problem(
     renderer with :meth:`~sandloom.core.sql_alchemy.portable.SqlDialect.row_security`,
     for the instance's ``url`` and for the system channel's URL (the
     ``system_url`` option, else ``system_url=``: the default instance's
-    ``DATABASE_SYSTEM_URL``). A database without a renderer at all is
-    SANDLOOM-B024's refusal.
+    ``DATABASE_SYSTEM_URL``). ``system_url=`` alone (``DATABASE_SYSTEM_URL``
+    set) is refused too on a database without row security: the system
+    channel's role has nothing to bypass there. A database without a
+    renderer at all is SANDLOOM-B024's refusal.
     """
     get = getattr(options, "get", None)
     if get is None:
         return None
     asked = ("tenant_rls", "system_url", "require_system_channel")
     wanted = [option for option in asked if get(option)]
+    if not wanted and system_url and _lacks_row_security(str(url)) is not None:
+        # DATABASE_SYSTEM_URL names a privileged role of a database that has
+        # no roles to separate (SQLite): said, never silently ignored.
+        wanted = ["DATABASE_SYSTEM_URL"]
     if not wanted:
         return None
     channel = get("system_url") or system_url

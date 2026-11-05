@@ -37,6 +37,7 @@ import asyncio
 import importlib.util
 import weakref
 from collections.abc import MutableMapping
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -146,6 +147,32 @@ def sqlite_url_problem(url: Any, *, allow_memory: bool = False) -> str | None:
             "sqlite+aiosqlite:///<path>.db [SANDLOOM-B032]"
         )
     return None
+
+
+#: The files beside a SQLite database in WAL mode, moved with it.
+_COMPANIONS = ("", "-wal", "-shm", "-journal")
+
+
+def set_aside_database_file(url: Any, *, now: datetime | None = None) -> str:
+    """Rename the SQLite database file of ``url`` and its WAL, shared-memory
+    and journal files to ``<file>.stale-<UTC time>`` (``-wal`` etc. kept as
+    suffixes, so the stale file still opens with its WAL), and return the
+    new path. Nothing is deleted. The caller disposes every connection to it
+    first (SANDLOOM-B028)."""
+    database = make_url(str(url)).database
+    if not database or in_memory(url):
+        raise SqliteUnavailable(
+            "only a database file can be set aside, not an in-memory "
+            "database [SANDLOOM-B028]"
+        )
+    path = Path(database).resolve()
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S.%fZ")
+    stale = path.with_name(f"{path.name}.stale-{stamp}")
+    for suffix in _COMPANIONS:
+        source = Path(f"{path}{suffix}")
+        if source.exists():
+            source.rename(f"{stale}{suffix}")
+    return str(stale)
 
 
 def _connect(pragmas: tuple[str, ...], dbapi_connection: Any, _record: Any) -> None:
@@ -281,5 +308,6 @@ __all__ = [
     "aiosqlite_installed",
     "in_memory",
     "is_sqlite_url",
+    "set_aside_database_file",
     "sqlite_url_problem",
 ]
