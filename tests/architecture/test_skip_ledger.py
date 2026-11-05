@@ -193,3 +193,41 @@ def test_the_examples_write_postgresql_ledgers_with_the_lanes_base():
         )
         for s in jobs["examples"]["steps"]
     )
+
+
+#: The kernel suites the SQLite lane runs (their guarantees are stated for
+#: serial writers: G-UOW-09, G-CMD-01, G-SAGA-07).
+KERNEL_ON_SQLITE = (
+    "src/sandloom/core/tests/test_sagas_protocol.py",
+    "src/sandloom/core/tests/test_sagas_recovery.py",
+    "tests/laws/test_saga_laws.py",
+    "src/sandloom/core/tests/test_sqlite_nested_units.py",
+    "src/sandloom/core/tests/test_nesting_policy.py",
+    "tests/integration/test_durable_command_idempotency.py",
+)
+
+
+def test_the_sqlite_lane_runs_the_kernel_suites_with_their_postgresql_side():
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    step = next(
+        s
+        for s in jobs["second-db-test-lane"]["steps"]
+        if "skip-ledger/sqlite-kernel.json" in str(s.get("run", ""))
+    )
+    run = str(step["run"])
+    assert "--sandloom-skip-ledger-lane=sqlite" in run
+    assert '-m "not slow"' in run
+    assert step["env"]["SANDLOOM_TEST_DATABASE_URL"].startswith("sqlite+aiosqlite:///")
+    for path in KERNEL_ON_SQLITE:
+        assert path in run.split(), path
+        assert (ROOT / path).is_file(), path
+    # the PostgreSQL side: backend-tests runs the whole suite (no paths), so
+    # every one of these files has a ledger entry on both lanes
+    full = next(
+        s
+        for s in jobs["backend-tests"]["steps"]
+        if "--sandloom-skip-ledger-lane=postgresql" in str(s.get("run", ""))
+    )
+    assert not any(a.endswith(".py") or "/tests" in a for a in str(full["run"]).split())

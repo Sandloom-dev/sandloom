@@ -749,6 +749,35 @@ reason is recorded here; this section supersedes the text it names.
 - **A13 — the worked example** is a new app, `examples/academy` (payments,
   notifications, enrollment); its saga reserves the seat in a local
   compensatable step first, so a refused charge cancels the seat.
+- **A14 — the started marker and `marked` (§6, §7; amendment of 2026-11-05).**
+  A forward command step's first call writes a durable "started" marker
+  (`saga_steps`, status `started`) in its own unit before the call. A crash
+  after the provider committed rolls the transition back, and the marker is
+  then the only trace that the step may have applied: the deadline resolves
+  it before compensating (G-SAGA-11), and past the dedupe TTL it is parked,
+  never re-issued (G-SAGA-12). A marker found by a later transition is
+  adopted as a counted transient attempt from its own time.
+  On a serial-writer database (SQLite) the marker's unit joins the
+  transition (G-UOW-09). For a provider on the same database instance that
+  is all or nothing (G-SAGA-07): the effect, its dedupe record, the marker
+  and the step's state commit or roll back together, so §6's row "crash
+  after the provider committed, before our commit" cannot occur there; a
+  crash loses all of them and the re-drive runs the step once. For a
+  provider that commits on its own (over RPC, on another database
+  instance), the transition first commits with the marker alone
+  (`marked`: version + 1, a nudge) and, once that COMMIT is done, runs the
+  next transition at once in a fresh unit (an `on_commit` callback; the
+  nudge is the fallback). That transition re-locks the row at the version
+  the marked one committed and takes over its own marker uncounted (the
+  first call is attempt 1). Only a crash between the two commits leaves a
+  marker without a call, as on PostgreSQL between the marker's commit and
+  the call; the redelivered nudge then adopts it as a counted attempt.
+  Which case applies is read from facts the runtime has (the nesting policy
+  of each unit's database, whether the contract is local), never from the
+  dialect. PostgreSQL never takes the `marked` path. This supersedes §6's
+  pseudo-code for these steps and adds to §6's failure table: "crash after
+  the marker, before the call: the re-drive adopts the marker as a counted
+  attempt and calls with the same key".
 
 ### Measurements (Consequences)
 

@@ -294,9 +294,11 @@ proves that local and in-process RPC calls agree. See the
       and per-request memo; no idempotency record.
     - **Commands (G-CMD-01 to 09, G-CONTRACT-03).** The dedupe record
       `(contract, method, bound tenant, calling end user, key) -> (args
-      digest, status, result)` is claimed in the command's own unit before
-      the body runs and commits iff the effect commits, so a retry after a
-      crash past COMMIT replays the result and never re-runs. The calling end
+      digest, status, result)` is claimed in the same transaction as the
+      command's effect before the body runs and commits iff the effect
+      commits: the command's own unit, or on SQLite the caller's transaction
+      a local command joins (G-UOW-09). A retry after a crash past that
+      COMMIT replays the result and never re-runs. The calling end
       user (the request's subject, or the signed caller facts of an RPC call) is in
       the scope because the body authorizes it: another user reusing the key
       runs the body and gets its own decision, never the stored result

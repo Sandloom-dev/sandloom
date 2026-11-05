@@ -220,25 +220,29 @@ connection and commits on its own, before its caller. On SQLite that second
 writer would wait for its own caller's write lock until `busy_timeout`.
 
 The renderer says `serial_writers`. So the Unit of Work runs the inner unit on
-the caller's connection, inside a `SAVEPOINT`. It does so when the caller is a
-unit of the same task and database instance that holds the write lock:
+the caller's connection, inside a `SAVEPOINT` (G-UOW-09). The caller is a unit
+of the same task and database instance. It has already run a statement, so
+it holds the write lock:
 
 - **The inner unit's commit releases its savepoint.** It is not durable on its
-  own: the caller's `COMMIT` commits it, and the caller's rollback undoes its
-  rows, its outbox events and its command-log record. A savepoint the caller
-  rolls back around the call undoes it too, when the caller had already run a
-  statement before the call. A caller takes the write lock at its first
-  statement (a test's `db` session at its first write). A `begin_nested()`
-  opened before any statement takes no lock: the call then commits on its
-  own, as on PostgreSQL, and rolling that savepoint back does not undo it.
+  own: the caller's `COMMIT` commits it. The caller's rollback undoes its
+  rows and outbox events, with its command-log record. Rolling back a
+  savepoint around the call undoes it too, if the caller ran a statement
+  before the call. The caller takes the write lock at its first statement (a
+  test's `db` session at its first write). Opened before any statement,
+  `begin_nested()` takes no lock. The call then commits on its own, as on
+  PostgreSQL, and rolling that savepoint back does not undo it.
 - **Its failure rolls back to the savepoint.** The caller goes on, as after
   an independent unit that failed.
 - **Its post-commit stages wait for the caller's `COMMIT`.** The outbox
   dispatch, its `on_commit` callbacks and a command's amended record run
   after the caller commits, and never when it rolls back.
 - **A retry runs the command again.** The command-log record went with the
-  caller. A saga step "committed" before a later failure vanishes the same
-  way; the saga redrives it with the same key.
+  caller, and so did the command's effect. The record still commits exactly
+  when the effect commits (G-CMD-01). For a saga step, the step's state joins
+  them in that one transaction. A crash loses them together or keeps them
+  together. The saga redrives a lost step with the same key and runs it once
+  (G-SAGA-07).
 
 This weakens contract atomicity (ADR-0005) on SQLite only. The guarantee
 lattice labels it "commits with the caller". Startup logs one warning per
@@ -246,7 +250,8 @@ such database.
 
 Some units keep their own transaction: one on another database instance, a
 read-only one (a read contract's included), and a remote (RPC) provider's. A caller that has not written
-yet holds no lock. The inner unit then commits on its own, as on PostgreSQL.
+yet holds no lock, even inside an early `begin_nested()`. The inner unit then
+commits on its own, as on PostgreSQL.
 
 The unit a request's local read contracts share is read-only on SQLite. It
 reads without the write lock, and the request's own write units never wait

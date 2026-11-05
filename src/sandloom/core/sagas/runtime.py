@@ -14,6 +14,17 @@ owning module's database::
     publish <module>.saga_advance.v1 (if more to do now)   # outbox
     commit
 
+A forward command step's first call writes a durable "started" marker
+before the call (``saga_steps``, its own unit). Where that unit joins the
+transition (a serial-writer database: SQLite) and the provider commits on
+its own (over RPC, on another database instance), the transition commits
+with the marker alone (``marked``: version + 1, a nudge) and, once that
+COMMIT is done, runs the next transition at once in a fresh unit (the
+nudge is the fallback): the marker is durable before the provider can
+commit, and only a crash between the two leaves a marker without a call,
+as on PostgreSQL. That transition takes over its own marker uncounted; a
+marker found after a crash or a redelivery is a counted transient attempt.
+
 The instance row lock is held across ONE step call (bounded by the RPC
 timeout or the contract pool's ``lock_timeout``); the call itself runs on the
 contract pool or in another process, never on this connection, and the
@@ -38,6 +49,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -46,6 +58,7 @@ from pydantic_core import to_jsonable_python
 import sandloom.core.observability.metrics as _metrics
 import sandloom.core.observability.request_context as _request_context
 import sandloom.core.observability.tracing as _tracing
+import sandloom.core.sql_alchemy.nesting as _nesting
 import sandloom.core.sql_alchemy.saga_store as _store
 from sandloom.core.descriptors import (
     BACKWARD,
@@ -78,6 +91,7 @@ from sandloom.core.unit_of_work.effects import (
     publish_event,
     record_audit,
 )
+from sandloom.core.unit_of_work.hooks import on_commit
 from sandloom.core.unit_of_work.scope import _resolve_scoped_session
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -92,6 +106,10 @@ NOOP_LOCKED = "noop:locked"
 NOOP_STALE = "noop:stale"
 NOOP_EARLY = "noop:early"
 ADVANCED = "advanced"
+#: The step's "started" marker committed alone, before its call (a marker
+#: that would otherwise commit with the transition, for a provider that
+#: commits on its own); the next delivery makes the call.
+MARKED = "marked"
 RETRY_SCHEDULED = "retry"
 PARKED = "parked"
 
@@ -341,11 +359,14 @@ class SagaRuntime:
         expected_version: int,
         *,
         tenant: _store.TenantFilter,
+        own_marker: bool = False,
     ) -> str:
         """Run at most one transition of ``instance_id`` (see the module doc).
 
         ``tenant`` (a nudge's): an instance of another tenant is never moved
-        (the nudge is a no-op, as under tenant RLS)."""
+        (the nudge is a no-op, as under tenant RLS). ``own_marker``: the
+        transition right after this process's ``marked`` one, at the version
+        it committed (:meth:`continue_after_mark`)."""
         row = await _store.lock_instance(session, instance_id, tenant=tenant)
         if row is None:
             return NOOP_LOCKED
@@ -355,7 +376,48 @@ class SagaRuntime:
         with _tenant_scope(row.tenant_id):
             if reg is None:
                 return await _park_unknown(session, row, self.now())
-            return await _Transition(self, session, reg, row, self.now()).run()
+            transition = _Transition(self, session, reg, row, self.now())
+            transition.own_marker = own_marker
+            return await transition.run()
+
+    async def continue_after_mark(
+        self,
+        reg: RegisteredSaga,
+        instance_id: uuid.UUID,
+        version: int,
+        tenant: uuid.UUID | None,
+    ) -> str:
+        """The transition after a ``marked`` one, run as soon as its COMMIT is
+        done (an ``on_commit`` callback), in a fresh unit: it re-locks the row
+        and runs only if nothing moved it since (the version the marked
+        transition committed), so its marker is this process's own. The
+        nudge the marked transition published is the fallback."""
+        with _tenant_scope(tenant):
+            async with db_session(reg.database) as session:
+                return await self.advance(
+                    session,
+                    instance_id,
+                    version,
+                    tenant=tenant,
+                    own_marker=True,
+                )
+
+
+def _nesting_host(core: Any, database: str) -> Any:
+    """The open unit a write unit on ``database`` would join now (a
+    serial-writer database whose write lock this task's unit holds), or
+    ``None``: it would commit on its own."""
+    getter = getattr(core, "database", None)
+    if not callable(getter):
+        return None
+    try:
+        provider = getter(database)
+    except (AttributeError, LookupError, RuntimeError, TypeError, ValueError):
+        return None
+    factory = getattr(provider, "session_factory", None)
+    if factory is None:
+        return None
+    return _nesting.savepoint_host(factory)
 
 
 def parse_nudge(envelope: Mapping[str, Any]) -> tuple[uuid.UUID, int, uuid.UUID | None]:
@@ -485,6 +547,9 @@ class _Transition:
         self.reg = reg
         self.row = row
         self.now = now
+        #: the marker of this step is the one the previous transition of this
+        #: process just committed (taken over uncounted)
+        self.own_marker = False
 
     @property
     def definition(self) -> Saga[Any]:
@@ -558,7 +623,24 @@ class _Transition:
         step = self._current()
         direction = self._direction()
         if row.attempt == 0 and direction == FORWARD and isinstance(step, CommandStep):
-            await self._claim_start(step)
+            fresh = await self._claim_start(step)
+            if fresh and self._marker_commits_after_the_provider(step):
+                # The marker must be durable BEFORE the provider can commit:
+                # commit it with this transition, and call in the next one,
+                # which adopts it as a counted attempt.
+                row.next_attempt_at = self.now
+                await self.commit(nudge=True)
+                await on_commit(
+                    partial(
+                        self.runtime.continue_after_mark,
+                        self.reg,
+                        row.id,
+                        row.version,
+                        row.tenant_id,
+                    ),
+                    database=self.reg.database,
+                )
+                return MARKED
         if (
             isinstance(step, CommandStep)
             and row.attempt > 0
@@ -583,7 +665,25 @@ class _Transition:
         await self._record_step(call, outcome, elapsed)
         return await self._apply(step, direction, outcome, result)
 
-    async def _claim_start(self, step: CommandStep) -> None:
+    def _marker_commits_after_the_provider(self, step: CommandStep) -> bool:
+        """The started marker just written commits with this transition (its
+        unit joined the transition's transaction: a serial-writer database),
+        while the step's provider commits on its own (a provider over RPC, or
+        on another database instance). A crash after the provider committed
+        would then lose the marker, and with it the only trace that the step
+        may have applied. Facts, never the dialect: the policy each unit
+        would get from the database it opens on."""
+        core = self.runtime.core
+        if _nesting_host(core, self.reg.database) is None:
+            return False  # the marker committed on its own (PostgreSQL)
+        contract = str(step.call).rsplit(".", 1)[0]
+        local = getattr(core, "local_contract", None)
+        if not callable(local) or local(contract) is None:
+            return True  # a remote provider commits on its own
+        database = getattr(core, "contract_database", lambda _name: "default")
+        return _nesting_host(core, database(contract)) is None
+
+    async def _claim_start(self, step: CommandStep) -> bool:
         """Durably record, BEFORE the provider can commit, that this forward
         command step is being called (its own short transaction): a crash
         after the provider committed rolls this transition back, and only
@@ -593,7 +693,9 @@ class _Transition:
         call whose transition rolled back; or a transient attempt) is that
         call: it is adopted as a counted transient attempt from the marker's
         own time, so the post-TTL guard parks it instead of re-issuing the
-        command once the dedupe record may be gone (G-SAGA-12)."""
+        command once the dedupe record may be gone (G-SAGA-12).
+
+        ``True`` when this call wrote the marker (none existed)."""
         row = self.row
         async with db_session(self.reg.database) as marker:
             existing = await _store.mark_step_started(
@@ -613,18 +715,24 @@ class _Transition:
                 },
             )
         if existing is None:
-            return
+            return True
+        if self.own_marker and existing["status"] == "started":
+            # the marker the previous transition of this process committed
+            # right before: no call has been made under it, the first call is
+            # this one (attempt 1, its own first-attempt time)
+            return False
         unknown = existing["status"] == "started" or (
             existing["outcome"] == Outcome.TRANSIENT
         )
         first = existing["first_attempt_at"]
         if not unknown or first is None:
-            return
+            return False
         row.attempt = 1
         row.last_outcome = Outcome.TRANSIENT
         row.step_first_attempt_at = first
         if step.deadline is not None and row.step_deadline_at is None:
             row.step_deadline_at = first + step.deadline
+        return False
 
     def _step_call(self, step: SagaStep, direction: Direction) -> StepCall:
         row = self.row
@@ -972,6 +1080,7 @@ def _annotate(span: Any, row: InstanceRow, call: StepCall) -> None:
 
 __all__ = [
     "ADVANCED",
+    "MARKED",
     "NOOP_EARLY",
     "NOOP_LOCKED",
     "NOOP_STALE",

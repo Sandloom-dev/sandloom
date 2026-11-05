@@ -411,12 +411,12 @@ A test still running after 300 s dumps every thread's stack
 (`faulthandler_timeout` in the generated `pyproject.toml`).
 
 On SQLite the units a test's code opens nest in the `db` session once it
-wrote. That holds for the test's task and the tasks it starts. A task started
-in a fresh context (the in-memory bus delivering an event to a consumer, the
-post-commit dispatcher) does not nest: its unit waits for the `db` session's
-write lock like any other writer, so a consumer that writes runs after the
-test's transaction ends, or times out while the test still holds it. Their
-deferred effects (outbox dispatch, `on_commit`) run when the
+wrote. That holds for the test's task and the tasks it starts. Two kinds of
+task start in a fresh context: the in-memory bus delivering an event to a
+consumer, and the post-commit dispatcher. Their units do not nest. Each waits
+for the `db` session's write lock like any other writer. So a consumer that
+writes runs after the test's transaction ends, or times out while the test
+still holds the lock. The nested units' deferred effects (outbox dispatch, `on_commit`) run when the
 host's unit ends. The `client` fixture's request end runs them. `db_uow`,
 `bind_test_uow` and a bare `await db.commit()` do not: assert those effects
 with `real_uow_client` or `run_on_commit`. An app that star imports

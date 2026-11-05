@@ -11,6 +11,7 @@ import asyncio
 import uuid
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select
 
 import sandloom.core.sql_alchemy.saga_store as store
@@ -18,12 +19,18 @@ from sandloom.core.module_api import ContractCallInProgress
 from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
-from sandloom.core.testing.infra import skip_unless_db_feature
+from sandloom.core.testing.infra import has_serial_writers, skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
+    DurableLedger,
     Ledger,
+    command_records,
+    committed_effects,
+    create_effect_tables,
+    durable_balance,
     enroll_input,
     enroll_saga,
     install_fakes,
+    step_status,
 )
 from sandloom.core.unit_of_work import db_session
 
@@ -91,22 +98,124 @@ async def test_crash_before_the_call_rolls_back_and_the_redrive_runs_the_step(
     assert ledger.balance == 70
 
 
-async def test_crash_after_the_provider_committed_replays_the_same_key(
-    saga_harness,
+CRASH_POINTS = ("before_the_call", "after_the_effect", "after_the_commit")
+
+
+def _one_delivery() -> Any:
+    """``stop_when`` that lets ``drive`` make exactly one delivery."""
+    seen: list[int] = []
+
+    def stop(row: Any) -> bool:
+        seen.append(row.version)
+        return len(seen) > 1
+
+    return stop
+
+
+@pytest.mark.parametrize("crash_point", CRASH_POINTS)
+async def test_a_crash_at_any_point_of_a_step_converges_without_reapplying_it(
+    saga_harness, db_engine: Any, crash_point: str
 ) -> None:
-    ledger = _ledger(saga_harness)
-    saga_harness.crash_after("charge")
+    """G-SAGA-07 and G-CMD-01 as one law per crash point, on every database.
 
-    run = await saga_harness.run(ENROLL, input=enroll_input(price=30))
+    The provider's effect (a row, :class:`DurableLedger`), its dedupe record
+    and the step's state are read as committed right after the crash, then
+    the saga is driven to the end: the step's effect is applied exactly once.
 
-    assert run.crashes == 1
-    assert run.status == "completed"
-    # re-called with the SAME key: the command log replayed the first result
-    assert run.calls[:2] == ["charge:do", "charge:do"]
-    assert run.keys[0] == run.keys[1]
-    assert len(saga_harness.fake_calls["sgbilling.credits.v1.spend"]) == 1
-    assert ledger.balance == 70
-    assert run.results["charge"] == 70
+    After the effect the two databases differ in HOW, never in the outcome,
+    and the branch follows the database's fact (``serial_writers``), not its
+    name. Where the provider commits on its own (PostgreSQL), the effect and
+    the record survive the crash and the redrive replays the same key from
+    the command log (the body never runs again). On a serial-writer database
+    the provider's unit joins the transition's transaction (G-UOW-09): a
+    provider commit independent of the caller cannot happen there, so instead
+    the crash loses the effect, the record and the step's state together and
+    the redrive runs the step once.
+
+    A crash INSIDE the provider (research §2's list) is no point of its own:
+    on a serial-writer database the provider's work rolls back with the
+    transition, as ``after_the_effect`` does there; on PostgreSQL a provider
+    that dies before its own COMMIT leaves nothing but the marker, as
+    ``before_the_call`` does (G-CMD-04 covers the killed provider itself).
+    For a provider elsewhere (RPC, another instance) see
+    ``test_sagas_recovery.py``'s ``elsewhere`` tests."""
+    await create_effect_tables(db_engine)
+    serial = has_serial_writers(db_engine)
+    ledger = DurableLedger()
+    install_fakes(saga_harness, ledger)
+    spend = "sgbilling.credits.v1.spend"
+    if crash_point == "before_the_call":
+        saga_harness.crash_before("charge")
+    elif crash_point == "after_the_effect":
+        saga_harness.crash_after("charge")
+    reg = saga_harness.register(ENROLL)
+    handle = await saga_harness.start(
+        ENROLL, saga_id=uuid.uuid4(), input=enroll_input(price=30)
+    )
+    key = f"saga:{ENROLL.saga_type}:{handle.saga_id}:charge:do"
+    before = await saga_harness.instance(reg, handle.saga_id)
+
+    first = await saga_harness.drive(ENROLL, handle.saga_id, stop_when=_one_delivery())
+    if crash_point == "after_the_commit":
+        # the transition committed, then the process died before the nudge
+        # was acknowledged: the same nudge comes again
+        assert first.crashes == 0
+        redelivered = await saga_harness.deliver(reg, before, before.version)
+        assert redelivered == saga_runtime.NOOP_STALE
+    else:
+        assert first.crashes == 1
+    at_crash = (
+        await committed_effects(db_engine, key),
+        await command_records(db_engine, spend, key),
+        await step_status(db_engine, key),
+    )
+    if crash_point == "before_the_call":
+        # nothing ran; the marker commits in its own unit where units are
+        # independent, and with the (lost) transition on a serial writer
+        assert at_crash == ([], 0, None if serial else "started")
+    elif crash_point == "after_the_commit":
+        assert at_crash == ([30], 1, "succeeded")
+    elif serial:
+        # all or nothing: the effect, its record and the step's state are lost
+        assert at_crash == ([], 0, None)
+    else:
+        # the provider committed on its own; the step's state did not
+        assert at_crash == ([30], 1, "started")
+
+    rest = await saga_harness.drive(ENROLL, handle.saga_id)
+
+    assert rest.status == "completed"
+    assert await committed_effects(db_engine, key) == [30]
+    assert await command_records(db_engine, spend, key) == 1
+    assert await step_status(db_engine, key) == "succeeded"
+    assert await durable_balance(db_engine, handle.saga_id) == 70
+    assert rest.results["charge"] == 70
+    # a provider on the transition's own instance never needs a marked one
+    assert saga_runtime.MARKED not in first.transitions + rest.transitions
+    run_calls, run_keys = first.calls + rest.calls, first.keys + rest.keys
+    executions = len(saga_harness.fake_calls[spend])
+    if crash_point == "after_the_commit":
+        assert run_calls == ["charge:do", "grant_access:do", "notify:do"]
+        assert executions == 1
+    elif crash_point == "before_the_call":
+        assert run_calls[:2] == ["charge:do", "charge:do"]
+        assert executions == 1
+        assert ledger.balance == 70
+    elif not serial:
+        # re-called with the SAME key: the command log replayed the first result
+        assert first.crashes + rest.crashes == 1
+        assert run_calls[:2] == ["charge:do", "charge:do"]
+        assert run_keys[0] == run_keys[1]
+        assert executions == 1
+        assert ledger.balance == 70
+    else:
+        # re-called with the same key: the first execution left nothing, so
+        # the body ran again and only this run committed (the in-memory
+        # ledger is not transactional and still holds the lost first run)
+        assert first.crashes + rest.crashes == 1
+        assert run_calls[:2] == ["charge:do", "charge:do"]
+        assert run_keys[0] == run_keys[1]
+        assert executions == 2
 
 
 async def test_committed_transition_redelivered_is_a_no_op(saga_harness) -> None:

@@ -451,6 +451,23 @@ website renders this same changelog.
 
 ### Changed
 
+- **Command dedupe and saga crash recovery are stated for both databases**
+  (G-CMD-01, G-SAGA-07, G-UOW-09). A command's dedupe record commits in the
+  same transaction as its effect: the provider's own unit, or on SQLite the
+  caller's transaction a local command joins. A saga step that crashed after
+  its effect committed is replayed from the command log where the provider
+  commits on its own (PostgreSQL); on SQLite the effect, its record and the
+  step's state commit together, so a crash loses all three and the redrive
+  runs the step once. G-UOW-09 now says a unit nests only inside a caller
+  that has already run a statement. The saga crash tests are laws that hold
+  on PostgreSQL and SQLite. One behaviour changed, on SQLite only: a forward
+  command step whose provider commits on its own (over RPC, or on another
+  database instance) first commits its "started" marker in a transition of
+  its own (`marked`), then calls in the next one. Before, the marker joined
+  the calling transition and a crash after the provider committed lost it,
+  so the deadline compensated without resolving the step and the post-TTL
+  guard could re-issue it. PostgreSQL is unchanged.
+
 - **An application from `sandloom new` runs on SQLite out of the box.** Its
   `dev` dependencies bring the framework's `sqlite` extra (aiosqlite), and its
   README says how: `DATABASE_URL=sqlite+aiosqlite:///./data/app.db` with

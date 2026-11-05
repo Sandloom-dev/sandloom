@@ -1294,6 +1294,7 @@ def fake_contract(
     name: str,
     *,
     idempotency_key: str = 'operation_key',
+    database: str | None = None,
     **methods: Callable[..., Any],
 ) -> type
 ```
@@ -1305,6 +1306,8 @@ Each function takes the business arguments plus the idempotency key
 `@contract_method(command=True)` — its calls go through the durable
 command log like a real provider's. `fake_calls["name.method"]`
 records the executions (a replay does not execute the body).
+`database`: the instance the provider's unit runs on (the
+registering module's, else `default`, when omitted).
 
 #### `SagaHarness.close`
 

@@ -571,6 +571,26 @@ jobs:
         env:
           SANDLOOM_TEST_DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/sandloom_test.db
 
+      - name: Kernel units, sagas and the command log on SQLite
+        # The kernel suites whose guarantees are stated for serial writers
+        # (G-UOW-09, G-CMD-01, G-SAGA-07): nested units, the saga protocol
+        # and its laws, the durable command log. backend-tests runs the same
+        # files on PostgreSQL: its ledger is this one's other lane.
+        if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' }}
+        run: >-
+          uv run pytest -q -n auto --dist loadfile --durations=10
+          --sandloom-shuffle=random -m "not slow"
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=sqlite
+          --sandloom-skip-ledger=skip-ledger/sqlite-kernel.json
+          src/sandloom/core/tests/test_sagas_protocol.py
+          src/sandloom/core/tests/test_sagas_recovery.py
+          tests/laws/test_saga_laws.py
+          src/sandloom/core/tests/test_sqlite_nested_units.py
+          src/sandloom/core/tests/test_nesting_policy.py
+          tests/integration/test_durable_command_idempotency.py
+        env:
+          SANDLOOM_TEST_DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/kernel_test.db
+
       - name: Examples' module tests on SQLite
         # Each example's own pytest configuration and .env.test, the
         # framework from this commit; keys are prefixed with the example's
