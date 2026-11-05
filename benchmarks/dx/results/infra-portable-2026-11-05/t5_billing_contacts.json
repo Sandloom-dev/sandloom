@@ -1,0 +1,72 @@
+{
+  "task": "t5_billing_contacts",
+  "label": "infra-portable-2026-11-05",
+  "ref": "56327d1",
+  "model": "claude-sonnet-5-5",
+  "mode": "app",
+  "outcome": "pass",
+  "gates": {
+    "ci: generated files": true,
+    "ci: schema & deploy": true,
+    "ci: suite (not slow)": true,
+    "ci: ruff check": true,
+    "ci: ruff format": true,
+    "ci: mypy": true,
+    "ci: sandloom check": true,
+    "ci: contract snapshots": true,
+    "ci: route snapshots": true,
+    "ci: migration drift": true,
+    "sandloom-test": true,
+    "module-tests": true
+  },
+  "fn_checks": {
+    "test_fn_model_and_routes": true,
+    "test_fn_migration_in_billing_chain": true
+  },
+  "dev_checks": {
+    "test_dev_tenant_scoped": true,
+    "test_dev_rls_enabled": true,
+    "test_dev_writes_keep_the_route_defaults": true,
+    "test_dev_writes_admin_only": true,
+    "test_dev_new_revision_not_baseline_edit": true
+  },
+  "uncaught_deviations": [],
+  "tokens_total": 912793,
+  "tokens_output": 8721,
+  "cost_usd": 0.3047787,
+  "turns": 19,
+  "tool_calls": 17,
+  "wall_min": 8.3,
+  "kernel_files_read": [],
+  "shared_files_read": [],
+  "docs_read": [],
+  "edited_outside": [
+    ".sandloom/cache/inspection-receipt.json",
+    ".sandloom/inspection.json"
+  ],
+  "edited_inside": 6,
+  "generated_files": [
+    "teamhub/modules/workspace/routes.snapshot.json"
+  ],
+  "permission_denials": 0,
+  "created_env_file": false,
+  "kernel_reads": [],
+  "outside_by_kind": {
+    "other": [
+      ".sandloom/cache/inspection-receipt.json",
+      ".sandloom/inspection.json"
+    ]
+  },
+  "framework_edits": 0,
+  "other_module_edits": 0,
+  "kind": "task",
+  "acceptance": {},
+  "footguns": {},
+  "code_changes": [],
+  "config_changes": [],
+  "modules_touched": [],
+  "app_dir": "teamhub",
+  "expected_wiring": [],
+  "pristine": "seed:teamhub",
+  "error": ""
+}

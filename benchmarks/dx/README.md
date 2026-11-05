@@ -68,7 +68,10 @@ runs of different modes (`--force-compare` turns that into a warning).
      (`.venv/…/site-packages/sandloom/core/**`, `sandloom/sdk/_*/**`,
      `sandloom/shared/{authz,guards}/**`), plus any read under the framework
      repository, recorded as `repo:<path>`.
-   - **edited outside**: paths outside the task's `<app>/modules/<name>/`,
+   - **edited outside**: paths outside the task's module(s) — a task's
+     framework-mode `allowed` (`src/sandloom/<m>/`, `src/sandloom_<m>/`) maps
+     to `<modules_path>/<m>/` of the app's `architecture_rules.yml`, and the
+     `module-tests` gate runs that directory's `tests/` —
      except the app's expected wiring, which is recorded in `expected_wiring`
      and does not count. Expected wiring is `pyproject.toml`, `.env*`,
      `deploy/`, `architecture_rules.yml`, CI, pre-commit and Docker files, the
@@ -256,6 +259,9 @@ uv run python benchmarks/dx/run_eval.py prune-slots [--dry-run]   # free finishe
 - `baseline.json` is the promoted reference run.
 
 **On a shared machine** point the runner at your own resources:
+`SANDLOOM_DX_PG=postgresql+asyncpg://<user>:<password>@localhost:5433` (the
+test PostgreSQL server, no database name; the per-task databases are created
+on it),
 `SANDLOOM_DX_REDIS=redis://localhost:6399` (the test Redis),
 `SANDLOOM_DX_REDIS_INDEXES=200-239` (where the per-task pairs come from) and
 `SANDLOOM_DX_DB_PREFIX=sandloom_test_dxapp_` (the per-task database names). In app mode

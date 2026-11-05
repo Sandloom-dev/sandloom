@@ -620,6 +620,29 @@ def tampered_framework_files(app: Path) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
+def modules_path(app: Path) -> str:
+    """The app's ``modules_path`` (``architecture_rules.yml``, as
+    ``checks/_dx.py`` reads it), app-relative; ``<app>/modules`` without one."""
+    rules = app / "architecture_rules.yml"
+    if rules.is_file():
+        m = re.search(r"^modules_path:[ \t]*([^\s#]+)", rules.read_text(), re.M)
+        if m:
+            return m.group(1).strip("\"'").rstrip("/")
+    return f"{app.name}/modules"
+
+
+def resolve_app_allowed(app_allowed: list[str], task_app: str, app: Path) -> list[str]:
+    """A task's ``app_allowed`` (``<task app>/modules/<m>/``, written with the
+    app name the task expects) mapped onto the scored app: its module paths
+    under the app's own ``modules_path``, whatever the agent named the app."""
+    prefix = f"{task_app}/modules/"
+    root = modules_path(app)
+    return [
+        f"{root}/{a.removeprefix(prefix)}" if a.startswith(prefix) else a
+        for a in app_allowed
+    ]
+
+
 def generated_re(app: str) -> re.Pattern[str]:
     """Files ``sandloom test`` (or ``uv sync``: the lock) writes in an app."""
     a = re.escape(app)
