@@ -59,7 +59,9 @@ website renders this same changelog.
   literal (`server_default=text("0")`); a test decorated with
   `skip_unless_db_feature(...)` is not reported. Reading the database's name
   (`x.dialect.name`, `dialect_name()`, `get_backend_name()`) is a finding too,
-  admitted only by the marker. Migrations are exempt; `CheckConstraint` and
+  and so is a database URL literal naming a backend (`"postgresql://"`,
+  `"postgresql+asyncpg://"`, `"sqlite+aiosqlite://"`, a
+  `create_mock_engine` of one), each admitted only by the marker. Migrations are exempt; `CheckConstraint` and
   `Computed` strings are not read. The PostgreSQL cast (`::`) in `text()` moved here from
   SANDLOOM-C028, and the marker does not admit it.
 
@@ -69,8 +71,76 @@ website renders this same changelog.
   `datetime.now(UTC)`; write raw SQL as SQLAlchemy expressions (a module test
   reads a kernel table through `sqlalchemy.table("audit_log", column(...))`),
   or mark a reviewed line. A test that asked `dialect.name` asks what it needs:
-  `has_serial_writers(db)` or `has_optimized_reads(engine)` from
-  `sandloom.sdk.testing`, or `skip_unless_db_feature(...)`.
+  `skip_unless_db_feature(...)` (a race test whose writers must overlap:
+  `skip_unless_db_feature("concurrent_writers")`) or `has_optimized_reads(engine)`
+  from `sandloom.sdk.testing`. A test that named a database URL takes the
+  configured one (`settings.database_url`) or compiles against its session's
+  dialect (`db.bind.dialect`).
+
+- **Modules write no SQL dialect** (SANDLOOM-C028, an error). `sandloom check`
+  fails on a `sqlalchemy.dialects` import in module code (also
+  `sa.dialects...`) and on dialect options such as `postgresql_where=`;
+  migrations are exempt. `sandloom.sdk.data` has the portable forms modules
+  used dialects for: `CaseInsensitiveText`, `partial_index`, `search_index`,
+  `conflict_insert(Model)` (`ConflictInsert` for annotations) and
+  `await transaction_lock(key)`; ids use `sqlalchemy.Uuid`. Each database's
+  SQL dialect renderer writes the forms, found in the `sandloom.sql_dialects`
+  entry-point group (shipped: PostgreSQL and SQLite). A form the database
+  cannot write refuses (SANDLOOM-R015), and a database without a renderer
+  stops startup (SANDLOOM-B024). On PostgreSQL every form renders the SQL the
+  modules wrote before: the schema and the migrations do not change.
+  Identity, tenancy, billing and every example use them. The kernel follows
+  the same rule: its outbox, inbox, command and HTTP idempotency stores, saga
+  store, projection upserts and watermarks, locks, row security, read-only
+  units and identity's claims all go through the renderer, and SQL functions
+  only one database has are SANDLOOM-C031's. An architecture test counts
+  every place outside the database driver that names a database (a dialect
+  import, a `dialect.name` comparison, PostgreSQL-only SQL or functions, a
+  dialect option or `dialect_options["postgresql"]`, a URL prefix test, an
+  error-code check); the count may only shrink. The final allowlist has 21
+  sites in 10 files, each with its reason, none in the driver's dialect-neutral
+  code: the migration environment and provisioning, `sandloom dev`,
+  `sandloom migrate extract-module` and the test harness's per-database
+  provisioning.
+
+  **Upgrade:** run `uv run sandloom check --only dialect-imports`. In your
+  modules, replace `from sqlalchemy.dialects.postgresql import UUID` with
+  `from sqlalchemy import Uuid`, `CITEXT` with `CaseInsensitiveText`,
+  `postgresql_where=` indexes with `partial_index(...)`, `pg_insert(Model)`
+  with `conflict_insert(Model)`, and `func.pg_advisory_xact_lock(key)` with
+  `await transaction_lock(key)` (a 64-bit integer key, and the
+  `transaction_locks` feature declared: SANDLOOM-C030). Then
+  `uv run sandloom migrate drift` reports no difference.
+- **A bare `DateTime(timezone=True)` in module code is an error**
+  (SANDLOOM-C029, new). `sandloom check` flags it (also `DateTime(True)` and
+  `TIMESTAMP(timezone=True)`) outside migrations: SQLite returns its values
+  naive. `UtcDateTime()` from `sandloom.sdk.data` reads them back aware in UTC
+  on every database and is the same `timestamptz` on PostgreSQL. Identity's
+  token expiries, tenancy's invitation times, billing's `*_at` columns, the
+  projection generator's `deleted_at` and the members recipe use it.
+
+  **Upgrade:** run `uv run sandloom check --only utc-datetime-columns` and
+  declare each finding `UtcDateTime()`; no migration follows on PostgreSQL.
+- **`sandloom_identity.claims.identity_claims_select` and
+  `identity_claims_lateral` are removed.** Identity's claims are two
+  correlated scalar subqueries of `aggregate_list`,
+  `identity_claims_columns(user_id)`, which run on SQLite as on PostgreSQL
+  (no `LATERAL`, no `array_agg`).
+
+  **Upgrade:** replace a join of `identity_claims_lateral(...)` or a select
+  from `identity_claims_select(...)` with
+  `roles, permissions = identity_claims_columns(<user id column>)` in your
+  `select(...)`; the two columns read the same lists.
+- **`sandloom dev up` refuses a checkout whose `.env` names a SQLite
+  database.** A SQLite `DATABASE_URL` that is the last one in `.env` and
+  stands outside the `sandloom dev` block is the checkout's own database:
+  `dev up` refuses and leaves `.env` as it is (before, it commented the line
+  out), and `dev run` serves the file and starts no dev services (before, it
+  started PostgreSQL and Redis in Docker). A PostgreSQL `DATABASE_URL` is
+  handled as before.
+
+  **Upgrade:** a checkout whose `.env` ends with a SQLite `DATABASE_URL` and
+  that uses the dev services removes or comments out that line.
 
 ### Deprecated
 
@@ -126,11 +196,13 @@ website renders this same changelog.
   has the test; `sandloom add module` writes `tests/test_migrations.py` with
   it. **Upgrade:** add the same one-line test to each of your modules that has
   a chain: `assert_migrations_match_models("<module>")`.
-- **`has_serial_writers(bind)` and `has_optimized_reads(bind)` in
-  `sandloom.sdk.testing`** (advanced): whether the test database's writers take
-  turns, and whether the planner's optimized executor can run on it. They are
-  the kernel's own answers (the renderer's `serial_writers`, the DBAPI
-  adapter's `raw_executor`), for tests that used to read `dialect.name`.
+- **`has_optimized_reads(bind)` in `sandloom.sdk.testing`** (advanced):
+  whether the planner's optimized executor can run on the test database (the
+  DBAPI adapter's `raw_executor`), for declared-read tests that used to read
+  `dialect.name`. A module's race test asks for overlapping writers with
+  `skip_unless_db_feature("concurrent_writers")`; whether writers take turns
+  (`has_serial_writers`) is a question of the kernel's own tests only, in
+  `sandloom.core.testing.infra`.
 - **`aggregate_list` in `sandloom.sdk.data`** (slice 10 of the database
   capability): the values of a group as one Python list, an aggregate like
   `count`. PostgreSQL writes `array_agg`; SQLite writes `json_group_array`,
@@ -147,8 +219,7 @@ website renders this same changelog.
   `func.array_agg`, joined `LATERAL` into a data-modifying CTE; none of the
   three exists in SQLite. The claims are now two correlated scalar
   subqueries of `aggregate_list`
-  (`sandloom_identity.claims.identity_claims_columns`, replacing
-  `identity_claims_select` / `identity_claims_lateral`). A refresh loads the
+  (`sandloom_identity.claims.identity_claims_columns`; see Breaking changes). A refresh loads the
   token, its user and the claims in one `SELECT`, then consumes the token
   with a plain `UPDATE ... RETURNING` compare-and-set: still five statements
   on PostgreSQL, the same on SQLite, and no claims query. Identity now
@@ -241,40 +312,6 @@ website renders this same changelog.
   instance's `system_url`) gets B024's checks too. The platform's modules (identity, tenancy,
   billing, admin) start on SQLite and serve requests; the test harness on
   SQLite is next (slice 8c).
-- **Modules write no SQL dialect** (SANDLOOM-C028). `sandloom check` fails on a
-  `sqlalchemy.dialects` import in module code (also `sa.dialects...` and dialect
-  options such as `postgresql_where=`; migrations are exempt). `sandloom.sdk.data`
-  gains the portable forms modules used dialects for: `CaseInsensitiveText`,
-  `partial_index`, `search_index`, `conflict_insert(Model)`,
-  `await transaction_lock(key)` (the two statements run on `db()` unless given
-  `session=`), and `ConflictInsert` for annotations; ids use `sqlalchemy.Uuid`.
-  The kernel names no database: each database's SQL dialect renderer writes the
-  forms, found in the new `sandloom.sql_dialects` entry-point group (shipped:
-  PostgreSQL and SQLite). No form falls back to other SQL: one the database
-  cannot write refuses (SANDLOOM-R015), and a configured database without a
-  renderer stops startup (SANDLOOM-B024). Migrations write the database's own
-  type (`postgresql.CITEXT()`). On PostgreSQL every form renders the SQL the
-  modules wrote before, so the schema and the migrations do not change.
-  Identity, tenancy, billing and every example moved onto them.
-  Still PostgreSQL-only, and planned to move behind the driver: the kernel's
-  outbox and idempotency stores, the projection
-  upserts, and identity's claims query
-  (`array_agg`, `LATERAL`). The check does not see SQL functions only one
-  database has.
-  A database driver declares the dialects it serves (`register_driver(...,
-  sql_dialects={...})`), and startup refuses a database URL its driver does not
-  serve or a `partial_index` without a condition there (B024, R015); the
-  migration environment checks the same. `sandloom.driverkit.testing` gains
-  `SqlDialectConformance` for renderers, and the suite builds every module's and
-  example's schema on SQLite. `sandloom check` also flags a PostgreSQL `::` cast
-  in `text()`.
-  Upgrade: in your modules, replace `from sqlalchemy.dialects.postgresql import
-  UUID` with `from sqlalchemy import Uuid`, `CITEXT` with `CaseInsensitiveText`,
-  `postgresql_where=` indexes with `partial_index(...)`, `pg_insert(Model)` with
-  `conflict_insert(Model)`, and `func.pg_advisory_xact_lock(key)` with
-  `await transaction_lock(key)`; `sandloom migrate drift` confirms no migration
-  follows.
-
 - **SQL dialect renderers, contract version 2.** A renderer states its
   `contract_version`, `name`, `minimum_server_version`, the database features it
   can give (`features()`) and what an error means (`classify_error`). The loader
@@ -440,14 +477,17 @@ website renders this same changelog.
   a per-statement read unit may begin like the snapshot one only when the
   test sets `read_units_share_one_snapshot` (SQLite). The
   kernel names a database at 5 sites, down from 6.
-- **Time columns read back in UTC on every database** (SANDLOOM-C029, new).
-  `sandloom check` flags a bare `DateTime(timezone=True)` (also
-  `DateTime(True)` and `TIMESTAMP(timezone=True)`) in module code outside
-  migrations; use `UtcDateTime()` from `sandloom.sdk.data`, the same
-  `timestamptz` on PostgreSQL, so no migration. Identity's token expiries,
-  tenancy's invitation times, billing's `*_at` columns, the projection
-  generator's `deleted_at` and the members recipe moved onto it. Naive times:
-  see Breaking changes.
+
+- **A process refuses a SQLite file replaced under it** (SANDLOOM-B028). A
+  recreate (`sandloom dev run` after a model change) renames the file while
+  workers, beat or the admin may still hold it open, and they would go on
+  writing to the renamed file. Each process now remembers the file it opened
+  (device and inode) and checks the path at each connection checkout, one
+  `stat`; once the path names another file, or none, the checkout fails with
+  `DatabaseFileReplaced`, which names the file and says to restart the
+  process. The process that sets the file aside opens the new one. Only a
+  development-only database (SQLite) is checked; PostgreSQL pays nothing.
+  Restart the workers, beat and admin after a recreate.
 
 ### Changed
 
@@ -484,9 +524,8 @@ website renders this same changelog.
   so `sandloom test` passes on SQLite.
 
   **Upgrade:** an existing app adds `sqlite` to its `sandloom[check,testing]`
-  dev requirement to run on SQLite. A checkout whose `.env` ends with a
-  SQLite `DATABASE_URL` line and also uses the dev services: remove or
-  comment out that line, or `dev up` refuses and `dev run` serves the file.
+  dev requirement to run on SQLite. The `.env` change of `sandloom dev up`
+  and `dev run`: see Breaking changes.
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and
   `/redoc` get the site's header with the app's name and links (console, Swagger UI,
