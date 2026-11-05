@@ -4244,9 +4244,10 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the twelve ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the thirteen ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
-    command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability.
+    command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
+    development_database_in_prod.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
@@ -4342,6 +4343,18 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_production_refuses_and_names_the_risk
   - src/sandloom/core/tests/test_guarantee_windows.py::test_dev_warns
+- id: G-RISK-13
+  statement: A production process on a database whose renderer serves development and tests only (SQLite)
+    is refused at startup (SANDLOOM-B029) unless development_database_in_prod is accepted, and the
+    multi_tenant_strict profile refuses it even when accepted; dev and test are not refused.
+  sources:
+  - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
+  - docs/infrastructure/database.md#Not in production
+  tests:
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_refuses_sqlite_in_prod_without_the_accepted_risk
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone
+  startup_checks: development_database_config_problem at create_app / enforce_configuration
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -7258,7 +7271,7 @@ issued:
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 24
-  G-RISK: 12
+  G-RISK: 13
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33
@@ -7614,6 +7627,7 @@ adr_sections:
     - G-CONFIG-02
     - G-CONFIG-03
     - G-RISK-03
+    - G-RISK-13
     - C-RISK-01
   0008-sagas.md:
     Related reading: informational
