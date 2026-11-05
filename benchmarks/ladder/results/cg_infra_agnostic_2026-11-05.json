@@ -1,0 +1,168 @@
+{
+ "main": "10be493",
+ "branch": "93e8ab6",
+ "k": 200,
+ "gc": "freeze",
+ "rungs": {
+  "WLlf": {
+   "main": 13745992,
+   "branch": 13852735,
+   "delta_pct": 0.78
+  },
+  "HTr": {
+   "main": 8727118,
+   "branch": 8930588,
+   "delta_pct": 2.33,
+   "run2": {
+    "main": 8745065,
+    "branch": 8909044,
+    "delta_pct": 1.88
+   }
+  },
+  "Pme": {
+   "main": 3003344,
+   "branch": 2982571,
+   "delta_pct": -0.69
+  },
+  "Porgs": {
+   "main": 2906282,
+   "branch": 2879297,
+   "delta_pct": -0.93
+  },
+  "Pmem": {
+   "main": 3869017,
+   "branch": 3831847,
+   "delta_pct": -0.96
+  },
+  "WLr": {
+   "main": 16850280,
+   "branch": 16835076,
+   "delta_pct": -0.09
+  },
+  "WLc": {
+   "main": 9615898,
+   "branch": 9738060,
+   "delta_pct": 1.27,
+   "run2": {
+    "main": 9719315,
+    "branch": 9924686,
+    "delta_pct": 2.11
+   }
+  },
+  "HCs": {
+   "main": 1471174,
+   "branch": 1455390,
+   "delta_pct": -1.07,
+   "run2": {
+    "main": 1468285,
+    "branch": 1449149,
+    "delta_pct": -1.3
+   }
+  },
+  "L6S5": {
+   "main": 3694802,
+   "branch": 3637955,
+   "delta_pct": -1.54,
+   "run2": {
+    "main": 3698022,
+    "branch": 3649339,
+    "delta_pct": -1.32
+   }
+  },
+  "L6S5p": {
+   "main": 3528223,
+   "branch": 3558185,
+   "delta_pct": 0.85
+  },
+  "L6S5po": {
+   "main": 2178396,
+   "branch": 2171209,
+   "delta_pct": -0.33
+  },
+  "L6R": {
+   "main": 2449100,
+   "branch": 2457723,
+   "delta_pct": 0.35
+  },
+  "L6": {
+   "main": 2236710,
+   "branch": 2270718,
+   "delta_pct": 1.52,
+   "run2": {
+    "main": 2234153,
+    "branch": 2269115,
+    "delta_pct": 1.56
+   }
+  },
+  "L5": {
+   "main": 1559202,
+   "branch": 1558590,
+   "delta_pct": -0.04
+  },
+  "L6W1": {
+   "main": 3907920,
+   "branch": 3913064,
+   "delta_pct": 0.13
+  },
+  "L6W3": {
+   "main": 6865474,
+   "branch": 6842159,
+   "delta_pct": -0.34
+  },
+  "L6W5": {
+   "main": 7932137,
+   "branch": 7947621,
+   "delta_pct": 0.2
+  },
+  "HW7": {
+   "main": 8683385,
+   "branch": 8930833,
+   "delta_pct": 2.85,
+   "run2": {
+    "main": 8679455,
+    "branch": 8942815,
+    "delta_pct": 3.03
+   }
+  },
+  "HEc": {
+   "main": 4986292,
+   "branch": 5001291,
+   "delta_pct": 0.3
+  },
+  "XCmp": {
+   "main": 2047326,
+   "branch": 2144029,
+   "delta_pct": 4.72
+  },
+  "XSgS": {
+   "main": 6431900,
+   "branch": 6551768,
+   "delta_pct": 1.86,
+   "run2": {
+    "main": 6448712,
+    "branch": 6554173,
+    "delta_pct": 1.64
+   }
+  },
+  "XSgL": {
+   "main": 10688472,
+   "branch": 10913737,
+   "delta_pct": 2.11,
+   "run2": {
+    "main": 10687874,
+    "branch": 10910532,
+    "delta_pct": 2.08
+   }
+  },
+  "XSgC": {
+   "main": 14694413,
+   "branch": 14917778,
+   "delta_pct": 1.52,
+   "run2": {
+    "main": 14666098,
+    "branch": 14834793,
+    "delta_pct": 1.15
+   }
+  }
+ }
+}
