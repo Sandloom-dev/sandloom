@@ -209,16 +209,20 @@ async def test_live_lease_renewal_prevents_another_replica_reclaim(
     channel = "core.test.v1"
     # Use a separate valid channel because the production bus validates names.
     await client.delete(channel)
+    # The holder renews every min_idle_ms / 3; the other replica may reclaim
+    # an entry idle for min_idle_ms. At 60 ms a loaded machine paused the
+    # loop past three renewals and the entry was reclaimed: same ratios, with
+    # room for a scheduler pause.
     t = RedisStreamsTransport(
         client_factory=factory,
         retry_base_ms=0,
-        min_idle_ms=60,
+        min_idle_ms=500,
         reclaim_interval_seconds=0,
     )
     other = RedisStreamsTransport(
         client_factory=factory,
         retry_base_ms=0,
-        min_idle_ms=60,
+        min_idle_ms=500,
         reclaim_interval_seconds=0,
     )
     bus = StreamsEventBus(InMemorySchemaRegistry(), t, poll_interval=0.01)
@@ -232,7 +236,7 @@ async def test_live_lease_renewal_prevents_another_replica_reclaim(
     await t.publish(channel, _env("held"))
     try:
         await asyncio.wait_for(started.wait(), timeout=1)
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(1.2)  # 2.4 x min_idle_ms
         assert (
             await other.consume(channel, group="lease", consumer="other", count=1) == []
         )

@@ -18,7 +18,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom_tenancy.exceptions import TenancyForbiddenError, TenancyNotFoundError
@@ -41,9 +41,27 @@ from sandloom_tenancy.services import (
 
 pytestmark = pytest.mark.asyncio
 
-#: How long the racing action gets to run while the demotion is still open.
-#: Without the actor lock it completes well within this; with it, it blocks.
-_HOLD_S = 0.5
+
+async def _until_a_transaction_waits_on_a_lock(holder: AsyncSession) -> None:
+    """Until another transaction waits on a lock ``holder``'s open
+    transaction holds: the racer reached it (a fixed 0.5 s hold only guessed
+    that it had). Asked through ``holder`` itself: the test pool has two
+    connections, both in use by the two transactions under test."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = (
+            await holder.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if waiting:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("no transaction ever waited on the held lock")
 
 
 @pytest.fixture
@@ -104,7 +122,8 @@ async def _race_with_open_demotion(
                 org_id, actor, ROLE_MEMBER, demote_db, actor_id=owner
             )
         racer = asyncio.create_task(_committed(sessions, action))
-        await asyncio.sleep(_HOLD_S)  # the action reaches its authority check
+        # the action reaches its authority check and waits on the row lock
+        await _until_a_transaction_waits_on_a_lock(demote_db)
         await demote_db.commit()
     return await asyncio.wait_for(racer, timeout=10)
 
@@ -222,7 +241,7 @@ async def test_action_committed_first_serialises_the_demotion(
                 ),
             )
         )
-        await asyncio.sleep(_HOLD_S)
+        await _until_a_transaction_waits_on_a_lock(act_db)
         assert not demotion.done(), "the demotion must wait for the actor's write"
         await act_db.commit()
     result = await asyncio.wait_for(demotion, timeout=10)

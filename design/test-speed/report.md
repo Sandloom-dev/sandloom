@@ -41,6 +41,11 @@ What made the difference, largest first:
    fixed here, three are listed (3.5; 4, finding 1). One more failed on every run
    against the documented test Redis: fixed (3.5).
 
+Round 2 (section 6, the owner's decisions P2, P6, P7): the architecture rules
+run once per `sandloom test`; the `test_dev_command` repository is built once per
+file; fixed sleeps in seven test files became waits for the event; three more tests
+that failed under load were fixed.
+
 ## 2. Baseline and where the time went
 
 `uv run sandloom test --full --seed 12345` on `origin/main`, first run
@@ -372,7 +377,138 @@ Not proposed: skipping the packaging check or the split-conformance matrix in
 `--full`. After 3.1 they run beside the other files and add no wall time of
 their own.
 
-## 6. How to measure again
+**The owner's decisions (2026-11-05):** do P2, P6 and P7, and fix the
+load-flaky RPC tests of finding 1 where their waits are timing-bound; P3 runs in
+its own session; not P1, P4 or P5. Round 2 below.
+
+## 6. Round 2: P2, P6, P7 and the load-flaky RPC tests
+
+Every pair below was measured back to back on the same load (it was 20–60 all
+evening, so only the pairs compare), on my own test PostgreSQL and Redis.
+
+### 6.1 P2: the architecture rules run once per `sandloom test`
+
+The `sandloom check` step runs every rule over the manifest in-process. It now
+also writes what it found (rule, file, detail, severity of each violation) to a
+file in a temporary directory of the run (`check.main(record=...)`); the
+architecture tests step gets that file's path in its environment
+(`SANDLOOM_TEST_ARCH_RECORD`, a default of that step only).
+`test_framework_manifest_passes_every_rule` reads the violations back
+(`check.recorded_violations`, which refuses a record of another manifest or an
+unreadable one) and makes the same two assertions on them: no error, and no
+warning but `untagged-sensitive`. Without a record (CI's architecture job, plain
+`pytest`) it runs the rules itself, as before. No configuration is read from the
+process environment (the ledger's ratchet on raw environment reads stays at 0
+for `run_tests.py`).
+
+Proof it still bites: with a record holding one error, or one warning of
+another rule, the test fails; with an `untagged-sensitive` warning it passes.
+`test_the_architecture_rules_run_once_per_sandloom_test` runs a fake `sandloom
+check` step and a real subprocess step through `_run_recording_the_rules`: the
+subprocess finds the file the first step wrote.
+
+| architecture stage (`pytest -n auto tests/architecture`), load ~45–52 | without the record | with it |
+|---|---:|---:|
+| pair 1 | 62.9 s | 48.0 s |
+| pair 2 | 40.4 s | 40.0 s |
+| `test_framework_manifest_passes_every_rule` | 22.7–34.4 s | ~0 s (reads the file) |
+
+The stage now ends with `test_docs_generated` (15–25 s at this load), so how much
+P2 saves in wall time depends on which of the two was the stage's last test.
+
+### 6.2 P6: tables once per file instead of per test
+
+Measured first, because the fixtures' own DDL turned out to be small:
+
+| file | tests | setup (sum) | what the setup is |
+|---|---:|---:|---|
+| `test_units_and_admission.py` | 39 | 12.1 s | profiled: the harness `db_engine` 8.8 s, the file's `kcore` (its `create_all` and `DELETE`) 1.1 s of 19.6 s |
+| `test_dev/test_dev_command.py` | 72 | 10.3 s | `git init`, `add`, `commit` per test |
+| `test_tenant_rls_paths.py` / `_bypass.py` / `test_tenant_rls.py` | 32 / 23 / 15 | 7.9 / 7.1 / 3.1 s | new engines and connections per test; `CREATE ROLE` takes 7 ms, `CREATE TABLE` 5 ms, the drops < 4 ms |
+| outbox fixtures (`test_outbox_relay_batch.py` and others) | 10–15 each | 1.6–3.2 s each | `DROP` / `CREATE` of one table ~10 ms; the rest is connecting |
+
+Done: `test_dev_command.py` builds its git repository once per module and copies
+it for each test (a normal `.git` holds no absolute path, so every test still
+gets its own fresh repository): **setup 9.5–9.8 s → 2.3–3.0 s**, 72 passed.
+
+Not done, with the reason: in the other files the per-test DDL is a few
+milliseconds and the setup time is the harness engine and the new connections
+per test, which a module-scoped table does not remove (every test has its own
+event loop, so an engine cannot be shared). That cost is P3's. The RLS table must
+also stay per test: one test (`test_tenant_rls.py`, line 285) disables RLS on it.
+
+### 6.3 P7: fixed sleeps became waits for the event
+
+| test | the wait was | now | measured (same load, before → after) |
+|---|---|---|---:|
+| `test_dead_pooled_connection.py::test_fault_matrix` (`killed_during_first_statement`, `killed_during_commit`, 3 kinds) | 0.4 s / 0.5 s before killing the backend | until `pg_stat_activity` shows that backend running the statement (`_wait_running`) | 4.7–5.2 s → 2.8–3.2 s |
+| `test_idempotency_pending_renewal.py::test_a_dead_requests_reservation_still_self_heals` | 1.8 s past a 1 s TTL | until the key is gone | 1.81 s → 1.06 s |
+| `test_beat_lease.py::test_two_leases_on_real_redis` | 3.2 s past a 3 s TTL | until the key is gone (still ~3 s: the TTL) | saves ~0.2 s |
+| `src/sandloom_identity/tests/api/test_admin_in_transaction.py` (3 tests) | a lock held 0.5 s | until a transaction is blocked by the holder (`pg_blocking_pids`, asked through the session holding the lock) | file 2.1–2.3 s → 0.7–1.0 s |
+| `src/sandloom_tenancy/tests/test_actor_row_lock.py` (2 tests) | the same | the same | file 3.4 s → 0.5 s |
+| `src/sandloom_billing/tests/test_credit_reversal_invariants.py` (`_concurrently` barrier) | 0.5 s | until N transactions of the test database wait on a lock (the second caller queues behind the first, so `pg_blocking_pids` names the first waiter, not the holder) | file 2.9 s → 1.3 s |
+| `src/sandloom_billing/tests/test_refunds_disputes.py` (refund vs completion) | 0.5 s | until the completion waits on the lock | file 4.9 s → 3.6 s |
+
+Each still fails when the behaviour breaks: a backend that never runs the
+statement or a racer that never blocks makes the wait give up (after 10–30 s)
+with an `AssertionError`; a key that never expires (renewal not stopped) ends the
+Redis polls after ~6 s and the next assertion fails, as the fixed sleep's version
+did.
+
+One trap found on the way: the lock polls first opened a new session, and the
+test pool has two connections, both held by the transactions under test; the
+poll then waited 30 s for a connection (one failure in 6 runs). The polls now ask
+through the session that holds the lock (`SELECT pg_stat_clear_snapshot()` first:
+`pg_stat_activity` is a snapshot per transaction). After that: 9 runs, no failure.
+
+Left as they were, with the reason:
+
+- `tests/perf_budgets/test_rls_merged_begin.py::test_cancellation_leaves_nothing_on_the_pooled_connection`:
+  a poll for the running statement did not see the `select` point's
+  `pg_sleep` statement in 2 of 6 runs, and for the `commit` point
+  `pg_stat_activity` showed the app role's **INSERT** active for the trigger's
+  0.5 s and never a `COMMIT`. So the `commit` case most likely cancels during the
+  INSERT, not during COMMIT. Worth a look by whoever owns that test; the file is
+  unchanged.
+- `test_refunds_disputes.py`, the purge test (line ~779): the lock is held inside
+  the completion task's own session, and the pool has no third connection to poll
+  from.
+- `test_idempotency_pending_renewal.py::test_a_running_request_keeps_its_reservation_past_the_pending_ttl`:
+  waiting past the TTL is the point of the test (the TTL is at its 1 s floor).
+
+### 6.4 The load-flaky RPC tests
+
+| test | why it failed under load | change | cost |
+|---|---|---|---:|
+| `test_rpc_transports.py::test_slow_peer_times_out_and_discards_the_connection` | the call's overall deadline is 3 × the attempt timeout plus the retry delay (0.4 s here, `proxy.py`); two 0.1 s attempts left ~0.1 s for connecting and discovery, which ran out, and the deadline cancelled the retry (`{"timeout": 1, "cancelled": 1}`) | attempt timeout 0.5 s (0.5 s of slack); same assertions | ~+0.8 s per transport |
+| `test_transport_redis.py::test_live_lease_renewal_prevents_another_replica_reclaim` | the holder renews every `min_idle_ms / 3` (20 ms); a loop paused past three renewals let the other replica reclaim | `min_idle_ms` 500, the wait 1.2 s (2.4 × the limit, as 150 ms was 2.5 × 60 ms) | ~+1 s |
+| `test_rpc_keyed_binding.py::test_a_forged_response_without_the_pair_key_is_rejected` | a 2 s attempt timeout ran out while the connection was set up (59 s at load 30); the test bounds no time | 10 s budget (the peer answers at once) | none |
+
+### 6.5 Net effect
+
+P7 takes about 10 s of test time off and 6.4 adds about 2.6 s back: ~7 s of
+test time, under 1 s of wall time with 10 workers. P6 (one file): ~7 s of test
+time. P2: one 11–34 s test out of the architecture stage. The larger lever left
+is P3 (its own session). More important than the seconds: the tests of seven
+files now wait for what they mean to wait for, and three tests that failed on a
+busy machine have room.
+
+### 6.6 Review and the green run
+
+An independent review (a fresh agent, given the diff) found no correctness bug.
+Changed after it: the architecture step's record path is set for that step
+unconditionally (`Step.run_env`), so an exported or inherited
+`SANDLOOM_TEST_ARCH_RECORD` cannot name another run's file (the unit test now
+exports a stale path and still finds the run's own); the single-racer lock
+polls count only transactions blocked by the holder (`pg_blocking_pids`); a
+leftover comment; wording here and in the CHANGELOG.
+
+`sandloom test --full` on the round-2 code before those review fixes: green,
+5695 passed, 590 s at load 30–51. The review fixes were checked by running the
+changed files (the four lock-test files three times, 52 passed each time; the
+`run_tests` CLI tests).
+
+## 7. How to measure again
 
 - Per-stage times: the `sandloom test` summary.
 - A per-test timeline: a 10-line pytest plugin that appends

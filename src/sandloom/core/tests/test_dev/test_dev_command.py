@@ -11,6 +11,7 @@ import io
 import json
 import multiprocessing
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -68,10 +69,11 @@ def environ(tmp_path: Path) -> dict[str, str]:
     return env
 
 
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """A git repository holding a minimal app, with one commit."""
-    root = tmp_path / "shop"
+@pytest.fixture(scope="module")
+def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The repository every test copies: built once per module (three git
+    processes), not once per test."""
+    root = tmp_path_factory.mktemp("repo-template") / "shop"
     (root / "deploy").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[project]\nname = "shop"\n')
     (root / ".env.example").write_text(
@@ -92,6 +94,15 @@ def repo(tmp_path: Path) -> Path:
         "-m",
         "init",
     )
+    return root
+
+
+@pytest.fixture
+def repo(tmp_path: Path, _repo_template: Path) -> Path:
+    """A git repository holding a minimal app, with one commit (a fresh copy
+    of the module's template: a normal ``.git`` holds no absolute path)."""
+    root = tmp_path / "shop"
+    shutil.copytree(_repo_template, root, symlinks=True)
     return root
 
 
