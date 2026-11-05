@@ -148,7 +148,11 @@ def test_uncacheable_statement_still_walked_correctly() -> None:
 
 
 def test_cached_guard_is_cheaper_than_walking() -> None:
-    """Micro-benchmark: memoized verdict vs a full walk (generous bound)."""
+    """Micro-benchmark: memoized verdict vs a full walk (generous bound).
+
+    Timed on this thread's CPU clock, best of five rounds each: a busy
+    machine (the parallel suite, other runs) deschedules the thread, which a
+    wall clock would count against whichever side it hit."""
     tenant_mod._invalidate_guard_caches()
     statements = [_plain_stmt(f"u{i}") for i in range(300)]
     walk_statements = [_plain_stmt(f"w{i}") for i in range(300)]
@@ -157,14 +161,16 @@ def test_cached_guard_is_cheaper_than_walking() -> None:
     for stmt in (*statements, *walk_statements):
         stmt._generate_cache_key()
 
-    t0 = time.perf_counter()
-    for stmt in walk_statements:
-        tenant_mod._walk_references_tenant_scoped(stmt)
-    walk_cost = time.perf_counter() - t0
+    def best_of_five(guard: Any, batch: list[Any]) -> float:
+        rounds = []
+        for _ in range(5):
+            t0 = time.thread_time()
+            for stmt in batch:
+                guard(stmt)
+            rounds.append(time.thread_time() - t0)
+        return min(rounds)
 
-    t0 = time.perf_counter()
-    for stmt in statements:
-        tenant_mod._references_tenant_scoped(stmt)
-    cached_cost = time.perf_counter() - t0
+    walk_cost = best_of_five(tenant_mod._walk_references_tenant_scoped, walk_statements)
+    cached_cost = best_of_five(tenant_mod._references_tenant_scoped, statements)
 
     assert cached_cost < walk_cost / 2, (cached_cost, walk_cost)

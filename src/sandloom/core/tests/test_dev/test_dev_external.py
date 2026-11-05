@@ -264,12 +264,23 @@ def test_only_empty_redis_indexes_are_taken_on_your_own_server() -> None:
     last database."""
     _, redis_url = _servers()
     server = services.RedisServer.from_url(redis_url)
-    busy = services._redis(server.host, server.port, 860, server.password)
+    # The server's top three indexes (the test compose and CI start Redis
+    # with 256 databases, a developer's own server may have more).
+    probe = services._redis(server.host, server.port, 0, server.password)
+    try:
+        last = int(probe.config_get("databases")["databases"]) - 1
+    finally:
+        probe.close()
+    first, second, third = last - 2, last - 1, last
+    busy = services._redis(server.host, server.port, first, server.password)
     try:
         busy.set("theirs", "1")
-        assert services.empty_indexes(server, [860, 861, 862]) == [861, 862]
+        assert services.empty_indexes(server, [first, second, third]) == [
+            second,
+            third,
+        ]
         # Past the server's `databases` setting there is nothing to take.
-        assert services.empty_indexes(server, [861, 10**6, 862]) == [861]
+        assert services.empty_indexes(server, [second, 10**6, third]) == [second]
     finally:
         busy.delete("theirs")
         busy.close()

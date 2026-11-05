@@ -292,3 +292,61 @@ def test_prepush_hook_refuses_the_shared_default_database() -> None:
     assert result.returncode == 1
     assert "SANDLOOM_TEST_DATABASE_URL is not set" in result.stderr
     assert "export SANDLOOM_TEST_DATABASE_URL=" in result.stderr
+
+
+@pytest.mark.subprocess_probe
+@pytest.mark.parametrize("given", [None, "4242"])
+def test_prepush_hook_runs_the_suite_in_one_printed_seeded_order(
+    tmp_path: Path, given: str | None
+) -> None:
+    """Both runs of the hook (parallel, then the serial fallback after exit 4)
+    take the same seed, and it is the one printed: a fresh random one, or the
+    ``--sandloom-shuffle=<seed>`` a replay passes. ``docker`` and ``uv`` are
+    stand-ins that record their arguments."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "uv-calls.txt"
+    (bin_dir / "docker").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "uv").write_text(
+        textwrap.dedent(
+            f"""\
+            #!/bin/sh
+            echo "$*" >> {calls}
+            # the parallel run: the isolation guard refuses (exit 4)
+            case "$*" in *" -n "*) exit 4;; esac
+            exit 0
+            """
+        )
+    )
+    for tool in ("docker", "uv"):
+        (bin_dir / tool).chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "SANDLOOM_TEST_DATABASE_URL": "postgresql+asyncpg://u:p@localhost/own",
+        "SANDLOOM_PREPUSH_WORKERS": "2",
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            str(BACKEND / "tools" / "checks" / "prepush_full_tests.sh"),
+            *([] if given is None else [f"--sandloom-shuffle={given}"]),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    printed = [
+        line.rsplit(" ", 1)[-1]
+        for line in result.stderr.splitlines()
+        if line.startswith("backend-full-tests: test order seed ")
+    ]
+    assert len(printed) == 1 and printed[0].isdigit(), result.stderr
+    if given is not None:
+        assert printed == [given]
+    runs = calls.read_text().splitlines()
+    assert len(runs) == 2, runs  # parallel, then serial
+    assert " -n 2 " in runs[0] and " -n " not in runs[1]
+    assert all(f"--sandloom-shuffle={printed[0]}" in run.split() for run in runs)

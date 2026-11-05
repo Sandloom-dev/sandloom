@@ -14,6 +14,14 @@ is printed in the report header and again in the terminal summary, so a
 failure replays with ``--sandloom-shuffle=<seed>``. Without the option the plugin
 changes nothing.
 
+A file holding a test marked ``slow`` comes first (the slow files in their
+seeded order, then the others in theirs). Under pytest-xdist a run lasts at
+least as long as its longest file, and a long file handed out last makes it
+that much longer. With a seed the plugin also turns off xdist's
+``--loadscope-reorder``, which would otherwise hand out the files of
+``--dist loadfile`` by test count, largest first, so a slow one-test file
+always started last and the seeded file order was lost.
+
 ``--sandloom-shard=K/N`` (with a seed) keeps the K-th of N parts of the
 shuffled run: whole files, dealt in the seeded order to the part with the
 fewest tests so far. The N parts of one seed are disjoint and together
@@ -34,6 +42,8 @@ import pytest
 
 _SEED_KEY = pytest.StashKey[int]()
 _SHARD_KEY = pytest.StashKey[tuple[int, int, int, int]]()
+#: A file with a test marked this way is handed out first (see above).
+SLOW_MARKER = "slow"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -96,7 +106,9 @@ def pytest_configure(config: pytest.Config) -> None:
     if config.pluginmanager.hasplugin("xdist"):
         config.pluginmanager.register(_XdistHooks(), "sandloom-shuffle-xdist")
     _shard(config)
-    _seed(config)
+    if _seed(config) is not None and hasattr(config.option, "loadscopereorder"):
+        # The controller hands out the files in the seeded order (see above).
+        config.option.loadscopereorder = False
 
 
 class _XdistHooks:
@@ -129,7 +141,12 @@ def pytest_collection_modifyitems(
     by_file: dict[str, list[pytest.Item]] = defaultdict(list)
     for item in items:
         by_file[item.nodeid.split("::", 1)[0]].append(item)
-    files = sorted(by_file, key=lambda n: _rank(seed, n))
+    slow = {
+        name
+        for name, tests in by_file.items()
+        if any(t.get_closest_marker(SLOW_MARKER) is not None for t in tests)
+    }
+    files = sorted(by_file, key=lambda n: (n not in slow, _rank(seed, n)))
     shard = _shard(config)
     if shard is not None:
         index, total = shard

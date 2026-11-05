@@ -36,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -91,27 +92,36 @@ def _snippet_problems(write: bool) -> list[str]:
     problems: list[str] = []
     with tempfile.TemporaryDirectory(prefix="sandloom-docs-generated-") as tmp:
         scratch = Path(tmp)
-        bases: dict[str, Path] = {}
-        for generator, (module, commands) in SNIPPET_APPS.items():
-            if module not in bases:
-                base = scratch / f"base-{module}"
-                # No repository: the snippets are copies of the tree, not a
-                # project anyone commits to.
-                _sandloom(
-                    "new",
-                    APP,
-                    "--dir",
-                    str(base),
-                    "--no-batteries",
-                    "--module",
-                    module,
-                    "--no-git",
-                )
-                bases[module] = base / APP
+
+        def new_base(module: str) -> Path:
+            base = scratch / f"base-{module}"
+            # No repository: the snippets are copies of the tree, not a
+            # project anyone commits to.
+            _sandloom(
+                "new",
+                APP,
+                "--dir",
+                str(base),
+                "--no-batteries",
+                "--module",
+                module,
+                "--no-git",
+            )
+            return base / APP
+
+        def generate(generator: str) -> None:
+            module, commands = SNIPPET_APPS[generator]
             root = scratch / generator / APP
             shutil.copytree(bases[module], root)
             for command in commands:
                 _sandloom("add", "--root", str(root), *command)
+
+        # Every scratch app is its own directory and each `sandloom` call a
+        # cold interpreter: the bases, then the generators, side by side.
+        modules = sorted({module for module, _ in SNIPPET_APPS.values()})
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+            bases = dict(zip(modules, pool.map(new_base, modules), strict=True))
+            list(pool.map(generate, SNIPPET_APPS))
         for committed in sorted(SNIPPETS.rglob("*")):
             if not committed.is_file() or committed.name == "README.md":
                 continue
