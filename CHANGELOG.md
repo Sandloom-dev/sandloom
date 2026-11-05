@@ -46,6 +46,35 @@ website renders this same changelog.
 
 ### Added
 
+- **`aggregate_list` in `sandloom.sdk.data`** (slice 10 of the database
+  capability): the values of a group as one Python list, an aggregate like
+  `count`. PostgreSQL writes `array_agg`; SQLite writes `json_group_array`,
+  read back through the item type (a `Uuid` as a `UUID`, a `Boolean` as a
+  `bool`, a `UtcDateTime` aware). A group without rows reads `[]` on both.
+  JSON, array and binary values are refused. It is a feature form: it needs
+  the new renderer feature `list_aggregates`, which both built-in renderers
+  declare (members `aggregate_list`, `aggregate_list_type`). A module using
+  it declares the feature (SANDLOOM-C030), and startup refuses it on a
+  database whose renderer lacks it (SANDLOOM-B033). `SqlDialectConformance`
+  checks the two members.
+- **Identity's claims and refresh rotation run on SQLite.** The claims
+  contributor and the refresh rotation built roles and permissions with
+  `func.array_agg`, joined `LATERAL` into a data-modifying CTE; none of the
+  three exists in SQLite. The claims are now two correlated scalar
+  subqueries of `aggregate_list`
+  (`sandloom_identity.claims.identity_claims_columns`, replacing
+  `identity_claims_select` / `identity_claims_lateral`). A refresh loads the
+  token, its user and the claims in one `SELECT`, then consumes the token
+  with a plain `UPDATE ... RETURNING` compare-and-set: still five statements
+  on PostgreSQL, the same on SQLite, and no claims query. Identity now
+  declares `list_aggregates` beside `transaction_locks`.
+- **Test runs: an explicit `SANDLOOM_TEST_DATABASE_URL` beats an exported
+  `DATABASE_URL`** (also the cache and broker URLs). The framework's root
+  conftest seeded the overrides with `setdefault`, so a shell that still
+  exported `DATABASE_URL` snapshotted settings on that database while the
+  fixtures used the override: `skip_unless_db_feature` read the wrong
+  database.
+
 - **Nested write units commit with their caller on SQLite** (slice 8c). On a
   database whose renderer says `serial_writers` (SQLite), a local contract
   call, a saga step's unit or a child `open_uow()` inside a writing unit of

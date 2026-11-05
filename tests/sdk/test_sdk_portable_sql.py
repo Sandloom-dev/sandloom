@@ -432,6 +432,7 @@ def test_instance_features_come_from_the_urls_renderer() -> None:
         "snapshot_reads",
         "readonly_transactions",
         "json_path",
+        "list_aggregates",
     }
     assert "transactions" in on_sqlite
     assert "tenant_rls" in sqlalchemy_db_features(

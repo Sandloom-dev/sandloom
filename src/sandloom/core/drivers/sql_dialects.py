@@ -9,6 +9,7 @@ renderer the same way. This is the only place the forms meet a dialect.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from functools import cache
@@ -38,7 +39,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.elements import TextClause
-from sqlalchemy.types import NullType, TypeEngine, Uuid
+from sqlalchemy.types import NullType, TypeDecorator, TypeEngine, Uuid
 
 from sandloom.core.sql_alchemy.portable import (
     TENANT_SETTING,
@@ -429,6 +430,7 @@ class PostgresqlSql:
                 "fulltext_search",
                 "json_path",
                 "json_contains",
+                "list_aggregates",
             }
         )
 
@@ -499,6 +501,14 @@ class PostgresqlSql:
             "ColumnElement[bool]",
             _pg_jsonb(column).op("@>", return_type=Boolean())(_pg_jsonb(value)),
         )
+
+    # -- list_aggregates: aggregate_list --
+
+    def aggregate_list(self, value: ColumnElement[Any]) -> ColumnElement[Any]:
+        return func.array_agg(value)
+
+    def aggregate_list_type(self, item_type: TypeEngine[Any]) -> TypeEngine[Any]:
+        return postgresql.ARRAY(item_type)
 
     def greatest(self, *exprs: Any) -> ColumnElement[Any]:
         return func.greatest(*exprs)
@@ -660,6 +670,34 @@ def _sqlite_json_path(path: tuple[JsonPathKey, ...]) -> str:
     )
 
 
+class _SqliteJsonList(TypeDecorator[list[Any]]):
+    """``json_group_array``'s text read back as PostgreSQL's ``array_agg``
+    reads: a list whose items are read as ``item_type`` reads its column
+    (a ``Uuid``'s hex text as a ``UUID``, an integer 0/1 as a ``bool``)."""
+
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, item_type: TypeEngine[Any]) -> None:
+        super().__init__()
+        self.item_type = item_type
+
+    def process_result_value(self, value: Any, dialect: Any) -> list[Any] | None:
+        if value is None:
+            return None
+        items = json.loads(value)
+        # The item type's own reading, as a column of it would apply.
+        read = self.item_type.dialect_impl(dialect).result_processor(dialect, None)
+        if read is None:
+            return list(items)
+        return [None if item is None else read(item) for item in items]
+
+    @property
+    def python_type(self) -> type[list[Any]]:
+        """``list``."""
+        return list
+
+
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
     ``ON CONFLICT``; no substring-search index and no named lock (its
@@ -692,13 +730,15 @@ class SqliteSql:
         # features (sandloom.core.drivers.sqlalchemy_database). JSON path
         # extraction is built in from 3.38, the minimum; no arrays, no
         # full-text index (FTS5 is a virtual table, not an index) and no
-        # JSON containment.
+        # JSON containment. aggregate_list is json_group_array, read back to
+        # the list PostgreSQL's array_agg reads (list_aggregates).
         return frozenset(
             {
                 "transaction_locks",
                 "snapshot_reads",
                 "readonly_transactions",
                 "json_path",
+                "list_aggregates",
             }
         )
 
@@ -746,6 +786,13 @@ class SqliteSql:
                 else_=sql_cast(func.json_extract(column, where), Text()),
             ),
         )
+
+    def aggregate_list(self, value: ColumnElement[Any]) -> ColumnElement[Any]:
+        # A JSON array text: no rows '[]', a NULL value a JSON null.
+        return func.json_group_array(value)
+
+    def aggregate_list_type(self, item_type: TypeEngine[Any]) -> TypeEngine[Any]:
+        return _SqliteJsonList(item_type)
 
     def greatest(self, *exprs: Any) -> ColumnElement[Any]:
         # SQLite's multi-argument max() is its scalar greatest.

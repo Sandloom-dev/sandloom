@@ -269,6 +269,32 @@ def explicit_test_overrides(environ: Mapping[str, str] | None = None) -> dict[st
     }
 
 
+def seed_test_environ(
+    file_values: Mapping[str, str | None],
+    *,
+    skip: frozenset[str] = frozenset(),
+    environ: MutableMapping[str, str] | None = None,
+) -> None:
+    """Seed ``environ`` before the settings snapshot: ``.env.test``'s
+    ``file_values`` fill only the keys the shell left unset, then each explicit
+    ``SANDLOOM_TEST_<VAR>`` override is assigned, beating a shell-exported
+    ``<VAR>`` too. Keys in ``skip`` are left alone.
+
+    The override must win: a shell that still exports ``DATABASE_URL`` (a
+    developer's PostgreSQL) while ``SANDLOOM_TEST_DATABASE_URL`` names a SQLite
+    file would otherwise snapshot settings on PostgreSQL while the fixtures
+    use the file, so a feature check (``skip_unless_db_feature``) reads the
+    wrong database.
+    """
+    env = os.environ if environ is None else environ
+    for key, value in file_values.items():
+        if value is not None and key not in skip:
+            env.setdefault(key, value)
+    for key, value in explicit_test_overrides(env).items():
+        if key not in skip:
+            env[key] = value
+
+
 def apply_test_overrides(
     environ: MutableMapping[str, str] | None = None,
     *,

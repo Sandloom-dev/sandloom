@@ -32,6 +32,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`aggregate_list`](#aggregate_list) | function | The values of `value` over the rows of a group, as one Python list (an aggregate, like `count`): |
 | [`Array`](#array) | class | A column holding a list of `item_type` values (feature `arrays`). |
 | [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
 | [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
@@ -134,6 +135,41 @@ Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
 
 ## Advanced names
+
+### `aggregate_list`
+
+```python
+def aggregate_list(
+    value: ColumnElement[Any] | QueryableAttribute[Any],
+) -> ColumnElement[list[Any]]
+```
+
+The values of `value` over the rows of a group, as one Python list
+(an aggregate, like `count`):
+
+```python
+select(Tag.post_id, aggregate_list(Tag.name)).group_by(Tag.post_id)
+```
+
+Each item reads back as `value`'s type does: a `Uuid` as a
+`UUID`, a `Boolean` as a `bool`. A `NULL` value is a `None`
+item, and no rows read `[]`. The order of the items is unspecified, as in
+SQL: sort them in Python. A scalar subquery of it returns a list per
+outer row in the same statement:
+
+```python
+roles = select(aggregate_list(Role.code)).where(
+    UserRole.role_id == Role.id, UserRole.user_id == User.id
+)
+select(User, roles.scalar_subquery())
+```
+
+It needs the database feature `list_aggregates`, which every built-in
+database has (PostgreSQL `array_agg`, SQLite `json_group_array` read
+back to the same list): declare it like any feature form
+(SANDLOOM-C030), so startup refuses a database whose renderer lacks it
+(SANDLOOM-B033). `value` is a scalar: a JSON, array or binary value is
+refused.
 
 ### `Array`
 

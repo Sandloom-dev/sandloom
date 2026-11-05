@@ -153,7 +153,12 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
      language)` and `fulltext_match(document, query, language)`. Write the
      document's constants inline, so a query's expression is the index's;
    - `json_path`: `json_path(column, path)`, the scalar as text;
-   - `json_contains`: `json_contains(column, value)`.
+   - `json_contains`: `json_contains(column, value)`;
+   - `list_aggregates`: `aggregate_list(value)`, the aggregate of a group's
+     values, and `aggregate_list_type(item_type)`, the type its result is read
+     through. That type reads a list (its `python_type` is `list`), each item
+     as `item_type` reads its column. Both built-in renderers declare it, and
+     identity needs it.
 
    A renderer that declares
    one of these features without its members is refused when it loads

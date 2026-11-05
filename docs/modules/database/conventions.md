@@ -141,13 +141,25 @@ All but `Uuid` come from `sandloom.sdk.data`, and the two statements run on
 `db()` unless given `session=`. The database driver writes each form in its
 own SQL, and a database that cannot write one refuses instead of running
 other SQL ([Infrastructure](../../infrastructure/database.md#portable-sql-forms)).
-The check sees imports and dialect options such as `postgresql_where=`, not SQL
-functions only one database has, such as `func.array_agg`.
+The check sees imports and dialect options such as `postgresql_where=`. It does
+not see a SQL function only one database has: write `aggregate_list` where you
+would write `func.array_agg`.
+
+`aggregate_list` is an aggregate like `count`. Its items read back as the
+column's type, in no set order. A group without rows reads `[]`. As a scalar
+subquery it returns a list per row of the outer statement. A query can then
+load a row and the codes it owns in one round trip. Declare the
+`list_aggregates` feature for it, as for the forms below:
+
+```python
+codes = select(aggregate_list(Role.code)).where(Role.id == UserRole.role_id, UserRole.user_id == User.id)
+user, role_codes = (await db().execute(select(User, codes.scalar_subquery()).where(User.id == uid))).one()
+```
 
 ## Forms that need a database feature
 
 Some forms need a feature that not every database has. PostgreSQL has every
-one; SQLite has `json_path` and `transaction_locks`.
+one; SQLite has `json_path`, `transaction_locks` and `list_aggregates`.
 
 | For | Use | Feature |
 | --- | --- | --- |
@@ -156,6 +168,7 @@ one; SQLite has `json_path` and `transaction_locks`.
 | a value inside a JSON column, as text | `json_path(Model.meta, "shipping", "country") == "FR"` | `json_path` |
 | JSON that contains a document | `json_contains(Model.meta, {"tags": ["gift"]})` | `json_contains` |
 | one transaction at a time through a section | `await transaction_lock(key)` | `transaction_locks` |
+| the values of a group as one list, `array_agg` | `aggregate_list(Model.code)`, read as a Python list | `list_aggregates` |
 
 A module that uses one declares the feature in its `define_module`, with
 `CapabilityRequirement` from `sandloom.sdk.module`:

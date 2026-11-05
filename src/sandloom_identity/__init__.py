@@ -93,8 +93,11 @@ register = define_module(
     __name__,
     version="1.0.0",
     capabilities=[
-        # RBAC administration serialises on a transaction lock (role_service).
-        CapabilityRequirement("database", features=frozenset({"transaction_locks"})),
+        # RBAC administration serialises on a transaction lock (role_service);
+        # token claims aggregate role and permission codes (claims).
+        CapabilityRequirement(
+            "database", features=frozenset({"transaction_locks", "list_aggregates"})
+        ),
         "cache",
         "eventbus",
     ],

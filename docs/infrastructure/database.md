@@ -85,6 +85,7 @@ renderer belongs to the database's driver package. It names itself in the
 | `search_index` | `pg_trgm` GIN index | not created; the search runs unindexed |
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
 | `transaction_lock` | `pg_advisory_xact_lock` | the unit's own write lock (`BEGIN IMMEDIATE`); refused in a read-only unit |
+| `aggregate_list` | `array_agg` | `json_group_array`, read back as the same list |
 | `Array(item_type)` | `item_type[]` | refused (no `arrays`) |
 | `fulltext_index`, `matches` | GIN index over `to_tsvector`, `@@ websearch_to_tsquery` | refused (no `fulltext_search`) |
 | `json_path` | `#>>`, an index step only into an array | `json_extract`, booleans as `'true'` / `'false'`; the same text for strings, booleans and 64-bit integers |
@@ -131,15 +132,17 @@ A database instance advertises the driver's base features plus its renderer's:
 | `fulltext_search` | yes | no |
 | `json_path` | yes | yes |
 | `json_contains` | yes | no |
+| `list_aggregates` | yes | yes |
 
 ### Forms that need a feature
 
-`Array`, `fulltext_index` and `matches`, `json_path`, `json_contains` and
-`transaction_lock` each need the feature of the same name (`arrays`,
-`fulltext_search`, `json_path`, `json_contains`, `transaction_locks`). A
-renderer writes them only when it declares the feature, through optional
-members of its contract (`array_type`, `fulltext_index_options`,
-`fulltext_document`, `fulltext_match`, `json_path`, `json_contains`). A
+`Array`, `fulltext_index` and `matches`, `json_path`, `json_contains`,
+`transaction_lock` and `aggregate_list` each need their feature (`arrays`,
+`fulltext_search`, `json_path`, `json_contains`, `transaction_locks`,
+`list_aggregates`). A renderer writes them only when it declares the
+feature, through optional members of its contract (`array_type`,
+`fulltext_index_options`, `fulltext_document`, `fulltext_match`,
+`json_path`, `json_contains`, `aggregate_list`, `aggregate_list_type`). A
 renderer that declares one of these features without its members is refused
 when it loads ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)).
 

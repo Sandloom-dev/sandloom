@@ -97,7 +97,11 @@ def _docs() -> sa.Table:
 def test_postgresql_advertises_every_feature_form_and_sqlite_json_path() -> None:
     forms = set(DATABASE_FORM_FEATURES.values())
     assert forms <= POSTGRESQL.features()
-    assert SQLITE.features() & forms == {"json_path", "transaction_locks"}
+    assert SQLITE.features() & forms == {
+        "json_path",
+        "transaction_locks",
+        "list_aggregates",
+    }
     assert set(DATABASE_FORM_FEATURES.values()) <= DATABASE_CAPABILITY.features
     assert forms <= sqlalchemy_db_features({"url": "postgresql+asyncpg://h/d"})
     assert "arrays" not in sqlalchemy_db_features({"url": "sqlite+aiosqlite:///x.db"})

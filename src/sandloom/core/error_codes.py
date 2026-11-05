@@ -566,9 +566,10 @@ Migrations are exempt: a migration keeps the DDL type it was generated with.
         """
 Some forms of sandloom.sdk.data need a feature of the database capability that
 not every database has: Array (arrays), fulltext_index and matches
-(fulltext_search), json_path (json_path), json_contains (json_contains) and
-transaction_lock (transaction_locks). PostgreSQL has every one; SQLite has
-json_path and transaction_locks. Declaring the feature makes the module's need
+(fulltext_search), json_path (json_path), json_contains (json_contains),
+aggregate_list (list_aggregates) and transaction_lock (transaction_locks).
+PostgreSQL has every one; SQLite has json_path, list_aggregates and
+transaction_locks. Declaring the feature makes the module's need
 explicit, so startup refuses it on an instance without the feature
 (SANDLOOM-B033) instead of a statement failing when it first runs
 (SANDLOOM-R015). The check reads the module's code: every reference to a
@@ -955,11 +956,13 @@ the contract version it implements; a renderer without one is version 1. The
 kernel loads only renderers of its own version, so a renderer never answers a
 question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
-readonly_transactions, arrays, fulltext_search, json_path, json_contains):
+readonly_transactions, arrays, fulltext_search, json_path, json_contains,
+list_aggregates):
 anything else would be advertised to modules without a meaning. A renderer
 that declares a feature form's feature (arrays, fulltext_search, json_path,
-json_contains) must also write the form: array_type, fulltext_index_options,
-fulltext_document, fulltext_match, json_path, json_contains. A DBAPI
+json_contains, list_aggregates) must also write the form: array_type,
+fulltext_index_options, fulltext_document, fulltext_match, json_path,
+json_contains, aggregate_list and aggregate_list_type. A DBAPI
 adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
 way. Outside the kernel it may claim only read_only_policy and
 reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
@@ -1127,7 +1130,8 @@ before the first connection with what to change.
         "a module needs a database feature the instance it runs on lacks",
         "run the module on a database whose SQL dialect renderer declares the "
         "feature (PostgreSQL declares arrays, fulltext_search, json_path, "
-        "json_contains and transaction_locks), or move the module off the form",
+        "json_contains, list_aggregates and transaction_locks), or move the "
+        "module off the form",
         """
 A database feature belongs to the instance: its SQL dialect renderer declares
 what its database can do. A module that needs one, because its tables are built

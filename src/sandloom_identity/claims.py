@@ -4,55 +4,58 @@ Resolves the user's global roles and the permissions those roles grant, and
 returns them as JWT claims. Runs on the mint cold path (login / refresh) only —
 the per-request authorization path then reads these claims with zero I/O.
 
-:func:`identity_claims_lateral` is the SINGLE source of truth for these claims:
-the contributor runs it on its own, and the refresh rotation joins it into its
-compare-and-set statement and hands the result to claims collection as
-precomputed for :func:`contribute_identity_claims` (one round trip less per
-refresh). Both paths build the claims with :func:`claims_from_codes`.
+:func:`identity_claims_columns` is the SINGLE source of truth for these claims:
+two scalar subqueries, each an ``aggregate_list`` of codes correlated to a user
+id. The contributor selects them on their own; the refresh rotation adds them
+to the statement that loads the presented token and its user, and hands the
+result to claims collection as precomputed for :func:`contribute_identity_claims`
+(one round trip less per refresh). Both paths build the claims with
+:func:`claims_from_codes`. Nothing here is written for one database: the
+aggregate is a portable form, and a scalar subquery needs no ``LATERAL``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, bindparam, func, select
+from sqlalchemy import ColumnElement, Label, Select, bindparam, select
 from sqlalchemy.orm import QueryableAttribute
-from sqlalchemy.sql.selectable import LateralFromClause
 
 from sandloom.core.module_api import contract_session
+from sandloom.sdk.data import aggregate_list
 from sandloom_identity.models import Permission, Role, RolePermission, UserRole
 
+_UserId = ColumnElement[Any] | QueryableAttribute[Any] | UUID
 
-def identity_claims_select(
-    user_id: ColumnElement[Any] | QueryableAttribute[Any] | UUID,
-) -> Select[Sequence[str], Sequence[str]]:
-    """Roles and permissions of ``user_id`` as ONE aggregate row.
 
-    Columns ``role_codes`` / ``permission_codes``: arrays (``NULL`` when the
-    user has no roles; a role without permissions adds a ``NULL`` permission).
-    An aggregate without ``GROUP BY`` always yields exactly one row, so the
-    LATERAL form joined ``ON true`` never multiplies or drops the outer row.
+def identity_claims_columns(
+    user_id: _UserId,
+) -> tuple[Label[list[Any]], Label[list[Any]]]:
+    """Roles and permissions of ``user_id``: ``role_codes`` and
+    ``permission_codes``, each a scalar subquery answering a list (``[]``
+    without any). Correlated to the outer statement when ``user_id`` is a
+    column of it (``User.id``), so the claims ride a statement that loads
+    the user; each subquery is one aggregate, so it always answers one value
+    and never multiplies or drops the outer row.
     """
-    return (
-        select(
-            func.array_agg(Role.code).label("role_codes"),
-            func.array_agg(Permission.code).label("permission_codes"),
-        )
+    role_codes = (
+        select(aggregate_list(Role.code))
         .select_from(UserRole)
         .join(Role, UserRole.role_id == Role.id)
-        .outerjoin(RolePermission, Role.id == RolePermission.role_id)
-        .outerjoin(Permission, RolePermission.permission_id == Permission.id)
         .where(UserRole.user_id == user_id)
+        .scalar_subquery()
     )
-
-
-def identity_claims_lateral(
-    user_id: ColumnElement[Any] | QueryableAttribute[Any],
-) -> LateralFromClause:
-    """:func:`identity_claims_select` correlated to ``user_id`` (LATERAL)."""
-    return identity_claims_select(user_id).lateral("identity_claims")
+    permission_codes = (
+        select(aggregate_list(Permission.code))
+        .select_from(UserRole)
+        .join(RolePermission, UserRole.role_id == RolePermission.role_id)
+        .join(Permission, RolePermission.permission_id == Permission.id)
+        .where(UserRole.user_id == user_id)
+        .scalar_subquery()
+    )
+    return role_codes.label("role_codes"), permission_codes.label("permission_codes")
 
 
 def claims_from_codes(
@@ -67,15 +70,18 @@ def claims_from_codes(
 
 
 #: The contributor's own statement, built once (the user id is bound per call).
-_CONTRIBUTOR_QUERY = identity_claims_select(bindparam("b_user_id"))
+_CONTRIBUTOR_QUERY: Select[tuple[list[Any], list[Any]]] = select(
+    *identity_claims_columns(bindparam("b_user_id"))
+)
 
 
 async def contribute_identity_claims(user_id: UUID) -> dict[str, Any]:
     """Return ``{"roles": [...], "permissions": [...]}`` for ``user_id``.
 
     ONE query in identity's contract session (the issuer's own request
-    transaction when identity mints the token): the user's roles LEFT JOINed
-    to the permissions they grant, aggregated (:func:`identity_claims_select`).
+    transaction when identity mints the token): the user's role codes and the
+    codes of the permissions they grant, each aggregated
+    (:func:`identity_claims_columns`).
     """
     session = contract_session()
     row = (await session.execute(_CONTRIBUTOR_QUERY, {"b_user_id": user_id})).one()

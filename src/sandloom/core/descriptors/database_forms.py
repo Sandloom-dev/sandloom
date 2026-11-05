@@ -27,5 +27,6 @@ DATABASE_FORM_FEATURES: Mapping[str, str] = MappingProxyType(
         "json_path": "json_path",
         "json_contains": "json_contains",
         "transaction_lock": "transaction_locks",
+        "aggregate_list": "list_aggregates",
     }
 )

@@ -39,7 +39,9 @@ not have (:data:`~sandloom.core.infra.capabilities.DATABASE_FORM_FEATURES`):
   full-text search over text columns and the index that serves it;
 - :func:`json_path` (``json_path``) and :func:`json_contains`
   (``json_contains``): a scalar inside a JSON column, and containment;
-- :func:`transaction_lock` (``transaction_locks``).
+- :func:`transaction_lock` (``transaction_locks``);
+- :func:`aggregate_list` (``list_aggregates``): the values of a group as one
+  Python list. Every built-in renderer declares it.
 
 A renderer that declares one of these features writes its forms (optional
 members of contract 2, :data:`FEATURE_FORM_MEMBERS`); one that does not
@@ -89,7 +91,7 @@ from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.sql.functions import FunctionElement
 from sqlalchemy.sql.type_api import to_instance
 from sqlalchemy.sql.visitors import InternalTraversal
-from sqlalchemy.types import ARRAY, Boolean, TypeDecorator, TypeEngine
+from sqlalchemy.types import ARRAY, Boolean, LargeBinary, TypeDecorator, TypeEngine
 
 from sandloom.core.infra.capabilities import (
     DATABASE_FORM_FEATURES,
@@ -103,6 +105,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.compiler import SQLCompiler
     from sqlalchemy.sql.elements import KeyedColumnElement
+    from sqlalchemy.sql.selectable import FromClause
 
 __all__ = [
     "Array",
@@ -146,6 +149,7 @@ __all__ = [
     "has_sql_dialect",
     "is_error_kind",
     "id_in_for",
+    "aggregate_list",
     "fulltext_index",
     "json_contains",
     "json_path",
@@ -437,6 +441,8 @@ class SqlDialect(Protocol):
     :meth:`features` and :meth:`classify_error`. A form method returns
     ``None`` for a form its database cannot write.
 
+    Optional members write the feature forms (:data:`FEATURE_FORM_MEMBERS`).
+
     Optional facts, read with their default when absent
     (:func:`schema_from_models`, :func:`development_only`,
     :func:`serial_writers`):
@@ -673,7 +679,12 @@ REQUIRED_MEMBERS = (
 #:   ``path`` (a tuple of keys and indexes) as text, ``NULL`` when missing or
 #:   JSON ``null``;
 #: * ``json_contains(column, value) -> ColumnElement[bool] | None``: the JSON
-#:   in ``column`` contains ``value`` (a bound JSON document).
+#:   in ``column`` contains ``value`` (a bound JSON document);
+#: * ``aggregate_list(value) -> ColumnElement | None``: the aggregate of
+#:   :func:`aggregate_list` over ``value``;
+#: * ``aggregate_list_type(item_type) -> TypeEngine | None``: the type the
+#:   aggregate's result is read through, answering a Python list of items
+#:   read as ``item_type`` (``None`` for no rows is read as ``[]``).
 FEATURE_FORM_MEMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "arrays": ("array_type",),
@@ -684,6 +695,7 @@ FEATURE_FORM_MEMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         "json_path": ("json_path",),
         "json_contains": ("json_contains",),
+        "list_aggregates": ("aggregate_list", "aggregate_list_type"),
     }
 )
 
@@ -1454,17 +1466,22 @@ _JSONCONTAINS_INTERNALS: _Internals = [
 
 def _feature_member(dialect: str, form: str, member: str) -> Any:
     """The renderer's ``member`` writing ``form`` on ``dialect``; refuses a
-    database without a renderer, or whose renderer lacks the member."""
+    database without a renderer, or whose renderer lacks the member (naming
+    the form's feature when it has one)."""
     renderer = _require(dialect, form)
     found = getattr(renderer, member, None)
     if found is None:
-        raise UnsupportedSqlForm(form, dialect, feature=DATABASE_FORM_FEATURES[form])
+        raise UnsupportedSqlForm(
+            form, dialect, feature=DATABASE_FORM_FEATURES.get(form)
+        )
     return found
 
 
 def _written(element: Any, form: str, dialect: str) -> Any:
     if element is None:
-        raise UnsupportedSqlForm(form, dialect, feature=DATABASE_FORM_FEATURES[form])
+        raise UnsupportedSqlForm(
+            form, dialect, feature=DATABASE_FORM_FEATURES.get(form)
+        )
     return element
 
 
@@ -1725,6 +1742,107 @@ def json_contains(
     """
     bound = bindparam(None, value, type_=JSON())
     return _JsonContains(coercions.expect(roles.ExpressionElementRole, column), bound)
+
+
+# --------------------------------------------------------------------------- #
+# aggregate_list (feature ``list_aggregates``; every built-in renderer has it)
+# --------------------------------------------------------------------------- #
+
+_LISTAGGREGATE_INTERNALS: _Internals = [
+    ("value", InternalTraversal.dp_clauseelement),
+]
+
+
+class _AggregatedList(TypeDecorator[list[Any]]):
+    """The result of :func:`aggregate_list`: a Python list of ``item_type``
+    values, read through the type the renderer names for the aggregate
+    (``aggregate_list_type``); no rows read ``[]``."""
+
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, item_type: TypeEngine[Any]) -> None:
+        super().__init__()
+        self.item_type = item_type
+
+    def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]:
+        member = _feature_member(dialect.name, "aggregate_list", "aggregate_list_type")
+        type_ = _written(member(self.item_type), "aggregate_list", dialect.name)
+        return dialect.type_descriptor(type_)
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        raise TypeError("aggregate_list() is a result, never a bound value")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> list[Any]:
+        return [] if value is None else list(value)
+
+    @property
+    def python_type(self) -> type[list[Any]]:
+        """``list``."""
+        return list
+
+
+class _ListAggregate(ColumnElement[list[Any]]):
+    """The values of an expression over a group, as one list (renderer-written)."""
+
+    __visit_name__ = "sandloom_list_aggregate"
+    inherit_cache = True
+    _traverse_internals = _LISTAGGREGATE_INTERNALS
+
+    def __init__(self, value: ColumnElement[Any]) -> None:
+        self.value = value
+        self.type = _AggregatedList(value.type)
+
+    @property
+    def _from_objects(self) -> list[FromClause]:
+        # The tables the value reads: ``select(aggregate_list(T.c.x))`` reads
+        # FROM T, and a scalar subquery of it correlates as its value does.
+        return self.value._from_objects
+
+
+@compiles(_ListAggregate)
+def _compile_list_aggregate(
+    element: _ListAggregate, compiler: SQLCompiler, **kw: Any
+) -> str:
+    dialect = compiler.dialect.name
+    member = _feature_member(dialect, "aggregate_list", "aggregate_list")
+    value = _written(member(element.value), "aggregate_list", dialect)
+    return str(compiler.process(value, **kw))
+
+
+def aggregate_list(
+    value: ColumnElement[Any] | QueryableAttribute[Any],
+) -> ColumnElement[list[Any]]:
+    """The values of ``value`` over the rows of a group, as one Python list
+    (an aggregate, like ``count``)::
+
+        select(Tag.post_id, aggregate_list(Tag.name)).group_by(Tag.post_id)
+
+    Each item reads back as ``value``'s type does: a ``Uuid`` as a
+    ``UUID``, a ``Boolean`` as a ``bool``. A ``NULL`` value is a ``None``
+    item, and no rows read ``[]``. The order of the items is unspecified, as in
+    SQL: sort them in Python. A scalar subquery of it returns a list per
+    outer row in the same statement::
+
+        roles = select(aggregate_list(Role.code)).where(
+            UserRole.role_id == Role.id, UserRole.user_id == User.id
+        )
+        select(User, roles.scalar_subquery())
+
+    It needs the database feature ``list_aggregates``, which every built-in
+    database has (PostgreSQL ``array_agg``, SQLite ``json_group_array`` read
+    back to the same list): declare it like any feature form
+    (SANDLOOM-C030), so startup refuses a database whose renderer lacks it
+    (SANDLOOM-B033). ``value`` is a scalar: a JSON, array or binary value is
+    refused.
+    """
+    element = coercions.expect(roles.ExpressionElementRole, value)
+    if isinstance(element.type, (JSON, ARRAY, Array, _AggregatedList, LargeBinary)):
+        raise TypeError(
+            "aggregate_list() collects scalar values; got a "
+            f"{type(element.type).__name__} value"
+        )
+    return _ListAggregate(element)
 
 
 #: ``(form, feature, where)``: a feature form a table is built with

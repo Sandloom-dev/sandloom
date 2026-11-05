@@ -131,6 +131,7 @@ DATABASE_RENDERER_FEATURES = frozenset(
         "fulltext_search",
         "json_path",
         "json_contains",
+        "list_aggregates",
     }
 )
 

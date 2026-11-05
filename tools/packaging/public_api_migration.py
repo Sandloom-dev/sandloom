@@ -100,6 +100,8 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.orm.json_path": "sandloom.sdk.data",
     "core.orm.json_contains": "sandloom.sdk.data",
     "core.orm.JsonPathKey": "sandloom.sdk.data",
+    # The portable aggregate (2026-11-05, slice 10; no feature).
+    "core.orm.aggregate_list": "sandloom.sdk.data",
     "shared.authz.Account": "sandloom.sdk.authz",
     "core.di.current_service": "sandloom.sdk.web",
     "core.di.authorizes": "sandloom.sdk.web",

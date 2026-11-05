@@ -12,11 +12,11 @@ beginner: Base, CreatedAt, TenantScoped, db, new_id
 advanced: Array, CaseInsensitiveText, ConflictInsert, InvalidCursor, JoinRead,
     JsonPathKey, ListOperation, MoneyLedger, Page, PageLimitError,
     PlannedReads, ReadOperation, Reads, SnapshotReads, UowReads, UpdatedAt,
-    UtcDateTime, WallClock, conflict_insert, disable_tenant_rls,
-    enable_tenant_rls, fulltext_index, get_planned_reads, get_read_only_db,
-    get_snapshot_reads, get_uow_reads, json_contains, json_path, make_cursor,
-    make_db_dependency, matches, open_uow, partial_index, search_index,
-    session_reads, transaction_lock
+    UtcDateTime, WallClock, aggregate_list, conflict_insert,
+    disable_tenant_rls, enable_tenant_rls, fulltext_index, get_planned_reads,
+    get_read_only_db, get_snapshot_reads, get_uow_reads, json_contains,
+    json_path, make_cursor, make_db_dependency, matches, open_uow,
+    partial_index, search_index, session_reads, transaction_lock
 docs: docs/reference/sdk/data.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -49,6 +49,7 @@ from sandloom.core.orm import (
     UpdatedAt,
     UtcDateTime,
     WallClock,
+    aggregate_list,
     disable_tenant_rls,
     enable_tenant_rls,
     fulltext_index,
@@ -91,6 +92,7 @@ __all__ = [
     "UpdatedAt",
     "UtcDateTime",
     "WallClock",
+    "aggregate_list",
     "conflict_insert",
     "db",
     "disable_tenant_rls",

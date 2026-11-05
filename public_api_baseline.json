@@ -1855,6 +1855,10 @@
       ],
       "signature": "(clauses:VAR_POSITIONAL|_ColumnExpressionOrLiteralArgument[Any]) -> None"
     },
+    "aggregate_list": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any]) -> ColumnElement[list[Any]]"
+    },
     "conflict_insert": {
       "kind": "function",
       "signature": "(table:POSITIONAL_OR_KEYWORD|Any, session:KEYWORD_ONLY|AsyncSession) -> ConflictInsert"
@@ -3832,6 +3836,10 @@
         "within_group_type"
       ],
       "signature": "(clauses:VAR_POSITIONAL|_ColumnExpressionOrLiteralArgument[Any]) -> None"
+    },
+    "aggregate_list": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any]) -> ColumnElement[list[Any]]"
     },
     "conflict_insert": {
       "kind": "function",

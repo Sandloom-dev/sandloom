@@ -91,7 +91,7 @@ class TestTokenServiceComprehensive:
         """Test token refresh with invalid token."""
         # Mock no token found
         mock_result = Mock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.one_or_none.return_value = None
         mock_db.execute.return_value = mock_result
 
         # Act & Assert
@@ -108,7 +108,7 @@ class TestTokenServiceComprehensive:
         """Test token refresh with expired token."""
         # Mock expired token (query returns None due to expiry filter)
         mock_result = Mock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.one_or_none.return_value = None
         mock_db.execute.return_value = mock_result
 
         # Act & Assert
@@ -124,7 +124,7 @@ class TestTokenServiceComprehensive:
         """Test token refresh with revoked token."""
         # Mock revoked token (query returns None due to revocation filter)
         mock_result = Mock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.one_or_none.return_value = None
         mock_db.execute.return_value = mock_result
 
         # Act & Assert

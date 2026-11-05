@@ -607,6 +607,26 @@ class SqlDialectConformance:
         compiled = sa.select(table.c.id).where(condition).compile(dialect=self.dialect)
         _require("v" in compiled.params, "json_contains must bind the value")
 
+    def test_list_aggregates_read_a_list_or_are_absent(self) -> None:
+        if not self._declares("list_aggregates"):
+            # aggregate_list refuses (SANDLOOM-R015); a module that declares
+            # list_aggregates is refused at startup (SANDLOOM-B033).
+            return
+        table = self._table()
+        aggregate = self._form("list_aggregates", "aggregate_list")(table.c.key)
+        _require(aggregate is not None, "aggregate_list answered None")
+        sql = self._sql(sa.select(aggregate).select_from(table))
+        _require(
+            sql.count("key") == 1 and sql.startswith("SELECT ") and " FROM " in sql,
+            f"aggregate_list must be one expression over its value: {sql}",
+        )
+        type_ = self._form("list_aggregates", "aggregate_list_type")(sa.String(40))
+        _require(type_ is not None, "aggregate_list_type answered None")
+        _require(
+            type_.python_type is list,
+            f"aggregate_list_type must read a list (python_type list): {type_!r}",
+        )
+
     def test_row_security_is_whole_or_absent(self) -> None:
         security = self.renderer.row_security()
         if security is None:
