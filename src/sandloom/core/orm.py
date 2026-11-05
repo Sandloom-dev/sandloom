@@ -28,13 +28,21 @@ from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.columns import CreatedAt, UpdatedAt, new_id
 from sandloom.core.sql_alchemy.money_ledger import MoneyLedger
 from sandloom.core.sql_alchemy.portable import (
+    Array,
     CaseInsensitiveText,
     ConflictInsert,
+    FeatureUse,
+    JsonPathKey,
     UtcDateTime,
     WallClock,
     conflict_insert,
+    fulltext_index,
+    json_contains,
+    json_path,
+    matches,
     partial_index,
     search_index,
+    table_feature_uses,
     transaction_lock,
 )
 from sandloom.core.sql_alchemy.rls import (
@@ -45,6 +53,19 @@ from sandloom.core.sql_alchemy.rls import (
 # Re-exported here so a model file declares ``class Foo(TenantScoped, Base)``
 # from one import; importing it also installs the automatic tenant guard.
 from sandloom.core.tenant import TenantScoped
+
+
+def module_feature_uses(package: str) -> list[FeatureUse]:
+    """The feature forms the tables of ``package``'s mapped models are built
+    with (``Array`` columns, ``fulltext_index`` indexes), each once; see
+    :func:`~sandloom.core.sql_alchemy.portable.table_feature_uses`."""
+    tables: dict[str, Any] = {}
+    for mapper in Base.registry.mappers:
+        owner = getattr(mapper.class_, "__module__", "") or ""
+        if owner == package or owner.startswith(f"{package}."):
+            for table in mapper.tables:
+                tables.setdefault(str(table.fullname), table)
+    return [use for name in sorted(tables) for use in table_feature_uses(tables[name])]
 
 
 def session_reads(session: Any) -> Reads:
@@ -60,11 +81,13 @@ def session_reads(session: Any) -> Reads:
 
 
 __all__ = [
+    "Array",
     "Base",
     "CaseInsensitiveText",
     "ConflictInsert",
     "CreatedAt",
     "InvalidCursor",
+    "JsonPathKey",
     "JoinRead",
     "ListOperation",
     "MoneyLedger",
@@ -79,7 +102,11 @@ __all__ = [
     "conflict_insert",
     "disable_tenant_rls",
     "enable_tenant_rls",
+    "fulltext_index",
+    "json_contains",
+    "json_path",
     "make_cursor",
+    "matches",
     "new_id",
     "partial_index",
     "search_index",

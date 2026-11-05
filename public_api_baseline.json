@@ -1427,6 +1427,49 @@
     }
   },
   "sandloom.core.orm": {
+    "Array": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(item_type:POSITIONAL_OR_KEYWORD|TypeEngine[Any] | type[TypeEngine[Any]]) -> None"
+    },
     "Base": {
       "kind": "class",
       "members": [
@@ -1567,6 +1610,9 @@
         "via"
       ],
       "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "JsonPathKey": {
+      "kind": "value"
     },
     "ListOperation": {
       "kind": "class",
@@ -1821,9 +1867,25 @@
       "kind": "function",
       "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
     },
+    "fulltext_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, language:KEYWORD_ONLY|str='english') -> Index"
+    },
+    "json_contains": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], value:POSITIONAL_OR_KEYWORD|Any) -> ColumnElement[bool]"
+    },
+    "json_path": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], path:VAR_POSITIONAL|JsonPathKey) -> ColumnElement[str]"
+    },
     "make_cursor": {
       "kind": "function",
       "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
+    },
+    "matches": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]], query:POSITIONAL_OR_KEYWORD|str | ColumnElement[str], language:KEYWORD_ONLY|str='english') -> ColumnElement[bool]"
     },
     "new_id": {
       "kind": "function",
@@ -3327,6 +3389,49 @@
     }
   },
   "sandloom.sdk.data": {
+    "Array": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(item_type:POSITIONAL_OR_KEYWORD|TypeEngine[Any] | type[TypeEngine[Any]]) -> None"
+    },
     "Base": {
       "kind": "class",
       "members": [
@@ -3467,6 +3572,9 @@
         "via"
       ],
       "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "JsonPathKey": {
+      "kind": "value"
     },
     "ListOperation": {
       "kind": "class",
@@ -3737,6 +3845,10 @@
       "kind": "function",
       "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
     },
+    "fulltext_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, language:KEYWORD_ONLY|str='english') -> Index"
+    },
     "get_planned_reads": {
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[Any, None]"
@@ -3753,6 +3865,14 @@
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request, db:POSITIONAL_OR_KEYWORD|DbSession) -> Any"
     },
+    "json_contains": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], value:POSITIONAL_OR_KEYWORD|Any) -> ColumnElement[bool]"
+    },
+    "json_path": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], path:VAR_POSITIONAL|JsonPathKey) -> ColumnElement[str]"
+    },
     "make_cursor": {
       "kind": "function",
       "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
@@ -3760,6 +3880,10 @@
     "make_db_dependency": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]"
+    },
+    "matches": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]], query:POSITIONAL_OR_KEYWORD|str | ColumnElement[str], language:KEYWORD_ONLY|str='english') -> ColumnElement[bool]"
     },
     "new_id": {
       "kind": "function",

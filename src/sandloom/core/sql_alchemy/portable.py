@@ -31,6 +31,23 @@ generated: it is one database's history, so run it on that database.
   on the renderer's :meth:`SqlDialect.lock_statement` like the kernel's own
   locks (:func:`lock_statement_for`).
 
+**Feature forms.** Some forms need a ``database`` feature the database may
+not have (:data:`~sandloom.core.infra.capabilities.DATABASE_FORM_FEATURES`):
+
+- :class:`Array` (``arrays``): a column of a list of one item type;
+- :func:`fulltext_index` and :func:`matches` (``fulltext_search``): a
+  full-text search over text columns and the index that serves it;
+- :func:`json_path` (``json_path``) and :func:`json_contains`
+  (``json_contains``): a scalar inside a JSON column, and containment;
+- :func:`transaction_lock` (``transaction_locks``).
+
+A renderer that declares one of these features writes its forms (optional
+members of contract 2, :data:`FEATURE_FORM_MEMBERS`); one that does not
+answers nothing and the form refuses (SANDLOOM-R015). A module that uses a
+form declares the feature (SANDLOOM-C030), and a table built with one is
+refused at startup on an instance without it (SANDLOOM-B033,
+:func:`table_feature_uses`).
+
 On PostgreSQL each renders exactly the SQL the standard modules wrote by hand
 before, so moving a module onto them changes no schema and needs no migration.
 """
@@ -38,6 +55,7 @@ before, so moving a module onto them changes no schema and needs no migration.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import weakref
 from collections.abc import Iterable, Mapping, Sequence
@@ -47,36 +65,51 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import (
+    JSON,
     ColumnElement,
     DateTime,
     Index,
     MetaData,
     Select,
     String,
+    Table,
+    Text,
     TextClause,
+    bindparam,
     text,
 )
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql import coercions, roles
 from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.compiler import StrSQLCompiler
 from sqlalchemy.sql.dml import Insert
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.sql.functions import FunctionElement
-from sqlalchemy.types import TypeDecorator, TypeEngine
+from sqlalchemy.sql.type_api import to_instance
+from sqlalchemy.sql.visitors import InternalTraversal
+from sqlalchemy.types import ARRAY, Boolean, TypeDecorator, TypeEngine
 
-from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
+from sandloom.core.infra.capabilities import (
+    DATABASE_FORM_FEATURES,
+    DATABASE_RENDERER_FEATURES,
+)
 
 if TYPE_CHECKING:
     from typing import Self
 
+    from sqlalchemy.orm import QueryableAttribute
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.compiler import SQLCompiler
     from sqlalchemy.sql.elements import KeyedColumnElement
 
 __all__ = [
+    "Array",
     "CaseInsensitiveText",
+    "FEATURE_FORM_MEMBERS",
+    "FeatureUse",
+    "JsonPathKey",
     "ConflictInsert",
     "ErrorKind",
     "IncompatibleSqlDialect",
@@ -113,6 +146,11 @@ __all__ = [
     "has_sql_dialect",
     "is_error_kind",
     "id_in_for",
+    "fulltext_index",
+    "json_contains",
+    "json_path",
+    "matches",
+    "table_feature_uses",
     "lock_statement_for",
     "optional_lock_statement_for",
     "partial_index",
@@ -142,6 +180,10 @@ SQL_DIALECTS_GROUP = "sandloom.sql_dialects"
 #: the migration environment and the DDL check, with no import of this module).
 PARTIAL_WHERE = "sandloom.partial_where"
 RENDERED_ON = "sandloom.rendered_on"
+#: The form that made an index whose options come from the renderer's
+#: ``<form>_index_options`` (``"fulltext_index"``); a partial index is known
+#: by its condition, a search index by neither.
+INDEX_FORM = "sandloom.index_form"
 
 
 class UnsupportedSqlForm(NotImplementedError):
@@ -149,8 +191,24 @@ class UnsupportedSqlForm(NotImplementedError):
 
     code = "SANDLOOM-R015"
 
-    def __init__(self, form: str, dialect: str, *, renderer: bool = True) -> None:
-        if renderer:
+    def __init__(
+        self,
+        form: str,
+        dialect: str,
+        *,
+        renderer: bool = True,
+        feature: str | None = None,
+    ) -> None:
+        if renderer and feature is not None:
+            why = (
+                f"it needs the database feature {feature!r}, which the "
+                f"{dialect!r} database's SQL dialect renderer does not declare "
+                f"[{self.code}]. Run the module on a database that has it, and "
+                f'declare CapabilityRequirement("database", '
+                f'features=frozenset({{"{feature}"}})) so startup refuses the '
+                "others (SANDLOOM-B033)"
+            )
+        elif renderer:
             why = (
                 f"the {dialect!r} database's SQL dialect renderer does not "
                 f"write it [{self.code}]"
@@ -166,6 +224,7 @@ class UnsupportedSqlForm(NotImplementedError):
         super().__init__(f"{form}: {why}")
         self.form = form
         self.dialect = dialect
+        self.feature = feature
 
 
 if TYPE_CHECKING:
@@ -541,11 +600,15 @@ _indexes: weakref.WeakSet[Index] = weakref.WeakSet()
 def _apply_options(index: Index, renderers: dict[str, SqlDialect]) -> None:
     where = index.info.get(PARTIAL_WHERE)
     rendered = index.info.setdefault(RENDERED_ON, set())
+    form = index.info.get(INDEX_FORM)
     for name, renderer in renderers.items():
         if name in rendered:
             continue
         if where is not None:
             options = renderer.partial_index_options(where)
+        elif form is not None:
+            member = getattr(renderer, f"{form}_options", None)
+            options = None if member is None else member()
         else:
             options = renderer.search_index_options()
         if options is not None:
@@ -580,6 +643,39 @@ REQUIRED_MEMBERS = (
     "begin_statement",
     "transaction_options",
     "row_security",
+)
+
+#: The renderer members that write each feature form (optional members of
+#: contract 2: a renderer without the feature may lack them, and its forms
+#: refuse). A renderer that declares the feature must have every one
+#: (SANDLOOM-B025):
+#:
+#: * ``array_type(item_type) -> TypeEngine | None``: the column type of
+#:   :class:`Array`;
+#: * ``fulltext_index_options() -> dict | None``: ``Index`` keyword arguments
+#:   of a :func:`fulltext_index`;
+#: * ``fulltext_document(columns, language) -> ColumnElement | None``: the
+#:   searchable document of ``columns`` (an index expression and the left side
+#:   of :func:`matches`; constants inline, never bound, so the query's
+#:   expression is the index's);
+#: * ``fulltext_match(document, query, language) -> ColumnElement[bool] |
+#:   None``: ``document`` matches the search ``query`` (a bound text);
+#: * ``json_path(column, path) -> ColumnElement[str] | None``: the scalar at
+#:   ``path`` (a tuple of keys and indexes) as text, ``NULL`` when missing or
+#:   JSON ``null``;
+#: * ``json_contains(column, value) -> ColumnElement[bool] | None``: the JSON
+#:   in ``column`` contains ``value`` (a bound JSON document).
+FEATURE_FORM_MEMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "arrays": ("array_type",),
+        "fulltext_search": (
+            "fulltext_index_options",
+            "fulltext_document",
+            "fulltext_match",
+        ),
+        "json_path": ("json_path",),
+        "json_contains": ("json_contains",),
+    }
 )
 
 #: What a :class:`RowSecurity` must have.
@@ -631,6 +727,18 @@ def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
             f"the SQL dialect renderer {name!r} ({source}) declares features "
             f"{sorted(unknown)} outside the database capability's renderer "
             f"features {sorted(RENDERER_FEATURES)} [SANDLOOM-B025]"
+        )
+    unwritten = sorted(
+        f"{feature}: {member}"
+        for feature in set(renderer.features()) & set(FEATURE_FORM_MEMBERS)
+        for member in FEATURE_FORM_MEMBERS[feature]
+        if not callable(getattr(renderer, member, None))
+    )
+    if unwritten:
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) declares features "
+            f"whose forms it does not write: {unwritten} [SANDLOOM-B025]: a "
+            "renderer declares a feature form's feature only with its members"
         )
 
 
@@ -1279,3 +1387,335 @@ async def transaction_lock(key: int, *, session: AsyncSession) -> None:
     holds it and a read-only unit is refused.
     """
     await hold_transaction_lock(session, key)
+
+
+# --------------------------------------------------------------------------- #
+# Feature forms: each needs a ``database`` feature (DATABASE_FORM_FEATURES)
+# --------------------------------------------------------------------------- #
+
+
+#: SQLAlchemy's traversal spec of a clause: what its cache key and copy see.
+_Internals = list[tuple[str, InternalTraversal]]
+
+
+_FULLTEXTDOCUMENT_INTERNALS: _Internals = [
+    ("columns", InternalTraversal.dp_clauseelement_tuple),
+    ("language", InternalTraversal.dp_string),
+]
+
+_FULLTEXTMATCH_INTERNALS: _Internals = [
+    ("document", InternalTraversal.dp_clauseelement),
+    ("query", InternalTraversal.dp_clauseelement),
+    ("language", InternalTraversal.dp_string),
+]
+
+_JSONPATH_INTERNALS: _Internals = [
+    ("column", InternalTraversal.dp_clauseelement),
+    # The path is part of the statement's cache key: the renderer binds
+    # its steps when it writes the statement.
+    ("path", InternalTraversal.dp_plain_obj),
+]
+
+_JSONCONTAINS_INTERNALS: _Internals = [
+    ("column", InternalTraversal.dp_clauseelement),
+    ("value", InternalTraversal.dp_clauseelement),
+]
+
+
+def _feature_member(dialect: str, form: str, member: str) -> Any:
+    """The renderer's ``member`` writing ``form`` on ``dialect``; refuses a
+    database without a renderer, or whose renderer lacks the member."""
+    renderer = _require(dialect, form)
+    found = getattr(renderer, member, None)
+    if found is None:
+        raise UnsupportedSqlForm(form, dialect, feature=DATABASE_FORM_FEATURES[form])
+    return found
+
+
+def _written(element: Any, form: str, dialect: str) -> Any:
+    if element is None:
+        raise UnsupportedSqlForm(form, dialect, feature=DATABASE_FORM_FEATURES[form])
+    return element
+
+
+class Array(TypeDecorator[list[Any]]):
+    """A column holding a list of ``item_type`` values (feature ``arrays``).
+
+    ``tags: Mapped[list[str]] = mapped_column(Array(String(40)))``. The
+    database stores it as its own array type (PostgreSQL ``VARCHAR(40)[]``);
+    a database without arrays refuses the column when its DDL or a statement
+    is compiled (SANDLOOM-R015), and startup refuses a module whose table has
+    one on such an instance (SANDLOOM-B033). Find a row by an item with
+    ``sqlalchemy.any_``: ``select(T).where(value == any_(T.tags))``.
+    """
+
+    impl = ARRAY
+    cache_ok = True
+
+    def __init__(self, item_type: TypeEngine[Any] | type[TypeEngine[Any]]) -> None:
+        item = to_instance(item_type)
+        if isinstance(item, (Array, ARRAY)):
+            raise TypeError("Array(item_type): an item type is not itself an array")
+        super().__init__(item)
+        self.item_type = item
+
+    def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]:
+        """The database's own array type, from its renderer."""
+        type_ = _feature_member(dialect.name, "Array", "array_type")(self.item_type)
+        return dialect.type_descriptor(_written(type_, "Array", dialect.name))
+
+    @property
+    def python_type(self) -> type[list[Any]]:
+        """``list``: a value of the column is a list of items."""
+        return list
+
+
+_LANGUAGE = re.compile(r"^[a-z][a-z_]{0,62}$")
+
+
+def _check_language(language: str) -> str:
+    if not isinstance(language, str) or not _LANGUAGE.match(language):
+        raise ValueError(
+            f"a full-text search language is a lowercase name such as "
+            f"'english' or 'simple'; got {language!r}"
+        )
+    return language
+
+
+def _columns(column: Any) -> tuple[ColumnElement[Any], ...]:
+    # ``column``: a column, or a list / tuple of them (see ``matches``).
+    items = column if isinstance(column, (list, tuple)) else (column,)
+    if not items:
+        raise ValueError("matches() needs at least one column")
+    return tuple(coercions.expect(roles.ExpressionElementRole, c) for c in items)
+
+
+class _FulltextDocument(ColumnElement[Any]):
+    """The searchable document of some text columns, written by the renderer
+    (an index expression, and the left side of :func:`matches`)."""
+
+    __visit_name__ = "sandloom_fulltext_document"
+    inherit_cache = True
+    _traverse_internals = _FULLTEXTDOCUMENT_INTERNALS
+
+    def __init__(self, columns: Sequence[ColumnElement[Any]], language: str) -> None:
+        self.columns = tuple(columns)
+        self.language = language
+
+
+@compiles(_FulltextDocument)
+def _compile_fulltext_document(
+    element: _FulltextDocument, compiler: SQLCompiler, **kw: Any
+) -> str:
+    dialect = compiler.dialect.name
+    member = _feature_member(dialect, "fulltext_index", "fulltext_document")
+    document = member(element.columns, element.language)
+    return str(compiler.process(_written(document, "fulltext_index", dialect), **kw))
+
+
+class _FulltextMatch(ColumnElement[bool]):
+    """``document`` matches a search query, written by the renderer."""
+
+    __visit_name__ = "sandloom_fulltext_match"
+    inherit_cache = True
+    type = Boolean()
+    _traverse_internals = _FULLTEXTMATCH_INTERNALS
+
+    def __init__(
+        self, document: _FulltextDocument, query: ColumnElement[str], language: str
+    ) -> None:
+        self.document = document
+        self.query = query
+        self.language = language
+
+
+@compiles(_FulltextMatch)
+def _compile_fulltext_match(
+    element: _FulltextMatch, compiler: SQLCompiler, **kw: Any
+) -> str:
+    dialect = compiler.dialect.name
+    member = _feature_member(dialect, "matches", "fulltext_match")
+    condition = member(element.document, element.query, element.language)
+    return str(compiler.process(_written(condition, "matches", dialect), **kw))
+
+
+def fulltext_index(name: str, *columns: str, language: str = "english") -> Index:
+    """An index that serves :func:`matches` over ``columns`` (feature
+    ``fulltext_search``), for ``__table_args__``::
+
+        fulltext_index("ix_articles_text", "title", "body")
+
+    ``language`` names the database's text search configuration (stemming and
+    stop words: ``"english"``, ``"simple"``, ...); :func:`matches` over the same
+    columns, in the same order and language, uses the index. PostgreSQL: a GIN
+    index over ``to_tsvector``. A database without full-text search refuses
+    the index when its DDL is compiled, and startup refuses the module on
+    such an instance (SANDLOOM-B033).
+    """
+    if not columns:
+        raise ValueError(f"fulltext_index {name!r}: name at least one column")
+    document = _FulltextDocument(
+        [ColumnClause(column) for column in columns], _check_language(language)
+    )
+    index = Index(name, document)
+    index.info[INDEX_FORM] = "fulltext_index"
+    return _track(index)
+
+
+def matches(
+    column: ColumnElement[Any]
+    | QueryableAttribute[Any]
+    | Sequence[ColumnElement[Any] | QueryableAttribute[Any]],
+    query: str | ColumnElement[str],
+    *,
+    language: str = "english",
+) -> ColumnElement[bool]:
+    """``column`` (or a list of columns) matches the search ``query``
+    (feature ``fulltext_search``)::
+
+        select(Article).where(matches([Article.title, Article.body], "cat -dog"))
+
+    ``query`` is what a user types: words, ``"quoted phrases"``, ``or`` and
+    ``-excluded`` words (PostgreSQL ``websearch_to_tsquery``). Name the
+    columns of a :func:`fulltext_index`, in its order, and its language to
+    use it: with another language the database scans every row. A database
+    without full-text search refuses the statement when it is compiled
+    (SANDLOOM-R015).
+    """
+    lang = _check_language(language)
+    bound: ColumnElement[str] = (
+        bindparam(None, query, type_=Text())
+        if isinstance(query, str)
+        else coercions.expect(roles.ExpressionElementRole, query)
+    )
+    return _FulltextMatch(_FulltextDocument(_columns(column), lang), bound, lang)
+
+
+#: One step of a :func:`json_path`: an object key or an array index.
+JsonPathKey = str | int
+
+
+class _JsonPath(ColumnElement[str]):
+    """The scalar at ``path`` in a JSON column, as text (renderer-written)."""
+
+    __visit_name__ = "sandloom_json_path"
+    inherit_cache = True
+    type = Text()
+    _traverse_internals = _JSONPATH_INTERNALS
+
+    def __init__(
+        self, column: ColumnElement[Any], path: tuple[JsonPathKey, ...]
+    ) -> None:
+        self.column = column
+        self.path = path
+
+
+@compiles(_JsonPath)
+def _compile_json_path(element: _JsonPath, compiler: SQLCompiler, **kw: Any) -> str:
+    dialect = compiler.dialect.name
+    member = _feature_member(dialect, "json_path", "json_path")
+    value = _written(member(element.column, element.path), "json_path", dialect)
+    return str(compiler.process(value, **kw))
+
+
+def json_path(
+    column: ColumnElement[Any] | QueryableAttribute[Any], *path: JsonPathKey
+) -> ColumnElement[str]:
+    """The scalar at ``path`` inside a JSON column, as text (feature
+    ``json_path``)::
+
+        select(Order).where(json_path(Order.meta, "shipping", "country") == "FR")
+
+    Each step is an object key (``str``) or an array index (``int``, from 0;
+    an index step on an object reads ``NULL``, a negative one is refused).
+    The value is text, the same on every database for a string (itself), a
+    boolean (``'true'`` / ``'false'``) and an integer within 64 bits
+    (``'42'``); ``NULL`` when the path is missing or holds JSON ``null``.
+    Other numbers (fractions, exponents, larger integers) read back in each
+    database's own text (``1.50`` may read ``'1.5'``): compare them as
+    integers, or store them as strings. Objects and arrays read differently
+    too. ``column`` is a ``sqlalchemy.JSON`` column (or one the database
+    stores JSON in). The steps are bound parameters, so an index on a
+    ``json_path`` expression would not serve the query.
+    """
+    if not path:
+        raise ValueError("json_path() needs at least one key or index")
+    for step in path:
+        if isinstance(step, bool) or not isinstance(step, (str, int)):
+            raise TypeError(
+                f"a json_path step is a str key or an int index; got {step!r}"
+            )
+        if isinstance(step, int) and step < 0:
+            raise ValueError(
+                f"a json_path index counts from 0; got {step} (databases "
+                "disagree on counting from the end)"
+            )
+        if isinstance(step, str) and ('"' in step or not step):
+            raise ValueError(
+                f"a json_path key is a non-empty name without '\"'; got {step!r}"
+            )
+    return _JsonPath(coercions.expect(roles.ExpressionElementRole, column), tuple(path))
+
+
+class _JsonContains(ColumnElement[bool]):
+    """The JSON in ``column`` contains ``value`` (renderer-written)."""
+
+    __visit_name__ = "sandloom_json_contains"
+    inherit_cache = True
+    type = Boolean()
+    _traverse_internals = _JSONCONTAINS_INTERNALS
+
+    def __init__(self, column: ColumnElement[Any], value: ColumnElement[Any]) -> None:
+        self.column = column
+        self.value = value
+
+
+@compiles(_JsonContains)
+def _compile_json_contains(
+    element: _JsonContains, compiler: SQLCompiler, **kw: Any
+) -> str:
+    dialect = compiler.dialect.name
+    member = _feature_member(dialect, "json_contains", "json_contains")
+    condition = member(element.column, element.value)
+    return str(compiler.process(_written(condition, "json_contains", dialect), **kw))
+
+
+def json_contains(
+    column: ColumnElement[Any] | QueryableAttribute[Any], value: Any
+) -> ColumnElement[bool]:
+    """The JSON in ``column`` contains ``value`` (feature ``json_contains``)::
+
+        select(Order).where(json_contains(Order.meta, {"tags": ["gift"]}))
+
+    An object contains another when it has each of its keys with a contained
+    value; an array contains each item of another array; a scalar only
+    itself (PostgreSQL ``jsonb @>``). ``value`` is bound as JSON. A database
+    without JSON containment refuses the statement when it is compiled
+    (SANDLOOM-R015).
+    """
+    bound = bindparam(None, value, type_=JSON())
+    return _JsonContains(coercions.expect(roles.ExpressionElementRole, column), bound)
+
+
+#: ``(form, feature, where)``: a feature form a table is built with
+#: (:func:`table_feature_uses`); ``where`` is ``table.column`` or
+#: ``table.index``.
+FeatureUse = tuple[str, str, str]
+
+
+def table_feature_uses(table: Table) -> list[FeatureUse]:
+    """The feature forms ``table`` is built with: :class:`Array` columns and
+    :func:`fulltext_index` indexes. Startup refuses a module whose tables
+    use one on an instance without its feature (SANDLOOM-B033)."""
+    uses: list[FeatureUse] = [
+        ("Array", DATABASE_FORM_FEATURES["Array"], f"{table.name}.{column.name}")
+        for column in table.columns
+        if isinstance(column.type, Array)
+    ]
+    uses += [
+        (form, DATABASE_FORM_FEATURES[form], f"{table.name}.{index.name}")
+        for index in sorted(table.indexes, key=lambda i: str(i.name))
+        if isinstance(form := index.info.get(INDEX_FORM), str)
+        and form in DATABASE_FORM_FEATURES
+    ]
+    return uses

@@ -26,8 +26,49 @@ website renders this same changelog.
   **Upgrade:** bind aware times to `CreatedAt`, `UpdatedAt` and `UtcDateTime`
   columns (`datetime.now(UTC)`, `value.replace(tzinfo=UTC)`); replace a module's
   `DateTime(timezone=True)` with `UtcDateTime()` (no migration on PostgreSQL).
+- **SQLite 3.38 or newer** (was 3.35): `json_path` uses its built-in JSON
+  functions (SANDLOOM-B030 refuses an older one).
+
+  **Upgrade:** check `python -c "import sqlite3; print(sqlite3.sqlite_version)"`
+  where the application runs on SQLite.
+
+### Deprecated
+
+- **`transaction_lock` without a declared `transaction_locks` feature.**
+  `sandloom check` warns (SANDLOOM-C030, new) and the warning says it becomes
+  an error in the next minor release. Startup does not refuse such a module
+  for it (SANDLOOM-B033 counts only declared features and tables built with a
+  feature form). Identity now declares it.
+
+  **Upgrade:** in the module's `define_module`, replace `"database"` in
+  `capabilities=` with `CapabilityRequirement("database",
+  features=frozenset({"transaction_locks"}))` (`sandloom.sdk.module`).
 
 ### Added
+
+- **Database features as `sandloom.sdk.data` forms** (slice 9 of the database
+  capability). `Array(item_type)` (feature `arrays`), `fulltext_index(name,
+  *columns, language=)` with `matches(columns, query)` (`fulltext_search`),
+  `json_path(column, *path)` (`json_path`) and `json_contains(column, value)`
+  (`json_contains`). Each database's renderer writes them; PostgreSQL declares
+  all four (`item_type[]`, a GIN index over `to_tsvector` and
+  `websearch_to_tsquery`, `#>>`, `jsonb @>`), SQLite `json_path`
+  (`json_extract`). `json_path` reads the same text on both for strings,
+  booleans, null and integers within 64 bits; other numbers read in each
+  database's own text (`1.50` may read `1.5`), so compare them as integers or
+  store them as strings. An index step reads arrays only (`NULL` on an
+  object) and a negative one is refused. A module that uses a new form
+  declares the feature (SANDLOOM-C030, an error; a `*` import from
+  `sandloom.sdk.data` and a declaration it cannot read are findings too),
+  and a module whose tables are built
+  with `Array` or `fulltext_index`, or that declares a feature, is refused at
+  load on an instance without it, naming the module, the form, the feature
+  and the instance (SANDLOOM-B033, new). A statement compiled for a database
+  without the feature refuses (SANDLOOM-R015, which now names the feature).
+  Renderers write the forms through optional contract-2 members; one that
+  declares such a feature without them is refused (SANDLOOM-B025), and
+  `SqlDialectConformance` compiles each declared form. Migrations render an
+  `Array` as the database's type (`postgresql.ARRAY(sa.String(length=40))`).
 
 - **An application starts on a SQLite file** (slice 8b of the database
   capability). `DATABASE_URL` and `DATABASE_SYSTEM_URL` accept any

@@ -425,11 +425,13 @@ def test_instance_features_come_from_the_urls_renderer() -> None:
 
     on_postgres = sqlalchemy_db_features({"url": "postgresql+asyncpg://h/d"})
     on_sqlite = sqlalchemy_db_features({"url": "sqlite+aiosqlite:///x.db"})
-    assert {"skip_locked", "transaction_locks"} <= on_postgres
+    # PostgreSQL advertises every renderer feature, the feature forms' too.
+    assert portable.RENDERER_FEATURES <= on_postgres
     assert on_sqlite & portable.RENDERER_FEATURES == {
         "transaction_locks",
         "snapshot_reads",
         "readonly_transactions",
+        "json_path",
     }
     assert "transactions" in on_sqlite
     assert "tenant_rls" in sqlalchemy_db_features(

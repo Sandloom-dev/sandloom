@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
+from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
 from sandloom.core.infra.contracts import (
     CacheProvider,
     DatabaseProvider,
@@ -245,6 +246,8 @@ __all__ = [
     "CapabilitySpec",
     "CapabilityStability",
     "DATABASE_CAPABILITY",
+    "DATABASE_FORM_FEATURES",
+    "DATABASE_RENDERER_FEATURES",
     "RELATIONAL_CAPABILITY",
     "CACHE_CAPABILITY",
     "OBJECTSTORE_CAPABILITY",

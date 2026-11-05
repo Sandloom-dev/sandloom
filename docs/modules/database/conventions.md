@@ -144,6 +144,46 @@ other SQL ([Infrastructure](../../infrastructure/database.md#portable-sql-forms)
 The check sees imports and dialect options such as `postgresql_where=`, not SQL
 functions only one database has, such as `func.array_agg`.
 
+## Forms that need a database feature
+
+Some forms need a feature that not every database has. PostgreSQL has every
+one; SQLite has `json_path` and `transaction_locks`.
+
+| For | Use | Feature |
+| --- | --- | --- |
+| a column holding a list | `Array(String(40))`; find an item with `value == sqlalchemy.any_(Model.tags)` | `arrays` |
+| full-text search over text columns | `fulltext_index(name, *columns, language="english")` in `__table_args__`, `matches([Model.title, Model.body], query)` | `fulltext_search` |
+| a value inside a JSON column, as text | `json_path(Model.meta, "shipping", "country") == "FR"` | `json_path` |
+| JSON that contains a document | `json_contains(Model.meta, {"tags": ["gift"]})` | `json_contains` |
+| one transaction at a time through a section | `await transaction_lock(key)` | `transaction_locks` |
+
+A module that uses one declares the feature in its `define_module`, with
+`CapabilityRequirement` from `sandloom.sdk.module`:
+
+```python
+capabilities=[CapabilityRequirement("database", features=frozenset({"arrays"}))]
+```
+
+- `sandloom check` finds a form without its declaration:
+  [SANDLOOM-C030](../../reference/error-codes.md#sandloom-c030). For
+  `transaction_lock` it is a warning in this release and an error in the next
+  minor release.
+- Startup refuses the module on an instance that lacks a feature it declares:
+  [SANDLOOM-B033](../../reference/error-codes.md#sandloom-b033). A table
+  built with an `Array` column or a `fulltext_index` counts as a declaration.
+- A statement or table compiled for a database without the feature refuses:
+  [SANDLOOM-R015](../../reference/error-codes.md#sandloom-r015).
+- `json_path` reads text that is the same on every database for strings,
+  booleans and integers within 64 bits: `"FR"`, `"true"`, `"42"`. A missing
+  path or a JSON `null` reads `None`. Other numbers read in each database's
+  own text (`1.50` may read `"1.5"`): compare them as integers, or store them
+  as strings.
+- A `json_path` index step (`0`) reads arrays only; on an object it reads
+  `None`. A negative index is refused.
+- `matches` uses the index when it names the same columns in the same order,
+  in the index's language. With another language the database scans every
+  row. The query is what a user types, such as `cats -dogs` or `"a phrase"`.
+
 ## Related reading
 
 - [What a module is](../index.md)

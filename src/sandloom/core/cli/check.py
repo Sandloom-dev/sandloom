@@ -38,6 +38,9 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            database's types; sandloom.sdk.data is portable)
     utc-datetime-columns   time columns are UtcDateTime(), not a bare
                            DateTime(timezone=True) (naive on SQLite)
+    database-feature-forms a form needing a database feature (Array,
+                           fulltext_index, matches, json_path, json_contains,
+                           transaction_lock) declares it in capabilities=
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

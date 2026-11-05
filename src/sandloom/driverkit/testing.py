@@ -523,6 +523,90 @@ class SqlDialectConformance:
                         "snapshot_reads: a snapshot unit needs options of its own",
                     )
 
+    def _form(self, feature: str, member: str) -> Callable[..., Any]:
+        found = getattr(self.renderer, member, None)
+        _require(
+            callable(found),
+            f"the renderer declares {feature!r} but has no {member}()",
+        )
+        return cast("Callable[..., Any]", found)
+
+    def _declares(self, feature: str) -> bool:
+        return feature in self.renderer.features()
+
+    def _feature_table(self) -> sa.Table:
+        return sa.Table(
+            "conformance_docs",
+            sa.MetaData(),
+            sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+            sa.Column("title", sa.String(80)),
+            sa.Column("body", sa.Text),
+            sa.Column("doc", sa.JSON),
+        )
+
+    def test_arrays_store_a_list_column(self) -> None:
+        if not self._declares("arrays"):
+            return  # Array refuses (SANDLOOM-R015); a module is refused (B033)
+        for item in (sa.String(40), sa.Integer(), sa.Uuid(), UtcDateTime()):
+            type_ = self._form("arrays", "array_type")(item)
+            _require(type_ is not None, f"array_type({item!r}) answered None")
+            column = sa.Column("tags", type_)
+            sql = self._sql(
+                CreateTable(sa.Table("conformance_arr", sa.MetaData(), column))
+            )
+            _require("tags" in sql, f"an array column does not compile: {sql}")
+
+    def test_fulltext_search_has_an_index_and_a_match(self) -> None:
+        if not self._declares("fulltext_search"):
+            return  # fulltext_index / matches refuse (SANDLOOM-R015)
+        table = self._feature_table()
+        columns = [table.c.title, table.c.body]
+        document = self._form("fulltext_search", "fulltext_document")(
+            columns, "english"
+        )
+        _require(document is not None, "fulltext_document answered None")
+        options = self._form("fulltext_search", "fulltext_index_options")()
+        _require(
+            options is not None
+            and all(name.startswith(f"{self.dialect.name}_") for name in options),
+            f"fulltext_index_options must be {self.dialect.name}_* options: {options}",
+        )
+        index = sa.Index("ix_conformance_text", document, **(options or {}))
+        table.append_constraint(index)
+        ddl = self._sql(CreateIndex(index))
+        _require("title" in ddl and "body" in ddl, f"the index misses a column: {ddl}")
+        query = sa.bindparam("q", "cats", type_=sa.Text())
+        condition = self._form("fulltext_search", "fulltext_match")(
+            document, query, "english"
+        )
+        _require(condition is not None, "fulltext_match answered None")
+        compiled = sa.select(table.c.id).where(condition).compile(dialect=self.dialect)
+        _require("q" in compiled.params, "fulltext_match must bind the query")
+        _require(
+            not document.compile(dialect=self.dialect).params,
+            "fulltext_document binds a parameter: its constants must be inline, "
+            "or the query's expression differs from the index's",
+        )
+
+    def test_json_path_reads_a_scalar_as_text(self) -> None:
+        if not self._declares("json_path"):
+            return  # json_path refuses (SANDLOOM-R015)
+        table = self._feature_table()
+        value = self._form("json_path", "json_path")(table.c.doc, ("a", 0))
+        _require(value is not None, "json_path answered None")
+        sql = self._sql(sa.select(table.c.id).where(value == "x"))
+        _require("doc" in sql, f"json_path does not read the column: {sql}")
+
+    def test_json_contains_binds_its_document(self) -> None:
+        if not self._declares("json_contains"):
+            return  # json_contains refuses (SANDLOOM-R015)
+        table = self._feature_table()
+        bound = sa.bindparam("v", {"a": [1]}, type_=sa.JSON())
+        condition = self._form("json_contains", "json_contains")(table.c.doc, bound)
+        _require(condition is not None, "json_contains answered None")
+        compiled = sa.select(table.c.id).where(condition).compile(dialect=self.dialect)
+        _require("v" in compiled.params, "json_contains must bind the value")
+
     def test_row_security_is_whole_or_absent(self) -> None:
         security = self.renderer.row_security()
         if security is None:

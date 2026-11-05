@@ -93,6 +93,13 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.orm.search_index": "sandloom.sdk.data",
     "core.orm.conflict_insert": "sandloom.sdk.data",
     "core.orm.transaction_lock": "sandloom.sdk.data",
+    # The database feature forms (2026-11-05, SANDLOOM-C030 / B033).
+    "core.orm.Array": "sandloom.sdk.data",
+    "core.orm.fulltext_index": "sandloom.sdk.data",
+    "core.orm.matches": "sandloom.sdk.data",
+    "core.orm.json_path": "sandloom.sdk.data",
+    "core.orm.json_contains": "sandloom.sdk.data",
+    "core.orm.JsonPathKey": "sandloom.sdk.data",
     "shared.authz.Account": "sandloom.sdk.authz",
     "core.di.current_service": "sandloom.sdk.web",
     "core.di.authorizes": "sandloom.sdk.web",

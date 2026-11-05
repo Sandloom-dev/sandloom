@@ -180,6 +180,13 @@ class ExperimentalCapabilityRefused(CapabilityError):
     sandloom_code = "SANDLOOM-B023"
 
 
+class DatabaseFeatureMissing(FeatureUnsupportedError):
+    """A module uses a ``sandloom.sdk.data`` form, or declares a database
+    feature, that the database instance it runs on lacks (SANDLOOM-B033)."""
+
+    sandloom_code = "SANDLOOM-B033"
+
+
 class ExperimentalCapabilityError(InstanceNotConfiguredError, DriverNotRegisteredError):
     """An EXPERIMENTAL capability was resolved but no driver is registered.
 
@@ -454,6 +461,20 @@ class InfraRegistry:
     def instances(self, capability: str) -> list[str]:
         """Return configured instance names for a capability."""
         return sorted(self._config.get(capability, {}).keys())
+
+    def declared_features(
+        self, capability: str, instance: str = DEFAULT_INSTANCE
+    ) -> frozenset[str] | None:
+        """The features the configured ``instance`` advertises, build-free
+        (its driver's declaration for its options, as the preflight checks
+        them); ``None`` when the instance or its driver is not configured."""
+        cfg = self._config.get(capability, {}).get(instance)
+        if cfg is None:
+            return None
+        registration = self._drivers.get((capability, cfg.driver))
+        if registration is None:
+            return None
+        return registration.features_for(cfg.options)
 
     def provider(self, capability: str, name: str = DEFAULT_INSTANCE) -> InfraProvider:
         """Return (building+caching on first use) a provider instance."""
@@ -1011,6 +1032,7 @@ __all__ = [
     "UnknownCapabilityError",
     "CapabilityConflictError",
     "ProviderContractError",
+    "DatabaseFeatureMissing",
     "FeatureUnsupportedError",
     "InstanceNotConfiguredError",
     "DriverNotRegisteredError",

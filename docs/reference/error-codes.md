@@ -54,6 +54,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates billing with of=Account.user() | active |
 | [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
 | [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
+| [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -85,6 +86,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
 | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
+| [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -588,6 +590,34 @@ Migrations are exempt: a migration keeps the DDL type it was generated with.
 
 **More:** `docs/modules/database/conventions.md`
 
+### SANDLOOM-C030
+
+**a module uses a sandloom.sdk.data form that needs a database feature it does not declare**
+
+Slug: `database-feature-forms` · kind: check · status: active
+
+**What happened and why it matters**
+
+Some forms of sandloom.sdk.data need a feature of the database capability that
+not every database has: Array (arrays), fulltext_index and matches
+(fulltext_search), json_path (json_path), json_contains (json_contains) and
+transaction_lock (transaction_locks). PostgreSQL has every one; SQLite has
+json_path and transaction_locks. Declaring the feature makes the module's need
+explicit, so startup refuses it on an instance without the feature
+(SANDLOOM-B033) instead of a statement failing when it first runs
+(SANDLOOM-R015). The check reads the module's code: every reference to a
+form imported from sandloom.sdk.data, called or not, needs its feature in a
+CapabilityRequirement("database", features=...) inside the capabilities= of
+the module's define_module, with the features written as a set, list, tuple
+or frozenset of strings. A declaration it cannot read statically, and a
+"from sandloom.sdk.data import *" (which hides the forms used), are findings
+too. An undeclared transaction_lock is a warning for one minor release, then
+an error. Tests and migrations are exempt.
+
+**Fix:** declare it in define_module: capabilities=[CapabilityRequirement("database", features=frozenset({"arrays"}))] (the feature the message names), with CapabilityRequirement from sandloom.sdk.module
+
+**More:** `docs/modules/database/conventions.md`
+
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
 ### SANDLOOM-B001
@@ -995,7 +1025,10 @@ kernel loads only renderers of its own version, so a renderer never answers a
 question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
 readonly_transactions, arrays, fulltext_search, json_path, json_contains):
-anything else would be advertised to modules without a meaning. A DBAPI
+anything else would be advertised to modules without a meaning. A renderer
+that declares a feature form's feature (arrays, fulltext_search, json_path,
+json_contains) must also write the form: array_type, fulltext_index_options,
+fulltext_document, fulltext_match, json_path, json_contains. A DBAPI
 adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
 way. Outside the kernel it may claim only read_only_policy and
 reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
@@ -1108,10 +1141,11 @@ Slug: `database-server-too-old` · kind: boot · status: active
 **What happened and why it matters**
 
 Each SQL dialect renderer states the oldest server version it supports; the
-SQL it writes (ON CONFLICT, RETURNING, advisory locks) needs it. The check
+SQL it writes (ON CONFLICT, RETURNING, advisory locks, SQLite's built-in JSON
+functions) needs it. The check
 runs on the engine's first connection, before any statement.
 
-**Fix:** upgrade the database server (PostgreSQL 14 or newer, SQLite 3.35 or newer)
+**Fix:** upgrade the database server (PostgreSQL 14 or newer, SQLite 3.38 or newer)
 
 **More:** `docs/infrastructure/database.md`
 
@@ -1155,6 +1189,29 @@ aiosqlite is an optional dependency (the sqlite extra), so both are refused
 before the first connection with what to change.
 
 **Fix:** point the database at a file, sqlite+aiosqlite:///&lt;path>.db, and install the sqlite extra: pip install 'sandloom[sqlite]'
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B033
+
+**a module needs a database feature the instance it runs on lacks**
+
+Slug: `database-feature-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A database feature belongs to the instance: its SQL dialect renderer declares
+what its database can do. A module that needs one, because its tables are built
+with an Array column or a fulltext_index, or because it declares
+CapabilityRequirement("database", features=...), is refused when it loads on an
+instance that lacks it, naming the module, the form (and table), the feature and
+the instance. Without the refusal the module would load and fail at its first
+statement, or its table would not be created (SQLite builds its schema from the
+models). The forms used inside statements (matches, json_path, json_contains,
+transaction_lock) are covered by the declaration, which sandloom check
+requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
+
+**Fix:** run the module on a database whose SQL dialect renderer declares the feature (PostgreSQL declares arrays, fulltext_search, json_path, json_contains and transaction_locks), or move the module off the form
 
 **More:** `docs/infrastructure/database.md`
 

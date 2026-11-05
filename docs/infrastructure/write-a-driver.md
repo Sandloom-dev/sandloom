@@ -143,11 +143,27 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    development and tests, set `development_only = True`; production then refuses it
    without an accepted risk
    ([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029)).
-9. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
-   name, and register the driver with `sql_dialects={"<name>"}`.
+9. Write a feature form only when the database has it, and declare its feature
+   then ([Database](database.md#forms-that-need-a-feature)):
+   - `arrays`: `array_type(item_type)`;
+   - `fulltext_search`: `fulltext_index_options()`, `fulltext_document(columns,
+     language)` and `fulltext_match(document, query, language)`. Write the
+     document's constants inline, so a query's expression is the index's;
+   - `json_path`: `json_path(column, path)`, the scalar as text;
+   - `json_contains`: `json_contains(column, value)`.
+
+   A renderer that declares
+   one of these features without its members is refused when it loads
+   ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)). Without the
+   feature, leave the members out: the form refuses
+   ([SANDLOOM-R015](../reference/error-codes.md#sandloom-r015)).
+10. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+    name, and register the driver with `sql_dialects={"<name>"}`.
 
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
 form the database cannot write returns `None`, and the kit checks that it is refused.
+The kit compiles each feature form the renderer declares. Run the forms on the real
+database in your own tests too.
 
 #### Add a DBAPI adapter
 
@@ -220,6 +236,7 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 | `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
 | `ProviderContractError` | An instance reports other features than its class declares. |
 | `FeatureUnsupportedError` | A module requires a feature the driver does not advertise. |
+| [SANDLOOM-B033](../reference/error-codes.md#sandloom-b033) | A module uses a `sandloom.sdk.data` form, or declares a database feature, that the instance's renderer does not declare. |
 | `Input should be 'log' or 'smtp'` | A driver package's name was set in `NOTIFIER_BACKEND`. Use `INFRA`. |
 
 ## Related

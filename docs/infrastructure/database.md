@@ -85,6 +85,10 @@ renderer belongs to the database's driver package. It names itself in the
 | `search_index` | `pg_trgm` GIN index | not created; the search runs unindexed |
 | `conflict_insert` | `INSERT ... ON CONFLICT` | `INSERT ... ON CONFLICT` |
 | `transaction_lock` | `pg_advisory_xact_lock` | the unit's own write lock (`BEGIN IMMEDIATE`); refused in a read-only unit |
+| `Array(item_type)` | `item_type[]` | refused (no `arrays`) |
+| `fulltext_index`, `matches` | GIN index over `to_tsvector`, `@@ websearch_to_tsquery` | refused (no `fulltext_search`) |
+| `json_path` | `#>>`, an index step only into an array | `json_extract`, booleans as `'true'` / `'false'`; the same text for strings, booleans and 64-bit integers |
+| `json_contains` | `jsonb @>` | refused (no `json_contains`) |
 
 The kernel's own locks come from the same renderer. Its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
@@ -115,10 +119,43 @@ three things and stops with
   The migration environment checks the same before it writes or applies a
   revision.
 
-A database instance advertises the driver's base features plus its renderer's.
-PostgreSQL's renderer declares `skip_locked`, `transaction_locks`,
-`snapshot_reads` and `readonly_transactions`. SQLite's declares all but
-`skip_locked`.
+A database instance advertises the driver's base features plus its renderer's:
+
+| Renderer feature | PostgreSQL | SQLite |
+| --- | --- | --- |
+| `skip_locked` | yes | no |
+| `transaction_locks` | yes | yes |
+| `snapshot_reads` | yes | yes |
+| `readonly_transactions` | yes | yes |
+| `arrays` | yes | no |
+| `fulltext_search` | yes | no |
+| `json_path` | yes | yes |
+| `json_contains` | yes | no |
+
+### Forms that need a feature
+
+`Array`, `fulltext_index` and `matches`, `json_path`, `json_contains` and
+`transaction_lock` each need the feature of the same name (`arrays`,
+`fulltext_search`, `json_path`, `json_contains`, `transaction_locks`). A
+renderer writes them only when it declares the feature, through optional
+members of its contract (`array_type`, `fulltext_index_options`,
+`fulltext_document`, `fulltext_match`, `json_path`, `json_contains`). A
+renderer that declares one of these features without its members is refused
+when it loads ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)).
+
+The requirement belongs to the module and is checked three times:
+
+- `sandloom check` finds a form whose feature the module does not declare
+  in `CapabilityRequirement("database", features=...)`
+  ([SANDLOOM-C030](../reference/error-codes.md#sandloom-c030));
+- when the module loads, the kernel reads the forms its tables are built
+  with from the models (`Array` columns, `fulltext_index` indexes). It
+  compares them, and the declared features, with its database instance's
+  features. A missing one stops startup and names the module, the form, the
+  feature and the instance
+  ([SANDLOOM-B033](../reference/error-codes.md#sandloom-b033));
+- a statement or DDL compiled for a database without the feature refuses
+  ([SANDLOOM-R015](../reference/error-codes.md#sandloom-r015)).
 
 The renderer also says how a unit begins: its `begin_statement` text, and
 `transaction_options`, the SQLAlchemy execution options for where SQLAlchemy
@@ -128,10 +165,11 @@ begins the transaction itself. The kernel asks once per engine. Without
 `readonly_transactions`, a read-only unit relies on the read-only scope and
 the ORM read guard ([Read units](../modules/database/units.md#read-units-read-only-and-one-snapshot)). The first
 connection refuses a server older than the renderer supports (PostgreSQL 14,
-SQLite 3.35) with
+SQLite 3.38, whose JSON functions are built in) with
 [SANDLOOM-B030](../reference/error-codes.md#sandloom-b030).
 
-Migrations write the database's own type (`postgresql.CITEXT()`), since each
+Migrations write the database's own type (`postgresql.CITEXT()`,
+`postgresql.ARRAY(sa.String(length=40))`), since each
 one is the DDL history of one database. The test suite builds every module's
 and example's schema on SQLite, which catches a column type or index a second
 database cannot write.

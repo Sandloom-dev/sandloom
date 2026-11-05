@@ -9,7 +9,10 @@ description: "Reference of sandloom.sdk.data: every public name with its signatu
 
 Tables, sessions and reads: `Base`, `TenantScoped`, `new_id`,
 `CreatedAt` / `UpdatedAt`, `db()`, RLS
-helpers, the read planner.
+helpers, the read planner, and the portable SQL forms. Some forms need a
+database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
+`json_contains`, `transaction_lock`): a module declares it
+(SANDLOOM-C030), and startup refuses an instance without it (SANDLOOM-B033).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -29,20 +32,26 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`Array`](#array) | class | A column holding a list of `item_type` values (feature `arrays`). |
 | [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
 | [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
 | [`ConflictInsert`](#conflictinsert) | class | For annotations only: the shape `conflict_insert` returns (`.on_conflict_do_nothing(index_elements=, index_where=)`, `.on_conflict_do_upd... |
 | [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable row security on `table` (for downgrade). |
 | [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE the database's row security with the Sandloom tenant policy on `table`. |
+| [`fulltext_index`](#fulltext_index) | function | An index that serves `matches` over `columns` (feature `fulltext_search`), for `__table_args__`: |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
 | [`get_read_only_db`](#get_read_only_db) | function | PROTOTYPE: request session for a route DECLARED read-only. |
 | [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot (PostgreSQL: `REPEATABLE READ READ ONLY`). |
 | [`get_uow_reads`](#get_uow_reads) | async function | Planned reads INSIDE the request Unit of Work (mixed routes). |
 | [`InvalidCursor`](#invalidcursor) | exception | A pagination cursor that is malformed, tampered with or foreign (400). |
 | [`JoinRead`](#joinread) | class | A declared single-row read of `entity` joined to `join` on a FK. |
+| [`json_contains`](#json_contains) | function | The JSON in `column` contains `value` (feature `json_contains`): |
+| [`json_path`](#json_path) | function | The scalar at `path` inside a JSON column, as text (feature `json_path`): |
+| [`JsonPathKey`](#jsonpathkey) | constant |  |
 | [`ListOperation`](#listoperation) | class | A declared list read: `entity` rows, one keyset page per call. |
 | [`make_cursor`](#make_cursor) | function | A cursor starting after `position` (the operation's order values, in `order_by` + primary-key order) for these filter arguments and the b... |
 | [`make_db_dependency`](#make_db_dependency) | callable | Build a request dependency yielding a session for a NAMED database. |
+| [`matches`](#matches) | function | `column` (or a list of columns) matches the search `query` (feature `fulltext_search`): |
 | [`MoneyLedger`](#moneyledger) | class | Model mixin of a money ledger: names its unique operation-key column. |
 | [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 | [`Page`](#page) | class | One page of a `ListOperation`: the DTOs and the next cursor. |
@@ -125,6 +134,37 @@ Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
 
 ## Advanced names
+
+### `Array`
+
+```python
+class Array(TypeDecorator)(item_type: TypeEngine[Any] | type[TypeEngine[Any]]) -> None
+```
+
+A column holding a list of `item_type` values (feature `arrays`).
+
+`tags: Mapped[list[str]] = mapped_column(Array(String(40)))`. The
+database stores it as its own array type (PostgreSQL `VARCHAR(40)[]`);
+a database without arrays refuses the column when its DDL or a statement
+is compiled (SANDLOOM-R015), and startup refuses a module whose table has
+one on such an instance (SANDLOOM-B033). Find a row by an item with
+`sqlalchemy.any_`: `select(T).where(value == any_(T.tags))`.
+
+#### `Array.load_dialect_impl`
+
+```python
+def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]
+```
+
+The database's own array type, from its renderer.
+
+#### `Array.python_type`
+
+```python
+python_type  (property)
+```
+
+`list`: a value of the column is a list of items.
 
 ### `CaseInsensitiveText`
 
@@ -215,6 +255,26 @@ database, whose renderer writes the SQL. `column` must be the table's
 `system_access=True` lets the system-channel role (`system_role`,
 default `sandloom_system`; it must already exist) read and write every
 tenant's rows of THIS table. Re-running is safe (policies are replaced).
+
+### `fulltext_index`
+
+```python
+def fulltext_index(name: str, *columns: str, language: str = 'english') -> Index
+```
+
+An index that serves `matches` over `columns` (feature
+`fulltext_search`), for `__table_args__`:
+
+```python
+fulltext_index("ix_articles_text", "title", "body")
+```
+
+`language` names the database's text search configuration (stemming and
+stop words: `"english"`, `"simple"`, ...); `matches` over the same
+columns, in the same order and language, uses the index. PostgreSQL: a GIN
+index over `to_tsvector`. A database without full-text search refuses
+the index when its DDL is compiled, and startup refuses the module on
+such an instance (SANDLOOM-B033).
 
 ### `get_planned_reads`
 
@@ -325,6 +385,63 @@ SIDE: every `TenantScoped` table of the join gets the tenant predicate
 (and RLS). Both entities must belong to the declaring module (the import
 boundary rules already forbid reaching another module's models).
 
+### `json_contains`
+
+```python
+def json_contains(
+    column: ColumnElement[Any] | QueryableAttribute[Any],
+    value: Any,
+) -> ColumnElement[bool]
+```
+
+The JSON in `column` contains `value` (feature `json_contains`):
+
+```python
+select(Order).where(json_contains(Order.meta, {"tags": ["gift"]}))
+```
+
+An object contains another when it has each of its keys with a contained
+value; an array contains each item of another array; a scalar only
+itself (PostgreSQL `jsonb @>`). `value` is bound as JSON. A database
+without JSON containment refuses the statement when it is compiled
+(SANDLOOM-R015).
+
+### `json_path`
+
+```python
+def json_path(
+    column: ColumnElement[Any] | QueryableAttribute[Any],
+    *path: JsonPathKey,
+) -> ColumnElement[str]
+```
+
+The scalar at `path` inside a JSON column, as text (feature
+`json_path`):
+
+```python
+select(Order).where(json_path(Order.meta, "shipping", "country") == "FR")
+```
+
+Each step is an object key (`str`) or an array index (`int`, from 0;
+an index step on an object reads `NULL`, a negative one is refused).
+The value is text, the same on every database for a string (itself), a
+boolean (`'true'` / `'false'`) and an integer within 64 bits
+(`'42'`); `NULL` when the path is missing or holds JSON `null`.
+Other numbers (fractions, exponents, larger integers) read back in each
+database's own text (`1.50` may read `'1.5'`): compare them as
+integers, or store them as strings. Objects and arrays read differently
+too. `column` is a `sqlalchemy.JSON` column (or one the database
+stores JSON in). The steps are bound parameters, so an index on a
+`json_path` expression would not serve the query.
+
+### `JsonPathKey`
+
+```python
+JsonPathKey: UnionType
+```
+
+*(no docstring)*
+
 ### `ListOperation`
 
 ```python
@@ -431,6 +548,31 @@ published while this session is the active UoW go to that database's
 transactional outbox.
 
 `DbSession` remains the canonical dependency for the default database.
+
+### `matches`
+
+```python
+def matches(
+    column: ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]],
+    query: str | ColumnElement[str],
+    *,
+    language: str = 'english',
+) -> ColumnElement[bool]
+```
+
+`column` (or a list of columns) matches the search `query`
+(feature `fulltext_search`):
+
+```python
+select(Article).where(matches([Article.title, Article.body], "cat -dog"))
+```
+
+`query` is what a user types: words, `"quoted phrases"`, `or` and
+`-excluded` words (PostgreSQL `websearch_to_tsquery`). Name the
+columns of a `fulltext_index`, in its order, and its language to
+use it: with another language the database scans every row. A database
+without full-text search refuses the statement when it is compiled
+(SANDLOOM-R015).
 
 ### `MoneyLedger`
 
@@ -654,7 +796,10 @@ await transaction_lock(ADMIN_LOCK_KEY)   # the section runs one at a time
 
 `key` is a signed 64-bit integer the module chooses and keeps stable; the
 commit or the rollback releases it. `session` defaults to `db`. A
-database without such a lock refuses (SANDLOOM-R015).
+database without such a lock refuses (SANDLOOM-R015). It needs the database
+feature `transaction_locks`: declare it in `define_module` with
+`CapabilityRequirement("database", features=frozenset({"transaction_locks"}))`
+(SANDLOOM-C030).
 
 ### `UowReads`
 

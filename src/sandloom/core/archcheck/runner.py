@@ -93,6 +93,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "db-dependency-scope",
     "dialect-imports",
     "utc-datetime-columns",
+    "database-feature-forms",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -638,6 +639,11 @@ def _module_level_checks(
             out += [Violation(rule, py, detail) for py, detail in check()]
         except SyntaxError as exc:
             out.append(Violation(rule, module_dir, f"syntax error: {exc}"))
+    if "database-feature-forms" in selected:
+        out += [
+            Violation("database-feature-forms", py, detail, severity)
+            for py, detail, severity in mr.find_database_feature_problems(files)
+        ]
     if "db-dependency-scope" in selected:
         for py in files:
             try:

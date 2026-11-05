@@ -44,7 +44,7 @@ from typing import Any, Literal
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Dialect, make_url
-from sqlalchemy.types import TypeDecorator
+from sqlalchemy.types import TypeDecorator, TypeEngine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import module_name as _module_name
@@ -296,19 +296,39 @@ def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[Fa
     (``postgresql.CITEXT()``) and imports it; the Sandloom type itself is a
     kernel class a migration must not depend on.
     """
-    if (
-        type_ != "type"
-        or not isinstance(obj, TypeDecorator)
-        or not type(obj).__module__.startswith("sandloom.")
-    ):
+    if type_ != "type" or not _sandloom_type(obj):
         return False
-    impl = obj.load_dialect_impl(autogen_context.dialect)
+    return _render_type(obj, autogen_context)
+
+
+def _sandloom_type(type_: Any) -> bool:
+    return isinstance(type_, TypeDecorator) and type(type_).__module__.startswith(
+        "sandloom."
+    )
+
+
+def _render_type(type_: Any, autogen_context: Any) -> str:
+    """``type_`` as the database's own type; an array's item type rendered
+    the same way (``postgresql.ARRAY(sa.String(length=40))``)."""
+    impl = (
+        type_.load_dialect_impl(autogen_context.dialect)
+        if _sandloom_type(type_)
+        else type_
+    )
     module = type(impl).__module__
+    prefix = "sa"
     if module.startswith("sqlalchemy.dialects."):
-        dialect_module = module.split(".")[2]
-        autogen_context.imports.add(f"from sqlalchemy.dialects import {dialect_module}")
-        return f"{dialect_module}.{impl!r}"
-    return f"sa.{impl!r}"
+        prefix = module.split(".")[2]
+        autogen_context.imports.add(f"from sqlalchemy.dialects import {prefix}")
+    item = getattr(impl, "item_type", None)
+    if isinstance(item, TypeEngine):
+        # The public class: the dialect may hand back its DBAPI's subclass
+        # (psycopg's ``_PsycopgARRAY``).
+        name = next(
+            c.__name__ for c in type(impl).__mro__ if not c.__name__.startswith("_")
+        )
+        return f"{prefix}.{name}({_render_type(item, autogen_context)})"
+    return f"{prefix}.{impl!r}"
 
 
 def run_module_migrations(

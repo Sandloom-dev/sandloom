@@ -81,6 +81,7 @@ def test_rule_ids_are_stable() -> None:
         "db-dependency-scope",
         "dialect-imports",  # infra-agnostic: no database dialect in a module
         "utc-datetime-columns",  # infra-agnostic: times read back in UTC
+        "database-feature-forms",  # infra-agnostic: feature forms declared
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.

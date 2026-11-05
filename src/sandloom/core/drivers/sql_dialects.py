@@ -20,12 +20,20 @@ from sqlalchemy import (
     ColumnElement,
     Select,
     String,
+    Text,
+    and_,
     any_,
     bindparam,
+    case,
     column,
     func,
+    literal,
+    literal_column,
     select,
     text,
+)
+from sqlalchemy import (
+    cast as sql_cast,
 )
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.sql.base import Executable
@@ -37,6 +45,7 @@ from sandloom.core.sql_alchemy.portable import (
     ArrayInsert,
     ConflictInsert,
     ErrorKind,
+    JsonPathKey,
     LockKey,
     LockScope,
     RowSecurity,
@@ -338,6 +347,55 @@ _PG_OPTIONS = {
 _NO_OPTIONS: Mapping[str, Any] = MappingProxyType({})
 
 
+def _pg_fulltext_document(
+    columns: Sequence[ColumnElement[Any]], language: str
+) -> ColumnElement[Any]:
+    """``to_tsvector('<language>'::regconfig, <columns joined by ' '>)``,
+    every constant inline: the index expression and the query's must be the
+    same text for the planner to use the index (a bound '' would not be)."""
+    empty: ColumnElement[str] = literal_column("''")
+    parts = [func.coalesce(sql_cast(c, Text), empty) for c in columns]
+    document: ColumnElement[Any] = parts[0]
+    for part in parts[1:]:
+        document = document.op("||")(literal_column("' '")).op("||")(part)
+    # ``language`` is checked by the form: a lowercase name.
+    return func.to_tsvector(literal_column(f"'{language}'::regconfig"), document)
+
+
+def _pg_text_path(path: tuple[JsonPathKey, ...]) -> ColumnElement[Any]:
+    steps = postgresql.array([literal(str(step), String()) for step in path])
+    return sql_cast(steps, postgresql.ARRAY(Text()))
+
+
+def _pg_json_path(column: Any, path: tuple[JsonPathKey, ...]) -> ColumnElement[str]:
+    # ``#>>`` (json and jsonb alike): the value at the path as text, NULL for
+    # a missing path or JSON null. PostgreSQL reads a text step as an array
+    # index or an object key alike; SQLite's ``[n]`` reads arrays only. So an
+    # int step is guarded: the value it steps into must be an array, or the
+    # answer is NULL on both.
+    value = column.op("#>>", return_type=Text())(_pg_text_path(path))
+    guards = [
+        func.jsonb_typeof(
+            sql_cast(
+                column if at == 0 else column.op("#>")(_pg_text_path(path[:at])),
+                postgresql.JSONB(),
+            )
+        )
+        == literal_column("'array'")
+        for at, step in enumerate(path)
+        if isinstance(step, int)
+    ]
+    if not guards:
+        return cast("ColumnElement[str]", value)
+    return cast("ColumnElement[str]", case((and_(*guards), value)))
+
+
+def _pg_jsonb(element: Any) -> Any:
+    if isinstance(element.type, postgresql.JSONB):
+        return element
+    return sql_cast(element, postgresql.JSONB())
+
+
 __all__ = [
     "POSTGRESQL",
     "SQLITE",
@@ -367,6 +425,10 @@ class PostgresqlSql:
                 "transaction_locks",
                 "snapshot_reads",
                 "readonly_transactions",
+                "arrays",
+                "fulltext_search",
+                "json_path",
+                "json_contains",
             }
         )
 
@@ -400,6 +462,43 @@ class PostgresqlSql:
 
     def conflict_insert(self, table: Any) -> ConflictInsert:
         return cast("ConflictInsert", postgresql.insert(table))
+
+    # -- feature forms (arrays, fulltext_search, json_path, json_contains) --
+
+    def array_type(self, item_type: TypeEngine[Any]) -> TypeEngine[Any]:
+        return postgresql.ARRAY(item_type)
+
+    def fulltext_index_options(self) -> dict[str, Any]:
+        return {"postgresql_using": "gin"}
+
+    def fulltext_document(
+        self, columns: Sequence[ColumnElement[Any]], language: str
+    ) -> ColumnElement[Any]:
+        return _pg_fulltext_document(columns, language)
+
+    def fulltext_match(
+        self, document: ColumnElement[Any], query: ColumnElement[str], language: str
+    ) -> ColumnElement[bool]:
+        tsquery = func.websearch_to_tsquery(
+            literal_column(f"'{language}'::regconfig"), query
+        )
+        return cast(
+            "ColumnElement[bool]",
+            document.op("@@", return_type=Boolean())(tsquery),
+        )
+
+    def json_path(
+        self, column: Any, path: tuple[JsonPathKey, ...]
+    ) -> ColumnElement[str]:
+        return _pg_json_path(column, path)
+
+    def json_contains(self, column: Any, value: Any) -> ColumnElement[bool]:
+        # ``@>`` is jsonb's: a json column is compared as jsonb (a jsonb
+        # column as itself, so its GIN index serves the query).
+        return cast(
+            "ColumnElement[bool]",
+            _pg_jsonb(column).op("@>", return_type=Boolean())(_pg_jsonb(value)),
+        )
 
     def greatest(self, *exprs: Any) -> ColumnElement[Any]:
         return func.greatest(*exprs)
@@ -553,6 +652,14 @@ _SQLITE_CODES = {
 }
 
 
+def _sqlite_json_path(path: tuple[JsonPathKey, ...]) -> str:
+    """SQLite's JSON path text: ``$."key"[0]`` (the form refuses a key with
+    a double quote)."""
+    return "$" + "".join(
+        f"[{step}]" if isinstance(step, int) else f'."{step}"' for step in path
+    )
+
+
 class SqliteSql:
     """SQLite, for development and tests: ``COLLATE NOCASE``, ``WHERE`` indexes,
     ``ON CONFLICT``; no substring-search index and no named lock (its
@@ -566,8 +673,9 @@ class SqliteSql:
 
     contract_version = 2
     name = "sqlite"
-    #: ``RETURNING`` (3.35) and ``ON CONFLICT`` (3.24) are needed.
-    minimum_server_version: tuple[int, ...] | None = (3, 35)
+    #: ``RETURNING`` (3.35), ``ON CONFLICT`` (3.24) and the built-in JSON
+    #: functions (3.38) are needed.
+    minimum_server_version: tuple[int, ...] | None = (3, 38)
     #: The migration chains are PostgreSQL's DDL history: a SQLite file
     #: takes its schema from the models (SANDLOOM-B028).
     schema_from_models = True
@@ -577,9 +685,17 @@ class SqliteSql:
     def features(self) -> frozenset[str]:
         # An in-memory database (one connection, no WAL) withholds
         # snapshot_reads and transaction_locks: the driver's instance
-        # features (sandloom.core.drivers.sqlalchemy_database).
+        # features (sandloom.core.drivers.sqlalchemy_database). JSON path
+        # extraction is built in from 3.38, the minimum; no arrays, no
+        # full-text index (FTS5 is a virtual table, not an index) and no
+        # JSON containment.
         return frozenset(
-            {"transaction_locks", "snapshot_reads", "readonly_transactions"}
+            {
+                "transaction_locks",
+                "snapshot_reads",
+                "readonly_transactions",
+                "json_path",
+            }
         )
 
     def classify_error(self, exc: BaseException) -> ErrorKind:
@@ -604,6 +720,28 @@ class SqliteSql:
 
     def conflict_insert(self, table: Any) -> ConflictInsert:
         return cast("ConflictInsert", sqlite.insert(table))
+
+    def json_path(
+        self, column: Any, path: tuple[JsonPathKey, ...]
+    ) -> ColumnElement[str]:
+        # json_extract answers SQL values (a JSON true is 1): the text of
+        # booleans is restated from json_type, the rest cast to text, so the
+        # answer is PostgreSQL's ``#>>`` for strings, booleans, null and
+        # 64-bit integers. Other numbers are read as SQLite REAL and printed
+        # in its text (1.50 -> '1.5', 1e2 -> '100.0'): the form's contract
+        # excludes them.
+        where = literal(_sqlite_json_path(path), String())
+        true: ColumnElement[str] = literal_column("'true'")
+        false: ColumnElement[str] = literal_column("'false'")
+        kind = func.json_type(column, where)
+        return cast(
+            "ColumnElement[str]",
+            case(
+                (kind == true, true),
+                (kind == false, false),
+                else_=sql_cast(func.json_extract(column, where), Text()),
+            ),
+        )
 
     def greatest(self, *exprs: Any) -> ColumnElement[Any]:
         # SQLite's multi-argument max() is its scalar greatest.

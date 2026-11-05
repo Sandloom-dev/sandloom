@@ -75,6 +75,9 @@ async def transaction_lock(key: int, *, session: AsyncSession | None = None) -> 
 
     ``key`` is a signed 64-bit integer the module chooses and keeps stable; the
     commit or the rollback releases it. ``session`` defaults to :func:`db`. A
-    database without such a lock refuses (SANDLOOM-R015).
+    database without such a lock refuses (SANDLOOM-R015). It needs the database
+    feature ``transaction_locks``: declare it in ``define_module`` with
+    ``CapabilityRequirement("database", features=frozenset({"transaction_locks"}))``
+    (SANDLOOM-C030).
     """
     await _transaction_lock(key, session=session if session is not None else db())
