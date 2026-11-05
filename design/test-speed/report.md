@@ -493,6 +493,12 @@ What the numbers say:
 
 ### 7.4 Isolation and what is left
 
+- Gates on the final code: `uv run sandloom test --full --seed 12345` passes
+  every stage (full suite 157.5 s, load ~25). CI's `backend-tests-isolation`
+  step (`pytest -p no:xdist --sandloom-shuffle=<seed> --sandloom-shard=N/2
+  -m "not subprocess_probe"`: one process, so one loop, for ~2800 tests per
+  shard) passes both shards with seed 4242 and again with seed 999 (2823 and
+  2813 passed).
 - Rows: reset between tests exactly as before (`reset_schema` is unchanged).
 - Connection state, prepared plans, leftover tasks, the post-commit dispatcher:
   reset as in 7.1, each with a test or a full run that failed without it.
