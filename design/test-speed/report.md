@@ -394,8 +394,9 @@ PostgreSQL 16 and Redis containers; load average 20–55 throughout.
   of one process (one xdist worker) runs on one event loop.
 - `db_engine` keeps one engine and pool per loop for the whole run and resets
   only the rows, with the same `reset_schema` as before
-  (`sandloom.core.testing.engine_cache.LoopEngines`, the session fixture
-  `_sandloom_loop_engines`). With pytest-asyncio's default (a loop per test, as
+  (`sandloom.core.testing.database.LoopEngines`; the autouse session fixture
+  `_sandloom_loop_engines` names the session loop and disposes the engines at
+  the end). `db_engine`'s signature is unchanged (the public API baseline). With pytest-asyncio's default (a loop per test, as
   in an application that does not set the two options) it builds and disposes an
   engine per test, as before.
 - A pooled connection now serves many tests. The first time it is checked out
@@ -403,7 +404,10 @@ PostgreSQL 16 and Redis containers; load average 20–55 throughout.
   (settings, `SET ROLE`, `search_path`), session advisory locks released,
   `UNLISTEN *`, cursors closed, temporary tables dropped, and the prepared
   statement cache emptied (a table another test recreated makes its plans
-  stale). One round trip per connection per test.
+  stale). One round trip per connection per test. A connection that died
+  between tests is replaced by the pool. The `default` engines and the app's
+  database providers, whose pools are now kept too, get the same reset
+  (`reset_kept_pools`).
 - The two per-test pool disposals (`conftest.py` `_release_default_engine_pool`,
   `_sandloom_release_default_pools`) now skip async tests on the session loop.
   They still run after a sync test, which may have opened connections on a loop
@@ -415,8 +419,10 @@ PostgreSQL 16 and Redis containers; load average 20–55 throughout.
     (`end_post_commit_dispatch`);
   - tasks the test started and left running are cancelled, as closing its loop
     did (`_sandloom_cancel_leftover_tasks`). It snapshots the tasks after every
-    higher-scoped fixture is set up (pytest sets them up first), so tasks of
-    module and session fixtures survive.
+    higher-scoped fixture is set up (pytest sets them up first), so tasks
+    module and session fixtures start in their setup survive; a task such a
+    fixture starts lazily inside a test is cancelled with the test's, as a
+    per-test loop did.
 
 ### 7.2 What broke, and why
 
@@ -470,7 +476,7 @@ each (load 30–55): setup median 702 → 544 ms wall, 52 → 32 ms CPU.
 
 What the numbers say:
 
-- **CPU goes down, every time.** Setup CPU of the whole suite −8 to −17 s
+- **Setup CPU goes down, every time.** Setup CPU of the whole suite −8 to −17 s
   (−15 to −27%); `test_users.py` setup CPU −13 to −20 ms per test (about −35%);
   connections and server CPU as above. User CPU of the workers fell in two pairs
   out of three (−48 s twice; +38 s in the third, whose call phase took longer,
@@ -490,6 +496,10 @@ What the numbers say:
 - Rows: reset between tests exactly as before (`reset_schema` is unchanged).
 - Connection state, prepared plans, leftover tasks, the post-commit dispatcher:
   reset as in 7.1, each with a test or a full run that failed without it.
+- Not reset: timers (`loop.call_later` handles) a test leaves behind, e.g.
+  `rpc_transport.close_later`'s 60 s pool close. A per-test loop dropped them;
+  on the session loop they fire later, in another test. None failed a test
+  here; cancelling them would need a hook into the loop's timer list.
 - Two tests failed on this branch under load and passed alone in both loop
   modes (five times each) and in a serial replay of the files their worker ran
   first. Both are on the report's list of timing failures:

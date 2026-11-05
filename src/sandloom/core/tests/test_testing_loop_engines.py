@@ -1,4 +1,4 @@
-"""The test engine kept on the session loop (``sandloom.core.testing.engine_cache``).
+"""The test engine kept on the session loop (``sandloom.core.testing.database.LoopEngines``).
 
 The suite runs every async test on one loop per process, so ``db_engine`` keeps
 one engine and pool for the run and resets only the rows. A pooled connection
@@ -10,6 +10,7 @@ temporary tables, and prepared statements a recreated table made stale.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from sandloom.core.testing.connections import (
     TEST_ENGINE_MAX_OVERFLOW,
     TEST_ENGINE_POOL_SIZE,
 )
+from sandloom.core.testing.database import LoopEngines, loop_engines
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine and its kept engines
 from sandloom.core.testing.fixtures import runs_on_session_loop
 
@@ -31,11 +33,15 @@ def _needs_session_loop(request: pytest.FixtureRequest) -> None:
         pytest.skip("the suite runs with a loop per test: no engine is kept")
 
 
+def _engines() -> LoopEngines:
+    return loop_engines(asyncio.get_running_loop())
+
+
 async def test_db_engine_is_the_kept_engine_of_the_session_loop(
-    db_engine: Any, _sandloom_loop_engines: Any
+    db_engine: Any,
 ) -> None:
-    assert db_engine in _sandloom_loop_engines._engines.values()
-    async with _sandloom_loop_engines.test_engine() as again:
+    assert db_engine in _engines()._engines.values()
+    async with _engines().test_engine() as again:
         assert again is db_engine  # the next test gets the same engine
 
 
@@ -57,12 +63,12 @@ async def _connection_with_pid(engine: Any, pid: int) -> Any:
 
 
 async def test_a_pooled_connection_starts_the_next_test_clean(
-    _sandloom_loop_engines: Any,
+    db_engine: Any,
 ) -> None:
-    engines = _sandloom_loop_engines
+    engines = _engines()
     async with engines.test_engine() as engine:  # one test
         async with engine.connect() as conn:
-            pid = (await conn.execute(text("SELECT pg_backend_pid()"))).scalar()
+            pid = (await conn.execute(text("SELECT pg_backend_pid()"))).scalar_one()
             await conn.execute(text(f"DROP TABLE IF EXISTS {_PROBE}"))
             await conn.execute(text(f"CREATE TABLE {_PROBE} (a int)"))
             await conn.execute(text(f"INSERT INTO {_PROBE} VALUES (1)"))

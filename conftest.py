@@ -60,6 +60,7 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
     _sandloom_isolate_module_globals,
     _sandloom_isolate_process_globals,
     end_post_commit_dispatch,
+    reset_kept_pools,
     runs_on_session_loop,
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
@@ -103,7 +104,8 @@ async def _release_default_engine_pool(
 
     The suite runs every async test on one event loop per process
     (``asyncio_default_test_loop_scope = "session"``), so the pooled asyncpg
-    connections an async test opened stay usable by the next one. A sync test
+    connections an async test opened stay usable by the next one (and get
+    ``db_engine``'s per-test reset: ``reset_kept_pools``). A sync test
     may have opened some on a loop of its own (``asyncio.run``), which is gone
     when it ends: those are closed here, on this loop, so the next test never
     checks out a connection "attached to a different loop". The engine object
@@ -112,6 +114,7 @@ async def _release_default_engine_pool(
     yield
     await end_post_commit_dispatch()
     if runs_on_session_loop(request.node):
+        reset_kept_pools()
         return
     from sandloom.core.drivers import sqlalchemy_database
 

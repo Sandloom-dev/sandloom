@@ -24,7 +24,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`_sandloom_cancel_leftover_tasks`](#_sandloom_cancel_leftover_tasks) | fixture | Cancel the asyncio tasks a test left running on the session loop. |
 | [`_sandloom_isolate_module_globals`](#_sandloom_isolate_module_globals) | fixture | Start every test module from the session baseline (the harness app's runtime) and put the process's runtime bindings back to it afterwards. |
 | [`_sandloom_isolate_process_globals`](#_sandloom_isolate_process_globals) | fixture | Restore the process's runtime bindings after every test. |
-| [`_sandloom_loop_engines`](#_sandloom_loop_engines) | fixture | The test engines kept on the session loop (`db_engine`), disposed when the run ends (`sandloom.core.testing.engine_cache`). |
+| [`_sandloom_loop_engines`](#_sandloom_loop_engines) | fixture | Name the session loop for `db_engine`; when the run ends, dispose the test engines kept on it (`sandloom.core.testing.database.LoopEngine... |
 | [`_sandloom_release_default_pools`](#_sandloom_release_default_pools) | fixture | Return the `default` engines' pooled connections after a test whose loop ends with it. |
 | [`_sandloom_sdk_kit`](#_sandloom_sdk_kit) | fixture | Record `published` events; bind `Contract` resolution to the app. |
 | [`ambient_uow`](#ambient_uow) | fixture | Bind an in-memory recording UoW for the whole test. |
@@ -113,11 +113,15 @@ and the process caches it warmed are emptied (`PROCESS_CACHES`).
 
 ```python
 @pytest.fixture
-def _sandloom_loop_engines() -> AsyncIterator[Any]
+def _sandloom_loop_engines() -> AsyncIterator[None]
 ```
 
-The test engines kept on the session loop (`db_engine`), disposed
-when the run ends (`sandloom.core.testing.engine_cache`).
+Name the session loop for `db_engine`; when the run ends, dispose the
+test engines kept on it (`sandloom.core.testing.database.LoopEngines`).
+
+Only the tests that run on this loop (`asyncio_default_test_loop_scope =
+"session"`) reuse an engine; with a loop per test `db_engine` builds one
+per test, as it always did.
 
 ### `_sandloom_release_default_pools`
 
@@ -216,11 +220,7 @@ A session on the test database, rolled back after the test.
 
 ```python
 @pytest.fixture
-def db_engine(
-    sandloom_app: Any,
-    _sandloom_loop_engines: Any,
-    request: pytest.FixtureRequest,
-) -> AsyncIterator[Any]
+def db_engine(sandloom_app: Any) -> AsyncIterator[Any]
 ```
 
 Engine on the test database; every table present and empty.
