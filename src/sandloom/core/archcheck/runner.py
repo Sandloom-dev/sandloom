@@ -21,6 +21,7 @@ import sandloom.core.archcheck.api10_rules as a10
 import sandloom.core.archcheck.module_rules as mr
 from sandloom.core import error_codes
 from sandloom.core.archcheck.manifest import ArchRules
+from sandloom.core.descriptors.database_forms import PORTABLE_SQL_FUNCTIONS
 from sandloom.core.descriptors.module_names import installed_modules, module_name
 
 _LINE_PREFIX = re.compile(r"^Line (\d+): ")
@@ -94,6 +95,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "dialect-imports",
     "utc-datetime-columns",
     "database-feature-forms",
+    "portable-sql",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -209,6 +211,36 @@ def check_test_imports(rules: ArchRules, module: str) -> list[Violation]:
                 continue
             reported.add((line, text))
             violations.append(Violation("test-imports", py, f"Line {line}: {text}"))
+    return violations
+
+
+def check_portable_sql(rules: ArchRules, module: str) -> list[Violation]:
+    """``portable-sql``: the module's code and its tests call only the SQL
+    functions every database runs alike and mark their raw SQL.
+
+    The one rule that reads a module's tests besides ``test-imports``: a test
+    runs on every database the application may be tested on, and a test's
+    SQL ran only on PostgreSQL until SQLite came. Migrations are exempt (one
+    database's DDL history).
+    """
+    files = [
+        *((py, False) for py in iter_module_files(rules, module, skip_migrations=True)),
+        *(
+            (py, True)
+            for py in iter_module_test_files(rules, module)
+            if "migrations" not in py.relative_to(rules.modules_path).parts
+        ),
+    ]
+    violations: list[Violation] = []
+    for py, test_file in files:
+        try:
+            found = az.find_unportable_sql(
+                py, portable_functions=PORTABLE_SQL_FUNCTIONS, test_file=test_file
+            )
+        except SyntaxError as exc:
+            violations.append(Violation("portable-sql", py, f"syntax error: {exc}"))
+            continue
+        violations += [Violation("portable-sql", py, d) for d in found]
     return violations
 
 
@@ -576,6 +608,8 @@ def run_checks(  # noqa: C901
                 violations += [Violation(rule, py, d) for d in found]
         if "test-imports" in selected:
             violations += check_test_imports(rules, module)
+        if "portable-sql" in selected:
+            violations += check_portable_sql(rules, module)
         if "schema-orm-imports" in selected:
             for py in iter_schema_files(rules, module):
                 violations += [
@@ -675,6 +709,7 @@ __all__ = [
     "RULES",
     "Violation",
     "check_manifest_imports",
+    "check_portable_sql",
     "check_tenant_scoped_models",
     "check_test_imports",
     "iter_module_files",

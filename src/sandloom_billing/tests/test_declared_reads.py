@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.data import session_reads
 from sandloom.sdk.infra import settings
+from sandloom.sdk.testing import has_optimized_reads
 from sandloom_billing.models import BillingSubscription
 from sandloom_billing.services import BillingService
 from sandloom_billing.services.operations import (
@@ -70,8 +71,8 @@ async def test_every_operation_has_the_expected_executor(
     for op in OPERATIONS:
         entry = ops[op.name]
         assert entry["module"].startswith("sandloom_billing"), entry
-        if optimized and sandloom_core.database().engine.dialect.name == "sqlite":
-            # a DBAPI without the optimized executor (SQLite's aiosqlite)
+        if optimized and not has_optimized_reads(sandloom_core.database().engine):
+            # a DBAPI without the optimized executor
             assert entry["executor"] == "general", entry
             continue
         assert entry["executor"] == ("optimized" if optimized else "general"), entry

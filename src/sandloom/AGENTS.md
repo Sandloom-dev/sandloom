@@ -80,7 +80,8 @@ To talk to another module:
    `Credits(1, of=Account.org(param="org_id"))` (SANDLOOM-B017). An organization
    route gating with `of=Account.user()` needs `reason=` (C027).
 8. **No backend SDK, raw client or SQL dialect:** `cache()`, `notifier()`, `Database(name)` (C003, C004);
-   `Uuid` and `sandloom.sdk.data`'s portable forms outside `migrations/` (C028). No `sandloom.driverkit`.
+   `Uuid`, `sdk.data` forms outside `migrations/` (C028); portable `func`s, `WallClock()` not `now()`,
+   raw SQL `# sandloom: raw-sql <why>`, tests too (C031). No `sandloom.driverkit`.
 
 ## Rules no check enforces yet (get these right yourself)
 
@@ -96,8 +97,7 @@ To talk to another module:
   step. Cap list `limit`s (`Query(le=...)`).
 - **Security events:** on a password, role or membership change, call
   `revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=True)`
-  (`sandloom.sdk.security`) as the last fallible step, and `record_audit(...)` the
-  action. Keep PII out of the audit `data`.
+  (`sandloom.sdk.security`) as the last fallible step; `record_audit(...)` it, no PII.
 - **Side effects outside the database** (email, cache) go through
   `await on_commit(cb)`; a check that must hold at commit, `before_commit(cb)`.
 - **Celery tasks** (`sandloom add task`): `run_async(coro)` with `open_uow()`

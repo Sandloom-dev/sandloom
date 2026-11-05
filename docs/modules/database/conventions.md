@@ -141,9 +141,8 @@ All but `Uuid` come from `sandloom.sdk.data`, and the two statements run on
 `db()` unless given `session=`. The database driver writes each form in its
 own SQL, and a database that cannot write one refuses instead of running
 other SQL ([Infrastructure](../../infrastructure/database.md#portable-sql-forms)).
-The check sees imports and dialect options such as `postgresql_where=`. It does
-not see a SQL function only one database has: write `aggregate_list` where you
-would write `func.array_agg`.
+The check sees imports and dialect options such as `postgresql_where=`. SQL
+functions and raw SQL have a check of their own, in the next section.
 
 `aggregate_list` is an aggregate like `count`. Its items read back as the
 column's type, in no set order. A group without rows reads `[]`. As a scalar
@@ -155,6 +154,85 @@ load a row and the codes it owns in one round trip. Declare the
 codes = select(aggregate_list(Role.code)).where(Role.id == UserRole.role_id, UserRole.user_id == User.id)
 user, role_codes = (await db().execute(select(User, codes.scalar_subquery()).where(User.id == uid))).one()
 ```
+
+## SQL functions and raw SQL
+
+SQLAlchemy writes `func.<name>` as it is spelled, so a function only one
+database knows fails when the statement first runs on another. A module and
+its tests call only the SQL functions that answer the same on every shipped
+database. A test runs each of them on PostgreSQL and on SQLite, and checks
+the value and its Python type:
+
+`abs`, `char_length`, `coalesce`, `count`, `length`, `max`, `min`, `nullif`,
+`sum`.
+
+`max` and `min` of text order by the column's collation, which may differ
+between databases.
+
+Any other `func.<name>` fails `sandloom check` with
+[SANDLOOM-C031](../../reference/error-codes.md#sandloom-c031), whether written
+`func`, `sa.func`, an alias of `func` or a name from
+`sqlalchemy.sql.functions`. The finding names the form to use:
+
+| Instead of | Use |
+| --- | --- |
+| `func.now()`, `func.current_timestamp()` | `WallClock()` from `sandloom.sdk.data`, or a bound `datetime.now(UTC)` |
+| `func.array_agg(...)` | `aggregate_list(...)` |
+| `func.jsonb_...(...)` | `json_path(...)`, `json_contains(...)` |
+| `func.to_tsvector(...)` | `fulltext_index(...)` and `matches(...)` |
+| `func.greatest(a, b)` | `sqlalchemy.case((a >= b, a), else_=b)`, for non-NULL operands |
+| `func.lower(c)`, `func.upper(c)` | a `CaseInsensitiveText` column, or fold in Python |
+| `func.avg(c)` | `sqlalchemy.cast(func.avg(c), Float)`, on a waived line |
+
+On SQLite, `lower` and `upper` fold only ASCII letters: `lower('ÄÖÉ')` stays
+`'ÄÖÉ'`. SQLite's `NOCASE`, behind `CaseInsensitiveText`, has the same limit.
+The average is a `Decimal` on PostgreSQL and a `float` on SQLite.
+
+`func.now()` runs on both databases, yet answers differently. On PostgreSQL it
+is the start of the transaction. On SQLite it is whole seconds, outside the
+text that SQLite stores for a `UtcDateTime`. A comparison with such a column
+is then off within a second. `WallClock()` is the database's clock when the
+statement runs, read back as an aware UTC time on every database:
+
+```python
+from sandloom.sdk.data import WallClock  # sandloom: advanced the database clock
+expired = update(Invitation).where(Invitation.expires_at <= WallClock())
+await db().execute(expired.values(revoked_at=WallClock()))
+```
+
+Raw SQL reaches the database unread: `text()`, `literal_column()`, `DDL()`,
+`exec_driver_sql()`, `.op()`, `.bool_op()`, and a string passed to
+`.prefix_with()`, `.suffix_with()` or `.with_hint()`. Write the statement with
+SQLAlchemy expressions instead. The check does not read the SQL strings of
+`CheckConstraint(...)` and `Computed(...)`: keep those to what every database
+accepts. A test reads a kernel table, such as
+`audit_log`, through `sqlalchemy.table("audit_log", column("action", String))`,
+since a module test does not import the kernel's models.
+
+- **A reviewed line** carries `# sandloom: raw-sql <reason>` on the call, or
+  alone on the line above it. A PostgreSQL cast (`::`) stays a finding: use
+  `sqlalchemy.cast(expr, Type)`.
+- **A literal** that is only a number, a quoted string, `NULL`, `TRUE` or
+  `FALSE`, as in `server_default=text("0")`, is every database's and needs no
+  marker.
+- **A test tied to a feature** runs only where the feature is, so its SQL is
+  not reported. That is a test or class decorated with
+  `skip_unless_db_feature(...)`, or a test file whose `pytestmark` carries it.
+- Migrations are exempt.
+
+Code never asks which database runs it. Reading `x.dialect.name`,
+`dialect_name(x)` or `url.get_backend_name()` is a finding too, in module code
+and in tests. Ask for what the code needs instead:
+
+- a module declares a database feature;
+- a test is gated by `skip_unless_db_feature(...)`;
+- a test asks `has_serial_writers(db)` (writers take turns) or
+  `has_optimized_reads(engine)` (the planner's optimized executor can run),
+  from `sandloom.sdk.testing`.
+
+Compiling a statement for the bind's dialect,
+`stmt.compile(dialect=db.bind.dialect)`, asks nothing. Only the raw-sql marker
+admits a dialect read: a feature marker does not.
 
 ## Forms that need a database feature
 

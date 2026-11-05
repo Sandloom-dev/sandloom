@@ -917,11 +917,15 @@ class WallClock(FunctionElement)(
 
 The database's clock when the statement runs ("now, at the call").
 
-A column's `server_default=WallClock()` or `onupdate=WallClock()`;
-each database's renderer writes it (`SqlDialect.wall_clock`):
-PostgreSQL `clock_timestamp()`, SQLite the current UTC time to the
-millisecond. Unlike a transaction's start time (`now()`), rows one
-transaction writes get ordered times; order ties by a UUIDv7 id.
+A column's `server_default=WallClock()` or `onupdate=WallClock()`,
+and "now" in a statement: `.values(revoked_at=WallClock())`,
+`.where(Model.expires_at > WallClock())`. Each database's renderer
+writes it (`SqlDialect.wall_clock`): PostgreSQL
+`clock_timestamp()`, SQLite the current UTC time to the millisecond in
+the text a bound `UtcDateTime` has. Unlike a transaction's start time
+(`now()`), rows one transaction writes get ordered times; order ties by
+a UUIDv7 id. A module writes it instead of `func.now()`, which SQLite
+answers in whole seconds (SANDLOOM-C031).
 
 ## Examples and related guides
 

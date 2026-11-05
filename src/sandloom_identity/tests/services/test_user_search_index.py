@@ -76,9 +76,12 @@ async def test_search_statements_can_use_the_trigram_index(
     for statement, params in list(captured):
         # Bitmap scans only: on a near-empty table the planner would rather
         # walk ix_users_created_at for the ORDER BY page.
+        # sandloom: raw-sql the plan check: PostgreSQL's planner settings
         await test_db.execute(text("SET LOCAL enable_seqscan = off"))
+        # sandloom: raw-sql the plan check: PostgreSQL's planner settings
         await test_db.execute(text("SET LOCAL enable_indexscan = off"))
         conn = await test_db.connection()
+        # sandloom: raw-sql EXPLAIN where the trigram index was built
         rows = await conn.exec_driver_sql(f"EXPLAIN {statement}", params)
         plan = "\n".join(r[0] for r in rows)
         assert "ix_users_search_trgm" in plan, plan

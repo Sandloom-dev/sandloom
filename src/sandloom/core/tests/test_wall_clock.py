@@ -226,7 +226,13 @@ def test_alembic_sees_no_change_on_a_clock_timestamp_table() -> None:
     """A table the existing migrations made (``sa.text("clock_timestamp()")``,
     ``timestamptz``) compares equal to ``CreatedAt`` / ``UpdatedAt`` with
     server-default and type comparison on; ``now()`` would not."""
-    engine = sa.create_engine(_test_database_url(), poolclass=sa.pool.NullPool)
+    url = _test_database_url()
+    if sa.engine.make_url(url).get_backend_name() != "postgresql":
+        pytest.skip(
+            "the existing migrations are PostgreSQL's DDL history; this test "
+            "database takes its schema from the models"
+        )
+    engine = sa.create_engine(url, poolclass=sa.pool.NullPool)
     found: dict[str, list[object]] = {}
     try:
         with engine.connect() as connection:

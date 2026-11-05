@@ -9,6 +9,13 @@ built provider afterwards (``InfraRegistry.snapshot_instance`` /
 :func:`skip_unless_db_feature` skips a test whose database instance lacks a
 feature it needs (``arrays`` on SQLite, say): the instance's features as the
 application advertises them, build-free (``InfraRegistry.declared_features``).
+
+:func:`has_serial_writers` and :func:`has_optimized_reads` answer the two
+questions module tests used to ask by naming the database: whether writers
+take turns (a race test's barrier lets them in one at a time), and whether the
+planner's optimized executor can run there. Each is the kernel's own answer
+(the renderer's ``serial_writers``, the DBAPI adapter's ``raw_executor``), so a
+module test never reads ``dialect.name`` (SANDLOOM-C031).
 """
 
 from __future__ import annotations
@@ -18,6 +25,9 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
+
+from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
+from sandloom.core.sql_alchemy.portable import dialect_name, serial_writers
 
 #: The marker :func:`skip_unless_db_feature` puts on a test.
 DB_FEATURE_MARKER = "sandloom_db_feature"
@@ -108,10 +118,31 @@ def db_feature_skip_reason(core: Any, item: Any) -> str | None:
     return None
 
 
+def has_serial_writers(bind: Any) -> bool:
+    """Whether the database behind ``bind`` (a session, connection or engine)
+    has one writer at a time, so racing write transactions run in turn
+    rather than overlapping (its renderer's ``serial_writers``)::
+
+        await barrier.wait(serial=has_serial_writers(db))
+    """
+    return serial_writers(dialect_name(bind))
+
+
+def has_optimized_reads(bind: Any) -> bool:
+    """Whether the planner's optimized executor can run on the database
+    behind ``bind`` (an engine, sync or async): its DBAPI adapter runs raw
+    statements on the driver connection. Without it every declared read runs
+    on the general executor, whatever ``planner_optimized_executor`` says."""
+    engine = getattr(bind, "sync_engine", bind)
+    return RAW_EXECUTOR in dbapi_adapter_of(engine).capabilities
+
+
 __all__ = [
     "DB_FEATURE_MARKER",
     "DB_FEATURE_MARKER_LINE",
     "db_feature_skip_reason",
+    "has_optimized_reads",
+    "has_serial_writers",
     "missing_db_features",
     "override_instance",
     "skip_unless_db_feature",

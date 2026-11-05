@@ -58,7 +58,6 @@ def test_module_imports_no_dialect(root: Path) -> None:
         "from sqlalchemy import Index\nIndex('i', 'a', sqlite_where='a > 1')\n",
         "from sqlalchemy import Index\nIndex('i', 'a', **{'postgresql_where': 'a'})\n",
         "import sqlalchemy as sa\nsa.Column('a', sa.Text, postgresql_using='gin')\n",
-        "from sqlalchemy import text\ntext('SELECT id::text FROM t')\n",
     ],
 )
 def test_the_analyzer_catches_every_spelling(tmp_path: Path, source: str) -> None:

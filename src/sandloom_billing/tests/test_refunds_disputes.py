@@ -17,13 +17,19 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from sandloom.sdk.data import WallClock
 from sandloom_billing.models import CreditLedgerEntry, PspPaymentState
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
-from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
+from sandloom_billing.tests.conftest import (
+    WEBHOOK_SECRET,
+    audit_count,
+    make_user_headers,
+    outbox_count,
+)
 from sandloom_billing.tests.test_operation_intents import (
     CHECKOUT,
     WEBHOOK,
@@ -166,10 +172,7 @@ async def test_same_payment_intent_under_another_session_never_double_grants(
 
 
 async def _audits(db: AsyncSession, action: str) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": action}
-    )
-    return int(count.scalar_one())
+    return await audit_count(db, action)
 
 
 async def test_full_refund_reverses_the_granted_credits(
@@ -370,11 +373,7 @@ async def test_dispute_of_an_unknown_payment_is_audited_for_an_operator(
 
 
 async def _channel_count(db: AsyncSession, channel: str) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM outbox_messages WHERE channel = :c"),
-        {"c": channel},
-    )
-    return int(count.scalar_one())
+    return await outbox_count(db, channel)
 
 
 async def test_won_dispute_restores_with_a_distinct_event(
@@ -659,9 +658,7 @@ async def test_housekeeping_purges_only_old_orphan_payment_states(
 
     assert await purge_orphan_payment_states(test_db) == 1
     left = (
-        await test_db.execute(
-            text("SELECT psp_payment_intent_id FROM billing_psp_payment_states")
-        )
+        await test_db.execute(select(PspPaymentState.psp_payment_intent_id))
     ).scalars()
     assert sorted(left) == sorted([PI, "pi_new_orphan"])
     # The periodic task runs it (and reports the count).
@@ -780,14 +777,12 @@ async def test_purge_never_deletes_the_state_a_concurrent_completion_holds(
 
     async with maker() as s:
         assert await BillingService.get_credit_balance(customer_id, s) == 0
-        kept = await s.execute(
-            text(
-                "SELECT count(*) FROM billing_psp_payment_states "
-                "WHERE psp_payment_intent_id = :p"
-            ),
-            {"p": PI},
+        kept = await s.scalar(
+            select(func.count())
+            .select_from(PspPaymentState)
+            .where(PspPaymentState.psp_payment_intent_id == PI)
         )
-        assert int(kept.scalar_one()) == 1
+        assert kept == 1
 
 
 async def test_paid_credit_pack_without_a_payment_intent_grants_nothing(
@@ -835,23 +830,22 @@ async def test_paid_credit_pack_without_a_payment_intent_grants_nothing(
     assert flagged is not None and flagged.followup_at is not None
 
 
-async def test_payment_state_upsert_bumps_updated_at_with_clock_timestamp(
+async def test_payment_state_upsert_bumps_updated_at_with_the_wall_clock(
     test_db: AsyncSession,
 ) -> None:
-    """The touch is ``clock_timestamp()`` on PostgreSQL, as it was written
-    before ``WallClock()``: the orphan purge re-checks ``updated_at``."""
+    """The touch is the database's clock at the statement, ``WallClock()``
+    as the database's renderer writes it (``clock_timestamp()`` on
+    PostgreSQL, as before): the orphan purge re-checks ``updated_at``."""
     from sandloom_billing.services.webhook_service import payment_state_upsert
 
+    dialect = test_db.bind.dialect
     statement = payment_state_upsert("pi_pin", test_db)
-    sql = " ".join(str(statement.compile(dialect=test_db.bind.dialect)).split())
+    sql = " ".join(str(statement.compile(dialect=dialect)).split())
+    wall_clock = str(WallClock().compile(dialect=dialect))
     assert sql.startswith(
         "INSERT INTO billing_psp_payment_states (psp_payment_intent_id"
     ), sql
-    if test_db.get_bind().dialect.name != "postgresql":
-        # another database's wall clock (SQLite: its millisecond now)
-        assert "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET updated_at = " in sql
-        return
     assert (
         "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET "
-        "updated_at = clock_timestamp() RETURNING"
+        f"updated_at = {wall_clock} RETURNING"
     ) in sql, sql

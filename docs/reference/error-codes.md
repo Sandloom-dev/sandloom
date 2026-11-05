@@ -55,6 +55,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
 | [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
 | [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
+| [`SANDLOOM-C031`](#sandloom-c031) | `portable-sql` | check | a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -565,7 +566,9 @@ configuration decides which database runs a module, not the module. A dialect
 import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
 one database. sandloom.sdk.data offers what modules used dialects for, and on
 PostgreSQL it renders the same SQL, so switching needs no migration.
-Migrations are exempt: a migration is one database's DDL history.
+Migrations are exempt: a migration is one database's DDL history. This check
+reads imports and dialect options only; SQL functions and raw SQL text,
+a PostgreSQL cast (::) in text() included, are SANDLOOM-C031's.
 
 **Fix:** use the portable form: sqlalchemy.Uuid for ids, and from sandloom.sdk.data CaseInsensitiveText, partial_index, search_index, conflict_insert, transaction_lock
 
@@ -600,9 +603,10 @@ Slug: `database-feature-forms` · kind: check · status: active
 
 Some forms of sandloom.sdk.data need a feature of the database capability that
 not every database has: Array (arrays), fulltext_index and matches
-(fulltext_search), json_path (json_path), json_contains (json_contains) and
-transaction_lock (transaction_locks). PostgreSQL has every one; SQLite has
-json_path and transaction_locks. Declaring the feature makes the module's need
+(fulltext_search), json_path (json_path), json_contains (json_contains),
+aggregate_list (list_aggregates) and transaction_lock (transaction_locks).
+PostgreSQL has every one; SQLite has json_path, list_aggregates and
+transaction_locks. Declaring the feature makes the module's need
 explicit, so startup refuses it on an instance without the feature
 (SANDLOOM-B033) instead of a statement failing when it first runs
 (SANDLOOM-R015). The check reads the module's code: every reference to a
@@ -615,6 +619,42 @@ too. An undeclared transaction_lock is a warning for one minor release, then
 an error. Tests and migrations are exempt.
 
 **Fix:** declare it in define_module: capabilities=[CapabilityRequirement("database", features=frozenset({"arrays"}))] (the feature the message names), with CapabilityRequirement from sandloom.sdk.module
+
+**More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C031
+
+**a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them**
+
+Slug: `portable-sql` · kind: check · status: active
+
+**What happened and why it matters**
+
+The driver in configuration decides which database runs a module, and a module
+never tests which one it is. SQLAlchemy writes func.&lt;name> verbatim, so a name
+only PostgreSQL knows (array_agg, greatest, jsonb_*) fails on SQLite when the
+statement first runs, and a name both know may answer differently: func.now()
+is the transaction's start on PostgreSQL and whole seconds on SQLite, outside
+the stored time format; lower and upper fold only ASCII on SQLite; avg is a
+Decimal on PostgreSQL and a float on SQLite. A module calls only the portable
+SQL functions (abs, char_length, coalesce, count, length, max, min, nullif,
+sum; each run by a test on every shipped database, value and type) and the
+forms of sandloom.sdk.data. Raw SQL (text(), literal_column(), DDL(),
+exec_driver_sql(), .op(), .bool_op(), and a string given to .prefix_with(),
+.suffix_with() or .with_hint()) reaches the database unread: a reviewed line
+carries `# sandloom: raw-sql <reason>` on the call, or alone on the line above
+it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
+(server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
+a finding the marker does not admit. Reading the database's name
+(x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
+admitted only by the raw-sql marker. The check reads the module and its tests:
+a test or class decorated with skip_unless_db_feature(...), or a test file
+whose pytestmark carries it, runs only where its feature is, and its SQL is
+not reported. Migrations are exempt; the SQL strings of CheckConstraint and
+Computed are not read. Tenant admission is a separate question: raw SQL inside
+a function also needs unscoped() (SANDLOOM-C015).
+
+**Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) or ask has_serial_writers() / has_optimized_reads()
 
 **More:** `docs/modules/database/conventions.md`
 
@@ -1024,11 +1064,13 @@ the contract version it implements; a renderer without one is version 1. The
 kernel loads only renderers of its own version, so a renderer never answers a
 question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
-readonly_transactions, arrays, fulltext_search, json_path, json_contains):
+readonly_transactions, arrays, fulltext_search, json_path, json_contains,
+list_aggregates):
 anything else would be advertised to modules without a meaning. A renderer
 that declares a feature form's feature (arrays, fulltext_search, json_path,
-json_contains) must also write the form: array_type, fulltext_index_options,
-fulltext_document, fulltext_match, json_path, json_contains. A DBAPI
+json_contains, list_aggregates) must also write the form: array_type,
+fulltext_index_options, fulltext_document, fulltext_match, json_path,
+json_contains, aggregate_list and aggregate_list_type. A DBAPI
 adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
 way. Outside the kernel it may claim only read_only_policy and
 reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
@@ -1211,7 +1253,7 @@ models). The forms used inside statements (matches, json_path, json_contains,
 transaction_lock) are covered by the declaration, which sandloom check
 requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
 
-**Fix:** run the module on a database whose SQL dialect renderer declares the feature (PostgreSQL declares arrays, fulltext_search, json_path, json_contains and transaction_locks), or move the module off the form
+**Fix:** run the module on a database whose SQL dialect renderer declares the feature (PostgreSQL declares arrays, fulltext_search, json_path, json_contains, list_aggregates and transaction_locks), or move the module off the form
 
 **More:** `docs/infrastructure/database.md`
 

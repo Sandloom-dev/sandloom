@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import functools
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -721,9 +722,9 @@ def find_dialect_imports(file_path: Path) -> list[str]:
     """Code that only runs on one database: a ``sqlalchemy.dialects`` import
     (static, ``from sqlalchemy import dialects``, dynamic), the package reached
     by attribute (``sa.dialects.postgresql``), or a dialect's own option on a
-    schema construct (``Index(..., postgresql_where=...)``), or a PostgreSQL
-    cast (``::``) in ``text()``. SQL functions only
-    one database has (``func.array_agg``) are not visible to a static check."""
+    schema construct (``Index(..., postgresql_where=...)``). SQL functions
+    only one database has (``func.array_agg``) and raw SQL (a PostgreSQL cast
+    ``::`` in ``text()``) are :func:`find_unportable_sql`'s (SANDLOOM-C031)."""
     tree = parse_file(file_path)
     aliases = _sqlalchemy_aliases(tree)
     violations: list[str] = []
@@ -750,18 +751,6 @@ def find_dialect_imports(file_path: Path) -> list[str]:
             and node.value.id in aliases
         ):
             violations.append(f"Line {node.lineno}: {node.value.id}.dialects")
-        elif (
-            isinstance(node, ast.Call)
-            and _callee(node) == "text"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-            and "::" in node.args[0].value
-        ):
-            violations.append(
-                f"Line {node.lineno}: a PostgreSQL cast (::) in text(); "
-                "use sa.cast(expr, Type)"
-            )
         elif isinstance(node, ast.Call) and _callee(node) in SCHEMA_CALLEES:
             violations.extend(
                 f"Line {node.lineno}: dialect option {name}= "
@@ -802,6 +791,402 @@ def find_bare_aware_datetimes(file_path: Path) -> list[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and _aware_datetime_type(node)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# 3a. Portable SQL: SQL functions and raw SQL every database runs
+# --------------------------------------------------------------------------- #
+
+#: Comment that admits ONE raw SQL construct; it must carry a reason.
+RAW_SQL_MARKER = "# sandloom: raw-sql"
+
+#: The ``sqlalchemy`` names that write raw SQL: their text goes to the
+#: database unread, so no renderer can make it portable.
+RAW_SQL_CALLABLES = frozenset({"text", "literal_column", "DDL"})
+
+#: Statement methods that splice text into the SQL a statement renders:
+#: ``.prefix_with("OR IGNORE")``, ``.suffix_with(...)``, ``.with_hint(...)``
+#: (the classic one-database upsert and hint spellings).
+RAW_SQL_CLAUSES = frozenset({"prefix_with", "suffix_with", "with_hint"})
+
+#: A raw SQL text every database reads alike: a number, a quoted string,
+#: ``NULL``, ``TRUE`` or ``FALSE`` (``server_default=text("0")``).
+_PORTABLE_LITERAL = re.compile(
+    r"\s*(?:-?\d+(?:\.\d+)?|'(?:[^']|'')*'|NULL|TRUE|FALSE)\s*", re.IGNORECASE
+)
+
+#: The test marker that ties a test to a database feature
+#: (``sandloom.sdk.testing.skip_unless_db_feature``); a test carrying it runs
+#: only where the feature is, so its SQL may use it.
+_DB_FEATURE_MARKERS = frozenset({"skip_unless_db_feature", "sandloom_db_feature"})
+
+
+def _sqlalchemy_bindings(tree: ast.AST) -> tuple[dict[str, str], list[int]]:
+    """Local name -> the ``sqlalchemy`` path it is bound to
+    (``import sqlalchemy as sa`` -> ``sqlalchemy``, ``from sqlalchemy import
+    func as f`` -> ``sqlalchemy.func``), and the lines of a star import from
+    ``sqlalchemy.sql.functions``, which hides the functions a file uses. A
+    star import from ``sqlalchemy`` binds ``func`` and the raw SQL names."""
+    bound: dict[str, str] = {}
+    hidden: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "sqlalchemy":
+                    bound[alias.asname or "sqlalchemy"] = (
+                        alias.name if alias.asname else "sqlalchemy"
+                    )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").split(".")[0] == "sqlalchemy"
+        ):
+            hidden.extend(_bind_from_import(node, bound))
+    return bound, hidden
+
+
+def _bind_from_import(node: ast.ImportFrom, bound: dict[str, str]) -> list[int]:
+    """Bind the names of one ``from sqlalchemy... import``; the line when it
+    is a star import of ``sqlalchemy.sql.functions``."""
+    module = node.module or ""
+    hidden: list[int] = []
+    for alias in node.names:
+        if alias.name != "*":
+            bound[alias.asname or alias.name] = f"{module}.{alias.name}"
+        elif module == "sqlalchemy.sql.functions":
+            hidden.append(node.lineno)
+        else:
+            for name in ("func", *RAW_SQL_CALLABLES):
+                bound.setdefault(name, f"{module}.{name}")
+    return hidden
+
+
+def _sqlalchemy_path(expr: ast.AST, bound: dict[str, str]) -> str | None:
+    """The dotted ``sqlalchemy`` path ``expr`` names, or ``None``."""
+    root, attrs = _root_name_and_attrs(expr)
+    if root is None or root not in bound:
+        return None
+    return ".".join([bound[root], *attrs])
+
+
+def _sql_function_name(path: str) -> str | None:
+    """The SQL function a ``sqlalchemy`` path calls: ``<...>.func.<name>``, or
+    a generic function class of ``sqlalchemy.sql.functions`` by its name."""
+    parts = path.split(".")
+    if "func" in parts:
+        index = parts.index("func")
+        return parts[index + 1] if index + 1 < len(parts) else None
+    if len(parts) == 4 and parts[:3] == ["sqlalchemy", "sql", "functions"]:
+        name = parts[3]
+        return name.lower() if name[:1].islower() else None
+    return None
+
+
+def _raw_sql_text(node: ast.Call) -> str | None:
+    """The literal text of a raw SQL call's first argument (an f-string's
+    literal parts), or ``None`` when it is computed."""
+    if not node.args:
+        return None
+    first = node.args[0]
+    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+        return first.value
+    if isinstance(first, ast.JoinedStr):
+        return "".join(
+            v.value
+            for v in first.values
+            if isinstance(v, ast.Constant) and isinstance(v.value, str)
+        )
+    return None
+
+
+def _carries_db_feature_marker(node: ast.AST) -> bool:
+    """A test function or class decorated with ``skip_unless_db_feature(...)``
+    (or ``pytest.mark.sandloom_db_feature``)."""
+    decorators = getattr(node, "decorator_list", [])
+    return any(
+        _callee(dec) in _DB_FEATURE_MARKERS
+        for dec in decorators
+        if isinstance(dec, ast.Call)
+    )
+
+
+def _file_db_feature_marker(tree: ast.AST) -> bool:
+    """A module-level ``pytestmark`` that carries ``skip_unless_db_feature``."""
+    for stmt in getattr(tree, "body", []):
+        targets = (
+            stmt.targets
+            if isinstance(stmt, ast.Assign)
+            else [stmt.target]
+            if isinstance(stmt, ast.AnnAssign)
+            else []
+        )
+        if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
+            continue
+        value = getattr(stmt, "value", None)
+        if value is not None and any(
+            isinstance(n, ast.Call) and _callee(n) in _DB_FEATURE_MARKERS
+            for n in ast.walk(value)
+        ):
+            return True
+    return False
+
+
+def _all_lines(tree: ast.AST) -> set[int]:
+    """Every line a node of ``tree`` starts on."""
+    return {n.lineno for n in ast.walk(tree) if hasattr(n, "lineno")}
+
+
+def _feature_scoped_lines(tree: ast.AST) -> set[int]:
+    """The lines of every test function or class that carries a database
+    feature marker: its SQL runs only where the feature is."""
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ) and _carries_db_feature_marker(node):
+            lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+    return lines
+
+
+def find_unportable_sql(
+    file_path: Path, *, portable_functions: Iterable[str], test_file: bool = False
+) -> list[str]:
+    """SQL a static check can see is not every database's (SANDLOOM-C031).
+
+    - ``func.<name>`` (``sa.func``, an alias of ``func``, a generic function
+      of ``sqlalchemy.sql.functions``) whose name is not in
+      ``portable_functions``: a name only one database knows, or one that
+      answers differently (``now()``: a transaction's start on PostgreSQL,
+      whole seconds outside the stored time format on SQLite);
+    - raw SQL: ``text()``, ``literal_column()``, ``DDL()``,
+      ``exec_driver_sql()``, ``.op()`` / ``.bool_op()``, unless a line of the
+      call, or the line above it, carries ``# sandloom: raw-sql <reason>``. A
+      text that is only a number, a quoted string, ``NULL``, ``TRUE`` or
+      ``FALSE`` is every database's. A PostgreSQL cast (``::``) in raw SQL is
+      a finding the marker does not admit;
+    - a star import from ``sqlalchemy.sql.functions``, which hides the names.
+
+    In a test file (``test_file=True``), a test or class decorated with
+    ``skip_unless_db_feature(...)``, or a file whose ``pytestmark`` carries
+    it, runs only where its feature is: its SQL is not reported.
+    """
+    source, tree = _parsed(file_path)
+    scan = _PortableSqlScan(tree, source.splitlines(), frozenset(portable_functions))
+    scoped: set[int] = set()
+    if test_file:
+        scoped = (
+            _all_lines(tree)
+            if _file_db_feature_marker(tree)
+            else _feature_scoped_lines(tree)
+        )
+    for node in ast.walk(tree):
+        scan.dialect_read(node)
+        if getattr(node, "lineno", None) not in scoped:
+            scan.visit(node)
+    return sorted(scan.out, key=lambda d: int(d.split(":", 1)[0].removeprefix("Line ")))
+
+
+class _PortableSqlScan:
+    """The findings of :func:`find_unportable_sql`, one node at a time."""
+
+    def __init__(self, tree: ast.AST, lines: list[str], portable: frozenset[str]):
+        self.lines = lines
+        self.portable = portable
+        self.bound, hidden = _sqlalchemy_bindings(tree)
+        self.reported: set[int] = set()
+        self.out = [
+            f"Line {line}: from sqlalchemy.sql.functions import * hides the SQL "
+            "functions this file calls; import func"
+            for line in hidden
+        ]
+
+    def visit(self, node: ast.AST) -> None:
+        if id(node) in self.reported:
+            return
+        if isinstance(node, ast.Attribute):
+            path = _sqlalchemy_path(node, self.bound)
+            self._function(node, _sql_function_name(path) if path else None)
+        elif isinstance(node, ast.Name) and node.id in self.bound:
+            # ``from sqlalchemy.sql.functions import now`` then ``now()``.
+            self._function(node, _sql_function_name(self.bound[node.id]))
+        elif isinstance(node, ast.Call):
+            self._raw(node)
+
+    def _function(self, node: ast.Attribute | ast.Name, name: str | None) -> None:
+        if name is None or name in self.portable:
+            return
+        # Report the outermost attribute only (``func.a.b`` once).
+        self.reported.update(id(n) for n in ast.walk(node))
+        self.out.append(
+            f"Line {node.lineno}: func.{name}() is not portable; "
+            f"{sql_function_hint(name)}"
+        )
+
+    def _marked(self, node: ast.expr) -> bool:
+        """The marker on a line of ``node``, or alone on the line above it (a
+        trailing marker on the previous statement is that statement's)."""
+        last = node.end_lineno or node.lineno
+        on_node = any(
+            _has_marker(self.lines[i - 1], RAW_SQL_MARKER)
+            for i in range(node.lineno, last + 1)
+        )
+        above = self.lines[node.lineno - 2] if node.lineno > 1 else ""
+        return on_node or (
+            above.lstrip().startswith("#") and _has_marker(above, RAW_SQL_MARKER)
+        )
+
+    def dialect_read(self, node: ast.AST) -> None:
+        """``x.dialect.name``, ``dialect_name(x)``, ``url.get_backend_name()``:
+        code that asks which database it runs on. Only the raw-sql marker
+        admits it; a database feature marker does not."""
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "name"
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "dialect"
+        ):
+            self._dialect_hit(node, ".dialect.name")
+        elif isinstance(node, ast.Call) and _callee(node) in (
+            "dialect_name",
+            "get_backend_name",
+        ):
+            self._dialect_hit(node, f"{_callee(node)}()")
+
+    def _dialect_hit(self, node: ast.expr, asked: str) -> None:
+        if self._marked(node):
+            return
+        self.out.append(
+            f"Line {node.lineno}: {asked} asks which database runs the code; "
+            "ask for what it needs instead: a database feature "
+            "(CapabilityRequirement, skip_unless_db_feature), or in a test "
+            "has_serial_writers() / has_optimized_reads() from "
+            "sandloom.sdk.testing"
+        )
+
+    def _raw(self, node: ast.Call) -> None:
+        raw = _raw_sql_call(node, self.bound)
+        if raw is None:
+            return
+        text = _raw_sql_text(node)
+        literal = text is not None and _PORTABLE_LITERAL.fullmatch(text)
+        if literal and not raw.startswith("."):
+            return
+        if text is not None and "::" in text:
+            self.out.append(
+                f"Line {node.lineno}: a PostgreSQL cast (::) in {raw}; "
+                "use sa.cast(expr, Type)"
+            )
+        elif not self._marked(node):
+            self.out.append(
+                f"Line {node.lineno}: raw SQL in {raw} reaches the database "
+                "unread; write it with SQLAlchemy expressions and the "
+                "sandloom.sdk.data forms, or mark a reviewed line "
+                f"`{RAW_SQL_MARKER} <reason>`"
+            )
+
+
+def _raw_sql_call(node: ast.Call, bound: dict[str, str]) -> str | None:
+    """How ``node`` writes raw SQL (``text()``, ``.op()``, ...), or ``None``."""
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr in ("op", "bool_op"):
+        return f".{func.attr}()" if node.args else None
+    if isinstance(func, ast.Attribute) and func.attr in RAW_SQL_CLAUSES:
+        # ``.prefix_with("OR IGNORE")``: text one database's grammar reads.
+        literal = any(
+            isinstance(a, ast.JoinedStr)
+            or (isinstance(a, ast.Constant) and isinstance(a.value, str))
+            for a in node.args
+        )
+        return f".{func.attr}()" if literal else None
+    if isinstance(func, ast.Attribute) and func.attr == "exec_driver_sql":
+        return "exec_driver_sql()"
+    path = _sqlalchemy_path(func, bound)
+    if path is None:
+        return None
+    last = path.rsplit(".", 1)[-1]
+    return f"{last}()" if last in RAW_SQL_CALLABLES else None
+
+
+#: The ``sandloom.sdk.data`` form, or the portable SQL, that replaces a SQL
+#: function only one database has (or that answers differently on each):
+#: ``(names, name prefixes, fix)``.
+_SQL_FUNCTION_HINTS: tuple[tuple[frozenset[str], tuple[str, ...], str], ...] = (
+    (
+        frozenset(
+            {
+                "now",
+                "current_timestamp",
+                "clock_timestamp",
+                "localtimestamp",
+                "statement_timestamp",
+                "transaction_timestamp",
+                "current_time",
+                "localtime",
+                "sysdate",
+            }
+        ),
+        (),
+        "use WallClock() from sandloom.sdk.data (the database's clock at the "
+        "statement, read back in UTC on every database) or bind "
+        "datetime.now(UTC)",
+    ),
+    (
+        frozenset({"array_agg", "json_group_array", "string_agg", "group_concat"}),
+        (),
+        "use aggregate_list() from sandloom.sdk.data",
+    ),
+    (
+        frozenset({"to_tsvector", "to_tsquery", "plainto_tsquery", "ts_rank"}),
+        ("websearch_to_tsquery",),
+        "use fulltext_index() and matches() from sandloom.sdk.data",
+    ),
+    (
+        frozenset(),
+        ("json_", "jsonb_"),
+        "use json_path() / json_contains() from sandloom.sdk.data",
+    ),
+    (
+        frozenset(),
+        ("pg_advisory_",),
+        "use transaction_lock() from sandloom.sdk.data",
+    ),
+    (
+        frozenset({"gen_random_uuid"}),
+        ("uuid_generate_",),
+        "use default=new_id from sandloom.sdk.data",
+    ),
+    (
+        frozenset({"greatest", "least"}),
+        (),
+        "use a CASE expression (sqlalchemy.case; for non-NULL operands)",
+    ),
+    (
+        frozenset({"lower", "upper"}),
+        (),
+        "SQLite folds ASCII only: compare a CaseInsensitiveText column from "
+        "sandloom.sdk.data (case-insensitive for ASCII on SQLite too), or fold "
+        "in Python",
+    ),
+    (
+        frozenset({"avg"}),
+        (),
+        "PostgreSQL answers a Decimal, SQLite a float: cast it explicitly, "
+        "sa.cast(func.avg(x), Float), and waive that line with "
+        "`# sandloom: allow portable-sql <reason>`",
+    ),
+)
+
+
+def sql_function_hint(name: str) -> str:
+    """The fix for a SQL function outside the portable list."""
+    for names, prefixes, hint in _SQL_FUNCTION_HINTS:
+        if name in names or name.startswith(prefixes):
+            return hint
+    return (
+        "use a portable form from sandloom.sdk.data, or declare a database "
+        "feature form (the portable SQL functions: "
+        "docs/modules/database/conventions.md)"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1961,12 +2346,14 @@ __all__ = [
     "FORBIDDEN_TEST_IMPORTS",
     "HTTP_METHODS",
     "RAW_PROVIDER_METHODS",
+    "RAW_SQL_MARKER",
     "TENANT_LIKE_COLUMNS",
     "TENANT_SCOPED_MIXIN",
     "UOW_FORBIDDEN_METHODS",
     "collect_models_imports",
     "dynamic_imports",
     "import_refs",
+    "find_unportable_sql",
     "find_unsafe_tenant_sql",
     "module_test_import_hits",
     "read_source",
@@ -1992,6 +2379,7 @@ __all__ = [
     "parse_imports",
     "resolve_relative",
     "scan_endpoint",
+    "sql_function_hint",
     "tenant_column_hits",
     "tenant_model_hits",
 ]

@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import JSON, String, column, func, select, table
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.testing import as_user as _mint
@@ -20,6 +21,33 @@ from sandloom_billing.models import (
 )
 
 WEBHOOK_SECRET = "whsec_test_secret"
+
+#: The kernel's tables the tests read. Their models are the kernel's, which a
+#: module test does not import; written with SQLAlchemy Core, the SQL is every
+#: database's (SANDLOOM-C031).
+AUDIT_LOG = table("audit_log", column("action", String))
+OUTBOX = table(
+    "outbox_messages",
+    column("channel", String),
+    column("payload", JSON),
+    column("emitted_at"),
+)
+
+
+async def audit_count(db: AsyncSession, action: str) -> int:
+    """How many audit records ``action`` has."""
+    count = await db.scalar(
+        select(func.count()).select_from(AUDIT_LOG).where(AUDIT_LOG.c.action == action)
+    )
+    return int(count or 0)
+
+
+async def outbox_count(db: AsyncSession, channel: str) -> int:
+    """How many outbox messages ``channel`` has."""
+    count = await db.scalar(
+        select(func.count()).select_from(OUTBOX).where(OUTBOX.c.channel == channel)
+    )
+    return int(count or 0)
 
 
 @pytest.fixture

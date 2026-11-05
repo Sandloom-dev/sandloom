@@ -16,15 +16,18 @@ from uuid import UUID
 import pytest
 from httpx import AsyncClient
 from itsdangerous.timed import TimestampSigner
-from sqlalchemy import JSON, String, Uuid, bindparam, select, text
+from sqlalchemy import MetaData, Table, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sandloom.sdk.errors import ContractCallError
 from sandloom.sdk.testing import bind_contract_session, bind_test_uow, set_environment
 from sandloom_identity import lockout
 from sandloom_identity.contracts import SECURITY_SERVICE_V1
+from sandloom_identity.models.role import Role
 from sandloom_identity.models.user import User
+from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.services.auth_service import AuthService
+from sandloom_identity.tests.utils.kernel_tables import AUDIT_LOG
 from sandloom_identity.utils import SET_PASSWORD_TOKEN_SECONDS
 
 NEW_PASSWORD = "Fresh-Admin-Passw0rd!"
@@ -70,16 +73,15 @@ async def test_create_makes_a_verified_admin_without_a_usable_password(
     assert user.password_reset_nonce
     assert user.is_verified is True
     roles = await test_db.execute(
-        text(
-            "SELECT r.code FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
-            "WHERE ur.user_id = :uid"
-        ).bindparams(bindparam("uid", type_=Uuid)),
-        {"uid": user_id},
+        select(Role.code)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user_id)
     )
     assert list(roles.scalars()) == ["admin"]
     audit = await test_db.execute(
-        text("SELECT action, actor_type FROM audit_log WHERE resource_id = :rid"),
-        {"rid": str(user_id)},
+        select(AUDIT_LOG.c.action, AUDIT_LOG.c.actor_type).where(
+            AUDIT_LOG.c.resource_id == str(user_id)
+        )
     )
     assert ("identity.user.platform_admin_created", "operator") in [
         tuple(r) for r in audit
@@ -115,8 +117,7 @@ async def test_setting_the_first_password_is_audited_as_a_set(
     assert token
     assert (await _reset(async_client, token)).status_code == 204
     audit = await test_db.execute(
-        text("SELECT action FROM audit_log WHERE resource_id = :rid"),
-        {"rid": str(user_id)},
+        select(AUDIT_LOG.c.action).where(AUDIT_LOG.c.resource_id == str(user_id))
     )
     actions = list(audit.scalars())
     assert "identity.user.password_set" in actions
@@ -153,10 +154,9 @@ async def test_an_audited_listing_records_who_asked_and_why(
             "incident 42", "cli:alice", True, "op-list-1"
         )
     rows = await test_db.execute(
-        text(
-            "SELECT action, actor_type, data FROM audit_log WHERE action = :a"
-        ).columns(action=String, actor_type=String, data=JSON),
-        {"a": "identity.admin.listed"},
+        select(AUDIT_LOG.c.action, AUDIT_LOG.c.actor_type, AUDIT_LOG.c.data).where(
+            AUDIT_LOG.c.action == "identity.admin.listed"
+        )
     )
     (_, actor_type, data) = rows.one()
     assert actor_type == "operator"
@@ -315,10 +315,15 @@ async def test_setup_state_is_404_in_production(
 
 
 async def _command_log(engine: Any) -> list[str]:
-    async with async_sessionmaker(engine)() as session:
-        rows = await session.execute(
-            text("SELECT * FROM contract_command_log WHERE contract LIKE :c"),
-            {"c": f"%{SECURITY_SERVICE_V1}%"},
+    """Every column of the kernel's command log rows for the contract: the
+    table is reflected (its model is the kernel's), so a column added later
+    is scanned too."""
+    async with engine.connect() as connection:
+        log = await connection.run_sync(
+            lambda sync: Table("contract_command_log", MetaData(), autoload_with=sync)
+        )
+        rows = await connection.execute(
+            select(log).where(log.c.contract.like(f"%{SECURITY_SERVICE_V1}%"))
         )
         return [repr(tuple(row)) for row in rows]
 
@@ -387,6 +392,8 @@ async def test_two_concurrent_creates_make_one_user(
     assert len(refused) == 1 and getattr(refused[0], "status_code", None) == 409
     async with async_sessionmaker(db_engine)() as session:
         count = await session.scalar(
-            text("SELECT count(*) FROM users WHERE email = 'owner@example.com'")
+            select(func.count())
+            .select_from(User)
+            .where(User.email == "owner@example.com")
         )
     assert count == 1

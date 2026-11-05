@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sandloom.sdk.data import ReadOperation
 from sandloom.sdk.infra import settings
 from sandloom.sdk.module import ModuleAPI
+from sandloom.sdk.testing import has_optimized_reads
 from sandloom_tenancy.models import Organization
 from sandloom_tenancy.services.operations import member_role_in_active_org
 
@@ -37,10 +38,10 @@ async def _run_prepare_tasks(facade: Any) -> None:
         await task()
 
 
-def _sqlite(core: Any) -> bool:
-    """The test database is SQLite, whose DBAPI (aiosqlite) has no
-    optimized executor: every declared read runs on the general executor."""
-    return bool(core.database().engine.dialect.name == "sqlite")
+def _general_only(core: Any) -> bool:
+    """The test database's DBAPI has no optimized executor: every declared
+    read runs on the general executor."""
+    return not has_optimized_reads(core.database().engine)
 
 
 @pytest.mark.parametrize("optimized", [False, True])
@@ -61,7 +62,7 @@ async def test_composition_root_registers_the_tenancy_operation(
         r.getMessage() for r in caplog.records if r.name == "sandloom.core.planner"
     ]
     ours = [m for m in lines if "tenancy.member.role_in_active_org" in m]
-    if optimized and _sqlite(sandloom_core):
+    if optimized and _general_only(sandloom_core):
         # a database whose DBAPI has no optimized executor (SQLite's
         # aiosqlite): the general executor, and the log says why
         assert all("general executor" in m for m in ours), ours
@@ -98,8 +99,8 @@ async def test_diagnostics_lists_operations_with_executor_and_reason(
     resp = await client.get("/diagnostics/core", headers={"X-Internal-Token": TOKEN})
     ops = {o["name"]: o for o in resp.json()["planner"]["operations"]}
     entry = ops["tenancy.member.role_in_active_org"]
-    if _sqlite(sandloom_core):
-        # a DBAPI without the optimized executor (SQLite's aiosqlite)
+    if _general_only(sandloom_core):
+        # a DBAPI without the optimized executor
         assert entry["executor"] == "general"
         return
     assert entry["executor"] == "optimized"
@@ -132,7 +133,7 @@ async def test_unsupported_operation_is_general_with_the_reason_logged(
     msg = next(
         r.getMessage() for r in caplog.records if "t.org.labelled" in r.getMessage()
     )
-    if _sqlite(sandloom_core):
+    if _general_only(sandloom_core):
         pytest.skip("this database's DBAPI has no optimized executor to refuse it")
     assert "general executor" in msg and "'label' is not a plain column" in msg
     monkeypatch.setattr(settings, "internal_api_token", TOKEN)

@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import String, column, literal, select, table, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom.sdk.testing import committing_uow
+from sandloom.sdk.testing import committing_uow, has_serial_writers
 from sandloom_tenancy import events
 from sandloom_tenancy.exceptions import (
     TenancyConflictError,
@@ -39,6 +39,10 @@ from sandloom_tenancy.services import (
     OrganizationService,
 )
 from sandloom_tenancy.tests.conftest import email_of, make_user_headers
+
+#: The kernel's audit table (its model is the kernel's, which a module test
+#: does not import), read with SQLAlchemy Core (SANDLOOM-C031).
+_AUDIT_LOG = table("audit_log", column("action", String), column("resource_id", String))
 
 
 async def _invite(
@@ -441,8 +445,7 @@ async def test_required_audit_is_persisted_in_the_request_transaction(
     await test_db.flush()  # the audit store adds rows; flush before a Core read
     rows = (
         await test_db.execute(
-            text("SELECT action FROM audit_log WHERE resource_id = :rid"),
-            {"rid": inv["id"]},
+            select(_AUDIT_LOG.c.action).where(_AUDIT_LOG.c.resource_id == inv["id"])
         )
     ).all()
     assert sorted(r.action for r in rows) == [
@@ -568,8 +571,8 @@ async def _run_committed(
     async with sessions() as db:
         try:
             if barrier is not None:
-                await db.execute(text("SELECT 1"))
-                await barrier.wait(serial=db.get_bind().dialect.name == "sqlite")
+                await db.execute(select(literal(1)))
+                await barrier.wait(serial=has_serial_writers(db))
             result = await fn(db)
             await db.commit()
             return result
@@ -767,6 +770,7 @@ async def test_migration_hash_matches_python_hash(test_db: AsyncSession) -> None
     """The 0002 backfill SQL must hash exactly like ``hash_invitation_token``."""
     from sandloom_tenancy.models.invitation import hash_invitation_token
 
+    # sandloom: raw-sql the migration's own PostgreSQL SQL, run where the chain runs
     if test_db.get_bind().dialect.name != "postgresql":
         pytest.skip(
             "the 0002 backfill is the migration chain's PostgreSQL SQL; this "
@@ -775,6 +779,7 @@ async def test_migration_hash_matches_python_hash(test_db: AsyncSession) -> None
     token = "abc-DEF_123~ünï"
     sql = (
         await test_db.execute(
+            # sandloom: raw-sql the 0002 migration's PostgreSQL backfill SQL itself
             text("SELECT encode(sha256(convert_to(:t, 'UTF8')), 'hex')"),
             {"t": token},
         )

@@ -71,6 +71,8 @@ to host request units; a driver conformance suite for them is planned.
 ## Portable SQL forms
 
 A module writes no SQL dialect ([SANDLOOM-C028](../reference/error-codes.md#sandloom-c028)).
+It calls only the SQL functions every database answers alike, and marks its raw SQL
+([SANDLOOM-C031](../reference/error-codes.md#sandloom-c031)).
 For the few things a dialect used to give it, `sandloom.sdk.data` has portable forms
 ([Module tables](../modules/database/conventions.md#columns-and-statements-on-any-database)).
 Each database's **SQL dialect renderer** writes them in that database's SQL. A

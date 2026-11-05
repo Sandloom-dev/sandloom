@@ -70,11 +70,11 @@ from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
-from sandloom.sdk.data import conflict_insert, open_uow
+from sandloom.sdk.data import WallClock, conflict_insert, open_uow
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.web import ResolvedAccount, external_call, release_check
 from sandloom_billing.models import (
@@ -470,7 +470,7 @@ class OperationIntentService:
                     )
                     .values(
                         status=INTENT_ISSUED,
-                        issued_at=func.now(),
+                        issued_at=WallClock(),
                         psp_session_id=session_id,
                         psp_session_url=session.url if session is not None else None,
                         psp_session_expires_at=(

@@ -31,6 +31,33 @@ website renders this same changelog.
 
   **Upgrade:** check `python -c "import sqlite3; print(sqlite3.sqlite_version)"`
   where the application runs on SQLite.
+- **`sandloom check` refuses SQL that not every database runs alike, in a
+  module and in its tests** (SANDLOOM-C031 `portable-sql`, new, an error). A
+  `func.<name>` (`sa.func`, an alias, `sqlalchemy.sql.functions`) outside the
+  portable list (`abs`, `char_length`, `coalesce`, `count`, `length`, `max`,
+  `min`, `nullif`, `sum`, each run on PostgreSQL and SQLite by a test, value
+  and type) is a finding. That includes `func.now()` (the transaction's start
+  on PostgreSQL, whole seconds on SQLite, outside the stored `UtcDateTime`
+  format), `lower` / `upper` (ASCII only on SQLite) and `avg` (a `Decimal` on
+  PostgreSQL, a `float` on SQLite). Raw SQL (`text()`, `literal_column()`,
+  `DDL()`, `exec_driver_sql()`, `.op()`, `.bool_op()`, a string given to
+  `.prefix_with()`, `.suffix_with()` or `.with_hint()`) needs `# sandloom:
+  raw-sql <reason>` on the call or alone on the line above, except a plain
+  literal (`server_default=text("0")`); a test decorated with
+  `skip_unless_db_feature(...)` is not reported. Reading the database's name
+  (`x.dialect.name`, `dialect_name()`, `get_backend_name()`) is a finding too,
+  admitted only by the marker. Migrations are exempt; `CheckConstraint` and
+  `Computed` strings are not read. The PostgreSQL cast (`::`) in `text()` moved here from
+  SANDLOOM-C028, and the marker does not admit it.
+
+  **Upgrade:** run `uv run sandloom check --only portable-sql`. Replace
+  `func.now()` with `WallClock()` from `sandloom.sdk.data` (the database's
+  clock at the statement, read back as an aware UTC time) or a bound
+  `datetime.now(UTC)`; write raw SQL as SQLAlchemy expressions (a module test
+  reads a kernel table through `sqlalchemy.table("audit_log", column(...))`),
+  or mark a reviewed line. A test that asked `dialect.name` asks what it needs:
+  `has_serial_writers(db)` or `has_optimized_reads(engine)` from
+  `sandloom.sdk.testing`, or `skip_unless_db_feature(...)`.
 
 ### Deprecated
 
@@ -46,6 +73,11 @@ website renders this same changelog.
 
 ### Added
 
+- **`has_serial_writers(bind)` and `has_optimized_reads(bind)` in
+  `sandloom.sdk.testing`** (advanced): whether the test database's writers take
+  turns, and whether the planner's optimized executor can run on it. They are
+  the kernel's own answers (the renderer's `serial_writers`, the DBAPI
+  adapter's `raw_executor`), for tests that used to read `dialect.name`.
 - **`aggregate_list` in `sandloom.sdk.data`** (slice 10 of the database
   capability): the values of a group as one Python list, an aggregate like
   `count`. PostgreSQL writes `array_agg`; SQLite writes `json_group_array`,
@@ -389,6 +421,13 @@ website renders this same changelog.
   in-line publish and mark of a `db_session()` unit (workers, scripts) end on a
   cancellation whatever error a driver turns it into. The unmarked rows stay
   the relay's, as before.
+- **Identity, tenancy and billing stamp and compare times with the database's
+  clock in the stored format** (`WallClock()`, was `func.now()`): enabling 2FA,
+  issuing an operation intent, and superseding, revoking and accepting an
+  invitation. On SQLite `func.now()` wrote whole seconds, which compared with
+  the microsecond text of the `expires_at` column within a second off. On
+  PostgreSQL the time is the statement's (`clock_timestamp()`) rather than the
+  transaction's start; no schema change.
 - **Billing's reconciler could not escalate an intent on SQLite.** Closing an
   owed compensation whose checkout session was paid meanwhile wrote
   `greatest(...)`, which SQLite does not have; it is a `CASE` now.

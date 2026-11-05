@@ -533,7 +533,9 @@ configuration decides which database runs a module, not the module. A dialect
 import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
 one database. sandloom.sdk.data offers what modules used dialects for, and on
 PostgreSQL it renders the same SQL, so switching needs no migration.
-Migrations are exempt: a migration is one database's DDL history.
+Migrations are exempt: a migration is one database's DDL history. This check
+reads imports and dialect options only; SQL functions and raw SQL text,
+a PostgreSQL cast (::) in text() included, are SANDLOOM-C031's.
 """,
         docs="docs/modules/database/conventions.md",
     ),
@@ -580,6 +582,44 @@ or frozenset of strings. A declaration it cannot read statically, and a
 "from sandloom.sdk.data import *" (which hides the forms used), are findings
 too. An undeclared transaction_lock is a warning for one minor release, then
 an error. Tests and migrations are exempt.
+""",
+        docs="docs/modules/database/conventions.md",
+    ),
+    _entry(
+        "SANDLOOM-C031",
+        "portable-sql",
+        "check",
+        "a module or its tests call a SQL function not every database has, "
+        "write unmarked raw SQL, or ask which database runs them",
+        "use a portable form from sandloom.sdk.data (WallClock() for func.now(), "
+        "aggregate_list(), json_path()), or declare a database feature form; "
+        "mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test "
+        "with skip_unless_db_feature(...) or ask has_serial_writers() / "
+        "has_optimized_reads()",
+        """
+The driver in configuration decides which database runs a module, and a module
+never tests which one it is. SQLAlchemy writes func.<name> verbatim, so a name
+only PostgreSQL knows (array_agg, greatest, jsonb_*) fails on SQLite when the
+statement first runs, and a name both know may answer differently: func.now()
+is the transaction's start on PostgreSQL and whole seconds on SQLite, outside
+the stored time format; lower and upper fold only ASCII on SQLite; avg is a
+Decimal on PostgreSQL and a float on SQLite. A module calls only the portable
+SQL functions (abs, char_length, coalesce, count, length, max, min, nullif,
+sum; each run by a test on every shipped database, value and type) and the
+forms of sandloom.sdk.data. Raw SQL (text(), literal_column(), DDL(),
+exec_driver_sql(), .op(), .bool_op(), and a string given to .prefix_with(),
+.suffix_with() or .with_hint()) reaches the database unread: a reviewed line
+carries `# sandloom: raw-sql <reason>` on the call, or alone on the line above
+it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
+(server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
+a finding the marker does not admit. Reading the database's name
+(x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
+admitted only by the raw-sql marker. The check reads the module and its tests:
+a test or class decorated with skip_unless_db_feature(...), or a test file
+whose pytestmark carries it, runs only where its feature is, and its SQL is
+not reported. Migrations are exempt; the SQL strings of CheckConstraint and
+Computed are not read. Tenant admission is a separate question: raw SQL inside
+a function also needs unscoped() (SANDLOOM-C015).
 """,
         docs="docs/modules/database/conventions.md",
     ),

@@ -25,7 +25,9 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
 * :func:`register_event_schemas` — schemas for channels a test publishes on
   that no module owns (every versioned channel needs one, SANDLOOM-R003);
 * :func:`override_instance` — point an infrastructure instance at a test
-  backend for a block (restored afterwards);
+  backend for a block (restored afterwards); :func:`has_serial_writers` and
+  :func:`has_optimized_reads` — what a test asks of its database instead of
+  its name;
 * :func:`assert_route_snapshot` — a module's routes and their resolved
   policy equal its committed ``routes.snapshot.json``; :func:`route_policy`
   reads the policy the framework applies to a route;
@@ -79,7 +81,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         boot_module_alone,
     )
     from sandloom.core.testing.events import deliver_event, register_event_schemas
-    from sandloom.core.testing.infra import override_instance, skip_unless_db_feature
+    from sandloom.core.testing.infra import (
+        has_optimized_reads,
+        has_serial_writers,
+        override_instance,
+        skip_unless_db_feature,
+    )
     from sandloom.core.testing.migrations import (
         MigrationChain,
         chain_coverage_problems,
@@ -137,6 +144,8 @@ _EXPORTS: dict[str, str] = {
     "register_event_schemas": "sandloom.core.testing.events",
     "deliver_event": "sandloom.core.testing.events",
     "fake_access_fact": "sandloom.core.testing.authz",
+    "has_optimized_reads": "sandloom.core.testing.infra",
+    "has_serial_writers": "sandloom.core.testing.infra",
     "override_instance": "sandloom.core.testing.infra",
     "skip_unless_db_feature": "sandloom.core.testing.infra",
     "MigrationChain": "sandloom.core.testing.migrations",
@@ -212,6 +221,8 @@ __all__ = [
     "email_of",
     "fake_access_fact",
     "flush_owned_redis",
+    "has_optimized_reads",
+    "has_serial_writers",
     "make_user_headers",
     "migrate_module",
     "migration_chains",

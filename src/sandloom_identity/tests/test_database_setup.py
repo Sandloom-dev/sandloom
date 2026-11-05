@@ -3,7 +3,7 @@ Simple test to verify PostgreSQL test database setup.
 """
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import literal, select
 
 
 class TestDatabaseSetup:
@@ -13,7 +13,7 @@ class TestDatabaseSetup:
     async def test_database_connection(self, test_db):
         """Test that we can connect to the test database."""
         # Try to execute a simple query
-        result = await test_db.execute(text("SELECT 1 as test_value"))
+        result = await test_db.execute(select(literal(1).label("test_value")))
         row = result.fetchone()
         assert row[0] == 1
 

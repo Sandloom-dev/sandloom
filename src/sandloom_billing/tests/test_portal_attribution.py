@@ -21,12 +21,16 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import Boolean, text, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom_billing.models import BillingPrice, OperationIntent
+from sandloom_billing.models import BillingPrice, BillingSubscription, OperationIntent
 from sandloom_billing.psp import sign_stripe_payload
-from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
+from sandloom_billing.tests.conftest import (
+    WEBHOOK_SECRET,
+    audit_count,
+    make_user_headers,
+)
 from sandloom_billing.tests.test_operation_intents import (
     CHECKOUT,
     PORTAL,
@@ -59,10 +63,7 @@ async def _post(client: AsyncClient, payload: dict) -> dict:
 
 
 async def _audits(db: AsyncSession) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": AUDIT}
-    )
-    return int(count.scalar_one())
+    return await audit_count(db, AUDIT)
 
 
 async def _subscribed(
@@ -110,11 +111,9 @@ async def test_cancel_at_period_end_without_a_portal_intent_is_audited_not_block
     assert result["status"] == "processed", result
     sub = (
         await test_db.execute(
-            text(
-                "SELECT cancel_at_period_end FROM billing_subscriptions "
-                "WHERE stripe_subscription_id = :s"
-            ).columns(cancel_at_period_end=Boolean),
-            {"s": sub_id},
+            select(BillingSubscription.cancel_at_period_end).where(
+                BillingSubscription.stripe_subscription_id == sub_id
+            )
         )
     ).scalar_one()
     assert sub is True  # applied: the PSP's state is the truth
@@ -212,5 +211,5 @@ async def test_another_customers_portal_intent_does_not_attribute(
     await _post(async_client, _updated(obj, cancel_at_period_end=True))
 
     assert await _audits(test_db) == 1
-    count = await test_db.execute(text("SELECT count(*) FROM billing_subscriptions"))
-    assert int(count.scalar_one()) == 1
+    count = await test_db.scalar(select(func.count()).select_from(BillingSubscription))
+    assert count == 1

@@ -2218,6 +2218,14 @@
       "kind": "function",
       "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "has_optimized_reads": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
+    "has_serial_writers": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
     "make_user_headers": {
       "kind": "function",
       "signature": "(user_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, tenant_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, email:KEYWORD_ONLY|str | None='', email_verified:KEYWORD_ONLY|bool | None=True, tenant:KEYWORD_ONLY|bool=True, claims:VAR_KEYWORD|Any) -> tuple[uuid.UUID, Headers]"
@@ -5477,6 +5485,14 @@
     "get_db": {
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
+    },
+    "has_optimized_reads": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
+    "has_serial_writers": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
     },
     "in_process_rpc_client": {
       "kind": "function",
