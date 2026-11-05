@@ -1,5 +1,4 @@
 {
   "core/migrations/alembic_support.py": 2,
-  "core/migrations/migrations.py": 2,
-  "core/testing/database.py": 1
+  "core/migrations/migrations.py": 2
 }

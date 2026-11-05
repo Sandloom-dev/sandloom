@@ -147,12 +147,41 @@ def mapped_redis_url(url: str, number: int, mapping: Mapping[int, list[int]]) ->
 
 
 def worker_database_url(url: str, worker: str) -> str:
-    """``url`` with the database name suffixed ``_<worker>`` (idempotent)."""
+    """``url`` with the database name suffixed ``_<worker>`` (idempotent).
+
+    A SQLite file gets the suffix on its stem, in the same directory:
+    ``…/run_test.db`` -> ``…/run_test_gw0.db``."""
     parts = urlsplit(url)
+    if parts.scheme.startswith("sqlite"):
+        return _worker_sqlite_url(url, worker)
     name = parts.path.lstrip("/")
     if not name or name.endswith(f"_{worker}"):
         return url
     return urlunsplit(parts._replace(path=f"/{name}_{worker}"))
+
+
+def sqlite_file(url: str) -> Path | None:
+    """The file a SQLite URL names (``None``: not SQLite, or in memory)."""
+    parts = urlsplit(url)
+    if not parts.scheme.startswith("sqlite"):
+        return None
+    # ``sqlite:///rel.db`` is relative, ``sqlite:////abs.db`` absolute: the
+    # path after the authority's ``/``.
+    path = parts.path[1:] if parts.path.startswith("/") else parts.path
+    if not path or path == ":memory:" or "mode=memory" in parts.query:
+        return None
+    return Path(path)
+
+
+def _worker_sqlite_url(url: str, worker: str) -> str:
+    file = sqlite_file(url)
+    if file is None or file.stem.endswith(f"_{worker}"):
+        return url
+    parts = urlsplit(url)
+    renamed = file.with_name(f"{file.stem}_{worker}{file.suffix}")
+    # spelled out: urlunsplit drops the empty authority of ``sqlite:///rel``
+    query = f"?{parts.query}" if parts.query else ""
+    return f"{parts.scheme}://{parts.netloc}/{renamed}{query}"
 
 
 def worker_redis_url(url: str, number: int, stride: int) -> str:
@@ -292,9 +321,13 @@ def ensure_database(url: str) -> None:
 
     Adds the extensions the framework's schemas rely on and marks a database it
     creates as owned by this run (:mod:`sandloom.core.testing.ownership`).
-    Non-PostgreSQL URLs are ignored.
+    A SQLite file's directory is created (the harness claims and builds the
+    file); other URLs are ignored.
     """
     parts = urlsplit(url)
+    if parts.scheme.startswith("sqlite"):
+        _ensure_sqlite_file(url)
+        return
     if not parts.scheme.startswith("postgresql"):
         return
     name = parts.path.lstrip("/")
@@ -347,6 +380,16 @@ def ensure_database(url: str) -> None:
     _created_databases.add(name)
 
 
+def _ensure_sqlite_file(url: str) -> None:
+    file = sqlite_file(url)
+    if file is None or str(file) in _created_databases:
+        return
+    # the file itself is created by its first connection, and claimed (its
+    # owner marker) before the harness resets it (ownership.claim_database)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    _created_databases.add(str(file))
+
+
 __all__ = [
     "DEFAULT_REDIS_STRIDE",
     "REDIS_MAP_ENV",
@@ -361,6 +404,7 @@ __all__ = [
     "redis_auto",
     "reload_test_env",
     "rewrite_for_worker",
+    "sqlite_file",
     "worker_database_url",
     "worker_env_values",
     "worker_id",

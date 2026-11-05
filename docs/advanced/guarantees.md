@@ -57,6 +57,13 @@ holds". The conditions are checked where they can be:
 - **The write store** of a route is inferred statically, so the durable
   idempotency record, the audit rows and the outbox rows land in the same
   database as the write ([Write admission](write-admission.md)).
+- **A database with one writer** (SQLite, its renderer's `serial_writers`)
+  qualifies every command run inside a writing unit of the same task:
+  **commits with the caller**. The command runs as a savepoint of the
+  caller's transaction, so the caller's rollback undoes its rows, events and
+  command record ([Nested units](../infrastructure/database.md#nested-units-commit-with-their-caller)).
+  Startup says so once per such database, as it says "application-enforced
+  tenant isolation" for a database without row security.
 
 ## What a module author relies on
 
@@ -69,7 +76,8 @@ holds". The conditions are checked where they can be:
   the consumer's own database.
 - A command call is deduplicated by its key in the provider; it is **not**
   atomic with your unit. Compose commands that must undo each other as a
-  saga ([Sagas](../modules/between/sagas.md)).
+  saga ([Sagas](../modules/between/sagas.md)). On SQLite a local command
+  inside your writing unit commits with it instead, labelled.
 - A projection is eventually consistent and converges ([Projections](../modules/between/projections.md)).
 - An `on_commit` callback can be lost on a crash: never put an effect there
   that must happen.

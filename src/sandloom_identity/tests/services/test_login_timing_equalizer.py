@@ -234,8 +234,15 @@ async def test_wrong_password_and_unknown_email_do_identical_work(
         assert known[3] == unknown[3], attempt  # the whole work sequence
         kinds = [entry[0] for entry in known[3]]
         assert kinds.count("pool") == 1
-        # The verify is queued before the lookup statement is sent.
-        assert kinds.index("pool") < kinds.index("sql")
+        # The verify is queued before the lookup statement is sent (a
+        # database that begins its transaction with a statement of its own,
+        # SQLite's BEGIN IMMEDIATE, sends that first).
+        lookup = next(
+            i
+            for i, entry in enumerate(known[3])
+            if entry[0] == "sql" and not entry[1].startswith(("BEGIN", "PRAGMA"))
+        )
+        assert kinds.index("pool") < lookup
         if attempt == lockout.FAIL_THRESHOLD:
             # The lock is audited and COMMITTED for both.
             assert "audit" in kinds

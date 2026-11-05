@@ -10,12 +10,12 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pyotp
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import JSON, String, Uuid, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.testing import bind_contract_session, bind_test_uow
@@ -41,7 +41,7 @@ async def _audit(db: AsyncSession, user: User) -> list[tuple[str, str, Any]]:
         text(
             "SELECT action, actor_type, data FROM audit_log "
             "WHERE resource_id = :rid ORDER BY occurred_at"
-        ),
+        ).columns(action=String, actor_type=String, data=JSON),
         {"rid": str(user.id)},
     )
     return [(r[0], r[1], r[2]) for r in rows]
@@ -119,7 +119,7 @@ async def test_operator_reset_2fa_removes_factor_ends_sessions_and_audits(
         ),
         {"rid": str(test_user.id)},
     )
-    assert str(actor) == str(admin_user.id)
+    assert UUID(str(actor)) == admin_user.id  # a UUID or its hex text
     # The password alone signs in again (the user re-enrols).
     assert (await _login(async_client, test_user)).status_code == 200
 
@@ -274,7 +274,7 @@ async def test_appointing_the_first_admin_grants_verifies_and_audits(
         text(
             "SELECT r.code, r.is_system FROM user_roles ur "
             "JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = :uid"
-        ),
+        ).bindparams(bindparam("uid", type_=Uuid)),
         {"uid": test_user.id},
     )
     assert [tuple(row) for row in held] == [("admin", True)]
@@ -294,7 +294,9 @@ async def test_appointing_twice_keeps_one_assignment(
                 test_user.id, "first administrator", "alice", key
             )
     count = await test_db.scalar(
-        text("SELECT count(*) FROM user_roles WHERE user_id = :uid"),
+        text("SELECT count(*) FROM user_roles WHERE user_id = :uid").bindparams(
+            bindparam("uid", type_=Uuid)
+        ),
         {"uid": test_user.id},
     )
     assert count == 1

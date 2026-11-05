@@ -102,7 +102,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
-| [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second unit of the same task began a write on a database whose writers are serial (SQLite) while the task's first unit holds the write lock | active |
+| [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
@@ -1465,7 +1465,7 @@ Usual causes:
 
 ### SANDLOOM-R016
 
-**a second unit of the same task began a write on a database whose writers are serial (SQLite) while the task's first unit holds the write lock**
+**a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units**
 
 Slug: `nested-writer-refused` · kind: runtime · status: active
 
@@ -1473,14 +1473,17 @@ Slug: `nested-writer-refused` · kind: runtime · status: active
 
 SQLite has one writer at a time: every unit that may write begins BEGIN
 IMMEDIATE and holds the database's write lock until it ends. A local contract
-call, a saga step or a child open_uow() opens its own unit on another pooled
-connection. Inside a unit that already holds the write lock, that second unit
-would wait for the first, which waits for it, until busy_timeout ends it with
-"database is locked". The driver refuses it at BEGIN instead, at once. The
-refusal is per task: a unit in another task still waits its turn. PostgreSQL
-runs both units side by side.
+call, a saga step or a child open_uow() inside a unit of the same task, on
+the same database instance, runs as a SAVEPOINT on the caller's connection
+and commits with it (docs/infrastructure/database.md, "Nested units commit
+with their caller"). What cannot nest still would wait for its own task until
+busy_timeout: a writer opened while the lock is held by a connection that is
+not one of the task's open units (a bare session, a connection outside a
+unit, a second engine on the same file). The driver refuses it at once
+instead. The refusal is per task: a unit in another task still waits its
+turn. PostgreSQL runs both units side by side.
 
-**Fix:** do the nested write in the caller's unit, run it after the caller's unit commits, or run the database on PostgreSQL
+**Fix:** open the nested write inside the task's unit (it then runs as a savepoint of it), do it in the caller's unit, run it after the caller commits, or run the database on PostgreSQL
 
 **More:** `docs/infrastructure/database.md`
 

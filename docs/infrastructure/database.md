@@ -206,12 +206,51 @@ A concurrent duplicate of an HTTP request with an `Idempotency-Key` waits at
 never answers busy as on PostgreSQL; past `busy_timeout` it gets the lock
 error.
 
-One task holds the write lock through one unit at a time. A local contract
-call, a saga step or a child `open_uow()` opens a unit of its own on another
-connection. If it writes while the caller's unit holds the lock, it would wait
-for itself until `busy_timeout`. The driver refuses it at its `BEGIN`
-instead ([SANDLOOM-R016](../reference/error-codes.md#sandloom-r016)). Do the
-nested write in the caller's unit or after it commits.
+### Nested units commit with their caller
+
+Some code opens a unit inside another unit: a local contract call, a saga
+step, a child `open_uow()`. On PostgreSQL the inner unit takes another
+connection and commits on its own, before its caller. On SQLite that second
+writer would wait for its own caller's write lock until `busy_timeout`.
+
+The renderer says `serial_writers`. So the Unit of Work runs the inner unit on
+the caller's connection, inside a `SAVEPOINT`. It does so when the caller is a
+unit of the same task and database instance that holds the write lock:
+
+- **The inner unit's commit releases its savepoint.** It is not durable on its
+  own: the caller's `COMMIT` commits it, and the caller's rollback undoes its
+  rows, its outbox events and its command-log record. A savepoint the caller
+  rolls back around the call undoes it too.
+- **Its failure rolls back to the savepoint.** The caller goes on, as after
+  an independent unit that failed.
+- **Its post-commit stages wait for the caller's `COMMIT`.** The outbox
+  dispatch, its `on_commit` callbacks and a command's amended record run
+  after the caller commits, and never when it rolls back.
+- **A retry runs the command again.** The command-log record went with the
+  caller. A saga step "committed" before a later failure vanishes the same
+  way; the saga redrives it with the same key.
+
+This weakens contract atomicity (ADR-0005) on SQLite only. The guarantee
+lattice labels it "commits with the caller". Startup logs one warning per
+such database.
+
+Some units keep their own transaction: one on another database instance, a
+read-only one (a read contract's included), and a remote (RPC) provider's. A caller that has not written
+yet holds no lock. The inner unit then commits on its own, as on PostgreSQL.
+
+The unit a request's local read contracts share is read-only on SQLite. It
+reads without the write lock, and the request's own write units never wait
+behind it.
+
+Units of other tasks nest one task at a time: a second task waits until the
+first one's nested units ended. A caller whose transaction failed, waiting
+for its rollback, cannot host a unit: the inner unit raises
+`PendingRollbackError`, as the caller's next statement would.
+
+The driver still refuses at once what it cannot nest
+([SANDLOOM-R016](../reference/error-codes.md#sandloom-r016)). Its task then
+holds the lock outside its open units. That may be a bare session, a
+connection outside a unit, or a second engine on the same file.
 
 An in-memory database such as `sqlite://` has no WAL, and every connection
 sees another one. Startup refuses it with
@@ -267,6 +306,32 @@ SQLite has no roles, so there is no system channel to log in as.
 options of row security do. Tenant isolation there is the ORM guard alone
 (application-enforced). Startup says so when a `TenantScoped` table is mapped.
 
+### Module tests on SQLite
+
+Point the test harness at a file whose name contains `test`:
+
+```bash
+export SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///$PWD/tmp/app_test.db
+uv run pytest -n 4 --dist loadfile src/my_module/tests
+```
+
+- **Each xdist worker gets its own file** beside it, `app_test_gw<N>.db`.
+- **The file carries its owner** in `app_test.db.owner`, so another run is
+  refused before anything is reset.
+- **The schema comes from the models**, built once per process and emptied
+  between tests.
+- **The harness's own sessions begin at their first write.** That covers the
+  `db` fixture and the sessions a test opens on `db_engine`. Until then each
+  read sees the last commit and holds no lock, as in a PostgreSQL test
+  transaction. The first write takes the database's write lock. A `FOR
+  UPDATE` read, a savepoint and `transaction_lock` take it too. The
+  application's units then nest in the `db` session, as in production.
+- **Migration tests skip.** The `scratch_database` fixture skips: the chains
+  are PostgreSQL's.
+- **A test needing a feature SQLite lacks** is marked
+  `@skip_unless_db_feature("arrays")`
+  ([testing reference](../reference/testing.md#tests-that-need-a-database-feature)).
+
 ## The DBAPI adapter
 
 The renderer knows the SQL of a database. The Python client library under
@@ -305,7 +370,7 @@ The kernel's units and stores run on SQLite, from the outbox to the
 projection watermarks. `CreatedAt` / `UpdatedAt` are stamped by each
 database's clock (`clock_timestamp()` on PostgreSQL, UTC milliseconds on
 SQLite). The platform's modules start on a SQLite file and serve requests.
-Gaps remain. A nested write unit refuses
-([SANDLOOM-R016](../reference/error-codes.md#sandloom-r016)). The test harness
-and `sandloom new` do not yet run on SQLite. Identity's claims query uses
-`array_agg` and `LATERAL`. Until those close, run applications on PostgreSQL.
+Nested write units commit with their caller, and module test suites run on a
+SQLite file. Gaps remain. `sandloom new` does not yet generate a SQLite
+application. Identity's claims query uses `array_agg` and `LATERAL`, so a
+login on SQLite fails. Until those close, run applications on PostgreSQL.

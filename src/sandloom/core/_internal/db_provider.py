@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.core.drivers.schema_reset import schema_reset_for
 from sandloom.core.drivers.sqlalchemy_database import (
     build_disposable_engine,
     get_default_sessionmaker,
@@ -50,4 +51,5 @@ __all__ = [
     "is_relational_session",
     "is_relational_session_type",
     "release_default_pools",
+    "schema_reset_for",
 ]

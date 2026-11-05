@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom_billing.models import (
@@ -490,9 +490,9 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
     assert resp.status_code == 200, resp.text
     async with sessions() as db:
         await db.execute(
-            text(
-                "UPDATE billing_operation_intents SET psp_session_expires_at = NULL, "
-                "created_at = now() - interval '25 hours'"
+            update(OperationIntent).values(
+                psp_session_expires_at=None,
+                created_at=datetime.now(UTC) - timedelta(hours=25),
             )
         )
         await db.commit()
@@ -544,9 +544,8 @@ async def test_reconcile_task_body_reports_counts(
     monkeypatch.setattr(settings, "billing_intent_reconcile_after_minutes", 30)
     async with sessions() as db:
         await db.execute(
-            text(
-                "UPDATE billing_operation_intents "
-                "SET created_at = now() - interval '31 minutes'"
+            update(OperationIntent).values(
+                created_at=datetime.now(UTC) - timedelta(minutes=31)
             )
         )
         await db.commit()

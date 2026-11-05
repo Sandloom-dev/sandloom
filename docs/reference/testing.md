@@ -352,6 +352,40 @@ async def test_boots_alone(db_engine) -> None:
     assert outcome.started or outcome.missing_contracts == {"stats.quota.v1"}
 ```
 
+## Tests that need a database feature
+
+A module's tests run on PostgreSQL and on a SQLite file
+(`SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<dir>/<name>_test.db`; each
+xdist worker gets `<name>_test_gw<N>.db`,
+[SQLite for tests](../infrastructure/database.md#module-tests-on-sqlite)).
+Mark a test that needs a database feature the other one lacks. It is skipped
+there, and the skip names the missing feature and the instance:
+
+```python
+from sandloom.sdk.testing import skip_unless_db_feature  # sandloom: advanced database features
+@skip_unless_db_feature("arrays")
+async def test_tags_are_stored_as_an_array(client) -> None: ...
+```
+
+A test that races two writers needs `skip_locked`: SQLite has one writer.
+
+On SQLite the units a test's code opens nest in the `db` session once it
+wrote. Their deferred effects (outbox dispatch, `on_commit`) run when the
+host's unit ends. The `client` fixture's request end runs them. `db_uow`,
+`bind_test_uow` and a bare `await db.commit()` do not: assert those effects
+with `real_uow_client` or `run_on_commit`. An app that star imports
+the fixtures instead of loading the plugin registers the marker in its
+`conftest.py`: `config.addinivalue_line("markers", "sandloom_db_feature: ...")`
+in `pytest_configure`.
+
+The features are the `database` capability's
+([Forms that need a feature](../infrastructure/database.md#forms-that-need-a-feature)): `skip_locked`,
+`transaction_locks`, `snapshot_reads`, `readonly_transactions`, `arrays`,
+`fulltext_search`, `json_path`, `json_contains`. The harness reads them as
+the application advertises them for the instance (`database="default"`; pass
+another name for another instance). Put the mark on a function, a class, or
+`pytestmark`.
+
 ## Harness rules
 
 These are the still-true rules of the test harness. Each one is enforced by

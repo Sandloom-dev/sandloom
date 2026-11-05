@@ -2278,6 +2278,10 @@
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
     },
+    "skip_unless_db_feature": {
+      "kind": "function",
+      "signature": "(features:VAR_POSITIONAL|str, database:KEYWORD_ONLY|str='default') -> pytest.MarkDecorator"
+    },
     "stop_revocation_listener": {
       "kind": "function",
       "signature": "() -> None"
@@ -5573,6 +5577,10 @@
     "set_environment": {
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
+    },
+    "skip_unless_db_feature": {
+      "kind": "function",
+      "signature": "(features:VAR_POSITIONAL|str, database:KEYWORD_ONLY|str='default') -> pytest.MarkDecorator"
     },
     "spawn_served": {
       "kind": "function",

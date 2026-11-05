@@ -70,6 +70,10 @@ async def test_every_operation_has_the_expected_executor(
     for op in OPERATIONS:
         entry = ops[op.name]
         assert entry["module"].startswith("sandloom_billing"), entry
+        if optimized and sandloom_core.database().engine.dialect.name == "sqlite":
+            # a DBAPI without the optimized executor (SQLite's aiosqlite)
+            assert entry["executor"] == "general", entry
+            continue
         assert entry["executor"] == ("optimized" if optimized else "general"), entry
 
 

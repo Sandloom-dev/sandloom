@@ -136,13 +136,16 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    lock statement. Its driver marks a transaction that holds the write lock:
    `WRITE_LOCK_HELD` in the connection's `info`. SQLite's `BEGIN IMMEDIATE`
    does so. The kernel's locks then succeed only in such a transaction.
-8. Two renderer facts are optional, and both default to `False`. If the database runs no
+8. Three renderer facts are optional, and all default to `False`. If the database runs no
    migration chain, set `schema_from_models = True`. The app
    then builds its schema with `create_all` at startup, and `sandloom migrate` refuses it
    ([SANDLOOM-B028](../reference/error-codes.md#sandloom-b028)). If it serves only
    development and tests, set `development_only = True`; production then refuses it
    without an accepted risk
-   ([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029)).
+   ([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029)). If it has one
+   writer at a time, set `serial_writers = True`. A nested write unit then
+   commits with its caller
+   ([Nested units](database.md#nested-units-commit-with-their-caller)).
 9. Write a feature form only when the database has it, and declare its feature
    then ([Database](database.md#forms-that-need-a-feature)):
    - `arrays`: `array_type(item_type)`;

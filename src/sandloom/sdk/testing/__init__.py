@@ -19,8 +19,9 @@ advanced: BootOutcome, Captured, ContractCase, ContractConformanceError,
     reload_test_env, revocation_mark_key, route_policy, rpc_client_for,
     rpc_env, rpc_keys, rpc_proxy_for, rpc_request_headers,
     rpc_response_headers, rpc_settings, run_on_commit, run_sql, served_rpc,
-    set_environment, spawn_served, stop_revocation_listener, tables_created_by,
-    temporary_database, upgrade_core_chain, use_security_cache,
+    set_environment, skip_unless_db_feature, spawn_served,
+    stop_revocation_listener, tables_created_by, temporary_database,
+    upgrade_core_chain, use_security_cache,
     wait_revocation_listener_subscribed, worker_env_values
 docs: docs/reference/sdk/testing.md; signatures: sandloom docs <name>
 .. end sandloom-reference
@@ -93,6 +94,7 @@ from sandloom.core.testing import (
     run_on_commit,
     run_sql,
     set_environment,
+    skip_unless_db_feature,
     stop_revocation_listener,
     tables_created_by,
     temporary_database,
@@ -186,6 +188,7 @@ __all__ = [
     "run_sql",
     "served_rpc",
     "set_environment",
+    "skip_unless_db_feature",
     "spawn_served",
     "stop_revocation_listener",
     "tables_created_by",

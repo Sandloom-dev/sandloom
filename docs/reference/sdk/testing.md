@@ -86,6 +86,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`served_rpc`](#served_rpc) | function | Serve `core`'s internal RPC routes (or `app`) on a loopback socket. |
 | [`set_environment`](#set_environment) | function | Run the rest of the test with `settings.environment == name`. |
 | [`SimulatedCrash`](#simulatedcrash) | exception | The process "died": the transition's UoW rolls back (not an Exception, so the step classification never sees it). |
+| [`skip_unless_db_feature`](#skip_unless_db_feature) | function | Skip the test unless database instance `database` has every one of `features` (`arrays`, `fulltext_search`, `json_contains`, `skip_locked... |
 | [`spawn_served`](#spawn_served) | function | Start `app` (`"module:attr"`) in a child serving on `port`'s socket. |
 | [`SpawnedServer`](#spawnedserver) | class | A child serving on a `ReservedPort`, identified by its nonce. |
 | [`SpawnedServerError`](#spawnedservererror) | exception | The spawned server exited, or its port is answered by another process. |
@@ -1487,6 +1488,28 @@ class SimulatedCrash(BaseException)
 
 The process "died": the transition's UoW rolls back (not an Exception,
 so the step classification never sees it).
+
+### `skip_unless_db_feature`
+
+```python
+def skip_unless_db_feature(
+    *features: str,
+    database: str = 'default',
+) -> pytest.MarkDecorator
+```
+
+Skip the test unless database instance `database` has every one of
+`features` (`arrays`, `fulltext_search`, `json_contains`,
+`skip_locked`, ...): the features the application advertises for it,
+the same answer its module preflight reads. On a function, a class or as
+`pytestmark`:
+
+```python
+@skip_unless_db_feature("arrays")
+async def test_tags_are_an_array(client): ...
+```
+
+The skip names the missing features and the instance.
 
 ### `spawn_served`
 

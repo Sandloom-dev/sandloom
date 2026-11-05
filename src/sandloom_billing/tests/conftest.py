@@ -134,3 +134,12 @@ async def catalog(test_db: AsyncSession) -> dict[str, Any]:
         "credits_pack": credits_pack,
         "pack_price": pack_price,
     }
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # skip_unless_db_feature's marker (the plugin registers it for apps)
+    config.addinivalue_line(
+        "markers",
+        "sandloom_db_feature(*features, database='default'): skip unless the "
+        "database instance has the features (skip_unless_db_feature)",
+    )

@@ -160,12 +160,15 @@ __all__ = [
     "row_security_for",
     "row_security_of_url",
     "schema_from_models",
+    "serial_writers",
     "search_index",
     "skips_locked_rows",
     "sql_dialect",
     "transaction_lock",
     "hold_transaction_lock",
     "WRITE_LOCK_HELD",
+    "WRITE_LOCK_TASK",
+    "TAKE_WRITE_LOCK",
     "transaction_options_for",
     "unlock_statement_for",
     "unrendered_dialect",
@@ -435,7 +438,8 @@ class SqlDialect(Protocol):
     ``None`` for a form its database cannot write.
 
     Optional facts, read with their default when absent
-    (:func:`schema_from_models`, :func:`development_only`):
+    (:func:`schema_from_models`, :func:`development_only`,
+    :func:`serial_writers`):
 
     * ``schema_from_models: bool`` (default ``False``): the database takes
       its schema from the models (``metadata.create_all`` at startup), not
@@ -444,7 +448,12 @@ class SqlDialect(Protocol):
     * ``development_only: bool`` (default ``False``): the database serves
       development and tests; in production it needs the accepted risk
       ``development_database_in_prod`` and the strict profile refuses it
-      (SANDLOOM-B029).
+      (SANDLOOM-B029);
+    * ``serial_writers: bool`` (default ``False``): the database has one
+      writer at a time, so a second write unit of the same task would wait
+      for its own caller; a nested unit of the same task on the same
+      instance runs as a SAVEPOINT on the caller's connection instead and
+      commits with the caller (``docs/infrastructure/database.md``).
     """
 
     #: The contract major the renderer implements (2).
@@ -761,6 +770,13 @@ def development_only(dialect: str) -> bool:
     """The renderer of ``dialect`` says its database serves development and
     tests only (SANDLOOM-B029). ``False`` without a renderer."""
     return bool(getattr(sql_dialect(dialect), "development_only", False))
+
+
+def serial_writers(dialect: str) -> bool:
+    """The renderer of ``dialect`` says its database has one writer at a
+    time: a nested write unit of the same task joins its caller's
+    transaction as a SAVEPOINT. ``False`` without a renderer."""
+    return bool(getattr(sql_dialect(dialect), "serial_writers", False))
 
 
 def skips_locked_rows(bind: Any) -> bool:
@@ -1343,6 +1359,14 @@ def relaxed_commit_clause_for(bind: Any) -> ColumnElement[bool] | None:
 #: :meth:`SqlDialect.lock_statement` with ``None`` and the kernel's
 #: transaction locks succeed only inside such a transaction.
 WRITE_LOCK_HELD = "sandloom.write_lock_held"
+#: Connection ``info`` key beside :data:`WRITE_LOCK_HELD`: a weak reference to
+#: the asyncio task whose transaction took the lock (a driver of a database
+#: whose writers are serial sets it; kernel use: nested units).
+WRITE_LOCK_TASK = "sandloom.write_lock_task"
+#: Connection ``info`` key: a transaction that has not taken the write lock
+#: yet but may (one begun at its first write): a sync callable of the
+#: connection that takes it now (kernel use: :func:`hold_transaction_lock`).
+TAKE_WRITE_LOCK = "sandloom.take_write_lock"
 
 
 async def hold_transaction_lock(
@@ -1366,8 +1390,14 @@ async def hold_transaction_lock(
         return
     if "transaction_locks" in renderer_features(dialect):
         connection = await session.connection()
-        if connection.info.get(WRITE_LOCK_HELD):
+        info = connection.info
+        if info.get(WRITE_LOCK_HELD):
             return
+        take = info.get(TAKE_WRITE_LOCK)
+        if take is not None:
+            await connection.run_sync(take)
+            if info.get(WRITE_LOCK_HELD):
+                return
         raise UnsupportedSqlForm(
             f"{form} outside a unit that may write (a read-only unit holds no "
             "write lock)",

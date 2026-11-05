@@ -63,6 +63,8 @@ def captured(
 
 
 async def _plan(engine: AsyncEngine, statement: str, params: Any) -> str:
+    if engine.dialect.name != "postgresql":
+        pytest.skip("the plan check reads PostgreSQL's planner (EXPLAIN, GUCs)")
     async with engine.connect() as conn:
         await conn.exec_driver_sql("SET LOCAL enable_seqscan = off")
         rows = await conn.exec_driver_sql(f"EXPLAIN {statement}", params)

@@ -83,6 +83,8 @@ from sandloom.core.sql_alchemy.portable import (
     dialect_of_url,
     renderer_features,
     schema_from_models,
+    serial_writers,
+    transaction_options_for,
 )
 from sandloom.core.sql_alchemy.reconnect import install_reconnect_backoff
 from sandloom.core.sql_alchemy.request_log import sql_alchemy_request_log_store
@@ -247,6 +249,10 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         self._contract_resolved = False
         self._uow_factory: Callable[[], UnitOfWorkContract] | None = None
         self._contract_factory: Callable[[], UnitOfWorkContract] | None = None
+        #: the read scope's factory: ``False`` until first asked (cached)
+        self._contract_read_factory: Callable[[], UnitOfWorkContract] | bool | None = (
+            False
+        )
 
     @property
     def engine(self) -> AsyncEngine:
@@ -376,6 +382,37 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
 
             factory = self._contract_factory = _factory
         return factory
+
+    def contract_read_uow_factory(self) -> Callable[[], UnitOfWorkContract] | None:
+        """UoW factory of a contract read scope's shared unit (one transaction
+        a request's local read contracts share, rolled back after them).
+
+        On a database whose writers are serial (SQLite) it is a read-only
+        unit (deferred, refusing writes): a writable one would begin by
+        taking the one write lock and hold it while the request goes on, so
+        the request's own write units would wait for it. Elsewhere
+        ``None``: the scope uses the contract factory, unchanged.
+        """
+        factory = self._contract_read_factory
+        if factory is False:
+            if not serial_writers(dialect_name(self._engine)):
+                self._contract_read_factory = None
+                return None
+            engine = self._engine
+            maker = async_sessionmaker(
+                bind=engine.execution_options(
+                    **transaction_options_for(engine, read_only=True, snapshot=None)
+                ),
+                class_=AsyncSession,
+                sync_session_class=KernelSession,
+                expire_on_commit=False,
+            )
+
+            def _factory() -> UnitOfWorkContract:
+                return SQLAlchemyUnitOfWork(session_factory=maker)
+
+            factory = self._contract_read_factory = _factory
+        return factory if callable(factory) else None
 
     async def ensure_model_schema(
         self, metadata: Any = None, *, recreate: bool

@@ -79,7 +79,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         boot_module_alone,
     )
     from sandloom.core.testing.events import deliver_event, register_event_schemas
-    from sandloom.core.testing.infra import override_instance
+    from sandloom.core.testing.infra import override_instance, skip_unless_db_feature
     from sandloom.core.testing.migrations import (
         MigrationChain,
         chain_coverage_problems,
@@ -138,6 +138,7 @@ _EXPORTS: dict[str, str] = {
     "deliver_event": "sandloom.core.testing.events",
     "fake_access_fact": "sandloom.core.testing.authz",
     "override_instance": "sandloom.core.testing.infra",
+    "skip_unless_db_feature": "sandloom.core.testing.infra",
     "MigrationChain": "sandloom.core.testing.migrations",
     "chain_coverage_problems": "sandloom.core.testing.migrations",
     "migration_chains": "sandloom.core.testing.migrations",
@@ -226,6 +227,7 @@ __all__ = [
     "run_on_commit",
     "run_sql",
     "set_environment",
+    "skip_unless_db_feature",
     "stop_revocation_listener",
     "tables_created_by",
     "temporary_database",

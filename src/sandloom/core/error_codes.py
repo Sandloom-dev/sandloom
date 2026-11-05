@@ -1359,20 +1359,24 @@ Usual causes:
         "SANDLOOM-R016",
         "nested-writer-refused",
         "runtime",
-        "a second unit of the same task began a write on a database whose "
-        "writers are serial (SQLite) while the task's first unit holds the "
-        "write lock",
-        "do the nested write in the caller's unit, run it after the caller's "
-        "unit commits, or run the database on PostgreSQL",
+        "a second writer of the same task began on a database whose writers "
+        "are serial (SQLite) while the task holds the write lock on another "
+        "connection that is not one of its open units",
+        "open the nested write inside the task's unit (it then runs as a "
+        "savepoint of it), do it in the caller's unit, run it after the "
+        "caller commits, or run the database on PostgreSQL",
         """
 SQLite has one writer at a time: every unit that may write begins BEGIN
 IMMEDIATE and holds the database's write lock until it ends. A local contract
-call, a saga step or a child open_uow() opens its own unit on another pooled
-connection. Inside a unit that already holds the write lock, that second unit
-would wait for the first, which waits for it, until busy_timeout ends it with
-"database is locked". The driver refuses it at BEGIN instead, at once. The
-refusal is per task: a unit in another task still waits its turn. PostgreSQL
-runs both units side by side.
+call, a saga step or a child open_uow() inside a unit of the same task, on
+the same database instance, runs as a SAVEPOINT on the caller's connection
+and commits with it (docs/infrastructure/database.md, "Nested units commit
+with their caller"). What cannot nest still would wait for its own task until
+busy_timeout: a writer opened while the lock is held by a connection that is
+not one of the task's open units (a bare session, a connection outside a
+unit, a second engine on the same file). The driver refuses it at once
+instead. The refusal is per task: a unit in another task still waits its
+turn. PostgreSQL runs both units side by side.
 """,
         docs="docs/infrastructure/database.md",
     ),

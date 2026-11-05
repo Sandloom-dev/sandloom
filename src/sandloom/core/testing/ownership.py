@@ -10,7 +10,10 @@ that run's state mid-flight. So every test resource carries an OWNER marker:
   (``COMMENT ON DATABASE``; no table, so schema / autogenerate tests never see
   it, and it survives ``drop_all``);
 * a Redis database index: the key ``sandloom:test:owner`` (re-written after every
-  harness ``FLUSHDB``).
+  harness ``FLUSHDB``);
+* a SQLite file: the file beside it, ``<file>.owner`` (its text the owner,
+  its modification time when a run last used it), kept when the harness
+  empties or rebuilds the database.
 
 Every claim also records WHEN the resource was last used — the Redis key
 ``sandloom:test:last_used`` and the per-database setting ``sandloom_test.last_used``
@@ -118,6 +121,9 @@ _DB_HINT = (
     "export SANDLOOM_TEST_DATABASE_URL=postgresql+asyncpg://…/sandloom_test_<you> "
     "(created on first use)"
 )
+_SQLITE_HINT = (
+    "export SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<your dir>/<name>_test.db"
+)
 _REDIS_HINT = (
     "export SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL=redis://…/<your index>"
 )
@@ -168,6 +174,9 @@ def claim_database(
     A missing database or an unreachable server is not this check's business
     (the harness creates / the tests skip): it returns quietly.
     """
+    if url.startswith("sqlite"):
+        _claim_sqlite(url, owner or current_owner(environ), environ)
+        return
     if not url.startswith("postgresql"):
         return
     owner = owner or current_owner(environ)
@@ -216,6 +225,62 @@ def claim_database(
     finally:
         conn.close()
     _claimed[("db", dsn)] = owner
+
+
+# --------------------------------------------------------------------------- #
+# SQLite
+# --------------------------------------------------------------------------- #
+
+#: Suffix of the file beside a SQLite test database carrying its owner.
+SQLITE_MARKER_SUFFIX = ".owner"
+
+
+def _sqlite_marker(file: Path) -> Path:
+    return file.with_name(file.name + SQLITE_MARKER_SUFFIX)
+
+
+def stamp_sqlite_file(file: Path, owner: str) -> None:
+    """Mark the SQLite test database ``file`` as ``owner``'s (now used)."""
+    file.parent.mkdir(parents=True, exist_ok=True)
+    _sqlite_marker(file).write_text(owner, encoding="utf-8")
+
+
+def sqlite_file_owner(file: Path) -> str | None:
+    """The owner marker of the SQLite test database ``file`` (``None``:
+    unmarked)."""
+    marker = _sqlite_marker(file)
+    if not marker.exists():
+        return None
+    return marker.read_text(encoding="utf-8").strip() or None
+
+
+def _sqlite_path(url: str) -> Path | None:
+    """The file of a SQLite URL (``None``: in memory); as
+    :func:`sandloom.core.testing.workers.sqlite_file`, which imports this
+    module."""
+    parts = urlsplit(url)
+    path = parts.path[1:] if parts.path.startswith("/") else parts.path
+    if not path or path == ":memory:" or "mode=memory" in parts.query:
+        return None
+    return Path(path)
+
+
+def _claim_sqlite(url: str, owner: str, environ: Mapping[str, str] | None) -> None:
+    file = _sqlite_path(url)
+    if file is None or _claimed.get(("sqlite", str(file))) == owner:
+        return  # in memory: one process's own
+    holder = sqlite_file_owner(file)
+    if holder is not None and not same_owner(holder, owner):
+        if not takeover_requested(environ):
+            raise TestResourceOwnershipError(
+                _refusal("SQLite database", str(file), holder, owner, _SQLITE_HINT)
+            )
+        warnings.warn(
+            f"{TAKEOVER_ENV}: taking over SQLite test database {file} from {holder!r}",
+            stacklevel=3,
+        )
+    stamp_sqlite_file(file, owner)  # its mtime: when a run last used it
+    _claimed[("sqlite", str(file))] = owner
 
 
 # --------------------------------------------------------------------------- #
@@ -327,5 +392,7 @@ __all__ = [
     "current_owner",
     "flush_owned_redis",
     "same_owner",
+    "sqlite_file_owner",
+    "stamp_sqlite_file",
     "takeover_requested",
 ]

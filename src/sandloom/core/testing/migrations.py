@@ -46,6 +46,13 @@ from sandloom.core.migrations.migrations import (
     version_table_for,
 )
 from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
+
+
+def runs_no_chains(url: str) -> bool:
+    """The test database ``url`` takes its schema from the models (SQLite):
+    no migration chain runs on it (SANDLOOM-B028)."""
+    return bool(url) and schema_from_models(dialect_of_url(url))
 
 
 def _sync(url: str, db: str) -> str:

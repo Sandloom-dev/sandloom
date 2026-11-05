@@ -72,7 +72,11 @@ from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.core_events import register_core_event_schemas
 from sandloom.core.eventing.event_bus import set_active_event_bus
 from sandloom.core.facade import CoreFacade
-from sandloom.core.guarantee_lattice import Mechanism, tenant_isolation_label
+from sandloom.core.guarantee_lattice import (
+    Mechanism,
+    nested_unit_label,
+    tenant_isolation_label,
+)
 from sandloom.core.guarantee_windows import enforce_guarantee_windows
 from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.http.middlewares import register_middlewares
@@ -125,6 +129,7 @@ from sandloom.core.sql_alchemy.portable import (
     development_only,
     dialect_of_url,
     row_security_of_url,
+    serial_writers,
     sql_dialect,
     unrendered_dialect,
     unrendered_partial_indexes,
@@ -372,6 +377,43 @@ def warn_application_enforced_isolation(
         )
 
 
+def nested_units_join_caller(infra: InfraRegistry) -> list[tuple[str, str]]:
+    """``(instance, label)`` for each SQL database whose writers are serial
+    (its renderer's ``serial_writers``: SQLite): a nested write unit of the
+    same task there (a local contract call, a saga step's unit, a child
+    ``open_uow()``) is a SAVEPOINT of its caller and commits with it. The
+    label is the guarantee lattice's."""
+    found: list[tuple[str, str]] = []
+    for name in infra.instances("database"):
+        served = infra.sql_dialects("database", name)
+        config = infra.instance_config("database", name)
+        url = database_instance_url(config.options if config else None, settings)
+        if served is None or not served[1] or not url:
+            continue
+        label = nested_unit_label(
+            Mechanism(serial_writers=serial_writers(dialect_of_url(str(url))))
+        )
+        if label is not None:
+            found.append((name, label))
+    return found
+
+
+def warn_nested_units_join_caller(infra: InfraRegistry, log: logging.Logger) -> None:
+    """One startup warning per :func:`nested_units_join_caller` instance:
+    the weaker contract atomicity is said aloud, never silently."""
+    for name, label in nested_units_join_caller(infra):
+        log.warning(
+            "database/%s has one writer at a time: a nested write unit of the "
+            "same task (a local contract call, a saga step, a child unit) runs "
+            "as a SAVEPOINT of its caller and %s (an outer rollback undoes its "
+            "rows, outbox events and command record). Development and tests "
+            "only.",
+            name,
+            label,
+            extra={"event": "unit.nested_savepoint"},
+        )
+
+
 def sql_storage_problems(infra: InfraRegistry, metadata: Any) -> list[str]:
     """The SQL databases a process cannot use as configured.
 
@@ -522,6 +564,7 @@ def create_app(
     if storage_problems:
         raise ConfigurationError(INVALID_CONFIGURATION + "; ".join(storage_problems))
     warn_application_enforced_isolation(infra, Base.metadata, main_logger)
+    warn_nested_units_join_caller(infra, main_logger)
     # The application manifest (spec §5.7), built from the load pass, no I/O.
     application.state.app_manifest = AppManifest.from_summary(module_summary)
     # Sagas (ADR-0008): check every registered definition against its

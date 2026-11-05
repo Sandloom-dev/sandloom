@@ -46,6 +46,33 @@ website renders this same changelog.
 
 ### Added
 
+- **Nested write units commit with their caller on SQLite** (slice 8c). On a
+  database whose renderer says `serial_writers` (SQLite), a local contract
+  call, a saga step's unit or a child `open_uow()` inside a writing unit of
+  the same task and database instance runs as a SAVEPOINT on the caller's
+  connection instead of being refused (SANDLOOM-R016). Its rollback undoes
+  only itself; the caller's rollback undoes its rows, outbox events and
+  command record; its outbox dispatch, `on_commit` callbacks and amended
+  command record wait for the caller's COMMIT. Units of other tasks nest one
+  task at a time. The guarantee lattice computes the label "commits with the
+  caller" (`nested_unit_label`; `effect_label("command", ...)` carries it when
+  its `Mechanism` states `serial_writers`) and startup warns once per such
+  database. R016 now refuses only a writer whose lock holder is not one of
+  the task's open units. Read contracts, and a request's contract read scope,
+  read through a read-only unit on SQLite, as on PostgreSQL never seeing the
+  caller's uncommitted writes. PostgreSQL is unchanged: no savepoint, a fresh
+  unit.
+- **Module test suites run on SQLite** (slice 8c):
+  `SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<dir>/<name>_test.db`. Each
+  xdist worker gets `<name>_test_gw<N>.db`, the file's owner is
+  `<file>.owner`, the schema is built from the models and emptied between
+  tests, the `db` fixture and a test's own sessions begin their transaction
+  at their first write (each read sees the last commit until then), the
+  application's units nest in the `db` session, and `scratch_database`
+  skips. The per-database reset moved to `sandloom.core.drivers.schema_reset`.
+  `skip_unless_db_feature(*features, database=)` (`sandloom.sdk.testing`,
+  advanced) skips a test whose database instance lacks a feature.
+
 - **Database features as `sandloom.sdk.data` forms** (slice 9 of the database
   capability). `Array(item_type)` (feature `arrays`), `fulltext_index(name,
   *columns, language=)` with `matches(columns, query)` (`fulltext_search`),

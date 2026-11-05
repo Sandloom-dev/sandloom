@@ -7,6 +7,7 @@ duplicate-invitation races and the invitation e-mail.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -539,11 +540,19 @@ class _Barrier:
         self._arrived = 0
         self._event = asyncio.Event()
 
-    async def wait(self) -> None:
+    async def wait(self, *, serial: bool = False) -> None:
+        """Wait for the other racers. ``serial``: the database has one writer
+        (SQLite), whose first racer keeps the others at their BEGIN; wait at
+        most 2 s there, so the race runs one after another instead of waiting
+        forever. Elsewhere every racer really waits for the others."""
         self._arrived += 1
         if self._arrived >= self._parties:
             self._event.set()
-        await self._event.wait()
+        if not serial:
+            await self._event.wait()
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._event.wait(), 2.0)
 
 
 async def _run_committed(
@@ -560,7 +569,7 @@ async def _run_committed(
         try:
             if barrier is not None:
                 await db.execute(text("SELECT 1"))
-                await barrier.wait()
+                await barrier.wait(serial=db.get_bind().dialect.name == "sqlite")
             result = await fn(db)
             await db.commit()
             return result
@@ -758,6 +767,11 @@ async def test_migration_hash_matches_python_hash(test_db: AsyncSession) -> None
     """The 0002 backfill SQL must hash exactly like ``hash_invitation_token``."""
     from sandloom_tenancy.models.invitation import hash_invitation_token
 
+    if test_db.get_bind().dialect.name != "postgresql":
+        pytest.skip(
+            "the 0002 backfill is the migration chain's PostgreSQL SQL; this "
+            "database takes its schema from the models and runs no chain"
+        )
     token = "abc-DEF_123~ünï"
     sql = (
         await test_db.execute(

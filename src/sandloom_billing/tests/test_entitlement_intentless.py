@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import JSON, String, Uuid, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom_billing.models import BillingSubscription
@@ -164,7 +164,7 @@ async def test_an_insert_without_origin_does_not_grant(
             "INSERT INTO billing_subscriptions (customer_id, stripe_subscription_id,"
             " status, price_id, current_period_end, cancel_at_period_end)"
             " VALUES (:c, :s, 'active', :p, :e, false)"
-        ),
+        ).bindparams(bindparam("c", type_=Uuid)),
         {
             "c": raw_customer.id,
             "s": f"sub_{uuid.uuid4().hex[:8]}",
@@ -178,7 +178,7 @@ async def test_an_insert_without_origin_does_not_grant(
         await test_db.execute(
             text(
                 "SELECT origin FROM billing_subscriptions WHERE customer_id IN (:a, :b)"
-            ),
+            ).bindparams(bindparam("a", type_=Uuid), bindparam("b", type_=Uuid)),
             {"a": orm_customer.id, "b": raw_customer.id},
         )
     ).scalars()
@@ -225,7 +225,7 @@ async def test_subscription_events_carry_whether_the_subscription_grants(
             text(
                 "SELECT channel, payload FROM outbox_messages WHERE channel LIKE "
                 "'billing.subscription.%' ORDER BY emitted_at"
-            )
+            ).columns(channel=String, payload=JSON)
         )
     ).all()
     assert [r.channel for r in rows] == [

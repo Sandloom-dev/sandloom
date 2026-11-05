@@ -189,7 +189,9 @@ then `if not await quota.may_create_item(): ...`.
 - **A command is not atomic with the caller.** It has committed when it
   returns; if the caller later rolls back, the command stays applied. Design
   it as a saga step: compensate, or drive the effect from an event. See
-  [Sagas](sagas.md).
+  [Sagas](sagas.md). On SQLite, a development database with one writer, a
+  local command called inside your writing unit commits with your unit
+  instead: [Nested units](../../infrastructure/database.md#nested-units-commit-with-their-caller).
 
 ### Required or optional
 

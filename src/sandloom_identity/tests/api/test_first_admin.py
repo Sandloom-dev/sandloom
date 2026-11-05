@@ -16,7 +16,7 @@ from uuid import UUID
 import pytest
 from httpx import AsyncClient
 from itsdangerous.timed import TimestampSigner
-from sqlalchemy import select, text
+from sqlalchemy import JSON, String, Uuid, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sandloom.sdk.errors import ContractCallError
@@ -73,7 +73,7 @@ async def test_create_makes_a_verified_admin_without_a_usable_password(
         text(
             "SELECT r.code FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
             "WHERE ur.user_id = :uid"
-        ),
+        ).bindparams(bindparam("uid", type_=Uuid)),
         {"uid": user_id},
     )
     assert list(roles.scalars()) == ["admin"]
@@ -153,7 +153,9 @@ async def test_an_audited_listing_records_who_asked_and_why(
             "incident 42", "cli:alice", True, "op-list-1"
         )
     rows = await test_db.execute(
-        text("SELECT action, actor_type, data FROM audit_log WHERE action = :a"),
+        text(
+            "SELECT action, actor_type, data FROM audit_log WHERE action = :a"
+        ).columns(action=String, actor_type=String, data=JSON),
         {"a": "identity.admin.listed"},
     )
     (_, actor_type, data) = rows.one()

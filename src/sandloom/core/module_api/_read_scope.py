@@ -16,7 +16,7 @@ import sandloom.core.unit_of_work.request as _request
 from sandloom.core import contract_wire
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._bootstrap import (
-    _contract_uow_factory,
+    _contract_read_uow_factory,
     _isolated_uow_scope,
 )
 from sandloom.core.module_api._errors import (
@@ -201,7 +201,7 @@ class ContractReadScope:
             unit: Any = None
             try:
                 uow = _unit_of_work
-                factory = _contract_uow_factory(core, database)
+                factory = _contract_read_uow_factory(core, database)
                 unit = factory()
                 await unit.__aenter__()
                 session = uow._bind_uow_session(unit.session, core, factory, database)

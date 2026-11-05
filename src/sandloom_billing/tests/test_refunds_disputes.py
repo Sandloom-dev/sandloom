@@ -12,14 +12,15 @@ credits at once; a dispute closed ``won`` restores what the dispute reversed.
 import json
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom_billing.models import CreditLedgerEntry
+from sandloom_billing.models import CreditLedgerEntry, PspPaymentState
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
 from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
@@ -651,12 +652,9 @@ async def test_housekeeping_purges_only_old_orphan_payment_states(
         orphan["data"]["object"]["payment_intent"] = pi
         await _post(async_client, orphan)
     await test_db.execute(
-        text(
-            "UPDATE billing_psp_payment_states SET updated_at = now() - "
-            "interval '400 days' WHERE psp_payment_intent_id IN "
-            "('pi_old_orphan', :granted)"
-        ),
-        {"granted": PI},
+        update(PspPaymentState)
+        .where(PspPaymentState.psp_payment_intent_id.in_(["pi_old_orphan", PI]))
+        .values(updated_at=datetime.now(UTC) - timedelta(days=400))
     )
 
     assert await purge_orphan_payment_states(test_db) == 1
@@ -735,11 +733,9 @@ async def test_purge_never_deletes_the_state_a_concurrent_completion_holds(
         await WebhookService._apply_charge_refunded(refund, refund["data"]["object"], s)
     async with maker() as s:
         await s.execute(
-            text(
-                "UPDATE billing_psp_payment_states SET updated_at = now() - "
-                "interval '400 days' WHERE psp_payment_intent_id = :p"
-            ),
-            {"p": PI},
+            update(PspPaymentState)
+            .where(PspPaymentState.psp_payment_intent_id == PI)
+            .values(updated_at=datetime.now(UTC) - timedelta(days=400))
         )
         await s.commit()
     pack = catalog["pack_price"]
@@ -851,6 +847,10 @@ async def test_payment_state_upsert_bumps_updated_at_with_clock_timestamp(
     assert sql.startswith(
         "INSERT INTO billing_psp_payment_states (psp_payment_intent_id"
     ), sql
+    if test_db.get_bind().dialect.name != "postgresql":
+        # another database's wall clock (SQLite: its millisecond now)
+        assert "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET updated_at = " in sql
+        return
     assert (
         "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET "
         "updated_at = clock_timestamp() RETURNING"

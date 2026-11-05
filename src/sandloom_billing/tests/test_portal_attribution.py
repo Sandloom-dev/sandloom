@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import Boolean, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom_billing.models import BillingPrice, OperationIntent
@@ -113,7 +113,7 @@ async def test_cancel_at_period_end_without_a_portal_intent_is_audited_not_block
             text(
                 "SELECT cancel_at_period_end FROM billing_subscriptions "
                 "WHERE stripe_subscription_id = :s"
-            ),
+            ).columns(cancel_at_period_end=Boolean),
             {"s": sub_id},
         )
     ).scalar_one()
@@ -154,6 +154,9 @@ async def test_plan_change_long_after_the_portal_intent_is_audited(
     await test_db.commit()
     headers, _, obj = await _subscribed(async_client, catalog, sessions)
     await _open_portal(async_client, headers)
+    # what the requests wrote in the shared session commits first: a database
+    # with one writer (SQLite) runs the update below only after it
+    await test_db.commit()
     async with sessions() as db:
         await db.execute(
             update(OperationIntent)

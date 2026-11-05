@@ -24,6 +24,15 @@ installs what makes that renderer's features true on an engine:
   and, for a file database, WAL.
 * An ``AUTOCOMMIT`` connection (one statement, its own transaction) begins
   nothing.
+* **A transaction begun at its first write** (the execution option
+  :data:`BEGIN_AT_FIRST_WRITE`: the test harness's own sessions,
+  ``sandloom.core.drivers.schema_reset``) runs its reads before that write
+  without a transaction, so each read sees the last commit (PostgreSQL's
+  READ COMMITTED, where a deferred transaction would keep its first
+  snapshot), and emits ``BEGIN IMMEDIATE`` right before its first write,
+  ``SELECT … FOR UPDATE`` or SAVEPOINT; it is marked then, like a unit at
+  its BEGIN, and refused at once (SANDLOOM-R016) when another connection of
+  the task holds the lock.
 
 In-memory databases (``sqlite://``, ``:memory:``, ``mode=memory``) have no
 WAL and no second connection: they are refused (SANDLOOM-B032), except a test
@@ -51,8 +60,16 @@ from sandloom.core.drivers.sql_dialects import (
     SQLITE_WRITE_BEGIN,
 )
 from sandloom.core.sql_alchemy.dbapi import DbapiAdapter
-from sandloom.core.sql_alchemy.portable import WRITE_LOCK_HELD
+from sandloom.core.sql_alchemy.portable import (
+    TAKE_WRITE_LOCK,
+    WRITE_LOCK_HELD,
+    WRITE_LOCK_TASK,
+)
+from sandloom.core.sql_alchemy.write_admission import EXEMPT_OPTION, is_write_statement
 
+#: The adapter's own statements (a read-only unit's pragma): no write of a
+#: unit, so write admission never counts them.
+_KERNEL = {EXEMPT_OPTION: True}
 #: The busy timeout when the runtime statement timeout is off (0).
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 #: The features an in-memory database never advertises: one connection, so
@@ -61,6 +78,11 @@ MEMORY_WITHHELD_FEATURES = frozenset({"snapshot_reads", "transaction_locks"})
 
 #: Connection ``info`` key: ``PRAGMA query_only`` is on (a read-only unit).
 _QUERY_ONLY = "sandloom.sqlite_query_only"
+#: Execution option: the transaction begins at its first write (module doc).
+BEGIN_AT_FIRST_WRITE = "sandloom_sqlite_begin_at_first_write"
+#: Connection ``info`` key: a transaction waiting for its first write to
+#: begin; its value is the database file.
+_LAZY_WRITER = "sandloom.sqlite_lazy_writer"
 
 
 #: Per database file: the task whose unit holds its write lock, and that
@@ -72,22 +94,24 @@ _WRITERS: dict[
 
 
 class NestedWriterRefused(RuntimeError):
-    """A second unit of the same task began a write on a database whose
-    writers are serial while the task's first unit holds the write lock on
-    another connection: it would wait for itself until ``busy_timeout``
-    (SANDLOOM-R016)."""
+    """A second writer of the same task began on a database whose writers
+    are serial while the task holds the write lock on another connection
+    that is not one of its open units (a nested unit of an open unit runs as
+    a savepoint of it instead): it would wait for itself until
+    ``busy_timeout`` (SANDLOOM-R016)."""
 
     code = "SANDLOOM-R016"
 
     def __init__(self, database: str) -> None:
         super().__init__(
-            f"a second unit of this task began a write on the SQLite database "
-            f"{database!r} while the task's own unit holds its write lock on "
-            "another connection (a local contract call, a saga step or a "
-            "child open_uow() inside a unit): SQLite has one writer, so it "
-            "would wait for itself until busy_timeout [SANDLOOM-R016]. Do the "
-            "nested write in the caller's unit, run it after the caller's "
-            "unit commits, or run the database on PostgreSQL"
+            f"a second writer of this task began on the SQLite database "
+            f"{database!r} while the task holds its write lock on another "
+            "connection that is not one of its open units (a bare session, a "
+            "connection outside a unit, a second engine on the file): SQLite "
+            "has one writer, so it would wait for itself until busy_timeout "
+            "[SANDLOOM-R016]. Open the write inside the task's unit (it runs "
+            "as a savepoint of it), do it after the holder commits, or run "
+            "the database on PostgreSQL"
         )
 
 
@@ -209,6 +233,9 @@ def _refuse_a_nested_writer(database: str, info: MutableMapping[Any, Any]) -> No
 
 def _release(database: str | None, info: MutableMapping[Any, Any]) -> None:
     info.pop(WRITE_LOCK_HELD, None)
+    info.pop(WRITE_LOCK_TASK, None)
+    info.pop(_LAZY_WRITER, None)
+    info.pop(TAKE_WRITE_LOCK, None)
     if database is not None:
         holder = _WRITERS.get(database)
         if holder is not None and holder[1] is info:
@@ -224,7 +251,7 @@ def _begin(database: str | None, conn: Any) -> None:
     if info.get(_QUERY_ONLY) and not query_only:
         # A read-only unit's pragma, not reset at its end (it ended with an
         # error): this connection writes again.
-        conn.exec_driver_sql("PRAGMA query_only = OFF")
+        conn.exec_driver_sql("PRAGMA query_only = OFF", execution_options=_KERNEL)
         info.pop(_QUERY_ONLY, None)
     if options.get("isolation_level") == "AUTOCOMMIT":
         return  # each statement is its own transaction
@@ -233,19 +260,79 @@ def _begin(database: str | None, conn: Any) -> None:
         # SQLAlchemy's reset of a connection that ran under another isolation
         # level turns pysqlite's implicit BEGIN back on.
         dbapi_connection.isolation_level = None
+    if options.get(BEGIN_AT_FIRST_WRITE) and not query_only and database is not None:
+        info[_LAZY_WRITER] = database  # BEGIN IMMEDIATE before its first write
+        info[TAKE_WRITE_LOCK] = partial(_take_write_lock, database)
+        return
     begin = options.get(SQLITE_BEGIN_OPTION) or SQLITE_WRITE_BEGIN
     writer = database if begin == SQLITE_WRITE_BEGIN else None
     if writer is not None:
         _refuse_a_nested_writer(writer, info)
     conn.exec_driver_sql(begin)
     if writer is not None:
-        info[WRITE_LOCK_HELD] = True
-        task = _current_task()
-        if task is not None:
-            _WRITERS[writer] = (weakref.ref(task), info)
+        _mark_writer(writer, info)
     if query_only and not info.get(_QUERY_ONLY):
-        conn.exec_driver_sql("PRAGMA query_only = ON")
+        conn.exec_driver_sql("PRAGMA query_only = ON", execution_options=_KERNEL)
         info[_QUERY_ONLY] = True
+
+
+def _mark_writer(database: str, info: MutableMapping[Any, Any]) -> None:
+    info[WRITE_LOCK_HELD] = True
+    task = _current_task()
+    if task is not None:
+        ref = weakref.ref(task)
+        info[WRITE_LOCK_TASK] = ref
+        _WRITERS[database] = (ref, info)
+
+
+def _first_write(context: Any, statement: Any) -> str | None:
+    """The database file whose write lock a transaction waiting for its
+    first write takes before ``statement`` (a write, a row lock or a
+    SAVEPOINT), else ``None``."""
+    if context is None:
+        return None
+    info = context.root_connection.info
+    database = info.get(_LAZY_WRITER)
+    if database is None or info.get(WRITE_LOCK_HELD):
+        return None
+    text = statement.lstrip()[:9].upper() if isinstance(statement, str) else ""
+    if (
+        text.startswith("SAVEPOINT")
+        or is_write_statement(context, statement)
+        or _locks_rows(context)
+    ):
+        return str(database)
+    return None
+
+
+def _locks_rows(context: Any) -> bool:
+    """A ``SELECT … FOR UPDATE`` (rendered without the clause on SQLite): it
+    takes the write lock, as a row lock would hold the rows elsewhere."""
+    statement = getattr(getattr(context, "compiled", None), "statement", None)
+    return getattr(statement, "_for_update_arg", None) is not None
+
+
+def _take_write_lock(database: str, conn: Any) -> None:
+    """Begin a transaction waiting for its first write now (a
+    ``transaction_lock`` asks for the write lock before any write)."""
+    info = conn.info
+    if info.get(WRITE_LOCK_HELD) or info.get(_LAZY_WRITER) is None:
+        return
+    _refuse_a_nested_writer(database, info)
+    conn.exec_driver_sql(SQLITE_WRITE_BEGIN)
+    _mark_writer(database, info)
+
+
+def _before_statement(
+    conn: Any, cursor: Any, statement: Any, _params: Any, context: Any, _many: bool
+) -> None:
+    database = _first_write(context, statement)
+    if database is None:
+        return
+    info = conn.info
+    _refuse_a_nested_writer(database, info)
+    cursor.execute(SQLITE_WRITE_BEGIN)
+    _mark_writer(database, info)
 
 
 def _commit(database: str | None, conn: Any) -> None:
@@ -253,7 +340,7 @@ def _commit(database: str | None, conn: Any) -> None:
     _release(database, info)
     if info.pop(_QUERY_ONLY, False):
         # Before COMMIT, still inside the read-only transaction.
-        conn.exec_driver_sql("PRAGMA query_only = OFF")
+        conn.exec_driver_sql("PRAGMA query_only = OFF", execution_options=_KERNEL)
 
 
 def _rollback(database: str | None, conn: Any) -> None:
@@ -286,6 +373,9 @@ class AiosqliteAdapter(DbapiAdapter):
         event.listen(sync_engine, "begin", partial(_begin, database))
         event.listen(sync_engine, "commit", partial(_commit, database))
         event.listen(sync_engine, "rollback", partial(_rollback, database))
+        if database is not None:
+            # transactions begun at their first write (BEGIN_AT_FIRST_WRITE)
+            event.listen(sync_engine, "before_cursor_execute", _before_statement)
 
 
 def _database_key(url: Any) -> str:
@@ -300,6 +390,7 @@ AIOSQLITE = AiosqliteAdapter()
 
 __all__ = [
     "AIOSQLITE",
+    "BEGIN_AT_FIRST_WRITE",
     "DEFAULT_BUSY_TIMEOUT_MS",
     "MEMORY_WITHHELD_FEATURES",
     "AiosqliteAdapter",

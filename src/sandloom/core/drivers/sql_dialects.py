@@ -681,6 +681,10 @@ class SqliteSql:
     schema_from_models = True
     #: For development and tests (SANDLOOM-B029).
     development_only = True
+    #: One writer per file: a nested write unit of the same task runs as a
+    #: SAVEPOINT on its caller's connection (it would otherwise wait for
+    #: itself, SANDLOOM-R016) and commits with the caller.
+    serial_writers = True
 
     def features(self) -> frozenset[str]:
         # An in-memory database (one connection, no WAL) withholds
