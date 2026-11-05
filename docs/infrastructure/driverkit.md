@@ -34,7 +34,7 @@ A contract is public only with a conformance kit, so `cache`, `objectstore` and
 | Name | What it is |
 | --- | --- |
 | `NotifierConformance` | A pytest class with one test per obligation. Subclass it and override the `make_provider` fixture, and `recipients` for your test backend. It needs `pytest` and `pytest-asyncio`. |
-| `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database. |
+| `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database. |
 | `JSON_PATH_DOCUMENT` | The JSON text `read_json_paths` stores, numbers as written. |
 | `JSON_PATH_READS` | What `json_path` must read at each path of `JSON_PATH_DOCUMENT`: the scalar's JSON text as stored. |
 

@@ -223,6 +223,10 @@ markers = [
     "guarantees: an enforcing test of the guarantee ledger (guarantees.yml; applied automatically by src/conftest.py)",
 ]
 asyncio_mode = "auto"
+# A test still running after 600 s dumps every thread's stack (pytest's
+# faulthandler): a hang shows where it waits instead of a silent job timeout.
+# Not 300: the package-distributions test (slow) took longer on a loaded host.
+faulthandler_timeout = 600
 filterwarnings = [
     "error::DeprecationWarning:sandloom",
 ]

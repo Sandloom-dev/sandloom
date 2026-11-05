@@ -281,9 +281,7 @@ async def test_foreign_payment_state_is_never_applied_to_another_grant(
         assert await BillingService.get_credit_balance(b_id, s) == 100
 
 
-@skip_unless_db_feature(
-    "skip_locked"
-)  # concurrent writers (row locks): not SQLite's one writer
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_refund_deliveries_reverse_once(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:
@@ -312,9 +310,7 @@ async def test_concurrent_refund_deliveries_reverse_once(
         assert int(reversals.scalar_one()) == 1
 
 
-@skip_unless_db_feature(
-    "skip_locked"
-)  # concurrent writers (row locks): not SQLite's one writer
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_won_deliveries_restore_once(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:
@@ -341,9 +337,7 @@ async def test_concurrent_won_deliveries_restore_once(
         assert await _ledger_sum(s, customer_id) == 100
 
 
-@skip_unless_db_feature(
-    "skip_locked"
-)  # concurrent writers (row locks): not SQLite's one writer
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_refund_and_dispute_converge_without_deadlock(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:

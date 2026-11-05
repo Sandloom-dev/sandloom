@@ -55,7 +55,11 @@ NOQA_BASELINE: dict[str, int] = {
     # slot claiming its Redis indexes (testing/slots.py: `redis` and
     # testing.resources, which imports it; `sandloom test` loads slots in a
     # lean install) and `sandloom dev prune` (cli/dev/commands.py).
-    "PLC0415": 121,
+    # 122 (2026-11-05): +1 cold import, cli/dev/commands.py: `dev run` / `dev
+    # up` ask a .env database's renderer for schema_from_models (SQLite) only
+    # when .env names one; importing the renderers costs the dev CLI 0.3 s
+    # and loads the settings.
+    "PLC0415": 122,
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,

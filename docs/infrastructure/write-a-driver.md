@@ -117,7 +117,9 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
 1. Implement `SqlDialect` from `sandloom.driverkit`, with `contract_version = 2` and the
    SQLAlchemy dialect `name`.
 2. Give the oldest server it supports in `minimum_server_version`.
-3. Return the features the database can give from `features()`.
+3. Return the features the database can give from `features()`. Leave out
+   `concurrent_writers`: the kernel derives it from the `serial_writers` fact (a
+   renderer without that fact has it), and a renderer listing it is refused.
 4. Map the database's errors to kinds in `classify_error`.
 5. Return a `RowSecurity` from `row_security()` when the database can confine rows
    to the tenant a transaction binds (the setting `TENANT_SETTING`), or `None`. It
@@ -145,7 +147,13 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    ([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029)). If it has one
    writer at a time, set `serial_writers = True`. A nested write unit then
    commits with its caller
-   ([Nested units](database.md#nested-units-commit-with-their-caller)).
+   ([Nested units](database.md#nested-units-commit-with-their-caller)). Without that
+   fact the database has `concurrent_writers`, which race tests ask for.
+   Optionally write the read planner's literal prefix filter, both members or
+   neither: `prefix_pattern(prefix, ignore_case=)` answers the value to bind,
+   and `prefix_match(column, pattern, ignore_case=)` the condition. Every
+   character of the prefix matches itself, and only `ignore_case` folds case.
+   Without them the planner writes `LIKE` / `ILIKE` with a backslash `ESCAPE`.
 9. Write a feature form only when the database has it, and declare its feature
    then ([Database](database.md#forms-that-need-a-feature)):
    - `arrays`: `array_type(item_type)`;

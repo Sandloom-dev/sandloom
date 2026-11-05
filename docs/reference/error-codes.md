@@ -1066,7 +1066,9 @@ question it does not know. A renderer may declare only the database
 capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
 readonly_transactions, arrays, fulltext_search, json_path, json_contains,
 list_aggregates):
-anything else would be advertised to modules without a meaning. A renderer
+anything else would be advertised to modules without a meaning. It never
+declares concurrent_writers, which the kernel derives from its serial_writers
+fact. A renderer
 that declares a feature form's feature (arrays, fulltext_search, json_path,
 json_contains, list_aggregates) must also write the form: array_type,
 fulltext_index_options, fulltext_document, fulltext_match, json_path,

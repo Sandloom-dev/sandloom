@@ -86,6 +86,27 @@ website renders this same changelog.
 
 ### Added
 
+- **CI runs the module suites on SQLite too: the `second-db-test-lane` job, and
+  a skip ledger.** PostgreSQL (`backend-tests`) stays the mandatory lane. The
+  new lane runs the standard modules' suites, every example's tests and an
+  application from `sandloom new` with the standard modules (served on a
+  SQLite file, signed up to an organization through the API, then its own
+  `sandloom test`) on SQLite files. Each lane writes the tests it ran and
+  skipped (`-p sandloom.core.testing.skip_ledger
+  --sandloom-skip-ledger=<file>`, or `SANDLOOM_SKIP_LEDGER`), and the
+  `skip-ledger` job (`tools/ci/skip_ledger.py`) fails on a test skipped on
+  every lane, unless `tools/ci/skip_ledger_allowlist.json` names it with a
+  reason. `tools/smoke/quickstart_check.py --database sqlite` runs the
+  quickstart on SQLite. A new `database` feature, `concurrent_writers`
+  (write transactions overlap, each holding its row locks), is derived from
+  a renderer's `serial_writers` fact: PostgreSQL has it, SQLite does not, and
+  a renderer that declares it itself is refused (SANDLOOM-B025). Race tests
+  carry `skip_unless_db_feature("concurrent_writers")` and run on PostgreSQL
+  only.
+  `faulthandler_timeout` in the framework's (600 s) and the generated
+  application's (300 s) pytest configuration: a hung test prints every
+  thread's stack.
+
 - **Migrations match models: `migration_drift(module)` and
   `assert_migrations_match_models(module)` in `sandloom.sdk.testing`**
   (advanced). On a scratch PostgreSQL database the helper applies the core
@@ -430,6 +451,26 @@ website renders this same changelog.
 
 ### Changed
 
+- **An application from `sandloom new` runs on SQLite out of the box.** Its
+  `dev` dependencies bring the framework's `sqlite` extra (aiosqlite), and its
+  README says how: `DATABASE_URL=sqlite+aiosqlite:///./data/app.db` with
+  `CACHE_URL` / `BROKER_URL` in `.env`, outside the `sandloom dev` block.
+  A `DATABASE_URL` whose database takes its schema from the models (SQLite)
+  is the checkout's own database when it is the assignment that wins in
+  `.env` (the last one) and stands outside the block. `sandloom dev run` then
+  serves it and starts no dev services; before, it started PostgreSQL and
+  Redis in Docker and served the app on them. `sandloom dev up` refuses and
+  leaves `.env` as it is; before, it commented the line out. A PostgreSQL
+  `DATABASE_URL` outside the block is handled as before. `sandloom migrate
+  drift`, the "migration drift" step of `sandloom test`, says it skips on a
+  database without migration chains instead of failing with SANDLOOM-B028,
+  so `sandloom test` passes on SQLite.
+
+  **Upgrade:** an existing app adds `sqlite` to its `sandloom[check,testing]`
+  dev requirement to run on SQLite. A checkout whose `.env` ends with a
+  SQLite `DATABASE_URL` line and also uses the dev services: remove or
+  comment out that line, or `dev up` refuses and `dev run` serves the file.
+
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and
   `/redoc` get the site's header with the app's name and links (console, Swagger UI,
   ReDoc, Sandloom docs), the caracal in the tab, Manrope and Hack, the
@@ -441,6 +482,18 @@ website renders this same changelog.
   deployed app's API docs are the app's.
 
 ### Fixed
+
+- **The read planner's prefix filter is literal, and keeps its case, on
+  SQLite.** The general form bound `_` and `%` escaped with backslashes,
+  PostgreSQL's default `LIKE` escape, without naming the escape; SQLite has
+  none, so `D_v` found nothing (`examples/projecthub`'s filter test on
+  SQLite). And SQLite's `LIKE` folds ASCII case, so a case-sensitive `prefix=`
+  matched case-insensitively. The filter is now the renderer's: two optional
+  members of renderer contract 2, `prefix_pattern` and `prefix_match` (both or
+  neither, SANDLOOM-B025; checked by `SqlDialectConformance`). PostgreSQL
+  keeps `LIKE` / `ILIKE` with a backslash `ESCAPE`; SQLite writes a
+  case-sensitive prefix as a `GLOB` (`*`, `?`, `[` as one-character classes)
+  and a case-insensitive one as `lower(...) LIKE lower(...) ESCAPE`.
 
 - **A failed `sandloom dev up` names the cause.** Docker wraps long errors, and the
   message showed only the last wrapped line (`(exit status 4))`); it now starts at the

@@ -402,7 +402,13 @@ from sandloom.sdk.testing import skip_unless_db_feature  # sandloom: advanced da
 async def test_tags_are_stored_as_an_array(client) -> None: ...
 ```
 
-A test that races two writers needs `skip_locked`: SQLite has one writer.
+A test that races two writers needs `concurrent_writers`: write
+transactions that overlap, each holding its own row locks. SQLite has one writer,
+and the harness does not emulate PostgreSQL's concurrency: the race runs on
+PostgreSQL only. Bound every wait between the racers (`asyncio.wait_for(...,
+30)`). A racer that never arrives then fails the test instead of hanging it.
+A test still running after 300 s dumps every thread's stack
+(`faulthandler_timeout` in the generated `pyproject.toml`).
 
 On SQLite the units a test's code opens nest in the `db` session once it
 wrote. Their deferred effects (outbox dispatch, `on_commit`) run when the
@@ -414,12 +420,37 @@ the fixtures instead of loading the plugin registers the marker in its
 in `pytest_configure`.
 
 The features are the `database` capability's
-([Forms that need a feature](../infrastructure/database.md#forms-that-need-a-feature)): `skip_locked`,
+([Forms that need a feature](../infrastructure/database.md#forms-that-need-a-feature)): `concurrent_writers`, `skip_locked`,
 `transaction_locks`, `snapshot_reads`, `readonly_transactions`, `arrays`,
 `fulltext_search`, `json_path`, `json_contains`. The harness reads them as
 the application advertises them for the instance (`database="default"`; pass
 another name for another instance). Put the mark on a function, a class, or
 `pytestmark`.
+
+## The skip ledger
+
+CI runs the tests on two databases (PostgreSQL, then SQLite). A test may skip
+on one; a test that skips on both runs nowhere. Each lane loads
+`-p sandloom.core.testing.skip_ledger` and writes the tests it ran and the
+tests it skipped, with the reasons, to a JSON file:
+
+```bash
+uv run pytest -p sandloom.core.testing.skip_ledger \
+  --sandloom-skip-ledger=skip-ledger/sqlite.json --sandloom-skip-ledger-lane=sqlite
+python3 tools/ci/skip_ledger.py skip-ledger/*.json \
+  --allowlist tools/ci/skip_ledger_allowlist.json --require-lanes postgresql,sqlite
+```
+
+The second command fails on a test that was skipped on some lane and ran on
+none, printing each lane's reason. A module skipped while it was collected
+(`importorskip`) is recorded by its path and counts as run when one of its
+tests ran on another lane. Make it run on one lane, or add it to the
+allowlist with the reason CI cannot run it. An allowlist entry whose test ran
+fails too: the list shrinks with the tests it excuses. With
+`--strict-allowlist` (full validation), so does an entry no lane collected.
+`SANDLOOM_SKIP_LEDGER` (and `_LANE`, `_BASE`) stand for the options.
+`PYTEST_ADDOPTS="-p sandloom.core.testing.skip_ledger"
+SANDLOOM_SKIP_LEDGER=skips.json uv run sandloom test` writes one too.
 
 ## Harness rules
 

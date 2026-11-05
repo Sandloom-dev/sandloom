@@ -123,6 +123,11 @@ class CapabilityRef(Generic[P]):
 #: them only when its URL's renderer does.
 DATABASE_RENDERER_FEATURES = frozenset(
     {
+        # Write transactions overlap, each holding its own row locks (what a
+        # race test needs). Never declared by a renderer: derived from its
+        # ``serial_writers`` fact (``portable.renderer_features``), so the
+        # two cannot disagree.
+        "concurrent_writers",
         "skip_locked",
         "transaction_locks",
         "snapshot_reads",

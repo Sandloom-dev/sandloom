@@ -962,3 +962,80 @@ def test_relaxed_commit_is_postgresqls_synchronous_commit_only() -> None:
     clause = POSTGRESQL.relaxed_commit_clause()
     assert str(clause) == "set_config('synchronous_commit', 'off', true) IS NOT NULL"
     assert SQLITE.relaxed_commit_clause() is None
+
+
+# -- concurrent_writers: derived from serial_writers, never declared ----------
+
+
+def test_concurrent_writers_is_derived_from_the_serial_writers_fact() -> None:
+    assert "concurrent_writers" in portable.renderer_features("postgresql")
+    assert "concurrent_writers" not in portable.renderer_features("sqlite")
+    assert portable.serial_writers("sqlite") and not portable.serial_writers(
+        "postgresql"
+    )
+    assert "concurrent_writers" not in POSTGRESQL.features()
+    assert "concurrent_writers" not in SQLITE.features()
+
+
+@pytest.mark.usefixtures("isolated_registry")
+def test_a_renderer_declaring_concurrent_writers_is_refused() -> None:
+    class _Declares(SqliteSql):
+        def features(self) -> frozenset[str]:
+            return frozenset({"concurrent_writers", "json_path"})
+
+    with pytest.raises(IncompatibleSqlDialect) as err:
+        register_sql_dialect("renderer_test_cw", cast(Any, _Declares()))
+    assert "concurrent_writers" in str(err.value) and "SANDLOOM-B025" in str(err.value)
+    assert "renderer_test_cw" not in portable._registered
+
+
+def test_the_kit_fails_a_renderer_declaring_concurrent_writers() -> None:
+    class _Declares(PostgresqlSql):
+        def features(self) -> frozenset[str]:
+            return frozenset(super().features()) | {"concurrent_writers"}
+
+    class Broken(SqlDialectConformance):
+        pass
+
+    Broken.renderer = _Declares()
+    Broken.dialect = postgresql.dialect()  # type: ignore[no-untyped-call]
+    with pytest.raises(AssertionError, match="derived"):
+        Broken().test_declares_only_database_renderer_features()
+
+
+# -- the literal prefix filter's members ----------------------------------------
+
+
+@pytest.mark.usefixtures("isolated_registry")
+def test_a_renderer_with_half_the_prefix_members_is_refused() -> None:
+    class _Half(SqliteSql):
+        prefix_pattern = None  # type: ignore[assignment]
+
+    with pytest.raises(IncompatibleSqlDialect) as err:
+        register_sql_dialect("renderer_test_prefix", cast(Any, _Half()))
+    assert "prefix_match" in str(err.value) and "SANDLOOM-B025" in str(err.value)
+
+
+def test_the_kit_fails_half_the_prefix_members() -> None:
+    class _Half(PostgresqlSql):
+        prefix_match = None  # type: ignore[assignment]
+
+    class Broken(SqlDialectConformance):
+        pass
+
+    Broken.renderer = _Half()
+    Broken.dialect = postgresql.dialect()  # type: ignore[no-untyped-call]
+    with pytest.raises(AssertionError, match="come together"):
+        Broken().test_prefix_members_are_whole_or_absent()
+
+
+def test_sqlite_writes_a_case_sensitive_prefix_as_a_glob() -> None:
+    assert SQLITE.prefix_pattern("a*?[\\%_b", ignore_case=False) == ("a[*][?][[]\\%_b*")
+    assert SQLITE.prefix_pattern("a%_", ignore_case=True) == "a\\%\\_%"
+    assert POSTGRESQL.prefix_pattern("a%_\\", ignore_case=False) == "a\\%\\_\\\\%"
+    sql = str(
+        SQLITE.prefix_match(
+            sa.column("t", sa.String()), sa.bindparam("p"), ignore_case=False
+        ).compile(dialect=sqlite.dialect())  # type: ignore[no-untyped-call]
+    )
+    assert "GLOB" in sql, sql

@@ -1570,7 +1570,8 @@ def skip_unless_db_feature(
 
 Skip the test unless database instance `database` has every one of
 `features` (`arrays`, `fulltext_search`, `json_contains`,
-`skip_locked`, ...): the features the application advertises for it,
+`skip_locked`, `concurrent_writers` for a race of overlapping writers,
+...): the features the application advertises for it,
 the same answer its module preflight reads. On a function, a class or as
 `pytestmark`:
 

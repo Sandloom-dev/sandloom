@@ -96,6 +96,20 @@ def read_block(text: str) -> dict[str, str]:
     return out
 
 
+def winning_assignment(text: str, key: str) -> tuple[str, bool]:
+    """``(value, outside)`` of the assignment of ``key`` that wins, as in a
+    dotenv file: the last one in the file, block included. ``outside``: that
+    line is not in the managed block. ``("", False)`` without one."""
+    before, block, after = _split(text)
+    found: tuple[str, bool] = ("", False)
+    for lines, outside in ((before, True), (block or [], False), (after, True)):
+        for line in lines:
+            match = _ASSIGN.match(line)
+            if match and match.group(1) == key:
+                found = (match.group(2).strip().strip("'\""), outside)
+    return found
+
+
 def replace_block(text: str, values: dict[str, str]) -> str:
     """``text`` with the block holding ``values``; every other line kept."""
     before, block, after = _split(text)

@@ -126,6 +126,7 @@ A database instance advertises the driver's base features plus its renderer's:
 
 | Renderer feature | PostgreSQL | SQLite |
 | --- | --- | --- |
+| `concurrent_writers` (derived: not `serial_writers`) | yes | no |
 | `skip_locked` | yes | no |
 | `transaction_locks` | yes | yes |
 | `snapshot_reads` | yes | yes |
@@ -336,6 +337,69 @@ uv run pytest -n 4 --dist loadfile src/my_module/tests
 - **A test needing a feature SQLite lacks** is marked
   `@skip_unless_db_feature("arrays")`
   ([testing reference](../reference/testing.md#tests-that-need-a-database-feature)).
+  A race of two writers holding row locks is marked
+  `@skip_unless_db_feature("concurrent_writers")`. SQLite has one writer, and the
+  harness does not emulate PostgreSQL's concurrency.
+
+### An application on SQLite
+
+An application from `sandloom new` runs on a file. Its `uv sync` installs the
+driver: the `sqlite` extra is in its `dev` dependencies. Set the database in
+`.env`, outside the `sandloom dev` block. Redis stays: SQLite replaces
+PostgreSQL only.
+
+```bash
+DATABASE_URL=sqlite+aiosqlite:///./data/app.db
+CACHE_URL=redis://127.0.0.1:6379/0
+BROKER_URL=redis://127.0.0.1:6379/1
+```
+
+`uv run sandloom dev run` reads that `DATABASE_URL` as the checkout's own
+database. It starts no dev services and serves the app on the file. `sandloom
+dev up` refuses and leaves `.env` as it is. The line must be the last
+`DATABASE_URL` of the file, outside the block; a PostgreSQL URL there is
+still `dev up`'s to manage. The
+schema is built at startup. `sandloom migrate upgrade-all` refuses
+(SANDLOOM-B028), and `sandloom test`'s "migration drift" step skips. To run
+the app's tests and gates on SQLite, set
+`SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///./data/app_test.db` for
+`uv run sandloom test`. The migrations-match-models test skips there. The
+generated README says the same.
+
+### The CI lanes
+
+PostgreSQL is the mandatory lane: `backend-tests` runs every test on
+`postgres:16`. SQLite is the second lane, the job `second-db-test-lane`:
+
+- the standard modules' suites on SQLite files;
+- every example's tests on a file of its own;
+- an application from `sandloom new` with the standard modules
+  (`tools/smoke/quickstart_check.py --database sqlite --profile standard`).
+  It is served on the README's `.env` lines without dev services. A user
+  signs up through its API and verifies the email. After a login and a token
+  refresh, the user creates an organization and finds it listed. Then the
+  app's own `sandloom test` runs.
+
+Each lane writes the tests it ran and skipped (`examples` writes the
+examples' PostgreSQL ledgers)
+([skip ledger](../reference/testing.md#the-skip-ledger)). The `skip-ledger`
+job fails when a test was skipped on every lane. A test may skip on SQLite
+for a missing feature; then it runs on PostgreSQL.
+
+### Text order
+
+Text comparisons and text order use the database's collation: `ORDER BY`,
+`<`, `>`, `min`, `max`, `DISTINCT`. SQLite's is byte order. PostgreSQL's is
+usually linguistic (glibc or ICU): `'a' < 'B'`, and punctuation is ignored at
+the first level. A PostgreSQL built on musl libc sorts bytewise. The local
+test services run such an Alpine image, so a local run cannot see the
+difference. The CI lanes' `postgres:16` (Debian, glibc) can
+(`core/tests/test_text_collation.py`). When byte order matters, write
+`column.collate("C")` on PostgreSQL or sort in Python.
+
+SQLite's `LIKE` folds ASCII case. The read planner's case-sensitive prefix
+filter (`prefix=` without `prefix_ignore_case`) is therefore a `GLOB` there,
+which keeps case; PostgreSQL's is `LIKE`. Both read the prefix literally.
 
 ## The DBAPI adapter
 

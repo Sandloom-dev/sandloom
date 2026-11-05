@@ -239,6 +239,10 @@ class SqlDialectConformance:
         declared = self.renderer.features()
         unknown = set(declared) - RENDERER_FEATURES
         _require(not unknown, f"features outside the capability: {sorted(unknown)}")
+        _require(
+            "concurrent_writers" not in declared,
+            "concurrent_writers is derived from serial_writers: do not declare it",
+        )
 
     def test_classifies_an_unknown_error_as_other(self) -> None:
         _require(
@@ -286,6 +290,32 @@ class SqlDialectConformance:
             bool(operand) and bool(folded),
             "a renderer with a search index must write both operand forms",
         )
+
+    def test_prefix_members_are_whole_or_absent(self) -> None:
+        """``prefix_pattern`` / ``prefix_match`` (optional, contract 2): both
+        or neither; the match compiles for the dialect and the pattern of a
+        prefix ends in a wildcard that is not the prefix's own character."""
+        pattern = getattr(self.renderer, "prefix_pattern", None)
+        match = getattr(self.renderer, "prefix_match", None)
+        _require(
+            callable(pattern) == callable(match),
+            "prefix_pattern and prefix_match come together",
+        )
+        if not callable(pattern) or not callable(match):
+            return
+        for ignore_case in (False, True):
+            value = pattern("a%_*?[\\", ignore_case=ignore_case)
+            _require(
+                isinstance(value, str) and value.startswith("a"),
+                f"prefix_pattern must answer the pattern text, not {value!r}",
+            )
+            expression = match(
+                sa.column("title", sa.String()),
+                sa.bindparam("p", value),
+                ignore_case=ignore_case,
+            )
+            sql = str(expression.compile(dialect=self.dialect))
+            _require("title" in sql, f"prefix_match must read the column: {sql}")
 
     def test_conflict_insert_has_the_on_conflict_shape(self) -> None:
         table = self._table()

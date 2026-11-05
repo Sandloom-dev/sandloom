@@ -760,6 +760,20 @@ def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
             f"{SQL_DIALECT_CONTRACT} [SANDLOOM-B025]: return None when the "
             "database has no row security"
         )
+    prefix = [m for m in PREFIX_MEMBERS if callable(getattr(renderer, m, None))]
+    if prefix and len(prefix) != len(PREFIX_MEMBERS):
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) writes {prefix} "
+            f"without the rest of {list(PREFIX_MEMBERS)} [SANDLOOM-B025]: the "
+            "pattern and the match that reads it come together"
+        )
+    if CONCURRENT_WRITERS in set(renderer.features()):
+        raise IncompatibleSqlDialect(
+            f"the SQL dialect renderer {name!r} ({source}) declares "
+            f"{CONCURRENT_WRITERS!r} [SANDLOOM-B025]: it is derived from the "
+            "serial_writers fact (a renderer without it has the feature); "
+            "drop it from features()"
+        )
     unknown = set(renderer.features()) - RENDERER_FEATURES
     if unknown:
         raise IncompatibleSqlDialect(
@@ -781,12 +795,60 @@ def _check_renderer(name: str, renderer: Any, *, source: str) -> None:
         )
 
 
+#: Optional members of contract 2, both or neither: a literal prefix filter
+#: (the read planner's ``prefix=``). Without them: ``LIKE``/``ILIKE`` with a
+#: backslash ``ESCAPE`` over a backslash-escaped pattern, which a database
+#: whose ``LIKE`` ignores case (SQLite) answers case-insensitively.
+PREFIX_MEMBERS = ("prefix_pattern", "prefix_match")
+
+
+def _like_prefix(prefix: str) -> str:
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped + "%"
+
+
+def prefix_pattern(dialect: str, prefix: str, *, ignore_case: bool) -> str:
+    """The value to bind for a literal ``prefix`` filter on ``dialect``,
+    read by :func:`prefix_match`."""
+    member = getattr(sql_dialect(dialect), "prefix_pattern", None)
+    if callable(member):
+        return str(member(prefix, ignore_case=ignore_case))
+    return _like_prefix(prefix)
+
+
+def prefix_match(
+    dialect: str, column: Any, pattern: Any, *, ignore_case: bool
+) -> ColumnElement[bool]:
+    """``column`` starts with the prefix bound as ``pattern``
+    (:func:`prefix_pattern`); case-sensitive unless ``ignore_case``."""
+    member = getattr(sql_dialect(dialect), "prefix_match", None)
+    if callable(member):
+        return cast(
+            "ColumnElement[bool]", member(column, pattern, ignore_case=ignore_case)
+        )
+    if ignore_case:
+        return cast("ColumnElement[bool]", column.ilike(pattern, escape="\\"))
+    return cast("ColumnElement[bool]", column.like(pattern, escape="\\"))
+
+
+#: Derived, never declared: a renderer without ``serial_writers`` has it.
+CONCURRENT_WRITERS = "concurrent_writers"
+
+
 def renderer_features(dialect: str) -> frozenset[str]:
-    """The features the renderer of ``dialect`` declares (empty without one)."""
+    """The features the renderer of ``dialect`` declares (empty without one),
+    plus ``concurrent_writers`` unless it states ``serial_writers``: write
+    transactions overlap, each holding its own row locks (what a race test
+    needs). Derived from the fact, so the two never disagree; a renderer
+    that lists it itself is not believed."""
     renderer = sql_dialect(dialect)
     if renderer is None:
         return frozenset()
-    return frozenset(renderer.features()) & RENDERER_FEATURES
+    declared = frozenset(renderer.features()) & RENDERER_FEATURES
+    declared -= {CONCURRENT_WRITERS}
+    if not getattr(renderer, "serial_writers", False):
+        declared |= {CONCURRENT_WRITERS}
+    return declared
 
 
 def schema_from_models(dialect: str) -> bool:

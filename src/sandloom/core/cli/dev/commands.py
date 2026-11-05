@@ -573,6 +573,16 @@ def _wants_external(ctx: Context, options: UpOptions) -> bool:
 
 
 def up(ctx: Context, options: UpOptions) -> int:
+    own = _own_database_url(ctx.root)
+    if own:
+        raise DevError(
+            f"this checkout uses its own database (DATABASE_URL={own} in .env, "
+            "outside the sandloom dev block), whose schema comes from the "
+            "models: `dev up` starts nothing for it and leaves .env as it is. "
+            "Serve the app with `uv run sandloom dev run` (CACHE_URL and "
+            "BROKER_URL in .env name your Redis); to use the dev services "
+            "instead, remove that line"
+        )
     if _wants_external(ctx, options):
         return up_external(ctx, options)
     source = ctx.root / COMPOSE_FILE
@@ -1311,6 +1321,33 @@ def app_port(port: str | None, *, sticky: int | None = None) -> int:
     )
 
 
+def _own_database_url(root: Path) -> str:
+    """The checkout's own database (``""``: none): the ``DATABASE_URL`` that
+    wins in ``.env`` (the last assignment) when it is outside the managed
+    block and its database takes its schema from the models (SQLite). ``dev
+    run`` serves it as it is and ``dev up`` starts nothing for it; a
+    PostgreSQL URL there stays ``dev up``'s to manage, as before."""
+    try:
+        text = (root / ".env").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    url, outside = _envfile.winning_assignment(text, "DATABASE_URL")
+    return url if outside and _schema_from_models(url) else ""
+
+
+def _schema_from_models(url: str) -> bool:
+    """Whether ``url``'s database takes its schema from the models (its
+    renderer's ``schema_from_models`` fact: SQLite)."""
+    scheme, sep, _ = url.partition("://")
+    if not sep:
+        return False
+    # `sandloom dev` starts without SQLAlchemy (0.3 s and the settings): the
+    # renderers load only when a .env names a database outside the block.
+    from sandloom.core.sql_alchemy.portable import schema_from_models  # noqa: PLC0415 - cold: dev command - SQL renderers and settings load only when a .env names its own database
+
+    return schema_from_models(scheme.split("+", 1)[0])
+
+
 def _read_block(root: Path) -> dict[str, str]:
     try:
         return _envfile.read_block((root / ".env").read_text(encoding="utf-8"))
@@ -1360,9 +1397,14 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
     """Serve this checkout's app. The person's "run my app": stopped dev
     services are started first (unlike every other command), so the app
     never boots without its database. Not in CI, and not for a checkout
-    that points ``DATABASE_URL`` at its own server instead of ``dev up``."""
+    that points ``DATABASE_URL`` at its own server instead of ``dev up``:
+    exported, or set in ``.env`` outside the managed block (a SQLite file,
+    say: ``DATABASE_URL=sqlite+aiosqlite:///./data/app.db``)."""
     block = _read_block(ctx.root)
-    own_services = bool(block) or not ctx.environ.get("DATABASE_URL")
+    own_database = _own_database_url(ctx.root)
+    own_services = not own_database and (
+        bool(block) or not ctx.environ.get("DATABASE_URL")
+    )
     if (
         own_services
         and not in_ci(ctx.environ)
@@ -1371,7 +1413,7 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
     ):
         _start_services(ctx)
         block = _read_block(ctx.root)
-    if not block and not ctx.environ.get("DATABASE_URL"):
+    if not block and not ctx.environ.get("DATABASE_URL") and not own_database:
         raise DevError(
             "this checkout has no dev services yet (the sandloom dev block of .env "
             "is empty): run `uv run sandloom dev up` first"
@@ -1400,10 +1442,13 @@ def run(ctx: Context, *, port: str | None, reload: bool) -> int:
         }
         atomic_write(marker, json.dumps(record) + "\n")
     env = dict(ctx.environ)
-    # The checkout's services, explicitly: an exported URL would beat .env.
-    for key in _envfile.exported_drift(block, env):
-        ctx.warn(f"{key} is exported in this shell; dev run uses this checkout's block")
-    env.update(block)
+    if not own_database:
+        # The checkout's services, explicitly: an exported URL would beat .env.
+        for key in _envfile.exported_drift(block, env):
+            ctx.warn(
+                f"{key} is exported in this shell; dev run uses this checkout's block"
+            )
+        env.update(block)
     # A database built from the models (SQLite) whose tables lag them is set
     # aside and built fresh under `dev run` only, never by an app started
     # otherwise (SANDLOOM-B028). An explicit setting wins.

@@ -36,7 +36,7 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.planner_safety import (
     unique_keys,
 )
-from sandloom.core.sql_alchemy.portable import RowSecurity
+from sandloom.core.sql_alchemy.portable import RowSecurity, prefix_match
 from sandloom.core.tenant import TenantScoped
 
 Checkpoint = Callable[[str], Awaitable[None]]
@@ -106,6 +106,12 @@ class _CompiledList:
     prefix_at: tuple[bool, ...] = ()
     #: every key name, in ``op.keys`` order (GENERAL parameter names)
     names: tuple[str, ...] = ()
+    #: a prefix argument as the value to bind (the renderer's
+    #: ``prefix_pattern``; PostgreSQL's is ``like_prefix``, which the
+    #: optimized SQL reads too)
+    pattern: Callable[[str], str] = field(
+        default=like_prefix, repr=False, compare=False
+    )
     #: builds the forms of one combination of present filters (bitmask)
     build: Any = field(default=None, repr=False, compare=False)
     variants: dict[int, _ListForm] = field(
@@ -129,7 +135,7 @@ class _CompiledList:
             if value is None:
                 continue
             mask |= 1 << i
-            values.append(like_prefix(value) if is_prefix else value)
+            values.append(self.pattern(value) if is_prefix else value)
             names.append(self.names[n + i])
         if not mask:
             return self, values, names
@@ -451,6 +457,8 @@ class _GeneralList:
     cmp: Any
     ordering: list[Any]
     limit_param: Any
+    #: the engine's dialect name: its renderer writes the prefix filter
+    dialect: str = ""
 
     def __call__(self, mask: int) -> tuple[Any, Any]:
         op, ent, jn = self.op, self.sides.ent, self.sides.jn
@@ -467,10 +475,18 @@ class _GeneralList:
                 attr = getattr(ent, col)
                 if not is_prefix:
                     preds.append(attr == bindparam(arg))
-                elif op.prefix_ignore_case:
-                    preds.append(attr.ilike(bindparam(arg)))
                 else:
-                    preds.append(attr.like(bindparam(arg)))
+                    # The renderer's literal prefix match over the value its
+                    # prefix_pattern bound (PostgreSQL: LIKE / ILIKE with a
+                    # backslash ESCAPE; SQLite: GLOB, case-sensitive).
+                    preds.append(
+                        prefix_match(
+                            self.dialect,
+                            attr,
+                            bindparam(arg),
+                            ignore_case=op.prefix_ignore_case,
+                        )
+                    )
         if self.sides.scoped_e:
             preds.append(ent.tenant_id == bindparam(_TENANT_PARAM))
         if self.sides.scoped_j:
@@ -491,6 +507,7 @@ def _general_list(
     order_keys: list[str],
     extra_keys: list[str],
     onclause: Any,
+    dialect: str = "",
 ) -> tuple[_GeneralList, int]:
     """The GENERAL form builder and the number of ORM entities it loads."""
     ent, jn, cols_e = sides.ent, sides.jn, sides.cols_e
@@ -515,7 +532,10 @@ def _general_list(
     )
     ordering = [c.desc() if op.descending else c.asc() for c in order_cols]
     limit_param = bindparam("_limit", type_=Integer())
-    return _GeneralList(op, sides, opt, sel, cmp, ordering, limit_param), n_entities
+    return (
+        _GeneralList(op, sides, opt, sel, cmp, ordering, limit_param, dialect),
+        n_entities,
+    )
 
 
 def _list_referenced_columns(

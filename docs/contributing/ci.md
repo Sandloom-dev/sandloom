@@ -32,7 +32,7 @@ commit, and the owner reviews compatibility with the current `main`.
 | Changed area | Checks |
 | --- | --- |
 | Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; change classification |
-| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, production image build; package checks for their declared paths |
+| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
 | Admin or backend source/dependencies | Admin contract drift and the admin workflow |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |
@@ -53,6 +53,19 @@ The Python 3.11/3.13/3.14 compatibility runs, coverage, serial in-process isolat
 generated-app quickstart/recipes/split checks and live microservices smoke run
 in full validation. Those omissions from the PR profile are intentional; its
 green result is not evidence that full release validation passed.
+
+PostgreSQL is the mandatory database lane: `backend-tests` runs everything
+on it. `second-db-test-lane` runs on SQLite files: the standard modules'
+suites, the examples' tests and an application from `sandloom new`. A test
+may skip there for a feature SQLite lacks (`skip_unless_db_feature`). Each
+lane uploads a skip ledger: `backend-tests` and `examples` for PostgreSQL,
+`second-db-test-lane` for SQLite. The lane runs its modules step with backend
+changes and its examples step with example changes: each ledger has its
+PostgreSQL counterpart. The `skip-ledger` job fails when a test was skipped on
+every lane ([the skip ledger](../reference/testing.md#the-skip-ledger)). Only
+`tools/ci/skip_ledger_allowlist.json` excuses one, with a reason. Full
+validation collects every suite; there an allowlist entry that matches no
+test fails too (`--strict-allowlist`).
 
 Checks run on PRs rather than repeating the same work after a merge to `main`.
 New commits cancel older runs of the same PR. Closing or merging a PR also

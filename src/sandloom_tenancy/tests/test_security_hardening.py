@@ -7,7 +7,6 @@ duplicate-invitation races and the invitation e-mail.
 """
 
 import asyncio
-import contextlib
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import String, column, literal, select, table, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom.sdk.testing import committing_uow, has_serial_writers
+from sandloom.sdk.testing import committing_uow, skip_unless_db_feature
 from sandloom_tenancy import events
 from sandloom_tenancy.exceptions import (
     TenancyConflictError,
@@ -535,6 +534,15 @@ async def _seed_org(
         return org.id
 
 
+#: How long a racer waits at the barrier for the others (seconds).
+RACE_BARRIER_TIMEOUT = 30.0
+
+#: The races need concurrent writers holding row locks (PostgreSQL). SQLite
+#: has one writer at a time, so the races skip there: the harness does not
+#: emulate them, and they run on the PostgreSQL lane.
+_ROW_LOCK_RACE = skip_unless_db_feature("concurrent_writers")
+
+
 class _Barrier:
     """Minimal asyncio barrier (``asyncio.Barrier`` needs Python 3.11)."""
 
@@ -543,19 +551,13 @@ class _Barrier:
         self._arrived = 0
         self._event = asyncio.Event()
 
-    async def wait(self, *, serial: bool = False) -> None:
-        """Wait for the other racers. ``serial``: the database has one writer
-        (SQLite), whose first racer keeps the others at their BEGIN; wait at
-        most 2 s there, so the race runs one after another instead of waiting
-        forever. Elsewhere every racer really waits for the others."""
+    async def wait(self) -> None:
+        """Wait for the other racers, at most ``RACE_BARRIER_TIMEOUT`` seconds:
+        a racer that never arrives fails the test instead of hanging it."""
         self._arrived += 1
         if self._arrived >= self._parties:
             self._event.set()
-        if not serial:
-            await self._event.wait()
-            return
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._event.wait(), 2.0)
+        await asyncio.wait_for(self._event.wait(), RACE_BARRIER_TIMEOUT)
 
 
 async def _run_committed(
@@ -572,7 +574,7 @@ async def _run_committed(
         try:
             if barrier is not None:
                 await db.execute(select(literal(1)))
-                await barrier.wait(serial=has_serial_writers(db))
+                await barrier.wait()
             result = await fn(db)
             await db.commit()
             return result
@@ -581,6 +583,7 @@ async def _run_committed(
             return exc
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_accept_admits_exactly_one(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -623,6 +626,7 @@ async def test_concurrent_accept_admits_exactly_one(
     assert len(members) == 2  # owner + exactly one invitee
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_accept_same_user_no_500(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -655,6 +659,7 @@ async def test_concurrent_accept_same_user_no_500(
             assert isinstance(r, TenancyNotFoundError | TenancyConflictError), r
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_ownership_transfers_leave_one_owner(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -702,6 +707,7 @@ async def test_concurrent_ownership_transfers_leave_one_owner(
     assert len(owners) == 1
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_duplicate_invitations_one_wins(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -724,6 +730,7 @@ async def test_concurrent_duplicate_invitations_one_wins(
     assert len(errors) == 1 and isinstance(errors[0], TenancyConflictError)
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_slug_race_is_conflict_not_500(
     sessions: async_sessionmaker[AsyncSession], captured

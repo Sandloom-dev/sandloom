@@ -295,9 +295,7 @@ async def test_operations_views_are_strict_operator_only(
 
 
 @pytest.mark.asyncio
-@skip_unless_db_feature(
-    "skip_locked"
-)  # concurrent writers (row locks): not SQLite's one writer
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_operator_lock_does_not_block_concurrent_ordinary_credit_spend(
     uow_client, test_db, sandloom_cache, monkeypatch
 ):

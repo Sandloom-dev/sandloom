@@ -225,6 +225,30 @@ def test_b028_sandloom_migrate_refuses_sqlite(
     assert "reports" not in err
 
 
+def test_b028_spares_migrate_drift_which_skips_itself(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``sandloom test``'s "migration drift" step on an app whose tests run on
+    SQLite: not refused (exit 2), the step says it skips."""
+    monkeypatch.setattr(
+        _migrations, "list_database_instances", lambda: {"default": SQLITE}
+    )
+    monkeypatch.setattr(
+        migrate_cli,
+        "_load_core",
+        lambda: SimpleNamespace(module_descriptors=[]),
+    )
+    monkeypatch.setattr(
+        migrate_cli._migrate_drift,
+        "drift_supported",
+        lambda: "the default database is sqlite, not PostgreSQL",
+    )
+    assert migrate_cli.main(["drift"]) == 0
+    captured = capsys.readouterr()
+    assert "SANDLOOM-B028" not in captured.err
+    assert "migration drift: skipped" in captured.out
+
+
 def test_b028_sandloom_migrate_runs_on_postgresql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -84,6 +84,8 @@ jobs:
             backend:
               - 'src/**'
               - 'tests/**'
+              - 'tools/ci/**'
+              - 'tools/smoke/**'
               - 'migrations/**'
               - 'packages/**'
               - 'tools/checks/**'
@@ -314,7 +316,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: >-
-        ${{ fromJSON(inputs.full_validation && '{"include":[{"python":"3.11","coverage":false,"slow":true},{"python":"3.13","coverage":false,"slow":false},{"python":"3.14","coverage":false,"slow":false},{"python":"3.12","coverage":true,"slow":true}]}' || '{"include":[{"python":"3.12","coverage":false,"slow":false,"part":"1/2"},{"python":"3.12","coverage":false,"slow":false,"part":"2/2"}]}') }}
+        ${{ fromJSON(inputs.full_validation && '{"include":[{"python":"3.11","coverage":false,"slow":true,"ledger":"py3.11"},{"python":"3.13","coverage":false,"slow":false,"ledger":"py3.13"},{"python":"3.14","coverage":false,"slow":false,"ledger":"py3.14"},{"python":"3.12","coverage":true,"slow":true,"ledger":"py3.12"}]}' || '{"include":[{"python":"3.12","coverage":false,"slow":false,"part":"1/2","ledger":"part1"},{"python":"3.12","coverage":false,"slow":false,"part":"2/2","ledger":"part2"}]}') }}
     name: backend-tests (py${{ matrix.python }}${{ matrix.coverage && ', coverage' || '' }}${{ !matrix.slow && ', not slow' || '' }}${{ matrix.part && ', part ' || '' }}${{ matrix.part }})
     defaults:
       run:
@@ -370,9 +372,12 @@ jobs:
 
       - name: Full test suite (modules + core)
         # --sandloom-shuffle: a fresh seeded order per run (printed in the header
-        # and the summary; replay with --sandloom-shuffle=<seed>).
+        # and the summary; replay with --sandloom-shuffle=<seed>). The skip
+        # ledger (the tests this lane ran and skipped) feeds the skip-ledger job.
         run: >-
           uv run pytest -q -n auto --dist loadfile --durations=25
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=postgresql
+          --sandloom-skip-ledger=skip-ledger/postgresql-${{ matrix.ledger }}.json
           --sandloom-shuffle=${{ matrix.part && github.run_id || 'random' }}
           ${{ matrix.part && '--sandloom-shard=' || '' }}${{ matrix.part }}
           ${{ matrix.coverage && '--cov --cov-report=term-missing --cov-report=html' || '' }}
@@ -398,6 +403,15 @@ jobs:
           # monolith, real uvicorn processes) must RUN in CI: with this set,
           # missing Postgres/Redis fails the job instead of skipping.
           SANDLOOM_E2E_REQUIRED: "1"
+
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-postgresql-${{ matrix.ledger }}
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -486,6 +500,135 @@ jobs:
           GOOGLE_CLIENT_ID: ci-dummy-google-client-id
           GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
           SANDLOOM_E2E_REQUIRED: "1"
+
+  second-db-test-lane:
+    # The second database (spec: design/infra-agnostic/spec.md, section 6).
+    # PostgreSQL (backend-tests) is the mandatory lane and runs everything;
+    # this lane runs the standard modules' suites, a generated application
+    # (sandloom new with the standard modules: served, its own gate) and the
+    # examples' module tests on SQLite files. A test that needs a feature
+    # SQLite lacks skips (skip_unless_db_feature); the skip-ledger job fails
+    # when a test is skipped on every lane. The harness does not emulate
+    # PostgreSQL's concurrency here: row-lock races run on PostgreSQL only.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.examples == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: .
+    env:
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-sqlite-lane-not-a-real-secret
+      # The steps run one after another on the job's Redis: one owner, so a
+      # later step may reuse the indexes an earlier one marked.
+      SANDLOOM_TEST_OWNER: ci-second-db-test-lane
+      GOOGLE_CLIENT_ID: ci-dummy-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Standard modules on SQLite
+        # One file per xdist worker (<name>_test_gw<N>.db), created by the
+        # harness; SANDLOOM_TEST_DATABASE_URL is the only switch. Run when
+        # backend-tests runs: its ledger is this one's other lane.
+        if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' }}
+        run: >-
+          uv run pytest -q -n auto --dist loadfile --durations=15
+          --sandloom-shuffle=random -m "not slow"
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=sqlite
+          --sandloom-skip-ledger=skip-ledger/sqlite-modules.json
+          src/sandloom_identity/tests src/sandloom_tenancy/tests
+          src/sandloom_billing/tests src/sandloom_admin/tests
+        env:
+          SANDLOOM_TEST_DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/sandloom_test.db
+
+      - name: Examples' module tests on SQLite
+        # Each example's own pytest configuration and .env.test, the
+        # framework from this commit; keys are prefixed with the example's
+        # directory (--sandloom-skip-ledger-base). Run when the examples job
+        # runs: its PostgreSQL ledgers are this one's other lane.
+        if: ${{ !cancelled() && needs.changes.outputs.examples == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'examples') }}
+        run: |
+          for app in linkly helpdesk projecthub academy tutorial; do
+            (cd "examples/$app" && \
+              SANDLOOM_TEST_DATABASE_URL="sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/${app}_test.db" \
+              "${{ github.workspace }}/.venv/bin/python" -m pytest -q -n 2 -p no:cacheprovider \
+                -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=sqlite \
+                --sandloom-skip-ledger="${{ github.workspace }}/skip-ledger/sqlite-example-$app.json" \
+                --sandloom-skip-ledger-base="${{ github.workspace }}")
+          done
+
+      - name: A generated application on SQLite (sandloom new, serve, its own gate)
+        if: ${{ !cancelled() }}
+        # The README's SQLite lines in .env, `dev run` without dev services,
+        # sign-up to an organization through the standard modules, then the
+        # app's `sandloom test` on SQLite (tools/smoke/quickstart_check.py).
+        run: >-
+          python3 tools/smoke/quickstart_check.py --database sqlite
+          --profile standard --redis-url redis://127.0.0.1:6380 --redis-db-base 4
+
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-sqlite
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
+
+  skip-ledger:
+    # A test skipped on every lane runs nowhere: merge the lanes' ledgers and
+    # fail on any such test that tools/ci/skip_ledger_allowlist.json does not
+    # name with a reason (tools/ci/skip_ledger.py).
+    # Runs when either lane pair ran (backend-tests + the modules step,
+    # examples + the examples step); a skipped job uploads nothing, and each
+    # ledger present is judged with the ledgers of its other lane.
+    needs: [changes, backend-tests, examples, second-db-test-lane]
+    if: ${{ !cancelled() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.examples == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: skip-ledger-*
+          path: skip-ledger
+          merge-multiple: true
+      - name: No test is skipped on every lane
+        run: >-
+          python3 tools/ci/skip_ledger.py skip-ledger/*.json
+          --allowlist tools/ci/skip_ledger_allowlist.json
+          --require-lanes postgresql,sqlite
+          ${{ inputs.full_validation && '--strict-allowlist' || '' }}
 
   benchmarks-security:
     # The S5 secure-read security suite (benchmarks/tests): FORCEd RLS
@@ -659,7 +802,22 @@ jobs:
       - name: The app's own gate (sandloom test --ci --full)
         # .env.test points at the services; a fresh seeded test order per run
         # (printed; replay: sandloom test --seed <seed>). --ci writes nothing.
+        # The PostgreSQL skip ledger of the app's tests (keys relative to the
+        # workspace, as second-db-test-lane's) feeds the skip-ledger job.
         run: $BIN/sandloom test --ci --full
+        env:
+          PYTEST_ADDOPTS: -p sandloom.core.testing.skip_ledger
+          SANDLOOM_SKIP_LEDGER: ${{ github.workspace }}/skip-ledger/postgresql-example-${{ matrix.app }}.json
+          SANDLOOM_SKIP_LEDGER_LANE: postgresql
+          SANDLOOM_SKIP_LEDGER_BASE: ${{ github.workspace }}
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-postgresql-examples-${{ matrix.app }}
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
       - name: Replay the tutorial from an empty application
         if: ${{ matrix.app == 'tasklist' }}
         working-directory: .
@@ -1065,6 +1223,8 @@ jobs:
       - supply-chain
       - backend-tests
       - backend-tests-isolation
+      - second-db-test-lane
+      - skip-ledger
       - benchmarks-security
       - examples
       - quickstart

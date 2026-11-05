@@ -121,7 +121,7 @@ a full run.**
 | job | engine | why |
 |---|---|---|
 | `backend-static`, `supply-chain`, `architecture-check`, `docs`, `deploy-profiles`, `docker-build` | **act** — the real workflow job | — |
-| `backend-tests-3.11/3.12/3.13`, `benchmarks-security`, `examples-*` | fallback (container) | ci.yml reaches its services at `localhost:5433` / `localhost:6380`. Under act that only works with host networking, where those ports are the shared dev containers `sandloom_postgres_test` / `sandloom_redis_test` (tests would truncate them); `backend-tests` also starts `docker run --name redis -p 6380:6379`, which collides by name and port |
+| `backend-tests-3.11/3.12/3.13`, `second-db-test-lane`, `benchmarks-security`, `examples-*` | fallback (container) | ci.yml reaches its services at `localhost:5433` / `localhost:6380`. Under act that only works with host networking, where those ports are the shared dev containers `sandloom_postgres_test` / `sandloom_redis_test` (tests would truncate them); `backend-tests` also starts `docker run --name redis -p 6380:6379`, which collides by name and port |
 | `quickstart` | fallback (container) | the documented quickstart (`tools/smoke/quickstart_check.py`) against the job's own Postgres `:5433` / Redis `:6380`, which under act would be the shared dev containers |
 | `app-recipes` | fallback (container) | the `sandloom docs` recipes run in a generated app (`tools/smoke/recipes_check.py`), against the job's own Postgres / Redis like `quickstart` |
 | `microservices-smoke` | fallback (host docker) | the step hard-codes the gateway at `localhost:8080` and the stack's default subnet; two stacks would collide |
@@ -185,6 +185,32 @@ a job's work). They run **only on 3.11 and 3.12**; 3.13 and 3.14 run every
 other test. Owner decision of 2026-10-25 (about 12 % of a full run). The
 runner takes this from ci.yml's matrix (`slow: true|false`) like any other
 step, so local and GitHub runs select the same tests.
+
+### The SQLite lane and the skip ledger
+
+`second-db-test-lane` runs as on GitHub, in its own container with its own
+Redis.
+
+```bash
+tools/ci/ci_local.sh HEAD --jobs backend-tests,second-db-test-lane --python 3.12
+```
+
+The `skip-ledger` job is not reproduced: it downloads artifacts. Each lane's
+upload lands in the run directory as `<job>-artifact-skip-ledger/` (the
+`examples-*` jobs' too). Merge those files:
+
+```bash
+python3 tools/ci/skip_ledger.py .ci-local/runs/<run-id>/*-artifact-skip-ledger/*.json \
+  --allowlist tools/ci/skip_ledger_allowlist.json --require-lanes postgresql,sqlite
+```
+
+Without Docker, run the same commands on your own test services. For
+PostgreSQL that is `backend-tests`' pytest line; for SQLite, the lane's steps
+with `SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<dir>/sandloom_test.db`.
+Your local test PostgreSQL (Alpine, musl) sorts text bytewise. There
+`test_plain_order_is_linguistic_where_the_server_is` skips, and the merge
+reports it as skipped everywhere. The runner's `postgres:16` (Debian, glibc)
+runs it.
 
 ### Overloaded host: `SANDLOOM_CI_LOCAL_TIMEOUT_SCALE`
 

@@ -18,6 +18,7 @@ from sandloom.core.module_api import ContractCallInProgress
 from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
+from sandloom.core.testing.infra import skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
     Ledger,
     enroll_input,
@@ -27,6 +28,8 @@ from sandloom.core.tests.saga_fixtures import (
 from sandloom.core.unit_of_work import db_session
 
 ENROLL = enroll_saga()
+#: How long a racer waits for the other (seconds): a lost race fails, never hangs.
+RACE_WAIT = 30.0
 
 
 def _ledger(saga_harness: Any) -> Ledger:
@@ -147,6 +150,9 @@ async def test_provider_in_flight_is_transient_and_retried(saga_harness) -> None
     assert ledger.balance == 70
 
 
+# The claim's own FOR UPDATE SKIP LOCKED while another worker holds the row:
+# a database without skip_locked (SQLite) claims by compare-and-set instead.
+@skip_unless_db_feature("skip_locked")
 async def test_a_locked_instance_is_skipped_not_waited_for(saga_harness) -> None:
     """``FOR UPDATE SKIP LOCKED``: another worker owns the transition."""
     _ledger(saga_harness)
@@ -160,10 +166,10 @@ async def test_a_locked_instance_is_skipped_not_waited_for(saga_harness) -> None
                 session, handle.instance_id, tenant=store.ANY_TENANT, skip_locked=False
             )
             holding.set()
-            await release.wait()
+            await asyncio.wait_for(release.wait(), RACE_WAIT)
 
     holder = asyncio.create_task(hold())
-    await holding.wait()
+    await asyncio.wait_for(holding.wait(), RACE_WAIT)
     try:
         async with db_session() as session:
             result = await saga_harness.runtime.advance(

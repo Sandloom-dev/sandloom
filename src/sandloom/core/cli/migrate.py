@@ -443,7 +443,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI wr
     # SystemExit carrying the reason), also for the commands that never
     # build the application.
     enforce_configuration(settings)
-    if args.cmd != "databases":
+    # `databases` only lists; `drift` (a step of `sandloom test`) says
+    # itself that it skips a database without migration chains (SQLite).
+    if args.cmd not in ("databases", "drift"):
         refusal = migration_path_problem()
         if refusal is not None:
             print(refusal, file=sys.stderr)

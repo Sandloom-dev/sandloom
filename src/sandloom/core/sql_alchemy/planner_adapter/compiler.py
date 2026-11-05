@@ -8,6 +8,7 @@ form. Plans are cached per operation and executor.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
@@ -61,6 +62,7 @@ from sandloom.core.sql_alchemy.planner_safety import (
 )
 from sandloom.core.sql_alchemy.portable import (
     begin_statement_for,
+    prefix_pattern,
     renderer_features,
     row_security_for,
     transaction_options_for,
@@ -207,8 +209,17 @@ class _PlannerCompiler:
         extra_keys, order_index = _list_order_index(
             getters, plain, order_keys, len(fields)
         )
+        dialect = self.engine.sync_engine.dialect.name
         general, n_entities = _general_list(
-            op, sides, opt, getters, plain, order_keys, extra_keys, onclause
+            op,
+            sides,
+            opt,
+            getters,
+            plain,
+            order_keys,
+            extra_keys,
+            onclause,
+            dialect,
         )
         stmt, stmt_after = general(0)
         sql, sql_after, reason = self._list_optimized(
@@ -272,6 +283,9 @@ class _PlannerCompiler:
                 n_required=op.n_required,
                 prefix_at=tuple(p for _a, _c, p in opt),
                 names=op.keys,
+                pattern=functools.partial(
+                    prefix_pattern, dialect, ignore_case=op.prefix_ignore_case
+                ),
                 build=build,
             ),
             order_width=len(extra_keys),
@@ -422,8 +436,11 @@ class _PlannerCompiler:
         like = "ILIKE" if op.prefix_ignore_case else "LIKE"
         for c, is_prefix in present:
             n += 1
-            # a prefix argument is bound already escaped (``like_prefix``):
-            # PostgreSQL's default LIKE escape character is the backslash
+            # a prefix argument is bound already escaped (the PostgreSQL
+            # renderer's prefix_pattern, ``like_prefix``): this native SQL
+            # relies on PostgreSQL's default LIKE escape, the backslash. Only
+            # PostgreSQL has an optimized executor; another database would
+            # need its renderer's prefix_match here.
             conds.append(f"{ref('e', cols_e[c])} {like if is_prefix else '='} ${n}")
         for c in op.where:
             n += 1

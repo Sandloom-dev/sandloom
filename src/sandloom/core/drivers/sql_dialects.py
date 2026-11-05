@@ -225,6 +225,16 @@ _PG_RLS_POLICIES = text(
 )
 
 
+def _like_prefix(prefix: str) -> str:
+    """``prefix`` as a literal LIKE prefix pattern (backslash escapes)."""
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped + "%"
+
+
+#: GLOB's wildcards and class opener, each as a one-character class.
+_GLOB_ESCAPES = {"*": "[*]", "?": "[?]", "[": "[[]"}
+
+
 class PostgresqlRowSecurity:
     """PostgreSQL Row-Level Security: an ENABLEd and FORCEd policy per table
     comparing ``tenant_id`` with the transaction-local setting, a permissive
@@ -586,6 +596,17 @@ class PostgresqlSql:
         # every row of one transaction would tie.
         return "clock_timestamp()"
 
+    def prefix_pattern(self, prefix: str, *, ignore_case: bool) -> str:
+        # A literal LIKE prefix: backslash escapes (the ESCAPE of prefix_match).
+        return _like_prefix(prefix)
+
+    def prefix_match(
+        self, column: Any, pattern: Any, *, ignore_case: bool
+    ) -> ColumnElement[bool]:
+        if ignore_case:
+            return cast("ColumnElement[bool]", column.ilike(pattern, escape="\\"))
+        return cast("ColumnElement[bool]", column.like(pattern, escape="\\"))
+
     def begin_statement(
         self, *, write: bool, read_only: bool, snapshot: bool
     ) -> str | None:
@@ -837,6 +858,23 @@ class SqliteSql:
 
     def relaxed_commit_clause(self) -> None:
         return None
+
+    def prefix_pattern(self, prefix: str, *, ignore_case: bool) -> str:
+        # SQLite's LIKE folds ASCII case, so a case-sensitive prefix is a
+        # GLOB (case-sensitive, BINARY): *, ? and [ are written as one-char
+        # classes. Ignoring case, a literal LIKE prefix (backslash escapes).
+        if ignore_case:
+            return _like_prefix(prefix)
+        return "".join(_GLOB_ESCAPES.get(ch, ch) for ch in prefix) + "*"
+
+    def prefix_match(
+        self, column: Any, pattern: Any, *, ignore_case: bool
+    ) -> ColumnElement[bool]:
+        if ignore_case:
+            return cast("ColumnElement[bool]", column.ilike(pattern, escape="\\"))
+        return cast(
+            "ColumnElement[bool]", column.op("GLOB", is_comparison=True)(pattern)
+        )
 
     def wall_clock(self) -> str:
         # UTC to the millisecond, padded to the text SQLAlchemy's SQLite

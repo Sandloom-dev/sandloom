@@ -16,6 +16,7 @@ from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
 from sandloom.core.testing import sagas as saga_testing
 from sandloom.core.testing.fixtures import *  # noqa: F403 - saga_harness + DB fixtures
+from sandloom.core.testing.infra import skip_unless_db_feature
 from sandloom.core.tests.saga_fixtures import (
     BILLING,
     MAIL,
@@ -388,6 +389,9 @@ async def test_resolved_pivot_that_applied_never_compensates(saga_harness) -> No
 # --------------------------------------------------------------------------- #
 # timeout racing completion
 # --------------------------------------------------------------------------- #
+# The sweep's nudge meets the step's open row lock: concurrent writers,
+# which SQLite (one writer) does not have; the PostgreSQL lane runs it.
+@skip_unless_db_feature("concurrent_writers")
 async def test_timeout_racing_a_completing_step_is_serialized_by_the_row_lock(
     saga_harness,
 ) -> None:
@@ -405,7 +409,7 @@ async def test_timeout_racing_a_completing_step_is_serialized_by_the_row_lock(
         customer_id: uuid.UUID, amount: int, operation_key: str
     ) -> int:
         started.set()
-        await finish.wait()
+        await asyncio.wait_for(finish.wait(), 30.0)
         return await ledger.spend(customer_id, amount, operation_key)
 
     saga_harness.fake_contract(BILLING, spend=slow_spend, reverse=ledger.reverse)
@@ -415,7 +419,7 @@ async def test_timeout_racing_a_completing_step_is_serialized_by_the_row_lock(
     row = await saga_harness.instance(reg, handle.saga_id)
 
     step_task = asyncio.create_task(saga_harness.deliver(reg, row, 0))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), 30.0)
     saga_harness.clock.advance(ENROLL.deadline + timedelta(seconds=1))
     # the timer fires while the step runs: the row is locked
     assert await saga_harness.deliver(reg, row, 0) == saga_runtime.NOOP_LOCKED
