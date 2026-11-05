@@ -4,7 +4,9 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
 
+from sandloom.sdk.infra import settings
 from sandloom.sdk.testing import as_user, skip_unless_db_feature
 from sandloom_billing.models import BillingCustomer, CreditBalance, CreditLedgerEntry
 from sandloom_billing.models.intent import OperationIntent
@@ -269,6 +271,23 @@ async def test_committed_adjustment_is_concurrent_safe_and_audit_failure_rolls_b
     )
 
 
+def _database_url_secrets() -> list[str]:
+    """What of the configured database URL a view must never show, on any
+    database: the URL itself, its scheme, its password and, for a database
+    file, the file's path."""
+    url = make_url(settings.database_url)
+    secrets = [
+        url.render_as_string(hide_password=False),
+        f"{url.drivername}://",
+        f"{url.drivername.split('+', 1)[0]}://",
+    ]
+    if url.password:
+        secrets.append(url.password)
+    if url.database and not url.host:
+        secrets.append(url.database)
+    return secrets
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["identity", "tenancy", "billing"])
 @pytest.mark.parametrize("view", ["audit", "services"])
@@ -282,16 +301,18 @@ async def test_operations_views_are_strict_operator_only(
     assert (await async_client.get(path, headers=invalid)).status_code == 403
     result = await async_client.get(path, headers=operator()[1])
     assert result.status_code == 200, result.text
-    assert not any(
-        value in result.text
+    leaked = [
+        value
         for value in (
-            "postgresql://",
+            *_database_url_secrets(),
             "redis://",
             "internal_token",
             "password",
             "base_url",
         )
-    )
+        if value in result.text
+    ]
+    assert not leaked, leaked
 
 
 @pytest.mark.asyncio

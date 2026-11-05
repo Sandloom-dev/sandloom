@@ -52,6 +52,7 @@ from sandloom.core._internal.db_provider import (
 )
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.nesting import pin_test_host
+from sandloom.core.sql_alchemy.portable import is_plain_index
 from sandloom.core.testing.connections import (
     TEST_ENGINE_MAX_OVERFLOW,
     TEST_ENGINE_POOL_SIZE,
@@ -253,8 +254,7 @@ def _plain_columns(index: Any) -> tuple[str, ...] | None:
     """Column names of a plain btree index (None for expression/GIN/partial)."""
     if index.expressions and any(not hasattr(e, "name") for e in index.expressions):
         return None
-    kw = index.dialect_kwargs
-    if kw.get("postgresql_using") or kw.get("postgresql_where") is not None:
+    if not is_plain_index(index):
         return None
     return tuple(c.name for c in index.columns)
 

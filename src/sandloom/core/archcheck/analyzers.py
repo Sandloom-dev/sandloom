@@ -964,7 +964,11 @@ def find_unportable_sql(
       text that is only a number, a quoted string, ``NULL``, ``TRUE`` or
       ``FALSE`` is every database's. A PostgreSQL cast (``::``) in raw SQL is
       a finding the marker does not admit;
-    - a star import from ``sqlalchemy.sql.functions``, which hides the names.
+    - a star import from ``sqlalchemy.sql.functions``, which hides the names;
+    - code that asks which database runs it (``x.dialect.name``,
+      ``dialect_name()``, ``get_backend_name()``) or a database URL literal
+      naming a backend (``"postgresql+asyncpg://..."``), admitted only by the
+      raw-sql marker, in feature-gated tests too.
 
     In a test file (``test_file=True``), a test or class decorated with
     ``skip_unless_db_feature(...)``, or a file whose ``pytestmark`` carries
@@ -984,6 +988,14 @@ def find_unportable_sql(
         if getattr(node, "lineno", None) not in scoped:
             scan.visit(node)
     return sorted(scan.out, key=lambda d: int(d.split(":", 1)[0].removeprefix("Line ")))
+
+
+#: A string that starts as a database URL naming a backend (and a DBAPI):
+#: ``postgresql://``, ``postgresql+asyncpg://``, ``sqlite+aiosqlite://``.
+_DATABASE_URL_LITERAL = re.compile(
+    r"(?:postgres(?:ql)?|sqlite|mysql|mariadb|mssql|oracle)(?:\+\w+)?://",
+    re.IGNORECASE,
+)
 
 
 class _PortableSqlScan:
@@ -1036,10 +1048,25 @@ class _PortableSqlScan:
         )
 
     def dialect_read(self, node: ast.AST) -> None:
-        """``x.dialect.name``, ``dialect_name(x)``, ``url.get_backend_name()``:
-        code that asks which database it runs on. Only the raw-sql marker
-        admits it; a database feature marker does not."""
+        """``x.dialect.name``, ``dialect_name(x)``, ``url.get_backend_name()``,
+        or a database URL literal naming a backend (``"postgresql://..."``,
+        ``"sqlite+aiosqlite://..."``, ``create_mock_engine("postgresql://")``):
+        code that asks which database it runs on, or picks one. Only the
+        raw-sql marker admits it; a database feature marker does not."""
         if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and (url := _DATABASE_URL_LITERAL.match(node.value))
+        ):
+            if not self._marked(node):
+                self.out.append(
+                    f"Line {node.lineno}: the database URL {url.group(0)!r} "
+                    "names a backend; take the database from the "
+                    "configuration (settings.database_url, the test's engine "
+                    "or session) or compile against the bind's dialect, or "
+                    f"mark a reviewed line `{RAW_SQL_MARKER} <reason>`"
+                )
+        elif (
             isinstance(node, ast.Attribute)
             and node.attr == "name"
             and isinstance(node.value, ast.Attribute)
@@ -1058,9 +1085,10 @@ class _PortableSqlScan:
         self.out.append(
             f"Line {node.lineno}: {asked} asks which database runs the code; "
             "ask for what it needs instead: a database feature "
-            "(CapabilityRequirement, skip_unless_db_feature), or in a test "
-            "has_serial_writers() / has_optimized_reads() from "
-            "sandloom.sdk.testing"
+            "(CapabilityRequirement), or in a test "
+            "skip_unless_db_feature(...) (a race test: "
+            'skip_unless_db_feature("concurrent_writers")) or '
+            "has_optimized_reads() from sandloom.sdk.testing"
         )
 
     def _raw(self, node: ast.Call) -> None:

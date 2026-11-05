@@ -39,6 +39,10 @@ from sandloom.core.unit_of_work import _dispatch as uow_dispatch
 from sandloom.core.unit_of_work import dispatch as uow_mod_dispatch
 from sandloom.core.unit_of_work import scope as uow_mod_scope
 
+#: How long a cancelled dispatcher task may take to end: generous on a loaded
+#: machine, and still a prompt failure when the cancellation is swallowed.
+CANCELLATION_BOUND_SECONDS = 10
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _load_test_env() -> None:
@@ -615,7 +619,9 @@ async def test_a_coalescer_cancelled_in_its_mark_leaves_the_row_to_the_relay(
     task = dispatcher._task
     assert task is not None
     task.cancel()
-    done, _ = await asyncio.wait({task}, timeout=1)
+    # A cancelled dispatcher ends at its next await; a loaded machine may take
+    # a while to run it, and the bug (cancellation swallowed) never ends.
+    done, _ = await asyncio.wait({task}, timeout=CANCELLATION_BOUND_SECONDS)
     if not done:  # the bug: free the loop before failing
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -723,7 +729,9 @@ async def test_a_cancelled_coalescer_ends_when_a_driver_swallows_the_cancel(
     task = dispatcher._task
     assert task is not None
     task.cancel()
-    done, _ = await asyncio.wait({task}, timeout=1)
+    # A cancelled dispatcher ends at its next await; a loaded machine may take
+    # a while to run it, and the bug (cancellation swallowed) never ends.
+    done, _ = await asyncio.wait({task}, timeout=CANCELLATION_BOUND_SECONDS)
     if not done:  # the bug: free the loop before failing
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

@@ -48,7 +48,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`flush_owned_redis`](#flush_owned_redis) | async function | `FLUSHDB` a test Redis database this run owns, keeping its marker. |
 | [`get_db`](#get_db) | function | Request-scoped DB session governed by a UnitOfWork (the canonical path). |
 | [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
-| [`has_serial_writers`](#has_serial_writers) | function | Whether the database behind `bind` (a session, connection or engine) has one writer at a time, so racing write transactions run in turn r... |
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
 | [`in_process_rpc_client`](#in_process_rpc_client) | function | An HTTP client whose requests hit `core`'s internal RPC routes in-process (authenticated and bound under `settings`, default the core's). |
 | [`InMemoryCache`](#inmemorycache) | class | Dict-backed `CacheProvider` (incl. `cas` and an atomic `set_max`) for unit tests. |
@@ -521,20 +520,6 @@ Whether the planner's optimized executor can run on the database
 behind `bind` (an engine, sync or async): its DBAPI adapter runs raw
 statements on the driver connection. Without it every declared read runs
 on the general executor, whatever `planner_optimized_executor` says.
-
-### `has_serial_writers`
-
-```python
-def has_serial_writers(bind: Any) -> bool
-```
-
-Whether the database behind `bind` (a session, connection or engine)
-has one writer at a time, so racing write transactions run in turn
-rather than overlapping (its renderer's `serial_writers`):
-
-```python
-await barrier.wait(serial=has_serial_writers(db))
-```
 
 ### `Headers`
 

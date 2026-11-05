@@ -305,6 +305,12 @@ fresh file. Its warning names the old one.
 No table is dropped, and the stale file still opens. `ENVIRONMENT` alone never
 sets a file aside. Neither does a worker. Production ignores the setting.
 
+After a recreate, restart every other process on the file, such as a worker.
+A process that held the old file open would go on writing to it under its new
+name. So each process remembers the file it opened. Once the path names
+another file, or none, its next connection fails with `DatabaseFileReplaced`
+(SANDLOOM-B028), which says to restart it.
+
 ### Not in production
 
 SQLite is one file on one host: no replication, no row security, and no

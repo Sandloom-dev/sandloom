@@ -15,7 +15,12 @@ from sqlalchemy.orm import ColumnProperty, Session
 from sqlalchemy.sql import sqltypes
 
 from sandloom.core.sql_alchemy.dbapi import dbapi_adapter_of
-from sandloom.core.sql_alchemy.portable import CaseInsensitiveText, UtcDateTime
+from sandloom.core.sql_alchemy.portable import (
+    CaseInsensitiveText,
+    UtcDateTime,
+    is_partial_index,
+    is_plain_index,
+)
 
 _NATIVE_TYPES = (
     sqltypes.Integer,
@@ -228,21 +233,18 @@ def unique_keys(mapper: Any) -> list[set[Any]]:
     keys.extend(
         set(ix.columns)
         for ix in table.indexes
-        if ix.unique and ix.dialect_options["postgresql"].get("where") is None
+        if ix.unique and not is_partial_index(ix)
     )
     return keys
 
 
 def covering_indexes(mapper: Any) -> list[list[Any]]:
+    """Ordered keys over every row: a partial or search/full-text index
+    (another access method) cannot serve a keyset scan."""
     table = mapper.local_table
     candidates = [list(mapper.primary_key)]
     candidates.extend(
         list(c.columns) for c in table.constraints if isinstance(c, UniqueConstraint)
     )
-    candidates.extend(
-        list(ix.columns)
-        for ix in table.indexes
-        if ix.dialect_options["postgresql"].get("where") is None
-        and ix.dialect_options["postgresql"].get("using") in (None, False, "btree")
-    )
+    candidates.extend(list(ix.columns) for ix in table.indexes if is_plain_index(ix))
     return candidates

@@ -61,12 +61,40 @@ class SqlDialect(Protocol):
     def id_in(self, column, ids) -> ColumnElement[bool]: ...
     def wall_clock(self) -> str: ...                      # SQL of "now, at the call"
 
+    def array_insert_sql(self, inserts) -> str | None: ...  # outbox/audit bulk insert (PostgreSQL unnest)
+    def for_update(self, stmt, *, skip_locked: bool, read: bool = False): ...
+    def relaxed_commit_clause(self) -> ColumnElement[bool] | None: ...
+
     # SQL the driver runs (sync or async, its choice)
     def lock_statement(self, key: str | int, *, scope: Literal["transaction", "session"],
                        wait: bool) -> Executable | None: ...
+    def unlock_statement(self, key) -> Executable | None: ...
     def begin_statement(self, *, write: bool, read_only: bool, snapshot: bool) -> str | None: ...
+    def transaction_options(self, *, read_only: bool, snapshot: bool) -> dict: ...
     def row_security(self) -> RowSecurity | None: ...    # policy DDL, binding SQL, role checks
+
+    # OPTIONAL facts (read with getattr; absent means False)
+    serial_writers: bool         # one writer at a time; nested units join as SAVEPOINTs;
+                                 # the instance feature concurrent_writers is derived from it
+    schema_from_models: bool     # create_all at startup, no migration chain (B028)
+    development_only: bool       # refused in production without the accepted risk (B029)
+
+    # OPTIONAL forms, both or neither (B025): a literal prefix filter
+    def prefix_pattern(self, prefix: str, *, ignore_case: bool) -> str: ...
+    def prefix_match(self, column, pattern, *, ignore_case: bool) -> ColumnElement[bool]: ...
+
+    # OPTIONAL feature-form members, required with their feature (FEATURE_FORM_MEMBERS, B025)
+    def array_type(self, item_type) -> TypeEngine | None: ...                 # arrays
+    def fulltext_index_options(self) -> dict | None: ...                      # fulltext_search
+    def fulltext_document(self, columns, language) -> ColumnElement | None: ...
+    def fulltext_match(self, document, query, language) -> ColumnElement[bool] | None: ...
+    def json_path(self, column, path) -> ColumnElement[str] | None: ...      # json_path
+    def json_contains(self, column, value) -> ColumnElement[bool] | None: ...# json_contains
+    def aggregate_list(self, value) -> ColumnElement | None: ...             # list_aggregates
+    def aggregate_list_type(self, item_type) -> TypeEngine | None: ...
 ```
+
+The required members are `REQUIRED_MEMBERS` in `portable.py` (the loader refuses a renderer missing one, B025); the optional ones were added after the first draft of this section, by slices 7, 8b, 8c, 9 and 10.
 
 - **The v1 `transaction_lock` form** becomes the kernel helper built on `lock_statement(scope="transaction", wait=True)`. Its public signature stays.
 - **`lock_statement` keys.**
@@ -90,11 +118,13 @@ Every renderer-declarable feature is in the driver's static declaration, `SQLALC
 | `skip_locked` | concurrent workers split a queue without blocking | yes | no |
 | `transaction_locks` | a named lock held until commit or rollback | yes (advisory) | yes (one writer, `BEGIN IMMEDIATE`, section 6) |
 | `snapshot_reads` | a read-only unit sees one snapshot | yes | yes (a deferred read transaction in WAL is a snapshot) |
-| `readonly_transactions` | the database refuses writes in a read-only unit | yes | no (the ORM read guard only) |
+| `readonly_transactions` | the database refuses writes in a read-only unit | yes | yes (a read-only unit turns `PRAGMA query_only` on) |
 | `arrays` | `Array` columns | yes | no |
 | `fulltext_search` | `fulltext_index` and `matches()` | yes | no |
 | `json_path` | JSON path extraction | yes | yes (JSON1) |
 | `json_contains` | JSON containment | yes | no |
+| `list_aggregates` | `aggregate_list` (a group's values as one list) | yes (`array_agg`) | yes (`json_group_array`) |
+| `concurrent_writers` | write transactions overlap, each holding its row locks; derived from the renderer's `serial_writers` fact, never declared (B025) | yes | no |
 
 **Not features:**
 - **Row security.** No module would require it. `tenant_rls=True` on an instance whose renderer has no `row_security()` stops startup (B026), and so do `system_url` and `require_system_channel` without it.
@@ -130,7 +160,7 @@ Sites per [the inventory](inventory-kernel-postgres.md), including those the rev
 
 An architecture test extends the C028 analyzer to the framework.
 - **Allowed only in `core/drivers/**` and the core migration chain:** a dialect import, a `dialect.name`/`.driver` comparison, or a PostgreSQL-only `func.*` name.
-- **A ratchet.** Today's sites start in an allowlist that may only shrink. Each slice removes its rows. The work is done when only the ops tools remain.
+- **A ratchet.** Today's sites start in an allowlist that may only shrink. Each slice removes its rows. The work is done when only the ops tools remain: the final allowlist (see "Final review fixes") holds only migration, `sandloom dev`, extract and test-provisioning files, each with its reason.
 
 ## 5. Database-specific forms as features (decision 5)
 
@@ -191,7 +221,7 @@ Each code gets its explain entry and its docs section.
 ## 9. Testing
 
 - **`skip_unless_db_feature(name)`** in `sandloom.sdk.testing`, reading the same instance features. It joins the advanced tier and the baseline.
-- **The conformance kit** runs on PostgreSQL and SQLite with real engines, covering concurrent claims, `conflict_insert ... WHERE`, locks, and the relay compare-and-set.
+- **The conformance kit** (`SqlDialectConformance`, as built) compiles each form a renderer writes and checks its shape, and reads `json_path` live on the database (`read_json_paths`, `JSON_PATH_READS`). Behavioural coverage of the claims, `conflict_insert ... WHERE`, the locks and the relay compare-and-set lives in the kernel's own tests, which run on PostgreSQL and SQLite (`test_sqlite_driver.py`, the dedupe, relay and saga suites, the SQLite lane). Follow-up, not built: a live behavioural kit a third-party renderer can run against its database.
 - **cachegrind.** Slices 2, 6 and 7 touch measured paths (claims, the RLS `BEGIN`, the planner's read-only units) and state before and after numbers on PostgreSQL.
 
 ## 10. Slices, in order
@@ -272,7 +302,7 @@ The re-check found v2 ready for slice 1. These gaps must close before slice 8a.
 
 **New slice 7b, the DBAPI adapter,** comes before 8a. It moves `driver_compat`, the asyncpg parts of `dead_connection`, `read_only_policy`, the planner's raw executors and the RLS `BEGIN` fast path behind an adapter chosen by the URL's DBAPI. The cachegrind numbers on PostgreSQL must not change.
 
-**Done for this spec** means the ratchet allowlist is empty except the ops tools.
+**Done for this spec** means the ratchet allowlist is empty except the ops tools. As built (final review fixes): `core/sql_alchemy` has no site; the allowlist holds the migration environment and provisioning, `sandloom dev`, `migrate extract-module` and the test harness's per-database provisioning, each with its reason.
 
 ## Slice 7b, as built
 
@@ -603,5 +633,18 @@ Independent review of the `marked` change: no blocker (PostgreSQL never takes th
 - **Harness.** `saga_harness` wraps `continue_after_mark`: `drive` lists its result after the `marked` one, and lists `marked` before `crash` when the crash happened in the continuation (the delivery's `deliver` raises then). `close()` forgets only the bindings of fakes registered with `database=`.
 - **Tests** (both databases). The two `elsewhere` tests assert `transitions.count("marked")` (1 on SQLite, 0 on PostgreSQL). `test_a_provider_elsewhere_completes_with_one_effect_and_a_first_attempt`: completed, one effect `[30]`, the charge's `attempts == 1`. `test_a_marked_step_is_called_in_the_same_delivery` (the reviewer's scenario): one delivery calls the step (`marked` on SQLite, `advanced` on PostgreSQL); two days later the deadline compensates the applied charge (`["charge:undo"]`, balance 100) on both, nothing parked. `test_a_marker_left_without_a_call_is_a_counted_attempt[0|2 days]` (`crash_before`: the marker committed, no call): the redelivery adopts it as a counted attempt: within the TTL the call is attempt 2 and completes, past it the step parks `outcome_unknown_after_ttl` with no call (G-SAGA-12). The protocol law asserts no `marked` for a provider on the same instance. Bite on SQLite: the continuation removed, four of the six fail (`attempts 2 == 1`, no call in the delivery, no crash in it); the own-marker takeover removed, the completed test fails (`2 == 1`). PostgreSQL passes all of them.
 - **ADR-0008** amendment A14 (no new heading) records the marker, `marked`, the continuation, the own-marker rule and the new failure-table row; the runtime's module docstring says the same.
-- **Proposed for the owner, G-SAGA-11** (the ledger is not edited here): "A step with an ambiguous outcome is resolved (re-issued with the same key) before it is compensated; a timeout racing a completing step is serialized by the row lock; also after a crash that rolled back the attempt count: a command step's first forward call writes a durable started marker before the call, in its own transaction (on a serial-writer database with the provider on the same database instance, in the step's transaction, all or nothing with the provider's effect: G-SAGA-07), and a deadline resolves a step that may have applied (attempt > 0 or the marker) before compensating."
-- **Not this fix's:** `uv run python tools/checks/guarantees.py check` currently fails on four new headings of `docs/adr/0011-driver-api.md` ("Amendment (2026-11-05): one SQL driver for several databases" and its three subsections) without `adr_sections` entries: another change in this worktree (that file and `docs/adr/index.md` are modified, not by risk fix 7).
+- **G-SAGA-11, approved and now in the ledger** (`guarantees.yml`): "A step with an ambiguous outcome is resolved (re-issued with the same key) before it is compensated; a timeout racing a completing step is serialized by the row lock; also after a crash that rolled back the attempt count: a command step's first forward call writes a durable started marker before the call, in its own transaction (on a serial-writer database with the provider on the same database instance, in the step's transaction, all or nothing with the provider's effect: G-SAGA-07), and a deadline resolves a step that may have applied (attempt > 0 or the marker) before compensating."
+- **The ledger check passes** (`uv run python tools/checks/guarantees.py check`: "ledger ok"); the ADR-0011 amendment headings it once reported have their `adr_sections` entries.
+
+## Final review fixes
+
+Independent final review of the branch; the fixes, in its order.
+
+- **Changelog.** `CHANGELOG.md` was held by another session: the exact replacement text is in `design/infra-agnostic/changelog-final.md` (Breaking: C028 rewritten to the final state with the final allowlist, C029, identity's removed claims helpers, `sandloom dev up` refusing a SQLite `.env`, each with its **Upgrade:**; the C031 entry's URL literals and `skip_unless_db_feature("concurrent_writers")`). The upgrade guide gains "Identity's claims helpers".
+- **The planner reads forms, not PostgreSQL options.** `planner_safety.unique_keys` / `covering_indexes` and the test kit's `redundant_indexes` read `is_partial_index` / `is_plain_index` (`portable.py`): `Index.info`'s `PARTIAL_WHERE` and `INDEX_FORM`, which `search_index` now also sets (`"search_index"`, so `_apply_options` asks the renderer's `search_index_options` by the same rule as `fulltext_index`). Same decisions on PostgreSQL; on SQLite a partial unique index no longer counts as a key just because PostgreSQL's options were absent. Test: `test_planner_production.py::test_index_decisions_read_the_form_not_a_database_option` (the decisions with the `postgresql_*` options stripped; bites on the old code: the partial index becomes a key).
+- **The ratchet counts more.** `test_kernel_names_no_database.sites()` also counts a subscript by a database name (`dialect_options["postgresql"]`), a `startswith` / `endswith` of a database URL or driver name, and an error-code check (`.pgcode`, `.sqlstate`, `getattr(exc, "pgcode")`). The allowlist entries carry a `reason` (required by the test). Final allowlist, 21 sites in 10 files, none in `core/sql_alchemy`: `core/migrations/migrations.py` 5 and `alembic_support.py` 2 (migrations: B028); `core/cli/extract.py` 2, `core/cli/dev/commands.py` 1, `core/cli/dev/services.py` 1 (ops); `core/testing/workers.py` 4, `ownership.py` 3, `connections.py` 1, `slots.py` 1, `session_checks.py` 1 (the test harness's per-database provisioning). `cli/backup.py` and `migrations/backup.py` have no counted site (they name PostgreSQL only in `kind="postgres"` and a `scheme=` keyword). Follow-up: a test-database provisioner behind the driver would empty the `core/testing` rows.
+- **A replaced SQLite file refuses.** `dbapi_aiosqlite` records, per process and database file, the `(st_dev, st_ino)` its first connection opened, and checks the path at each pool checkout and new connection (one `stat`); a renamed or removed file raises `DatabaseFileReplaced` (SANDLOOM-B028: restart the process). `set_aside_database_file` forgets the old inode in the process that recreates. Installed only when the renderer says `development_only`; the asyncpg adapter has no such hook. Tests in `test_sqlite_driver.py` (replaced elsewhere: a pooled and a new engine refuse; removed; the recreating process opens the new file). Documented in `operator-reference.md`, `infrastructure/database.md`, the generated README and B028's explanation.
+- **Spec text.** §1 lists every required member and the optional ones; §2 SQLite `readonly_transactions` yes (`PRAGMA query_only`), `list_aggregates` and `concurrent_writers` added; §4 and "Where driver code lives" say what "done" left; §9 says honestly what `SqlDialectConformance` covers, with the live behavioural kit as a follow-up; risk fix 7's G-SAGA-11 and ledger-check notes updated.
+- **`has_serial_writers` is internal.** Removed from `sandloom.sdk.testing` and from `sandloom.core.testing`'s exports (unreleased, no deprecation); the kernel and law tests import it from `sandloom.core.testing.infra`. `public_api_baseline.json`, the public-API spec fixture row and `docs/reference/sdk/testing.md` updated. C031's fix and finding text point a race test at `skip_unless_db_feature("concurrent_writers")`. `has_optimized_reads` stays public: billing's and tenancy's declared-read tests use it.
+- **C031 reads database URL literals.** A string starting `postgresql://`, `postgresql+asyncpg://`, `sqlite+aiosqlite://` (and the other SQLAlchemy backends) in module code or tests is a finding, admitted only by the raw-sql marker, in feature-gated tests too. Tenancy's prebuilt-membership test compiles for the test session's dialect; billing's operations-view test looks for the configured database URL's secret parts (the URL, its scheme, password, a file's path), so it bites on both lanes. Tests in `tests/architecture/test_portable_sql.py`.
+- **Nits.** `projections/upsert.py` and `config/sagas.py` docstrings say what the code does now; the dispatcher cancellation tests wait `CANCELLATION_BOUND_SECONDS` (10); `sagas/runtime.py` and ADR-0008 A14 state the accepted race of the marked continuation (a nudge reaching another worker first adopts the marker as attempt 2; one call, same key).

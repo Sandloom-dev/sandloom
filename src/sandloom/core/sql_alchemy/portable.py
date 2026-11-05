@@ -166,6 +166,8 @@ __all__ = [
     "greatest_for",
     "has_sql_dialect",
     "is_error_kind",
+    "is_partial_index",
+    "is_plain_index",
     "id_in_for",
     "aggregate_list",
     "fulltext_index",
@@ -206,9 +208,23 @@ SQL_DIALECTS_GROUP = "sandloom.sql_dialects"
 PARTIAL_WHERE = "sandloom.partial_where"
 RENDERED_ON = "sandloom.rendered_on"
 #: The form that made an index whose options come from the renderer's
-#: ``<form>_index_options`` (``"fulltext_index"``); a partial index is known
-#: by its condition, a search index by neither.
+#: ``<form>_options`` (``"fulltext_index"``, ``"search_index"``); a partial
+#: index is known by its condition.
 INDEX_FORM = "sandloom.index_form"
+
+
+def is_partial_index(index: Index) -> bool:
+    """Whether ``index`` covers only the rows a condition selects
+    (:func:`partial_index`), read from the form, not from a database's options."""
+    return PARTIAL_WHERE in index.info
+
+
+def is_plain_index(index: Index) -> bool:
+    """Whether ``index`` is an ordinary ordered index over every row: not
+    partial and not made by a form whose renderer chooses another access
+    method (:func:`search_index`, :func:`fulltext_index`). The planner's
+    unique-key and covering-index decisions read this on every database."""
+    return PARTIAL_WHERE not in index.info and INDEX_FORM not in index.info
 
 
 class UnsupportedSqlForm(NotImplementedError):
@@ -1282,6 +1298,7 @@ def search_index(
         )
     operands = [_SearchOperand(column, column in folded) for column in columns]
     index = Index(name, *operands).ddl_if(callable_=_creates_search_index)
+    index.info[INDEX_FORM] = "search_index"
     return _track(index)
 
 

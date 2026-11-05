@@ -690,7 +690,6 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.run_sql` | aja.sdk.testing | kept | 7 | url, sql, params |  |
 | `core.testing.set_environment` | aja.sdk.testing | kept | 2 | monkeypatch, name |  |
 | `core.testing.skip_unless_db_feature` | aja.sdk.testing (advanced) | kept | 0 | features, database |  |
-| `core.testing.has_serial_writers` | aja.sdk.testing (advanced) | kept | 0 | bind |  |
 | `core.testing.has_optimized_reads` | aja.sdk.testing (advanced) | kept | 0 | bind |  |
 | `core.testing.stop_revocation_listener` | aja.sdk.testing | kept | 1 |  |  |
 | `core.testing.tables_created_by` | aja.sdk.testing (advanced) | kept | 0 | chain |  |

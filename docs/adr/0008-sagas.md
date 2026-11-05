@@ -772,6 +772,13 @@ reason is recorded here; this section supersedes the text it names.
   first call is attempt 1). Only a crash between the two commits leaves a
   marker without a call, as on PostgreSQL between the marker's commit and
   the call; the redelivered nudge then adopts it as a counted attempt.
+  The nudge the marked transition published may also reach another worker
+  before this process's continuation runs. That worker locks the row at the
+  marked version first, finds a marker it did not write and adopts it as a
+  counted attempt, so the step's first call reports attempt 2 (its first
+  attempt time is the marker's); the continuation then finds the version
+  moved and does nothing. Correctness holds: one call, with the step's key,
+  and the attempt count only errs high, by one.
   Which case applies is read from facts the runtime has (the nesting policy
   of each unit's database, whether the contract is local), never from the
   dialect. PostgreSQL never takes the `marked` path. This supersedes §6's

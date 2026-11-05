@@ -24,6 +24,11 @@ nudge is the fallback): the marker is durable before the provider can
 commit, and only a crash between the two leaves a marker without a call,
 as on PostgreSQL. That transition takes over its own marker uncounted; a
 marker found after a crash or a redelivery is a counted transient attempt.
+A race is accepted: the nudge published with the marker may reach another
+worker before the continuation runs; that worker adopts the marker as a
+counted attempt (the first call reports attempt 2) and the continuation,
+finding the version moved, does nothing. One call, with the step's key:
+correctness holds, the attempt count errs high by one.
 
 The instance row lock is held across ONE step call (bounded by the RPC
 timeout or the contract pool's ``lock_timeout``); the call itself runs on the

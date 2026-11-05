@@ -355,7 +355,43 @@ def test_the_rule_honours_the_general_waiver(tmp_path: Path) -> None:
 def test_reading_the_dialect_is_found(tmp_path: Path, source: str) -> None:
     for test_file in (False, True):
         (hit,) = _hits(tmp_path, source, test_file=test_file)
-        assert "asks which database" in hit and "has_serial_writers" in hit, hit
+        assert "asks which database" in hit, hit
+        assert 'skip_unless_db_feature("concurrent_writers")' in hit, hit
+        assert "has_serial_writers" not in hit, hit
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "URL = 'postgresql://user:secret@db/app'\n",
+        "def f():\n    return create_async_engine('postgresql+asyncpg://u@h/d')\n",
+        "def f():\n    return f'sqlite+aiosqlite:///{path}'\n",
+        "from sqlalchemy import create_mock_engine\n"
+        "d = create_mock_engine('postgresql+asyncpg://', lambda *a: None).dialect\n",
+        "import pytest\n"
+        "@pytest.mark.skipif(False, reason='x')\n"
+        "@skip_unless_db_feature('arrays')\n"
+        "def test_x():\n    assert 'postgresql://' not in leaked()\n",
+    ],
+)
+def test_a_database_url_literal_is_found(tmp_path: Path, source: str) -> None:
+    for test_file in (False, True):
+        (hit,) = _hits(tmp_path, source, test_file=test_file)
+        assert "names a backend" in hit and "configuration" in hit, hit
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# sandloom: raw-sql the production URL's shape, parsed only\n"
+        "URL = 'postgresql+asyncpg://u@h/d'\n",
+        "TEXT = 'see the postgresql:// docs'\n",
+        "REDIS = 'redis://127.0.0.1:6379/0'\n",
+        "def f(settings):\n    return make_url(settings.database_url).drivername\n",
+    ],
+)
+def test_a_marked_or_other_url_passes(tmp_path: Path, source: str) -> None:
+    assert _hits(tmp_path, source, test_file=True) == [], source
 
 
 @pytest.mark.parametrize(
@@ -366,8 +402,8 @@ def test_reading_the_dialect_is_found(tmp_path: Path, source: str) -> None:
         "def f(db):\n"
         "    # sandloom: raw-sql PostgreSQL's planner (no query-plan feature)\n"
         "    return db.bind.dialect.name == 'postgresql'\n",
-        "from sandloom.sdk.testing import has_serial_writers\n"
-        "def f(db):\n    return has_serial_writers(db)\n",
+        "from sandloom.sdk.testing import has_optimized_reads\n"
+        "def f(engine):\n    return has_optimized_reads(engine)\n",
     ],
 )
 def test_asking_for_a_capability_passes(tmp_path: Path, source: str) -> None:

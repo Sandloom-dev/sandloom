@@ -647,14 +647,17 @@ it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
 (server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
 a finding the marker does not admit. Reading the database's name
 (x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
-admitted only by the raw-sql marker. The check reads the module and its tests:
+and so is a database URL literal naming a backend ("postgresql://",
+"postgresql+asyncpg://", "sqlite+aiosqlite://", create_mock_engine of one):
+take the database from the configuration or the test's engine instead. Both
+are admitted only by the raw-sql marker. The check reads the module and its tests:
 a test or class decorated with skip_unless_db_feature(...), or a test file
 whose pytestmark carries it, runs only where its feature is, and its SQL is
 not reported. Migrations are exempt; the SQL strings of CheckConstraint and
 Computed are not read. Tenant admission is a separate question: raw SQL inside
 a function also needs unscoped() (SANDLOOM-C015).
 
-**Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) or ask has_serial_writers() / has_optimized_reads()
+**Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) (a race test: skip_unless_db_feature("concurrent_writers")) or ask has_optimized_reads()
 
 **More:** `docs/modules/database/conventions.md`
 
@@ -1150,6 +1153,12 @@ sandloom dev run sets for the app it serves, changes that: the file and its
 WAL are renamed to &lt;file>.stale-&lt;UTC time> and a fresh file is built. No
 table is dropped, the environment alone never triggers it, a worker never
 does it, and production ignores the setting. The data is not migrated.
+
+Restart the workers, beat and any other process on the file after a recreate.
+A process that held the old file open would go on writing to it under its new
+name, so each process remembers the file it opened and refuses a connection
+once the path names another file (or none): DatabaseFileReplaced, naming the
+file and telling you to restart that process.
 
 **Fix:** after a model change, move the SQLite file away or start the app with sandloom dev run, which sets the file aside and builds a fresh one; write and apply migrations against a PostgreSQL DATABASE_URL
 

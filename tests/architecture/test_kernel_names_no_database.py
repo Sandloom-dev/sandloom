@@ -6,11 +6,17 @@ dialect import (C028's analyzer), a comparison of ``dialect.name`` or
 ``.driver``, a PostgreSQL-only ``func.*`` call, or PostgreSQL-only SQL in
 ``text()`` / ``exec_driver_sql()`` is counted per file.
 
-Today's sites are listed in ``kernel_dialect_allowlist.json``. The list is a
-ratchet: a file may not gain a site, a file not listed may have none, and a
+Also counted: a subscript by a database's name (``dialect_options["postgresql"]``),
+a URL or driver-name prefix test (``url.startswith("postgresql")``,
+``drivername.startswith("sqlite")``) and a PostgreSQL error-code check
+(``exc.pgcode``, ``getattr(exc, "sqlstate")``).
+
+The remaining sites are listed in ``kernel_dialect_allowlist.json``, each with
+the reason it stays: an ops or migration path SQLite never reaches
+(SANDLOOM-B028), or the test harness's per-database provisioning. The list is
+a ratchet: a file may not gain a site, a file not listed may have none, and a
 count that dropped must be lowered in the list in the same change, so it
-only shrinks. The spec's slices move each site behind the renderer; the work
-is done when only the ops tools remain.
+only shrinks.
 """
 
 from __future__ import annotations
@@ -57,6 +63,32 @@ PG_SQL = re.compile(
     r"SKIP LOCKED|ROW LEVEL SECURITY|CREATE POLICY|ANY\(|unnest\(",
     re.IGNORECASE,
 )
+
+
+#: Names a database goes by in a URL, a ``dialect_options`` key or a driver name.
+DATABASE_NAMES = (
+    "postgresql",
+    "postgres",
+    "sqlite",
+    "mysql",
+    "mariadb",
+    "mssql",
+    "oracle",
+)
+#: Attributes that hold a PostgreSQL error code (asyncpg ``sqlstate``, psycopg ``pgcode``).
+ERROR_CODE_ATTRIBUTES = frozenset({"pgcode", "sqlstate"})
+
+
+def _names_database(value: object) -> bool:
+    return isinstance(value, str) and value.lower().startswith(DATABASE_NAMES)
+
+
+def _strings(node: ast.AST) -> list[object]:
+    if isinstance(node, ast.Constant):
+        return [node.value]
+    if isinstance(node, ast.Tuple):
+        return [e.value for e in node.elts if isinstance(e, ast.Constant)]
+    return []
 
 
 def _is_dialect_attribute(node: ast.AST) -> bool:
@@ -107,9 +139,29 @@ def sites(path: Path) -> int:
             sql = _sql_text(node)
             if sql is not None and PG_SQL.search(sql):
                 count += 1
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr in ("startswith", "endswith")
+                and node.args
+                and any(_names_database(v) for v in _strings(node.args[0]))
+            ):
+                count += 1  # url.startswith("postgresql"), drivername.startswith(...)
+            if (
+                isinstance(func, ast.Name)
+                and func.id in ("getattr", "hasattr")
+                and len(node.args) > 1
+                and any(v in ERROR_CODE_ATTRIBUTES for v in _strings(node.args[1]))
+            ):
+                count += 1  # getattr(exc, "pgcode", None)
             if isinstance(func, ast.Attribute) and func.attr == "with_for_update":
                 # SKIP LOCKED / FOR SHARE compile to nothing on SQLite.
                 count += any(k.arg in ("skip_locked", "read") for k in node.keywords)
+        elif isinstance(node, ast.Subscript) and any(
+            _names_database(v) for v in _strings(node.slice)
+        ):
+            count += 1  # dialect_options["postgresql"], dialect_kwargs["sqlite_where"]
+        elif isinstance(node, ast.Attribute) and node.attr in ERROR_CODE_ATTRIBUTES:
+            count += 1  # exc.pgcode / exc.orig.sqlstate
         elif (
             isinstance(node, ast.keyword)
             and node.arg is not None
@@ -132,8 +184,20 @@ def current() -> dict[str, int]:
     return found
 
 
+def allowed_sites() -> dict[str, int]:
+    """The allowlist's counts; every entry states why its sites stay."""
+    entries: dict[str, dict[str, object]] = json.loads(
+        ALLOWLIST.read_text(encoding="utf-8")
+    )
+    unexplained = [
+        p for p, e in entries.items() if not str(e.get("reason", "")).strip()
+    ]
+    assert not unexplained, f"allowlist entries without a reason: {unexplained}"
+    return {path: int(str(entry["sites"])) for path, entry in entries.items()}
+
+
 def test_the_kernel_gains_no_database_specific_site() -> None:
-    allowed: dict[str, int] = json.loads(ALLOWLIST.read_text(encoding="utf-8"))
+    allowed = allowed_sites()
     found = current()
     grown = {
         path: (allowed.get(path, 0), n)
@@ -148,7 +212,7 @@ def test_the_kernel_gains_no_database_specific_site() -> None:
 
 
 def test_the_allowlist_only_shrinks() -> None:
-    allowed: dict[str, int] = json.loads(ALLOWLIST.read_text(encoding="utf-8"))
+    allowed = allowed_sites()
     found = current()
     stale = {
         path: (n, found.get(path, 0))
@@ -171,5 +235,12 @@ def test_the_check_counts_each_kind_of_site(tmp_path: Path) -> None:
         "text('SELECT a FROM t WHERE b = :b')\n"
         "q = select(t).with_for_update(skip_locked=True)\n"
         "conn.execution_options(postgresql_readonly=True)\n"
+        "where = ix.dialect_options['postgresql'].get('where')\n"
+        "if url.startswith(('postgresql', 'postgres')): pass\n"
+        "if engine.url.drivername.startswith('sqlite+'): pass\n"
+        "if exc.orig.pgcode == '40001': pass\n"
+        "code = getattr(exc, 'sqlstate', None)\n"
+        "kept = name.startswith('ix_')\n"
+        "value = options['timeout']\n"
     )
-    assert sites(sample) == 6
+    assert sites(sample) == 11

@@ -75,7 +75,8 @@ uv run sandloom check --only portable-sql
 | `func.avg(...)` | compute it in Python, or cast the result and waive the line with `# sandloom: allow portable-sql <reason>`: PostgreSQL answers a `Decimal`, SQLite a `float` |
 | any other `func.<name>` outside `abs`, `char_length`, `coalesce`, `count`, `length`, `max`, `min`, `nullif`, `sum` | a form from `sandloom.sdk.data`, or a database feature form |
 | `text(...)`, `literal_column(...)`, `.op(...)` and other raw SQL | SQLAlchemy expressions. A module test reads a kernel table through `sqlalchemy.table("audit_log", column(...))`. A line you reviewed carries `# sandloom: raw-sql <reason>` on the call or alone on the line above |
-| `x.dialect.name`, `dialect_name(...)`, `get_backend_name()` in a test | ask what the test needs: `has_serial_writers(db)`, `has_optimized_reads(engine)` or `skip_unless_db_feature(...)` from `sandloom.sdk.testing` |
+| a database URL literal such as `"postgresql://"` or `"sqlite+aiosqlite://"`, `create_mock_engine("postgresql+asyncpg://")` | the configured URL (`settings.database_url`), or compile against the test session's dialect (`db.bind.dialect`) |
+| `x.dialect.name`, `dialect_name(...)`, `get_backend_name()` in a test | ask what the test needs: `skip_unless_db_feature(...)` (a race test whose writers must overlap: `skip_unless_db_feature("concurrent_writers")`) or `has_optimized_reads(engine)` from `sandloom.sdk.testing` |
 
 A plain literal such as `server_default=text("0")` passes. A PostgreSQL cast
 (`::`) in `text()` moved here from C028, and the marker does not admit it.
@@ -164,6 +165,21 @@ That covers these shapes:
 Your tests raise the error where it happens. Compare with the text as stored
 (`== "1.50"`), or read the value and compare the number in Python. Do not cast
 it in SQL: SQLite turns text it cannot read into `0`.
+
+## Identity's claims helpers
+
+`sandloom_identity.claims.identity_claims_select` and
+`identity_claims_lateral` are removed: they joined `LATERAL` and called
+`array_agg`, which SQLite does not have. Your tests or imports fail where you
+used them. Select the two claim columns instead:
+
+```python
+roles, permissions = identity_claims_columns(User.id)
+stmt = select(User.id, roles, permissions)
+```
+
+`identity_claims_columns` is in `sandloom_identity.claims`; its two
+columns read the same lists on PostgreSQL and SQLite.
 
 ## Changes to `sandloom dev`
 

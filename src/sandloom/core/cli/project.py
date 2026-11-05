@@ -388,7 +388,9 @@ BROKER_URL=redis://127.0.0.1:6379/1
 services; `uv run sandloom dev up` starts nothing and says so. The app
 builds its tables from the models at startup; there is no
 `sandloom migrate` on SQLite (SANDLOOM-B028), and after a model change
-`dev run` sets the old file aside and builds a fresh one. Tenant isolation
+`dev run` sets the old file aside and builds a fresh one: restart any
+worker, beat or admin process on the file then (each refuses the replaced
+file, SANDLOOM-B028). Tenant isolation
 is the ORM guard only (no row security), and writers take turns. Production
 needs PostgreSQL (SANDLOOM-B029).
 

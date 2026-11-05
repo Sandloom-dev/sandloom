@@ -26,9 +26,11 @@ ownership themselves for tables with a ``tenant_id`` column:
   (e.g. a globally-unique source id, as projection consumers do) — include
   ``tenant_id`` in ``match`` whenever the source event carries it.
 
-Postgres-specific (``INSERT ... ON CONFLICT``) — the projection store. A
-projection's owning module imports these from core, so it never reaches into a
-concrete backend driver itself.
+The upsert is the SQL dialect renderer's ``INSERT ... ON CONFLICT``
+(:func:`~sandloom.core.sql_alchemy.portable.conflict_insert`), its version
+guard a plain ``WHERE``, so the helpers run on every database whose renderer
+writes ``conflict_insert`` (PostgreSQL and SQLite ship). A projection's
+owning module imports them from core and never names a database.
 """
 
 from __future__ import annotations

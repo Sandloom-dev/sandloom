@@ -10,12 +10,13 @@ built provider afterwards (``InfraRegistry.snapshot_instance`` /
 feature it needs (``arrays`` on SQLite, say): the instance's features as the
 application advertises them, build-free (``InfraRegistry.declared_features``).
 
-:func:`has_serial_writers` and :func:`has_optimized_reads` answer the two
-questions module tests used to ask by naming the database: whether writers
-take turns (a race test's barrier lets them in one at a time), and whether the
-planner's optimized executor can run there. Each is the kernel's own answer
-(the renderer's ``serial_writers``, the DBAPI adapter's ``raw_executor``), so a
-module test never reads ``dialect.name`` (SANDLOOM-C031).
+:func:`has_optimized_reads` (public, ``sandloom.sdk.testing``) answers whether
+the planner's optimized executor can run on the test database (the DBAPI
+adapter's ``raw_executor``), so a module test never reads ``dialect.name``
+(SANDLOOM-C031). :func:`has_serial_writers` (the renderer's ``serial_writers``)
+is the kernel's own tests' question, whose branches differ by nesting; a
+module's race test skips without overlapping writers instead,
+``skip_unless_db_feature("concurrent_writers")``.
 """
 
 from __future__ import annotations

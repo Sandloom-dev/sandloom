@@ -17,6 +17,12 @@ from sqlalchemy.types import TypeDecorator
 from sandloom.core.config.settings import Settings
 from sandloom.core.planner import JoinRead, ListOperation, PlanningError, ReadOperation
 from sandloom.core.sql_alchemy.planner_adapter import SQLAlchemyExecutionAdapter
+from sandloom.core.sql_alchemy.planner_safety import covering_indexes, unique_keys
+from sandloom.core.sql_alchemy.portable import (
+    fulltext_index,
+    partial_index,
+    search_index,
+)
 
 
 class _Base(DeclarativeBase):
@@ -46,12 +52,10 @@ class _Parent(_Base):
     variant: Mapped[str] = mapped_column(String().with_variant(_Codec(), "postgresql"))
     __table_args__ = (
         Index("ix_planner_production_enabled_id", "enabled", "id"),
-        Index(
-            "ix_planner_partial",
-            "partial",
-            unique=True,
-            postgresql_where=text("id > 10"),
-        ),
+        partial_index("ix_planner_partial", "partial", where="id > 10", unique=True),
+        Index("ix_planner_production_code", "code"),
+        search_index("ix_planner_production_search", "variant"),
+        fulltext_index("ix_planner_production_fts", "variant", language="simple"),
     )
 
 
@@ -251,6 +255,37 @@ def test_nullable_keyset_order_is_refused(adapter):
 def test_partial_unique_index_does_not_prove_a_global_unique_key(adapter):
     op = ReadOperation(_Parent, _Id, by=("partial",))
     assert adapter.compile(op, optimized=True).executor == "general"
+
+
+def _index_keys(mapper: Any) -> tuple[list[set[str]], list[list[str]]]:
+    return (
+        [{c.name for c in key} for key in unique_keys(mapper)],
+        [[c.name for c in key] for key in covering_indexes(mapper)],
+    )
+
+
+def test_index_decisions_read_the_form_not_a_database_option() -> None:
+    """The planner knows a partial or search index from the form that made
+    it (``Index.info``), so its unique-key and covering-index decisions are
+    the same whichever renderers gave the index their options."""
+    mapper = _Parent.__mapper__
+    expected = ([{"id"}], [["id"], ["name"], ["optional"], ["enabled", "id"], ["code"]])
+    keys, covering = _index_keys(mapper)
+    assert keys == expected[0]
+    assert sorted(covering) == sorted(expected[1])
+    table = _Parent.__table__
+    saved = {ix.name: dict(ix.dialect_kwargs) for ix in table.indexes}
+    try:
+        # as on a database whose renderer is not PostgreSQL's
+        for ix in table.indexes:
+            for key in [k for k in ix.dialect_kwargs if k.startswith("postgresql_")]:
+                del ix.dialect_kwargs[key]
+        keys, covering = _index_keys(mapper)
+        assert keys == expected[0]
+        assert sorted(covering) == sorted(expected[1])
+    finally:
+        for ix in table.indexes:
+            ix.dialect_kwargs.update(saved[ix.name])
 
 
 @pytest.mark.parametrize(

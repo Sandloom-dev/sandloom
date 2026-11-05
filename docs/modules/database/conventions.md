@@ -222,13 +222,16 @@ since a module test does not import the kernel's models.
 
 Code never asks which database runs it. Reading `x.dialect.name`,
 `dialect_name(x)` or `url.get_backend_name()` is a finding too, in module code
-and in tests. Ask for what the code needs instead:
+and in tests. So is a database URL literal that names a backend, such as
+`"sqlite+aiosqlite://..."`. Take the database from the configuration
+(`settings.database_url`) or from the test's session (`db.bind.dialect`).
+Ask for what the code needs instead:
 
 - a module declares a database feature;
-- a test is gated by `skip_unless_db_feature(...)`;
-- a test asks `has_serial_writers(db)` (writers take turns) or
-  `has_optimized_reads(engine)` (the planner's optimized executor can run),
-  from `sandloom.sdk.testing`.
+- a test is gated by `skip_unless_db_feature(...)`; a race test, whose
+  writers must overlap, by `skip_unless_db_feature("concurrent_writers")`;
+- a test asks `has_optimized_reads(engine)` (the planner's optimized executor
+  can run), from `sandloom.sdk.testing`.
 
 Compiling a statement for the bind's dialect,
 `stmt.compile(dialect=db.bind.dialect)`, asks nothing. Only the raw-sql marker

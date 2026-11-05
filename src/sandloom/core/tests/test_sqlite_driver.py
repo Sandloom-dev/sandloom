@@ -14,6 +14,7 @@ AUTOCOMMIT mark, the saga sweep, projection watermarks) run on it.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import uuid
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
@@ -39,9 +40,11 @@ import sandloom.core.sql_alchemy.saga_store as _saga_store
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import sqlalchemy_database as driver
 from sandloom.core.drivers.dbapi_aiosqlite import (
+    DatabaseFileReplaced,
     NestedWriterRefused,
     SqliteUnavailable,
     in_memory,
+    set_aside_database_file,
     sqlite_url_problem,
 )
 from sandloom.core.drivers.sql_dialects import SQLITE
@@ -176,6 +179,69 @@ async def test_a_connection_opens_with_wal_busy_timeout_and_foreign_keys(
         busy = (await conn.execute(text("PRAGMA busy_timeout"))).scalar()
         assert busy == settings.db_statement_timeout_ms
         assert (await conn.execute(text("PRAGMA foreign_keys"))).scalar() == 1
+
+
+def _replace_elsewhere(url: str) -> Path:
+    """What another process's recreate does: the file (and its WAL) renamed
+    and a fresh one built at the path, without this process knowing."""
+    path = Path(url.split("///", 1)[1])
+    for suffix in ("", "-wal", "-shm"):
+        source = Path(f"{path}{suffix}")
+        if source.exists():
+            source.rename(f"{path}.stale-elsewhere{suffix}")
+    sqlite3.connect(path).close()
+    return path
+
+
+@pytest.mark.asyncio
+async def test_a_file_replaced_under_a_process_is_refused_at_checkout(
+    url: str, engine: AsyncEngine
+) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(insert(ITEMS).values(id=1))
+    _replace_elsewhere(url)
+    # a pooled connection (open on the renamed inode) and a new one alike
+    with pytest.raises(DatabaseFileReplaced, match="Restart this process"):
+        async with engine.connect():
+            pass
+    other = driver._build_engine(url)
+    try:
+        with pytest.raises(DatabaseFileReplaced, match="SANDLOOM-B028"):
+            async with other.connect():
+                pass
+    finally:
+        await other.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_removed_file_is_refused_at_checkout(
+    url: str, engine: AsyncEngine
+) -> None:
+    async with engine.connect():
+        pass
+    path = Path(url.split("///", 1)[1])
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
+    with pytest.raises(DatabaseFileReplaced):
+        async with engine.connect():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_the_process_that_sets_the_file_aside_opens_the_new_one(
+    url: str, engine: AsyncEngine
+) -> None:
+    async with engine.connect():
+        pass
+    await engine.dispose()
+    set_aside_database_file(url)
+    async with engine.begin() as conn:
+        await conn.run_sync(_ITEMS.create_all)
+        await conn.execute(insert(ITEMS).values(id=1))
+    async with engine.connect() as conn:
+        assert (
+            await conn.execute(text("SELECT count(*) FROM lite_items"))
+        ).scalar() == 1
 
 
 def test_sqlite_is_served_and_declares_its_features(url: str) -> None:

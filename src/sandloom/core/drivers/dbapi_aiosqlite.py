@@ -34,6 +34,17 @@ installs what makes that renderer's features true on an engine:
   its BEGIN, and refused at once (SANDLOOM-R016) when another connection of
   the task holds the lock.
 
+* **The file this process opened stays the file at its path.** The first
+  connection of a process records the file's device and inode; each
+  checkout (and each new connection) compares the path with it, one
+  ``stat``. A file set aside by another process's recreate (``sandloom dev
+  run`` after a model change, SANDLOOM-B028) or removed leaves this
+  process's connections writing to the renamed inode: the checkout refuses
+  with :class:`DatabaseFileReplaced`, which says to restart the process.
+  The process that sets the file aside forgets the old inode. Only a
+  development-only database (its renderer's ``development_only``) is
+  checked, and PostgreSQL's adapter has no such hook.
+
 In-memory databases (``sqlite://``, ``:memory:``, ``mode=memory``) have no
 WAL and no second connection: they are refused (SANDLOOM-B032), except a test
 engine on one shared connection (``StaticPool``), and never advertise
@@ -44,6 +55,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import weakref
 from collections.abc import MutableMapping
 from datetime import UTC, datetime
@@ -64,6 +76,7 @@ from sandloom.core.sql_alchemy.portable import (
     TAKE_WRITE_LOCK,
     WRITE_LOCK_HELD,
     WRITE_LOCK_TASK,
+    development_only,
 )
 from sandloom.core.sql_alchemy.write_admission import EXEMPT_OPTION, is_write_statement
 
@@ -113,6 +126,61 @@ class NestedWriterRefused(RuntimeError):
             "as a savepoint of it), do it after the holder commits, or run "
             "the database on PostgreSQL"
         )
+
+
+#: Per database file: the ``(device, inode)`` this process opened it as.
+_OPENED: dict[str, tuple[int, int]] = {}
+
+
+class DatabaseFileReplaced(RuntimeError):
+    """The SQLite file this process opened is no longer the file at its path
+    (set aside by a recreate, or removed): its connections would go on
+    writing to the old file (SANDLOOM-B028)."""
+
+    def __init__(self, database: str) -> None:
+        self.database = database
+        super().__init__(
+            f"the SQLite database file {database} was replaced while this "
+            "process held it open (set aside by `sandloom dev run` after a "
+            "model change, or removed): this process's connections still use "
+            "the old file. Restart this process (a worker, beat, the admin "
+            "or another app) so it opens the new one [SANDLOOM-B028]"
+        )
+
+
+def _file_identity(database: str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(database)
+    except FileNotFoundError:
+        return None
+    return (stat.st_dev, stat.st_ino)
+
+
+def _check_file(database: str) -> None:
+    """Refuse when ``database`` is not the file this process opened."""
+    opened = _OPENED.get(database)
+    if opened is None:
+        identity = _file_identity(database)
+        if identity is not None:
+            _OPENED.setdefault(database, identity)
+        return
+    if _file_identity(database) != opened:
+        raise DatabaseFileReplaced(database)
+
+
+def _opened(database: str, _dbapi_connection: Any, _record: Any) -> None:
+    # after the connect listener: the file exists now
+    _check_file(database)
+
+
+def _checkout(database: str, _dbapi_connection: Any, _record: Any, _proxy: Any) -> None:
+    _check_file(database)
+
+
+def forget_opened_file(url: Any) -> None:
+    """This process replaced the file of ``url`` itself: its next connection
+    records the new file instead of refusing it."""
+    _OPENED.pop(_database_key(url), None)
 
 
 class SqliteUnavailable(RuntimeError):
@@ -196,6 +264,7 @@ def set_aside_database_file(url: Any, *, now: datetime | None = None) -> str:
         source = Path(f"{path}{suffix}")
         if source.exists():
             source.rename(f"{stale}{suffix}")
+    forget_opened_file(url)
     return str(stale)
 
 
@@ -395,6 +464,10 @@ class AiosqliteAdapter(DbapiAdapter):
         if database is not None:
             # transactions begun at their first write (BEGIN_AT_FIRST_WRITE)
             event.listen(sync_engine, "before_cursor_execute", _before_statement)
+            if development_only(sync_engine.dialect.name):
+                # a recreate elsewhere must not leave this process on the old file
+                event.listen(sync_engine, "connect", partial(_opened, database))
+                event.listen(sync_engine, "checkout", partial(_checkout, database))
 
 
 def _database_key(url: Any) -> str:
@@ -413,9 +486,11 @@ __all__ = [
     "DEFAULT_BUSY_TIMEOUT_MS",
     "MEMORY_WITHHELD_FEATURES",
     "AiosqliteAdapter",
+    "DatabaseFileReplaced",
     "NestedWriterRefused",
     "SqliteUnavailable",
     "aiosqlite_installed",
+    "forget_opened_file",
     "in_memory",
     "is_sqlite_url",
     "set_aside_database_file",

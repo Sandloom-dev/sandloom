@@ -4170,7 +4170,7 @@ guarantees:
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_injected_default_client_is_never_replaced
 - id: G-INFRA-09
   statement: A module using a database feature form of sdk.data (Array, fulltext_index / matches, json_path,
-    json_contains) declares its database feature (C030); module load refuses an instance lacking a feature its
+    json_contains, aggregate_list) declares its database feature (C030); module load refuses an instance lacking a feature its
     tables use or it declares (B033, DatabaseFeatureMissing); a statement compiled without the feature refuses
     naming it (R015).
   sources:
@@ -4181,6 +4181,8 @@ guarantees:
   - src/sandloom/core/tests/test_database_feature_forms.py::test_a_module_using_array_is_refused_on_sqlite
   - src/sandloom/core/tests/test_database_feature_forms.py::test_a_declared_feature_is_refused_with_the_same_code
   - src/sandloom/core/tests/test_database_feature_forms.py::test_the_c030_analyzer
+  - src/sandloom/core/tests/test_aggregate_list.py::test_a_renderer_without_it_refuses_it_naming_the_feature
+  - src/sandloom/core/tests/test_aggregate_list.py::test_a_module_needing_it_is_refused_at_startup_where_the_renderer_lacks_it
 - id: G-CONFIG-01
   statement: Every Settings field is classified in exactly one configuration tier (semantic or ops), and
     every semantic setting defines a value for every profile (dev / test / prod / prod+multi_tenant_strict).

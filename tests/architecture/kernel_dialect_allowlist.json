@@ -1,4 +1,42 @@
 {
-  "core/migrations/alembic_support.py": 2,
-  "core/migrations/migrations.py": 2
+  "core/cli/dev/commands.py": {
+    "sites": 1,
+    "reason": "ops: `sandloom dev` names its PostgreSQL test container's port (ports[\"postgres_test\"]); dev services are Docker PostgreSQL and Redis, a SQLite checkout starts none"
+  },
+  "core/cli/dev/services.py": {
+    "sites": 1,
+    "reason": "ops: Postgres.from_url parses the dev PostgreSQL server's URL for `sandloom dev`; SQLite needs no dev server"
+  },
+  "core/cli/extract.py": {
+    "sites": 2,
+    "reason": "ops: `sandloom migrate extract-module` copies data between PostgreSQL databases (URL check, lock_not_available pgcode); refused on SQLite (B028)"
+  },
+  "core/migrations/alembic_support.py": {
+    "sites": 2,
+    "reason": "migrations: a chain is PostgreSQL's DDL history; the autogenerate renderer writes the dialect's type import (postgresql.CITEXT()); SQLite never runs a chain (B028)"
+  },
+  "core/migrations/migrations.py": {
+    "sites": 5,
+    "reason": "migrations: database provisioning (CREATE DATABASE, duplicate_database pgcode, the drivername test) and the doctor's libpq connect arguments; `sandloom migrate` refuses SQLite (B028)"
+  },
+  "core/testing/connections.py": {
+    "sites": 1,
+    "reason": "test provisioning: the PostgreSQL server's connection headroom (psycopg2); a SQLite file has none. Follow-up: a test-database provisioner behind the driver"
+  },
+  "core/testing/ownership.py": {
+    "sites": 3,
+    "reason": "test provisioning: the ownership mark lives in a PostgreSQL database comment or beside a SQLite file (<file>.owner). Follow-up: a test-database provisioner behind the driver"
+  },
+  "core/testing/session_checks.py": {
+    "sites": 1,
+    "reason": "test provisioning: the 'start your own PostgreSQL' hint applies to a PostgreSQL server only. Follow-up: a test-database provisioner behind the driver"
+  },
+  "core/testing/slots.py": {
+    "sites": 1,
+    "reason": "test provisioning: a .env.test.local slot leases a PostgreSQL server's database names. Follow-up: a test-database provisioner behind the driver"
+  },
+  "core/testing/workers.py": {
+    "sites": 4,
+    "reason": "test provisioning: one database per xdist worker is a PostgreSQL CREATE DATABASE or a SQLite file beside the configured one. Follow-up: a test-database provisioner behind the driver"
+  }
 }
