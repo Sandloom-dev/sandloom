@@ -46,8 +46,8 @@ from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.module_api import contract_method
 from sandloom.core.sql_alchemy.models.contract_command import ContractCommandRecord
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
+from sandloom.core.sql_alchemy.nesting import _write_connection, pin_test_host
 from sandloom.core.sql_alchemy.portable import WRITE_LOCK_HELD, serial_writers
-from sandloom.core.sql_alchemy.uow import _write_connection, pin_test_host
 from sandloom.core.testing import reload_test_env
 from sandloom.core.testing.database import assert_disposable_test_database
 from sandloom.core.testing.ownership import claim_database

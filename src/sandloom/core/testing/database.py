@@ -51,7 +51,7 @@ from sandloom.core._internal.db_provider import (
     schema_reset_for,
 )
 from sandloom.core.sql_alchemy.base import Base
-from sandloom.core.sql_alchemy.uow import pin_test_host
+from sandloom.core.sql_alchemy.nesting import pin_test_host
 from sandloom.core.testing.connections import (
     TEST_ENGINE_MAX_OVERFLOW,
     TEST_ENGINE_POOL_SIZE,

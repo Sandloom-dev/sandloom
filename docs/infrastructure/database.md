@@ -226,7 +226,11 @@ unit of the same task and database instance that holds the write lock:
 - **The inner unit's commit releases its savepoint.** It is not durable on its
   own: the caller's `COMMIT` commits it, and the caller's rollback undoes its
   rows, its outbox events and its command-log record. A savepoint the caller
-  rolls back around the call undoes it too.
+  rolls back around the call undoes it too, when the caller had already run a
+  statement before the call. A caller takes the write lock at its first
+  statement (a test's `db` session at its first write). A `begin_nested()`
+  opened before any statement takes no lock: the call then commits on its
+  own, as on PostgreSQL, and rolling that savepoint back does not undo it.
 - **Its failure rolls back to the savepoint.** The caller goes on, as after
   an independent unit that failed.
 - **Its post-commit stages wait for the caller's `COMMIT`.** The outbox
