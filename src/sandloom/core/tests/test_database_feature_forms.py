@@ -12,7 +12,7 @@ the feature of every form it uses (SANDLOOM-C030).
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -148,7 +148,7 @@ def test_sqlite_writes_json_path_and_refuses_the_rest() -> None:
     sql = _sql(sa.select(table.c.id).where(json_path(table.c.doc, "a", 0) == "x"), LITE)
     assert "json_type(slice9_items.doc, ?)" in sql
     assert "CAST(json_extract(slice9_items.doc, ?) AS TEXT)" in sql
-    refused = {
+    refused: dict[str, Callable[[], Any]] = {
         "Array": lambda: CreateTable(table),
         "fulltext_index": lambda: CreateIndex(next(iter(table.indexes))),
         "matches": lambda: sa.select(table.c.id).where(matches(table.c.title, "x")),
@@ -220,8 +220,8 @@ def test_a_migration_renders_an_array_as_the_databases_type() -> None:
 # -- on the databases ---------------------------------------------------------
 
 #: ``doc`` per row, and what json_path reads at each path on every database:
-#: strings, booleans, null, 64-bit integers, missing paths and an index step
-#: on an object (NULL) are the form's contract.
+#: the scalar's JSON text as stored (strings unquoted), NULL for a missing
+#: path, JSON null and an index step on an object.
 _ROWS = {
     1: {
         "s": "FR",
@@ -234,9 +234,27 @@ _ROWS = {
     },
     2: {"s": "DE", "n": 7, "a": [], "big": 9223372036854775807},
 }
-#: A row written as raw JSON text: numbers outside the contract.
+#: A row written as raw JSON text: numbers as written, which SQLite's
+#: json_extract would read as REAL (1.50 -> '1.5', 1e2 -> '100.0'; risk fix 3).
 _RAW_ID = 3
-_RAW = '{"frac": 1.50, "exp": 1e2, "huge": 12345678901234567890, "mz": -0.0}'
+_NUMBERS = {
+    "one": "1",
+    "onep": "1.0",
+    "frac": "1.50",
+    "exp": "1e2",
+    "expu": "1E+2",
+    "mz": "-0.0",
+    "tenth": "0.1",
+    "huge": "12345678901234567890123",
+    "below": "-9223372036854775809",
+    "pi": "3.141592653589793238",
+    "small": "1.230e-5",
+}
+_RAW = (
+    "{"
+    + ", ".join(f'"{key}": {number}' for key, number in _NUMBERS.items())
+    + ', "deep": [1.50, [2e1, {"x": -0.0}]], "sn": "1.5"}'
+)
 _PATHS: list[tuple[tuple[str | int, ...], dict[int, str | None]]] = [
     (("s",), {1: "FR", 2: "DE", 3: None}),
     (("n",), {1: "42", 2: "7", 3: None}),
@@ -249,24 +267,23 @@ _PATHS: list[tuple[tuple[str | int, ...], dict[int, str | None]]] = [
     (("o", "0"), {1: "7", 2: None, 3: None}),  # a key step into the object
     (("big",), {1: None, 2: "9223372036854775807", 3: None}),
     (("missing",), {1: None, 2: None, 3: None}),
+    *(((key,), {1: None, 2: None, 3: text}) for key, text in _NUMBERS.items()),
+    (("deep", 0), {1: None, 2: None, 3: "1.50"}),
+    (("deep", 1, 0), {1: None, 2: None, 3: "2e1"}),
+    (("deep", 1, 1, "x"), {1: None, 2: None, 3: "-0.0"}),
+    (("sn",), {1: None, 2: None, 3: "1.5"}),  # a string, not the number
 ]
-#: Outside the contract: each database's own text of the raw row's numbers
-#: (the documented reason to compare such numbers as integers or store them
-#: as strings). Pinned so a change on either side is seen.
-_OUTSIDE = {
-    "postgresql": {
-        "frac": "1.50",
-        "exp": "1e2",
-        "huge": "12345678901234567890",
-        "mz": "-0.0",
-    },
-    "sqlite": {
-        "frac": "1.5",
-        "exp": "100.0",
-        "huge": "1.23456789012346e+19",
-        "mz": "0.0",
-    },
-}
+#: Conditions on json_path and the rows each selects, the same everywhere: a
+#: number is compared as its text (``'1.50'`` is not ``'1.5'``).
+_WHERE: list[tuple[str, Any, list[int]]] = [
+    ("s", "DE", [2]),
+    ("frac", "1.50", [3]),
+    ("frac", "1.5", []),
+    ("sn", "1.5", [3]),
+    ("exp", "1e2", [3]),
+    ("huge", "12345678901234567890123", [3]),
+    ("n", "42", [1]),
+]
 
 
 def _pg_url() -> str:
@@ -275,7 +292,10 @@ def _pg_url() -> str:
 
 @pytest_asyncio.fixture
 async def pg() -> AsyncGenerator[AsyncEngine, None]:
-    engine = driver.build_disposable_engine(_pg_url())
+    url = _pg_url()
+    if not url.startswith("postgresql"):
+        pytest.skip("the test database is not PostgreSQL")
+    engine = driver.build_disposable_engine(url)
     yield engine
     await engine.dispose()
 
@@ -300,11 +320,6 @@ async def _json_path_answers(engine: AsyncEngine) -> dict[tuple[Any, ...], Any]:
         if connection.dialect.name == "postgresql":
             raw = sa.cast(raw, sa.JSON())  # json keeps the text as written
         await connection.execute(table.insert().values(id=_RAW_ID, doc=raw))
-        for key in _OUTSIDE[connection.dialect.name]:
-            read = await connection.execute(
-                sa.select(json_path(table.c.doc, key)).where(table.c.id == _RAW_ID)
-            )
-            answers[("outside", key)] = read.scalar_one()
         for path, _expected in _PATHS:
             rows = await connection.execute(
                 sa.select(table.c.id, json_path(table.c.doc, *path)).order_by(
@@ -312,34 +327,101 @@ async def _json_path_answers(engine: AsyncEngine) -> dict[tuple[Any, ...], Any]:
                 )
             )
             answers[path] = dict(rows.all())
-        hit = await connection.execute(
-            sa.select(table.c.id).where(json_path(table.c.doc, "s") == "DE")
+        for key, value, _rows in _WHERE:
+            hit = await connection.execute(
+                sa.select(table.c.id)
+                .where(json_path(table.c.doc, key) == value)
+                .order_by(table.c.id)
+            )
+            answers[("where", key, value)] = hit.scalars().all()
+        bound = sa.select(table.c.id).where(
+            json_path(table.c.doc, "frac") == sa.bindparam("x")
         )
-        answers[("where",)] = hit.scalars().all()
+        answers[("bound", "1.50")] = (
+            (await connection.execute(bound, {"x": "1.50"})).scalars().all()
+        )
+        # A number bound to it fails the same on both, before the database.
+        with pytest.raises(sa.exc.StatementError, match="reads text"):
+            await connection.execute(bound, {"x": 1.5})
         await transaction.rollback()
     return answers
 
 
-def _expected(dialect: str) -> dict[tuple[Any, ...], Any]:
-    outside = {("outside", k): v for k, v in _OUTSIDE[dialect].items()}
-    return {**dict(_PATHS), ("where",): [2], **outside}
+def _expected() -> dict[tuple[Any, ...], Any]:
+    where = {("where", key, value): rows for key, value, rows in _WHERE}
+    return {**dict(_PATHS), **where, ("bound", "1.50"): [3]}
 
 
 @pytest.mark.asyncio
 async def test_json_path_reads_the_same_scalars_on_postgresql(pg: AsyncEngine) -> None:
-    assert await _json_path_answers(pg) == _expected("postgresql")
+    assert await _json_path_answers(pg) == _expected()
 
 
 @pytest.mark.asyncio
 async def test_json_path_reads_the_same_scalars_on_sqlite(lite: AsyncEngine) -> None:
-    assert await _json_path_answers(lite) == _expected("sqlite")
+    assert await _json_path_answers(lite) == _expected()
 
 
-def test_numbers_outside_the_contract_read_differently() -> None:
-    """The contract excludes them because the texts differ: if the databases
-    ever agree, the documentation can widen."""
-    pg, lite = _OUTSIDE["postgresql"], _OUTSIDE["sqlite"]
-    assert all(pg[key] != lite[key] for key in pg)
+_ITEMS = sa.Table(
+    "slice9_rf3_items",
+    sa.MetaData(),
+    sa.Column("id", sa.Integer),
+    sa.Column("price", sa.Numeric),
+    sa.Column("name", sa.String(40)),
+)
+
+#: Comparisons of a json_path with a number, in every shape found: each is an
+#: error on PostgreSQL and a different answer on SQLite.
+_NUMBER_OPERANDS = {
+    "== float": lambda v: v == 1.5,
+    "> int": lambda v: v > 2,
+    "<= 0": lambda v: v <= 0,
+    "!= int": lambda v: v != 1,
+    "in_ with an int": lambda v: v.in_(["1", 2]),
+    "between an int": lambda v: v.between("1", 3),
+    "reflected int": lambda v: 2 < v,
+    "== literal(1)": lambda v: v == sa.literal(1),
+    "== Integer column": lambda v: v == _ITEMS.c.id,
+    "Integer column ==": lambda v: _ITEMS.c.id == v,
+    "literal(1) ==": lambda v: sa.literal(1) == v,
+    "Numeric column >": lambda v: _ITEMS.c.price > v,
+    "in_ an Integer subquery": lambda v: v.in_(sa.select(_ITEMS.c.id)),
+    "== literal_column('1')": lambda v: v == sa.literal_column("1"),
+    "literal_column('1') ==": lambda v: sa.literal_column("1") == v,
+    "coalesce with 0": lambda v: sa.func.coalesce(v, 0) == "1",
+}
+
+
+@pytest.mark.parametrize("dialect", [PG, LITE], ids=["postgresql", "sqlite"])
+@pytest.mark.parametrize("condition", _NUMBER_OPERANDS.values(), ids=_NUMBER_OPERANDS)
+def test_json_path_refuses_a_number_operand(condition: Any, dialect: Any) -> None:
+    """PostgreSQL refuses text against a number; SQLite answers (any TEXT is
+    greater than any number there): refused when the query is built or, for
+    a json_path on the right or in ``coalesce``, when it compiles."""
+    table = _docs()
+    with pytest.raises(TypeError, match="json_path\\(\\) reads text"):
+        statement = sa.select(table.c.id).where(condition(json_path(table.c.doc, "n")))
+        statement.compile(dialect=dialect)
+
+
+@pytest.mark.parametrize("dialect", [PG, LITE], ids=["postgresql", "sqlite"])
+def test_json_path_compares_with_text_and_null(dialect: Any) -> None:
+    value = json_path(_docs().c.doc, "n")
+    for condition in (
+        value == "42",
+        value.in_(["1", "2"]),
+        value.is_(None),
+        value == None,  # noqa: E711 - the IS NULL form
+        value == sa.literal("1"),
+        value > "1",
+        value.like("4%"),
+        _ITEMS.c.name == value,
+        value.in_(sa.select(_ITEMS.c.name)),
+        sa.func.coalesce(value, "0") == "1",
+        value == json_path(_docs().c.doc, "s"),
+        value == sa.bindparam("x"),
+    ):
+        assert _sql(sa.select(sa.literal(1)).where(condition), dialect)
 
 
 @pytest.mark.asyncio

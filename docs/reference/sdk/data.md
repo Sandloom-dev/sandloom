@@ -460,15 +460,26 @@ select(Order).where(json_path(Order.meta, "shipping", "country") == "FR")
 
 Each step is an object key (`str`) or an array index (`int`, from 0;
 an index step on an object reads `NULL`, a negative one is refused).
-The value is text, the same on every database for a string (itself), a
-boolean (`'true'` / `'false'`) and an integer within 64 bits
-(`'42'`); `NULL` when the path is missing or holds JSON `null`.
-Other numbers (fractions, exponents, larger integers) read back in each
-database's own text (`1.50` may read `'1.5'`): compare them as
-integers, or store them as strings. Objects and arrays read differently
-too. `column` is a `sqlalchemy.JSON` column (or one the database
-stores JSON in). The steps are bound parameters, so an index on a
-`json_path` expression would not serve the query.
+The value is the scalar's JSON text as stored, the same on every
+database: a string reads as itself (unquoted), a boolean `'true'` /
+`'false'`, a number as written (`1.50` reads `'1.50'`, `1e2`
+`'1e2'`, a 30-digit integer all its digits); `NULL` when the path is
+missing or holds JSON `null`. Objects and arrays read differently on
+each database (whitespace). Compare the value with a `str`: a number
+on either side (`== 1.5`, `Model.id == json_path(...)`, an integer
+subquery, `coalesce(..., 0)`) is refused when the query is built or
+compiled, and a non-`str` bound to a parameter compared with it when
+the statement runs (`TypeError`), since PostgreSQL refuses text
+against a number and SQLite answers otherwise. Do not cast it to a
+number in SQL either (SQLite reads `CAST('1e2' AS INTEGER)` as 1 and
+`CAST('abc' AS NUMERIC)` as 0, PostgreSQL raises): compare numbers in
+Python. Ordering (`<`, `ORDER BY`, `GROUP BY`, `DISTINCT`)
+uses the database's collation: SQLite's is byte order, PostgreSQL's
+usually linguistic (`'a' < 'B'`), even for ASCII; use
+`.collate("C")` on PostgreSQL when byte order matters, or compare in
+Python. `column` is a `sqlalchemy.JSON` column (or one the
+database stores JSON in). The steps are bound parameters, so an index on
+a `json_path` expression would not serve the query.
 
 ### `JsonPathKey`
 

@@ -64,7 +64,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from importlib import metadata
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from sqlalchemy import (
     JSON,
@@ -83,15 +83,33 @@ from sqlalchemy import (
 from sqlalchemy.engine import Dialect, make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.sql import coercions, roles
+from sqlalchemy.sql import coercions, operators, roles
+from sqlalchemy.sql import functions as sql_functions
 from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.compiler import StrSQLCompiler
 from sqlalchemy.sql.dml import Insert
-from sqlalchemy.sql.elements import ColumnClause
+from sqlalchemy.sql.elements import (
+    BinaryExpression,
+    BindParameter,
+    ClauseElement,
+    ClauseList,
+    ColumnClause,
+    Grouping,
+    Null,
+    Tuple,
+)
 from sqlalchemy.sql.functions import FunctionElement
+from sqlalchemy.sql.selectable import ScalarSelect
 from sqlalchemy.sql.type_api import to_instance
 from sqlalchemy.sql.visitors import InternalTraversal
-from sqlalchemy.types import ARRAY, Boolean, LargeBinary, TypeDecorator, TypeEngine
+from sqlalchemy.types import (
+    ARRAY,
+    Boolean,
+    LargeBinary,
+    NullType,
+    TypeDecorator,
+    TypeEngine,
+)
 
 from sandloom.core.infra.capabilities import (
     DATABASE_FORM_FEATURES,
@@ -1646,12 +1664,174 @@ def matches(
 JsonPathKey = str | int
 
 
+#: The operators whose other side a json_path text checks: a text compared
+#: with a number is an error on PostgreSQL and a different answer on SQLite
+#: (any TEXT sorts after any number there), so it is refused.
+_JSON_PATH_COMPARISONS = frozenset(
+    {
+        operators.eq,
+        operators.ne,
+        operators.lt,
+        operators.le,
+        operators.gt,
+        operators.ge,
+        operators.between_op,
+        operators.not_between_op,
+        operators.in_op,
+        operators.not_in_op,
+        operators.is_distinct_from,
+        operators.is_not_distinct_from,
+    }
+)
+
+
+def _is_json_path_text(element: Any) -> bool:
+    return isinstance(getattr(element, "type", None), _JsonPathText)
+
+
+def _is_text_type(kind: Any) -> bool:
+    """A string type (``String``, ``Text``, a decorator over one); never
+    ``NullType``: an untyped ``literal_column("1")`` may be a number."""
+    if kind is None or isinstance(kind, NullType):
+        return False
+    try:
+        return issubclass(kind._type_affinity, String)
+    except TypeError:  # an affinity that is not a class
+        return False
+
+
+def _json_path_operand_problem(other: Any) -> str | None:
+    """Why ``other`` cannot be compared with a json_path text, or None."""
+    if other is None or isinstance(other, str):
+        return None
+    if isinstance(other, (list, tuple, set, frozenset)):
+        return next(
+            (p for p in map(_json_path_operand_problem, other) if p is not None), None
+        )
+    if hasattr(other, "__clause_element__"):
+        other = other.__clause_element__()
+    if not isinstance(other, ClauseElement):
+        return f"the {type(other).__name__} {other!r}"
+    return _json_path_clause_problem(other)
+
+
+def _json_path_clause_problem(other: ClauseElement) -> str | None:
+    """Why the SQL expression ``other`` cannot be compared with a json_path
+    text, or None: a subquery's columns, a grouping's element, a list's
+    items are read; ``NULL`` passes; anything else must be text."""
+    columns = getattr(other, "selected_columns", None)
+    if columns is not None:
+        return next(
+            (p for p in map(_json_path_clause_problem, columns) if p is not None),
+            None,
+        )
+    if isinstance(other, Null):
+        return None
+    if isinstance(other, (Grouping, ScalarSelect)):
+        return _json_path_clause_problem(cast("ClauseElement", other.element))
+    if isinstance(other, (ClauseList, Tuple)):
+        return next(
+            (p for p in map(_json_path_clause_problem, other.clauses) if p is not None),
+            None,
+        )
+    if isinstance(other, BindParameter) and isinstance(other.type, NullType):
+        return None  # typed as the json_path's text by the comparison
+    kind = getattr(other, "type", None)
+    if _is_text_type(kind):
+        return None
+    return f"an expression of type {kind!r}"
+
+
+def _refuse_json_path_operand(other: Any) -> None:
+    problem = _json_path_operand_problem(other)
+    if problem is not None:
+        _refuse_json_path_operand_problem(problem)
+
+
+class _JsonPathText(TypeDecorator[str]):
+    """:func:`json_path`'s type: text that refuses to be compared with a
+    number (risk fix 3). The scalar's JSON text is the same on every
+    database; a number compared with it is not. Refused when the expression
+    is built (this comparator), when the statement compiles (a json_path on
+    the right of a comparison, ``coalesce`` with a number) and when a value
+    is bound (a non-``str`` given to a parameter compared with it)."""
+
+    impl = Text
+    cache_ok = True
+
+    class Comparator(TypeDecorator.Comparator[str]):
+        def operate(self, op: Any, *other: Any, **kwargs: Any) -> Any:
+            if op in _JSON_PATH_COMPARISONS:
+                for operand in other:
+                    _refuse_json_path_operand(operand)
+            return super().operate(op, *other, **kwargs)
+
+        def reverse_operate(self, op: Any, other: Any, **kwargs: Any) -> Any:
+            if op in _JSON_PATH_COMPARISONS:
+                _refuse_json_path_operand(other)
+            return super().reverse_operate(op, other, **kwargs)
+
+    comparator_factory = Comparator
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        # A parameter compared with a json_path (``== bindparam("x")``) is
+        # typed as it: a number bound later fails the same on every database.
+        if value is None or isinstance(value, str):
+            return value
+        _refuse_json_path_operand(value)
+        return None  # unreachable: a non-str value is refused
+
+
+@compiles(BinaryExpression)
+def _compile_binary(
+    element: BinaryExpression[Any], compiler: SQLCompiler, **kw: Any
+) -> str:
+    # The comparator refuses a number on the right of a json_path; this sees
+    # the other order (``Model.id == json_path(...)``: the left side's
+    # comparator built it) and anything typed after the fact.
+    if element.operator in _JSON_PATH_COMPARISONS:
+        if _is_json_path_text(element.right) and not _is_json_path_text(element.left):
+            _refuse_json_path_clause(element.left)
+        elif _is_json_path_text(element.left) and not _is_json_path_text(element.right):
+            _refuse_json_path_clause(element.right)
+    return str(compiler.visit_binary(element, **kw))  # type: ignore[no-untyped-call]
+
+
+@compiles(sql_functions.coalesce)
+def _compile_coalesce(
+    element: sql_functions.coalesce[Any], compiler: SQLCompiler, **kw: Any
+) -> str:
+    # ``coalesce(json_path(...), 0)``: text or a number, by row on SQLite, an
+    # error on PostgreSQL.
+    arguments = list(element.clauses)
+    if any(map(_is_json_path_text, arguments)):
+        for argument in arguments:
+            if not _is_json_path_text(argument):
+                _refuse_json_path_clause(argument)
+    return str(compiler.visit_function(element, **kw))
+
+
+def _refuse_json_path_clause(other: ClauseElement) -> None:
+    problem = _json_path_clause_problem(other)
+    if problem is not None:
+        _refuse_json_path_operand_problem(problem)
+
+
+def _refuse_json_path_operand_problem(problem: str) -> None:
+    raise TypeError(
+        f"json_path() reads text; it is compared with {problem}. Compare "
+        "it with a str (a number as stored: '1.50', '1e2'), or read the "
+        "value and compare it in Python: PostgreSQL refuses text against "
+        "a number and SQLite answers differently"
+    )
+
+
 class _JsonPath(ColumnElement[str]):
     """The scalar at ``path`` in a JSON column, as text (renderer-written)."""
 
     __visit_name__ = "sandloom_json_path"
     inherit_cache = True
-    type = Text()
+    type = _JsonPathText()
     _traverse_internals = _JSONPATH_INTERNALS
 
     def __init__(
@@ -1679,15 +1859,26 @@ def json_path(
 
     Each step is an object key (``str``) or an array index (``int``, from 0;
     an index step on an object reads ``NULL``, a negative one is refused).
-    The value is text, the same on every database for a string (itself), a
-    boolean (``'true'`` / ``'false'``) and an integer within 64 bits
-    (``'42'``); ``NULL`` when the path is missing or holds JSON ``null``.
-    Other numbers (fractions, exponents, larger integers) read back in each
-    database's own text (``1.50`` may read ``'1.5'``): compare them as
-    integers, or store them as strings. Objects and arrays read differently
-    too. ``column`` is a ``sqlalchemy.JSON`` column (or one the database
-    stores JSON in). The steps are bound parameters, so an index on a
-    ``json_path`` expression would not serve the query.
+    The value is the scalar's JSON text as stored, the same on every
+    database: a string reads as itself (unquoted), a boolean ``'true'`` /
+    ``'false'``, a number as written (``1.50`` reads ``'1.50'``, ``1e2``
+    ``'1e2'``, a 30-digit integer all its digits); ``NULL`` when the path is
+    missing or holds JSON ``null``. Objects and arrays read differently on
+    each database (whitespace). Compare the value with a ``str``: a number
+    on either side (``== 1.5``, ``Model.id == json_path(...)``, an integer
+    subquery, ``coalesce(..., 0)``) is refused when the query is built or
+    compiled, and a non-``str`` bound to a parameter compared with it when
+    the statement runs (``TypeError``), since PostgreSQL refuses text
+    against a number and SQLite answers otherwise. Do not cast it to a
+    number in SQL either (SQLite reads ``CAST('1e2' AS INTEGER)`` as 1 and
+    ``CAST('abc' AS NUMERIC)`` as 0, PostgreSQL raises): compare numbers in
+    Python. Ordering (``<``, ``ORDER BY``, ``GROUP BY``, ``DISTINCT``)
+    uses the database's collation: SQLite's is byte order, PostgreSQL's
+    usually linguistic (``'a' < 'B'``), even for ASCII; use
+    ``.collate("C")`` on PostgreSQL when byte order matters, or compare in
+    Python. ``column`` is a ``sqlalchemy.JSON`` column (or one the
+    database stores JSON in). The steps are bound parameters, so an index on
+    a ``json_path`` expression would not serve the query.
     """
     if not path:
         raise ValueError("json_path() needs at least one key or index")

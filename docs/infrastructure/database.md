@@ -90,7 +90,7 @@ renderer belongs to the database's driver package. It names itself in the
 | `aggregate_list` | `array_agg` | `json_group_array`, read back as the same list |
 | `Array(item_type)` | `item_type[]` | refused (no `arrays`) |
 | `fulltext_index`, `matches` | GIN index over `to_tsvector`, `@@ websearch_to_tsquery` | refused (no `fulltext_search`) |
-| `json_path` | `#>>`, an index step only into an array | `json_extract`, booleans as `'true'` / `'false'`; the same text for strings, booleans and 64-bit integers |
+| `json_path` | `#>>`, an index step only into an array | `json_extract`, booleans as `'true'` / `'false'`, numbers through `->` (the JSON text as written); the same text as PostgreSQL for every scalar |
 | `json_contains` | `jsonb @>` | refused (no `json_contains`) |
 
 The kernel's own locks come from the same renderer. Its `lock_statement` gives

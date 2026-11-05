@@ -4,16 +4,20 @@ and the suite fails a renderer that breaks the contract."""
 from __future__ import annotations
 
 import contextlib
+import tempfile
 import types
 import uuid
+from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import asyncpg, psycopg2
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
 
+from sandloom.core.drivers import sqlalchemy_database as driver
 from sandloom.core.drivers.sql_dialects import (
     POSTGRESQL,
     SQLITE,
@@ -45,13 +49,55 @@ from sandloom.core.sql_alchemy.projection_watermarks import (
     _take_purge_lock,
     purge_lock_key,
 )
+from sandloom.core.testing.workers import worker_env_values
 from sandloom.driverkit import SqlDialect
 from sandloom.driverkit.testing import SqlDialectConformance
+
+REPO = Path(__file__).resolve().parents[4]
+
+
+async def _json_path_reads(
+    engine: AsyncEngine, document: str, paths: tuple[tuple[str | int, ...], ...]
+) -> list[str | None]:
+    """``json_path`` at each path of ``document``, stored as written."""
+    table = sa.Table(
+        "conformance_json",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True, autoincrement=False),
+        sa.Column("doc", sa.JSON),
+    )
+    raw: Any = sa.literal(document, sa.Text())
+    if engine.dialect.name == "postgresql":
+        raw = sa.cast(raw, sa.JSON())  # json keeps the text as written
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            await connection.run_sync(table.metadata.create_all)
+            await connection.execute(table.insert().values(id=1, doc=raw))
+            read = await connection.execute(
+                sa.select(
+                    *(portable.json_path(table.c.doc, *path) for path in paths)
+                ).select_from(table)
+            )
+            answers = list(read.one())
+            await transaction.rollback()
+    finally:
+        await engine.dispose()
+    return answers
 
 
 class TestPostgresqlRenderer(SqlDialectConformance):
     renderer: ClassVar[SqlDialect] = POSTGRESQL
     dialect: ClassVar[Any] = postgresql.dialect()  # type: ignore[no-untyped-call]
+
+    async def read_json_paths(
+        self, document: str, paths: tuple[tuple[str | int, ...], ...]
+    ) -> list[str | None]:
+        url = worker_env_values(REPO / ".env.test")["DATABASE_URL"]
+        if not url.startswith("postgresql"):
+            pytest.skip("the test database is not PostgreSQL")
+        engine = driver.build_disposable_engine(url)
+        return await _json_path_reads(engine, document, paths)
 
 
 class TestSqliteRenderer(SqlDialectConformance):
@@ -59,6 +105,13 @@ class TestSqliteRenderer(SqlDialectConformance):
     dialect: ClassVar[Any] = sqlite.dialect()
     # A deferred read transaction under WAL is one snapshot (slice 8a).
     read_units_share_one_snapshot: ClassVar[bool] = True
+
+    async def read_json_paths(
+        self, document: str, paths: tuple[tuple[str | int, ...], ...]
+    ) -> list[str | None]:
+        with tempfile.TemporaryDirectory() as directory:
+            url = f"sqlite+aiosqlite:///{Path(directory) / 'conformance.db'}"
+            return await _json_path_reads(driver._build_engine(url), document, paths)
 
 
 class _HalfSearch(PostgresqlSql):
@@ -106,6 +159,19 @@ def test_the_suite_fails_a_renderer_that_breaks_the_contract(
     Broken.dialect = postgresql.dialect()  # type: ignore[no-untyped-call]
     with pytest.raises(AssertionError):
         getattr(Broken(), check)()
+
+
+@pytest.mark.asyncio
+async def test_the_suite_fails_a_json_path_renderer_without_read_json_paths() -> None:
+    """A renderer declaring json_path that never runs it on its database
+    fails the kit (risk fix 3): its number text is unchecked otherwise."""
+
+    class Unrun(SqlDialectConformance):
+        renderer = SQLITE
+        dialect = sqlite.dialect()
+
+    with pytest.raises(AssertionError, match="override read_json_paths"):
+        await Unrun().test_json_path_reads_scalars_as_stored()
 
 
 def test_only_a_one_snapshot_database_may_begin_read_units_alike() -> None:

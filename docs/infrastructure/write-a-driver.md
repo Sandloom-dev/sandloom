@@ -152,7 +152,9 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
    - `fulltext_search`: `fulltext_index_options()`, `fulltext_document(columns,
      language)` and `fulltext_match(document, query, language)`. Write the
      document's constants inline, so a query's expression is the index's;
-   - `json_path`: `json_path(column, path)`, the scalar as text;
+   - `json_path`: `json_path(column, path)`, the scalar's JSON text as
+     stored. A string reads unquoted, a number as written (`1.50`, `1e2`),
+     never in the database's float text;
    - `json_contains`: `json_contains(column, value)`;
    - `list_aggregates`: `aggregate_list(value)`, the aggregate of a group's
      values, and `aggregate_list_type(item_type)`, the type its result is read
@@ -170,8 +172,12 @@ writes the portable forms of `sandloom.sdk.data` in that database's SQL
 
 Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
 form the database cannot write returns `None`, and the kit checks that it is refused.
-The kit compiles each feature form the renderer declares. Run the forms on the real
-database in your own tests too.
+The kit compiles each feature form the renderer declares. To run `json_path`
+on your database, override the kit's `read_json_paths(document, paths)`. It
+stores `JSON_PATH_DOCUMENT` and answers what `json_path` reads at each path.
+The kit checks each answer against `JSON_PATH_READS`, numbers included.
+A renderer that declares `json_path` fails the kit without the override. Run
+the other forms on the real database in your own tests too.
 
 #### Add a DBAPI adapter
 

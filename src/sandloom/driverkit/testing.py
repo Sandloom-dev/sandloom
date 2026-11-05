@@ -155,6 +155,44 @@ class NotifierConformance:
         await provider.aclose()
 
 
+#: The kit's JSON document for :meth:`SqlDialectConformance.read_json_paths`:
+#: JSON text whose numbers must read back as written (risk fix 3).
+JSON_PATH_DOCUMENT = (
+    '{"s": "FR", "t": true, "f": false, "z": null, "n": 42, "one": 1.0, '
+    '"frac": 1.50, "exp": 1e2, "expu": 1E+2, "mz": -0.0, "tenth": 0.1, '
+    '"huge": 12345678901234567890123, "below": -9223372036854775809, '
+    '"pi": 3.141592653589793238, "small": 1.230e-5, "sn": "1.5", '
+    '"a": ["x", [2e1, {"k": -0.0}]], "o": {"0": 7}}'
+)
+#: What ``json_path`` reads at each path of :data:`JSON_PATH_DOCUMENT` on
+#: every database: the scalar's JSON text as stored, a string unquoted,
+#: ``None`` for JSON null, a missing path and an index step on an object.
+JSON_PATH_READS: tuple[tuple[tuple[str | int, ...], str | None], ...] = (
+    (("s",), "FR"),
+    (("t",), "true"),
+    (("f",), "false"),
+    (("z",), None),
+    (("n",), "42"),
+    (("one",), "1.0"),
+    (("frac",), "1.50"),
+    (("exp",), "1e2"),
+    (("expu",), "1E+2"),
+    (("mz",), "-0.0"),
+    (("tenth",), "0.1"),
+    (("huge",), "12345678901234567890123"),
+    (("below",), "-9223372036854775809"),
+    (("pi",), "3.141592653589793238"),
+    (("small",), "1.230e-5"),
+    (("sn",), "1.5"),
+    (("a", 0), "x"),
+    (("a", 1, 0), "2e1"),
+    (("a", 1, 1, "k"), "-0.0"),
+    (("o", 0), None),
+    (("o", "0"), "7"),
+    (("missing",), None),
+)
+
+
 class SqlDialectConformance:
     """What a SQL dialect renderer must do for the portable forms of
     ``sandloom.sdk.data``. Subclass it in the renderer's tests and set
@@ -597,6 +635,39 @@ class SqlDialectConformance:
         sql = self._sql(sa.select(table.c.id).where(value == "x"))
         _require("doc" in sql, f"json_path does not read the column: {sql}")
 
+    async def read_json_paths(
+        self, document: str, paths: tuple[tuple[str | int, ...], ...]
+    ) -> list[str | None]:
+        """Run ``json_path`` on the real database: store ``document`` (JSON
+        text, kept as written) in a JSON column and answer what
+        ``sandloom.sdk.data.json_path`` reads at each path. A renderer that
+        declares ``json_path`` must override it: the kit checks the answers
+        against :data:`JSON_PATH_READS` and fails without the override."""
+        raise NotImplementedError
+
+    @pytest.mark.asyncio
+    async def test_json_path_reads_scalars_as_stored(self) -> None:
+        if not self._declares("json_path"):
+            return  # json_path refuses (SANDLOOM-R015)
+        paths = tuple(path for path, _text in JSON_PATH_READS)
+        try:
+            read = await self.read_json_paths(JSON_PATH_DOCUMENT, paths)
+        except NotImplementedError:
+            raise AssertionError(
+                "the renderer declares json_path: override read_json_paths to "
+                "run the kit's JSON_PATH_READS on the database"
+            ) from None
+        wrong = [
+            f"{path}: {got!r}, not {text!r}"
+            for (path, text), got in zip(JSON_PATH_READS, read, strict=True)
+            if got != text
+        ]
+        _require(
+            not wrong,
+            "json_path must read the scalar's JSON text as stored (a number "
+            "as written, not as the database's float): " + "; ".join(wrong),
+        )
+
     def test_json_contains_binds_its_document(self) -> None:
         if not self._declares("json_contains"):
             return  # json_contains refuses (SANDLOOM-R015)
@@ -695,4 +766,9 @@ class SqlDialectConformance:
             )
 
 
-__all__ = ["NotifierConformance", "SqlDialectConformance"]
+__all__ = [
+    "JSON_PATH_DOCUMENT",
+    "JSON_PATH_READS",
+    "NotifierConformance",
+    "SqlDialectConformance",
+]

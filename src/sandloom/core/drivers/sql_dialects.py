@@ -768,21 +768,25 @@ class SqliteSql:
     def json_path(
         self, column: Any, path: tuple[JsonPathKey, ...]
     ) -> ColumnElement[str]:
-        # json_extract answers SQL values (a JSON true is 1): the text of
-        # booleans is restated from json_type, the rest cast to text, so the
-        # answer is PostgreSQL's ``#>>`` for strings, booleans, null and
-        # 64-bit integers. Other numbers are read as SQLite REAL and printed
-        # in its text (1.50 -> '1.5', 1e2 -> '100.0'): the form's contract
-        # excludes them.
+        # The scalar's JSON text as stored, PostgreSQL's ``json #>>``:
+        # json_extract answers SQL values (a JSON true is 1, a number REAL:
+        # 1.50 -> 1.5), so booleans are restated from json_type, numbers read
+        # with ``->`` (3.38, the minimum), which answers the JSON text as
+        # written (1.50, 1e2, -0.0, every digit; risk fix 3), and the rest
+        # (strings, null) is json_extract cast to text.
         where = literal(_sqlite_json_path(path), String())
-        true: ColumnElement[str] = literal_column("'true'")
-        false: ColumnElement[str] = literal_column("'false'")
-        kind = func.json_type(column, where)
+        number = column.op("->", return_type=Text())(where)
+        # One json_type per row: CASE json_type(...) WHEN 'true' THEN ...
         return cast(
             "ColumnElement[str]",
             case(
-                (kind == true, true),
-                (kind == false, false),
+                {
+                    literal_column("'true'"): literal_column("'true'"),
+                    literal_column("'false'"): literal_column("'false'"),
+                    literal_column("'integer'"): number,
+                    literal_column("'real'"): number,
+                },
+                value=func.json_type(column, where),
                 else_=sql_cast(func.json_extract(column, where), Text()),
             ),
         )

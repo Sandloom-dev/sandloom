@@ -264,16 +264,28 @@ capabilities=[CapabilityRequirement("database", features=frozenset({"arrays"}))]
   built with an `Array` column or a `fulltext_index` counts as a declaration.
 - A statement or table compiled for a database without the feature refuses:
   [SANDLOOM-R015](../../reference/error-codes.md#sandloom-r015).
-- `json_path` reads text that is the same on every database for strings,
-  booleans and integers within 64 bits: `"FR"`, `"true"`, `"42"`. A missing
-  path or a JSON `null` reads `None`. Other numbers read in each database's
-  own text (`1.50` may read `"1.5"`): compare them as integers, or store them
-  as strings.
-- A `json_path` index step (`0`) reads arrays only; on an object it reads
-  `None`. A negative index is refused.
 - `matches` uses the index when it names the same columns in the same order,
   in the index's language. With another language the database scans every
   row. The query is what a user types, such as `cats -dogs` or `"a phrase"`.
+
+What `json_path` reads, and how to compare it:
+
+- It reads the scalar's JSON text as stored, the same on every database.
+  Strings read as themselves (`"FR"`), booleans as `"true"` or `"false"`. Numbers read as written: `1.50` is `"1.50"`, `1e2` is `"1e2"`.
+  Missing paths and JSON `null` read `None`. An index step (`0`) reads
+  arrays only; on an object it reads `None`. Negative indexes are refused.
+- Compare a `json_path` with a `str`: `json_path(Order.meta, "total") ==
+  "1.50"`. A number raises `TypeError`, on either side and in `coalesce`:
+  PostgreSQL refuses text against a number, and SQLite answers differently.
+  `"1.50"` and `"1.5"` are different texts. Compare numbers in Python.
+- Do not cast a `json_path` to a number in SQL. On SQLite `CAST('1e2' AS
+  INTEGER)` is `1` and `CAST('abc' AS NUMERIC)` is `0`; PostgreSQL raises.
+- Ordering a `json_path` (`<`, `ORDER BY`, `GROUP BY`, `DISTINCT`) uses the
+  database's collation. SQLite sorts bytes; PostgreSQL usually sorts by
+  language (`"a" < "B"`), even for ASCII. Use `.collate("C")` on PostgreSQL
+  when byte order matters, or sort in Python.
+- SQLite accepts `NaN` and `Infinity` in a JSON column (JSON5) and reads
+  them as `None` and `"9e999"`. PostgreSQL refuses them on write.
 
 ## Related reading
 

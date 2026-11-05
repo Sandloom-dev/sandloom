@@ -141,11 +141,15 @@ website renders this same changelog.
   (`json_contains`). Each database's renderer writes them; PostgreSQL declares
   all four (`item_type[]`, a GIN index over `to_tsvector` and
   `websearch_to_tsquery`, `#>>`, `jsonb @>`), SQLite `json_path`
-  (`json_extract`). `json_path` reads the same text on both for strings,
-  booleans, null and integers within 64 bits; other numbers read in each
-  database's own text (`1.50` may read `1.5`), so compare them as integers or
-  store them as strings. An index step reads arrays only (`NULL` on an
-  object) and a negative one is refused. A module that uses a new form
+  (`json_extract`, numbers through `->`). `json_path` reads the scalar's JSON
+  text as stored, the same on both: a string unquoted, `true` / `false`, a
+  number as written (`1.50`, `1e2`, `-0.0`, every digit of a large integer).
+  It is compared with a `str`; a number on either side (`== 1.5`, `> 2`,
+  `Model.id == json_path(...)`, an integer subquery, `coalesce(..., 0)`, a
+  number bound to its parameter) raises `TypeError`, since PostgreSQL refuses
+  text against a number and SQLite answers differently. Ordering uses each
+  database's collation (`.collate("C")` for byte order on PostgreSQL). An index step reads arrays
+  only (`NULL` on an object) and a negative one is refused. A module that uses a new form
   declares the feature (SANDLOOM-C030, an error; a `*` import from
   `sandloom.sdk.data` and a declaration it cannot read are findings too),
   and a module whose tables are built
@@ -155,7 +159,9 @@ website renders this same changelog.
   without the feature refuses (SANDLOOM-R015, which now names the feature).
   Renderers write the forms through optional contract-2 members; one that
   declares such a feature without them is refused (SANDLOOM-B025), and
-  `SqlDialectConformance` compiles each declared form. Migrations render an
+  `SqlDialectConformance` compiles each declared form, and runs
+  `JSON_PATH_READS` (numbers as written) on the database through
+  `read_json_paths`, which a renderer declaring `json_path` must override. Migrations render an
   `Array` as the database's type (`postgresql.ARRAY(sa.String(length=40))`).
 
 - **An application starts on a SQLite file** (slice 8b of the database
