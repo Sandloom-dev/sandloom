@@ -110,6 +110,123 @@ each obligation is its own test, so a failure names what to fix. The kit needs `
 A skipped test means the driver advertises no channel, so nothing was sent. Read the skip
 reason rather than treating it as a pass.
 
+A database driver for a new SQL database also ships a **SQL dialect renderer**. It
+writes the portable forms of `sandloom.sdk.data` in that database's SQL
+([Database](database.md#portable-sql-forms)).
+
+1. Implement `SqlDialect` from `sandloom.driverkit`, with `contract_version = 2` and the
+   SQLAlchemy dialect `name`.
+2. Give the oldest server it supports in `minimum_server_version`.
+3. Return the features the database can give from `features()`. Leave out
+   `concurrent_writers`: the kernel derives it from the `serial_writers` fact (a
+   renderer without that fact has it), and a renderer listing it is refused.
+4. Map the database's errors to kinds in `classify_error`.
+5. Return a `RowSecurity` from `row_security()` when the database can confine rows
+   to the tenant a transaction binds (the setting `TENANT_SETTING`), or `None`. It
+   writes the policies and binds the tenant; its queries also check the roles at startup. With
+   `None`, `tenant_rls` is refused
+   ([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)) and tenant isolation
+   there is application-enforced.
+6. Say how a unit begins: `begin_statement(write=, read_only=, snapshot=)` returns
+   the `BEGIN` text, or `None` for the plain one, and `transaction_options(read_only=,
+   snapshot=)` the SQLAlchemy execution options to the same effect. Declare
+   `snapshot_reads` and `readonly_transactions` only when they give one snapshot and
+   refuse writes. Their units then need options of their own. Without
+   `snapshot_reads` a one-snapshot scope is refused
+   ([SANDLOOM-B027](../reference/error-codes.md#sandloom-b027)).
+7. Return a `LockStatement(statement, parameters)` from `lock_statement` and
+   `unlock_statement`, or `None` where the database has no such lock. Build the
+   statement once per key shape and put the key in `parameters`: the kernel
+   takes a lock per request and runs `execute(lock.statement, lock.parameters)`.
+   A database whose writers are serial may declare `transaction_locks` with no
+   lock statement. Its driver marks a transaction that holds the write lock:
+   `WRITE_LOCK_HELD` in the connection's `info`. SQLite's `BEGIN IMMEDIATE`
+   does so. The kernel's locks then succeed only in such a transaction.
+8. Four renderer facts are optional, and all default to `False`. If the database runs no
+   migration chain, set `schema_from_models = True`. The app
+   then builds its schema with `create_all` at startup, and `sandloom migrate` refuses it
+   ([SANDLOOM-B028](../reference/error-codes.md#sandloom-b028)). If it serves only
+   development and tests, set `development_only = True`; production then refuses it
+   without an accepted risk
+   ([SANDLOOM-B029](../reference/error-codes.md#sandloom-b029)). If it has one
+   writer at a time, set `serial_writers = True`. A nested write unit then
+   commits with its caller
+   ([Nested units](database.md#nested-units-commit-with-their-caller)). Without that
+   fact the database has `concurrent_writers`, which race tests ask for. Set
+   `aware_times = True` if `DateTime(timezone=True)` keeps the instant and the
+   DBAPI reads it back aware. `UtcDateTime` then converts nothing and only
+   refuses a naive time. The kit's `read_aware_time` must show it on the database.
+   Optionally write the read planner's literal prefix filter, both members or
+   neither: `prefix_pattern(prefix, ignore_case=)` answers the value to bind,
+   and `prefix_match(column, pattern, ignore_case=)` the condition. Every
+   character of the prefix matches itself, and only `ignore_case` folds case.
+   Without them the planner writes `LIKE` / `ILIKE` with a backslash `ESCAPE`.
+9. Write a feature form only when the database has it, and declare its feature
+   then ([Database](database.md#forms-that-need-a-feature)):
+   - `arrays`: `array_type(item_type)`;
+   - `fulltext_search`: `fulltext_index_options()`, `fulltext_document(columns,
+     language)` and `fulltext_match(document, query, language)`. Write the
+     document's constants inline, so a query's expression is the index's;
+   - `json_path`: `json_path(column, path)`, the scalar's JSON text as
+     stored. A string reads unquoted, a number as written (`1.50`, `1e2`),
+     never in the database's float text;
+   - `json_contains`: `json_contains(column, value)`;
+   - `list_aggregates`: `aggregate_list(value)`, the aggregate of a group's
+     values, and `aggregate_list_type(item_type)`, the type its result is read
+     through. That type reads a list (its `python_type` is `list`), each item
+     as `item_type` reads its column. Both built-in renderers declare it, and
+     identity needs it.
+
+   A renderer that declares
+   one of these features without its members is refused when it loads
+   ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)). Without the
+   feature, leave the members out: the form refuses
+   ([SANDLOOM-R015](../reference/error-codes.md#sandloom-r015)).
+10. Name the renderer in the `sandloom.sql_dialects` entry-point group under the dialect
+    name, and register the driver with `sql_dialects={"<name>"}`.
+
+Check it with `SqlDialectConformance` from the same kit: set `renderer` and `dialect`. A
+form the database cannot write returns `None`, and the kit checks that it is refused.
+The kit compiles each feature form the renderer declares. To run `json_path`
+on your database, override the kit's `read_json_paths(document, paths)`. It
+stores `JSON_PATH_DOCUMENT` and answers what `json_path` reads at each path.
+The kit checks each answer against `JSON_PATH_READS`, numbers included.
+A renderer that declares `json_path` fails the kit without the override. Run
+the other forms on the real database in your own tests too.
+
+#### Add a DBAPI adapter
+
+A new DBAPI for a database Sandloom already renders needs no renderer. It works
+on the plain path as it is. Add a DBAPI adapter only if it needs the speed
+([Database](database.md#the-dbapi-adapter)):
+
+1. Subclass `DbapiAdapter` from `sandloom.driverkit`. Set `name` to SQLAlchemy's
+   `dialect.driver` for the DBAPI. Keep `contract_version = 1`: another major is
+   refused ([SANDLOOM-B025](../reference/error-codes.md#sandloom-b025)).
+2. Set `capabilities`. A driver package may claim only `read_only_policy` and
+   `reconnect_backoff`. The other three drive asyncpg's API and SQLAlchemy's
+   private state, so only the kernel's own adapters claim them (B025).
+3. Override what those capabilities use. `connect_args` and `server_settings`
+   carry the timeouts, and `connection_lost` and `refuses_connections` classify
+   connection errors.
+4. Override the pool's probes if the DBAPI has cheaper ones. `ping` checks an
+   idle pooled connection. `connection_closed` spots a dead one without a round
+   trip.
+5. Override `prepare_engine` for setup on each new engine. The aiosqlite adapter
+   uses it to emit every unit's `BEGIN` itself.
+   `config_problem(url)` refuses a database the DBAPI cannot open, before
+   anything starts. Name the error code in its message.
+6. Call `register_dbapi_adapter(adapter)` when the driver package loads, before
+   the first engine is built. Your adapter replaces the one Sandloom ships for
+   the same DBAPI, and the shipped one never replaces yours.
+
+Every member you do not override keeps the plain answer. The plain
+`connection_lost` asks the renderer, so a lost connection is a 503 on any
+DBAPI that reports the server's error code. A DBAPI with no
+`read_only_policy` on a database without `readonly_transactions` refuses
+`DB_READ_ONLY_SESSIONS`
+([SANDLOOM-B031](../reference/error-codes.md#sandloom-b031)).
+
 ### 5. Prove the application uses it
 
 A passing application test does not show the driver was selected: the default `log` driver
@@ -148,6 +265,7 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 | `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
 | `ProviderContractError` | An instance reports other features than its class declares. |
 | `FeatureUnsupportedError` | A module requires a feature the driver does not advertise. |
+| [SANDLOOM-B033](../reference/error-codes.md#sandloom-b033) | A module uses a `sandloom.sdk.data` form, or declares a database feature, that the instance's renderer does not declare. |
 | `Input should be 'log' or 'smtp'` | A driver package's name was set in `NOTIFIER_BACKEND`. Use `INFRA`. |
 
 ## Related

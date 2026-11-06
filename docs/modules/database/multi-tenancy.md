@@ -132,6 +132,33 @@ and deliberate cross-tenant maintenance must use `unscoped()` (with
 `tenant_rls`, the system channel — see below). Every projection
 row also carries `tenant_id`; filter on it first.
 
+## Database-enforced and application-enforced isolation
+
+Tenant isolation holds at one of two strengths on each database instance:
+
+| Isolation | Where | What confines a statement |
+| --- | --- | --- |
+| **database-enforced** | `tenant_rls: true` on a database with row security (PostgreSQL) | the ORM guard **and** the database's policies, which confine raw SQL too |
+| **application-enforced** | every other instance, a database without row security (SQLite) included | the ORM guard only; raw SQL is not confined |
+
+The SQL of row security belongs to the database's SQL dialect renderer
+(`row_security()`). It writes the policy DDL and binds the tenant in each
+transaction. It also checks the roles at startup. A renderer without it, such
+as SQLite's, cannot enforce isolation in the database. On such an instance:
+
+- `tenant_rls`, `system_url` and `require_system_channel` stop startup with
+  [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026): nothing could
+  provide what they promise.
+- When the application maps a `TenantScoped` table, startup logs one warning
+  per such instance on the `sandloom.app` logger. It names the instance and
+  "application-enforced tenant isolation". The guarantee lattice computes the
+  same label from the instance's features.
+- The strict production profile refuses it, since it requires `tenant_rls`
+  on every instance (see [Production profile](#production-profile)).
+
+A PostgreSQL instance without `tenant_rls` is application-enforced too. That
+is the operator's choice, and startup logs no warning for it.
+
 ## PostgreSQL Row-Level Security (optional)
 
 For defense in depth the same invariant can be enforced **inside the
@@ -235,6 +262,7 @@ mistakes, not against malicious Python or SQL inside its process.
 | [SANDLOOM-C015](../../reference/error-codes.md#sandloom-c015) | runtime raw SQL or Core table access that can bypass the tenant guard |
 | [SANDLOOM-C024](../../reference/error-codes.md#sandloom-c024) | a raw query on a non-relational store outside `unscoped()` |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | no tenant bound where one is required (`400`) |
+| [SANDLOOM-B026](../../reference/error-codes.md#sandloom-b026) | `tenant_rls` or the system channel on a database without row security |
 
 ??? note "Guarantees, precisely"
 

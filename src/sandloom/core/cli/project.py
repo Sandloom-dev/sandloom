@@ -66,10 +66,12 @@ DEV_TOOL_PINS: tuple[str, ...] = (
     "pre-commit==4.7.0",
 )
 
-#: Dev requirement that brings `sandloom check`'s optional deps (PyYAML) and the
-#: test kit's (pytest plugins) — through the framework's own `check` / `testing`
-#: extras, so their ranges are owned in ONE place.
-CHECK_EXTRA_REQ = "sandloom[check,testing]"
+#: Dev requirement that brings `sandloom check`'s optional deps (PyYAML), the
+#: test kit's (pytest plugins) and SQLite's driver (aiosqlite: the app and its
+#: tests run on `sqlite+aiosqlite://` without another install) — through the
+#: framework's own `check` / `testing` / `sqlite` extras, so their ranges are
+#: owned in ONE place.
+CHECK_EXTRA_REQ = "sandloom[check,testing,sqlite]"
 
 #: Runtime requirement for the framework's native accelerators (hiredis C
 #: reply parser, jsonschema-rs) — pinned once, in the framework's `fast` extra.
@@ -232,6 +234,8 @@ addopts = [
     "-p", "sandloom.sdk.testing.plugin",
 ]
 asyncio_mode = "auto"
+# A test still running after 300 s dumps every thread's stack.
+faulthandler_timeout = 300
 # A deprecated call (in the app or a library it uses) fails the suite.
 filterwarnings = ["error::DeprecationWarning"]
 
@@ -288,7 +292,7 @@ CRUD, events and cross-module calls:
 | need | names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
@@ -300,7 +304,8 @@ CRUD, events and cross-module calls:
 
 Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
-(`clock_timestamp()`), so a list ordered by `created_at, id` never ties.
+(`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
+other time column is `UtcDateTime()` (SANDLOOM-C029).
 
 Routes declare nothing but their exceptions: every route is authenticated
 (`CurrentUser`, or a gate) unless it says `public(reason="...")`; writes get
@@ -366,6 +371,41 @@ uv run sandloom dev run --port auto   # a free port now, when the app's own is t
 uv run sandloom dev reset      # empty this checkout's database
 uv run sandloom dev down       # stop the containers (the data stays)
 uv run sandloom dev prune      # remove databases of deleted worktrees
+```
+
+### SQLite instead of PostgreSQL (development and tests)
+
+The app also runs on a SQLite file; `uv sync` installs its driver. Set the
+database in `.env`, outside the `sandloom dev` block, with a Redis of your own
+(SQLite replaces PostgreSQL only):
+
+```bash
+DATABASE_URL=sqlite+aiosqlite:///./data/app.db
+CACHE_URL=redis://127.0.0.1:6379/0
+BROKER_URL=redis://127.0.0.1:6379/1
+```
+
+`uv run sandloom dev run` then serves the app on that file and starts no dev
+services; `uv run sandloom dev up` starts nothing and says so. The app
+builds its tables from the models at startup; there is no
+`sandloom migrate` on SQLite (SANDLOOM-B028), and after a model change
+`dev run` sets the old file aside and builds a fresh one: restart any
+worker, beat or admin process on the file then (each refuses the replaced
+file, SANDLOOM-B028). Tenant isolation
+is the ORM guard only (no row security), and writers take turns. Production
+needs PostgreSQL (SANDLOOM-B029).
+
+The tests run on SQLite with `SANDLOOM_TEST_DATABASE_URL`; a test that needs
+a feature SQLite lacks skips (`skip_unless_db_feature`), and the migration
+checks skip, each saying why: the chain coverage of `schema & deploy`
+(SANDLOOM-T002), the migrations-match-models tests and `migration drift`
+(SANDLOOM-T006). A new model or column passes there without a revision.
+Before production, write its revision against PostgreSQL (`sandloom migrate
+new <module> "<message>"`); those checks run there, and `sandloom migrate
+upgrade-all` refuses a chain without it (SANDLOOM-T002):
+
+```bash
+SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///./data/app_test.db uv run sandloom test
 ```
 
 ## Architecture checks

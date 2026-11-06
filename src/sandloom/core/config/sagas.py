@@ -24,7 +24,9 @@ class SagasConfig(BaseModel):
             "instances on each database."
         ),
     )
-    # Instances one sweep tick nudges per database (FOR UPDATE SKIP LOCKED).
+    # Instances one sweep tick nudges per database (a FOR UPDATE SKIP LOCKED
+    # claim where the database has skip_locked; elsewhere a compare-and-set on
+    # swept_at, one instance per transaction).
     saga_sweep_batch: int = Field(
         default=200,
         ge=1,

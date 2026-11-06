@@ -136,7 +136,7 @@ DDL = [
         status VARCHAR(16) NOT NULL, name TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL)""",
     "CREATE INDEX ix_bench_opt_items_grp_created ON bench_opt_items (grp, created_at)",
-    *enable_tenant_rls_statements("bench_opt_items"),
+    *enable_tenant_rls_statements("bench_opt_items", dialect="postgresql"),
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON bench_opt_items TO {ROLE}",
 ]
 

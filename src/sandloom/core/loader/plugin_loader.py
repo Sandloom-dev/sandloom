@@ -29,12 +29,15 @@ from sandloom.core.descriptors.module_names import (
     module_name,
     resolve_module_names,
 )
+from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
+from sandloom.core.infra.registry import DatabaseFeatureMissing
 from sandloom.core.loader.manifest import module_manifest
 from sandloom.core.module_api import ModuleAPI
 from sandloom.core.module_api._registration import (
     _RegistrationControlFlow,
     pending_saga_requirements,
 )
+from sandloom.core.orm import module_feature_uses
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
@@ -394,6 +397,7 @@ def _preflight_capabilities(core: CoreFacade, desc: ModuleDescriptor) -> None:
     registry = getattr(core, "_infra", None)
     if registry is None:
         return
+    _preflight_database_features(registry, desc)
 
     for req in desc.effective_capabilities():
         try:
@@ -420,6 +424,46 @@ def _preflight_capabilities(core: CoreFacade, desc: ModuleDescriptor) -> None:
                 desc.name,
                 exc,
             )
+
+
+def _preflight_database_features(registry: Any, desc: ModuleDescriptor) -> None:
+    """Refuse a module whose database instance lacks a feature it needs
+    (SANDLOOM-B033): one its tables are built with (an ``Array`` column, a
+    ``fulltext_index``; derived from the models) or one it declares in a
+    required ``CapabilityRequirement("database", features=...)``.
+
+    Build-free, like the rest of the preflight. An instance that is not
+    configured is left to the generic check, which names it.
+    """
+    # (instance, feature) -> what needs it
+    needs: dict[tuple[str, str], list[str]] = {}
+    (home,) = desc.database_instances()
+    for form, feature, where in module_feature_uses(desc.name):
+        needs.setdefault((home, feature), []).append(f"{form} ({where})")
+    for req in desc.effective_capabilities():
+        if req.capability != "database" or not req.required:
+            continue
+        for feature in sorted(req.features & DATABASE_RENDERER_FEATURES):
+            needs.setdefault((req.instance or "default", feature), []).append(
+                "declared in capabilities="
+            )
+    missing: list[str] = []
+    for (instance, feature), users in sorted(needs.items()):
+        advertised = registry.declared_features("database", instance)
+        if advertised is None or feature in advertised:
+            continue
+        missing.append(
+            f"{', '.join(users)} needs the feature {feature!r}, which database "
+            f"instance {instance!r} lacks"
+        )
+    if missing:
+        raise DatabaseFeatureMissing(
+            f"module {desc.name!r} needs database features its instance does "
+            f"not have [SANDLOOM-B033]: {'; '.join(missing)}",
+            fix="run the module on a database whose SQL dialect renderer "
+            "declares the feature (PostgreSQL has every one), or stop using "
+            "the form; `sandloom explain SANDLOOM-B033`",
+        )
 
 
 def _record_failure(

@@ -68,8 +68,10 @@ Within a major version (`0.x` while pre-1.0, `x.y` thereafter):
 ## Release line and distributions
 
 The framework, the `sandloom` distribution, has one release line (`0.6.0`,
-`0.7.0`, …), recorded in the [Changelog](../changelog.md) with an upgrade guide
-per breaking release (e.g. [Upgrading to 1.0](../operate/upgrade-1.0.md)).
+`0.7.0`, …), recorded in the [Changelog](../changelog.md). Each breaking
+release has an upgrade guide in `docs/operate/`, listed in its nav section:
+[Upgrading to 1.0](../operate/upgrade-1.0.md) and
+[Upgrade to portable SQL and SQLite](../operate/upgrade-sqlite-and-portable-sql.md).
 
 The module packages `sandloom-identity`, `sandloom-tenancy` and
 `sandloom-billing` (see [Publishing](publishing.md)) **version

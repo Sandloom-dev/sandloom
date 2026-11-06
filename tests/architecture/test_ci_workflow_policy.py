@@ -100,8 +100,20 @@ def runner() -> ModuleType:
 def test_pr_matrix_is_one_fast_312_and_full_matrix_retains_compatibility(runner):
     job = workflow("ci.yml")["jobs"]["backend-tests"]
     assert runner._expand_matrix(job, full_validation=False) == [
-        {"python": "3.12", "coverage": False, "slow": False, "part": "1/2"},
-        {"python": "3.12", "coverage": False, "slow": False, "part": "2/2"},
+        {
+            "python": "3.12",
+            "coverage": False,
+            "slow": False,
+            "part": "1/2",
+            "ledger": "part1",
+        },
+        {
+            "python": "3.12",
+            "coverage": False,
+            "slow": False,
+            "part": "2/2",
+            "ledger": "part2",
+        },
     ]
     # The parts share one seed, so together they are the whole fast suite;
     # a full-validation row is one job with a fresh seed and no part.
@@ -118,6 +130,9 @@ def test_pr_matrix_is_one_fast_312_and_full_matrix_retains_compatibility(runner)
     assert {row["python"] for row in full} == {"3.11", "3.12", "3.13", "3.14"}
     assert {row["python"] for row in full if row["slow"]} == {"3.11", "3.12"}
     assert [row["python"] for row in full if row["coverage"]] == ["3.12"]
+    # Each row's skip ledger has its own file and artifact (skip-ledger job).
+    for rows in (full, runner._expand_matrix(job, full_validation=False)):
+        assert len({row["ledger"] for row in rows}) == len(rows)
 
 
 def test_full_serial_gate_can_start_before_change_classification(runner):
@@ -165,7 +180,9 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ("website/index.html", {"docs"}),
         (".github/branch-protection.json", set()),
         ("tools/packaging/public-source.json", set()),
-        ("tools/ci/ci_local.py", set()),
+        # The SQLite lane's own tooling runs the lane (backend).
+        ("tools/ci/ci_local.py", {"backend"}),
+        ("tools/smoke/quickstart_check.py", {"backend"}),
         (
             "src/sandloom/core/unit_of_work/runtime.py",
             {"backend", "admin", "docs", "packages", "architecture"},

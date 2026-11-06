@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,14 @@ def _collect(root: Path, *args: str) -> tuple[list[str], str]:
     return ids, proc.stdout
 
 
+def _collect_all(root: Path, *runs: list[str]) -> list[tuple[list[str], str]]:
+    """:func:`_collect` for each argument list, the subprocesses side by side
+    (each is a cold interpreter: one after another they made this file the
+    longest of the suite); the results in the order of ``runs``."""
+    with ThreadPoolExecutor(max_workers=len(runs)) as pool:
+        return list(pool.map(lambda args: _collect(root, *args), runs))
+
+
 @pytest.mark.subprocess_probe
 def test_without_the_option_the_order_is_unchanged(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
@@ -68,9 +77,12 @@ def test_without_the_option_the_order_is_unchanged(tmp_path: Path) -> None:
 @pytest.mark.subprocess_probe
 def test_a_seed_fixes_the_order_and_is_printed_for_replay(tmp_path: Path) -> None:
     root = _project(tmp_path / "p")
-    first, out = _collect(root, "--sandloom-shuffle=1234")
-    again, _ = _collect(root, "--sandloom-shuffle=1234")
-    other, _ = _collect(root, "--sandloom-shuffle=99")
+    (first, out), (again, _), (other, _) = _collect_all(
+        root,
+        ["--sandloom-shuffle=1234"],
+        ["--sandloom-shuffle=1234"],
+        ["--sandloom-shuffle=99"],
+    )
     assert first == again
     assert first != other
     assert sorted(first) == sorted(other)
@@ -104,10 +116,13 @@ def test_the_shards_of_one_seed_split_whole_files_and_cover_the_run(
     tmp_path: Path,
 ) -> None:
     root = _project(tmp_path / "p")
-    whole, _ = _collect(root, "--sandloom-shuffle=5")
+    shards = [["--sandloom-shuffle=5", f"--sandloom-shard={k}/3"] for k in (1, 2, 3)]
+    seeds = [
+        [f"--sandloom-shuffle={seed}", "--sandloom-shard=1/2"] for seed in range(1, 8)
+    ]
+    (whole, _), *runs = _collect_all(root, ["--sandloom-shuffle=5"], *shards, *seeds)
     parts = []
-    for index in (1, 2, 3):
-        ids, out = _collect(root, "--sandloom-shuffle=5", f"--sandloom-shard={index}/3")
+    for index, (ids, out) in zip((1, 2, 3), runs[:3], strict=True):
         assert f"sandloom-shuffle: shard {index}/3 ran " in out
         assert f"replay: --sandloom-shuffle=5 --sandloom-shard={index}/3" in out, out
         # the shard keeps the shuffled run's order of what it runs
@@ -117,16 +132,81 @@ def test_the_shards_of_one_seed_split_whole_files_and_cover_the_run(
     files = [{i.split("::")[0] for i in part} for part in parts]
     assert all(files) and not (files[0] & files[1] or files[1] & files[2])
     # another seed deals the files differently
-    others = [
-        {
-            i.split("::")[0]
-            for i in _collect(
-                root, f"--sandloom-shuffle={seed}", "--sandloom-shard=1/2"
-            )[0]
-        }
-        for seed in range(1, 8)
-    ]
+    others = [{i.split("::")[0] for i in ids} for ids, _ in runs[3:]]
     assert len({frozenset(f) for f in others}) > 1
+
+
+@pytest.mark.subprocess_probe
+def test_the_files_with_a_slow_test_come_first(tmp_path: Path) -> None:
+    root = _project(tmp_path / "p")
+    (root / "test_c.py").write_text(
+        "import pytest\n\n" + _FILES["test_c.py"] + "@pytest.mark.slow\n"
+        "def test_c_slow(): pass\n"
+    )
+    (root / "test_e.py").write_text(
+        "import pytest\n\npytestmark = pytest.mark.slow\n\ndef test_e_0(): pass\n"
+    )
+    *seeded, (plain, _) = _collect_all(
+        root, *([f"--sandloom-shuffle={seed}"] for seed in (1, 2, 3)), []
+    )
+    for seed, (ids, _) in zip((1, 2, 3), seeded, strict=True):
+        files = list(dict.fromkeys(i.split("::")[0] for i in ids))
+        assert set(files[:2]) == {"test_c.py", "test_e.py"}, (seed, files)
+        assert len(ids) == 4 * 6 + 2  # nothing dropped or added
+    # without a seed nothing moves
+    assert next(i.split("::")[0] for i in plain) == "test_a.py"
+
+
+@pytest.mark.subprocess_probe
+def test_xdist_runs_the_files_in_the_seeded_order(tmp_path: Path) -> None:
+    """xdist's default ``--loadscope-reorder`` hands the files of ``--dist
+    loadfile`` out largest first, so a slow one-test file ran last. A seeded
+    run hands them out in its own order: the slow file first."""
+    pytest.importorskip("xdist")
+    root = _project(tmp_path / "p")
+    (root / "test_b.py").write_text(
+        "".join(f"def test_b_{i}(): pass\n" for i in range(12))
+    )
+    (root / "test_e.py").write_text(
+        "import pytest\n\n@pytest.mark.slow\ndef test_e_0(): pass\n"
+    )
+    (root / "conftest.py").write_text(
+        "from pathlib import Path\n\n"
+        "def pytest_runtest_logstart(nodeid, location):\n"
+        "    with (Path(__file__).parent / 'ran.txt').open('a') as ran:\n"
+        "        ran.write(nodeid.split('::')[0] + '\\n')\n"
+    )
+    seed = "--sandloom-shuffle=3"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        collecting = pool.submit(_collect, root, seed)  # the seeded order
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "xdist",
+                "-p",
+                "sandloom.core.testing.shuffle",
+                "-n",
+                "1",
+                "--dist",
+                "loadfile",
+                "-q",
+                seed,
+            ],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        collected, _ = collecting.result()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    ran = list(dict.fromkeys((root / "ran.txt").read_text().split()))
+    assert ran == list(dict.fromkeys(i.split("::")[0] for i in collected))
+    assert ran[0] == "test_e.py"
 
 
 @pytest.mark.subprocess_probe

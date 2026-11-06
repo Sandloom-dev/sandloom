@@ -19,11 +19,13 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import Text, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
@@ -31,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from sandloom.core.di import bind_tenant, unscoped
+from sandloom.core.drivers.sql_dialects import POSTGRESQL
 from sandloom.core.orm import TenantScoped, disable_tenant_rls, enable_tenant_rls
 from sandloom.core.sql_alchemy.rls import (
     disable_tenant_rls_statements,
@@ -38,6 +41,7 @@ from sandloom.core.sql_alchemy.rls import (
 )
 from sandloom.core.sql_alchemy.tenant_rls import (
     TenantRLSConfigError,
+    _Binding,
     _set_config_sql,
     install_tenant_rls,
     is_tenant_rls_installed,
@@ -92,7 +96,7 @@ async def rls() -> AsyncGenerator[_Env, None]:
                 "tenant_id uuid NOT NULL, name text NOT NULL)"
             )
         )
-        for sql in enable_tenant_rls_statements(table):
+        for sql in enable_tenant_rls_statements(table, dialect=conn):
             await conn.execute(text(sql))
         await conn.execute(
             text(
@@ -282,7 +286,7 @@ async def test_superuser_bypasses_rls_documented_caveat(rls: _Env) -> None:
 @pytest.mark.asyncio
 async def test_disable_reverts_policy(rls: _Env) -> None:
     async with rls.admin.begin() as conn:
-        for sql in disable_tenant_rls_statements(rls.table):
+        for sql in disable_tenant_rls_statements(rls.table, dialect=conn):
             await conn.execute(text(sql))
     async with rls.sessions() as s, s.begin():
         assert len(await rls.names(s)) == 3
@@ -300,26 +304,36 @@ def test_install_is_idempotent_and_postgres_only() -> None:
     class _FakeEngine:
         dialect = _FakeDialect()
 
-    with pytest.raises(TenantRLSConfigError, match="PostgreSQL"):
+    with pytest.raises(TenantRLSConfigError, match="SANDLOOM-B026"):
         install_tenant_rls(_FakeEngine())  # type: ignore[arg-type]
 
 
 def test_set_config_sql_is_parameterised() -> None:
-    sql, params = _set_config_sql("numeric_dollar", str(TENANT_A))
-    assert "$1" in sql and str(TENANT_A) not in sql
+    security = POSTGRESQL.row_security()
+    sql, params = _set_config_sql(_Binding(security, "numeric_dollar"), str(TENANT_A))
+    # byte-identical to the literal the hook built before slice 6
+    assert sql == "SELECT set_config('sandloom.tenant_id', $1, true)"
+    assert str(TENANT_A) not in sql
     assert params == (str(TENANT_A),)
     assert "tenant_bypass" not in sql
-    sql, params = _set_config_sql("pyformat", str(TENANT_A))
-    assert "%(t)s" in sql and params == {"t": str(TENANT_A)}
+    sql, params = _set_config_sql(_Binding(security, "pyformat"), str(TENANT_A))
+    assert sql == "SELECT set_config('sandloom.tenant_id', %(t)s, true)"
+    assert params == {"t": str(TENANT_A)}
 
 
 def test_migration_helper_emits_policy_through_op() -> None:
     class _Op:
+        """The Alembic op's surface: execute, and the context naming the
+        database whose renderer writes the SQL."""
+
         def __init__(self) -> None:
             self.sql: list[str] = []
 
         def execute(self, sql: Any) -> None:
             self.sql.append(str(sql))
+
+        def get_context(self) -> Any:
+            return SimpleNamespace(dialect=postgresql.dialect())
 
     op = _Op()
     enable_tenant_rls(op, "notes_note")

@@ -36,8 +36,11 @@ import pytest
 
 from sandloom.core.testing import observed as _observed
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported fixtures
+    _sandloom_cancel_leftover_tasks,
+    _sandloom_db_feature_skip,
     _sandloom_isolate_module_globals,
     _sandloom_isolate_process_globals,
+    _sandloom_loop_engines,
     _sandloom_release_default_pools,
     ambient_uow,
     async_client,

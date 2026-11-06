@@ -9,20 +9,29 @@ is refused until purchases cover it). A dispute reverses the remaining
 credits at once; a dispute closed ``won`` restores what the dispute reversed.
 """
 
+import asyncio
 import json
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom_billing.models import CreditLedgerEntry
+from sandloom.sdk.data import WallClock
+from sandloom.sdk.testing import skip_unless_db_feature
+from sandloom_billing.models import CreditLedgerEntry, PspPaymentState
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
-from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
+from sandloom_billing.tests.conftest import (
+    WEBHOOK_SECRET,
+    audit_count,
+    make_user_headers,
+    outbox_count,
+)
 from sandloom_billing.tests.test_operation_intents import (
     CHECKOUT,
     WEBHOOK,
@@ -138,6 +147,29 @@ async def _balance(db: AsyncSession, intent: Any) -> int:
     return await BillingService.get_credit_balance(intent.customer_id, db)
 
 
+async def _until_transactions_wait_on_a_lock(holder: Any, count: int = 1) -> None:
+    """Until ``count`` other transactions wait on a lock ``holder`` holds
+    (instead of a fixed 0.5 s that guessed they did). Asked through
+    ``holder``, the session holding the lock: no extra pool connection."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = (
+            await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if waiting >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"fewer than {count} transaction(s) waited on the lock")
+
+
 async def test_same_payment_intent_under_another_session_never_double_grants(
     async_client, test_db, catalog, fake_psp, sessions
 ):
@@ -165,10 +197,7 @@ async def test_same_payment_intent_under_another_session_never_double_grants(
 
 
 async def _audits(db: AsyncSession, action: str) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": action}
-    )
-    return int(count.scalar_one())
+    return await audit_count(db, action)
 
 
 async def test_full_refund_reverses_the_granted_credits(
@@ -369,11 +398,7 @@ async def test_dispute_of_an_unknown_payment_is_audited_for_an_operator(
 
 
 async def _channel_count(db: AsyncSession, channel: str) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM outbox_messages WHERE channel = :c"),
-        {"c": channel},
-    )
-    return int(count.scalar_one())
+    return await outbox_count(db, channel)
 
 
 async def test_won_dispute_restores_with_a_distinct_event(
@@ -575,6 +600,7 @@ async def test_refund_without_a_psp_customer_is_refused(
 # --------------------------------------------------------------------------- #
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_concurrent_first_refund_and_completion_both_converge(
     test_engine: Any, catalog: dict[str, Any]
 ) -> None:
@@ -619,7 +645,8 @@ async def test_concurrent_first_refund_and_completion_both_converge(
     async with committing_uow(maker) as a:
         await WebhookService._apply_charge_refunded(refund, refund["data"]["object"], a)
         racing = asyncio.create_task(completion())
-        await asyncio.sleep(0.5)  # the completion runs while the refund is open
+        # the completion runs, and waits on the state row, while the refund is open
+        await _until_transactions_wait_on_a_lock(a)
     await asyncio.wait_for(racing, timeout=10)
 
     async with maker() as s:
@@ -651,19 +678,14 @@ async def test_housekeeping_purges_only_old_orphan_payment_states(
         orphan["data"]["object"]["payment_intent"] = pi
         await _post(async_client, orphan)
     await test_db.execute(
-        text(
-            "UPDATE billing_psp_payment_states SET updated_at = now() - "
-            "interval '400 days' WHERE psp_payment_intent_id IN "
-            "('pi_old_orphan', :granted)"
-        ),
-        {"granted": PI},
+        update(PspPaymentState)
+        .where(PspPaymentState.psp_payment_intent_id.in_(["pi_old_orphan", PI]))
+        .values(updated_at=datetime.now(UTC) - timedelta(days=400))
     )
 
     assert await purge_orphan_payment_states(test_db) == 1
     left = (
-        await test_db.execute(
-            text("SELECT psp_payment_intent_id FROM billing_psp_payment_states")
-        )
+        await test_db.execute(select(PspPaymentState.psp_payment_intent_id))
     ).scalars()
     assert sorted(left) == sorted([PI, "pi_new_orphan"])
     # The periodic task runs it (and reports the count).
@@ -735,11 +757,9 @@ async def test_purge_never_deletes_the_state_a_concurrent_completion_holds(
         await WebhookService._apply_charge_refunded(refund, refund["data"]["object"], s)
     async with maker() as s:
         await s.execute(
-            text(
-                "UPDATE billing_psp_payment_states SET updated_at = now() - "
-                "interval '400 days' WHERE psp_payment_intent_id = :p"
-            ),
-            {"p": PI},
+            update(PspPaymentState)
+            .where(PspPaymentState.psp_payment_intent_id == PI)
+            .values(updated_at=datetime.now(UTC) - timedelta(days=400))
         )
         await s.commit()
     pack = catalog["pack_price"]
@@ -784,14 +804,12 @@ async def test_purge_never_deletes_the_state_a_concurrent_completion_holds(
 
     async with maker() as s:
         assert await BillingService.get_credit_balance(customer_id, s) == 0
-        kept = await s.execute(
-            text(
-                "SELECT count(*) FROM billing_psp_payment_states "
-                "WHERE psp_payment_intent_id = :p"
-            ),
-            {"p": PI},
+        kept = await s.scalar(
+            select(func.count())
+            .select_from(PspPaymentState)
+            .where(PspPaymentState.psp_payment_intent_id == PI)
         )
-        assert int(kept.scalar_one()) == 1
+        assert kept == 1
 
 
 async def test_paid_credit_pack_without_a_payment_intent_grants_nothing(
@@ -837,3 +855,24 @@ async def test_paid_credit_pack_without_a_payment_intent_grants_nothing(
     assert await _audits(test_db, "billing.credits.grant_refused") == 1
     flagged = await test_db.get(OperationIntent, intent.id, populate_existing=True)
     assert flagged is not None and flagged.followup_at is not None
+
+
+async def test_payment_state_upsert_bumps_updated_at_with_the_wall_clock(
+    test_db: AsyncSession,
+) -> None:
+    """The touch is the database's clock at the statement, ``WallClock()``
+    as the database's renderer writes it (``clock_timestamp()`` on
+    PostgreSQL, as before): the orphan purge re-checks ``updated_at``."""
+    from sandloom_billing.services.webhook_service import payment_state_upsert
+
+    dialect = test_db.bind.dialect
+    statement = payment_state_upsert("pi_pin", test_db)
+    sql = " ".join(str(statement.compile(dialect=dialect)).split())
+    wall_clock = str(WallClock().compile(dialect=dialect))
+    assert sql.startswith(
+        "INSERT INTO billing_psp_payment_states (psp_payment_intent_id"
+    ), sql
+    assert (
+        "ON CONFLICT (psp_payment_intent_id) DO UPDATE SET "
+        f"updated_at = {wall_clock} RETURNING"
+    ) in sql, sql

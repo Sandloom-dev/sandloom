@@ -23,6 +23,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
 
@@ -30,7 +31,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import delete, insert, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sandloom.core import unit_of_work as uow_module
@@ -56,9 +57,10 @@ from sandloom.core.module_api import (
 from sandloom.core.module_api._context import caller_user_id
 from sandloom.core.rpc import install_service_rpc_routes
 from sandloom.core.rpc import wire as rpc_wire
+from sandloom.core.sql_alchemy.models.contract_command import ContractCommandRecord
 from sandloom.core.testing import InMemoryCache, committing_uow
 from sandloom.core.testing.fixtures import *  # noqa: F403
-from sandloom.core.testing.infra import override_instance
+from sandloom.core.testing.infra import override_instance, skip_unless_db_feature
 from sandloom.core.unit_of_work.hooks import on_commit
 from sandloom.core.unit_of_work.request import RequestScope, bind_request_scope
 from sandloom.core.unit_of_work.risk import sensitive_effect
@@ -66,6 +68,12 @@ from sandloom.core.unit_of_work.risk import sensitive_effect
 pytestmark = pytest.mark.asyncio
 
 SERVICE = "demo.durable_ledger.v1"
+
+
+def _ago(**delta: float) -> datetime:
+    """A naive UTC time ``delta`` ago: the command log's columns, as the store
+    writes them (Python-side times, the same on every database)."""
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(**delta)
 
 
 class _Crash(BaseException):
@@ -332,6 +340,10 @@ async def test_concurrent_duplicates_execute_exactly_once(
     assert await _effects(sessions, "op-race") == 1
 
 
+# A race of overlapping writers: the duplicate waits on the in-flight claim's
+# row lock, bounded by a server-side lock_timeout (asyncpg server_settings).
+# A serial-writer database (SQLite) has one writer at a time: no such race.
+@skip_unless_db_feature("concurrent_writers")
 async def test_duplicate_outwaiting_the_lock_timeout_is_in_progress(
     sandloom_core: Any,
     db_engine: Any,
@@ -519,7 +531,7 @@ async def test_expired_record_is_taken_over_and_purged(
     assert await svc.spend(10, "op-ttl") == 90
     async with sessions() as db, db.begin():
         await db.execute(
-            text("UPDATE contract_command_log SET expires_at = now() - interval '1s'")
+            update(ContractCommandRecord).values(expires_at=_ago(seconds=1))
         )
     # Past CONTRACT_COMMAND_DEDUPE_TTL_SECONDS the key runs afresh.
     assert await svc.spend(10, "op-ttl") == 90
@@ -527,7 +539,7 @@ async def test_expired_record_is_taken_over_and_purged(
     assert len(await _records(sessions)) == 1
     async with sessions() as db, db.begin():
         await db.execute(
-            text("UPDATE contract_command_log SET expires_at = now() - interval '1s'")
+            update(ContractCommandRecord).values(expires_at=_ago(seconds=1))
         )
     factory = core.get_uow_factory("default")
     assert await purge_expired_commands(core, "default", factory) == 1
@@ -543,11 +555,15 @@ async def test_claims_and_completions_reuse_prebuilt_statements(
     _, core = provider_core
     svc = core.get_service(SERVICE)
     assert await svc.spend(1, "op-s1") == 99
-    upsert = command_log._upserts["postgresql"]
+    # the claim statement each database got, built once (keyed by the
+    # database the claims ran on, whichever it is)
+    upserts = dict(command_log._upserts)
     completion = command_log._completions[True]
+    assert upserts
     assert await svc.spend(2, "op-s2") == 98
     assert await svc.spend(2, "op-s2") == 98  # replay: the prebuilt lookup
-    assert command_log._upserts["postgresql"] is upsert
+    assert command_log._upserts == upserts
+    assert all(command_log._upserts[k] is v for k, v in upserts.items())
     assert command_log._completions[True] is completion
     assert command_log._replay_lookup is not None
     assert Ledger._calls == ["op-s1", "op-s2"]
@@ -689,6 +705,9 @@ class _SessionUoW:
         await self.session.close()
 
 
+# A race of overlapping writers: the purge blocks on the takeover's row lock
+# while the takeover is still open (observed in pg_stat_activity).
+@skip_unless_db_feature("concurrent_writers")
 async def test_purge_never_deletes_a_record_taken_over_concurrently(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -699,13 +718,17 @@ async def test_purge_never_deletes_a_record_taken_over_concurrently(
 
     store = sql_alchemy_command_log_store()
     async with sessions() as db, db.begin():
-        await db.execute(text("DELETE FROM contract_command_log"))
+        await db.execute(delete(ContractCommandRecord))
         await db.execute(
-            text(
-                "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, "
-                "args_digest, status, result, created_at, expires_at) VALUES "
-                "('k-race', 'c', NULL, 'd', 'ok', NULL, "
-                "now() - interval '2h', now() - interval '1h')"
+            insert(ContractCommandRecord).values(
+                dedupe_key="k-race",
+                contract="c",
+                tenant_id=None,
+                args_digest="d",
+                status="ok",
+                result=None,
+                created_at=_ago(hours=2),
+                expires_at=_ago(hours=1),
             )
         )
     takeover = sessions()
@@ -748,6 +771,9 @@ async def test_purge_never_deletes_a_record_taken_over_concurrently(
     assert len(records) == 1
 
 
+# A race of overlapping writers: a duplicate claim waits on a running claim's
+# row lock, bounded by a server-side lock_timeout (asyncpg server_settings).
+@skip_unless_db_feature("concurrent_writers")
 async def test_an_in_flight_claim_past_its_ttl_is_never_taken_over(
     db_engine: Any, sessions: async_sessionmaker[AsyncSession]
 ) -> None:

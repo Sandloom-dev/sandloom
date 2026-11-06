@@ -25,11 +25,18 @@ Claim protocol (one statement on the happy path)::
 * a running claim is never taken over: its insert is uncommitted, so the
   conflict applies whatever its ``expires_at``; a concurrent claim of the
   same key waits for that transaction (unique-index speculative insertion),
-  bounded by the connection's ``lock_timeout`` — exceeding it raises
-  :class:`~sandloom.core.effects.DedupeBusy` when the spec asks for it;
-* completion restarts the TTL (``expires_at`` += runtime, PostgreSQL), so a
-  command whose transaction outlived the TTL never commits an already
-  expired record that a retry could take over.
+  bounded by the connection's ``lock_timeout`` — exceeding it (what the
+  database's renderer classifies as ``lock_not_available``) raises
+  :class:`~sandloom.core.effects.DedupeBusy` when the spec asks for it; the
+  unit then rolls back (PostgreSQL has already aborted the transaction);
+* completion restarts the TTL (``expires_at`` += runtime, computed in Python
+  from the claim's own values, so on every database), so a command whose
+  transaction outlived the TTL never commits an already expired record that
+  a retry could take over.
+
+The ``INSERT ... ON CONFLICT`` comes from the SQL dialect renderer
+(:func:`~sandloom.core.sql_alchemy.portable.conflict_insert_for`); a database
+whose renderer has none claims through a savepoint instead.
 
 Every statement of the hot path is built once per log (every value a bind
 parameter), instead of constructing and cache-keying one per call.
@@ -37,36 +44,37 @@ parameter), instead of constructing and cache-keying one per call.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy import Table, and_, bindparam, delete, insert, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from sandloom.core.effects import DedupeBusy, DedupeClaim, DedupeRecordSpec
+from sandloom.core.sql_alchemy.portable import (
+    UnsupportedSqlForm,
+    classify_error,
+    conflict_insert_for,
+)
 
-#: PostgreSQL ``lock_not_available`` (lock_timeout expired).
-_LOCK_NOT_AVAILABLE = "55P03"
+logger = logging.getLogger(__name__)
+
 #: Bind-parameter prefix of the key columns in WHERE clauses (a bindparam may
 #: not share a column's name inside an UPDATE).
 _KEY = "k_"
 
+#: Bind parameter of the restarted expiry (completion).
+_NEW_EXPIRY = "new_expires_at"
+#: ``session.info`` key: (log, key values) -> the TTL of a record this
+#: session's transaction claimed (completion restarts it).
+_CLAIMED_TTLS = "sandloom.dedupe_claimed_ttls"
+#: ``claim_statements`` value for a database without ``ON CONFLICT``.
+_NO_UPSERT = object()
+
 _CLAIMED = DedupeClaim("claimed")
-
-
-def _sqlstate(exc: DBAPIError) -> str | None:
-    orig = getattr(exc, "orig", None)
-    for attr in ("sqlstate", "pgcode"):
-        value = getattr(orig, attr, None)
-        if isinstance(value, str):
-            return value
-    cause = getattr(orig, "__cause__", None)
-    value = getattr(cause, "sqlstate", None)
-    return value if isinstance(value, str) else None
 
 
 def _column(name: str | None) -> str:
@@ -92,21 +100,32 @@ class RelationalDedupeLog:
         "_replay",
         "_release",
         "_amend",
+        "_stored_window",
         "_key_params",
+        "_ttl_columns",
     )
 
     def __init__(self, spec: DedupeRecordSpec, table: Callable[[], Table]) -> None:
         self.spec = spec
         self._table = table
         self._resolved: Table | None = None
-        #: dialect -> the prebuilt claim INSERT.
+        #: dialect -> the prebuilt claim INSERT (``_NO_UPSERT``: the database
+        #: has no ``ON CONFLICT``; claims go through a savepoint).
         self.claim_statements: dict[str, Any] = {}
         #: extend-expiry? -> the prebuilt completion UPDATE.
         self.completion_statements: dict[bool, Any] = {}
         self._replay: Any = None
         self._release: Any = None
         self._amend: Any = None
+        self._stored_window: Any = None
         self._key_params = tuple(_KEY + name for name in spec.conflict)
+        #: ``(expires_at, created_at)`` of a TTL record whose claim keeps its
+        #: TTL for the completion, else ``None`` (read once per claim).
+        self._ttl_columns = (
+            (spec.expires_at, spec.created_at)
+            if spec.expires_at is not None and spec.created_at is not None
+            else None
+        )
 
     # -- statements -------------------------------------------------------- #
 
@@ -128,13 +147,17 @@ class RelationalDedupeLog:
         )
 
     def claim_statement(self, dialect: str) -> Any:
+        """The prebuilt claim ``INSERT ... ON CONFLICT`` of ``dialect``, or
+        ``None`` when its renderer has no ``ON CONFLICT``."""
         stmt = self.claim_statements.get(dialect)
         if stmt is None:
             spec, table = self.spec, self.table()
-            insert_fn = pg_insert if dialect == "postgresql" else sqlite_insert
-            base = insert_fn(table).values(
-                {name: bindparam(name) for name in spec.columns}
-            )
+            try:
+                insert = conflict_insert_for(dialect, table)
+            except UnsupportedSqlForm:
+                self.claim_statements[dialect] = _NO_UPSERT
+                return None
+            base = insert.values({name: bindparam(name) for name in spec.columns})
             index = [table.c[name] for name in spec.conflict]
             if spec.expires_at is None:
                 stmt = base.on_conflict_do_nothing(index_elements=index)
@@ -153,7 +176,7 @@ class RelationalDedupeLog:
             stmt = self.claim_statements[dialect] = stmt.returning(
                 table.c[spec.returning]
             )
-        return stmt
+        return None if stmt is _NO_UPSERT else stmt
 
     def replay_statement(self) -> Any:
         stmt = self._replay
@@ -184,10 +207,10 @@ class RelationalDedupeLog:
             if spec.effects is not None:
                 values[spec.effects] = bindparam("effects")
             if extend_expiry:
-                expires_at = _column(spec.expires_at)
-                values[expires_at] = table.c[expires_at] + (
-                    bindparam("now") - table.c[_column(spec.created_at)]
-                )
+                # now + the claim's TTL, which is what the stored
+                # ``expires_at + (now - created_at)`` is: computed in Python
+                # (datetime arithmetic in SQL is not portable).
+                values[_column(spec.expires_at)] = bindparam(_NEW_EXPIRY)
             stmt = self.completion_statements[extend_expiry] = (
                 update(table).where(self._key_match()).values(values)
             )
@@ -213,15 +236,18 @@ class RelationalDedupeLog:
         dialect = session.sync_session.get_bind().dialect.name
         try:
             with session.no_autoflush:
-                if dialect in {"postgresql", "sqlite"}:
+                stmt = self.claim_statements.get(dialect)
+                if stmt is None:
+                    stmt = self.claim_statement(dialect)
+                if stmt is not None and stmt is not _NO_UPSERT:
                     params = values if now is None else {**values, "claim_now": now}
-                    result = await session.execute(
-                        self.claim_statement(dialect), params
-                    )
+                    result = await session.execute(stmt, params)
                     claimed = result.first() is not None
-                else:  # pragma: no cover - other dialects: savepoint fallback
+                else:  # pragma: no cover - no ON CONFLICT: savepoint fallback
                     claimed = await self._generic_claim(session, values, now)
                 if claimed:
+                    if self._ttl_columns is not None:
+                        self._remember_ttl(session, values)
                     return _CLAIMED
                 if not spec.replays:
                     return DedupeClaim("replay", status=spec.replay_status)
@@ -231,7 +257,10 @@ class RelationalDedupeLog:
                     )
                 ).first()
         except DBAPIError as exc:
-            if spec.busy_on_lock_timeout and _sqlstate(exc) == _LOCK_NOT_AVAILABLE:
+            if (
+                spec.busy_on_lock_timeout
+                and classify_error(dialect, exc) == "lock_not_available"
+            ):
                 raise DedupeBusy(str(values.get(spec.conflict[0]))) from exc
             raise
         if row is None:  # pragma: no cover - the conflicting row is locked
@@ -245,7 +274,28 @@ class RelationalDedupeLog:
             effects=row[3] if spec.effects is not None else None,
         )
 
-    async def _generic_claim(  # pragma: no cover - non-PG/SQLite dialects
+    def _remember_ttl(self, session: Any, values: Mapping[str, Any]) -> None:
+        """Keep the claimed record's TTL for :meth:`complete` (same
+        transaction; a rolled-back claim leaves an entry nobody reads)."""
+        expires_at, created_at = cast("tuple[str, str]", self._ttl_columns)
+        info = session.sync_session.info
+        ttls = info.get(_CLAIMED_TTLS)
+        if ttls is None:
+            ttls = info[_CLAIMED_TTLS] = {}
+        ttls[(self, *map(values.__getitem__, self.spec.conflict))] = (
+            values[expires_at] - values[created_at]
+        )
+
+    def _claimed_ttl(self, session: Any, key: Mapping[str, Any]) -> timedelta | None:
+        ttls = session.sync_session.info.get(_CLAIMED_TTLS)
+        if not ttls:
+            return None
+        found: timedelta | None = ttls.pop(
+            (self, *map(key.__getitem__, self.spec.conflict)), None
+        )
+        return found
+
+    async def _generic_claim(  # pragma: no cover - databases without ON CONFLICT
         self, session: Any, values: Mapping[str, Any], now: datetime | None
     ) -> bool:
         """Dialects without ``ON CONFLICT``: drop an expired record, then insert
@@ -282,8 +332,8 @@ class RelationalDedupeLog:
     ) -> None:
         """Store the outcome on the claimed record (same transaction).
 
-        ``key`` holds the conflict columns. On PostgreSQL a TTL record's
-        expiry restarts at ``now`` (see the module doc). ``effects``: what
+        ``key`` holds the conflict columns. A TTL record this session
+        claimed restarts its expiry at ``now`` (see the module doc). ``effects``: what
         the operation left on its caller (a record declaring the column)."""
         params: dict[str, Any] = {
             **self._key_values(key),
@@ -292,17 +342,47 @@ class RelationalDedupeLog:
         }
         if self.spec.effects is not None:
             params["effects"] = effects
-        extend = (
-            self.spec.expires_at is not None
-            and now is not None
-            and session.sync_session.get_bind().dialect.name == "postgresql"
-        )
-        if extend:
-            params["now"] = now
+        ttl = None
+        if self.spec.expires_at is not None and now is not None:
+            ttl = self._claimed_ttl(session, key)
+            if ttl is None:
+                ttl = await self._stored_ttl(session, key)
+        extend = ttl is not None
+        if ttl is not None and now is not None:
+            params[_NEW_EXPIRY] = now + ttl
         with session.no_autoflush:
             await session.execute(
                 self.completion_statement(extend_expiry=extend), params
             )
+
+    async def _stored_ttl(
+        self, session: Any, key: Mapping[str, Any]
+    ) -> timedelta | None:
+        """The TTL of a record this session did not claim (a completion out
+        of the expected order), read back from the row: one more round trip,
+        and a warning, since every adapter claims and completes in one
+        session. ``None`` (the expiry stays) when the row or its
+        ``created_at`` cannot be read."""
+        spec = self.spec
+        logger.warning(
+            "dedupe record %s completed in a session that did not claim it: "
+            "its expiry is restarted from the stored row",
+            spec.table,
+        )
+        if spec.created_at is None:
+            return None
+        stmt = self._stored_window
+        if stmt is None:
+            table = self.table()
+            stmt = self._stored_window = select(
+                table.c[cast(str, spec.expires_at)], table.c[spec.created_at]
+            ).where(self._key_match())
+        with session.no_autoflush:
+            row = (await session.execute(stmt, self._key_values(key))).first()
+        if row is None or row[0] is None or row[1] is None:
+            return None
+        ttl: timedelta = row[0] - row[1]
+        return ttl
 
     async def amend_effects(
         self, session: Any, key: Mapping[str, Any], effects: str | None
@@ -329,6 +409,8 @@ class RelationalDedupeLog:
         transaction commits (the HTTP adapter: a ``5xx`` the endpoint
         returned); a rolled-back claim needs no release.
         """
+        if self.spec.expires_at is not None:
+            self._claimed_ttl(session, key)  # nothing left to complete
         stmt = self._release
         if stmt is None:
             stmt = self._release = delete(self.table()).where(self._key_match())

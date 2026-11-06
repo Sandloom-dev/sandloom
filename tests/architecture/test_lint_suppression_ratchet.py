@@ -45,8 +45,8 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 2,
-    "BLE001": 208,
-    "C901": 82,
+    "BLE001": 207,
+    "C901": 81,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
     # the `sandloom[redis]` extra and `sandloom test --help` must run in a
@@ -55,7 +55,11 @@ NOQA_BASELINE: dict[str, int] = {
     # slot claiming its Redis indexes (testing/slots.py: `redis` and
     # testing.resources, which imports it; `sandloom test` loads slots in a
     # lean install) and `sandloom dev prune` (cli/dev/commands.py).
-    "PLC0415": 121,
+    # 122 (2026-11-05): +1 cold import, cli/dev/commands.py: `dev run` / `dev
+    # up` ask a .env database's renderer for schema_from_models (SQLite) only
+    # when .env names one; importing the renderers costs the dev CLI 0.3 s
+    # and loads the settings.
+    "PLC0415": 122,
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,

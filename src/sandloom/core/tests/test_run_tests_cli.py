@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
-from sandloom.core.cli import run_tests
+from sandloom.core.archcheck.runner import Violation
+from sandloom.core.cli import check, run_tests
 
 
 def _names(steps: list[run_tests.Step]) -> list[str]:
@@ -185,3 +187,48 @@ def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(
         "SANDLOOM_DXPROBE": "from-file",
     }
     assert run_tests.load_project_test_env(tmp_path / "nowhere") is None
+
+
+def test_the_architecture_rules_run_once_per_sandloom_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `sandloom check` step records its violations where the run's later
+    steps find them; the architecture tests read them back instead of running
+    every rule again (only for the same manifest)."""
+    seen: dict[str, object] = {}
+
+    def fake_main(argv: list[str], *, record: Path | None = None) -> int:
+        seen["record"] = record
+        assert record is not None
+        record.write_text("{}")
+        return 0
+
+    monkeypatch.setattr(check, "main", fake_main)
+    reads = (
+        "import os, sys; from pathlib import Path; "
+        f"sys.exit(0 if Path(os.environ['{run_tests.ARCH_RECORD_ENV}']).is_file() else 3)"
+    )
+    steps = [
+        run_tests.Step("sandloom check", call=lambda: run_tests._sandloom_check([])),
+        run_tests.Step("architecture tests", [sys.executable, "-c", reads]),
+    ]
+    # an exported (stale) path never replaces the run's own file
+    monkeypatch.setenv(run_tests.ARCH_RECORD_ENV, str(tmp_path / "stale.json"))
+    outcomes = run_tests._run_recording_the_rules(steps, tmp_path)
+    assert [o.code for o in outcomes] == [0, 0]  # the later step found the file
+    assert isinstance(seen["record"], Path)
+    assert run_tests._ARCH_RECORD.path is None  # nothing outlives the run
+
+    manifest = tmp_path / "architecture_rules.yml"
+    manifest.write_text("root: .\n")
+    found = [
+        Violation("module-boundaries", tmp_path / "a.py", "Line 3: imports b"),
+        Violation("untagged-sensitive", tmp_path / "b.py", "x", severity="warning"),
+    ]
+    check._record(tmp_path / "rec.json", manifest, found)
+    assert check.recorded_violations(tmp_path / "rec.json", manifest) == found
+    other = tmp_path / "other" / "architecture_rules.yml"
+    assert check.recorded_violations(tmp_path / "rec.json", other) is None
+    assert check.recorded_violations(tmp_path / "missing.json", manifest) is None
+    (tmp_path / "bad.json").write_text("{not json")
+    assert check.recorded_violations(tmp_path / "bad.json", manifest) is None

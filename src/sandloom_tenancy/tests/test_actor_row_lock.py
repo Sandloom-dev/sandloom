@@ -18,9 +18,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from sandloom.sdk.testing import skip_unless_db_feature
 from sandloom_tenancy.exceptions import TenancyForbiddenError, TenancyNotFoundError
 from sandloom_tenancy.models import (
     ROLE_ADMIN,
@@ -41,9 +42,29 @@ from sandloom_tenancy.services import (
 
 pytestmark = pytest.mark.asyncio
 
-#: How long the racing action gets to run while the demotion is still open.
-#: Without the actor lock it completes well within this; with it, it blocks.
-_HOLD_S = 0.5
+
+async def _until_a_transaction_waits_on_a_lock(holder: AsyncSession) -> None:
+    """Until another transaction waits on a lock ``holder``'s open
+    transaction holds: the racer reached it (a fixed 0.5 s hold only guessed
+    that it had). Asked through ``holder`` itself: the test pool has two
+    connections, both in use by the two transactions under test."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = (
+            await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if waiting:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("no transaction ever waited on the held lock")
 
 
 @pytest.fixture
@@ -104,11 +125,13 @@ async def _race_with_open_demotion(
                 org_id, actor, ROLE_MEMBER, demote_db, actor_id=owner
             )
         racer = asyncio.create_task(_committed(sessions, action))
-        await asyncio.sleep(_HOLD_S)  # the action reaches its authority check
+        # the action reaches its authority check and waits on the row lock
+        await _until_a_transaction_waits_on_a_lock(demote_db)
         await demote_db.commit()
     return await asyncio.wait_for(racer, timeout=10)
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_remove_a_member(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -125,6 +148,7 @@ async def test_demoted_actor_cannot_remove_a_member(
         assert await MembershipService.get_role(org_id, member, db) == ROLE_MEMBER
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_removed_actor_cannot_change_a_role(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -144,6 +168,7 @@ async def test_removed_actor_cannot_change_a_role(
         assert await MembershipService.get_role(org_id, member, db) == ROLE_MEMBER
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_update_the_organization(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -162,6 +187,7 @@ async def test_demoted_actor_cannot_update_the_organization(
         assert (await OrganizationService.get_or_404(org_id, db)).name == "Lock Co"
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_invite(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -181,6 +207,7 @@ async def test_demoted_actor_cannot_invite(
     assert pending == []
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_revoke_an_invitation(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -205,6 +232,7 @@ async def test_demoted_actor_cannot_revoke_an_invitation(
     assert row is not None and row.revoked_at is None
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_action_committed_first_serialises_the_demotion(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -222,7 +250,7 @@ async def test_action_committed_first_serialises_the_demotion(
                 ),
             )
         )
-        await asyncio.sleep(_HOLD_S)
+        await _until_a_transaction_waits_on_a_lock(act_db)
         assert not demotion.done(), "the demotion must wait for the actor's write"
         await act_db.commit()
     result = await asyncio.wait_for(demotion, timeout=10)

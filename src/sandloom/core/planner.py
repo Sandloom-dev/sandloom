@@ -76,23 +76,74 @@ R = TypeVar("R")
 ExecutorKind = Literal["general", "optimized"]
 #: Isolation of a read-only scope (part of the UoW / read-unit contract):
 #:
-#: * ``"read_committed"`` (default) — PostgreSQL's default. Every statement
-#:   sees the data committed before IT started: two reads of one scope (even
-#:   in the same read unit) MAY see different snapshots;
-#: * ``"repeatable_read"`` — ONE snapshot for the whole scope: every read of
-#:   the scope runs in the scope's read unit (``REPEATABLE READ READ ONLY``),
-#:   whichever executor its plan names.
+#: * ``"read_committed"`` (default): every statement sees the data committed
+#:   before IT started: two reads of one scope (even in the same read unit)
+#:   MAY see different snapshots;
+#: * ``"repeatable_read"``: ONE snapshot for the whole scope: every read of
+#:   the scope runs in the scope's read unit, whichever executor its plan
+#:   names. It needs the database's ``snapshot_reads`` feature; a database
+#:   without it refuses the scope (:class:`SnapshotReadsUnavailable`,
+#:   SANDLOOM-B027) rather than read without one.
 #:
-#: Anything else is refused (``PlanningError``) — never silently downgraded.
+#: Anything else is refused (``PlanningError``), never silently downgraded.
 Isolation = Literal["read_committed", "repeatable_read"]
-ISOLATION_LEVELS: dict[str, str] = {
-    "read_committed": "READ COMMITTED",
-    "repeatable_read": "REPEATABLE READ",
+#: Whether each :data:`Isolation` reads one snapshot (the adapter's
+#: ``read_unit(snapshot=...)``; the database's renderer words it).
+SNAPSHOT_ISOLATION: dict[str, bool] = {
+    "read_committed": False,
+    "repeatable_read": True,
 }
 
 
 class PlanningError(RuntimeError):
     """A declared operation is inconsistent with its entity / database."""
+
+
+class SnapshotReadsUnavailable(PlanningError):
+    """A read scope needs one snapshot (``SnapshotReads``,
+    ``isolation="repeatable_read"``) on a database instance without the
+    ``snapshot_reads`` feature (SANDLOOM-B027)."""
+
+
+#: The route dependencies that open a one-snapshot read scope
+#: (``SnapshotReads``), registered by the module that defines them.
+_SNAPSHOT_DEPENDENCIES: set[Any] = set()
+
+
+def register_snapshot_dependency(dependency: Any) -> None:
+    """Mark ``dependency`` as opening a one-snapshot read scope, so startup
+    checks its routes (:func:`snapshot_reads_problems`)."""
+    _SNAPSHOT_DEPENDENCIES.add(dependency)
+
+
+def snapshot_reads_problems(routes: Any, infra: Any) -> list[str]:
+    """The routes that declare ``SnapshotReads`` while the default database
+    instance lacks the ``snapshot_reads`` feature (SANDLOOM-B027).
+
+    Build-free: the instance's advertised features. A ``SnapshotReads`` read
+    names its database per operation, so only the default instance is known
+    at startup; a read on another instance without the feature is refused
+    when its read unit opens.
+    """
+    if infra is None or not hasattr(infra, "advertised_features"):
+        return []
+    features = infra.advertised_features("database")
+    if features is None or "snapshot_reads" in features:
+        return []
+    problems: list[str] = []
+    for route in routes:
+        stack = list(getattr(getattr(route, "dependant", None), "dependencies", ()))
+        while stack:
+            dep = stack.pop()
+            if dep.call in _SNAPSHOT_DEPENDENCIES:
+                problems.append(
+                    f"route {getattr(route, 'path', route)!r} declares "
+                    "SnapshotReads, and the default database instance has no "
+                    "snapshot_reads feature [SANDLOOM-B027]"
+                )
+                break
+            stack.extend(dep.dependencies)
+    return problems
 
 
 #: Every operation declared in this process (weak: test-local ones go away).
@@ -563,8 +614,11 @@ class ExecutionAdapter(Protocol):
     ) -> Sequence[Any] | None:
         """Run ``plan``'s GENERAL form on ``unit`` (an open Unit of Work)."""
 
-    def read_unit(self, isolation: str = "READ COMMITTED") -> ReadUnit:
-        """A scope-wide read-only unit (one lease + transaction, opened lazily)."""
+    def read_unit(self, *, snapshot: bool = False) -> ReadUnit:
+        """A scope-wide read-only unit (one lease + transaction, opened lazily);
+        ``snapshot=True``: one snapshot for all its reads, refused with
+        :class:`SnapshotReadsUnavailable` before any I/O where the database
+        has no ``snapshot_reads``."""
 
     async def fetch_page(
         self,
@@ -761,10 +815,10 @@ class Reads:
     ) -> None:
         if core is None and adapter is None:
             raise PlanningError("Reads needs a core or an execution adapter")
-        if isolation not in ISOLATION_LEVELS:
+        if isolation not in SNAPSHOT_ISOLATION:
             raise PlanningError(
                 f"unsupported read isolation {isolation!r}; one of "
-                f"{sorted(ISOLATION_LEVELS)}"
+                f"{sorted(SNAPSHOT_ISOLATION)}"
             )
         if isolation != "read_committed" and (unit is not None or not shared):
             raise PlanningError(
@@ -907,7 +961,7 @@ class Reads:
                     return ru
         if not open_new:
             return None
-        ru = adapter.read_unit(ISOLATION_LEVELS[self._isolation])
+        ru = adapter.read_unit(snapshot=SNAPSHOT_ISOLATION[self._isolation])
         if units is None:
             self._units = [(adapter, ru)]
         else:
@@ -949,7 +1003,6 @@ __all__ = [
     "MissingTenantError",
     "ExecutionAdapter",
     "ExecutionContext",
-    "ISOLATION_LEVELS",
     "InvalidCursor",
     "Isolation",
     "JoinRead",
@@ -959,6 +1012,8 @@ __all__ = [
     "PageLimitError",
     "Plan",
     "PlanningError",
+    "SNAPSHOT_ISOLATION",
+    "SnapshotReadsUnavailable",
     "ReadOnlyScopeError",
     "ReadOperation",
     "ReadUnit",
@@ -976,4 +1031,6 @@ __all__ = [
     "prepare",
     "read_scope",
     "register_prepared",
+    "register_snapshot_dependency",
+    "snapshot_reads_problems",
 ]

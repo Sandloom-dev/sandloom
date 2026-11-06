@@ -50,12 +50,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete, exists, func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
+from sandloom.sdk.data import WallClock, conflict_insert
 from sandloom.sdk.infra import settings
 from sandloom_billing import events
 from sandloom_billing.models import (
@@ -281,6 +281,20 @@ def invoice_period_end(invoice_obj: dict[str, Any]) -> int | None:
     return max(ends) if ends else None
 
 
+def payment_state_upsert(payment_intent: str, db: AsyncSession) -> Any:
+    """``INSERT ... ON CONFLICT DO UPDATE SET updated_at = <the database's
+    clock> RETURNING``: creates or touches (and locks) a payment's state row."""
+    return (
+        conflict_insert(PspPaymentState, session=db)
+        .values(psp_payment_intent_id=payment_intent)
+        .on_conflict_do_update(
+            index_elements=[PspPaymentState.psp_payment_intent_id],
+            set_={"updated_at": WallClock()},
+        )
+        .returning(PspPaymentState)
+    )
+
+
 class WebhookService:
     """Idempotent, monotonic webhook application."""
 
@@ -302,7 +316,7 @@ class WebhookService:
         result = cast(
             "CursorResult[Any]",
             await db.execute(
-                pg_insert(StripeEvent)
+                conflict_insert(StripeEvent, session=db)
                 .values(event_id=event_id, status=EVENT_STATUS_SKIPPED)
                 # PSP webhook journal keyed by the PSP event id
                 .on_conflict_do_nothing(index_elements=[StripeEvent.event_id])
@@ -907,7 +921,7 @@ class WebhookService:
         # The link a refund / dispute needs (it names the payment intent,
         # never the session); same transaction as the grant, once per session.
         inserted = await db.execute(
-            pg_insert(CreditGrant)
+            conflict_insert(CreditGrant, session=db)
             .values(
                 customer_id=customer.id,
                 psp_session_id=session_id,
@@ -1108,15 +1122,7 @@ class WebhookService:
         if create:
             # One statement: DO UPDATE locks the row (new or existing) and
             # RETURNING hands it back — no separate SELECT ... FOR UPDATE.
-            upsert = (
-                pg_insert(PspPaymentState)
-                .values(psp_payment_intent_id=payment_intent)
-                .on_conflict_do_update(
-                    index_elements=[PspPaymentState.psp_payment_intent_id],
-                    set_={"updated_at": func.clock_timestamp()},
-                )
-                .returning(PspPaymentState)
-            )
+            upsert = payment_state_upsert(payment_intent, db)
             locked = await db.execute(
                 select(PspPaymentState).from_statement(upsert),
                 execution_options={"populate_existing": True},

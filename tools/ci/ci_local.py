@@ -284,6 +284,8 @@ def uses_artifacts(body: Mapping[str, Any]) -> bool:
 #     --    supply-chain       -> supply-chain              act
 #     L117  backend-tests      -> backend-tests-3.11/3.13/3.14/3.12 fallback (container)
 #     --    backend-tests-isolation -> backend-tests-isolation fallback (container)
+#     --    second-db-test-lane-> second-db-test-lane       fallback (container)
+#     --    skip-ledger        -> not a job: merge the lanes' ledgers by hand
 #     L222  benchmarks-security-> benchmarks-security       fallback (container)
 #     L314  examples           -> examples-linkly/-helpdesk/-projecthub/-academy/-tasklist fallback
 #     --    quickstart         -> quickstart                fallback (container)
@@ -352,6 +354,14 @@ CI_JOBS: tuple[CiJob, ...] = (
     ),
     CiJob(
         "ci.yml",
+        "second-db-test-lane",
+        "second-db-test-lane",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
+    CiJob(
+        "ci.yml",
         "benchmarks-security",
         "benchmarks-security",
         "container",
@@ -408,6 +418,11 @@ IGNORED_JOBS.update(
         ("ci.yml", "dependency-review"): "requires the hosted GitHub dependency graph",
         (
             "ci.yml",
+            "skip-ledger",
+        ): "downloads the lanes' artifacts; locally run tools/ci/skip_ledger.py on "
+        "the run directory's *-artifact-skip-ledger/*.json (docs/contributing/local-ci.md)",
+        (
+            "ci.yml",
             "ci-required",
         ): "hosted result aggregator; its fail-closed behavior is unit-tested",
     }
@@ -422,20 +437,16 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:ci-required": "3cb1614fc715bf3a",
-    "ci.yml:dependency-review": "2b19360e2aa6b603",
-    "ci.yml:admin-ui": "2381440aadc9830d",
-    "ci.yml:packages": "d7ee97312d5b4b87",
-    "ci.yml:architecture": "7fa82238721b3d55",
-    "ci.yml:docs": "2bfd2034c9234a2a",
     "ci.yml:workflow-policy": "5efb72bd5ebd2667",
-    "ci.yml:changes": "95e21b75fd59c982",
+    "ci.yml:changes": "1bf1d3e38e9c2808",
     "ci.yml:backend-static": "b89fe924a9997227",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
-    "ci.yml:backend-tests": "f1014705ee362401",
+    "ci.yml:backend-tests": "891ecf1dd6f22121",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
+    "ci.yml:second-db-test-lane": "c21294c34d943168",
+    "ci.yml:skip-ledger": "a815969227e45e9d",
     "ci.yml:benchmarks-security": "c516a25e95f3072b",
-    "ci.yml:examples": "a0f1d3c10d3ca421",
+    "ci.yml:examples": "febffbe2b80f353a",
     "ci.yml:quickstart": "0f6563faeb3c2d10",
     "ci.yml:app-split": "40ce521d833336e8",
     "ci.yml:app-recipes": "3708a6d3b9426a26",
@@ -443,6 +454,12 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:microservices-smoke": "3f8664b3c7f430a6",
     "ci.yml:docker-build": "587cf6ce58699e97",
     "ci.yml:admin-contracts": "ae4e3ef8a5f5b4ec",
+    "ci.yml:docs": "2bfd2034c9234a2a",
+    "ci.yml:packages": "d7ee97312d5b4b87",
+    "ci.yml:architecture": "7fa82238721b3d55",
+    "ci.yml:admin-ui": "2381440aadc9830d",
+    "ci.yml:dependency-review": "2b19360e2aa6b603",
+    "ci.yml:ci-required": "c0b911d21ab6733a",
     "docs.yml:build": "78d8bd064fcb5ee4",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
@@ -455,6 +472,8 @@ KNOWN_USES: dict[str, str] = {
     "astral-sh/setup-uv": "uv binary of that version copied into the image; UV_PYTHON set",
     "actions/cache": "not restored (named uv-cache volume instead)",
     "actions/upload-artifact": "act: emulated, files listed; fallback: path copied into the run directory",
+    # Only in skip-ledger, an ignored job (see IGNORED_JOBS).
+    "actions/download-artifact": "not run: its one job (skip-ledger) is merged by hand",
     "docker/setup-buildx-action": "host docker buildx",
     "docker/build-push-action": "translated to `docker buildx build --load`",
 }
@@ -510,6 +529,8 @@ JOB_SECONDS = {
     "backend-tests": 100,
     # The whole suite serially in one process (the test isolation gate).
     "backend-tests-isolation": 300,
+    # The standard modules, the examples and a generated app on SQLite files.
+    "second-db-test-lane": 420,
     "microservices-smoke": 45,
     "backend-static": 35,
     "docker-build": 35,
@@ -821,11 +842,12 @@ def local_jobs(root: Path) -> list[LocalJob]:
         combos = _expand_matrix(body)
         for combo in combos:
             # A path value (examples' `path: examples/linkly`) names nothing
-            # new beside its `app` and is no file-name part: left out.
+            # new beside its `app` and is no file-name part: left out, as is
+            # backend-tests' `ledger` (its skip-ledger file name).
             suffix = "-".join(
                 str(v)
                 for k, v in combo.items()
-                if not isinstance(v, bool) and "/" not in str(v)
+                if not isinstance(v, bool) and "/" not in str(v) and k != "ledger"
             )
             name = f"{spec.local}-{suffix}" if suffix else spec.local
             jobs.append(LocalJob(name, spec, body, combo))

@@ -561,6 +561,32 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_open_uow.py::test_single_tenant_scope_bound_only_inside
   - src/sandloom/core/tests/test_open_uow.py::test_tenant_scope_failure_on_enter_rolls_back
+- id: G-UOW-09
+  statement: On a database whose renderer declares serial_writers (SQLite), a write unit opened inside a writing
+    unit of the same task on the same database instance that has already run a statement (a local contract call,
+    a saga step's unit, a child open_uow()) runs as a SAVEPOINT of the caller and commits with it. A unit opened
+    inside a unit that has run no statement yet, including inside an early begin_nested(), commits on its own.
+    The caller's rollback undoes its rows, outbox rows and command-log claim. Its outbox dispatch, on_commit
+    callbacks and command-record amendment run only after the caller's COMMIT. Its own failure rolls back only
+    to its savepoint. Units of other tasks nest one task at a time. A read-only unit (a read contract's included)
+    never nests. The weakening has the computed label "commits with the caller" (nested_unit_label) and a startup
+    warning per such instance. On PostgreSQL a nested unit opens its own transaction and commits on its own,
+    unchanged.
+  sources:
+  - docs/infrastructure/database.md#Nested units commit with their caller
+  - docs/advanced/guarantees.md#Labels per effect
+  tests:
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_contract_command_in_a_unit_commits_with_the_outer
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_an_outer_rollback_undoes_the_inner_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_an_inner_failure_rolls_back_only_the_inner_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_unit_before_the_outer_wrote_commits_on_its_own
+  - src/sandloom/core/tests/test_nesting_policy.py::test_nested_units_match_the_oracle
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_savepoint_rollback_around_the_call_drops_its_effects
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_units_of_concurrent_tasks_nest_one_task_at_a_time
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_read_contract_in_a_writing_unit_reads_committed_rows_only
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_postgresql_still_opens_a_fresh_independent_unit
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_startup_warns_once_per_serial_writer_instance
+  startup_checks: warn_nested_units_join_caller at create_app
 - id: G-UNIT-01
   statement: 'db() is the session of the innermost open unit of the current context; outside any unit it is SANDLOOM-R002;
     the first db() in a request creates the lazy request unit (handler task only), committed on success and rolled
@@ -1087,15 +1113,20 @@ guarantees:
   - src/sandloom/core/tests/test_durable_inbox_claim.py::test_inbox_purge_cli_loops_batches_in_separate_units_of_work
   - src/sandloom/core/tests/test_durable_inbox_claim.py::test_consumer_inbox_declares_the_purge_index
 - id: G-CMD-01
-  statement: A command contract's dedupe record is claimed in the provider's own UoW and commits iff the
-    effect commits, so a retry after a crash following COMMIT replays the stored result and never re-executes.
+  statement: 'A command contract''s dedupe record is claimed in the same transaction as the command''s effect
+    and commits iff the effect commits: the provider''s own unit of work, or, on a serial-writer database (G-UOW-09),
+    the caller''s transaction it joins. A retry after a crash following that COMMIT replays the stored result and
+    never re-executes.'
   sources:
   - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   - docs/adr/0005-effect-model.md#4a. Ambiguous COMMIT
+  - docs/infrastructure/database.md#Nested units commit with their caller
   tests:
   - tests/integration/test_durable_command_idempotency.py::test_crash_after_commit_replays_and_never_reexecutes
   - tests/integration/test_durable_command_idempotency.py::test_billing_credit_spend_survives_crash_and_retry
+  - src/sandloom/core/tests/test_sagas_protocol.py::test_a_crash_at_any_point_of_a_step_converges_without_reapplying_it
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_an_outer_rollback_undoes_the_inner_unit
 - id: G-CMD-02
   statement: Concurrent duplicates of a command execute exactly once; a duplicate that outwaits CONTRACT_DB_LOCK_TIMEOUT_MS
     gets 503 ContractCallInProgress.
@@ -4137,6 +4168,21 @@ guarantees:
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_default_client_is_rebuilt_on_a_new_loop
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_named_instance_client_follows_the_loop
   - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_injected_default_client_is_never_replaced
+- id: G-INFRA-09
+  statement: A module using a database feature form of sdk.data (Array, fulltext_index / matches, json_path,
+    json_contains, aggregate_list) declares its database feature (C030); module load refuses an instance lacking a feature its
+    tables use or it declares (B033, DatabaseFeatureMissing); a statement compiled without the feature refuses
+    naming it (R015).
+  sources:
+  - docs/infrastructure/database.md#Forms that need a feature
+  - docs/modules/database/conventions.md#Forms that need a database feature
+  tests:
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_sqlite_writes_json_path_and_refuses_the_rest
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_a_module_using_array_is_refused_on_sqlite
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_a_declared_feature_is_refused_with_the_same_code
+  - src/sandloom/core/tests/test_database_feature_forms.py::test_the_c030_analyzer
+  - src/sandloom/core/tests/test_aggregate_list.py::test_a_renderer_without_it_refuses_it_naming_the_feature
+  - src/sandloom/core/tests/test_aggregate_list.py::test_a_module_needing_it_is_refused_at_startup_where_the_renderer_lacks_it
 - id: G-CONFIG-01
   statement: Every Settings field is classified in exactly one configuration tier (semantic or ops), and
     every semantic setting defines a value for every profile (dev / test / prod / prod+multi_tenant_strict).
@@ -4244,9 +4290,10 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the twelve ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the thirteen ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
-    command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability.
+    command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
+    development_database_in_prod.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
@@ -4342,6 +4389,18 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_production_refuses_and_names_the_risk
   - src/sandloom/core/tests/test_guarantee_windows.py::test_dev_warns
+- id: G-RISK-13
+  statement: A production process on a database whose renderer serves development and tests only (SQLite)
+    is refused at startup (SANDLOOM-B029) unless development_database_in_prod is accepted, and the
+    multi_tenant_strict profile refuses it even when accepted; dev and test are not refused.
+  sources:
+  - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
+  - docs/infrastructure/database.md#Not in production
+  tests:
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_refuses_sqlite_in_prod_without_the_accepted_risk
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile
+  - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone
+  startup_checks: development_database_config_problem at create_app / enforce_configuration
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -4741,7 +4800,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_sagas_definition.py::test_operation_key_rule
   - src/sandloom/core/tests/test_sagas_protocol.py::test_happy_path_runs_every_step_once_with_derived_keys
-  - src/sandloom/core/tests/test_sagas_recovery.py::test_nondeterministic_args_hit_the_command_log_conflict_and_park
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_nondeterministic_args_on_a_reissued_key_conflict_and_park
 - id: G-SAGA-05
   statement: start_saga runs in the caller's Unit of Work (instance row and first nudge commit with the
     business change), is create-or-get on saga_id, conflicts on different input, and is refused outside
@@ -4766,13 +4825,21 @@ guarantees:
   - tests/laws/test_saga_laws.py::test_steps_are_idempotent_and_status_only_moves_forward
   - tests/laws/test_saga_laws.py::test_a_deadline_after_a_crash_resolves_the_step_before_compensating
 - id: G-SAGA-07
-  statement: A crash before the step call or after the provider committed converges without re-applying
-    the step (same key, command-log replay).
+  statement: A crash before the step call or after the step's effect committed converges without re-applying
+    the step. Where the provider commits on its own (PostgreSQL; on every database, a provider over RPC or on another
+    database instance), the step's started marker commits before the call and a redrive replays the same key from
+    the command log. On a serial-writer database a provider on the same database instance commits its effect, its
+    dedupe record and the step's state in one transaction, so a crash either loses all three (the redrive runs the
+    step once) or keeps all three (the step is done).
   sources:
   - docs/adr/0008-sagas.md#6. The step protocol (one UoW per step)
+  - docs/modules/between/sagas.md#How it runs
+  - docs/infrastructure/database.md#Nested units commit with their caller
   tests:
   - src/sandloom/core/tests/test_sagas_protocol.py::test_crash_before_the_call_rolls_back_and_the_redrive_runs_the_step
-  - src/sandloom/core/tests/test_sagas_protocol.py::test_crash_after_the_provider_committed_replays_the_same_key
+  - src/sandloom/core/tests/test_sagas_protocol.py::test_a_crash_at_any_point_of_a_step_converges_without_reapplying_it
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_nondeterministic_args_after_a_crash_never_apply_the_step_twice
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_a_deadline_after_a_crash_resolves_a_provider_elsewhere_first
   - src/sandloom/core/tests/test_sagas_protocol.py::test_provider_in_flight_is_transient_and_retried
   - tests/laws/test_saga_laws.py::test_a_deadline_after_a_crash_resolves_the_step_before_compensating
 - id: G-SAGA-08
@@ -4816,8 +4883,10 @@ guarantees:
 - id: G-SAGA-11
   statement: 'A step with an ambiguous outcome is resolved (re-issued with the same key) before it is compensated;
     a timeout racing a completing step is serialized by the row lock; also after a crash that rolled back the attempt
-    count: a command step''s first forward call writes a durable started marker in its own transaction, and a deadline
-    resolves a step that may have applied (attempt > 0 or the marker) before compensating.'
+    count: a command step''s first forward call writes a durable started marker before the call, in its own transaction
+    (on a serial-writer database with the provider on the same database instance, in the step''s transaction, all or
+    nothing with the provider''s effect: G-SAGA-07), and a deadline resolves a step that may have applied (attempt
+    > 0 or the marker) before compensating.'
   sources:
   - docs/adr/0008-sagas.md#7. Recovery rules
   tests:
@@ -4827,6 +4896,7 @@ guarantees:
   - src/sandloom/core/tests/test_sagas_recovery.py::test_timeout_racing_a_completing_step_is_serialized_by_the_row_lock
   - tests/laws/test_saga_laws.py::test_a_deadline_after_a_crash_resolves_the_step_before_compensating
   - tests/laws/test_saga_laws.py::test_steps_are_idempotent_and_status_only_moves_forward
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_a_deadline_after_a_crash_resolves_a_provider_elsewhere_first
 - id: G-SAGA-12
   statement: 'No blind re-call after the command-dedupe TTL: an operator retry of a step with an unknown
     outcome is refused (resolve first), and the runtime parks such a step with outcome_unknown_after_ttl; a
@@ -4840,7 +4910,8 @@ guarantees:
   - src/sandloom/core/tests/test_sagas_ops.py::test_retry_after_the_ttl_proceeds_when_the_outcome_is_known
   - src/sandloom/core/tests/test_sagas_recovery.py::test_ttl_guard_parks_an_ambiguous_step_whose_record_may_be_gone
   - src/sandloom/core/tests/test_sagas_cli.py::test_post_ttl_retry_exits_1_with_the_resolve_hint
-  - src/sandloom/core/tests/test_sagas_recovery.py::test_a_crash_after_the_provider_committed_is_never_reissued_after_the_ttl
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_a_crash_after_the_effect_is_never_reissued_after_the_ttl
+  - src/sandloom/core/tests/test_sagas_recovery.py::test_a_provider_elsewhere_is_never_reissued_after_the_ttl
 - id: G-SAGA-13
   statement: Production refuses a saga whose retry and compensation horizon exceeds the command-dedupe
     TTL unless the risk is accepted.
@@ -4911,12 +4982,12 @@ guarantees:
   - tests/sdk/test_sdk_l1_registration.py::test_example_modules_register_identically_through_l1
 - id: G-SDK-04
   statement: 'Generated code (sandloom new, every sandloom add generator) and every example file that imports
-    sandloom.sdk use only the 29 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
+    sandloom.sdk use only the 30 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
     import (SANDLOOM-T009).'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
   tests:
-  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_29_names
+  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_30_names
   - tests/sdk/test_sdk_generators.py::test_generated_code_uses_only_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_examples_importing_the_sdk_stay_in_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_the_pin_reports_an_unmarked_advanced_name
@@ -7248,7 +7319,7 @@ issued:
   G-HTTP: 12
   G-IDEM: 18
   G-INBOX: 4
-  G-INFRA: 8
+  G-INFRA: 9
   G-KERNEL: 13
   G-MIGRATE: 12
   G-MODULE: 19
@@ -7258,7 +7329,7 @@ issued:
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 24
-  G-RISK: 12
+  G-RISK: 13
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33
@@ -7268,7 +7339,7 @@ issued:
   G-TASK: 5
   G-TENANT: 18
   G-UNIT: 3
-  G-UOW: 8
+  G-UOW: 9
   G-WINDOW: 3
 
 adr_sections:
@@ -7614,6 +7685,7 @@ adr_sections:
     - G-CONFIG-02
     - G-CONFIG-03
     - G-RISK-03
+    - G-RISK-13
     - C-RISK-01
   0008-sagas.md:
     Related reading: informational
@@ -7726,6 +7798,16 @@ adr_sections:
     - C-INFRA-01
     - C-INFRA-02
     Consequences: informational
+    'Amendment (2026-11-05): one SQL driver for several databases': informational
+    Context of the amendment: informational
+    Decisions of the amendment:
+    - C-INFRA-01
+    - G-INFRA-09
+    - G-UOW-09
+    - G-CMD-01
+    - G-SAGA-07
+    - G-RISK-13
+    Consequences of the amendment: informational
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational

@@ -8,6 +8,7 @@ form. Plans are cached per operation and executor.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
@@ -29,9 +30,11 @@ from sandloom.core.planner import (
     PlanningError,
     ReadOperation,
 )
+from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _TENANT_PARAM,
     Checkpoint,
+    ReadOnlyBegin,
     _Compiled,
     _CompiledList,
     _fk_to,
@@ -57,6 +60,13 @@ from sandloom.core.sql_alchemy.planner_safety import (
     policy_reason,
     unique_keys,
 )
+from sandloom.core.sql_alchemy.portable import (
+    begin_statement_for,
+    prefix_pattern,
+    renderer_features,
+    row_security_for,
+    transaction_options_for,
+)
 from sandloom.core.sql_alchemy.tenant_rls import is_tenant_rls_installed
 from sandloom.core.tenant import TenantScoped
 
@@ -69,9 +79,38 @@ class _PlannerCompiler:
         self.plans: dict[tuple[int, bool], Plan[Any]] = {}
         #: TEST SEAM: awaited at every executor phase boundary when set.
         self.checkpoint: Checkpoint | None = None
-        self._postgresql = engine.sync_engine.dialect.name == "postgresql"
-        #: the server default isolation is READ COMMITTED (None = not known yet)
-        self._rc_default: bool | None = None
+        dialect = engine.sync_engine.dialect
+        #: The engine's DBAPI adapter: it classifies a dead connection and
+        #: decides whether the optimized executors (raw ``$1`` statements on
+        #: the driver connection) may run at all.
+        self._dbapi = dbapi_adapter_of(dialect)
+        self._raw_executor = RAW_EXECUTOR in self._dbapi.capabilities
+        #: OPTIMIZED: the BEGIN + tenant binding text, from the renderer once.
+        self._read_only_begin = ReadOnlyBegin(
+            row_security_for(engine),
+            begin_statement_for(engine, write=False, read_only=True, snapshot=False)
+            or "BEGIN",
+        )
+        self._begin_read_only_sql = self._read_only_begin.sql
+        #: GENERAL: the read units' execution options, from the renderer once:
+        #: the server's default isolation, a fresh snapshot per statement
+        #: (explicit), and one snapshot.
+        #: Plain dict copies: ``execution_options(**mapping)`` unpacks a dict
+        #: on its fast path (a mappingproxy costs ~0.2 µs more per checkout).
+        self._ro_default = dict(
+            transaction_options_for(engine, read_only=True, snapshot=None)
+        )
+        self._ro_statement = dict(
+            transaction_options_for(engine, read_only=True, snapshot=False)
+        )
+        self._ro_snapshot = dict(
+            transaction_options_for(engine, read_only=True, snapshot=True)
+        )
+        #: the instance can give one snapshot (else SANDLOOM-B027)
+        self._snapshot_reads = "snapshot_reads" in renderer_features(dialect.name)
+        #: the server's default isolation IS the per-statement one, so the
+        #: explicit level is left out (None = not known yet)
+        self._statement_default: bool | None = None
 
     # ------------------------------------------------------------- planning
     def guard_plan(self, plan: Plan[Any]) -> Plan[Any]:
@@ -170,8 +209,17 @@ class _PlannerCompiler:
         extra_keys, order_index = _list_order_index(
             getters, plain, order_keys, len(fields)
         )
+        dialect = self.engine.sync_engine.dialect.name
         general, n_entities = _general_list(
-            op, sides, opt, getters, plain, order_keys, extra_keys, onclause
+            op,
+            sides,
+            opt,
+            getters,
+            plain,
+            order_keys,
+            extra_keys,
+            onclause,
+            dialect,
         )
         stmt, stmt_after = general(0)
         sql, sql_after, reason = self._list_optimized(
@@ -235,6 +283,9 @@ class _PlannerCompiler:
                 n_required=op.n_required,
                 prefix_at=tuple(p for _a, _c, p in opt),
                 names=op.keys,
+                pattern=functools.partial(
+                    prefix_pattern, dialect, ignore_case=op.prefix_ignore_case
+                ),
                 build=build,
             ),
             order_width=len(extra_keys),
@@ -295,7 +346,7 @@ class _PlannerCompiler:
         sql = sql_after = None
         reason = "keyset list, equality filters"
         dialect = self.engine.sync_engine.dialect
-        if dialect.name != "postgresql" or dialect.driver != "asyncpg":
+        if not self._raw_executor:
             reason = f"no optimized executor for {dialect.name}+{dialect.driver}"
         elif any(
             m is not None and (m.inherits is not None or len(m.tables) != 1)
@@ -322,6 +373,7 @@ class _PlannerCompiler:
                 + [cols_j[k].columns[0] for k in op.join_by.values()],
                 constants=[(cols_e[k].columns[0], v) for k, v in op.where.items()]
                 + [(cols_j[k].columns[0], v) for k, v in op.join_where.items()],
+                ordered=[cols_e[k].columns[0] for k in order_keys],
             )
             if safety:
                 reason = safety
@@ -384,8 +436,11 @@ class _PlannerCompiler:
         like = "ILIKE" if op.prefix_ignore_case else "LIKE"
         for c, is_prefix in present:
             n += 1
-            # a prefix argument is bound already escaped (``like_prefix``):
-            # PostgreSQL's default LIKE escape character is the backslash
+            # a prefix argument is bound already escaped (the PostgreSQL
+            # renderer's prefix_pattern, ``like_prefix``): this native SQL
+            # relies on PostgreSQL's default LIKE escape, the backslash. Only
+            # PostgreSQL has an optimized executor; another database would
+            # need its renderer's prefix_match here.
             conds.append(f"{ref('e', cols_e[c])} {like if is_prefix else '='} ${n}")
         for c in op.where:
             n += 1
@@ -556,7 +611,7 @@ class _PlannerCompiler:
         pk_j: Any,
     ) -> tuple[str | None, str]:
         dialect = self.engine.sync_engine.dialect
-        if dialect.name != "postgresql" or dialect.driver != "asyncpg":
+        if not self._raw_executor:
             return None, f"no optimized executor for {dialect.name}+{dialect.driver}"
         for m in (m_ent, m_join):
             if m.inherits is not None or len(m.tables) != 1:
@@ -635,7 +690,7 @@ class _PlannerCompiler:
     ) -> tuple[str | None, str]:
         """The generated statement, or ``(None, why not)``: never guessed."""
         dialect = self.engine.sync_engine.dialect
-        if dialect.name != "postgresql" or dialect.driver != "asyncpg":
+        if not self._raw_executor:
             return None, f"no optimized executor for {dialect.name}+{dialect.driver}"
         if mapper.inherits is not None or len(mapper.tables) != 1:
             return None, "entity is not mapped to exactly one table"

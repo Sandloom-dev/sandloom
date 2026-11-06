@@ -11,11 +11,14 @@ time in milliseconds and the next 42 bits a counter that one process keeps
 increasing within a millisecond, so ids sort in creation order (no tie, and
 B-tree inserts land at the right edge of the index).
 
-``CreatedAt`` / ``UpdatedAt`` are stamped by the database with
-``clock_timestamp()``, the time of the statement, not ``now()``: ``now()`` is
-the start of the transaction, so every row one transaction writes would get
-the same time and a list ordered by it would tie. Alembic autogenerate renders
-the default as ``server_default=sa.text("clock_timestamp()")``.
+``CreatedAt`` / ``UpdatedAt`` are stamped by the database's clock at the
+statement (:class:`~sandloom.core.sql_alchemy.portable.WallClock`), not at the
+start of the transaction: with the transaction's time every row one
+transaction writes would get the same time and a list ordered by it would
+tie. PostgreSQL writes ``clock_timestamp()`` (and Alembic autogenerate renders
+``server_default=sa.text('clock_timestamp()')``); SQLite the UTC time to the
+millisecond, where ties are ordered by the UUIDv7 id. Both read back as
+timezone-aware UTC times (:class:`~sandloom.core.sql_alchemy.portable.UtcDateTime`).
 """
 
 from __future__ import annotations
@@ -28,28 +31,30 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from sqlalchemy import DateTime, func
 from sqlalchemy.orm import mapped_column
 
+from sandloom.core.sql_alchemy.portable import UtcDateTime, WallClock
+
 #: ``created_at: Mapped[CreatedAt]``: a ``timestamptz NOT NULL`` the database
-#: sets with ``clock_timestamp()`` when the row is inserted.
+#: sets with its clock (``clock_timestamp()`` on PostgreSQL) when the row is
+#: inserted.
 CreatedAt = Annotated[
     datetime,
     mapped_column(
-        DateTime(timezone=True),
-        server_default=func.clock_timestamp(),
+        UtcDateTime(),
+        server_default=WallClock(),
         nullable=False,
     ),
 ]
 
-#: ``updated_at: Mapped[UpdatedAt]``: as ``CreatedAt``, and set again to
-#: ``clock_timestamp()`` by every ORM update of the row.
+#: ``updated_at: Mapped[UpdatedAt]``: as ``CreatedAt``, and set again to the
+#: database's clock by every ORM update of the row.
 UpdatedAt = Annotated[
     datetime,
     mapped_column(
-        DateTime(timezone=True),
-        server_default=func.clock_timestamp(),
-        onupdate=func.clock_timestamp(),
+        UtcDateTime(),
+        server_default=WallClock(),
+        onupdate=WallClock(),
         nullable=False,
     ),
 ]
@@ -58,9 +63,11 @@ CreatedAt.__doc__ = """A ``timestamptz NOT NULL`` column the database stamps on 
 
     created_at: Mapped[CreatedAt]
 
-Its default is ``clock_timestamp()``, the time of the statement, not
-``now()`` (the transaction's start): rows one transaction inserts get
-distinct, ordered times. Newest first: ``order_by(M.created_at.desc(),
+Its default is the database's clock at the statement (``clock_timestamp()``
+on PostgreSQL, the UTC time to the millisecond on SQLite), not the
+transaction's start: rows one transaction inserts get ordered times, and ties
+(SQLite, within a millisecond) are ordered by the UUIDv7 id. It reads back as
+a timezone-aware UTC time. Newest first: ``order_by(M.created_at.desc(),
 M.id.desc())``. Combine with column options as usual:
 ``created_at: Mapped[CreatedAt] = mapped_column(index=True)``.
 """
@@ -69,7 +76,8 @@ UpdatedAt.__doc__ = """As ``CreatedAt``, and set again by every ORM update::
 
     updated_at: Mapped[UpdatedAt]
 
-Both the insert default and the update value are ``clock_timestamp()``.
+Both the insert default and the update value are the database's clock at
+the statement (``clock_timestamp()`` on PostgreSQL).
 """
 
 # --------------------------------------------------------------------------- #

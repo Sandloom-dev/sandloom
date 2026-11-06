@@ -3,8 +3,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -18,7 +17,7 @@ class Permission(Base):
 
     __tablename__ = "permissions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(
         String(100), unique=True, nullable=False, index=True
     )

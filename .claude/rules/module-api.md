@@ -3,7 +3,7 @@ paths: ["src/sandloom_*/**", "src/*/{api,schemas,services,events,consumers,contr
 ---
 ## Public API cheat-sheet (`sandloom.sdk`; any other signature: `uv run sandloom docs <name>`)
 
-The 29 beginner names, exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
+The 30 beginner names, exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
 
 ```python
 # from sandloom.sdk import ...
@@ -11,6 +11,7 @@ register = define_module(__name__, *, version="0.1.0", consumes=(), capabilities
               depends_on=(), setup: Callable[[ModuleAPI], None] | None = None, ...)  # __init__.py
 class Note(TenantScoped, Base): ...        # tenant_id column + automatic filter; Base alone: global
     id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id); created_at: Mapped[CreatedAt]
+    due_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)  # any other time (C029)
 db() -> AsyncSession                       # the running unit's session: add/flush, never commit
 router = module_router(*, prefix=None, tags=None, tenant="derive", dependencies=())  # api.py
 public(*, reason: str, issues_tokens=False) -> Depends   # dependencies=[public(reason="...")]
@@ -47,7 +48,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | module | holds |
 |---|---|
 | `sandloom.sdk.web` | `TenantId`, `TenantScope`, `DbSession`, `Database`, `idempotency_guard`, `no_idempotency`, `replay_safe`, `sensitive`, `at_commit`, `operation_intent`, `writes`, `CurrentService`, `rate_limiter` |
-| `sandloom.sdk.data` / `.tenant` | `open_uow`, `UpdatedAt`, `MoneyLedger`, `enable_tenant_rls`, the read planner / `bind_tenant`, `unscoped`, `current_tenant_id`, `tenant_kind` |
+| `sandloom.sdk.data` / `.tenant` | `open_uow`, `UpdatedAt`, `MoneyLedger`, `enable_tenant_rls`, the read planner, the portable SQL forms (`CaseInsensitiveText`, `partial_index`, `search_index`, `conflict_insert`, `transaction_lock`; C028), `WallClock` for `func.now()` (only portable `func.<name>`, raw SQL marked: C031), the feature forms (`Array`, `fulltext_index`, `matches`, `json_path`, `json_contains`, `transaction_lock`, `aggregate_list`: declare the feature, C030) / `bind_tenant`, `unscoped`, `current_tenant_id`, `tenant_kind` |
 | `sandloom.sdk.events` / `.effects` | `EventMeta`, `publish_event_versions` (dual-publish) / `before_commit`, `durable_inbox`, `operation_key`, `run_async`, `sensitive_effect` |
 | `sandloom.sdk.contracts` | `ContractRef`, `service`, `contract_method`, the provider runtime |
 | `sandloom.sdk.authz` | `Account`, `Role`, `Perm`, `Feature`, `WithinLimit`, `Not`, `authorize`, access facts |

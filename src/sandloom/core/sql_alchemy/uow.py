@@ -3,15 +3,25 @@
 Note: This module is intentionally placed under core/sql_alchemy as a
 transition step. Eventually, all SQL-specific pieces should be moved into a
 plugin implementing the same abstract contracts.
+
+A unit opened inside another unit of the same task gets its transaction from
+its engine's nesting policy (:mod:`sandloom.core.sql_alchemy.nesting`, chosen
+once per engine): its own, or a SAVEPOINT of its caller's.
 """
 
 from __future__ import annotations
 
 from types import TracebackType
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
+from sandloom.core.sql_alchemy.nesting import (
+    FACTORY_POLICY_ATTR,
+    NO_FACTORY_KW,
+    factory_policy,
+)
 from sandloom.core.sql_alchemy.write_admission import mark_unit_closed
 from sandloom.core.unit_of_work.hooks import _run_before_commit_callbacks
 from sandloom.core.unit_of_work.request import release_unit
@@ -21,9 +31,24 @@ class SQLAlchemyUnitOfWork(UnitOfWorkContract):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self._session_factory = session_factory
         self.session: AsyncSession | None = None
+        #: the nesting policy's handle of a unit opened inside its caller's
+        #: transaction (``close(session)`` hands the caller's back), else None
+        self._nested: Any = None
 
     async def __aenter__(self) -> SQLAlchemyUnitOfWork:
-        session = self._session_factory()
+        factory = self._session_factory
+        # The engine's nesting policy, cached on the factory with its bind:
+        # one attribute read per unit (PostgreSQL: never nests).
+        cached = getattr(factory, FACTORY_POLICY_ATTR, None)
+        if cached is not None and cached[0] is getattr(
+            factory, "kw", NO_FACTORY_KW
+        ).get("bind"):
+            policy = cached[1]
+        else:
+            policy = factory_policy(factory)
+        if policy.nests and await policy.enter(self):
+            return self
+        session = factory()
         try:
             await session.begin()
         except BaseException:
@@ -47,7 +72,11 @@ class SQLAlchemyUnitOfWork(UnitOfWorkContract):
         """Close the session and mark the unit exited (lazy request unit)."""
         session, self.session = self.session, None
         if session is not None:
-            await session.close()
+            nested, self._nested = self._nested, None
+            if nested is None:
+                await session.close()
+            else:
+                await nested.close(session)
             release_unit(session)
             mark_unit_closed(session)
 
@@ -66,7 +95,12 @@ class SQLAlchemyUnitOfWork(UnitOfWorkContract):
             finally:
                 # Always release the connection, even if commit/rollback raised.
                 session, self.session = self.session, None
-                await session.close()
+                # (no helper frame: closed once per unit)
+                nested, self._nested = self._nested, None
+                if nested is None:
+                    await session.close()
+                else:
+                    await nested.close(session)
                 release_unit(session)
                 mark_unit_closed(session)
 

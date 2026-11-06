@@ -12,7 +12,7 @@ A module and its tests import only public `sandloom.sdk` modules, the generated 
 and DTO copies (`sandloom.shared.contracts.*`, the app's `<app>.shared` /
 `CONTRACT_DTO_PACKAGES`) and their own package, all at module level (C001, C002, C005, C013, C021);
 an installed module package (`sandloom_identity`) is another module. Generated code and examples
-use the 29 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
+use the 30 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
 
 To talk to another module:
 
@@ -40,9 +40,9 @@ To talk to another module:
   imports `models`, `api`, `events`, `consumers`, `contracts`, `sagas`,
   `projections` and `tasks` and collects what they declare. `setup=` is only
   for L2 calls (startup tasks, claims contributors).
-- `models/`: tables named `<module>_*`, ids `default=new_id` (UUIDv7) and
-  `created_at: Mapped[CreatedAt]` (`clock_timestamp()`), so a list ordered by
-  `created_at, id` never ties; `schemas.py`: pydantic only (C011); `services.py`:
+- `models/`: tables `<module>_*`, ids `default=new_id` (UUIDv7), `created_at:
+  Mapped[CreatedAt]` (`clock_timestamp()`: `created_at, id` never ties), any other
+  time `UtcDateTime()` (C029); `schemas.py`: pydantic only (C011); `services.py`:
   SQLAlchemy through `db()`; `api.py`: `router = module_router()` and routes
   with pydantic DTOs (C009, C010), no error handlers (app-wide).
 - `migrations/`: the module's own chain. `sandloom migrate new <m> "<message>"`
@@ -79,8 +79,9 @@ To talk to another module:
 7. **Billing atoms name their account:** `Subscribed(of=Account.user())`,
    `Credits(1, of=Account.org(param="org_id"))` (SANDLOOM-B017). An organization
    route gating with `of=Account.user()` needs `reason=` (C027).
-8. **No backend SDK or raw client:** `cache()`, `notifier()` (`sandloom.sdk.infra`),
-   `Database(name)` (C003, C004). `sandloom.driverkit` and drivers are not for modules.
+8. **No backend SDK, raw client or SQL dialect:** `cache()`, `notifier()`, `Database(name)` (C003, C004);
+   `Uuid`, `sdk.data` forms outside `migrations/` (C028); portable `func`s, `WallClock()` not `now()`,
+   raw SQL `# sandloom: raw-sql <why>`, tests too (C031). No `sandloom.driverkit`.
 
 ## Rules no check enforces yet (get these right yourself)
 
@@ -96,8 +97,7 @@ To talk to another module:
   step. Cap list `limit`s (`Query(le=...)`).
 - **Security events:** on a password, role or membership change, call
   `revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=True)`
-  (`sandloom.sdk.security`) as the last fallible step, and `record_audit(...)` the
-  action. Keep PII out of the audit `data`.
+  (`sandloom.sdk.security`) as the last fallible step; `record_audit(...)` it, no PII.
 - **Side effects outside the database** (email, cache) go through
   `await on_commit(cb)`; a check that must hold at commit, `before_commit(cb)`.
 - **Celery tasks** (`sandloom add task`): `run_async(coro)` with `open_uow()`

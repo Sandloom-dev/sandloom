@@ -13,7 +13,11 @@ time. These look at a whole business module (its ``events.py``, its
 * ``consumed-contracts`` (SANDLOOM-C019) — every literal ``get_service("x.y.vN")``
   is declared in ``consumes=`` (or provided by the module itself);
 * ``db-dependency-scope`` (SANDLOOM-C020) — ``Depends(get_db...)`` carries
-  ``scope="function"``.
+  ``scope="function"``;
+* ``database-feature-forms`` (SANDLOOM-C030) — a ``sandloom.sdk.data`` form
+  that needs a database feature (``Array``, ``fulltext_index``, ``matches``,
+  ``json_path``, ``json_contains``, ``transaction_lock``) has its feature in
+  a ``CapabilityRequirement("database", features=...)`` of the module.
 
 Each analyzer returns ``(file, "Line N: message")`` pairs. They only report
 what they can decide: an unresolvable name (a list built elsewhere, a channel
@@ -35,6 +39,7 @@ from sandloom.core.archcheck.analyzers import (
     is_endpoint_decorator,
     parse_file,
 )
+from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
 
 Hit = tuple[Path, str]
 
@@ -497,6 +502,215 @@ def find_undeclared_contracts(files: Sequence[Path]) -> list[Hit]:
 
 
 # --------------------------------------------------------------------------- #
+# database-feature-forms
+# --------------------------------------------------------------------------- #
+_DATA_MODULE = "sandloom.sdk.data"
+#: Forms whose undeclared use only warns for one minor release (they were in
+#: use before the rule): the message says it becomes an error.
+_WARN_ONLY_FORMS = frozenset({"transaction_lock"})
+
+#: ``(file, "Line N: message", severity)``.
+SeverityHit = tuple[Path, str, str]
+
+
+def _data_aliases(tree: ast.AST) -> tuple[dict[str, str], set[str], list[int]]:
+    """``local name -> form`` imported from ``sandloom.sdk.data``, the local
+    names of the module itself (``import sandloom.sdk.data as d``, ``from
+    sandloom.sdk import data``), and the lines of a ``*`` import from it."""
+    forms: dict[str, str] = {}
+    modules: set[str] = set()
+    stars: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == _DATA_MODULE:
+            for alias in node.names:
+                if alias.name == "*":
+                    stars.append(node.lineno)
+                elif alias.name in DATABASE_FORM_FEATURES:
+                    forms[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module == "sandloom.sdk":
+            modules.update(a.asname or a.name for a in node.names if a.name == "data")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == _DATA_MODULE:
+                    modules.add(alias.asname or alias.name)
+    return forms, modules, stars
+
+
+def _form_uses(tree: ast.AST) -> Iterator[tuple[int, str]]:
+    """``(line, form)`` for every reference to a feature form: called or not
+    (``f = d.transaction_lock``)."""
+    forms, modules, _ = _data_aliases(tree)
+    if not forms and not modules:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id in forms:
+                yield node.lineno, forms[node.id]
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr in DATABASE_FORM_FEATURES
+            and isinstance(node.ctx, ast.Load)
+        ):
+            root, attrs = _root_name_and_attrs(node.value)
+            dotted = ".".join([root, *attrs]) if root is not None else None
+            if dotted in modules:
+                yield node.lineno, node.attr
+
+
+def _literal_strings(node: ast.expr | None) -> set[str] | None:
+    """The strings of a set / list / tuple literal, or of ``frozenset(...)``
+    / ``set(...)`` over one; ``None`` when not statically known."""
+    if isinstance(node, ast.Call) and _call_name(node) in {"frozenset", "set"}:
+        if not node.args:
+            return set()
+        node = node.args[0]
+    if not isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        return None
+    values = {_const_str(item) for item in node.elts}
+    if None in values:
+        return None
+    return {v for v in values if v is not None}
+
+
+_UNREADABLE = (
+    "cannot be read statically, so sandloom check cannot tell which database "
+    "features the module declares; write it inline"
+)
+
+
+def _requirement_features(
+    call: ast.Call, py: Path, problems: list[SeverityHit]
+) -> set[str]:
+    """The features of a ``CapabilityRequirement("database", ...)`` call."""
+    capability = _const_str(call.args[0]) if call.args else None
+    if capability is None:
+        capability = _const_str(_keyword(call, "capability"))
+    if capability != "database":
+        return set()
+    features = _keyword(call, "features")
+    if features is None and len(call.args) > 3:
+        features = call.args[3]
+    if features is None:
+        return set()
+    found = _literal_strings(features)
+    if found is None:
+        problems.append(
+            (
+                py,
+                f"Line {call.lineno}: features= of CapabilityRequirement"
+                f'("database") {_UNREADABLE}: features=frozenset({{"..."}})',
+                "error",
+            )
+        )
+        return set()
+    return found
+
+
+def _entry_features(
+    item: ast.expr,
+    constants: dict[str, ast.expr],
+    py: Path,
+    call: ast.Call,
+    problems: list[SeverityHit],
+) -> set[str]:
+    """The database features one entry of ``capabilities=`` declares."""
+    if isinstance(item, ast.Name):
+        item = constants.get(item.id, item)
+    if _const_str(item) is not None:
+        return set()  # "cache": no features
+    if isinstance(item, ast.Call) and _call_name(item) == "CapabilityRequirement":
+        return _requirement_features(item, py, problems)
+    problems.append(
+        (
+            py,
+            f"Line {getattr(item, 'lineno', call.lineno)}: an entry of "
+            f"capabilities= {_UNREADABLE} as "
+            'CapabilityRequirement("database", features=...)',
+            "error",
+        )
+    )
+    return set()
+
+
+def _declared_database_features(
+    trees: dict[Path, ast.AST],
+) -> tuple[set[str], list[SeverityHit]]:
+    """The database features the module declares in ``capabilities=`` of its
+    ``define_module(...)`` (or ``ModuleDescriptor(...)``), and a finding for
+    each declaration that cannot be read statically."""
+    declared: set[str] = set()
+    problems: list[SeverityHit] = []
+    for py, tree in trees.items():
+        constants = _module_constants(tree)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and _call_name(node) in {"define_module", "ModuleDescriptor"}
+            ):
+                continue
+            capabilities = _keyword(node, "capabilities")
+            if isinstance(capabilities, ast.Name):
+                capabilities = constants.get(capabilities.id, capabilities)
+            if capabilities is None:
+                continue
+            if not isinstance(capabilities, (ast.List, ast.Tuple)):
+                problems.append(
+                    (
+                        py,
+                        f"Line {node.lineno}: capabilities= {_UNREADABLE} as a list",
+                        "error",
+                    )
+                )
+                continue
+            for item in capabilities.elts:
+                declared |= _entry_features(item, constants, py, node, problems)
+    return declared, problems
+
+
+def find_database_feature_problems(files: Sequence[Path]) -> list[SeverityHit]:
+    """``database-feature-forms``: a feature form whose database feature the
+    module's ``define_module(capabilities=[...])`` does not declare; a ``*``
+    import from ``sandloom.sdk.data`` (it hides the forms used); a
+    declaration that cannot be read statically. An undeclared
+    ``transaction_lock`` is a warning for one minor release."""
+    trees: dict[Path, ast.AST] = {}
+    for py in files:
+        try:
+            trees[py] = parse_file(py)
+        except SyntaxError:
+            continue
+    declared, hits = _declared_database_features(trees)
+    for py, tree in trees.items():
+        for line in _data_aliases(tree)[2]:
+            hits.append(
+                (
+                    py,
+                    f"Line {line}: from sandloom.sdk.data import * hides which "
+                    "feature forms the module uses; import the names",
+                    "error",
+                )
+            )
+        for line, form in _form_uses(tree):
+            feature = DATABASE_FORM_FEATURES[form]
+            if feature in declared:
+                continue
+            message = (
+                f"Line {line}: {form} needs the database feature "
+                f"{feature!r}; declare it in define_module: capabilities="
+                '[CapabilityRequirement("database", '
+                f'features=frozenset({{"{feature}"}}))]'
+            )
+            severity = "error"
+            if form in _WARN_ONLY_FORMS:
+                severity = "warning"
+                message += (
+                    " (a warning in this release; an error from the next minor release)"
+                )
+            hits.append((py, message, severity))
+    return hits
+
+
+# --------------------------------------------------------------------------- #
 # db-dependency-scope
 # --------------------------------------------------------------------------- #
 def _db_dependency_name(node: ast.expr) -> str | None:
@@ -540,6 +754,7 @@ __all__ = [
     "HTTP_METHODS",
     "ORG_ATOMS",
     "find_guard_order_problems",
+    "find_database_feature_problems",
     "find_undeclared_contracts",
     "find_unregistered_event_channels",
     "find_unscoped_db_dependencies",

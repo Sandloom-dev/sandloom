@@ -92,6 +92,11 @@ testing = [
     "pytest-asyncio>=1.4.0,<2",
     "pytest-xdist>=3.8.0,<4",
 ]
+# SQLite for development and tests (`sqlite+aiosqlite://`); the sqlalchemy
+# driver refuses a SQLite URL without it.
+sqlite = [
+    "aiosqlite>=0.21,<1",
+]
 # Imported only when SENTRY_DSN is set (sandloom.core.observability).
 sentry = [
     "sentry-sdk>=2.72.0,<3",
@@ -99,6 +104,12 @@ sentry = [
 
 [project.scripts]
 sandloom = "sandloom:main"
+
+# The SQL dialect renderers of the portable forms in sandloom.sdk.data
+# (sandloom.core.sql_alchemy.portable); a database driver package adds its own.
+[project.entry-points."sandloom.sql_dialects"]
+postgresql = "sandloom.core.drivers.sql_dialects:POSTGRESQL"
+sqlite = "sandloom.core.drivers.sql_dialects:SQLITE"
 
 [build-system]
 requires = [

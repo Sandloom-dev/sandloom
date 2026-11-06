@@ -20,10 +20,11 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom.sdk.security import create_access_token
+from sandloom.sdk.testing import skip_unless_db_feature
 from sandloom_identity.events import EventActor
 from sandloom_identity.models.permission import Permission
 from sandloom_identity.models.role import Role
@@ -151,7 +152,29 @@ async def test_plain_self_update_with_is_active_takes_no_rbac_lock(
 
 # --- Concurrency: real, separately committed transactions --------------------
 
-_HOLD_S = 0.5
+
+async def _until_a_transaction_waits_on_a_lock(holder: AsyncSession) -> None:
+    """Until another transaction waits on a lock ``holder``'s open
+    transaction holds: the racer reached it (a fixed 0.5 s hold only guessed
+    that it had). Asked through ``holder`` itself: the test pool has two
+    connections, both in use by the two transactions under test."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = (
+            await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if waiting:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("no transaction ever waited on the held lock")
 
 
 @pytest.fixture
@@ -218,6 +241,7 @@ def _assign_as(
     return run
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demotion_committing_mid_request_refuses_the_admin_action(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -228,7 +252,7 @@ async def test_demotion_committing_mid_request_refuses_the_admin_action(
             a, admin_role, demote_db, actor=EventActor(user_id=c)
         )
         racer = asyncio.create_task(_committed(sessions, _assign_as(a, b, editor)))
-        await asyncio.sleep(_HOLD_S)
+        await _until_a_transaction_waits_on_a_lock(demote_db)
         await demote_db.commit()
     outcome = await asyncio.wait_for(racer, timeout=10)
     assert isinstance(outcome, HTTPException) and outcome.status_code == 403, outcome
@@ -236,6 +260,7 @@ async def test_demotion_committing_mid_request_refuses_the_admin_action(
         assert await RoleService.list_user_roles(b, db) == []
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_deactivation_committing_mid_request_refuses_the_admin_action(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -246,12 +271,13 @@ async def test_deactivation_committing_mid_request_refuses_the_admin_action(
         await RoleService.require_admin_in_tx(c, demote_db)
         await UserService.delete_user(a, demote_db, actor=EventActor(user_id=c))
         racer = asyncio.create_task(_committed(sessions, _assign_as(a, b, editor)))
-        await asyncio.sleep(_HOLD_S)
+        await _until_a_transaction_waits_on_a_lock(demote_db)
         await demote_db.commit()
     outcome = await asyncio.wait_for(racer, timeout=10)
     assert isinstance(outcome, HTTPException) and outcome.status_code == 403, outcome
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_admin_action_in_flight_serialises_the_demotion(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -268,7 +294,7 @@ async def test_admin_action_in_flight_serialises_the_demotion(
             )
 
         demotion = asyncio.create_task(_committed(sessions, demote))
-        await asyncio.sleep(_HOLD_S)
+        await _until_a_transaction_waits_on_a_lock(act_db)
         assert not demotion.done(), "the demotion must wait for the admin's write"
         await act_db.commit()
     assert await asyncio.wait_for(demotion, timeout=10) is None

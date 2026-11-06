@@ -82,7 +82,7 @@ def s5_statements(role: str, password: str) -> list[str]:
         # enable_tenant_rls is not idempotent (CREATE POLICY): drop it first.
         "DROP POLICY IF EXISTS bench_tenant_items_tenant_isolation "
         "ON bench_tenant_items",
-        *enable_tenant_rls_statements("bench_tenant_items"),
+        *enable_tenant_rls_statements("bench_tenant_items", dialect="postgresql"),
         f"""INSERT INTO bench_tenant_items (id, tenant_id, name, value)
             SELECT t.i * {n} + g, t.tid, 'titem-' || (t.i * {n} + g), g
             FROM (VALUES {tenants}) AS t(i, tid), generate_series(1, {n}) AS g
@@ -184,7 +184,7 @@ def write_statements(role: str) -> list[str]:
     for table in reversed(WRITE_DIAG_TABLES):
         out += [
             f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)",
-            *enable_tenant_rls_statements(table),
+            *enable_tenant_rls_statements(table, dialect="postgresql"),
         ]
     out += [
         "CREATE INDEX IF NOT EXISTS ix_bench_tenant_order_lines_order_id "

@@ -58,6 +58,28 @@ its unique operation-key constraint. Review the file before committing it:
 autogenerate cannot see renames or data moves. `--database` picks the
 database when the module has several; `--rev-id` sets an explicit id.
 
+Autogenerate compares types and server defaults. It cannot see an index's
+access method, operator classes, sort order or condition; the
+migrations-match-models test below can.
+
+### The chain matches the models
+
+A test database on SQLite never runs a chain: it builds its schema from the
+models. PostgreSQL builds it from the chain. So each module with a chain has
+one test, written by `sandloom add module`. It applies the chain to head on a
+scratch PostgreSQL database and compares the result with the models
+([Migrations match models](../../reference/testing.md#migrations-match-models)):
+
+```python
+def test_migrations_match_models() -> None:
+    assert_migrations_match_models("tasks")
+```
+
+A model change without its revision fails it, naming the column or index.
+Fix it with `sandloom migrate new`, or correct the model. On SQLite the test
+skips. The drift step of `sandloom test` runs the same autogenerate
+comparison over every chain at once (`sandloom migrate drift`).
+
 See [Write a migration](write-migration.md) for the steps and
 [Migrations and upgrades](run-migrations.md) for upgrade workflows.
 
@@ -125,7 +147,7 @@ is a development and repair convenience, refused in production without
 | Code | When |
 | --- | --- |
 | [SANDLOOM-T002](../../reference/error-codes.md#sandloom-t002) | a table or index the models declare is not created by its owning chain (the suite builds tables from the models, production from the chains) |
-| [SANDLOOM-T006](../../reference/error-codes.md#sandloom-t006) | planned: `sandloom test` will fail when the models differ from the chain head |
+| [SANDLOOM-T006](../../reference/error-codes.md#sandloom-t006) | the chain at head builds a schema other than the models declare: the drift step of `sandloom test`, and each module's [migrations-match-models test](../../reference/testing.md#migrations-match-models) on PostgreSQL |
 | [SANDLOOM-C014](../../reference/error-codes.md#sandloom-c014) | a per-tenant table that is not `TenantScoped`, so no RLS is rendered for it |
 | `MigrationTargetError` | a module whose chain database cannot be resolved (rule 3 above) |
 

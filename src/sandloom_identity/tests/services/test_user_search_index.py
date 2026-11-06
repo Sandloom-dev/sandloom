@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,14 +65,23 @@ async def test_search_matches_any_column_case_insensitively(
 async def test_search_statements_can_use_the_trigram_index(
     test_db: AsyncSession, captured: list[tuple[str, Any]]
 ) -> None:
+    conn = await test_db.connection()
+    indexes = await conn.run_sync(lambda c: inspect(c).get_indexes("users"))
+    if "ix_users_search_trgm" not in {index["name"] for index in indexes}:
+        # search_index degrades to an unindexed search where the database
+        # builds no such index (SQLite): nothing to EXPLAIN there.
+        pytest.skip("the database built no search index on users")
     await UserService.list_users(test_db, search="hopper")
     assert len(captured) == 2  # the count and the page
     for statement, params in list(captured):
         # Bitmap scans only: on a near-empty table the planner would rather
         # walk ix_users_created_at for the ORDER BY page.
+        # sandloom: raw-sql the plan check: PostgreSQL's planner settings
         await test_db.execute(text("SET LOCAL enable_seqscan = off"))
+        # sandloom: raw-sql the plan check: PostgreSQL's planner settings
         await test_db.execute(text("SET LOCAL enable_indexscan = off"))
         conn = await test_db.connection()
+        # sandloom: raw-sql EXPLAIN where the trigram index was built
         rows = await conn.exec_driver_sql(f"EXPLAIN {statement}", params)
         plan = "\n".join(r[0] for r in rows)
         assert "ix_users_search_trgm" in plan, plan

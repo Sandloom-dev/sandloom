@@ -27,8 +27,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, bindparam, event
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import PrimaryKeyConstraint, UniqueConstraint, Uuid, bindparam, event
 from sqlalchemy.orm import Mapped, Session, mapped_column, with_loader_criteria
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.selectable import Alias, SelectBase
@@ -54,9 +53,7 @@ class TenantScoped:
     tenant filtering. Declare models as ``class Foo(TenantScoped, Base)``.
     """
 
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=False, index=True
-    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)  # maps the class: __table__ exists
@@ -501,7 +498,7 @@ def _build_tenant_criteria() -> Any:
     tenant = bindparam(
         TENANT_CRITERIA_PARAM,
         callable_=_tenant_criteria_value,
-        type_=PG_UUID(as_uuid=True),
+        type_=Uuid(),
     )
     return with_loader_criteria(
         TenantScoped,

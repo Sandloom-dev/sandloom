@@ -609,6 +609,9 @@ async def test_budget_fast_path_is_one_block_read(
 
     monkeypatch.setattr(redis_cache, "get", counting)
     request = SimpleNamespace(state=SimpleNamespace())
-    await verification.ensure_token_not_revoked(request, _claims(sub))
-    await verification.ensure_token_not_revoked(request, _claims(sub))  # memo
+    # One token: two _claims() calls a second apart would carry two iat values
+    # (two tokens, two reads).
+    claims = _claims(sub)
+    await verification.ensure_token_not_revoked(request, claims)
+    await verification.ensure_token_not_revoked(request, dict(claims))  # memo
     assert keys == [marks.subject_key(sub)]

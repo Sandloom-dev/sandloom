@@ -473,7 +473,9 @@ async def test_a_forged_response_without_the_pair_key_is_rejected(
         proxy = RemoteServiceProxy(
             service_name=SERVICE,
             binding={"base_url": p.url, "service_id": "tenancy"},
-            default_timeout_seconds=2.0,
+            # The peer answers at once; the budget bounds nothing here, and 2 s
+            # ran out on a loaded machine while the connection was set up.
+            default_timeout_seconds=10.0,
         )
         before = _rejected(reason)
         assert await proxy.echo("x") == "r-x"

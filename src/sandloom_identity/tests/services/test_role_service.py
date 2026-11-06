@@ -144,6 +144,9 @@ class TestRoleServiceComprehensive:
 
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in exc_info.value.detail
+        # the existence check matches on the code too, not only the name
+        query = mock_db.execute.call_args.args[0].compile()
+        assert sample_role_data.code in query.params.values()
 
     # ===== GET ROLE TESTS =====
     @pytest.mark.asyncio
@@ -799,6 +802,9 @@ class TestPermissionServiceComprehensive:
 
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in exc_info.value.detail
+        # the existence check matches on the code too, not only the name
+        query = mock_db.execute.call_args.args[0].compile()
+        assert sample_permission_data.code in query.params.values()
 
     # ===== LIST PERMISSIONS TESTS =====
     @pytest.mark.asyncio

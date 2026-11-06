@@ -8,7 +8,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 dependencies = [
-    "sandloom[standard,check,fast,sentry]",
+    "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
     "sandloom-identity",
     "sandloom-tenancy",
@@ -223,6 +223,15 @@ markers = [
     "guarantees: an enforcing test of the guarantee ledger (guarantees.yml; applied automatically by src/conftest.py)",
 ]
 asyncio_mode = "auto"
+# A test still running after 600 s dumps every thread's stack (pytest's
+# faulthandler): a hang shows where it waits instead of a silent job timeout.
+# Not 300: the package-distributions test (slow) took longer on a loaded host.
+faulthandler_timeout = 600
+# One event loop per process (per pytest-xdist worker) for every async test and
+# fixture: the test engine and its pool live for the run, each test resets only
+# the rows (sandloom.core.testing.engine_cache).
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 filterwarnings = [
     "error::DeprecationWarning:sandloom",
 ]

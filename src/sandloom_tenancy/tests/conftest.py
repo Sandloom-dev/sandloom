@@ -105,3 +105,12 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
     for module in (invitation_service, membership_service, organization_service):
         monkeypatch.setattr(module, "record_audit", fake_audit)
     return calls
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # skip_unless_db_feature's marker (the plugin registers it for apps)
+    config.addinivalue_line(
+        "markers",
+        "sandloom_db_feature(*features, database='default'): skip unless the "
+        "database instance has the features (skip_unless_db_feature)",
+    )

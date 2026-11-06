@@ -29,6 +29,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`apply_worker_env`](#apply_worker_env) | function | Point `environ` (default `os.environ`) at this worker's backends. |
 | [`assert_contract_conformance`](#assert_contract_conformance) | async function | Assert `contract_name` behaves identically locally and over RPC. |
+| [`assert_migrations_match_models`](#assert_migrations_match_models) | function | Fail with every difference between `module`'s chain and its models. |
 | [`assert_route_snapshot`](#assert_route_snapshot) | function | Fail unless each module's routes equal its committed `routes.snapshot.json`. |
 | [`bind_contract_session`](#bind_contract_session) | function | Run contract calls in this block on `session` (TEST SEAM). |
 | [`bind_test_uow`](#bind_test_uow) | function | Bind `session` as the active UoW for `database` in this context. |
@@ -46,12 +47,14 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`FakeClock`](#fakeclock) | class | The runtime's injectable clock (naive UTC). |
 | [`flush_owned_redis`](#flush_owned_redis) | async function | `FLUSHDB` a test Redis database this run owns, keeping its marker. |
 | [`get_db`](#get_db) | function | Request-scoped DB session governed by a UnitOfWork (the canonical path). |
+| [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
 | [`in_process_rpc_client`](#in_process_rpc_client) | function | An HTTP client whose requests hit `core`'s internal RPC routes in-process (authenticated and bound under `settings`, default the core's). |
 | [`InMemoryCache`](#inmemorycache) | class | Dict-backed `CacheProvider` (incl. `cas` and an atomic `set_max`) for unit tests. |
 | [`keyed_rpc_settings`](#keyed_rpc_settings) | function | A copy of `cfg` keyed as `service_id` calling ITSELF. |
 | [`migrate_module`](#migrate_module) | function | Move `package`'s own chain in `url` to `revision`. |
 | [`migration_chains`](#migration_chains) | function | The core chain plus the chain of every loaded module that has one. |
+| [`migration_drift`](#migration_drift) | function | How a module's migration chain at head differs from its models. |
 | [`MigrationChain`](#migrationchain) | class | One Alembic chain: the kernel's core chain or a module's own. |
 | [`model_tables`](#model_tables) | function | `{table: owning chain}` for every ORM table of the core and the loaded modules — the owner is the package that DECLARES the model. |
 | [`ModuleBootError`](#modulebooterror) | exception | The module started alone, but logged errors while doing so. |
@@ -86,6 +89,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`served_rpc`](#served_rpc) | function | Serve `core`'s internal RPC routes (or `app`) on a loopback socket. |
 | [`set_environment`](#set_environment) | function | Run the rest of the test with `settings.environment == name`. |
 | [`SimulatedCrash`](#simulatedcrash) | exception | The process "died": the transition's UoW rolls back (not an Exception, so the step classification never sees it). |
+| [`skip_unless_db_feature`](#skip_unless_db_feature) | function | Skip the test unless database instance `database` has every one of `features` (`arrays`, `fulltext_search`, `json_contains`, `skip_locked... |
 | [`spawn_served`](#spawn_served) | function | Start `app` (`"module:attr"`) in a child serving on `port`'s socket. |
 | [`SpawnedServer`](#spawnedserver) | class | A child serving on a `ReservedPort`, identified by its nonce. |
 | [`SpawnedServerError`](#spawnedservererror) | exception | The spawned server exited, or its port is answered by another process. |
@@ -226,6 +230,20 @@ async def assert_contract_conformance(
 ```
 
 Assert `contract_name` behaves identically locally and over RPC.
+
+### `assert_migrations_match_models`
+
+```python
+def assert_migrations_match_models(module: str, *, core: Any = None) -> None
+```
+
+Fail with every difference between `module`'s chain and its models.
+
+Skips (with the reason) on a test database that takes its schema from the
+models: SQLite never runs the chains (SANDLOOM-B028), and this gate is what
+keeps the PostgreSQL schema the chains build equal to the models. Skips
+too for a loaded module with no `migrations/` directory; a name no
+loaded module has raises `ValueError`.
 
 ### `assert_route_snapshot`
 
@@ -492,6 +510,17 @@ Test overrides registered for the raw provider
 (`sandloom.core._internal.db_provider.get_db`) bypass the UoW entirely: the test
 owns the session and its transaction.
 
+### `has_optimized_reads`
+
+```python
+def has_optimized_reads(bind: Any) -> bool
+```
+
+Whether the planner's optimized executor can run on the database
+behind `bind` (an engine, sync or async): its DBAPI adapter runs raw
+statements on the driver connection. Without it every declared read runs
+on the general executor, whatever `planner_optimized_executor` says.
+
 ### `Headers`
 
 ```python
@@ -689,6 +718,33 @@ The core chain plus the chain of every loaded module that has one.
 Derived from the loaded descriptors (`migrations_path`,
 `migration_chain_key`), so a new module's chain is covered without
 editing any list. `core` defaults to the composition root's.
+
+### `migration_drift`
+
+```python
+def migration_drift(module: str, *, core: Any = None) -> list[str]
+```
+
+How a module's migration chain at head differs from its models.
+
+On a scratch database next to the test database: the core chain, the
+chains `module` depends on, then its own chain, each to head; then
+Alembic's autogenerate comparison (`compare_metadata`) of the result
+with the models, over the tables the chain owns, with the options and the
+filter `sandloom migrate new` uses (`COMPARE_OPTIONS`: types and
+server defaults; a model index the database never creates is skipped),
+plus each index as the database reflects it (access method, operator
+classes, sort order, included columns, `NULLS NOT DISTINCT`, a partial
+index's condition) against the same index created from the models in a
+second scratch database, which Alembic does not compare. Not compared:
+what the models cannot declare (RLS policies, extensions, triggers), CHECK
+constraints (Alembic does not reflect them) and an index's collation
+(SQLAlchemy does not reflect it). Each difference is one line naming the
+table and the object; an empty list means they match.
+
+`module` is a loaded module's name, its package (`"sandloom_billing"`)
+or `"core"` for the kernel's chain. PostgreSQL only: a test database that
+takes its schema from the models (SQLite) has no chain to compare.
 
 ### `MigrationChain`
 
@@ -1223,6 +1279,7 @@ def fake_contract(
     name: str,
     *,
     idempotency_key: str = 'operation_key',
+    database: str | None = None,
     **methods: Callable[..., Any],
 ) -> type
 ```
@@ -1234,6 +1291,8 @@ Each function takes the business arguments plus the idempotency key
 `@contract_method(command=True)` — its calls go through the durable
 command log like a real provider's. `fake_calls["name.method"]`
 records the executions (a replay does not execute the body).
+`database`: the instance the provider's unit runs on (the
+registering module's, else `default`, when omitted).
 
 #### `SagaHarness.close`
 
@@ -1487,6 +1546,29 @@ class SimulatedCrash(BaseException)
 
 The process "died": the transition's UoW rolls back (not an Exception,
 so the step classification never sees it).
+
+### `skip_unless_db_feature`
+
+```python
+def skip_unless_db_feature(
+    *features: str,
+    database: str = 'default',
+) -> pytest.MarkDecorator
+```
+
+Skip the test unless database instance `database` has every one of
+`features` (`arrays`, `fulltext_search`, `json_contains`,
+`skip_locked`, `concurrent_writers` for a race of overlapping writers,
+...): the features the application advertises for it,
+the same answer its module preflight reads. On a function, a class or as
+`pytestmark`:
+
+```python
+@skip_unless_db_feature("arrays")
+async def test_tags_are_an_array(client): ...
+```
+
+The skip names the missing features and the instance.
 
 ### `spawn_served`
 

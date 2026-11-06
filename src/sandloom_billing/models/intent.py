@@ -20,19 +20,17 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    DateTime,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
+    Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
-from sandloom.sdk.data import UpdatedAt
+from sandloom.sdk.data import UpdatedAt, UtcDateTime, partial_index
 
 INTENT_PENDING = "pending"
 INTENT_ISSUED = "issued"
@@ -57,47 +55,45 @@ class OperationIntent(Base):
         # One LIVE intent per (actor, operation, request Idempotency-Key): a
         # retry of the same request finds it; a revoked / failed one frees the
         # key (its PSP session is dead), so a later retry starts afresh.
-        Index(
+        partial_index(
             "uq_billing_intent_live_request",
             "actor_id",
             "operation",
             "request_key",
             unique=True,
-            postgresql_where=text("status IN ('pending', 'issued')"),
+            where="status IN ('pending', 'issued')",
         ),
         # The periodic reconciler's two selections (IntentReconciler): stale
         # pending intents, and revoked checkouts whose session expire failed.
         # Both rows are rare and transient, so the partial indexes stay tiny
         # while the table grows with every checkout / portal session.
-        Index(
+        partial_index(
             "ix_billing_intents_pending_created",
             "created_at",
-            postgresql_where=text("status = 'pending'"),
+            where="status = 'pending'",
         ),
-        Index(
+        partial_index(
             "ix_billing_intents_owed_expiry",
             "created_at",
-            postgresql_where=text(
-                "status = 'revoked' AND operation = 'checkout' "
-                "AND psp_expired_at IS NULL AND reconcile_attempts > 0"
-            ),
+            where="status = 'revoked' AND operation = 'checkout' "
+            "AND psp_expired_at IS NULL AND reconcile_attempts > 0",
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("billing_customers.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     #: ``user`` | ``organization`` and its id (the billing tenant).
     tenant_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     #: The user who was authorized (references identity by plain UUID).
-    actor_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     #: sha256 of the request's Idempotency-Key (NULL: no key, never reused).
     request_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: sha256 of the operation's parameters (tenant, price).
@@ -115,20 +111,18 @@ class OperationIntent(Base):
     #: When the intent became ``issued`` (its URL was handed out). A portal
     #: intent's ``issued_at`` attributes later subscription changes of its
     #: customer (ADR-0003 open item 10).
-    issued_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    issued_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     #: When the PSP will expire the checkout session (ADR-0003 open item 13):
     #: a retry of an issued checkout past it answers 410, never a dead URL.
     #: NULL on intents issued before it was stored (the PSP default applies).
     psp_session_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
     #: When billing confirmed the checkout session can no longer be paid (our
     #: expire succeeded, or the PSP reported it expired). NULL on a revoked
     #: intent with a session = its compensation is still owed (#72).
     psp_expired_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime(), nullable=True
     )
     #: Failed reconciliation steps (PSP lookup of a stale pending intent, or
     #: the expire compensation of a revoked one) and the last error; bounded
@@ -141,8 +135,6 @@ class OperationIntent(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Set when the PSP reported a completion this intent did not authorize
     #: (revoked / pending): operator follow-up (refund is manual).
-    followup_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    followup_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
     created_at: Mapped[CreatedAt]
     updated_at: Mapped[UpdatedAt]

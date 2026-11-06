@@ -32,17 +32,28 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool
-from sqlalchemy.util.concurrency import await_
+from sqlalchemy.pool import NullPool, StaticPool
 
 import sandloom.core.observability.metrics as _metrics
 import sandloom.core.runtime as _runtime
 import sandloom.core.sql_alchemy.driver_compat as _driver_compat
+import sandloom.core.sql_alchemy.model_schema as _model_schema
 import sandloom.core.sql_alchemy.planner_adapter as _planner_adapter
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.dbapi_aiosqlite import (
+    AIOSQLITE,
+    MEMORY_WITHHELD_FEATURES,
+    SqliteUnavailable,
+    in_memory,
+    is_sqlite_url,
+    set_aside_database_file,
+    sqlite_url_problem,
+)
+from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG
 from sandloom.core.drivers.linger_pool import LingeringQueuePool
+from sandloom.core.infra.capabilities import DATABASE_RENDERER_FEATURES
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import (
     AuditStore,
@@ -51,17 +62,37 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     RequestLogStore,
 )
+from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.command_log import sql_alchemy_command_log_store
+from sandloom.core.sql_alchemy.dbapi import (
+    CONNECTION_RECOVERY,
+    DbapiAdapter,
+    dbapi_adapter,
+    dbapi_adapter_of,
+    dbapi_of_url,
+    register_shipped_dbapi_adapter,
+)
 from sandloom.core.sql_alchemy.dead_connection import install_dead_connection_handling
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,
     sql_alchemy_outbox_store,
 )
+from sandloom.core.sql_alchemy.portable import (
+    check_server_version,
+    dialect_name,
+    dialect_of_url,
+    renderer_features,
+    schema_from_models,
+    serial_writers,
+    transaction_options_for,
+)
 from sandloom.core.sql_alchemy.reconnect import install_reconnect_backoff
 from sandloom.core.sql_alchemy.request_log import sql_alchemy_request_log_store
 from sandloom.core.sql_alchemy.tenant_rls import (
+    RowSecurityUnavailable,
     TenantRLSConfigError,
     install_tenant_rls,
+    row_security_problem,
     tenant_rls_coverage,
     verify_tenant_rls_roles,
 )
@@ -90,10 +121,18 @@ SQLALCHEMY_DB_BASE_FEATURES = frozenset(
 #: instance's option of the same name is on.
 SQLALCHEMY_DB_OPTIONAL_FEATURES = frozenset({"tenant_rls"})
 
+#: The SQL dialects this driver serves: PostgreSQL, and SQLite (through
+#: aiosqlite, for development and tests); see docs/infrastructure/database.md.
+SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql", "sqlite"})
+
 #: Driver-level declaration (what the driver CAN provide) used for the
 #: build-free registry registration. A built provider's ``features()`` is the
 #: instance-accurate subset — see :func:`sqlalchemy_db_features`.
-SQLALCHEMY_DB_FEATURES = SQLALCHEMY_DB_BASE_FEATURES | SQLALCHEMY_DB_OPTIONAL_FEATURES
+SQLALCHEMY_DB_FEATURES = (
+    SQLALCHEMY_DB_BASE_FEATURES
+    | SQLALCHEMY_DB_OPTIONAL_FEATURES
+    | DATABASE_RENDERER_FEATURES
+)
 
 
 class SQLAlchemyDatabaseOptions(BaseModel):
@@ -140,16 +179,23 @@ class SQLAlchemyDatabaseOptions(BaseModel):
 def sqlalchemy_db_features(options: Mapping[str, object]) -> frozenset[str]:
     """The features an instance configured with ``options`` advertises.
 
-    ``tenant_rls`` is included only when that option is on, so a module's
-    ``CapabilityRequirement("database", features=frozenset({"tenant_rls"}))``
-    is satisfied only by an instance that actually installs the RLS hooks.
+    The base features, plus what the SQL dialect renderer of the instance's
+    URL declares (``skip_locked``, ``transaction_locks``, …), plus
+    ``tenant_rls`` when that option is on. Build-free: options and the URL's
+    dialect only, never the server, so the registry's preflight stays exact.
     """
+    url = str(options.get("url") or settings.database_url)
+    features = SQLALCHEMY_DB_BASE_FEATURES | renderer_features(dialect_of_url(url))
+    if is_sqlite_url(url) and in_memory(url):
+        # One connection and no WAL: no snapshot a writer could change, no
+        # second writer to exclude (only a test engine is ever in memory).
+        features -= MEMORY_WITHHELD_FEATURES
     tenant_rls = SQLAlchemyDatabaseOptions.model_validate(
         {"tenant_rls": options.get("tenant_rls", False)}
     ).tenant_rls
     if tenant_rls:
-        return SQLALCHEMY_DB_BASE_FEATURES | {"tenant_rls"}
-    return SQLALCHEMY_DB_BASE_FEATURES
+        features |= {"tenant_rls"}
+    return features
 
 
 def _pool_snapshot(pool: Any) -> dict[str, int] | None:
@@ -203,6 +249,10 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         self._contract_resolved = False
         self._uow_factory: Callable[[], UnitOfWorkContract] | None = None
         self._contract_factory: Callable[[], UnitOfWorkContract] | None = None
+        #: the read scope's factory: ``False`` until first asked (cached)
+        self._contract_read_factory: Callable[[], UnitOfWorkContract] | bool | None = (
+            False
+        )
 
     @property
     def engine(self) -> AsyncEngine:
@@ -333,6 +383,67 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
             factory = self._contract_factory = _factory
         return factory
 
+    def contract_read_uow_factory(self) -> Callable[[], UnitOfWorkContract] | None:
+        """UoW factory of a contract read scope's shared unit (one transaction
+        a request's local read contracts share, rolled back after them).
+
+        On a database whose writers are serial (SQLite) it is a read-only
+        unit (deferred, refusing writes): a writable one would begin by
+        taking the one write lock and hold it while the request goes on, so
+        the request's own write units would wait for it. Elsewhere
+        ``None``: the scope uses the contract factory, unchanged.
+        """
+        factory = self._contract_read_factory
+        if factory is False:
+            if not serial_writers(dialect_name(self._engine)):
+                self._contract_read_factory = None
+                return None
+            engine = self._engine
+            maker = async_sessionmaker(
+                bind=engine.execution_options(
+                    **transaction_options_for(engine, read_only=True, snapshot=None)
+                ),
+                class_=AsyncSession,
+                sync_session_class=KernelSession,
+                expire_on_commit=False,
+            )
+
+            def _factory() -> UnitOfWorkContract:
+                return SQLAlchemyUnitOfWork(session_factory=maker)
+
+            factory = self._contract_read_factory = _factory
+        return factory if callable(factory) else None
+
+    async def ensure_model_schema(
+        self, metadata: Any = None, *, recreate: bool
+    ) -> bool:
+        """Build the schema of ``metadata`` here when this database takes its
+        schema from the models (its renderer's ``schema_from_models``:
+        SQLite); ``None``: every mapped table. A database whose tables
+        differ from the models refuses (SANDLOOM-B028); with ``recreate``
+        its file is set aside (``<file>.stale-<UTC time>``, nothing dropped)
+        and a fresh one built.
+        The engine's pool is released afterwards, so no connection opened on
+        this event loop outlives it (a worker forks after). False: this
+        database runs the migration chains, nothing was done."""
+        if not schema_from_models(dialect_name(self._engine)):
+            return False
+        url = self._engine.url
+
+        async def set_aside() -> str:
+            return set_aside_database_file(url)
+
+        try:
+            await _model_schema.ensure_model_schema(
+                self._engine,
+                Base.metadata if metadata is None else metadata,
+                where=f"database/{self.name} ({url.database})",
+                set_aside=set_aside if recreate else None,
+            )
+        finally:
+            await self._engine.dispose()
+        return True
+
     async def aopen(self) -> None:
         """Verify the RLS role setup at startup (``tenant_rls`` instances only).
 
@@ -389,12 +500,13 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         # Readiness must not queue behind saturated application requests.
         # NullPool bounds this probe to one short-lived connection, separate
         # from both request and contract pool capacity.
-        connect_args: dict[str, object] = {}
-        if self._engine.url.drivername == "postgresql+asyncpg":
-            connect_args["timeout"] = min(
+        connect_args = dbapi_adapter_of(self._engine).connect_args(
+            connect_timeout=min(
                 settings.db_connect_timeout_seconds,
                 settings.health_check_timeout_seconds,
-            )
+            ),
+            server_settings={},
+        )
         engine = create_async_engine(
             self._engine.url, poolclass=NullPool, connect_args=connect_args
         )
@@ -437,43 +549,30 @@ logger = logging.getLogger(__name__)
 _LAST_USED_KEY = "sandloom_last_used"
 
 
-def _is_asyncpg(url: str) -> bool:
-    return url.startswith("postgresql+asyncpg")
+#: The DBAPI adapters this driver ships (``design/infra-agnostic/spec.md``,
+#: "Where driver code lives"); registered before any engine is built. Any
+#: other DBAPI (psycopg) gets the plain path. A driver package's
+#: adapter registered first for the same DBAPI is kept.
+for _adapter in (ASYNCPG, AIOSQLITE):
+    register_shipped_dbapi_adapter(_adapter)
+
+
+def _dbapi(url: str) -> DbapiAdapter:
+    """The DBAPI adapter of ``url`` (``postgresql+asyncpg`` -> asyncpg's)."""
+    return dbapi_adapter(dbapi_of_url(url))
 
 
 def _server_settings(
     url: str, extra: Mapping[str, str] | None = None
 ) -> dict[str, str]:
-    """PostgreSQL GUCs sent in the startup packet (zero extra round trips)."""
-    if not _is_asyncpg(url):
-        return {}
-    values: dict[str, str] = {}
-    if settings.db_statement_timeout_ms:
-        values["statement_timeout"] = str(settings.db_statement_timeout_ms)
-    if settings.db_idle_in_tx_timeout_ms:
-        values["idle_in_transaction_session_timeout"] = str(
-            settings.db_idle_in_tx_timeout_ms
-        )
-    values.update(extra or {})
-    return values
-
-
-def _ping(dbapi_connection: Any, dialect: Any) -> None:
-    """One-round-trip liveness probe of a pooled connection (no transaction).
-
-    asyncpg: ``SELECT 1`` over the simple-query protocol (no prepare, no
-    transaction) — ONE round trip, where SQLAlchemy's own asyncpg ping wraps a
-    ``;`` in BEGIN/ROLLBACK (three). Other drivers use the dialect's ping.
-    """
-    raw = getattr(dbapi_connection, "_connection", None)
-    if raw is not None and hasattr(raw, "execute"):
-        # (SQLAlchemy 2.1's adapter has no ``await_`` attribute: the module
-        # function, as the tenant_rls hook uses — the old attribute lookup fell
-        # back to the 3-round-trip dialect ping.)
-        await_(raw.execute("SELECT 1"))
-        return
-    if not dialect.do_ping(dbapi_connection):
-        raise exc.DisconnectionError("database ping failed")
+    """The server settings (statement and idle-in-transaction timeouts) the
+    DBAPI sends when a connection opens (zero extra round trips); empty where
+    it cannot."""
+    return _dbapi(url).server_settings(
+        statement_timeout_ms=settings.db_statement_timeout_ms,
+        idle_in_transaction_timeout_ms=settings.db_idle_in_tx_timeout_ms,
+        extra=extra,
+    )
 
 
 def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
@@ -488,15 +587,17 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
     connection (they most likely died with it: a server restart / failover),
     exactly as ``pool_pre_ping`` did. Negative ``idle_seconds`` disables it.
 
-    Independently of the idle time, an asyncpg connection that already reports
-    itself closed (its backend died while it sat in the pool and the close was
-    processed) is replaced before it is handed out: an attribute read, no
-    round trip (see :mod:`sandloom.core.sql_alchemy.dead_connection` for the one
-    whose close is still in flight).
+    Independently of the idle time, a connection its DBAPI adapter already
+    reports closed (asyncpg: its backend died while it sat in the pool and the
+    close was processed) is replaced before it is handed out: an attribute
+    read, no round trip (see :mod:`sandloom.core.sql_alchemy.dead_connection`
+    for the one whose close is still in flight). The probe itself is the
+    adapter's :meth:`~sandloom.core.sql_alchemy.dbapi.DbapiAdapter.ping`.
     """
     sync_engine = engine.sync_engine
     dialect = sync_engine.dialect
     ping = idle_seconds >= 0
+    dbapi = dbapi_adapter_of(dialect)
 
     def _fresh(_dbapi_connection: Any, record: Any) -> None:
         # A just-opened connection is known good: its first checkout skips
@@ -507,8 +608,7 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
         record.info[_LAST_USED_KEY] = time.monotonic()
 
     def _checkout(dbapi_connection: Any, record: Any, _proxy: Any) -> None:
-        raw = getattr(dbapi_connection, "_connection", None)
-        if raw is not None and raw.is_closed():
+        if dbapi.connection_closed(dbapi_connection):
             # Died while idle: the pool replaces only this connection.
             _metrics.db_dead_connection_replaced_total.labels(phase="checkout").inc()
             raise exc.DisconnectionError("pooled connection closed while idle")
@@ -518,7 +618,7 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
         if last is None or time.monotonic() - last < idle_seconds:
             return
         try:
-            _ping(dbapi_connection, dialect)
+            dbapi.ping(dbapi_connection, dialect)
         except Exception as error:  # any failure = dead link
             logger.info("idle pooled connection failed its ping; reconnecting")
             raise exc.InvalidatePoolError(
@@ -528,8 +628,17 @@ def install_idle_ping(engine: AsyncEngine, idle_seconds: float) -> None:
     if ping:
         event.listen(sync_engine, "connect", _fresh)
         event.listen(sync_engine, "checkin", _stamp)
-    if ping or dialect.driver == "asyncpg":
+    if ping or CONNECTION_RECOVERY in dbapi.capabilities:
         event.listen(sync_engine, "checkout", _checkout)
+
+
+def _refuse_old_servers(engine: AsyncEngine) -> None:
+    """Refuse a server below its renderer's minimum version on the engine's
+    first connection, before any statement runs (SANDLOOM-B030)."""
+
+    @event.listens_for(engine.sync_engine, "first_connect")
+    def _check(dbapi_connection: Any, connection_record: Any) -> None:
+        check_server_version(engine.sync_engine.dialect)
 
 
 def _pooled_engine(
@@ -547,15 +656,17 @@ def _pooled_engine(
     ``DB_POOL_OVERFLOW_LINGER_SECONDS`` instead of churning connect/close while
     load hovers above ``pool_size``.
     """
-    connect_args: dict[str, object] = {}
-    if _is_asyncpg(url):
-        connect_args["timeout"] = settings.db_connect_timeout_seconds
-    guc = _server_settings(url, server_settings)
-    if guc:
-        connect_args["server_settings"] = guc
+    problem = sqlite_url_problem(url)
+    if problem is not None:
+        raise SqliteUnavailable(problem)
+    connect_args = _dbapi(url).connect_args(
+        connect_timeout=settings.db_connect_timeout_seconds,
+        server_settings=_server_settings(url, server_settings),
+    )
     pool_kw: dict[str, Any] = {}
-    if not url.startswith("sqlite"):
-        # SQLite keeps the dialect's own pool choice (StaticPool for :memory:).
+    if not is_sqlite_url(url):
+        # A SQLite file keeps the dialect's own queue pool: no lingering
+        # overflow, a connection is a file handle.
         pool_kw["poolclass"] = LingeringQueuePool
         pool_kw["overflow_linger_seconds"] = settings.db_pool_overflow_linger_seconds
         pool_kw["fair_barge_ms"] = settings.db_pool_fair_barge_ms
@@ -572,19 +683,21 @@ def _pooled_engine(
         connect_args=connect_args,
         **pool_kw,
     )
+    dbapi = dbapi_adapter_of(engine)
+    dbapi.prepare_engine(engine, statement_timeout_ms=settings.db_statement_timeout_ms)
     install_idle_ping(engine, float(settings.db_pool_ping_idle_seconds))
+    _refuse_old_servers(engine)
     install_reconnect_backoff(
         engine,
         base=settings.db_reconnect_base_seconds,
         cap=settings.db_reconnect_max_seconds,
         wait_timeout=settings.db_pool_timeout,
     )
-    if engine.dialect.driver == "asyncpg":
+    if dbapi.capabilities:
         # Verify (once per process) the private driver internals the round-trip
         # fast paths use; a mismatch warns + counts and they fall back.
-        _driver_compat.asyncpg_fast_paths_ok()
+        dbapi.verify()
         _driver_compat.session_connections_ok()
-        _driver_compat.dead_connection_retry_ok()
     # BEFORE the other dialect wrappers (read-only policy here, tenant_rls by the
     # caller): they run outside it and it only ever retries the statement.
     install_dead_connection_handling(engine)
@@ -606,8 +719,9 @@ def _build_engine(url: str) -> AsyncEngine:
 
 
 def _supports_contract_pool(url: str) -> bool:
-    # SQLite (esp. in-memory) cannot share data across separate engines/pools.
-    return not url.startswith("sqlite")
+    # SQLite's writers are serial: a second pool would only wait on the
+    # first one's write lock (busy_timeout), so contract units share it.
+    return not is_sqlite_url(url)
 
 
 def _build_contract_engine(url: str, *, tenant_rls: bool = False) -> AsyncEngine:
@@ -721,14 +835,25 @@ def build_disposable_engine(
 
     Kept here so the driver stays the sole constructor of database engines;
     the caller disposes it. ``pool_size`` / ``max_overflow`` bound its pool
-    (SQLAlchemy's defaults when omitted).
+    (SQLAlchemy's defaults when omitted). An in-memory SQLite database is
+    accepted here only: one connection shared by every checkout
+    (``StaticPool``), so the test sees one database (SANDLOOM-B032).
     """
-    pool: dict[str, int] = {}
-    if pool_size is not None:
-        pool["pool_size"] = pool_size
-    if max_overflow is not None:
-        pool["max_overflow"] = max_overflow
+    problem = sqlite_url_problem(url, allow_memory=True)
+    if problem is not None:
+        raise SqliteUnavailable(problem)
+    pool: dict[str, Any] = {}
+    if is_sqlite_url(url) and in_memory(url):
+        pool["poolclass"] = StaticPool
+    else:
+        if pool_size is not None:
+            pool["pool_size"] = pool_size
+        if max_overflow is not None:
+            pool["max_overflow"] = max_overflow
     engine = create_async_engine(url, future=True, echo=False, **pool)
+    dbapi_adapter_of(engine).prepare_engine(
+        engine, statement_timeout_ms=settings.db_statement_timeout_ms
+    )
     install_write_admission(engine)
     return engine
 
@@ -823,9 +948,10 @@ def get_system_engine(name: str = DEFAULT_INSTANCE) -> AsyncEngine:
             pool_size=2,
             max_overflow=2,
             pool_timeout=settings.db_pool_timeout,
-            connect_args={"timeout": settings.db_connect_timeout_seconds}
-            if _is_asyncpg(url)
-            else {},
+            connect_args=_dbapi(url).connect_args(
+                connect_timeout=settings.db_connect_timeout_seconds,
+                server_settings={},
+            ),
         )
         install_reconnect_backoff(
             engine,
@@ -849,6 +975,19 @@ async def _dispose_system_engine(name: str) -> None:
 def create_sqlalchemy_database(cfg: InstanceConfig) -> SQLAlchemyDatabaseProvider:
     """Driver factory for ``database`` capability / ``sqlalchemy`` driver."""
     url = str(cfg.options.get("url") or settings.database_url)
+    sqlite_problem = sqlite_url_problem(url)
+    if sqlite_problem is not None:
+        raise SqliteUnavailable(f"database/{cfg.name}: {sqlite_problem}")
+    problem = row_security_problem(
+        cfg.name,
+        url,
+        cfg.options,
+        system_url=(
+            settings.database_system_url if cfg.name == DEFAULT_INSTANCE else None
+        ),
+    )
+    if problem is not None:
+        raise RowSecurityUnavailable(problem)
     rls_options = _validated_rls_options(cfg.name, cfg.options)
     tenant_rls = rls_options.tenant_rls
     _register_system_channel(cfg.name, rls_options)

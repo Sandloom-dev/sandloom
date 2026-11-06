@@ -25,7 +25,6 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.dead_connection import (
     count_recovery,
     is_dead_connection_error,
-    never_sent,
     recovery_enabled,
 )
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
@@ -34,9 +33,7 @@ from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _Compiled,
     _CompiledList,
     _ListForm,
-    begin_read_only_sql,
 )
-from sandloom.core.sql_alchemy.rls import TENANT_SETTING
 from sandloom.core.tenant_context import _current_tenant
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -154,10 +151,10 @@ async def _general_read(
 class _ReadUnit:
     """A lazy read-only lease shared by a scope's sequential reads.
 
-    Optimized READ COMMITTED reads share a raw transaction. If a general read
-    follows, end and release that lease before opening the ORM transaction;
-    subsequent reads use the ORM session. READ COMMITTED takes a fresh snapshot
-    per statement either way. Stronger isolation always uses one ORM unit.
+    Optimized reads (a fresh snapshot per statement) share a raw transaction.
+    If a general read follows, end and release that lease before opening the
+    ORM transaction; subsequent reads use the ORM session. Each statement sees
+    a fresh snapshot either way. A one-snapshot unit always uses one ORM unit.
     A failure aborts the unit permanently; cancellation never pools an open
     transaction. Each read rebinds the transaction-local tenant if needed.
     """
@@ -168,16 +165,16 @@ class _ReadUnit:
         "_session",
         "_raw",
         "_broken",
-        "_isolation",
+        "_snapshot",
         "_raw_active",
         "_raw_tenant",
     )
 
     def __init__(
-        self, adapter: SQLAlchemyExecutionAdapter, isolation: str = "READ COMMITTED"
+        self, adapter: SQLAlchemyExecutionAdapter, snapshot: bool = False
     ) -> None:
         self._adapter = adapter
-        self._isolation = isolation
+        self._snapshot = snapshot
         self._lease: _Lease | None = None
         self._session: AsyncSession | None = None
         self._raw: Any = None
@@ -219,7 +216,7 @@ class _ReadUnit:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 raise DatabaseUnavailable(exc) from exc
             raise
@@ -229,25 +226,24 @@ class _ReadUnit:
         return values
 
     async def _optimized(self, plan: Plan[Any], ctx: ExecutionContext) -> Any:
-        if (
-            plan.executor != "optimized"
-            or self._session is not None
-            or self._isolation != "READ COMMITTED"
-        ):
+        if plan.executor != "optimized" or self._session is not None or self._snapshot:
             return None
         if not self._raw_active:
             lease = self._lease = _Lease(self._adapter)
             await lease.__aenter__()
-            self._raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+            self._raw = await lease.first(
+                "execute", self._adapter._begin_read_only_sql(ctx.tenant)
+            )
             self._raw_active, self._raw_tenant = True, ctx.tenant
             cp = self._adapter.checkpoint
             if cp is not None:
                 await cp("begun")
         elif self._raw_tenant != ctx.tenant:
-            await self._raw.execute(
-                f"SELECT set_config('{TENANT_SETTING}', $1, true)",
-                "" if ctx.tenant is None else str(ctx.tenant),
-            )
+            rebind = self._adapter._read_only_begin.rebind_sql
+            if rebind is not None:
+                await self._raw.execute(
+                    rebind, "" if ctx.tenant is None else str(ctx.tenant)
+                )
             self._raw_tenant = ctx.tenant
         return self._raw
 
@@ -259,7 +255,7 @@ class _ReadUnit:
         conn, raw = await lease.__aenter__()  # aborts itself on failure
         self._lease, self._raw = lease, raw
         try:
-            self._adapter._read_only(conn, self._isolation)
+            self._adapter._read_only(conn, self._snapshot)
             session = self._session = AsyncSession(
                 bind=conn, expire_on_commit=False, autoflush=False
             )
@@ -311,7 +307,7 @@ class _ReadUnit:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 raise DatabaseUnavailable(exc) from exc
             raise
@@ -408,7 +404,7 @@ class _Lease:
     async def first(self, method: str, *args: Any) -> Any:
         """The OPTIMIZED executor's FIRST message on this lease.
 
-        It is ``BEGIN READ ONLY; set_config``. When asyncpg refuses it BEFORE
+        It is ``BEGIN READ ONLY; set_config``. When the DBAPI refuses it BEFORE
         writing a byte because
         the pooled connection died while idle, the lease is aborted, a fresh
         connection leased and the message sent on it (nothing reached the
@@ -418,7 +414,8 @@ class _Lease:
         try:
             result = await getattr(self._raw, method)(*args)
         except Exception as error:
-            if not (never_sent(error) and recovery_enabled()):
+            dbapi = self._adapter._dbapi
+            if not (dbapi.never_sent(error) and recovery_enabled(dbapi)):
                 raise
             await self._abort()
             await self._acquire()
@@ -432,7 +429,7 @@ class _Lease:
             if (
                 isinstance(exc, Exception)
                 and not isinstance(exc, DatabaseUnavailable)
-                and is_dead_connection_error(exc)
+                and is_dead_connection_error(exc, self._adapter._dbapi)
             ):
                 # the optimized executor's raw driver errors: a 503, as on
                 # the SQLAlchemy path (sandloom.core.sql_alchemy.dead_connection)

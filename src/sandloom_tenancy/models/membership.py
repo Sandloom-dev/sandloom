@@ -8,8 +8,8 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    Uuid,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -44,15 +44,15 @@ class OrganizationMember(Base):
         Index("ix_tenancy_members_org_created", "organization_id", "created_at", "id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     # No standalone index: uq_tenancy_member (organization_id, user_id) leads
     # with it and serves every per-organization lookup (dropped in 0003).
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("tenancy_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default=ROLE_MEMBER)
 
     created_at: Mapped[CreatedAt]
@@ -75,9 +75,9 @@ class OrganizationMemberVersion(Base):
     __tablename__ = "tenancy_member_versions"
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
+        Uuid,
         ForeignKey("tenancy_organizations.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     version: Mapped[int] = mapped_column(BigInteger, nullable=False)

@@ -157,6 +157,19 @@ class DatabaseConfig(BaseModel):
             "session semantics."
         ),
     )
+    # Set by ``sandloom dev run`` only: a database that takes its schema from
+    # the models (SQLite) and whose tables differ from them is set aside
+    # (renamed ``<file>.stale-<UTC time>``) and built fresh, instead of
+    # refusing to start (SANDLOOM-B028). Never on by default, never in prod.
+    db_recreate_on_model_change: bool = Field(
+        default=False,
+        alias="DB_RECREATE_ON_MODEL_CHANGE",
+        description=(
+            "Set aside a database file whose tables differ from the models and "
+            "build a fresh one at startup (development only; set by sandloom "
+            "dev run); off refuses to start on such a file."
+        ),
+    )
     # Default ON (kill switch: DB_RLS_MERGED_BEGIN=false): on a ``tenant_rls``
     # engine (asyncpg) the first statement of a transaction sends ``BEGIN …;
     # SELECT set_config(tenant)`` as ONE simple-query message (one round trip

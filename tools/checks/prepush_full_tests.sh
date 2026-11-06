@@ -40,11 +40,22 @@ docker compose -f deploy/compose/test.yml up -d --wait
 # free connections afford (sandloom.core.testing.connections: 13 per worker, 40
 # kept for the multi-process suites).
 workers="${SANDLOOM_PREPUSH_WORKERS:-auto}"
+# A seeded random order, like `sandloom test` and CI: a test that passes only
+# after another one fails here, and the seeded run hands the slow files to the
+# workers first (sandloom.core.testing.shuffle). The seed is printed in the
+# report header and summary; replay with `... prepush_full_tests.sh
+# --sandloom-shuffle=<seed>` (that argument is the seed then).
+seed=$(( (RANDOM << 15 | RANDOM) % 100000000 + 1 ))
+for arg in "$@"; do
+  case "${arg}" in --sandloom-shuffle=*) seed="${arg#--sandloom-shuffle=}" ;; esac
+done
+echo "backend-full-tests: test order seed ${seed}" >&2
 if [ "${workers}" = auto ] || [ "${workers}" -ge 2 ]; then
   echo "backend-full-tests: ${workers} xdist workers (allocated Redis indexes)" >&2
   status=0
   SANDLOOM_TEST_REDIS_DB_STRIDE=auto \
-    uv run --locked pytest -q --no-cov -n "${workers}" --dist loadfile "$@" || status=$?
+    uv run --locked pytest -q --no-cov -n "${workers}" --dist loadfile \
+      --sandloom-shuffle="${seed}" "$@" || status=$?
   # Exit 4 = the isolation guard refused: too few free Redis indexes (list /
   # prune stale ones with tools/checks/test_resources.py) or a worker database
   # another run owns. Fall back to the serial run on this checkout's own
@@ -53,4 +64,4 @@ if [ "${workers}" = auto ] || [ "${workers}" -ge 2 ]; then
   echo "backend-full-tests: no free Redis indexes / a worker database belongs to another run; retrying serially (see: uv run python tools/checks/test_resources.py list)" >&2
 fi
 echo "backend-full-tests: serial run" >&2
-exec uv run --locked pytest -q --no-cov "$@"
+exec uv run --locked pytest -q --no-cov --sandloom-shuffle="${seed}" "$@"

@@ -3,8 +3,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ForeignKey, Index, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -19,17 +18,17 @@ class UserRole(Base):
 
     __tablename__ = "user_roles"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
     )
 
     assigned_at: Mapped[CreatedAt]
     assigned_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("users.id"), nullable=True
+        Uuid, ForeignKey("users.id"), nullable=True
     )
 
     # Relationships

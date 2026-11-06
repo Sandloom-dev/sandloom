@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import event, select, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -146,6 +147,8 @@ async def _rows(
 async def test_outbox_and_audit_rows_are_one_statement(
     engine: AsyncEngine, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
+    if engine.dialect.name != "postgresql":
+        pytest.skip("one statement needs DML in a CTE, which SQLite does not have")
     tag = uuid.uuid4().hex
     actor = uuid.uuid4()
     bus = _RecordingBus()
@@ -369,7 +372,18 @@ async def test_a_uow_leaves_no_cyclic_garbage(
         for _ in range(5):
             await _run_uow(session_factory, bus, body)
         gc.collect()
-        ours = [obj for obj in gc.garbage if _uow_owned(obj)]
+        # An engine of an earlier test (SQLAlchemy's own cycles) may become
+        # unreachable in this window; what the kernel caches on it (a
+        # serial-writer database's nesting policy) goes with it.
+        on_engines = {
+            id(value)
+            for obj in gc.garbage
+            if isinstance(obj, Engine)
+            for value in vars(obj).values()
+        }
+        ours = [
+            obj for obj in gc.garbage if _uow_owned(obj) and id(obj) not in on_engines
+        ]
     finally:
         gc.set_debug(0)
         gc.garbage.clear()

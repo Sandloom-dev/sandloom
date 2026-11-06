@@ -13,17 +13,19 @@ database instance. Two executors, ONE connection lifecycle:
     is invalidated too.
 
 ``session(ctx)`` — GENERAL executor (any declared operation)
-    an ORM ``AsyncSession`` bound to the leased connection with
-    ``postgresql_readonly`` (``BEGIN READ ONLY``), the context's tenant bound
-    (ORM tenant guard + the engine's ``tenant_rls`` hook set the GUC), always
-    rolled back.
+    an ORM ``AsyncSession`` bound to the leased connection with the
+    renderer's read-only ``transaction_options`` (on PostgreSQL
+    ``BEGIN READ ONLY``; a database without ``readonly_transactions`` relies
+    on the planner's generated SELECTs and the read-only scope), the
+    context's tenant bound (ORM tenant guard + the engine's ``tenant_rls``
+    hook set the GUC), always rolled back.
 
 ``raw_transaction(ctx)`` — OPTIMIZED executor (declared simple reads only)
-    the asyncpg connection under the lease; on a ``tenant_rls`` engine
-    ``BEGIN READ ONLY; SELECT set_config(tenant)`` in ONE simple-protocol
-    message, then the generated statement, then ``COMMIT``. The read-only
-    transaction is required even without RLS: a SELECT from a view can invoke
-    a volatile function that writes. The generated
+    the asyncpg connection under the lease; on a ``tenant_rls`` engine the
+    renderer's read-only ``begin_statement`` and its tenant binding in ONE
+    simple-protocol message, then the generated statement, then ``COMMIT``.
+    The read-only transaction is required even without RLS: a SELECT from a
+    view can invoke a volatile function that writes. The generated
     statement always carries the tenant predicate for a tenant-scoped entity.
 
 The tenant value comes from the :class:`ExecutionContext` built for THIS call;
@@ -43,12 +45,12 @@ from sandloom.core.planner import (
     Plan,
     PlanningError,
     Reads,
+    SnapshotReadsUnavailable,
 )
 from sandloom.core.sql_alchemy.planner_adapter.compiler import _PlannerCompiler
 from sandloom.core.sql_alchemy.planner_adapter.forms import (
     _Compiled,
     _CompiledList,
-    begin_read_only_sql,
 )
 from sandloom.core.sql_alchemy.planner_adapter.units import (
     _general_page,
@@ -109,42 +111,50 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
         """OPTIMIZED executor scope: BEGIN READ ONLY + GUC | ... | COMMIT."""
         lease = self.lease()
         async with lease:
-            raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+            raw = await lease.first("execute", self._begin_read_only_sql(ctx.tenant))
             await self._cp("begun")
             yield raw
             await self._cp("fetched")
             await raw.execute("COMMIT")
             await self._cp("ended")
 
-    def _read_only(
-        self, conn: AsyncConnection, isolation: str = "READ COMMITTED"
-    ) -> None:
-        """``BEGIN READ ONLY`` at ``isolation`` for this checkout (reset by the
-        pool on return).
+    def _read_only(self, conn: AsyncConnection, snapshot: bool = False) -> None:
+        """Begin this checkout's transaction read-only, with one snapshot or a
+        fresh one per statement (reset by the pool on return): the
+        renderer's ``transaction_options``, built once per adapter.
 
         The SYNC ``Connection.execution_options``: on asyncpg the readonly and
         isolation characteristics are attributes of the DBAPI adapter (no I/O,
         no open transaction yet), so the greenlet hop of the async wrapper is
-        skipped. READ COMMITTED is the contract's default: when the server's
-        default isolation (read once per adapter from the dialect, set at the
-        first connect) IS READ COMMITTED, setting it again per checkout would
-        only cost instructions (~0.1 M per request, cachegrind); otherwise it
-        is pinned explicitly on every checkout.
+        skipped. A fresh snapshot per statement is the contract's default:
+        when the server's default isolation (read once per adapter from the
+        dialect, set at the first connect) already IS that level, setting it
+        again per checkout would only cost instructions (~0.1 M per request,
+        cachegrind); otherwise it is pinned explicitly on every checkout. A
+        database without read-only transactions gets no options (the
+        planner's generated SELECTs and the read-only scope are its guard); a
+        snapshot never gets here without ``snapshot_reads``
+        (:meth:`read_unit`).
         """
-        if not self._postgresql:
-            return
-        sync = conn.sync_connection
-        assert sync is not None  # noqa: S101 - type narrowing of an invariant
-        if isolation == "READ COMMITTED" and self._server_read_committed(sync):
-            sync.execution_options(postgresql_readonly=True)
+        if snapshot:
+            options = self._ro_snapshot
+        elif self._server_statement_default(conn):
+            options = self._ro_default
         else:
-            sync.execution_options(postgresql_readonly=True, isolation_level=isolation)
+            options = self._ro_statement
+        if options:
+            sync = conn.sync_connection
+            assert sync is not None  # noqa: S101 - type narrowing of an invariant
+            sync.execution_options(**options)
 
-    def _server_read_committed(self, sync: Any) -> bool:
-        verdict = self._rc_default
+    def _server_statement_default(self, conn: AsyncConnection) -> bool:
+        verdict = self._statement_default
         if verdict is None:
-            level = getattr(sync.dialect, "default_isolation_level", None)
-            verdict = self._rc_default = str(level).upper() == "READ COMMITTED"
+            pinned = self._ro_statement.get("isolation_level")
+            level = getattr(conn.sync_engine.dialect, "default_isolation_level", None)
+            verdict = self._statement_default = pinned is None or (
+                str(level).upper() == str(pinned).upper()
+            )
         return verdict
 
     # ------------------------------------------------------------ execution
@@ -166,7 +176,9 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
             )
             lease = _Lease(self)
             async with lease:
-                raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+                raw = await lease.first(
+                    "execute", self._begin_read_only_sql(ctx.tenant)
+                )
                 if cp is not None:
                     await cp("begun")
                 row = await raw.fetchrow(c.sql, *args)
@@ -200,14 +212,26 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
                 await cp("ended")
         return values
 
-    def read_unit(self, isolation: str = "READ COMMITTED") -> _ReadUnit:
+    def read_unit(self, *, snapshot: bool = False) -> _ReadUnit:
         """A scope-wide read-only unit for the GENERAL executor (lazy lease).
 
-        ``isolation`` is the unit's transaction isolation (explicit, reset by
-        the pool on return): READ COMMITTED by default, REPEATABLE READ for a
-        one-snapshot scope.
+        ``snapshot`` is the unit's isolation (explicit, reset by the pool on
+        return): a fresh snapshot per statement by default, one snapshot for
+        a ``SnapshotReads`` scope. A database instance without the
+        ``snapshot_reads`` feature refuses the latter here, before any I/O
+        (:class:`~sandloom.core.planner.SnapshotReadsUnavailable`,
+        SANDLOOM-B027), rather than read without one.
         """
-        return _ReadUnit(self, isolation)
+        if snapshot and not self._snapshot_reads:
+            dialect = self.engine.sync_engine.dialect
+            raise SnapshotReadsUnavailable(
+                f"a SnapshotReads / repeatable_read scope reads one snapshot, "
+                f"and this {dialect.name} database instance has no "
+                "snapshot_reads feature [SANDLOOM-B027]: use PlannedReads "
+                "(a fresh snapshot per statement) or a database with "
+                "snapshot reads"
+            )
+        return _ReadUnit(self, snapshot)
 
     async def fetch_page(  # noqa: C901
         self,
@@ -239,7 +263,9 @@ class SQLAlchemyExecutionAdapter(_PlannerCompiler):
             args = c.sql_args(key, ctx.tenant, after, limit)
             lease = _Lease(self)
             async with lease:
-                raw = await lease.first("execute", begin_read_only_sql(ctx.tenant))
+                raw = await lease.first(
+                    "execute", self._begin_read_only_sql(ctx.tenant)
+                )
                 if cp is not None:
                     await cp("begun")
                 rows = await raw.fetch(sql, *args)

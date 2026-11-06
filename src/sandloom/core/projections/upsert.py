@@ -26,9 +26,11 @@ ownership themselves for tables with a ``tenant_id`` column:
   (e.g. a globally-unique source id, as projection consumers do) — include
   ``tenant_id`` in ``match`` whenever the source event carries it.
 
-Postgres-specific (``INSERT ... ON CONFLICT``) — the projection store. A
-projection's owning module imports these from core, so it never reaches into a
-concrete backend driver itself.
+The upsert is the SQL dialect renderer's ``INSERT ... ON CONFLICT``
+(:func:`~sandloom.core.sql_alchemy.portable.conflict_insert`), its version
+guard a plain ``WHERE``, so the helpers run on every database whose renderer
+writes ``conflict_insert`` (PostgreSQL and SQLite ship). A projection's
+owning module imports them from core and never names a database.
 """
 
 from __future__ import annotations
@@ -37,9 +39,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import Table, or_, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 
+from sandloom.core.sql_alchemy.portable import conflict_insert
 from sandloom.core.tenant_context import (
     TenantMismatchError,
     _bypass,
@@ -114,7 +116,7 @@ async def monotonic_upsert(
             )
         # Never overwrite another tenant's row that happens to share the key.
         where = where & (table.c["tenant_id"] == row_tenant)
-    stmt = pg_insert(table).values(**row)
+    stmt = conflict_insert(table, session=session).values(**row)
     stmt = stmt.on_conflict_do_update(
         index_elements=list(key.keys()),
         set_={**values, version_column: incoming_version},

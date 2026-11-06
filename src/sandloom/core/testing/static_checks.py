@@ -9,6 +9,9 @@ framework's own tests:
   is created by its OWNING migration chain, no table is created by two
   chains, and no chain creates a table no model declares. Revisions are read
   from their syntax tree, so ``op.create_table(_TABLE, ...)`` counts.
+  Coverage and ownership skip, with the reason, for the chains of a database
+  that takes its schema from the models (SQLite: :func:`skipped_chains`);
+  ``sandloom migrate upgrade-all`` checks coverage before it applies anything.
 * :func:`redundant_index_problems` (SANDLOOM-T012): a plain index on the leading
   column(s) of a unique key of the same table is pure write cost.
 * :func:`periodic_beat_problems` (SANDLOOM-T010): every module with periodic tasks
@@ -33,7 +36,7 @@ import importlib
 import importlib.util
 import json
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Container, Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -44,7 +47,10 @@ import sandloom.core.testing.deploy_profile as _deploy_profile
 from sandloom.core.archcheck import api10_rules
 from sandloom.core.archcheck.manifest import ManifestError, load_rules
 from sandloom.core.composition import load_composition_core
+from sandloom.core.descriptors import MigrationTargetError
+from sandloom.core.migrations.migrations import list_database_instances
 from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 from sandloom.core.tasks.periodic import PERIODIC_HOOK, has_periodic_tasks
 from sandloom.core.tenant import TenantScoped
 from sandloom.core.testing.database import (
@@ -53,10 +59,11 @@ from sandloom.core.testing.database import (
     tenant_keys_without_tenant,
 )
 from sandloom.core.testing.migrations import (
-    chain_coverage_problems,
+    CHAINS_CHECKED_ON_POSTGRESQL,
     migration_chains,
     model_tables,
     tables_created_by,
+    uncovered_by_chain,
 )
 
 #: Known redundant indexes not yet dropped (remove-only ratchet): found by the
@@ -69,12 +76,70 @@ KNOWN_REDUNDANT = frozenset({"external_identities.ix_external_identities_provide
 # --------------------------------------------------------------------------- #
 
 
-def chain_problems(core: Any = None) -> list[str]:
-    """Coverage, disjointness and ownership of the migration chains."""
-    problems = list(chain_coverage_problems(core))
+def skipped_chains(core: Any = None) -> frozenset[str]:
+    """Keys of the chains whose database takes its schema from the models.
+
+    A database whose renderer says ``schema_from_models`` (SQLite) runs no
+    chain (SANDLOOM-B028) and ``sandloom migrate new`` refuses it, so a model
+    change there has no revision yet: its chains are checked on PostgreSQL,
+    and ``sandloom migrate upgrade-all`` refuses a chain that does not create
+    its models' tables before it applies anything. The core chain goes to
+    every database that hosts a module: it is skipped when any configured
+    database takes its schema from the models. The databases are the
+    configured ones (``sandloom test`` has loaded the test env), resolved as
+    ``sandloom migrate`` resolves them."""
+    instances = list_database_instances()
+    from_models = {
+        name
+        for name, url in instances.items()
+        if schema_from_models(dialect_of_url(url))
+    }
+    if not from_models:
+        return frozenset()
+    descriptors = {
+        d.name: d
+        for d in getattr(core or load_composition_core(), "module_descriptors", [])
+    }
+    keys: set[str] = set()
+    for chain in migration_chains(core):
+        descriptor = descriptors.get(chain.module or "")
+        if descriptor is None:
+            hosts: set[str] = set(from_models)  # the core chain
+        else:
+            try:
+                hosts = set(descriptor.database_instances())
+            except MigrationTargetError:  # ambiguous: startup reports it
+                hosts = {"default"}
+        if hosts & from_models:
+            keys.add(chain.key)
+    return frozenset(keys)
+
+
+def chain_check_skipped(core: Any = None) -> str | None:
+    """Why chain checks skip here, naming the chains (``None``: all run)."""
+    keys = skipped_chains(core)
+    if not keys:
+        return None
+    return f"chain(s) {', '.join(sorted(keys))}: {CHAINS_CHECKED_ON_POSTGRESQL}"
+
+
+def chain_problems(core: Any = None, *, skipped: Container[str] = ()) -> list[str]:
+    """Coverage, disjointness and ownership of the migration chains.
+
+    ``skipped`` (:func:`skipped_chains`): chains whose coverage and ownership
+    are not checked (their models changed where no revision can be written).
+    No table may be created by two chains, on every database: that reads the
+    revisions only."""
+    chains = migration_chains(core)
+    problems = [
+        problem
+        for _chain, problem in uncovered_by_chain(
+            core, chains={c.key for c in chains if c.key not in skipped}
+        )
+    ]
     owners = model_tables(core)
     seen: dict[str, str] = {}
-    for chain in migration_chains(core):
+    for chain in chains:
         for table in sorted(tables_created_by(chain)):
             if table in seen and seen[table] != chain.key:
                 problems.append(
@@ -85,6 +150,8 @@ def chain_problems(core: Any = None) -> list[str]:
             seen.setdefault(table, chain.key)
     for table, key in sorted(seen.items()):
         owner = owners.get(table)
+        if key in skipped or (owner is not None and owner.key in skipped):
+            continue
         if owner is None:
             problems.append(
                 f"table {table} is created by chain {key!r} but no loaded model "
@@ -98,6 +165,16 @@ def chain_problems(core: Any = None) -> list[str]:
                 "— move the create_table to the owner's chain (SANDLOOM-T002)"
             )
     return problems
+
+
+#: What the last :func:`main` skipped (``sandloom test`` shows it in its summary).
+_last_skip: list[str] = []
+
+
+def skip_note() -> str | None:
+    """The skip of the last :func:`main` run in this process, for the
+    summary line of ``sandloom test`` (``None``: nothing skipped)."""
+    return _last_skip[-1] if _last_skip else None
 
 
 # --------------------------------------------------------------------------- #
@@ -296,7 +373,9 @@ def all_problems(
     split profile's warnings (SANDLOOM-T003: a module no service deploys)."""
     core = core if core is not None else load_composition_core()
     problems = (
-        chain_problems(core) + redundant_index_problems() + beginner_tier_problems(root)
+        chain_problems(core, skipped=skipped_chains(core))
+        + redundant_index_problems()
+        + beginner_tier_problems(root)
     )
     profiles = deploy_profiles(root)
     if profiles and importlib.util.find_spec("yaml") is None:
@@ -323,17 +402,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".", help="the project root")
     args = parser.parse_args(argv)
     warnings: list[str] = []
-    problems = all_problems(Path(args.root).resolve(), warnings=warnings)
+    core = load_composition_core()
+    problems = all_problems(Path(args.root).resolve(), core, warnings=warnings)
     # A warning, not a failure: a globally unique id (a UUID aggregate id
     # of another module) is a safe key, which no static check can tell.
     for warning in [*tenant_key_problems(), *warnings]:
         print(f"warning: {warning}")
+    skipped = chain_check_skipped(core)
+    _last_skip[:] = ["migration chains skipped (SANDLOOM-T002)"] if skipped else []
+    if skipped:
+        print(
+            "migration chains (SANDLOOM-T002): coverage and ownership skipped "
+            f"for {skipped}"
+        )
     for problem in problems:
         print(f"error: {problem}")
     if problems:
         print(f"{len(problems)} schema/deploy problem(s); `sandloom explain <code>`")
         return 1
-    print("schema & deploy: OK")
+    print("schema & deploy: OK" + (" (migration chains skipped)" if skipped else ""))
     return 0
 
 
@@ -341,12 +428,15 @@ __all__ = [
     "KNOWN_REDUNDANT",
     "all_problems",
     "beginner_tier_problems",
+    "chain_check_skipped",
     "chain_problems",
     "deploy_profiles",
     "has_periodic_tasks",
     "main",
     "periodic_beat_problems",
     "redundant_index_problems",
+    "skip_note",
+    "skipped_chains",
     "tenant_key_problems",
 ]
 

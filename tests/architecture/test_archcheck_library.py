@@ -10,6 +10,7 @@ to the SAME rules.
 from __future__ import annotations
 
 import fnmatch
+import os
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,7 @@ from sandloom.core.archcheck.runner import (
     driver_import_violations,
     iter_module_test_files,
 )
+from sandloom.core.cli.check import RECORD_ENV, recorded_violations
 
 BACKEND = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "_fixtures"
@@ -48,7 +50,18 @@ def test_framework_manifest_passes_every_rule() -> None:
         rules.business_modules()
     )
     assert "sandloom" not in rules.business_modules()
-    violations = run_checks(rules)
+    # Inside `sandloom test`, the `sandloom check` step already ran every rule
+    # over this manifest and recorded what it found: the same violations,
+    # asserted the same way, without a second run. Alone (CI's job, plain
+    # pytest) the rules run here.
+    record = os.environ.get(RECORD_ENV)
+    violations = (
+        recorded_violations(Path(record), BACKEND / "architecture_rules.yml")
+        if record
+        else None
+    )
+    if violations is None:
+        violations = run_checks(rules)
     errors = [v for v in violations if v.severity == "error"]
     assert errors == [], "\n".join(v.format(BACKEND) for v in errors)
     # SANDLOOM-C022 is a warning: it lists the hand-rolled authority routes and the
@@ -79,6 +92,10 @@ def test_rule_ids_are_stable() -> None:
         "guard-order",
         "consumed-contracts",
         "db-dependency-scope",
+        "dialect-imports",  # infra-agnostic: no database dialect in a module
+        "utc-datetime-columns",  # infra-agnostic: times read back in UTC
+        "database-feature-forms",  # infra-agnostic: feature forms declared
+        "portable-sql",  # infra-agnostic: SQL every database runs alike
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.

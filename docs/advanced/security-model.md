@@ -486,6 +486,16 @@ same rule for raw SQL — within the limits of the
 only from a signed caller context — a bare `X-Tenant-Id` on `/_sandloom/rpc` is
 rejected.
 
+Isolation is **database-enforced** only on an instance with `tenant_rls` on a
+database whose SQL dialect renderer has row security (PostgreSQL). Everywhere
+else it is **application-enforced**: the ORM guard alone, with raw SQL not
+confined to the bound tenant. A database without row security (SQLite)
+cannot be made database-enforced. Asking for row security there, through
+`tenant_rls` or the system channel options, stops startup
+([SANDLOOM-B026](../reference/error-codes.md#sandloom-b026)). Without those
+options, startup logs "application-enforced tenant isolation" for the
+instance. `multi_tenant_strict` refuses it.
+
 ## Tenant RLS threat model
 
 Row-Level Security is opt-in (`INFRA={"database": {"<name>": {"tenant_rls":

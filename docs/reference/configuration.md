@@ -228,6 +228,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `DB_POOL_PING_IDLE_SECONDS` | `float` | `5.0` | Ping only connections idle for this many seconds; zero pings every checkout and a negative value disables idle pings. |
 | `DB_DEAD_CONNECTION_RETRY` | `bool` | `True` | Replace and retry a connection only when the first transaction message was refused before sending any bytes; never retries an ambiguous statement or commit. |
 | `DB_READ_ONLY_SESSIONS` | `bool` | `False` | Enable server-enforced read-only transactions and early write refusals for read-only session dependencies; disabled uses normal session semantics. |
+| `DB_RECREATE_ON_MODEL_CHANGE` | `bool` | `False` | Set aside a database file whose tables differ from the models and build a fresh one at startup (development only; set by sandloom dev run); off refuses to start on such a file. |
 | `DB_RLS_MERGED_BEGIN` | `bool` | `True` | Combine transaction BEGIN and tenant binding in one asyncpg message on tenant-RLS engines; incompatible driver internals fall back to separate messages. |
 | `DB_SESSION_OWNER_CHECKS` | `bool` | `False` | Extra session/connection ownership checks for accidental use from another task; db() always enforces its unit owner independently. |
 | `PLANNER_OPTIMIZED_EXECUTOR` | `bool` | `True` | Allow eligible declared read operations to use the optimized database executor with the same tenant and transaction guarantees. |

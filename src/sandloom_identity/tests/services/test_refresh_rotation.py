@@ -15,11 +15,16 @@ from sandloom_identity.utils import RefreshTokenUtils
 
 
 async def age_rotation(db: AsyncSession, raw_token: str, seconds: int = 60) -> None:
-    """Move a rotated token's ``revoked_at`` past the rotation grace window."""
+    """Move a rotated token's ``revoked_at`` past the rotation grace window
+    (computed in Python: date arithmetic in SQL is not portable)."""
+    where = RefreshToken.token == RefreshTokenUtils.hash_token(raw_token)
+    revoked_at = (
+        await db.execute(select(RefreshToken.revoked_at).where(where))
+    ).scalar_one()
     await db.execute(
         update(RefreshToken)
-        .where(RefreshToken.token == RefreshTokenUtils.hash_token(raw_token))
-        .values(revoked_at=RefreshToken.revoked_at - timedelta(seconds=seconds))
+        .where(where)
+        .values(revoked_at=revoked_at - timedelta(seconds=seconds))
     )
     await db.commit()
 

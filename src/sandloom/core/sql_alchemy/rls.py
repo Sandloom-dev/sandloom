@@ -1,8 +1,10 @@
-"""PostgreSQL Row-Level Security for TenantScoped tables (defense in depth).
+"""Database row security for TenantScoped tables (defense in depth).
 
 The ORM tenant guard (:mod:`sandloom.core.tenant`) scopes ORM statements, but raw
-``text()`` / Core statements bypass it. Row-Level Security moves the same
-invariant INTO the database: a policy compares each row's ``tenant_id`` with the
+``text()`` / Core statements bypass it. Row security moves the same
+invariant INTO the database, where the database has it (its SQL dialect
+renderer's :class:`~sandloom.core.sql_alchemy.portable.RowSecurity`;
+PostgreSQL's Row-Level Security): a policy compares each row's ``tenant_id`` with the
 transaction-local setting ``sandloom.tenant_id`` that the framework keeps in sync
 with the bound tenant when the database instance runs with ``tenant_rls``
 enabled (``INFRA={"database": {"default": {"tenant_rls": true}}}``).
@@ -41,123 +43,84 @@ role. It does NOT authenticate the tenant context: any code that can send
 arbitrary SQL as the app role can still ``set_config('sandloom.tenant_id', <other
 tenant>, true)`` and act as that tenant.
 
-This module is plain SQL text (no SQLAlchemy / Alembic import); ``op`` is the
-Alembic operations object — anything with ``execute(sql: str)`` works.
+The SQL is the renderer's (``row_security()``): this module names no
+database. ``op`` is the Alembic operations object; its migration context
+names the database. A database without row security refuses
+(SANDLOOM-R015); configuring ``tenant_rls`` on one stops startup
+(SANDLOOM-B026).
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any, Protocol
 
-#: Transaction-local setting maintained by the UoW engine hook.
-TENANT_SETTING = "sandloom.tenant_id"
+from sandloom.core.sql_alchemy.portable import (
+    TENANT_SETTING,
+    RowSecurity,
+    UnsupportedSqlForm,
+    dialect_name,
+    sql_dialect,
+)
+
 #: Default name of the dedicated system-channel login role.
 DEFAULT_SYSTEM_ROLE = "sandloom_system"
-
-_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]{0,62}$")
-#: Canonical lowercase UUID text (what the engine hook writes).
-_UUID_RE = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
 
 class _Executes(Protocol):
     def execute(self, sql: Any, /) -> Any: ...
 
-
-def _quote(ident: str, what: str) -> str:
-    if not _IDENT.match(ident):
-        raise ValueError(f"invalid {what} identifier for RLS: {ident!r}")
-    return f'"{ident}"'
+    def get_context(self) -> Any: ...
 
 
-def _qualified(table: str, schema: str | None) -> str:
-    quoted = _quote(table, "table")
-    return f"{_quote(schema, 'schema')}.{quoted}" if schema else quoted
-
-
-def tenant_rls_policy_name(table: str) -> str:
-    """Name of the tenant-isolation policy created for ``table``."""
-    return f"{table}_tenant_isolation"[:63]
-
-
-def system_rls_policy_name(table: str) -> str:
-    """Name of the system-channel policy created for ``table``."""
-    name = f"{table}_system_access"[:63]
-    if name == tenant_rls_policy_name(table):  # pragma: no cover - 63-char names
-        raise ValueError(f"table name too long for RLS policies: {table!r}")
-    return name
-
-
-def tenant_context_expression() -> str:
-    """SQL expression: the bound tenant as ``uuid``, or NULL (fail closed).
-
-    ``CASE`` guarantees the cast runs only on a canonical UUID string, so an
-    unset / empty / malformed setting yields NULL (zero rows, refused writes)
-    instead of an ``invalid input syntax for type uuid`` error.
-    """
-    setting = f"current_setting('{TENANT_SETTING}', true)"
-    return f"CASE WHEN {setting} ~ '{_UUID_RE}' THEN {setting}::uuid END"
-
-
-def tenant_rls_predicate(column: str = "tenant_id") -> str:
-    """SQL predicate the tenant policy uses for both USING and WITH CHECK.
-
-    It has no bypass branch: nothing the application role can set makes a row
-    of a tenant other than ``sandloom.tenant_id`` visible or writable.
-    """
-    col = _quote(column, "column")
-    return f"({col} = ({tenant_context_expression()}))"
+def row_security(bind: Any) -> RowSecurity:
+    """The row security of the database of ``bind`` (a dialect name, a
+    dialect, a connection, an engine or a session); refuses a database
+    without it (:class:`UnsupportedSqlForm`, SANDLOOM-R015)."""
+    dialect = dialect_name(bind)
+    renderer = sql_dialect(dialect)
+    if renderer is None:
+        raise UnsupportedSqlForm("row_security", dialect, renderer=False)
+    security = renderer.row_security()
+    if security is None:
+        raise UnsupportedSqlForm("row_security", dialect)
+    return security
 
 
 def enable_tenant_rls_statements(
     table: str,
     *,
+    dialect: Any,
     column: str = "tenant_id",
     schema: str | None = None,
     system_access: bool = False,
     system_role: str = DEFAULT_SYSTEM_ROLE,
 ) -> list[str]:
-    """SQL statements enabling + forcing tenant RLS on ``table`` (idempotent).
+    """SQL statements enabling + forcing tenant row security on ``table``
+    (idempotent) on ``dialect`` (anything :func:`row_security` takes).
 
     With ``system_access=True`` the dedicated ``system_role`` (which must
     exist) gets an explicit cross-tenant policy and the DML grants on this
     table only; without it any such policy is dropped (least privilege).
     """
-    target = _qualified(table, schema)
-    policy = _quote(tenant_rls_policy_name(table), "policy")
-    sys_policy = _quote(system_rls_policy_name(table), "policy")
-    predicate = tenant_rls_predicate(column)
-    statements = [
-        f"ALTER TABLE {target} ENABLE ROW LEVEL SECURITY",
-        f"ALTER TABLE {target} FORCE ROW LEVEL SECURITY",
-        f"DROP POLICY IF EXISTS {policy} ON {target}",
-        f"CREATE POLICY {policy} ON {target} AS PERMISSIVE FOR ALL "
-        f"USING {predicate} WITH CHECK {predicate}",
-        f"DROP POLICY IF EXISTS {sys_policy} ON {target}",
-    ]
-    if system_access:
-        role = _quote(system_role, "role")
-        statements += [
-            f"CREATE POLICY {sys_policy} ON {target} AS PERMISSIVE FOR ALL "
-            f"TO {role} USING (true) WITH CHECK (true)",
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON {target} TO {role}",
-        ]
-    return statements
+    return row_security(dialect).enable_statements(
+        table,
+        column=column,
+        schema=schema,
+        system_access=system_access,
+        system_role=system_role,
+    )
 
 
 def disable_tenant_rls_statements(
-    table: str, *, schema: str | None = None
+    table: str, *, dialect: Any, schema: str | None = None
 ) -> list[str]:
     """SQL statements reverting :func:`enable_tenant_rls_statements`."""
-    target = _qualified(table, schema)
-    policy = _quote(tenant_rls_policy_name(table), "policy")
-    sys_policy = _quote(system_rls_policy_name(table), "policy")
-    return [
-        f"DROP POLICY IF EXISTS {sys_policy} ON {target}",
-        f"DROP POLICY IF EXISTS {policy} ON {target}",
-        f"ALTER TABLE {target} NO FORCE ROW LEVEL SECURITY",
-        f"ALTER TABLE {target} DISABLE ROW LEVEL SECURITY",
-    ]
+    return row_security(dialect).disable_statements(table, schema=schema)
+
+
+def _op_dialect(op: _Executes) -> Any:
+    """The dialect of the database the migration runs on (online or ``--sql``)."""
+    return op.get_context().dialect
 
 
 def enable_tenant_rls(
@@ -169,17 +132,19 @@ def enable_tenant_rls(
     system_access: bool = False,
     system_role: str = DEFAULT_SYSTEM_ROLE,
 ) -> None:
-    """Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on ``table``.
+    """Enable + FORCE the database's row security with the Sandloom tenant
+    policy on ``table``.
 
-    ``op`` is the Alembic ``op`` module (or any object with ``execute(str)``).
-    ``column`` must be the table's ``uuid`` tenant column (``TenantScoped``
-    declares ``tenant_id``). ``system_access=True`` lets the system-channel
-    role (``system_role``, default ``sandloom_system``; it must already exist) read
-    and write every tenant's rows of THIS table. Re-running is safe (policies
-    are replaced).
+    ``op`` is the Alembic ``op`` module; its migration context names the
+    database, whose renderer writes the SQL. ``column`` must be the table's
+    ``uuid`` tenant column (``TenantScoped`` declares ``tenant_id``).
+    ``system_access=True`` lets the system-channel role (``system_role``,
+    default ``sandloom_system``; it must already exist) read and write every
+    tenant's rows of THIS table. Re-running is safe (policies are replaced).
     """
     for sql in enable_tenant_rls_statements(
         table,
+        dialect=_op_dialect(op),
         column=column,
         schema=schema,
         system_access=system_access,
@@ -189,10 +154,12 @@ def enable_tenant_rls(
 
 
 def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None:
-    """Drop the Sandloom tenant policies and disable RLS on
+    """Drop the Sandloom tenant policies and disable row security on
     ``table`` (for downgrade).
     """
-    for sql in disable_tenant_rls_statements(table, schema=schema):
+    for sql in disable_tenant_rls_statements(
+        table, dialect=_op_dialect(op), schema=schema
+    ):
         op.execute(sql)
 
 
@@ -203,8 +170,5 @@ __all__ = [
     "disable_tenant_rls_statements",
     "enable_tenant_rls",
     "enable_tenant_rls_statements",
-    "system_rls_policy_name",
-    "tenant_context_expression",
-    "tenant_rls_policy_name",
-    "tenant_rls_predicate",
+    "row_security",
 ]

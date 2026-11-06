@@ -70,12 +70,11 @@ from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
-from sandloom.sdk.data import open_uow
+from sandloom.sdk.data import WallClock, conflict_insert, open_uow
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.web import ResolvedAccount, external_call, release_check
 from sandloom_billing.models import (
@@ -98,6 +97,17 @@ from sandloom_billing.psp import (
 )
 from sandloom_billing.services.billing_service import BillingService, CheckoutPlan
 from sandloom_billing.services.tenant_resolver import TenantContext, reverify_authority
+
+#: The live-request index's own predicate, as literal SQL. Bound parameters in
+#: the ON CONFLICT predicate stop matching the partial index once PostgreSQL
+#: plans the prepared INSERT generically (from its sixth run on one pooled
+#: connection): "no unique or exclusion constraint matching the ON CONFLICT
+#: specification".
+_LIVE_REQUEST_PREDICATE = next(
+    index
+    for index in OperationIntent.metadata.tables[OperationIntent.__tablename__].indexes
+    if index.name == "uq_billing_intent_live_request"
+).dialect_options["postgresql"]["where"]
 
 logger = logging.getLogger("sandloom_billing.intents")
 
@@ -341,7 +351,7 @@ class OperationIntentService:
     ) -> OperationIntent:
         intent_id = uuid4()
         inserted = await db.execute(
-            pg_insert(OperationIntent)
+            conflict_insert(OperationIntent, session=db)
             .values(
                 id=intent_id,
                 operation=operation,
@@ -359,7 +369,7 @@ class OperationIntentService:
             # UNIQUE request key on the intent row itself
             .on_conflict_do_nothing(
                 index_elements=["actor_id", "operation", "request_key"],
-                index_where=OperationIntent.status.in_(LIVE_INTENT_STATUSES),
+                index_where=_LIVE_REQUEST_PREDICATE,
             )
             .returning(OperationIntent.id)
         )
@@ -471,7 +481,7 @@ class OperationIntentService:
                     )
                     .values(
                         status=INTENT_ISSUED,
-                        issued_at=func.now(),
+                        issued_at=WallClock(),
                         psp_session_id=session_id,
                         psp_session_url=session.url if session is not None else None,
                         psp_session_expires_at=(

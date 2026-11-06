@@ -63,8 +63,13 @@ def captured(
 
 
 async def _plan(engine: AsyncEngine, statement: str, params: Any) -> str:
+    # sandloom: raw-sql PostgreSQL's planner (no query-plan feature to ask)
+    if engine.dialect.name != "postgresql":
+        pytest.skip("the plan check reads PostgreSQL's planner (EXPLAIN, GUCs)")
     async with engine.connect() as conn:
+        # sandloom: raw-sql the planner check: PostgreSQL's EXPLAIN and GUCs
         await conn.exec_driver_sql("SET LOCAL enable_seqscan = off")
+        # sandloom: raw-sql EXPLAIN of the captured statement (PostgreSQL only)
         rows = await conn.exec_driver_sql(f"EXPLAIN {statement}", params)
         plan = "\n".join(r[0] for r in rows)
         await conn.rollback()

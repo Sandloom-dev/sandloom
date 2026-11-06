@@ -19,6 +19,12 @@ from sqlalchemy import event
 from sqlalchemy.util.concurrency import await_
 
 from sandloom.core.exceptions import DatabaseUnavailable
+from sandloom.core.sql_alchemy.dbapi import (
+    PLAIN_DBAPI,
+    RECONNECT_BACKOFF,
+    DbapiAdapter,
+    dbapi_adapter_of,
+)
 from sandloom.core.sql_alchemy.dead_connection import is_dead_connection_error
 
 
@@ -31,7 +37,9 @@ class ReconnectBackoff:
         wait_timeout: float,
         clock: Callable[[], float] = time.monotonic,
         jitter: Callable[[float, float], float] = random.uniform,
+        dbapi: DbapiAdapter = PLAIN_DBAPI,
     ) -> None:
+        self._dbapi = dbapi
         self._base, self._cap = base, cap
         self._wait_timeout = wait_timeout
         self._clock, self._jitter = clock, jitter
@@ -73,9 +81,9 @@ class ReconnectBackoff:
                 connection = dialect.connect(*args, **params)
             except Exception as error:
                 if not (
-                    is_dead_connection_error(error)
+                    is_dead_connection_error(error, self._dbapi)
                     or isinstance(error, (TimeoutError, socket.gaierror))
-                    or getattr(error, "sqlstate", None) == "53300"
+                    or self._dbapi.refuses_connections(error)
                 ):
                     raise
                 self._failed()
@@ -90,8 +98,12 @@ class ReconnectBackoff:
 def install_reconnect_backoff(
     engine: Any, *, base: float, cap: float, wait_timeout: float
 ) -> None:
-    """Install once on a newly built asyncpg engine (public SQLAlchemy event)."""
-    if engine.dialect.driver == "asyncpg":
-        gate = ReconnectBackoff(base=base, cap=cap, wait_timeout=wait_timeout)
+    """Install once on a newly built engine whose DBAPI adapter supports
+    ``reconnect_backoff`` (asyncpg; public SQLAlchemy events)."""
+    dbapi = dbapi_adapter_of(engine)
+    if RECONNECT_BACKOFF in dbapi.capabilities:
+        gate = ReconnectBackoff(
+            base=base, cap=cap, wait_timeout=wait_timeout, dbapi=dbapi
+        )
         event.listen(engine.sync_engine, "do_connect", gate.connect)
         event.listen(engine.sync_engine, "invalidate", gate.invalidated)

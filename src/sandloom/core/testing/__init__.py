@@ -18,14 +18,18 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   :func:`upgrade_core_chain`, :func:`migrate_module` and :func:`run_sql`;
   :func:`migration_chains` / :func:`chain_coverage_problems` derive every
   chain from the loaded modules and report tables / indexes their owning
-  chain does not create;
+  chain does not create; :func:`migration_drift` /
+  :func:`assert_migrations_match_models` compare a chain at head with its
+  models (PostgreSQL);
 * :func:`deliver_event` — drive an event through the registered consumers
   (UoW, durable claim, tenant binding) without a bus;
   :func:`fake_access_fact` — answer an entitlement without its owner module;
 * :func:`register_event_schemas` — schemas for channels a test publishes on
   that no module owns (every versioned channel needs one, SANDLOOM-R003);
 * :func:`override_instance` — point an infrastructure instance at a test
-  backend for a block (restored afterwards);
+  backend for a block (restored afterwards); :func:`has_optimized_reads` —
+  what a test asks of its database instead of its name (the kernel's own
+  tests also ask ``sandloom.core.testing.infra.has_serial_writers``);
 * :func:`assert_route_snapshot` — a module's routes and their resolved
   policy equal its committed ``routes.snapshot.json``; :func:`route_policy`
   reads the policy the framework applies to a route;
@@ -79,12 +83,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         boot_module_alone,
     )
     from sandloom.core.testing.events import deliver_event, register_event_schemas
-    from sandloom.core.testing.infra import override_instance
+    from sandloom.core.testing.infra import (
+        has_optimized_reads,
+        override_instance,
+        skip_unless_db_feature,
+    )
     from sandloom.core.testing.migrations import (
         MigrationChain,
+        assert_migrations_match_models,
         chain_coverage_problems,
         migrate_module,
         migration_chains,
+        migration_drift,
         model_tables,
         run_sql,
         tables_created_by,
@@ -137,8 +147,12 @@ _EXPORTS: dict[str, str] = {
     "register_event_schemas": "sandloom.core.testing.events",
     "deliver_event": "sandloom.core.testing.events",
     "fake_access_fact": "sandloom.core.testing.authz",
+    "has_optimized_reads": "sandloom.core.testing.infra",
     "override_instance": "sandloom.core.testing.infra",
+    "skip_unless_db_feature": "sandloom.core.testing.infra",
     "MigrationChain": "sandloom.core.testing.migrations",
+    "assert_migrations_match_models": "sandloom.core.testing.migrations",
+    "migration_drift": "sandloom.core.testing.migrations",
     "chain_coverage_problems": "sandloom.core.testing.migrations",
     "migration_chains": "sandloom.core.testing.migrations",
     "model_tables": "sandloom.core.testing.migrations",
@@ -200,6 +214,7 @@ __all__ = [
     "RoutePolicy",
     "TestResourceOwnershipError",
     "apply_worker_env",
+    "assert_migrations_match_models",
     "assert_route_snapshot",
     "bind_test_uow",
     "boot_module_alone",
@@ -211,9 +226,11 @@ __all__ = [
     "email_of",
     "fake_access_fact",
     "flush_owned_redis",
+    "has_optimized_reads",
     "make_user_headers",
     "migrate_module",
     "migration_chains",
+    "migration_drift",
     "model_tables",
     "override_instance",
     "record_revocation_checks",
@@ -226,6 +243,7 @@ __all__ = [
     "run_on_commit",
     "run_sql",
     "set_environment",
+    "skip_unless_db_feature",
     "stop_revocation_listener",
     "tables_created_by",
     "temporary_database",

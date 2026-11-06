@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, bindparam, delete, func, or_, select, text, update
+from sqlalchemy import and_, bindparam, delete, func, or_, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -34,39 +34,46 @@ from sandloom.core.sql_alchemy.outbox_store.audit import SQLAlchemyAuditStore
 from sandloom.core.sql_alchemy.outbox_store.relay import _RelayMixin
 from sandloom.core.sql_alchemy.outbox_store.statements import (
     _any_id,
-    _id_in,
-    _is_postgres,
     _naive_utc,
     _system_uow,
 )
+from sandloom.core.sql_alchemy.portable import (
+    dialect_name,
+    relaxed_commit_clause_for,
+)
 from sandloom.core.sql_alchemy.tenant_rls import non_tenant_statements
 
-#: The PostgreSQL mark-delivered UPDATE, prebuilt (ids and timestamp bound
+#: The mark-delivered UPDATE, prebuilt (ids and timestamp bound
 #: per call): it runs after EVERY committed publish, and building an
 #: ORM-enabled UPDATE each time cost more than the statement's own round trip.
-_mark_delivered_pg: Any = None
+#: Keyed by the dialect name of the bind it was built for.
+_mark_delivered_statements: dict[str, Any] = {}
 
 
-def _mark_delivered_statement() -> Any:
-    global _mark_delivered_pg
-    stmt = _mark_delivered_pg
+def _mark_delivered_statement(bind: Any) -> Any:
+    """The prebuilt mark-delivered UPDATE; ``bind`` (the
+    connection or session it runs on) names the database its renderer
+    writes the ``id`` membership for, and keys the cache."""
+    dialect = dialect_name(bind)
+    stmt = _mark_delivered_statements.get(dialect)
     if stmt is None:
         table: Any = OutboxMessage.__table__
-        stmt = _mark_delivered_pg = (
+        # No durable-flush wait for THIS transaction (PostgreSQL: ``SET LOCAL
+        # synchronous_commit = off``, evaluated with the matched rows): a
+        # delivered mark lost to a crash only leaves the row to the relay — a
+        # redelivery the at-least-once contract already allows (stable
+        # envelope ids) — while every request COMMIT stays fully synchronous.
+        # Saves one fsync per dispatch round and returns its pooled
+        # connection sooner. A database without the setting just commits.
+        relaxed = relaxed_commit_clause_for(bind)
+        stmt = _mark_delivered_statements[dialect] = (
             update(table)
             .where(
-                _any_id(table, ()),
+                _any_id(bind, table, ()),
                 # Never resurrect a dead-lettered row (see mark_delivered).
                 table.c.dead_at.is_(None),
                 table.c.delivered_at.is_(None),
-                # No WAL flush wait for THIS transaction (``SET LOCAL
-                # synchronous_commit = off``, evaluated with the matched
-                # rows): a delivered mark lost to a crash only leaves the row
-                # to the relay — a redelivery the at-least-once contract
-                # already allows (stable envelope ids) — while every request
-                # COMMIT stays fully synchronous. Saves one fsync per
-                # dispatch round and returns its pooled connection sooner.
-                text("set_config('synchronous_commit', 'off', true) IS NOT NULL"),
+                *([] if relaxed is None else [relaxed]),
             )
             .values(delivered_at=bindparam("delivered_at"), last_error=None)
         )
@@ -117,10 +124,11 @@ def _autocommit_view(uow_factory: Callable[[], UnitOfWorkContract]) -> Any:
     """The cached AUTOCOMMIT engine view for ``uow_factory``, or ``None``.
 
     Only for a factory producing :class:`SQLAlchemyUnitOfWork` sessions bound
-    to a PostgreSQL ``AsyncEngine``. A factory whose sessions are bound to a
-    CONNECTION (a test harness joined to an outer transaction — its mark must
-    stay inside that transaction), to several binds, or to another dialect
-    keeps the session path.
+    to an ``AsyncEngine`` (any database: an AUTOCOMMIT statement is its own
+    transaction; on SQLite it takes the write lock for that statement alone).
+    A factory whose sessions are bound to a CONNECTION (a test harness joined
+    to an outer transaction — its mark must stay inside that transaction) or
+    to several binds keeps the session path.
     """
     try:
         view = _AUTOCOMMIT_VIEWS.get(uow_factory)
@@ -142,8 +150,6 @@ def _build_autocommit_view(uow_factory: Callable[[], UnitOfWorkContract]) -> Any
     kw = getattr(uow._session_factory, "kw", None) or {}
     bind = kw.get("bind")
     if kw.get("binds") or not isinstance(bind, AsyncEngine):
-        return _NO_VIEW
-    if bind.dialect.name != "postgresql":
         return _NO_VIEW
     return bind.execution_options(isolation_level="AUTOCOMMIT")
 
@@ -208,7 +214,7 @@ class SQLAlchemyOutboxStore(_RelayMixin):
             with non_tenant_statements():
                 async with view.connect() as conn:
                     await conn.execute(
-                        _mark_delivered_statement(),
+                        _mark_delivered_statement(conn),
                         {"outbox_ids": list(ids), "delivered_at": _utc_naive_now()},
                     )
             return
@@ -216,25 +222,13 @@ class SQLAlchemyOutboxStore(_RelayMixin):
             assert uow.session is not None  # noqa: S101 - type narrowing of an invariant
             session = uow.session
             await _autocommit_connection(session)
-            if _is_postgres(session):
-                await session.execute(
-                    _mark_delivered_statement(),
-                    {"outbox_ids": list(ids), "delivered_at": _utc_naive_now()},
-                )
-                return
+            # Never resurrect a dead-lettered row: a slow post-commit dispatch
+            # must not clear a row the relay already gave up on (which would
+            # leave dead_at + delivered_at both set and contradict the
+            # dead-letter metric/alert); the statement guards on it.
             await session.execute(
-                update(OutboxMessage)
-                .where(
-                    _id_in(session, ids),
-                    # Never resurrect a dead-lettered row: a slow post-commit
-                    # dispatch must not clear a row the relay already gave up
-                    # on (which would leave dead_at + delivered_at both set and
-                    # contradict the dead-letter metric/alert).
-                    OutboxMessage.dead_at.is_(None),
-                    OutboxMessage.delivered_at.is_(None),
-                )
-                .values(delivered_at=_utc_naive_now(), last_error=None)
-                .execution_options(synchronize_session=False)
+                _mark_delivered_statement(session),
+                {"outbox_ids": list(ids), "delivered_at": _utc_naive_now()},
             )
 
     # -- relay side ----------------------------------------------------------

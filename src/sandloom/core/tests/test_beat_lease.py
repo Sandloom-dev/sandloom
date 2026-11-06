@@ -325,8 +325,12 @@ async def test_two_leases_on_real_redis(redis_cache: Any) -> None:
     assert second.fence is not None and first.fence is not None
     assert second.fence > first.fence
 
-    # The holder "dies": its key expires server-side after the TTL.
-    await asyncio.sleep(3.2)
+    # The holder "dies": its key expires server-side after the TTL (polled
+    # until gone, not a fixed sleep).
+    for _ in range(300):
+        if await sandloom_cache.get(key) is None:
+            break
+        await asyncio.sleep(0.02)
     assert await sandloom_cache.get(key) is None
     first._retry_at = 0.0
     assert await asyncio.to_thread(first.ensure) is True

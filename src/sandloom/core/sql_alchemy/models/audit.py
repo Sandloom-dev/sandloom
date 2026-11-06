@@ -11,8 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.core.sql_alchemy.base import Base
@@ -25,15 +24,13 @@ def _utc_naive_now() -> datetime:  # pragma: no cover - trivial
 class AuditLogEntry(Base):
     __tablename__ = "audit_log"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     occurred_at: Mapped[datetime] = mapped_column(
         default=_utc_naive_now, nullable=False, index=True
     )
     # Who performed the action (UUID of the actor; null for system actions).
     actor_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
+        Uuid(), nullable=True, index=True
     )
     actor_type: Mapped[str] = mapped_column(String(50), default="user", nullable=False)
     # What happened, versioned dotted action (e.g. "tenancy.member.role_changed").

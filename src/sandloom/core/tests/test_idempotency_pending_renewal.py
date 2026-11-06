@@ -100,7 +100,11 @@ async def test_a_dead_requests_reservation_still_self_heals(
         assert outcome == "reserved"
 
     await asyncio.create_task(_dies_after_reserving())
-    await asyncio.sleep(1.8)
+    # Until the server expires the key (1 s pending TTL), not a fixed 1.8 s.
+    for _ in range(300):
+        if await provider.get(KEY) is None:
+            break
+        await asyncio.sleep(0.02)
     outcome, reservation = await idempotency.reserve_key(KEY, "fp", 3600)
     assert outcome == "reserved"
     assert isinstance(reservation, idempotency_fingerprint.IdempotencyReservation)

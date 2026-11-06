@@ -16,10 +16,10 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import BigInteger, func, select
+from sqlalchemy import BigInteger, func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom.sdk.testing import committing_uow
+from sandloom.sdk.testing import committing_uow, skip_unless_db_feature
 from sandloom_billing.exceptions import InsufficientCreditsError
 from sandloom_billing.models import (
     BillingCustomer,
@@ -218,6 +218,31 @@ def _dispute_call(event_type: str, event: dict) -> Any:
     )
 
 
+async def _until_transactions_wait_on_a_lock(holder: Any, count: int = 1) -> None:
+    """Until ``count`` other transactions of this database wait on a lock
+    (instead of a fixed 0.5 s that guessed they did). Asked through
+    ``holder``, the session holding the lock: no extra pool connection."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        # Every waiter, not only those `pg_blocking_pids` names ``holder`` for:
+        # the second caller queues behind the first, which then blocks it.
+        waiting = (
+            await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = "
+                    "current_database() AND wait_event_type = 'Lock'"
+                )
+            )
+        ).scalar_one()
+        if waiting >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"fewer than {count} transaction(s) waited on the lock")
+
+
 async def _concurrently(
     maker: Any, *calls: Any, barrier_pi: str | None = None
 ) -> list[Any]:
@@ -242,7 +267,7 @@ async def _concurrently(
             .with_for_update()
         )
         tasks = [asyncio.create_task(_one(c)) for c in calls]
-        await asyncio.sleep(0.5)
+        await _until_transactions_wait_on_a_lock(holder, len(calls))
         assert not any(t.done() for t in tasks), "calls did not overlap"
         await holder.rollback()  # release: all of them race for the row now
     return await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 20)
@@ -281,6 +306,7 @@ async def test_foreign_payment_state_is_never_applied_to_another_grant(
         assert await BillingService.get_credit_balance(b_id, s) == 100
 
 
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_refund_deliveries_reverse_once(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:
@@ -309,6 +335,7 @@ async def test_concurrent_refund_deliveries_reverse_once(
         assert int(reversals.scalar_one()) == 1
 
 
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_won_deliveries_restore_once(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:
@@ -335,6 +362,7 @@ async def test_concurrent_won_deliveries_restore_once(
         assert await _ledger_sum(s, customer_id) == 100
 
 
+@skip_unless_db_feature("concurrent_writers")  # not SQLite's one writer
 async def test_concurrent_refund_and_dispute_converge_without_deadlock(
     test_engine: AsyncEngine, catalog: dict[str, Any]
 ) -> None:

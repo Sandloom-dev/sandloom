@@ -11,6 +11,9 @@ warning — two sweepers are still safe, only redundant). Each tick:
    applicable deadline is due and that were not nudged within the last
    interval — ``FOR UPDATE SKIP LOCKED LIMIT SAGA_SWEEP_BATCH`` — and stamps
    their ``swept_at`` (cross-tenant: the system channel under ``tenant_rls``);
+   a database without ``skip_locked`` reads them unlocked and claims each by
+   compare-and-set on ``swept_at`` in its own short transaction instead, which
+   waits for a running transition rather than skipping it;
 2. publishes one nudge per instance through the outbox (``{instance_id,
    expected_version}``); the advance consumer does the rest under the row
    lock, so a nudge racing a running step is a no-op.
@@ -159,6 +162,7 @@ class SagaSweeper:
         """
         now = self.runtime.now()
         due: list[_store.DueInstance] = []
+        candidates: list[_store.DueInstance] = []
         try:
             async with cross_tenant_session(
                 self.core,
@@ -167,7 +171,15 @@ class SagaSweeper:
                 reason="re-drive due saga instances",
                 channel=self.runtime.system_channel,
             ) as cts:
-                due = await self._claim(cts, now)
+                if not _store.claims_by_stamp(cts.session):
+                    due = await self._claim(cts, now)
+                else:
+                    candidates = await _store.due_candidates(
+                        cts.session,
+                        now=now,
+                        swept_before=self._swept_before(now),
+                        limit=self.batch,
+                    )
                 changed = bool(due)
                 if gauge:
                     await self._refresh_gauge(cts)
@@ -177,17 +189,49 @@ class SagaSweeper:
                     raise _IdleTick
         except _IdleTick:
             due = []
+        for candidate in candidates:
+            if await self._stamp(database, candidate, now):
+                due.append(candidate)
         if due:
             await self._publish(database, due)
         return len(due)
 
+    def _swept_before(self, now: datetime) -> datetime:
+        return now - timedelta(seconds=self.interval)
+
     async def _claim(
         self, cts: CrossTenantSession, now: datetime
     ) -> list[_store.DueInstance]:
-        swept_before = now - timedelta(seconds=self.interval)
         return await _store.claim_due(
-            cts.session, now=now, swept_before=swept_before, limit=self.batch
+            cts.session, now=now, swept_before=self._swept_before(now), limit=self.batch
         )
+
+    async def _stamp(
+        self, database: str, candidate: _store.DueInstance, now: datetime
+    ) -> bool:
+        """Claim one instance without ``skip_locked``, in its own short
+        transaction: the compare-and-set waits for a transition that holds
+        the instance, and must not hold the stamps of the others meanwhile."""
+        stamped = False
+        try:
+            async with cross_tenant_session(
+                self.core,
+                database,
+                actor=_ACTOR,
+                reason="re-drive due saga instances",
+                channel=self.runtime.system_channel,
+            ) as cts:
+                stamped = await _store.stamp_due(
+                    cts.session,
+                    candidate,
+                    now=now,
+                    swept_before=self._swept_before(now),
+                )
+                if not stamped and not cts.uow:
+                    raise _IdleTick
+        except _IdleTick:
+            return False
+        return stamped
 
     async def _refresh_gauge(self, cts: CrossTenantSession) -> None:
         for saga_type, status, count in await _store.count_by_status(cts.session):

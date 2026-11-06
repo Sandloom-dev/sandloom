@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom_billing.models import (
@@ -348,6 +348,37 @@ async def test_failed_compensation_retry_is_bounded(
     assert again.compensated == again.still_failing == again.escalated == 0
 
 
+async def test_owed_compensation_of_a_session_paid_meanwhile_is_escalated(
+    async_client: AsyncClient,
+    test_db: AsyncSession,
+    catalog: dict[str, Any],
+    fake_psp: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The revoked intent's session was completed before the retried expire:
+    nothing is left to expire, the intent is exhausted (never selected
+    again) and flagged for an operator. The exhausting write runs on every
+    database (it used ``greatest``, which SQLite lacks)."""
+    intent = await _revoked_with_failed_expire(
+        async_client, test_db, catalog, fake_psp, monkeypatch, sessions
+    )
+    assert intent.reconcile_attempts == 1
+    fake_psp.checkout_sessions[0]["status"] = "complete"
+
+    report = await _reconcile(fake_psp, minutes=0, max_attempts=3)
+
+    [escalated] = await _intents(sessions)
+    assert report.escalated == 1
+    assert escalated.status == INTENT_REVOKED
+    assert escalated.reconcile_attempts == 3  # raised to the limit
+    assert escalated.reconcile_error == "checkout session completed after revocation"
+    assert escalated.followup_at is not None and escalated.psp_expired_at is None
+    assert fake_psp.expired_sessions == []
+    again = await _reconcile(fake_psp, minutes=0, max_attempts=3)
+    assert again.compensated == again.still_failing == again.escalated == 0
+
+
 async def test_successful_compensation_is_recorded_and_never_retried(
     async_client: AsyncClient,
     test_db: AsyncSession,
@@ -490,9 +521,9 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
     assert resp.status_code == 200, resp.text
     async with sessions() as db:
         await db.execute(
-            text(
-                "UPDATE billing_operation_intents SET psp_session_expires_at = NULL, "
-                "created_at = now() - interval '25 hours'"
+            update(OperationIntent).values(
+                psp_session_expires_at=None,
+                created_at=datetime.now(UTC) - timedelta(hours=25),
             )
         )
         await db.commit()
@@ -544,9 +575,8 @@ async def test_reconcile_task_body_reports_counts(
     monkeypatch.setattr(settings, "billing_intent_reconcile_after_minutes", 30)
     async with sessions() as db:
         await db.execute(
-            text(
-                "UPDATE billing_operation_intents "
-                "SET created_at = now() - interval '31 minutes'"
+            update(OperationIntent).values(
+                created_at=datetime.now(UTC) - timedelta(minutes=31)
             )
         )
         await db.commit()

@@ -41,6 +41,24 @@ def _contract_uow_factory(core: Any, database: str) -> Callable[[], Any]:
     return cast(Callable[[], Any], core.get_uow_factory(database))
 
 
+def _contract_read_uow_factory(core: Any, database: str) -> Callable[[], Any]:
+    """The factory of a contract read scope's shared unit on ``database``:
+    the provider's ``contract_read_uow_factory`` where it answers one (a
+    read-only unit on a database whose writers are serial), else the
+    contract factory (:func:`_contract_uow_factory`), as before."""
+    getter = getattr(core, "database", None)
+    if callable(getter):
+        try:
+            provider = getter(database)
+        except (AttributeError, LookupError, RuntimeError, TypeError, ValueError):
+            provider = None  # the contract factory raises the same, clearer
+        read = getattr(provider, "contract_read_uow_factory", None)
+        factory = read() if callable(read) else None
+        if factory is not None:
+            return cast(Callable[[], Any], factory)
+    return _contract_uow_factory(core, database)
+
+
 def _require_core(core: Any, qualname: str) -> Any:
     if core is None:
         core = _runtime.get_active_core()

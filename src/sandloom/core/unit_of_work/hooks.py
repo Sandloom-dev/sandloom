@@ -167,6 +167,14 @@ async def before_commit(
     queue_before_commit(session, callback)
 
 
+def queue_on_commit(session: Any, callback: OnCommitCallback) -> None:
+    """Queue ``callback`` on ``session``'s on-commit stage (kernel use: a
+    nested unit's post-commit stages, deferred to its caller's commit),
+    tagged with the session's innermost savepoint like :func:`on_commit`."""
+    queued = session.info.setdefault(_ON_COMMIT_KEY, [])
+    queued.append((callback, _savepoint_token(session), _current_tenant.get()))
+
+
 def queue_before_commit(session: AsyncSession, callback: OnCommitCallback) -> None:
     """Queue ``callback`` on ``session``'s before-commit stage (kernel use).
 

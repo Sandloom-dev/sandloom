@@ -254,8 +254,8 @@ async def _l2w(hook: str, *, switch: bool = False):
     from sqlalchemy import bindparam, select
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from sandloom.core.tenant_context import _current_tenant
     from benchsuite import common
+    from sandloom.core.tenant_context import _current_tenant
 
     engine = create_async_engine(common.database_url(), pool_size=1, max_overflow=0)
     if hook == "new":
@@ -674,9 +674,9 @@ async def _sandloom_app():
 async def _l5e():
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from sandloom.core.runtime import get_active_core
     from benchsuite.bench.api import ItemOut
     from benchsuite.bench.models import BenchItem
+    from sandloom.core.runtime import get_active_core
 
     _app, life = await _sandloom_app()
     engine = get_active_core().database("default").engine
@@ -742,9 +742,9 @@ async def _kg2():
 
 @rung("L5", "Sandloom db_session() UoW (tenant scope, outbox hooks) + get + ItemOut")
 async def _l5():
-    from sandloom.core.di import db_session
     from benchsuite.bench.api import ItemOut
     from benchsuite.bench.models import BenchItem
+    from sandloom.core.di import db_session
 
     _app, life = await _sandloom_app()
 
@@ -935,6 +935,7 @@ def _no_membership_contract() -> None:
         TENANT_ORGANIZATION,
         TenantContext,
     )
+
     from benchsuite import platform
 
     async def resolve_tenant(*, user_id: Any, **_kw: Any) -> TenantContext:
@@ -997,10 +998,11 @@ def _contract_rung(stage: str):
 
         os.environ.update(platform.server_env())
         os.environ.pop("MODULE_REQUIRED", None)
+        from sandloom_tenancy.services.membership_service import MembershipService
+
         from sandloom.core.module_api import contract_read_scope
         from sandloom.core.runtime import get_active_core
         from sandloom.main import app
-        from sandloom_tenancy.services.membership_service import MembershipService
 
         life = await _Lifespan(app).__aenter__()
         core = get_active_core()
@@ -1185,6 +1187,10 @@ hot_paths.install(sys.modules[__name__])
 import write_login  # noqa: E402
 
 write_login.install(sys.modules[__name__])
+# X*: saga step and compile-miss rungs (infra_rungs.py).
+import infra_rungs  # noqa: E402
+
+infra_rungs.install(sys.modules[__name__])
 
 
 async def _run_batch(op: Op, start: int, n: int, conc: int) -> None:

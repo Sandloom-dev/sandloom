@@ -352,6 +352,111 @@ async def test_boots_alone(db_engine) -> None:
     assert outcome.started or outcome.missing_contracts == {"stats.quota.v1"}
 ```
 
+## Migrations match models
+
+On SQLite the test database takes its schema from the models and runs no
+migration chain. Production on PostgreSQL takes it from the chain. One test
+per module keeps the two equal: the chain at head must build the schema the
+models declare. `sandloom add module` writes it as `tests/test_migrations.py`:
+
+```python
+from sandloom.sdk.testing import assert_migrations_match_models  # sandloom: advanced gate
+def test_migrations_match_models() -> None:
+    assert_migrations_match_models("notes")
+```
+
+The test makes a scratch PostgreSQL database next to the test database. It
+runs the core chain there, then the chains the module depends on, then the
+module's own chain to head. It compares the result with the models. The comparison is
+Alembic's autogenerate with the options of `sandloom migrate new`: types and
+server defaults, over the tables the chain owns. Indexes are compared as the
+database reflects them, against the same indexes created from the models in a
+second scratch database. That covers access method, operator classes, sort
+order, included columns, `NULLS NOT DISTINCT` and a partial index's
+condition. It fails with one line per difference and the fix:
+
+```text
+the notes migration chain at head differs from its models (SANDLOOM-T006):
+  column notes_items.priority (INTEGER): in the models, not created by the chain
+fix: sandloom migrate new notes "<message>" (or correct the model), then review the revision
+```
+
+On SQLite it skips with the reason, and for a module with no `migrations/`
+directory. `migration_drift("notes")` returns the lines instead of failing.
+It does not compare what models cannot declare: RLS policies, extensions,
+triggers. CHECK constraints and an index's collation are not compared either,
+since neither is reflected.
+
+## Tests that need a database feature
+
+A module's tests run on PostgreSQL and on a SQLite file
+(`SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<dir>/<name>_test.db`; each
+xdist worker gets `<name>_test_gw<N>.db`,
+[SQLite for tests](../infrastructure/database.md#module-tests-on-sqlite)).
+Mark a test that needs a database feature the other one lacks. It is skipped
+there, and the skip names the missing feature and the instance:
+
+```python
+from sandloom.sdk.testing import skip_unless_db_feature  # sandloom: advanced database features
+@skip_unless_db_feature("arrays")
+async def test_tags_are_stored_as_an_array(client) -> None: ...
+```
+
+A test that races two writers needs `concurrent_writers`: write
+transactions that overlap, each holding its own row locks. SQLite has one writer,
+and the harness does not emulate PostgreSQL's concurrency: the race runs on
+PostgreSQL only. Bound every wait between the racers (`asyncio.wait_for(...,
+30)`). A racer that never arrives then fails the test instead of hanging it.
+A test still running after 300 s dumps every thread's stack
+(`faulthandler_timeout` in the generated `pyproject.toml`).
+
+On SQLite the units a test's code opens nest in the `db` session once it
+wrote. That holds for the test's task and the tasks it starts. Two kinds of
+task start in a fresh context: the in-memory bus delivering an event to a
+consumer, and the post-commit dispatcher. Their units do not nest. Each waits
+for the `db` session's write lock like any other writer. So a consumer that
+writes runs after the test's transaction ends, or times out while the test
+still holds the lock. The nested units' deferred effects (outbox dispatch, `on_commit`) run when the
+host's unit ends. The `client` fixture's request end runs them. `db_uow`,
+`bind_test_uow` and a bare `await db.commit()` do not: assert those effects
+with `real_uow_client` or `run_on_commit`. An app that star imports
+the fixtures instead of loading the plugin registers the marker in its
+`conftest.py`: `config.addinivalue_line("markers", "sandloom_db_feature: ...")`
+in `pytest_configure`.
+
+The features are the `database` capability's
+([Forms that need a feature](../infrastructure/database.md#forms-that-need-a-feature)): `concurrent_writers`, `skip_locked`,
+`transaction_locks`, `snapshot_reads`, `readonly_transactions`, `arrays`,
+`fulltext_search`, `json_path`, `json_contains`. The harness reads them as
+the application advertises them for the instance (`database="default"`; pass
+another name for another instance). Put the mark on a function, a class, or
+`pytestmark`.
+
+## The skip ledger
+
+CI runs the tests on two databases (PostgreSQL, then SQLite). A test may skip
+on one; a test that skips on both runs nowhere. Each lane loads
+`-p sandloom.core.testing.skip_ledger` and writes the tests it ran and the
+tests it skipped, with the reasons, to a JSON file:
+
+```bash
+uv run pytest -p sandloom.core.testing.skip_ledger \
+  --sandloom-skip-ledger=skip-ledger/sqlite.json --sandloom-skip-ledger-lane=sqlite
+python3 tools/ci/skip_ledger.py skip-ledger/*.json \
+  --allowlist tools/ci/skip_ledger_allowlist.json --require-lanes postgresql,sqlite
+```
+
+The second command fails on a test that was skipped on some lane and ran on
+none, printing each lane's reason. A module skipped while it was collected
+(`importorskip`) is recorded by its path and counts as run when one of its
+tests ran on another lane. Make it run on one lane, or add it to the
+allowlist with the reason CI cannot run it. An allowlist entry whose test ran
+fails too: the list shrinks with the tests it excuses. With
+`--strict-allowlist` (full validation), so does an entry no lane collected.
+`SANDLOOM_SKIP_LEDGER` (and `_LANE`, `_BASE`) stand for the options.
+`PYTEST_ADDOPTS="-p sandloom.core.testing.skip_ledger"
+SANDLOOM_SKIP_LEDGER=skips.json uv run sandloom test` writes one too.
+
 ## Harness rules
 
 These are the still-true rules of the test harness. Each one is enforced by

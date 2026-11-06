@@ -17,12 +17,14 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from alembic.autogenerate import render_python_code
+from alembic.migration import MigrationContext
 from alembic.operations import ops
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.schema import CreateTable
 
 import sandloom.core.sql_alchemy.columns as columns
+from sandloom.core.migrations.alembic_support import _render_item
 from sandloom.sdk import CreatedAt, TenantScoped, new_id
 from sandloom.sdk.data import UpdatedAt
 
@@ -146,7 +148,8 @@ def test_the_timestamp_columns_default_to_clock_timestamp() -> None:
     assert "now()" not in ddl
     updated = _Note.__table__.c.updated_at
     assert updated.onupdate is not None
-    assert "clock_timestamp" in str(updated.onupdate.arg)  # type: ignore[attr-defined]
+    onupdate = updated.onupdate.arg  # type: ignore[attr-defined]
+    assert str(onupdate.compile(dialect=postgresql.dialect())) == "clock_timestamp()"
     assert _Note.__table__.c.created_at.onupdate is None
     assert _Note.__table__.c.id.default.arg.__name__ == "new_id"  # type: ignore[union-attr]
 
@@ -165,7 +168,12 @@ def test_the_columns_compose_with_tenant_scoped() -> None:
 def test_alembic_autogenerate_renders_clock_timestamp() -> None:
     """What ``sandloom migrate new`` writes for a new table with these columns."""
     op = ops.CreateTableOp.from_table(_Note.__table__)  # type: ignore[arg-type]
-    code = render_python_code(ops.UpgradeOps(ops=[op]))
+    context = MigrationContext.configure(
+        dialect_name="postgresql", opts={"render_item": _render_item}
+    )
+    code = render_python_code(
+        ops.UpgradeOps(ops=[op]), render_item=_render_item, migration_context=context
+    )
     assert (
         "sa.Column('created_at', sa.DateTime(timezone=True), "
         "server_default=sa.text('clock_timestamp()'), nullable=False)" in code

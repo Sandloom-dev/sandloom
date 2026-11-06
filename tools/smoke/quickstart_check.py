@@ -45,6 +45,22 @@ their own indexes (``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``).
         --postgres-url postgresql://test_user:test_password@localhost:5433 \\
         --redis-url redis://localhost:6380 --redis-db-base 0
 
+SQLite (``--database sqlite``, CI job ``second-db-test-lane``). The same lines,
+with the app on a SQLite file as the generated README documents: the
+dev-services line becomes ``DATABASE_URL=sqlite+aiosqlite:///./data/app.db``,
+``CACHE_URL`` and ``BROKER_URL`` (the given Redis) written into ``.env``
+outside the ``sandloom dev`` block, never exported; the tests get
+``SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<workdir>/<db-prefix>_test.db``;
+the migrations line must refuse with SANDLOOM-B028 (the app builds its schema
+from the models at startup); ``sandloom dev run`` must start no dev services.
+With the standard modules the running app also answers a sign-up, the email
+verification (the link ``dev run`` logs), a login, ``/auth/me``, a refresh,
+an organization created and listed (tenancy) and the caller's credits
+(billing).
+
+    python3 tools/smoke/quickstart_check.py --database sqlite --profile standard \\
+        --redis-url redis://localhost:6380 --redis-db-base 0
+
 Standard library only: it runs before any virtualenv exists.
 """
 
@@ -54,6 +70,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -89,10 +106,17 @@ class Runner:
             self.env["UV_NO_SOURCES"] = "true"
         self.cwd = Path.cwd()
         self.server: subprocess.Popen[bytes] | None = None
+        #: The quickstart started the app (``server`` is cleared when it stops).
+        self.served = False
+        self.temp_work: Path | None = None
+        #: The run's work directory (the server log goes there).
+        self.work: Path | None = None
         #: The quickstart started `sandloom dev` services: stopped at the end.
         self.dev_services = False
         self.base_url = ""
         self.module = ""
+        self.server_log: Path | None = None
+        self.batteries: list[str] = []
 
     # ------------------------------------------------------------------ util
     def step(self, name: str, fn, *a, **kw):  # type: ignore[no-untyped-def]
@@ -139,8 +163,29 @@ class Runner:
         return proc.stdout.strip()
 
     # -------------------------------------------------------------- services
+    @property
+    def sqlite(self) -> bool:
+        return bool(getattr(self.args, "database", "postgresql") == "sqlite")
+
     def configure_services(self) -> None:
         a = self.args
+        if self.sqlite:
+            redis = a.redis_url.rstrip("/")
+            base = a.redis_db_base
+            # The app's URLs go into .env (sqlite_env), as the README says:
+            # an exported one would hide whether `dev run` reads the file.
+            for key in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
+                self.env.pop(key, None)
+            self.env.update(
+                {
+                    "SANDLOOM_TEST_DATABASE_URL": "sqlite+aiosqlite:///"
+                    f"{self.cwd / (a.db_prefix + '_test.db')}",
+                    "SANDLOOM_TEST_CACHE_URL": f"{redis}/{base + 2}",
+                    "SANDLOOM_TEST_BROKER_URL": f"{redis}/{base + 3}",
+                }
+            )
+            self.env.setdefault("SANDLOOM_TEST_REDIS_DB_STRIDE", "auto")
+            return
         if not a.postgres_url:
             return
         pg = a.postgres_url.rstrip("/").replace(
@@ -164,6 +209,42 @@ class Runner:
             }
         )
         self.env.setdefault("SANDLOOM_TEST_REDIS_DB_STRIDE", "auto")
+
+    def sqlite_env(self) -> None:
+        """The dev-services line on SQLite: the README's three lines in
+        ``.env``, outside the ``sandloom dev`` block (the last line wins)."""
+        redis = self.args.redis_url.rstrip("/")
+        base = self.args.redis_db_base
+        lines = (
+            "DATABASE_URL=sqlite+aiosqlite:///./data/app.db",
+            f"CACHE_URL={redis}/{base}",
+            f"BROKER_URL={redis}/{base + 1}",
+        )
+        env_file = self.cwd / ".env"
+        text = env_file.read_text(encoding="utf-8")
+        env_file.write_text(
+            text.rstrip("\n") + "\n\n" + "\n".join(lines) + "\n", encoding="utf-8"
+        )
+        print("(SQLite: written to .env)\n  " + "\n  ".join(lines))
+
+    def migrate_refused(self, line: str) -> None:
+        """SQLite has no migration chains: the line must refuse (B028)."""
+        print(f"$ {line}   (in {self.cwd}; must refuse on SQLite)", flush=True)
+        proc = subprocess.run(  # noqa: S602 - the documented quickstart line, verbatim
+            line,
+            shell=True,
+            cwd=self.cwd,
+            env=self.env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        print(proc.stdout + proc.stderr, end="", flush=True)
+        if proc.returncode == 0 or "SANDLOOM-B028" not in proc.stdout + proc.stderr:
+            raise QuickstartError(
+                f"`{line}` on SQLite: exit {proc.returncode}, expected the "
+                "SANDLOOM-B028 refusal"
+            )
 
     def provided_services(self) -> None:
         """The dev-services line, on the given servers: a fresh dev database."""
@@ -267,9 +348,20 @@ class Runner:
         if command.startswith("uv run sandloom dev run"):
             command = f"{command} --port {port} --no-reload"
         print(f"$ {command}   (in {self.cwd}, UVICORN_PORT={port})", flush=True)
-        self.server = subprocess.Popen(  # noqa: S602 - the documented quickstart line, verbatim
-            command, shell=True, cwd=self.cwd, env=env, start_new_session=True
-        )
+        # The server's output goes to a file (printed when it stops): the
+        # standard modules' flow reads the verification link it logs.
+        self.served = True
+        self.server_log = (self.work or self.cwd.parent) / f"server-{port}.log"
+        with self.server_log.open("wb") as log:
+            self.server = subprocess.Popen(  # noqa: S602 - the documented quickstart line, verbatim
+                command,
+                shell=True,
+                cwd=self.cwd,
+                env=env,
+                start_new_session=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
         self.base_url = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + self.args.serve_timeout
         last = ""
@@ -290,14 +382,87 @@ class Runner:
         raise QuickstartError(f"GET /health never answered 200 (last: {last})")
 
     def stop_server(self) -> None:
-        if self.server is None or self.server.poll() is not None:
+        if self.server is None:
             return
-        os.killpg(self.server.pid, signal.SIGTERM)
-        try:
-            self.server.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.killpg(self.server.pid, signal.SIGKILL)
-            self.server.wait()
+        if self.server.poll() is None:
+            os.killpg(self.server.pid, signal.SIGTERM)
+            try:
+                self.server.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                os.killpg(self.server.pid, signal.SIGKILL)
+                self.server.wait()
+        self.server = None
+        if self.server_log is not None and self.server_log.is_file():
+            print(f"--- server output ({self.server_log.name})")
+            print(self.server_log.read_text(errors="replace").rstrip(), flush=True)
+            print("--- end of server output", flush=True)
+
+    def server_output(self) -> str:
+        if self.server_log is None or not self.server_log.is_file():
+            return ""
+        return self.server_log.read_text(errors="replace")
+
+    def expect(
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: object = None,
+        headers: dict | None = None,
+    ) -> str:
+        sent = {"Content-Type": "application/json", **(headers or {})}
+        got, text = self.http(method, path, body, sent)
+        print(f"{method} {path} -> {got} {text[:160]}")
+        if got != status:
+            raise QuickstartError(f"{method} {path}: {got}, expected {status}: {text}")
+        return text
+
+    def verification_token(self) -> str:
+        """The token of the verification link ``dev run`` logs ([dev only])."""
+        marker = "verify-email?token="
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            for line in self.server_output().splitlines():
+                if marker in line and "[dev only]" in line:
+                    return line.split(marker, 1)[1].split()[0]
+            time.sleep(0.2)
+        raise QuickstartError("dev run logged no verification link")
+
+    def standard_modules_flow(self) -> None:
+        """Sign-up to an organization, through the standard modules' API."""
+        email, password = "quickstart@example.com", "Quickstart-Pass-0123!"
+        account = {"email": email, "password": password}
+        self.expect("POST", "/auth/register", 202, {**account, "full_name": "Q"})
+        self.expect(
+            "POST", "/auth/verify-email", 204, {"token": self.verification_token()}
+        )
+        tokens = json.loads(self.expect("POST", "/auth/login", 200, account))
+        auth = {"Authorization": f"Bearer {tokens['access_token']}"}
+        me = json.loads(self.expect("GET", "/auth/me", 200, headers=auth))
+        if me.get("email") != email:
+            raise QuickstartError(f"/auth/me answered {me}")
+        if tokens.get("refresh_token"):
+            self.expect(
+                "POST",
+                "/auth/refresh",
+                200,
+                {"refresh_token": tokens["refresh_token"]},
+            )
+        if "tenancy" in self.batteries:
+            org = json.loads(
+                self.expect(
+                    "POST",
+                    "/api/v1/orgs",
+                    201,
+                    {"name": "Quickstart", "slug": "quickstart"},
+                    auth,
+                )
+            )
+            listed = json.loads(self.expect("GET", "/api/v1/orgs", 200, headers=auth))
+            if org["id"] not in {o["id"] for o in listed}:
+                raise QuickstartError(f"the new organization is not listed: {listed}")
+        if "billing" in self.batteries:
+            self.expect("GET", "/api/v1/billing/credits", 200, headers=auth)
 
     def http(
         self, method: str, path: str, body: object = None, headers: dict | None = None
@@ -338,6 +503,10 @@ class Runner:
     def run(self) -> None:
         a = self.args
         work = a.workdir or Path(tempfile.mkdtemp(prefix="sandloom-quickstart-"))
+        #: A temp directory this run made is removed at the end (the app's
+        #: venv, its SQLite files, the server log).
+        self.temp_work = None if a.workdir else work
+        self.work = work.resolve()
         work.mkdir(parents=True, exist_ok=True)
         if any(work.iterdir()):
             raise QuickstartError(f"{work} is not empty")
@@ -348,7 +517,10 @@ class Runner:
             if a.cli
             else f"uv run --project {shlex.quote(str(self.repo))} sandloom"
         )
-        batteries = "identity,tenancy,billing" if a.profile == "all" else a.profile
+        batteries = {
+            "all": "identity,tenancy,billing",
+            "standard": "identity,tenancy,billing,admin",
+        }.get(a.profile, a.profile)
         self.batteries = [] if a.profile == "bare" else batteries.split(",")
         selection = "--no-batteries" if a.profile == "bare" else f"--with {batteries}"
         source = (
@@ -375,7 +547,7 @@ class Runner:
                 self.do_line(line)
             if not self.module:
                 raise QuickstartError("the quickstart adds no module")
-            if self.server is None:
+            if not self.served:
                 raise QuickstartError("the quickstart never starts the app")
             self.step("uv run sandloom test --ci", self.sh, "uv run sandloom test --ci")
             self.step("cold project graph", self.sh, "uv run sandloom graph")
@@ -401,27 +573,46 @@ class Runner:
             command, shell=True, cwd=self.cwd, env=self.env, check=False
         )
 
+    def services_line(self, line: str) -> None:
+        """The dev-services line: as printed, the given servers or SQLite."""
+        if self.sqlite:
+            self.step(f"{line} (SQLite: .env instead)", self.sqlite_env)
+        elif self.args.postgres_url:
+            self.step(f"{line} (given servers)", self.provided_services)
+        else:
+            self.step(line, self.sh, line)
+            self.dev_services = line.startswith("uv run sandloom dev")
+        # Not a quickstart line: a fresh app passes its own CI gate.
+        self.step(
+            "(fresh app, extra) uv run sandloom test --ci",
+            self.sh,
+            "uv run sandloom test --ci",
+        )
+
+    def serve_line(self, line: str) -> None:
+        """The line that serves the app, and what the running app answers."""
+        self.step(line, self.serve, line)
+        if self.sqlite and "starting the dev services" in self.server_output():
+            raise QuickstartError("dev run started dev services on SQLite")
+        self.step("authenticated round trip", self.round_trip, self.module)
+        if "identity" in self.batteries:
+            self.step("standard modules", self.standard_modules_flow)
+        self.stop_server()
+
     def do_line(self, line: str) -> None:
         """One printed quickstart line (its comment stripped)."""
         if line.startswith("cd "):
             self.cwd = (self.cwd / shlex.split(line)[1]).resolve()
             self.timings.append((line, 0.0, "PASS"))
+        elif self.sqlite and line.startswith("uv run sandloom migrate"):
+            self.step(f"{line} (SQLite: refused)", self.migrate_refused, line)
         elif line.startswith("docker compose") or line == "uv run sandloom dev up":
-            if self.args.postgres_url:
-                self.step(f"{line} (given servers)", self.provided_services)
-            else:
-                self.step(line, self.sh, line)
-                self.dev_services = line.startswith("uv run sandloom dev")
-            # Not a quickstart line: a fresh app passes its own CI gate.
-            self.step(
-                "(fresh app, extra) uv run sandloom test --ci",
-                self.sh,
-                "uv run sandloom test --ci",
-            )
+            self.services_line(line)
+        elif line.startswith("uv run sandloom admin create"):
+            # At a terminal it asks for the password; agents and CI: --invite.
+            self.step(f"{line} --invite", self.sh, f"{line} --invite")
         elif "uvicorn" in line or line.startswith("uv run sandloom dev run"):
-            self.step(line, self.serve, line)
-            self.step("authenticated round trip", self.round_trip, self.module)
-            self.stop_server()
+            self.serve_line(line)
         else:
             if line.startswith("uv run sandloom add module "):
                 self.module = line.rsplit(" ", 1)[1]
@@ -464,6 +655,7 @@ def main(argv: list[str] | None = None) -> int:
             "identity,billing",
             "tenancy,billing",
             "all",
+            "standard",
         ),
         default="bare",
     )
@@ -472,6 +664,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="validated wheels: use registry requirements with local find-links, "
         "never editable sources",
+    )
+    p.add_argument(
+        "--database",
+        choices=("postgresql", "sqlite"),
+        default="postgresql",
+        help="sqlite: the app and its tests on SQLite files (Redis: --redis-url)",
     )
     p.add_argument("--postgres-url", help="server URL without a database (CI)")
     p.add_argument("--admin-db", default="postgres", help="database to connect to")
@@ -492,6 +690,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nquickstart: {exc}", file=sys.stderr)
         print(runner.summary(False))
         return 1
+    finally:
+        if runner.temp_work is not None:
+            shutil.rmtree(runner.temp_work, ignore_errors=True)
     print(runner.summary(True))
     return 0
 

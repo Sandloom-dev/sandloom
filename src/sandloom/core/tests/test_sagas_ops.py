@@ -23,6 +23,7 @@ from sandloom.core.tests.saga_fixtures import (
     enroll_input,
     enroll_saga,
     install_fakes,
+    without_skip_locked_renderer,
 )
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import UnitOfWorkRequiredError
@@ -296,9 +297,12 @@ async def _nudges(db_engine: Any) -> int:
         )
 
 
+@pytest.mark.parametrize("skip_locked", [True, False], ids=["skip-locked", "stamp"])
 async def test_sweep_nudges_due_instances_once_per_interval(
-    saga_harness, db_engine
+    saga_harness, db_engine, skip_locked: bool, monkeypatch: Any
 ) -> None:
+    if not skip_locked:  # the compare-and-set claim, one transaction each
+        without_skip_locked_renderer(monkeypatch)
     _ledger(saga_harness)
     saga_harness.fail_step("charge", error="transient")
     run = await saga_harness.run(

@@ -33,7 +33,10 @@ from sandloom.sdk.tenant import (  # sandloom: advanced test inspection
     bind_tenant,
     unscoped,
 )
-from sandloom.sdk.testing import fake_contract
+from sandloom.sdk.testing import (  # sandloom: advanced skip a race where writers take turns
+    fake_contract,
+    skip_unless_db_feature,
+)
 
 
 class _StubProjectsRead:
@@ -190,6 +193,9 @@ async def _row(sessionmaker, task_id):  # noqa: ANN001, ANN202
             return await session.get(ProjectTaskQueryIndex, task_id)
 
 
+# A second writer commits while the handler's transaction is open: concurrent
+# writers, which SQLite (one writer) does not have; it runs on PostgreSQL.
+@skip_unless_db_feature("concurrent_writers")
 @pytest.mark.asyncio
 async def test_project_update_racing_a_task_insert_is_not_lost(
     db_engine: AsyncEngine,

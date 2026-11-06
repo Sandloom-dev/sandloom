@@ -1,9 +1,13 @@
-"""Dialect hook keeping the PostgreSQL RLS tenant setting in sync (opt-in).
+"""Dialect hook keeping the row-security tenant setting in sync (opt-in).
 
 Installed on a database instance's engine when its infra options set
-``tenant_rls: true``. Before every statement the connection runs inside a
-transaction, the hook makes the transaction-local ``sandloom.tenant_id`` match the
-bound tenant (``''`` when none is bound).
+``tenant_rls: true``, on a database whose SQL dialect renderer has row
+security (:meth:`~sandloom.core.sql_alchemy.portable.SqlDialect.row_security`;
+without it startup stops, SANDLOOM-B026). The renderer writes the SQL (the
+binding statement, the merged ``BEGIN`` text, the role and coverage queries),
+built once per engine; this module runs it. Before every statement the
+connection runs inside a transaction, the hook makes the transaction-local
+``sandloom.tenant_id`` match the bound tenant (``''`` when none is bound).
 
 There is NO bypass setting any more: the policy created by
 :func:`sandloom.core.orm.enable_tenant_rls` has no branch the application role can
@@ -50,30 +54,18 @@ statement, ORM eager loads included; cached per compiled form). Raw SQL
 logged + counted and the tenant setting is synced anyway (fail-safe).
 
 Merged BEGIN (``DB_RLS_MERGED_BEGIN``, default ON; kill switch
-``DB_RLS_MERGED_BEGIN=false``; asyncpg only): normally the first statement of
-a transaction costs two round trips before it runs — asyncpg's ``BEGIN``
-(sent lazily by SQLAlchemy's adapter) and the ``set_config``. With the
-option, when that first statement finds the adapter with no transaction yet,
-the hook sends ONE simple-query message
-(PostgreSQL's simple protocol runs the statements in order and answers with
-one ReadyForQuery)::
-    BEGIN [ISOLATION LEVEL …] [READ ONLY] [DEFERRABLE];
-    SELECT set_config('sandloom.tenant_id', '<canonical uuid or empty>', true)
-
-The tenant is a LITERAL here (the simple protocol has no parameters); it is
-only ever ``str(uuid.UUID(...))`` — hex digits and dashes — or ``''``. The
-BEGIN text is built exactly as asyncpg's ``Transaction.start`` builds it for
-the adapter's isolation / readonly / deferrable. After the reply the hook
-gives the adapter what ``_start_transaction`` would have: a started asyncpg
-``Transaction`` registered as the connection's top transaction, so
-SQLAlchemy's COMMIT / ROLLBACK / savepoints proceed unchanged. Any failure or
-cancellation while that message is in flight TERMINATES the driver
-connection (the server aborts the transaction, the GUC dies with it) and the
-error reaches SQLAlchemy as a disconnect, which invalidates the pooled
-connection — a connection whose transaction state is unknown is never pooled.
+``DB_RLS_MERGED_BEGIN=false``; where the DBAPI adapter supports it): normally
+the first statement of a transaction costs two round trips before it runs —
+the DBAPI's ``BEGIN`` (sent lazily by SQLAlchemy's adapter) and the
+``set_config``. The DBAPI adapter's
+:meth:`~sandloom.core.sql_alchemy.dbapi.DbapiAdapter.merged_begin` sends both
+in ONE message instead, its ``BEGIN`` text the renderer's ``begin_statement``
+(the planner's, so the two cannot drift) and the binding the renderer's
+``begin_and_bind`` (asyncpg's: :mod:`sandloom.core.drivers.dbapi_asyncpg`).
+The tenant is a LITERAL there (the simple protocol has no parameters); it is
+only ever ``str(uuid.UUID(...))`` — hex digits and dashes — or ``''``.
 Nothing is merged when the adapter already has a transaction, in autocommit,
-on a non-asyncpg driver, or when the driver-internals probe
-(:mod:`sandloom.core.sql_alchemy.driver_compat`) finds the private asyncpg /
+on a DBAPI without the fast path, or when its probe finds the private DBAPI /
 SQLAlchemy state it relies on changed — then the plain path (separate BEGIN +
 ``set_config``) is used, with one warning and a metric.
 
@@ -102,31 +94,30 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.sql.expression import RollbackToSavepointClause
 from sqlalchemy.sql.selectable import TableClause
-from sqlalchemy.util.concurrency import await_
 
 import sandloom.core.observability.metrics as _metrics
 from sandloom.core.config.settings import settings
-from sandloom.core.sql_alchemy.dead_connection import (
-    never_sent,
-    recoverable,
-    replace_connection,
+from sandloom.core.sql_alchemy.dbapi import (
+    PLAIN_DBAPI,
+    DbapiAdapter,
+    MergedBegin,
+    dbapi_adapter_of,
 )
-from sandloom.core.sql_alchemy.driver_compat import (
-    adopt_started_transaction,
-    asyncpg_fast_paths_ok,
-    begin_sql,
+from sandloom.core.sql_alchemy.dead_connection import replace_connection
+from sandloom.core.sql_alchemy.portable import (
+    RowSecurity,
+    UnsupportedSqlForm,
+    dialect_of_url,
+    row_security_for,
+    sql_dialect,
 )
-from sandloom.core.sql_alchemy.rls import (
-    TENANT_SETTING,
-    tenant_rls_policy_name,
-)
+from sandloom.core.sql_alchemy.rls import row_security
 from sandloom.core.tenant_context import _bypass, _current_tenant
 
 logger = logging.getLogger("sandloom.tenant_rls")
@@ -139,6 +130,8 @@ _WARNED_KEY = "sandloom_tenant_rls_unscoped_warned"
 _INSTALLED_ATTR = "_sandloom_tenant_rls_installed"
 #: Engine attribute marking a system-channel engine (no unscoped() warning).
 _SYSTEM_ATTR = "_sandloom_tenant_rls_system"
+#: Dialect attribute holding the engine's :class:`_Binding` (set at install).
+_BINDING_ATTR = "_sandloom_tenant_rls_binding"
 #: A raw / text statement that may roll back (to a savepoint): re-sync after it.
 _ROLLBACK_RE = re.compile(r"\brollback\b", re.IGNORECASE)
 
@@ -193,12 +186,71 @@ def non_tenant_statements() -> Iterator[None]:
 class TenantRLSConfigError(RuntimeError):
     """``tenant_rls`` was enabled on a database that cannot enforce it.
 
-    Raised for a non-PostgreSQL backend and by :func:`verify_tenant_rls_roles`
+    Raised for a database without row security
+    (:class:`RowSecurityUnavailable`) and by :func:`verify_tenant_rls_roles`
     when a role could step outside the policies. A security misconfiguration,
     so startup aborts on it in EVERY environment (``fatal_at_startup``).
     """
 
     fatal_at_startup = True
+
+
+class RowSecurityUnavailable(TenantRLSConfigError):
+    """``tenant_rls`` or the system channel on a database whose renderer has
+    no row security (SANDLOOM-B026): its tenant isolation can only be the
+    ORM guard (application-enforced)."""
+
+
+def _lacks_row_security(url: str) -> str | None:
+    """The dialect of ``url`` when its renderer has no row security; ``None``
+    with row security or without a renderer (SANDLOOM-B024's refusal)."""
+    dialect = dialect_of_url(url)
+    renderer = sql_dialect(dialect)
+    if renderer is None or renderer.row_security() is not None:
+        return None
+    return dialect
+
+
+def row_security_problem(
+    name: str, url: str, options: Any, *, system_url: str | None = None
+) -> str | None:
+    """Why database instance ``name`` cannot run its row-security options,
+    or ``None`` (build-free: the options and the URLs' renderers only).
+
+    ``tenant_rls``, ``system_url`` and ``require_system_channel`` need a
+    renderer with :meth:`~sandloom.core.sql_alchemy.portable.SqlDialect.row_security`,
+    for the instance's ``url`` and for the system channel's URL (the
+    ``system_url`` option, else ``system_url=``: the default instance's
+    ``DATABASE_SYSTEM_URL``). ``system_url=`` alone (``DATABASE_SYSTEM_URL``
+    set) is refused too on a database without row security: the system
+    channel's role has nothing to bypass there. A database without a
+    renderer at all is SANDLOOM-B024's refusal.
+    """
+    get = getattr(options, "get", None)
+    if get is None:
+        return None
+    asked = ("tenant_rls", "system_url", "require_system_channel")
+    wanted = [option for option in asked if get(option)]
+    if not wanted and system_url and _lacks_row_security(str(url)) is not None:
+        # DATABASE_SYSTEM_URL names a privileged role of a database that has
+        # no roles to separate (SQLite): said, never silently ignored.
+        wanted = ["DATABASE_SYSTEM_URL"]
+    if not wanted:
+        return None
+    channel = get("system_url") or system_url
+    for which, target in (("its", url), ("its system channel's", channel)):
+        if not target:
+            continue
+        dialect = _lacks_row_security(str(target))
+        if dialect is not None:
+            return (
+                f"database/{name}: {', '.join(wanted)} need(s) database row "
+                f"security, and {which} {dialect!r} database has none "
+                f"[SANDLOOM-B026]: remove {' and '.join(wanted)} (tenant "
+                "isolation is then the ORM guard only, application-enforced) "
+                "or use a database with row security"
+            )
+    return None
 
 
 def _info(pooled: Any) -> dict[str, Any]:
@@ -240,77 +292,39 @@ def _warn_unscoped_without_tenant(conn: Any, info: dict[str, Any]) -> None:
     )
 
 
-def _merged_begin_sql(adapter: Any, value: str) -> str:
-    """``BEGIN …;`` exactly as asyncpg's ``Transaction.start`` builds it for the
-    adapter's settings, followed by the tenant ``set_config`` (literal)."""
-    if value:
-        value = str(uuid.UUID(value))  # canonical: hex digits and dashes only
-    begin = begin_sql(adapter.isolation_level, adapter.readonly, adapter.deferrable)
-    return f"{begin}; SELECT set_config('{TENANT_SETTING}', '{value}', true)"
+class _Binding:
+    """The renderer's tenant binding for one engine, built once at install:
+    the parameterised statement in the driver's paramstyle, the row security,
+    the engine's DBAPI adapter and its merged ``BEGIN`` (``None``: plain)."""
 
+    __slots__ = ("dbapi", "merge", "named", "security", "sql")
 
-async def _merged_begin(adapter: Any, value: str) -> bool:
-    """Open the adapter's transaction AND set the tenant in one message.
-
-    Returns False (nothing sent) when the adapter already has a transaction.
-    """
-    async with adapter._execute_mutex:
-        if adapter._transaction is not None:
-            return False
-        con = adapter._connection
-        if con._top_xact is not None or con._protocol.is_in_transaction():
-            # the same refusal as asyncpg's Transaction.start
-            raise RuntimeError("tenant_rls: connection already inside a transaction")
-        transaction = con.transaction(
-            isolation=adapter.isolation_level,
-            readonly=adapter.readonly,
-            deferrable=adapter.deferrable,
-        )
-        sql = _merged_begin_sql(adapter, value)
-        try:
-            await con.execute(sql)  # no args → simple-query protocol
-        except BaseException:
-            # Transaction state on the server is unknown (BEGIN may have run,
-            # the SELECT may have failed or been cancelled mid-flight): never
-            # pool this connection. Terminating aborts any server transaction;
-            # SQLAlchemy then sees a closed connection → disconnect → invalidate.
-            con.terminate()
-            raise
-        adopt_started_transaction(adapter, con, transaction)
-        return True
-
-
-def _try_merged_begin(context: Any, conn: Any, value: str) -> bool | None:
-    """True: merged; False: not applicable (plain path); None: merged, after
-    replacing a connection that was found dead (``context.cursor`` is new)."""
-    adapter = getattr(conn.connection, "dbapi_connection", None)
-    if (
-        adapter is None
-        or getattr(adapter, "_transaction", "missing") is not None
-        or getattr(adapter, "isolation_level", "autocommit") == "autocommit"
-        or not hasattr(adapter, "_execute_mutex")
-    ):
-        return False
-    try:
-        return await_(_merged_begin(adapter, value))
-    except Exception as error:
-        # The merged message IS the transaction's BEGIN: when asyncpg refused
-        # it before writing a byte (the connection died while idle), the
-        # connection is replaced and the message sent on the new one
-        # (``sandloom.core.sql_alchemy.dead_connection``). Once sent: never.
-        if not (
-            never_sent(error) and replace_connection(context, error, "merged_begin")
-        ):
-            # translated to the DBAPI error SQLAlchemy expects
-            adapter._handle_exception(error)
-            raise  # pragma: no cover - _handle_exception always raises
-    adapter = conn.connection.dbapi_connection
-    try:
-        await_(_merged_begin(adapter, value))
-    except Exception as error:
-        adapter._handle_exception(error)
-        raise  # pragma: no cover - _handle_exception always raises
-    return None
+    def __init__(
+        self,
+        security: RowSecurity,
+        paramstyle: str,
+        *,
+        dbapi: DbapiAdapter = PLAIN_DBAPI,
+        merge: MergedBegin | None = None,
+    ) -> None:
+        self.dbapi = dbapi
+        self.merge = merge
+        # A bound parameter (not an inlined literal) keeps ONE prepared
+        # statement per connection instead of one per tenant id.
+        if paramstyle == "pyformat":
+            mark, self.named = "%(t)s", True
+        elif paramstyle == "named":
+            mark, self.named = ":t", True
+        else:
+            mark = {
+                "numeric_dollar": "$1",
+                "numeric": ":1",
+                "qmark": "?",
+                "format": "%s",
+            }.get(paramstyle, "%s")
+            self.named = False
+        self.sql = security.bind_statement(mark)
+        self.security = security
 
 
 def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
@@ -341,12 +355,13 @@ def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
     elif tenant is None and non_tenant:
         return False  # allowlisted system statements on non-tenant tables
     value = str(uuid.UUID(str(tenant))) if tenant is not None else ""
+    binding: _Binding = getattr(conn.dialect, _BINDING_ATTR)
     if merged_begin:
-        merged = _try_merged_begin(context, conn, value)
+        merged = binding.merge(context, conn, value)  # type: ignore[misc]
         if merged is not False:
             _info(conn.connection)[_STATE_KEY] = tenant
             return merged is None
-    sql, params = _set_config_sql(conn.dialect.paramstyle, value)
+    sql, params = _set_config_sql(binding, value)
     replaced = False
     # A separate DB-API cursor on the SAME connection/transaction: it neither
     # re-enters this hook nor disturbs the cursor about to run the statement.
@@ -354,11 +369,13 @@ def _sync(context: Any, merged_begin: bool = False) -> bool:  # noqa: C901
     try:
         raw.execute(sql, params)
     except Exception as error:
-        # asyncpg refused the transaction's lazy BEGIN before writing a byte
-        # (the connection died while idle): replace it, send again on the new.
+        # The DBAPI refused the transaction's lazy BEGIN before writing a
+        # byte (the connection died while idle): replace it, send again on
+        # the new one.
+        dbapi = binding.dbapi
         if not (
-            recoverable(conn.connection.dbapi_connection, error)
-            and replace_connection(context, error, "tenant_sync")
+            dbapi.recoverable(conn.connection.dbapi_connection, error)
+            and replace_connection(context, error, "tenant_sync", dbapi)
         ):
             raise
         replaced = True
@@ -489,26 +506,9 @@ def _wrap_tx_boundary(original: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def _set_config_sql(paramstyle: str, tenant: str) -> tuple[str, Any]:
-    """Build the parameterised ``set_config`` for the driver's paramstyle.
-
-    A bound parameter (not an inlined literal) keeps ONE prepared statement per
-    connection instead of one per tenant id.
-    """
-    if paramstyle == "pyformat":
-        mark: str = "%(t)s"
-        params: Any = {"t": tenant}
-    elif paramstyle == "named":
-        mark, params = ":t", {"t": tenant}
-    else:
-        mark = {
-            "numeric_dollar": "$1",
-            "numeric": ":1",
-            "qmark": "?",
-            "format": "%s",
-        }.get(paramstyle, "%s")
-        params = (tenant,)
-    return f"SELECT set_config('{TENANT_SETTING}', {mark}, true)", params
+def _set_config_sql(binding: _Binding, tenant: str) -> tuple[str, Any]:
+    """The engine's parameterised binding statement and its parameters."""
+    return binding.sql, ({"t": tenant} if binding.named else (tenant,))
 
 
 def install_tenant_rls(
@@ -517,12 +517,15 @@ def install_tenant_rls(
     system: bool = False,
     merged_begin: bool | None = None,
 ) -> None:
-    """Install the RLS setting hook on ``engine`` (idempotent, PostgreSQL only).
+    """Install the RLS setting hook on ``engine`` (idempotent; a database
+    whose renderer has row security only, :class:`RowSecurityUnavailable`
+    otherwise).
 
     ``system=True`` marks a system-channel engine (its sessions run inside
     ``unscoped()`` by design, so the misuse warning is suppressed).
     ``merged_begin`` (default: ``DB_RLS_MERGED_BEGIN``, on) enables the
-    one-message ``BEGIN; set_config`` on asyncpg (see the module docstring).
+    one-message ``BEGIN; set_config`` where the engine's DBAPI adapter has it
+    (see the module docstring).
     """
     if merged_begin is None:
         merged_begin = settings.db_rls_merged_begin
@@ -531,17 +534,35 @@ def install_tenant_rls(
         setattr(sync_engine, _SYSTEM_ATTR, True)
     if getattr(sync_engine, _INSTALLED_ATTR, False):
         return
-    if sync_engine.dialect.name != "postgresql":
-        raise TenantRLSConfigError(
-            f"tenant_rls requires PostgreSQL, but this database uses "
-            f"{sync_engine.dialect.name!r}; remove the tenant_rls option"
-        )
     dialect = sync_engine.dialect
-    # The probe runs once per process; on changed driver internals it warns,
-    # counts and leaves the plain (separate BEGIN + set_config) path.
-    merged = (
-        bool(merged_begin) and dialect.driver == "asyncpg" and asyncpg_fast_paths_ok()
+    security = row_security_for(dialect.name)
+    if security is None:
+        raise RowSecurityUnavailable(
+            f"tenant_rls needs database row security, and the "
+            f"{dialect.name!r} database has none [SANDLOOM-B026]; remove the "
+            "tenant_rls option (tenant isolation is then the ORM guard only, "
+            "application-enforced)"
+        )
+    # The renderer's text, built once for this engine: the hook reads it
+    # from the dialect, never from the renderer registry per statement. Built
+    # at install, per engine: a renderer re-registered later (tests only) is
+    # not picked up by an engine already installed.
+    # The DBAPI adapter's probe runs once per process; on changed driver
+    # internals it warns, counts and leaves the plain (separate BEGIN +
+    # set_config) path. The BEGIN texts are the renderer's.
+    dbapi = dbapi_adapter_of(dialect)
+    renderer = sql_dialect(dialect.name)
+    merge = (
+        dbapi.merged_begin(security, renderer)
+        if merged_begin and renderer is not None
+        else None
     )
+    setattr(
+        dialect,
+        _BINDING_ATTR,
+        _Binding(security, dialect.paramstyle, dbapi=dbapi, merge=merge),
+    )
+    merged = merge is not None
     dialect.do_execute = _wrap_execute(dialect.do_execute, merged)  # type: ignore[method-assign]
     # executemany has the same (cursor, statement, parameters, context) shape.
     dialect.do_executemany = _wrap_execute(dialect.do_executemany, merged)  # type: ignore[method-assign]
@@ -562,33 +583,20 @@ def is_tenant_rls_installed(engine: AsyncEngine | Engine) -> bool:
 
 
 # --- startup verification -------------------------------------------------
+# The queries are the renderer's (RowSecurity.role_attributes() and the rest).
 
-_ROLE_ATTRS = text(
-    "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles "
-    "WHERE rolname = current_user"
-)
-#: Superuser / BYPASSRLS roles the current role could ``SET ROLE`` to.
-_PRIVILEGED_MEMBERSHIPS = text(
-    "SELECT rolname FROM pg_roles WHERE (rolsuper OR rolbypassrls) "
-    "AND rolname <> current_user AND pg_has_role(current_user, oid, 'MEMBER') "
-    "ORDER BY rolname"
-)
-#: RLS tables the current role owns (directly or via membership) — an owner can
-#: ALTER TABLE ... DISABLE/NO FORCE ROW LEVEL SECURITY or drop the policy.
-_OWNED_RLS_TABLES = text(
-    "SELECT n.nspname || '.' || c.relname FROM pg_class c "
-    "JOIN pg_namespace n ON n.oid = c.relnamespace "
-    "WHERE c.relrowsecurity AND pg_has_role(current_user, c.relowner, 'MEMBER') "
-    "ORDER BY 1"
-)
-#: Unconditional (``USING (true)``) policies granted to a role the current role
-#: belongs to — e.g. the system-channel policies.
-_UNCONDITIONAL_POLICIES = text(
-    "SELECT DISTINCT p.schemaname || '.' || p.tablename || ':' || p.policyname "
-    "FROM pg_policies p, unnest(p.roles) AS r(role) "
-    "WHERE r.role <> 'public' AND pg_has_role(current_user, r.role, 'MEMBER') "
-    "AND (p.qual = 'true' OR p.with_check = 'true') ORDER BY 1"
-)
+
+def _checked_row_security(conn: Any) -> RowSecurity:
+    """The row security of ``conn``'s database; a database without it is a
+    :class:`RowSecurityUnavailable` (a :class:`TenantRLSConfigError`, fatal
+    at startup), never a bare :class:`UnsupportedSqlForm`."""
+    try:
+        return row_security(conn)
+    except UnsupportedSqlForm as exc:
+        raise RowSecurityUnavailable(
+            f"tenant_rls: the {exc.dialect!r} database has no row security "
+            "[SANDLOOM-B026]; its tenant isolation is application-enforced"
+        ) from exc
 
 
 async def verify_tenant_rls_roles(
@@ -605,27 +613,30 @@ async def verify_tenant_rls_roles(
     Raises :class:`TenantRLSConfigError` listing every problem.
     """
     who = "system-channel" if system else "application"
-    row = (await conn.execute(_ROLE_ATTRS)).one()
+    security = _checked_row_security(conn)
+    row = (await conn.execute(security.role_attributes())).one()
     user, is_super, bypass = str(row[0]), bool(row[1]), bool(row[2])
     problems: list[str] = []
     if is_super:
         problems.append(f"role {user!r} is a SUPERUSER (ignores every policy)")
     if bypass:
         problems.append(f"role {user!r} has BYPASSRLS")
-    privileged = [r[0] for r in await conn.execute(_PRIVILEGED_MEMBERSHIPS)]
+    privileged = [r[0] for r in await conn.execute(security.privileged_memberships())]
     if privileged:
         problems.append(
             f"role {user!r} is a member of superuser/BYPASSRLS role(s) "
             f"{privileged} (SET ROLE escapes RLS)"
         )
     if not system:
-        owned = [r[0] for r in await conn.execute(_OWNED_RLS_TABLES)]
+        owned = [r[0] for r in await conn.execute(security.owned_secured_tables())]
         if owned:
             problems.append(
                 f"role {user!r} owns RLS table(s) {owned} (an owner can disable "
                 "RLS); create tables with a separate migration role"
             )
-        unconditional = [r[0] for r in await conn.execute(_UNCONDITIONAL_POLICIES)]
+        unconditional = [
+            r[0] for r in await conn.execute(security.unconditional_policies())
+        ]
         if unconditional:
             problems.append(
                 f"role {user!r} is covered by unconditional policies "
@@ -638,18 +649,6 @@ async def verify_tenant_rls_roles(
         )
 
 
-_RLS_TABLES = text(
-    "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity "
-    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-    "WHERE c.relkind IN ('r', 'p') AND c.relname = ANY(:names) "
-    "AND n.nspname = ANY(current_schemas(false))"
-)
-_RLS_POLICIES = text(
-    "SELECT tablename, policyname FROM pg_policies "
-    "WHERE tablename = ANY(:names) AND schemaname = ANY(current_schemas(false))"
-)
-
-
 async def tenant_rls_coverage(
     conn: AsyncConnection, tables: list[str]
 ) -> tuple[list[str], list[str]]:
@@ -659,9 +658,11 @@ async def tenant_rls_coverage(
     own modules' tables). For each, RLS must be ENABLED and FORCED and the
     tenant-isolation policy (``enable_tenant_rls``) must exist.
     """
-    rows = (await conn.execute(_RLS_TABLES, {"names": tables})).all()
+    security = _checked_row_security(conn)
+    names = {"names": tables}
+    rows = (await conn.execute(security.secured_tables(), names)).all()
     policies: dict[str, set[str]] = {}
-    for table, policy in (await conn.execute(_RLS_POLICIES, {"names": tables})).all():
+    for table, policy in (await conn.execute(security.table_policies(), names)).all():
         policies.setdefault(str(table), set()).add(str(policy))
     present: list[str] = []
     problems: list[str] = []
@@ -673,8 +674,9 @@ async def tenant_rls_coverage(
             missing.append("ROW LEVEL SECURITY not enabled")
         if not forced:
             missing.append("not FORCEd (the owner bypasses it)")
-        if tenant_rls_policy_name(table) not in policies.get(table, set()):
-            missing.append(f"policy {tenant_rls_policy_name(table)!r} missing")
+        policy_name = security.policy_name(table)
+        if policy_name not in policies.get(table, set()):
+            missing.append(f"policy {policy_name!r} missing")
         if missing:
             problems.append(
                 f"{table}: {', '.join(missing)} — add a module migration calling "
@@ -687,10 +689,12 @@ __all__ = [
     "NON_TENANT_OPTION",
     "NON_TENANT_TABLES",
     "NonTenantStatementError",
+    "RowSecurityUnavailable",
     "TenantRLSConfigError",
     "install_tenant_rls",
     "is_tenant_rls_installed",
     "non_tenant_statements",
+    "row_security_problem",
     "tenant_rls_coverage",
     "verify_tenant_rls_roles",
 ]

@@ -333,7 +333,8 @@ post-commit dispatch runs as in production. The container CPU readings are
 `DB_RLS_MERGED_BEGIN` (default ON since #46) sends `BEGIN; SELECT
 set_config(...)` as one simple-query message and then hand-adopts the
 transaction into asyncpg + SQLAlchemy private state
-(`sql_alchemy/tenant_rls.py`, guarded by `sql_alchemy/driver_compat.py`).
+(`sql_alchemy/tenant_rls.py` through the asyncpg DBAPI adapter
+`drivers/dbapi_asyncpg.py`, guarded by its probe in `sql_alchemy/driver_compat.py`).
 This stand checks that the shortcut stays correct when requests are cancelled
 at random points and backends die, by running BOTH configurations at the same
 time under the same load and comparing. Code: `ladder/soak.py` (orchestrator
@@ -348,7 +349,7 @@ time under the same load and comparing. Code: `ladder/soak.py` (orchestrator
 | load | one client process per instance, 12 keep-alive connections, two tenants picked per request: `/s5/{own}` 30, `/s5/{foreign}` 8 (must 404), `/s5plan/{own}` 10, `/s5list` 7 (every row must be own), `POST /dw/3` 30 (row + outbox + audit), `POST /dw/4c/{own}` 10 (UPDATE), `POST /dw/4c/{foreign}` 5 (must 404) |
 | client aborts | phases of `--phase-seconds` (120 s) cycle: `early` 7 % aborted at U(0, 0.6)×median latency of the route, `spread` 7 % at U(0, 1.5)×, `heavy` 10 % at U(0.2, 1.2)×. The client resets the socket; `soak_app.py` turns the disconnect into a real `task.cancel()` of the handler (uvicorn alone never cancels it), so the CancelledError lands in auth, the pool checkout, the merged message, a statement or COMMIT |
 | backend kills | every `--kill-every` s (U(0.5, 1.5)× 2.5 s) `pg_terminate_backend` of a random app-role backend of each database (idle or busy, the relay's included) |
-| counters | `soak_app.py` wraps `tenant_rls._merged_begin` (calls / ok / errors by type), listens to the pool's `connect` / `checkout` / `invalidate` and serves them with the pool state on `GET /_soak/state`. Reuses = checkouts - connects |
+| counters | `soak_app.py` wraps `dbapi_asyncpg._merged_begin` (calls / ok / errors by type), listens to the pool's `connect` / `checkout` / `invalidate` and serves them with the pool state on `GET /_soak/state`. Reuses = checkouts - connects |
 
 ### Invariants (every `--tick` s; the first violation aborts with `pg_stat_activity`, the server state and the log tail)
 
@@ -542,3 +543,203 @@ n = 1000; `ladder/results/saga_rung_2026-10-25.json`):
 Start path ≈ +2.3 ms (3 statements) over the business UoW; a step ≈ 5 ms
 local / 7 ms with a local command — dominated by commit round trips on a
 loaded machine. Re-measure on an exclusive machine before sizing from it.
+
+## D. Infra-agnostic branch vs main (cachegrind A/B, 2026-11-05)
+
+What the infra-agnostic work (`design/infra-agnostic/spec.md` §9, §10 rows 2,
+6, 7, 7b) costs on the measured paths on PostgreSQL: `main` `10be493` against
+`claude/modules-portable` `93e8ab6`, each from its own `git archive` (its own
+`src/`, `migrations/` and `benchmarks/`, with this change's `ladder.py` and
+`infra_rungs.py` copied into both), one database per build, the same
+cachegrind image (`cg/Dockerfile`, Python 3.13, aarch64), K = 200,
+`LADDER_CG_GC=freeze`.
+
+**Why `freeze`.** In the default GC mode a full collection fell inside the
+measured window of the branch's L6S5 only (the branch has a larger startup
+heap), which read as +5.9 %; with the collector off the same rung is −1.6 %.
+`freeze` is production's `GC_FREEZE_AFTER_STARTUP` (the startup heap is never
+traversed again) and removes that step; it agrees with `off` within 0.1 %.
+Compare default-mode numbers between builds only when the heaps are alike.
+
+New rungs for the run (`ladder/infra_rungs.py`): `XSgS` / `XSgL` / `XSgC`, the
+saga rung's start, local step and command step (instances pre-started, a fixed
+count, so the setup cancels), and `XCmp`, a compile-cache miss of a `select`
+with comparisons, `IN` and `coalesce` (no I/O, deterministic).
+
+```bash
+export DATABASE_URL=postgresql+asyncpg://<owner>@localhost:5433/<own_db> CACHE_URL=... BROKER_URL=...
+python -m benchsuite.setup_db && python -m benchsuite.platform seed && python ladder/write_login.py seed
+LADDER_CG_GC=freeze CG_ANNOTATE=1 CG_OUT=$OUT CG_K=200 ladder/cg/run_cg.sh \
+  WLlf HTr Pme Porgs Pmem WLr WLc HCs L6S5 L6S5p L6S5po L6R L6 L5 \
+  L6W1 L6W3 L6W5 HW7 HEc XCmp XSgS XSgL XSgC
+python ladder/cg/funcdiff.py $OUT_MAIN/HW7.annot $OUT_BRANCH/HW7.annot 200
+```
+
+`run_cg.sh` mounts `migrations/` (the core chain) and writes the entry points
+of `packages/*/pyproject.toml` into a dist-info on the path: without them a
+module's events have no producer (B015) and the branch finds no SQL renderer
+(B024). `R4.loc` is not in the run (the RPC stand's env refuses local object
+storage in prod); `WLc` and `HW7` cover the command and claim paths.
+
+Instructions per op (`run 2`: a second, independent pair of runs of the rows
+above 1 %; same image, same databases):
+
+| rung | path | main | branch | Δ % | run 2 Δ % |
+|---|---|---:|---:|---:|---:|
+| `WLlf` | login (cheapest argon2) | 13,745,992 | 13,852,735 | +0.78 |  |
+| `HTr` | refresh | 8,727,118 | 8,930,588 | +2.33 | +1.88 |
+| `Pme` | /auth/me | 3,003,344 | 2,982,571 | -0.69 |  |
+| `Porgs` | list orgs | 2,906,282 | 2,879,297 | -0.93 |  |
+| `Pmem` | list members | 3,869,017 | 3,831,847 | -0.96 |  |
+| `WLr` | role change | 16,850,280 | 16,835,076 | -0.09 |  |
+| `WLc` | credits spend (command) | 9,615,898 | 9,738,060 | +1.27 | +2.11 |
+| `HCs` | local contract read | 1,471,174 | 1,455,390 | -1.07 | -1.30 |
+| `L6S5` | RLS read (merged BEGIN) | 3,694,802 | 3,637,955 | -1.54 | -1.32 |
+| `L6S5p` | planner, general executor | 3,528,223 | 3,558,185 | +0.85 |  |
+| `L6S5po` | planner, optimized executor | 2,178,396 | 2,171,209 | -0.33 |  |
+| `L6R` | ReadOnlyDbSession | 2,449,100 | 2,457,723 | +0.35 |  |
+| `L6` | /s3 read | 2,236,710 | 2,270,718 | +1.52 | +1.56 |
+| `L5` | UoW + get | 1,559,202 | 1,558,590 | -0.04 |  |
+| `L6W1` | insert | 3,907,920 | 3,913,064 | +0.13 |  |
+| `L6W3` | insert + event + audit | 6,865,474 | 6,842,159 | -0.34 |  |
+| `L6W5` | two tables + event + audit | 7,932,137 | 7,947,621 | +0.20 |  |
+| `HW7` | class F write (idempotency guard) | 8,683,385 | 8,930,833 | +2.85 | +3.03 |
+| `HEc` | event delivery | 4,986,292 | 5,001,291 | +0.30 |  |
+| `XCmp` | compile-cache miss | 2,047,326 | 2,144,029 | +4.72 |  |
+| `XSgS` | saga start | 6,431,900 | 6,551,768 | +1.86 | +1.64 |
+| `XSgL` | saga local step | 10,688,472 | 10,913,737 | +2.11 | +2.08 |
+| `XSgC` | saga command step | 14,694,413 | 14,917,778 | +1.52 | +1.15 |
+
+**Noise.** A rerun of the same build moves a rung by 0.0–0.3 % (one
+isolated rerun each) (HTr, HW7, L6,
+L6S5, XSgS, XSgL, XSgC, HCs), except `WLc` (main 9.62 / 9.72 M, branch 9.74 / 9.92 M:
+about 1–2 %; the ledger it appends to grows from run to run). A delta below 1 % is
+within the stand's resolution. One callgrind pair of `XSgL` (K = 100) read
+the branch 1.4 % *lower*, so the saga rows' cause is not pinned down at the C
+level.
+
+**What costs more, and why** (per op; `funcdiff` on the cachegrind annotations
+plus Python call counts per op, cProfile, main vs branch):
+
+- **`HW7`, +2.9 to 3.0 %: the HTTP idempotency claim builds its lock statement
+  per call.** main executes a prebuilt `text("SELECT pg_try_advisory_xact_lock(:ns, :k)")`
+  with the key as execution parameters; the branch takes
+  `optional_lock_statement_for(...)`, whose PostgreSQL `_pg_lock` returns
+  `base.bindparams(ns=..., k=...)`: a new statement each call (`_clone`,
+  `_generative`, `_generate_cache_key`, +106 Python calls per op, +43 k
+  instructions in the eval loop alone). Also new per claim:
+  `dedupe_log._remember_ttl` (the expiry computed in Python),
+  `effect_rows._write_arrays`, `portable._is_int` ×3, `dialect_name` ×2.
+  Fix: keep the statement cached and bind the key at execution (the renderer
+  returns the statement and its parameters).
+- **`XCmp`, +4.7 % on a compile-cache miss only: the global
+  `@compiles(BinaryExpression)` and `@compiles(coalesce)` hooks.** Every binary
+  expression and `coalesce` goes through `sqlalchemy.ext.compiler`'s dispatch
+  and `_is_json_path_text` (+70 calls per compile of a four-term `WHERE`). A
+  cached statement never pays it. Fix: refuse a `json_path` comparison where
+  the `json_path` comparator builds it (and on `_JsonPath`), not by a global
+  hook on every `BinaryExpression`; or return through
+  `compiler.visit_binary` before any check when neither side is a
+  `_JsonPathText`.
+- **`HTr`, +1.9 to 2.3 %: `UtcDateTime` processing.** New per refresh:
+  `portable.process_result_value` ×14 (`type_api.process` ×18), `astimezone`
+  ×3, `process_bind_param` ×4, plus some annotation and cache-key work.
+  asyncpg already returns aware UTC values for `timestamptz`: on PostgreSQL the
+  type can skip its result processor (`result_processor` returns `None`).
+- **`WLc`, +1.3 to 2.1 %; saga rungs, +1.2 to 2.1 %; `L6`, +1.5 %.** Python
+  work grows by 10 (`L6`) to 116 (`XSgC`) calls per op: per-unit
+  `nesting_policy`, `uow._close`, `dbapi_asyncpg.connection_closed`; per
+  claim or upsert the renderer lookups (`dialect_name`, `sql_dialect`,
+  `_require`, `conflict_insert_for`, `for_update_for`); `dispatch._mark_in_line`
+  / `_cancelling`. Resolving the renderer once per engine and keeping the
+  per-unit checks on the adapter object would remove most of them.
+- **Cheaper:** the RLS read (`L6S5`, −1.3 to −1.5 %: the merged `BEGIN` now
+  built by `begin_and_bind` and the asyncpg adapter), list reads
+  (`Porgs` / `Pmem`, about −1 %), the contract read (`HCs`).
+
+Spec rows: claims and upserts (`conflict_insert`, `id_in`) cost nothing
+measurable except item 1's statement building; the RLS `BEGIN` is cheaper;
+`begin_statement` for read-only units is within noise (`L6S5p` +0.85,
+`L6S5po` −0.33, `L6R` +0.35); the adapter's checkout check and the nesting
+policy are one call per unit each (`L5` −0.04 %).
+
+Data: `ladder/results/cg_infra_agnostic_2026-11-05.json`.
+
+### After the perf fixes (infra-perf-regressions, 2026-11-05)
+
+The four fixes of `design/infra-agnostic/spec.md` "Perf fixes, as built",
+measured the same way: `main` `10be493` against the branch at `0fa1f85` plus
+the fixes (uncommitted, its `src/` copied over a `git archive`), one database
+per build (`cg_main_perf`, `cg_fix_perf`), its own Redis, K = 200,
+`LADDER_CG_GC=freeze`. Two independent pairs, A and B; the fixed tree of A
+lacks the last two refinements (the tighter `BinaryExpression` / `coalesce`
+dispatch and the session read of `dialect_name`), B has all of them.
+"before" is the Δ of the table above (run 1 / run 2).
+
+| rung | path | before Δ % | main A | fixed A | Δ % | main B | fixed B | Δ % |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `HW7` | class F write (idempotency guard) | +2.85 / +3.03 | 8,630,823 | 8,673,849 | +0.50 | 8,656,796 | 8,685,999 | +0.34 |
+| `XCmp` | compile-cache miss | +4.72 | 2,053,349 | 2,074,490 | +1.03 | 2,046,703 | 2,060,237 | +0.66 |
+| `HTr` | refresh | +2.33 / +1.88 | 8,767,802 | 8,895,291 | +1.45 | 8,672,906 | 8,907,061 | +2.70 |
+| `WLc` | credits spend (command) | +1.27 / +2.11 | 9,443,400 | 9,355,816 | -0.93 | 9,457,321 | 9,544,549 | +0.92 |
+| `XSgS` | saga start | +1.86 / +1.64 | 6,303,315 | 6,479,214 | +2.79 | 6,422,580 | 6,543,394 | +1.88 |
+| `XSgL` | saga local step | +2.11 / +2.08 | 10,680,256 | 10,910,967 | +2.16 | 10,584,465 | 10,850,544 | +2.51 |
+| `XSgC` | saga command step | +1.52 / +1.15 | 14,661,555 | 14,935,510 | +1.87 | 14,574,048 | 14,861,304 | +1.97 |
+| `L6` | /s3 read | +1.52 / +1.56 | 2,232,388 | 2,219,974 | -0.56 | 2,252,146 | 2,215,434 | -1.63 |
+
+**Drift.** Unlike the first table's databases, these two were reused from A
+to B, and the same build moved between the pairs: main's `HTr` by −1.1 %,
+`XSgS` by +1.9 %, `XSgL` by −0.9 %, `L6` by +0.9 %, the fixed tree's `XSgS`
+by +1.0 %. On this stand a delta of 1–2 % on those rungs is within its
+resolution; `HW7` and `XCmp` moved by 0.3 % or less.
+
+What the fixes did, and what is left:
+
+- **`HW7`: +2.9 % → +0.3 to +0.5 %.** The lock is a cached statement plus
+  parameters (`LockStatement`); the per-claim clone and cache-key work is
+  gone. Left: one `dialect_name` and the TTL bookkeeping of the durable
+  claim (the expiry is computed in Python, which is what lets SQLite share
+  the claim).
+- **`XCmp`: +4.7 % → +0.7 %.** No `sqlalchemy.ext.compiler` dispatch per
+  binary expression any more: `BinaryExpression` and `coalesce` dispatch
+  through one function each that does what SQLAlchemy's generated dispatch
+  does, after a `frozenset` membership test and, for a comparison, two type
+  checks. That check is what remains (about 3 k instructions per binary on
+  a compile-cache miss; a cached statement pays nothing). After review the dispatch
+  hands over to an application's earlier `@compiles` hook (one module-global
+  test on the fast path) and drops two `typing.cast` calls; re-measured
+  without a database (`--network none`, `XCmp` only): fixed 2,064,002 against
+  pair B's 2,060,237 (+0.2 %), main 2,030,509 there (16 k below its pair-B
+  count in that environment), so +1.65 % against main in that run. The
+  remaining calls per op over main are the checks' `isinstance` / `getattr`
+  only (+16, C-level). It cannot move to
+  build time: for `Model.id == json_path(...)` the left side's comparator
+  builds the expression and SQLAlchemy consults nothing of the right side's
+  type there.
+- **`L6`: +1.5 % → −0.6 to −1.6 %;** **`WLc`: +1.3 / +2.1 % → −0.9 / +0.9 %**
+  (`WLc` moves 1–2 % between runs of one build, see above). The policy
+  cached on the session factory, the inlined close and the per-call renderer
+  lookups without `_require` / `sql_dialect` frames.
+- **`HTr`: +2.3 % → +1.5 to +2.7 % (main itself moved 1.1 %).**
+  `UtcDateTime` on PostgreSQL now has no result processor and only refuses a
+  naive time on bind: its 14 `process_result_value`, 18 `type_api.process`
+  and 3 `astimezone` calls per op are gone. What remains is not the kernel:
+  the branch's identity module reads the refresh token joined with its user
+  and then runs an ORM `UPDATE ... RETURNING`, where main ran a `SELECT` and
+  a CTE `UPDATE ... SELECT users` (the SQL per op differs; the extra
+  annotation, cache-key and `bulk_persistence` calls follow from it).
+  `src/sandloom_identity` is outside this change; follow-up: measure that
+  query against main's.
+- **Sagas (`XSgS` / `XSgL` / `XSgC`): +1.9 to +2.8 %, not reduced.** The
+  SQL each op sends is identical on both builds (logged per statement), and
+  the fixed tree makes only about 15 more Python calls per op than main
+  (`dialect_name`, `_mark_in_line`, `_cancelling`, `connection_closed`, the
+  renderer's `conflict_insert`), worth a few thousand instructions. A
+  callgrind pair of `XSgS` (K = 100) puts the excess (+128 k per op) inside
+  `libpython` (+107 k: allocation, attribute misses, object teardown) and
+  `libc` (+18 k, `malloc`), not in any Python function: it scales with the
+  heap, not with a code path. With main's own drift of 1–2 % on these rungs,
+  this is not pinned down; follow-up: a heap and GC probe of the saga rung
+  (object counts per op on both builds).
+
+Data: `ladder/results/cg_infra_agnostic_2026-11-05.json` (`after_fixes`).

@@ -10,7 +10,7 @@ planner reads and the consumers of the kernel's auth channels.
 
 from sandloom.sdk import define_module
 from sandloom.sdk.infra import settings
-from sandloom.sdk.module import ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import contribute_identity_claims
 from .consumers import revoke_refresh_tokens_on_block
@@ -92,7 +92,15 @@ def _setup(core: ModuleAPI) -> None:
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "cache", "eventbus"],
+    capabilities=[
+        # RBAC administration serialises on a transaction lock (role_service);
+        # token claims aggregate role and permission codes (claims).
+        CapabilityRequirement(
+            "database", features=frozenset({"transaction_locks", "list_aggregates"})
+        ),
+        "cache",
+        "eventbus",
+    ],
     # identity mints the access tokens: with an asymmetric JWT_ALGORITHM its
     # process holds JWT_PRIVATE_KEY, every other service only public keys.
     issues_tokens=True,

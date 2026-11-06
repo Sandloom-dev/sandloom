@@ -25,10 +25,12 @@ from packaging.version import Version
 from sqlalchemy.dialects.postgresql import asyncpg as sa_asyncpg
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from sandloom.core.drivers import dbapi_asyncpg
+from sandloom.core.drivers.dbapi_asyncpg import ASYNCPG, ASYNCPG_TRANSACTION
 from sandloom.core.observability.metrics import db_driver_fast_path_disabled_total
 from sandloom.core.sql_alchemy import driver_compat, read_only_policy, tenant_rls
+from sandloom.core.sql_alchemy.dbapi import register_dbapi_adapter
 from sandloom.core.sql_alchemy.driver_compat import (
-    ASYNCPG_TRANSACTION,
     POOL_FAST_CHECKOUT,
     SESSION_CONNECTIONS,
     VERIFIED_DRIVER_RANGES,
@@ -120,9 +122,9 @@ def test_a_changed_begin_text_is_detected_by_the_self_test(
 ) -> None:
     """The behavioural self-test runs asyncpg's REAL Transaction.start(): a
     merged BEGIN that would no longer match it is caught."""
-    original = driver_compat.begin_sql
+    original = dbapi_asyncpg.begin_sql
     monkeypatch.setattr(
-        driver_compat,
+        dbapi_asyncpg,
         "begin_sql",
         lambda iso, ro, df: original(iso, ro, df).replace(" READ ONLY", " READONLY"),
     )
@@ -137,7 +139,7 @@ def test_a_changed_transaction_state_is_detected_by_the_self_test(
     """Hand-adopting a transaction must leave the state asyncpg's commit /
     rollback accept; a mismatch is caught."""
     monkeypatch.setattr(
-        driver_compat, "adopt_started_transaction", lambda adapter, con, tx: None
+        dbapi_asyncpg, "adopt_started_transaction", lambda adapter, con, tx: None
     )
     result = driver_compat.probe(ASYNCPG_TRANSACTION)
     assert not result.ok
@@ -173,7 +175,7 @@ def test_a_crashing_probe_disables_instead_of_raising(
         raise RuntimeError("boom")
 
     monkeypatch.setitem(driver_compat.PROBES, ASYNCPG_TRANSACTION, boom)
-    assert driver_compat.asyncpg_fast_paths_ok() is False
+    assert dbapi_asyncpg.asyncpg_fast_paths_ok() is False
 
 
 # --- the fast paths consult the probe --------------------------------------
@@ -195,6 +197,7 @@ async def test_merged_begin_is_not_installed_when_the_probe_fails(
         return original(fn, merged_begin)
 
     monkeypatch.setattr(tenant_rls, "_wrap_execute", spy)
+    register_dbapi_adapter(ASYNCPG)  # what the driver does before an engine
     engine = create_async_engine("postgresql+asyncpg://u:p@localhost:1/x")
     try:
         tenant_rls.install_tenant_rls(engine, merged_begin=True)

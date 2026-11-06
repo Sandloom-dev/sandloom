@@ -1427,6 +1427,49 @@
     }
   },
   "sandloom.core.orm": {
+    "Array": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(item_type:POSITIONAL_OR_KEYWORD|TypeEngine[Any] | type[TypeEngine[Any]]) -> None"
+    },
     "Base": {
       "kind": "class",
       "members": [
@@ -1434,6 +1477,110 @@
         "registry"
       ],
       "signature": "(kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "CaseInsensitiveText": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(length:POSITIONAL_OR_KEYWORD|int | None=None) -> None"
+    },
+    "ConflictInsert": {
+      "kind": "class",
+      "members": [
+        "add_cte",
+        "allows_lambda",
+        "apply_syntax_extension_point",
+        "argument_for",
+        "compare",
+        "compile",
+        "corresponding_column",
+        "cte",
+        "description",
+        "dialect_kwargs",
+        "dialect_options",
+        "entity_description",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "ext",
+        "from_select",
+        "get_children",
+        "get_dialect_option",
+        "get_execution_options",
+        "include_insert_from_select_defaults",
+        "inherit_cache",
+        "inline",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "kwargs",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "name_cte_columns",
+        "named_with_column",
+        "options",
+        "params",
+        "prefix_with",
+        "reflect_only_elements",
+        "return_defaults",
+        "returning",
+        "returning_column_descriptions",
+        "select",
+        "selectable",
+        "self_group",
+        "stringify_dialect",
+        "supports_execution",
+        "unique_params",
+        "uses_inspection",
+        "values",
+        "with_dialect_options",
+        "with_hint"
+      ],
+      "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
     },
     "CreatedAt": {
       "kind": "callable",
@@ -1463,6 +1610,9 @@
         "via"
       ],
       "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "JsonPathKey": {
+      "kind": "value"
     },
     "ListOperation": {
       "kind": "class",
@@ -1540,6 +1690,179 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "UtcDateTime": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(args:VAR_POSITIONAL|Any, kwargs:VAR_KEYWORD|Any)"
+    },
+    "WallClock": {
+      "kind": "class",
+      "members": [
+        "aggregate_order_by",
+        "alias",
+        "all_",
+        "allows_lambda",
+        "anon_key_label",
+        "anon_label",
+        "any_",
+        "as_comparison",
+        "asc",
+        "base_columns",
+        "between",
+        "bitwise_and",
+        "bitwise_lshift",
+        "bitwise_not",
+        "bitwise_or",
+        "bitwise_rshift",
+        "bitwise_xor",
+        "bool_op",
+        "c",
+        "cast",
+        "clauses",
+        "collate",
+        "column_valued",
+        "columns",
+        "comparator",
+        "compare",
+        "compile",
+        "concat",
+        "contains",
+        "corresponding_column",
+        "desc",
+        "description",
+        "distinct",
+        "endswith",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "expression",
+        "filter",
+        "foreign_keys",
+        "get_children",
+        "get_execution_options",
+        "icontains",
+        "iendswith",
+        "ilike",
+        "in_",
+        "inherit_cache",
+        "is_",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_distinct_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_not",
+        "is_not_distinct_from",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "isnot",
+        "isnot_distinct_from",
+        "istartswith",
+        "join",
+        "key",
+        "label",
+        "lateral",
+        "like",
+        "match",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "monotonic",
+        "name",
+        "named_with_column",
+        "not_ilike",
+        "not_in",
+        "not_like",
+        "notilike",
+        "notin_",
+        "notlike",
+        "nulls_first",
+        "nulls_last",
+        "nullsfirst",
+        "nullslast",
+        "op",
+        "operate",
+        "options",
+        "outerjoin",
+        "over",
+        "packagenames",
+        "params",
+        "primary_key",
+        "proxy_set",
+        "regexp_match",
+        "regexp_replace",
+        "replace_selectable",
+        "reverse_operate",
+        "scalar_table_valued",
+        "schema",
+        "select",
+        "selectable",
+        "self_group",
+        "shares_lineage",
+        "startswith",
+        "stringify_dialect",
+        "supports_execution",
+        "table_valued",
+        "tablesample",
+        "timetuple",
+        "type",
+        "unique_params",
+        "uses_inspection",
+        "with_cols",
+        "within_group",
+        "within_group_type"
+      ],
+      "signature": "(clauses:VAR_POSITIONAL|_ColumnExpressionOrLiteralArgument[Any]) -> None"
+    },
+    "aggregate_list": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any]) -> ColumnElement[list[Any]]"
+    },
+    "conflict_insert": {
+      "kind": "function",
+      "signature": "(table:POSITIONAL_OR_KEYWORD|Any, session:KEYWORD_ONLY|AsyncSession) -> ConflictInsert"
+    },
     "disable_tenant_rls": {
       "kind": "function",
       "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, schema:KEYWORD_ONLY|str | None=None) -> None"
@@ -1548,17 +1871,45 @@
       "kind": "function",
       "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
     },
+    "fulltext_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, language:KEYWORD_ONLY|str='english') -> Index"
+    },
+    "json_contains": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], value:POSITIONAL_OR_KEYWORD|Any) -> ColumnElement[bool]"
+    },
+    "json_path": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], path:VAR_POSITIONAL|JsonPathKey) -> ColumnElement[str]"
+    },
     "make_cursor": {
       "kind": "function",
       "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
+    },
+    "matches": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]], query:POSITIONAL_OR_KEYWORD|str | ColumnElement[str], language:KEYWORD_ONLY|str='english') -> ColumnElement[bool]"
     },
     "new_id": {
       "kind": "function",
       "signature": "() -> uuid.UUID"
     },
+    "partial_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str | ColumnElement[Any], where:KEYWORD_ONLY|str | ColumnElement[bool] | TextClause, unique:KEYWORD_ONLY|bool=False) -> Index"
+    },
+    "search_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, case_insensitive:KEYWORD_ONLY|Iterable[str]=tuple()) -> Index"
+    },
     "session_reads": {
       "kind": "function",
       "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
+    },
+    "transaction_lock": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|int, session:KEYWORD_ONLY|AsyncSession) -> None"
     }
   },
   "sandloom.core.projections": {
@@ -1823,6 +2174,10 @@
       "kind": "function",
       "signature": "(environ:POSITIONAL_OR_KEYWORD|MutableMapping[str, str] | None=None, create_database:KEYWORD_ONLY|bool=True) -> dict[str, str]"
     },
+    "assert_migrations_match_models": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> None"
+    },
     "assert_route_snapshot": {
       "kind": "function",
       "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
@@ -1867,6 +2222,10 @@
       "kind": "function",
       "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "has_optimized_reads": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
     "make_user_headers": {
       "kind": "function",
       "signature": "(user_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, tenant_id:POSITIONAL_OR_KEYWORD|uuid.UUID | None=None, email:KEYWORD_ONLY|str | None='', email_verified:KEYWORD_ONLY|bool | None=True, tenant:KEYWORD_ONLY|bool=True, claims:VAR_KEYWORD|Any) -> tuple[uuid.UUID, Headers]"
@@ -1878,6 +2237,10 @@
     "migration_chains": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "migration_drift": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
     "model_tables": {
       "kind": "function",
@@ -1931,6 +2294,10 @@
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
     },
+    "skip_unless_db_feature": {
+      "kind": "function",
+      "signature": "(features:VAR_POSITIONAL|str, database:KEYWORD_ONLY|str='default') -> pytest.MarkDecorator"
+    },
     "stop_revocation_listener": {
       "kind": "function",
       "signature": "() -> None"
@@ -1979,6 +2346,93 @@
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable') -> None"
     },
+    "ConflictInsert": {
+      "kind": "class",
+      "members": [
+        "add_cte",
+        "allows_lambda",
+        "apply_syntax_extension_point",
+        "argument_for",
+        "compare",
+        "compile",
+        "corresponding_column",
+        "cte",
+        "description",
+        "dialect_kwargs",
+        "dialect_options",
+        "entity_description",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "ext",
+        "from_select",
+        "get_children",
+        "get_dialect_option",
+        "get_execution_options",
+        "include_insert_from_select_defaults",
+        "inherit_cache",
+        "inline",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "kwargs",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "name_cte_columns",
+        "named_with_column",
+        "options",
+        "params",
+        "prefix_with",
+        "reflect_only_elements",
+        "return_defaults",
+        "returning",
+        "returning_column_descriptions",
+        "select",
+        "selectable",
+        "self_group",
+        "stringify_dialect",
+        "supports_execution",
+        "unique_params",
+        "uses_inspection",
+        "values",
+        "with_dialect_options",
+        "with_hint"
+      ],
+      "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
+    },
+    "DBAPI_CAPABILITIES": {
+      "kind": "value"
+    },
+    "DbapiAdapter": {
+      "kind": "class",
+      "members": [
+        "capabilities",
+        "config_problem",
+        "connect_args",
+        "connection_closed",
+        "connection_lost",
+        "contract_version",
+        "merged_begin",
+        "name",
+        "never_sent",
+        "ping",
+        "prepare_engine",
+        "raw_result_only_types",
+        "recoverable",
+        "recovery_supported",
+        "refuses_connections",
+        "server_settings",
+        "verify"
+      ],
+      "signature": "()"
+    },
     "HealthResult": {
       "kind": "class",
       "members": [
@@ -2002,6 +2456,16 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "LockStatement": {
+      "kind": "class",
+      "members": [
+        "count",
+        "index",
+        "parameters",
+        "statement"
+      ],
+      "signature": "(statement:POSITIONAL_OR_KEYWORD|ForwardRef('Executable'), parameters:POSITIONAL_OR_KEYWORD|ForwardRef('Mapping[str, Any]'))"
+    },
     "Notification": {
       "kind": "class",
       "members": [
@@ -2024,6 +2488,57 @@
         "supported_features"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "RowSecurity": {
+      "kind": "class",
+      "members": [
+        "begin_and_bind",
+        "bind_statement",
+        "disable_statements",
+        "enable_statements",
+        "owned_secured_tables",
+        "policy_name",
+        "privileged_memberships",
+        "role_attributes",
+        "secured_tables",
+        "table_policies",
+        "unconditional_policies"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "SqlDialect": {
+      "kind": "class",
+      "members": [
+        "array_insert_sql",
+        "begin_statement",
+        "case_insensitive_text",
+        "classify_error",
+        "conflict_insert",
+        "features",
+        "for_update",
+        "greatest",
+        "id_in",
+        "lock_statement",
+        "partial_index_options",
+        "relaxed_commit_clause",
+        "row_security",
+        "search_index_options",
+        "search_operand",
+        "transaction_options",
+        "unlock_statement",
+        "wall_clock"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TENANT_SETTING": {
+      "kind": "value"
+    },
+    "WRITE_LOCK_HELD": {
+      "kind": "value"
+    },
+    "register_dbapi_adapter": {
+      "kind": "function",
+      "signature": "(adapter:POSITIONAL_OR_KEYWORD|DbapiAdapter) -> None"
     }
   },
   "sandloom.sdk": {
@@ -2176,6 +2691,49 @@
         "tenant_id"
       ],
       "signature": "()"
+    },
+    "UtcDateTime": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(args:VAR_POSITIONAL|Any, kwargs:VAR_KEYWORD|Any)"
     },
     "authorize_resource": {
       "kind": "function",
@@ -2904,6 +3462,49 @@
     }
   },
   "sandloom.sdk.data": {
+    "Array": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(item_type:POSITIONAL_OR_KEYWORD|TypeEngine[Any] | type[TypeEngine[Any]]) -> None"
+    },
     "Base": {
       "kind": "class",
       "members": [
@@ -2911,6 +3512,110 @@
         "registry"
       ],
       "signature": "(kwargs:VAR_KEYWORD|Any) -> None"
+    },
+    "CaseInsensitiveText": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(length:POSITIONAL_OR_KEYWORD|int | None=None) -> None"
+    },
+    "ConflictInsert": {
+      "kind": "class",
+      "members": [
+        "add_cte",
+        "allows_lambda",
+        "apply_syntax_extension_point",
+        "argument_for",
+        "compare",
+        "compile",
+        "corresponding_column",
+        "cte",
+        "description",
+        "dialect_kwargs",
+        "dialect_options",
+        "entity_description",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "ext",
+        "from_select",
+        "get_children",
+        "get_dialect_option",
+        "get_execution_options",
+        "include_insert_from_select_defaults",
+        "inherit_cache",
+        "inline",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "kwargs",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "name_cte_columns",
+        "named_with_column",
+        "options",
+        "params",
+        "prefix_with",
+        "reflect_only_elements",
+        "return_defaults",
+        "returning",
+        "returning_column_descriptions",
+        "select",
+        "selectable",
+        "self_group",
+        "stringify_dialect",
+        "supports_execution",
+        "unique_params",
+        "uses_inspection",
+        "values",
+        "with_dialect_options",
+        "with_hint"
+      ],
+      "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
     },
     "CreatedAt": {
       "kind": "callable",
@@ -2940,6 +3645,9 @@
         "via"
       ],
       "signature": "(entity:POSITIONAL_OR_KEYWORD|type, result:POSITIONAL_OR_KEYWORD|type[R], by:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple('id'), tenant_scoped:POSITIONAL_OR_KEYWORD|bool | None=None, database:POSITIONAL_OR_KEYWORD|str='default', name:POSITIONAL_OR_KEYWORD|str='', lock:POSITIONAL_OR_KEYWORD|str | None=None, join:POSITIONAL_OR_KEYWORD|type | None=None, via:POSITIONAL_OR_KEYWORD|str='', join_by:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, join_where:POSITIONAL_OR_KEYWORD|Mapping[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, joined_fields:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+    },
+    "JsonPathKey": {
+      "kind": "value"
     },
     "ListOperation": {
       "kind": "class",
@@ -3029,6 +3737,179 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "UtcDateTime": {
+      "kind": "class",
+      "members": [
+        "Comparator",
+        "TDComparatorContainer",
+        "adapt",
+        "as_generic",
+        "bind_expression",
+        "bind_processor",
+        "cache_ok",
+        "coerce_compared_value",
+        "coerce_to_is_types",
+        "column_expression",
+        "comparator_factory",
+        "compare_values",
+        "compile",
+        "copy",
+        "copy_value",
+        "dialect_impl",
+        "dispatch",
+        "evaluates_none",
+        "get_dbapi_type",
+        "hashable",
+        "impl",
+        "impl_instance",
+        "literal_processor",
+        "load_dialect_impl",
+        "operator_classes",
+        "process_bind_param",
+        "process_literal_param",
+        "process_result_value",
+        "python_type",
+        "render_bind_cast",
+        "render_literal_cast",
+        "repr_struct",
+        "result_processor",
+        "should_evaluate_none",
+        "sort_key_function",
+        "type_engine",
+        "with_variant"
+      ],
+      "signature": "(args:VAR_POSITIONAL|Any, kwargs:VAR_KEYWORD|Any)"
+    },
+    "WallClock": {
+      "kind": "class",
+      "members": [
+        "aggregate_order_by",
+        "alias",
+        "all_",
+        "allows_lambda",
+        "anon_key_label",
+        "anon_label",
+        "any_",
+        "as_comparison",
+        "asc",
+        "base_columns",
+        "between",
+        "bitwise_and",
+        "bitwise_lshift",
+        "bitwise_not",
+        "bitwise_or",
+        "bitwise_rshift",
+        "bitwise_xor",
+        "bool_op",
+        "c",
+        "cast",
+        "clauses",
+        "collate",
+        "column_valued",
+        "columns",
+        "comparator",
+        "compare",
+        "compile",
+        "concat",
+        "contains",
+        "corresponding_column",
+        "desc",
+        "description",
+        "distinct",
+        "endswith",
+        "entity_namespace",
+        "execution_options",
+        "exported_columns",
+        "expression",
+        "filter",
+        "foreign_keys",
+        "get_children",
+        "get_execution_options",
+        "icontains",
+        "iendswith",
+        "ilike",
+        "in_",
+        "inherit_cache",
+        "is_",
+        "is_clause_element",
+        "is_delete",
+        "is_derived_from",
+        "is_distinct_from",
+        "is_dml",
+        "is_from_statement",
+        "is_insert",
+        "is_not",
+        "is_not_distinct_from",
+        "is_select",
+        "is_selectable",
+        "is_text",
+        "is_update",
+        "isnot",
+        "isnot_distinct_from",
+        "istartswith",
+        "join",
+        "key",
+        "label",
+        "lateral",
+        "like",
+        "match",
+        "memoized_attribute",
+        "memoized_instancemethod",
+        "monotonic",
+        "name",
+        "named_with_column",
+        "not_ilike",
+        "not_in",
+        "not_like",
+        "notilike",
+        "notin_",
+        "notlike",
+        "nulls_first",
+        "nulls_last",
+        "nullsfirst",
+        "nullslast",
+        "op",
+        "operate",
+        "options",
+        "outerjoin",
+        "over",
+        "packagenames",
+        "params",
+        "primary_key",
+        "proxy_set",
+        "regexp_match",
+        "regexp_replace",
+        "replace_selectable",
+        "reverse_operate",
+        "scalar_table_valued",
+        "schema",
+        "select",
+        "selectable",
+        "self_group",
+        "shares_lineage",
+        "startswith",
+        "stringify_dialect",
+        "supports_execution",
+        "table_valued",
+        "tablesample",
+        "timetuple",
+        "type",
+        "unique_params",
+        "uses_inspection",
+        "with_cols",
+        "within_group",
+        "within_group_type"
+      ],
+      "signature": "(clauses:VAR_POSITIONAL|_ColumnExpressionOrLiteralArgument[Any]) -> None"
+    },
+    "aggregate_list": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any]) -> ColumnElement[list[Any]]"
+    },
+    "conflict_insert": {
+      "kind": "function",
+      "signature": "(table:POSITIONAL_OR_KEYWORD|Any, session:KEYWORD_ONLY|AsyncSession | None=None) -> ConflictInsert"
+    },
     "db": {
       "kind": "function",
       "signature": "() -> AsyncSession"
@@ -3040,6 +3921,10 @@
     "enable_tenant_rls": {
       "kind": "function",
       "signature": "(op:POSITIONAL_OR_KEYWORD|_Executes, table:POSITIONAL_OR_KEYWORD|str, column:KEYWORD_ONLY|str='tenant_id', schema:KEYWORD_ONLY|str | None=None, system_access:KEYWORD_ONLY|bool=False, system_role:KEYWORD_ONLY|str='sandloom_system') -> None"
+    },
+    "fulltext_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, language:KEYWORD_ONLY|str='english') -> Index"
     },
     "get_planned_reads": {
       "kind": "function",
@@ -3057,6 +3942,14 @@
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request, db:POSITIONAL_OR_KEYWORD|DbSession) -> Any"
     },
+    "json_contains": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], value:POSITIONAL_OR_KEYWORD|Any) -> ColumnElement[bool]"
+    },
+    "json_path": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any], path:VAR_POSITIONAL|JsonPathKey) -> ColumnElement[str]"
+    },
     "make_cursor": {
       "kind": "function",
       "signature": "(op:POSITIONAL_ONLY|ListOperation[Any], position:POSITIONAL_ONLY|Sequence[Any], key:VAR_KEYWORD|Any) -> str"
@@ -3064,6 +3957,10 @@
     "make_db_dependency": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str) -> Callable[[Request], AsyncGenerator[AsyncSession, None]]"
+    },
+    "matches": {
+      "kind": "function",
+      "signature": "(column:POSITIONAL_OR_KEYWORD|ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]], query:POSITIONAL_OR_KEYWORD|str | ColumnElement[str], language:KEYWORD_ONLY|str='english') -> ColumnElement[bool]"
     },
     "new_id": {
       "kind": "function",
@@ -3073,9 +3970,21 @@
       "kind": "function",
       "signature": "(database:POSITIONAL_OR_KEYWORD|str | None=None) -> AbstractAsyncContextManager[AsyncSession]"
     },
+    "partial_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str | ColumnElement[Any], where:KEYWORD_ONLY|str | ColumnElement[bool] | TextClause, unique:KEYWORD_ONLY|bool=False) -> Index"
+    },
+    "search_index": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, columns:VAR_POSITIONAL|str, case_insensitive:KEYWORD_ONLY|Iterable[str]=tuple()) -> Index"
+    },
     "session_reads": {
       "kind": "function",
       "signature": "(session:POSITIONAL_OR_KEYWORD|Any) -> sandloom.core.planner.Reads"
+    },
+    "transaction_lock": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|int, session:KEYWORD_ONLY|AsyncSession | None=None) -> None"
     }
   },
   "sandloom.sdk.effects": {
@@ -4574,6 +5483,10 @@
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, contract_name:POSITIONAL_OR_KEYWORD|str, cases:POSITIONAL_OR_KEYWORD|Sequence[ContractCase], transport:KEYWORD_ONLY|str='asgi') -> None"
     },
+    "assert_migrations_match_models": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> None"
+    },
     "assert_route_snapshot": {
       "kind": "function",
       "signature": "(app:POSITIONAL_OR_KEYWORD|Any, modules:VAR_POSITIONAL|str) -> None"
@@ -4634,6 +5547,10 @@
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
     },
+    "has_optimized_reads": {
+      "kind": "function",
+      "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
+    },
     "in_process_rpc_client": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, settings:POSITIONAL_OR_KEYWORD|Any=None) -> httpx.AsyncClient"
@@ -4649,6 +5566,10 @@
     "migration_chains": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> list[MigrationChain]"
+    },
+    "migration_drift": {
+      "kind": "function",
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
     "model_tables": {
       "kind": "function",
@@ -4741,6 +5662,10 @@
     "set_environment": {
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, name:POSITIONAL_OR_KEYWORD|Literal['dev', 'test', 'prod']) -> None"
+    },
+    "skip_unless_db_feature": {
+      "kind": "function",
+      "signature": "(features:VAR_POSITIONAL|str, database:KEYWORD_ONLY|str='default') -> pytest.MarkDecorator"
     },
     "spawn_served": {
       "kind": "function",

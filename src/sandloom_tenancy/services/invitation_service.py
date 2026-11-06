@@ -16,11 +16,12 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
+from sandloom.sdk.data import WallClock
 from sandloom.sdk.infra import Notification, notifier, settings
 from sandloom_tenancy import events
 from sandloom_tenancy.exceptions import (
@@ -91,9 +92,9 @@ class InvitationService:
                 OrganizationInvitation.email == data.email,
                 OrganizationInvitation.accepted_at.is_(None),
                 OrganizationInvitation.revoked_at.is_(None),
-                OrganizationInvitation.expires_at <= func.now(),
+                OrganizationInvitation.expires_at <= WallClock(),
             )
-            .values(revoked_at=func.now())
+            .values(revoked_at=WallClock())
             .execution_options(synchronize_session=False)
         )
 
@@ -142,7 +143,7 @@ class InvitationService:
                 OrganizationInvitation.organization_id == organization_id,
                 OrganizationInvitation.accepted_at.is_(None),
                 OrganizationInvitation.revoked_at.is_(None),
-                OrganizationInvitation.expires_at > func.now(),
+                OrganizationInvitation.expires_at > WallClock(),
             )
             .order_by(OrganizationInvitation.created_at, OrganizationInvitation.id)
             .offset(skip)
@@ -170,9 +171,9 @@ class InvitationService:
                 OrganizationInvitation.organization_id == organization_id,
                 OrganizationInvitation.accepted_at.is_(None),
                 OrganizationInvitation.revoked_at.is_(None),
-                OrganizationInvitation.expires_at > func.now(),
+                OrganizationInvitation.expires_at > WallClock(),
             )
-            .values(revoked_at=func.now())
+            .values(revoked_at=WallClock())
             .returning(OrganizationInvitation.id)
             .execution_options(synchronize_session=False)
         )
@@ -229,10 +230,10 @@ class InvitationService:
                 OrganizationInvitation.token_hash == hash_invitation_token(token),
                 OrganizationInvitation.accepted_at.is_(None),
                 OrganizationInvitation.revoked_at.is_(None),
-                OrganizationInvitation.expires_at > func.now(),
+                OrganizationInvitation.expires_at > WallClock(),
                 OrganizationInvitation.organization_id.in_(active_orgs),
             )
-            .values(accepted_at=func.now())
+            .values(accepted_at=WallClock())
             .returning(
                 OrganizationInvitation.id,
                 OrganizationInvitation.organization_id,

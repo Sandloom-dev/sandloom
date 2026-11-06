@@ -34,6 +34,16 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            after the auth / TenantScope() they need
     consumed-contracts     get_service literals are declared in consumes=
     db-dependency-scope    Depends(get_db...) carries scope="function"
+    dialect-imports        no sqlalchemy.dialects outside migrations (one
+                           database's types; sandloom.sdk.data is portable)
+    utc-datetime-columns   time columns are UtcDateTime(), not a bare
+                           DateTime(timezone=True) (naive on SQLite)
+    database-feature-forms a form needing a database feature (Array,
+                           fulltext_index, matches, json_path, json_contains,
+                           transaction_lock) declares it in capabilities=
+    portable-sql           a module and its tests call only the SQL functions
+                           every database runs alike (no func.now(); WallClock)
+                           and mark raw SQL `# sandloom: raw-sql <reason>`
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):
@@ -80,6 +90,7 @@ environment (no DATABASE_URL).
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -87,8 +98,16 @@ from sandloom.core import error_codes
 from sandloom.core.archcheck.manifest import ArchRules, ManifestError, load_rules
 from sandloom.core.archcheck.runner import PENDING_RULES, RULES, Violation, run_checks
 
+#: Format of the file :func:`main` writes with ``record=`` (``sandloom test``).
+RECORD_FORMAT = 1
+#: The variable ``sandloom test`` names that file in, for its later steps.
+RECORD_ENV = "SANDLOOM_TEST_ARCH_RECORD"
 
-def main(argv: list[str] | None = None) -> int:
+
+def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
+    """``sandloom check``. ``record``: also write every violation of a run of
+    all rules to that file (:func:`recorded_violations` reads it back), so a
+    later step of the same ``sandloom test`` run need not run them again."""
     parser = argparse.ArgumentParser(
         prog="sandloom check",
         description="Run Sandloom architecture (module isolation) checks",
@@ -129,9 +148,47 @@ def main(argv: list[str] | None = None) -> int:
     except (ManifestError, ValueError) as exc:
         print(f"sandloom check: {exc}", file=sys.stderr)
         return 2
+    if record is not None and only is None:
+        _record(record, args.rules, violations)
 
     boot = boot_diagnostics() if args.boot else []
     return _report(rules, violations, boot, boot_requested=bool(args.boot))
+
+
+def _record(path: Path, manifest: Path, violations: list[Violation]) -> None:
+    doc = {
+        "format": RECORD_FORMAT,
+        "manifest": str(manifest.resolve()),
+        "violations": [
+            {
+                "rule": v.rule,
+                "file": str(v.file),
+                "detail": v.detail,
+                "severity": v.severity,
+            }
+            for v in violations
+        ],
+    }
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def recorded_violations(path: Path, manifest: Path) -> list[Violation] | None:
+    """The violations a ``main(record=path)`` run of every rule found for
+    ``manifest``; ``None`` when ``path`` holds no such record."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (
+        not isinstance(doc, dict)
+        or doc.get("format") != RECORD_FORMAT
+        or doc.get("manifest") != str(manifest.resolve())
+    ):
+        return None
+    return [
+        Violation(v["rule"], Path(v["file"]), v["detail"], v["severity"])
+        for v in doc["violations"]
+    ]
 
 
 def _report(

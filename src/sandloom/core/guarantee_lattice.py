@@ -14,6 +14,11 @@ never declared: the configured provider (does the database keep a command
 log? is the bus durable?), its windows (does the dedupe TTL cover the
 caller's retry horizon? does the inbox outlive stream retention?) and the
 effect's boundary (same database as the inbox? a conditional write?).
+Tenant isolation is labelled the same way (:func:`tenant_isolation_label`):
+database-enforced where the instance runs row security (its ``tenant_rls``
+feature), application-enforced (the ORM guard only) everywhere else. A nested
+write unit is labelled by :func:`nested_unit_label`: its own commit, or
+"commits with the caller" on a database whose writers are serial (SQLite).
 Nothing is labelled unconditionally. A label is shown only where it deviates
 from the full guarantee (:meth:`Guarantee.deviation`).
 
@@ -22,8 +27,9 @@ Pure data: no I/O, no kernel imports.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 ATOMIC = "atomic"
 NO_LOSS = "no_loss"
@@ -38,6 +44,14 @@ PARKS_ON_POISON_OR_BUDGET = "parks_on_poison_or_budget"
 PARKS_ON_EXPLICIT_POISON = "parks_on_explicit_poison"
 #: ``no_loss`` of a command holds while the caller retries with its key.
 CALLER_RETRIES = "caller_retries_with_the_same_key"
+#: Tenant isolation held by the ORM guard alone: no database row security
+#: confines a statement that bypasses it (spec infra-agnostic §7).
+APPLICATION_ENFORCED_ISOLATION = "application-enforced tenant isolation"
+#: A command (a local contract call, a saga step's unit, a child unit) run
+#: inside a writing unit of the same task, on a database whose writers are
+#: serial, is a SAVEPOINT of its caller: it commits with the caller and an
+#: outer rollback undoes it (spec infra-agnostic, slice 8c).
+COMMITS_WITH_CALLER = "commits with the caller"
 
 
 @dataclass(frozen=True)
@@ -133,6 +147,24 @@ class Mechanism:
     #: the publish is the intent recorded with the write (always, through
     #: the transactional outbox)
     outbox: bool = True
+    #: the database confines each row to the bound tenant (the ``tenant_rls``
+    #: feature: row security on, its policies and roles verified)
+    row_security: bool = False
+    #: the database has one writer at a time (its renderer's
+    #: ``serial_writers``): a nested write unit of the same task joins its
+    #: caller's transaction as a SAVEPOINT
+    serial_writers: bool = False
+
+    @classmethod
+    def from_features(cls, features: Iterable[str], **facts: Any) -> Mechanism:
+        """The facts a database instance's features state (its advertised
+        ``database`` features, build-free), plus ``facts`` known elsewhere."""
+        have = frozenset(features)
+        return cls(
+            command_log="command_idempotency" in have,
+            row_security="tenant_rls" in have,
+            **facts,
+        )
 
 
 def _consumer_no_loss(m: Mechanism) -> tuple[set[str], set[str]]:
@@ -173,7 +205,10 @@ def _command(m: Mechanism) -> Guarantee:
     delivery = {NO_LOSS}
     if m.command_log and m.dedupe_covers_retries:
         delivery.add(NO_DUP)  # the cache fallback is never no_dup
-    return Guarantee(frozenset(delivery), "immediate", frozenset({CALLER_RETRIES}))
+    qualifiers = {CALLER_RETRIES}
+    if m.serial_writers:
+        qualifiers.add(COMMITS_WITH_CALLER)
+    return Guarantee(frozenset(delivery), "immediate", frozenset(qualifiers))
 
 
 def _on_commit(_m: Mechanism) -> Guarantee:
@@ -195,6 +230,23 @@ _LABELS = {
 }
 
 
+def tenant_isolation_label(mechanism: Mechanism | None = None) -> str | None:
+    """How ``TenantScoped`` isolation holds on an instance: ``None`` where the
+    database enforces it (row security), else
+    :data:`APPLICATION_ENFORCED_ISOLATION` (shown only where it deviates)."""
+    m = mechanism if mechanism is not None else Mechanism()
+    return None if m.row_security else APPLICATION_ENFORCED_ISOLATION
+
+
+def nested_unit_label(mechanism: Mechanism | None = None) -> str | None:
+    """How a nested write unit of the same task commits on an instance:
+    ``None`` where it commits on its own (its own transaction), else
+    :data:`COMMITS_WITH_CALLER` (a SAVEPOINT of the caller's transaction:
+    the caller's rollback undoes it; shown only where it deviates)."""
+    m = mechanism if mechanism is not None else Mechanism()
+    return COMMITS_WITH_CALLER if m.serial_writers else None
+
+
 def effect_label(kind: EffectKind, mechanism: Mechanism | None = None) -> Guarantee:
     """The guarantee of one effect, derived from its mechanism (spec §6.3)."""
     derive = _LABELS.get(kind)
@@ -204,8 +256,10 @@ def effect_label(kind: EffectKind, mechanism: Mechanism | None = None) -> Guaran
 
 
 __all__ = [
+    "APPLICATION_ENFORCED_ISOLATION",
     "ATOMIC",
     "CALLER_RETRIES",
+    "COMMITS_WITH_CALLER",
     "DELIVERY",
     "FULL",
     "NO_DUP",
@@ -215,4 +269,6 @@ __all__ = [
     "Guarantee",
     "Mechanism",
     "effect_label",
+    "nested_unit_label",
+    "tenant_isolation_label",
 ]

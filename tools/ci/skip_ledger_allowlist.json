@@ -1,0 +1,33 @@
+{
+  "_comment": "Tests skipped on every CI lane on purpose, each with why CI cannot run it there (tools/ci/skip_ledger.py). Keep it small: a test that can run on a lane belongs on that lane.",
+  "entries": [
+    {
+      "test": "src/sandloom/core/tests/test_sqlite_test_harness.py::test_a_marked_test_is_skipped_by_the_harness",
+      "reason": "it is the skip: it proves skip_unless_db_feature skips a feature no database has"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_error_codes.py::test_explain_cli_knows_planned_codes",
+      "reason": "runs only while the catalogue has a planned code; today every code has landed"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_observability_bundle.py::test_promtool_rules_and_unit_tests",
+      "reason": "needs promtool, which the test jobs do not install; deploy-profiles runs the same rules through deploy/observability/check.sh"
+    },
+    {
+      "test": "tests/e2e/test_app_split.py::*",
+      "reason": "opt-in (SANDLOOM_SPLIT_E2E): the app-split job runs the split scenario"
+    },
+    {
+      "test": "tests/e2e/test_app_recipes.py::*",
+      "reason": "opt-in (SANDLOOM_RECIPES_E2E): the app-recipes job runs the recipes"
+    },
+    {
+      "test": "tests/extraction/test_extraction_e2e.py::*",
+      "reason": "opt-in (SANDLOOM_EXTRACTION_E2E): the extraction-e2e workflow runs it"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_dev/test_dev_external.py::*",
+      "reason": "opt-in: `sandloom dev` against a developer's own PostgreSQL and Redis named in SANDLOOM_TEST_DATABASE_URL / SANDLOOM_TEST_CACHE_URL; the CI lanes provide their services without those variables"
+    }
+  ]
+}

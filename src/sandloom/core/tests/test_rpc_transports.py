@@ -597,7 +597,11 @@ async def test_slow_peer_times_out_and_discards_the_connection(kind: str) -> Non
     client = make_client(kind)
     async with peer(never) as p:
         pool = Pool(kind, p.port)
-        proxy = proxy_for(p.url, client, timeout=0.1)
+        # Each attempt times out on its own; the call's overall deadline is
+        # 3 x the timeout, so 1 x the timeout is left for connecting and
+        # discovery. At 0.1 s a loaded machine used that up and the overall
+        # deadline cancelled the retry ({"timeout": 1, "cancelled": 1}).
+        proxy = proxy_for(p.url, client, timeout=0.5)
         with pytest.raises(RemoteServiceUnavailable) as info:
             await proxy.ping()
         assert info.value.code == "rpc_timeout"

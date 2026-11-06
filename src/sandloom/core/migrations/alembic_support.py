@@ -35,20 +35,28 @@ a shared ``alembic_version`` table.
 from __future__ import annotations
 
 import importlib
+import json
 import os
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Callable, Iterable, Sequence
 from logging.config import fileConfig
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import Dialect, make_url
+from sqlalchemy.types import JSON, TypeDecorator, TypeEngine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
+from sandloom.core.sql_alchemy.portable import (
+    LockStatement,
+    optional_lock_statement_for,
+)
 
 #: Sync DSN injected by ``sandloom-migrate`` to target a named database instance.
 MIGRATE_URL_ENV = "SANDLOOM_MIGRATE_DATABASE_URL"
@@ -81,7 +89,7 @@ def _resolve_sync_url(configured: str | None) -> str:
     return to_sync_url(settings.database_url)
 
 
-def run_migrations(  # noqa: C901
+def run_migrations(
     table_names: Iterable[str] = (),
     model_modules: Sequence[str] = (),
     *,
@@ -124,15 +132,12 @@ def run_migrations(  # noqa: C901
             return True
         return table_prefix is not None and name.startswith(table_prefix)
 
+    dialect: Dialect | None = None
+
     def include_object(
         obj: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
     ) -> bool:
-        if type_ == "table":
-            return _owns(name)
-        parent = getattr(obj, "table", None)
-        if parent is not None:
-            return _owns(parent.name)
-        return True
+        return chain_includes(_owns, dialect, obj, name, type_, reflected)
 
     url = _resolve_sync_url(config.get_main_option("sqlalchemy.url"))
     # Keep generated table policies consistent with the runtime tenant hook.
@@ -145,8 +150,11 @@ def run_migrations(  # noqa: C901
     )
 
     if context.is_offline_mode():
+        dialect = make_url(url).get_dialect()()
+        _refuse_unrestricted_partial_indexes(target_metadata, dialect)
         context.configure(
             url=url,
+            render_item=_render_item,
             target_metadata=target_metadata,
             literal_binds=True,
             dialect_opts={"paramstyle": "named"},
@@ -164,23 +172,102 @@ def run_migrations(  # noqa: C901
     )
     try:
         with connectable.connect() as connection:
+            dialect = connection.dialect
+            _refuse_unrestricted_partial_indexes(target_metadata, dialect)
             context.configure(
                 connection=connection,
+                render_item=_render_item,
                 target_metadata=target_metadata,
                 include_object=include_object,
                 version_table=version_table,
+                **COMPARE_OPTIONS,
             )
             with context.begin_transaction():
-                if url not in LOCKED_URLS and connection.dialect.name == "postgresql":
+                lock = _direct_run_lock(connection, url)
+                if lock is not None:
                     # Direct ``alembic upgrade`` (outside sandloom-migrate's
                     # run-wide lock): serialise concurrent runners for the
                     # duration of this chain's transaction.
-                    connection.exec_driver_sql(
-                        f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})"
-                    )
+                    connection.execute(lock.statement, lock.parameters)
                 context.run_migrations()
     finally:
         connectable.dispose()
+
+
+#: The autogenerate comparison every chain uses: ``sandloom migrate new``,
+#: ``sandloom migrate drift`` and ``migration_drift`` (the "migrations match
+#: models" test helper) all compare with these, so a difference one of them
+#: reports is one the others write or see.
+def _default_value(text: str | None) -> Any:
+    """A JSON column's server default as the value it writes: outer
+    parentheses, trailing casts and the quotes around the literal removed,
+    then parsed (``'{}'::json``, ``'{}'`` and ``'{ }'`` are the same)."""
+    if text is None:
+        return None
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+    text = re.sub(r"(::[\w ]+)+$", "", text).strip()
+    if len(text) >= 2 and text[0] == text[-1] == "'":
+        text = text[1:-1].replace("''", "'")
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def compare_server_default(
+    context: Any,
+    inspected_column: Any,
+    metadata_column: Any,
+    inspected_default: str | None,
+    metadata_default: Any,
+    rendered_metadata_default: str | None,
+) -> bool | None:
+    """Whether a column's server default differs (``None``: Alembic decides).
+
+    Alembic compares a default by asking the database whether the two
+    expressions are equal; a ``json`` value has no equality operator, so the
+    question fails. A JSON column's defaults are compared here as the values
+    they write; every other column is left to Alembic.
+    """
+    column_type = metadata_column.type
+    impl = getattr(column_type, "impl", column_type)
+    if not isinstance(impl, JSON):
+        return None
+    return bool(
+        _default_value(inspected_default) != _default_value(rendered_metadata_default)
+    )
+
+
+COMPARE_OPTIONS: dict[str, Any] = {
+    "compare_type": True,
+    "compare_server_default": compare_server_default,
+}
+
+
+def chain_includes(
+    owns: Callable[[str | None], bool],
+    dialect: Dialect | None,
+    obj: Any,
+    name: str | None,
+    type_: str,
+    reflected: bool,
+) -> bool:
+    """The ``include_object`` of a chain that owns the tables ``owns`` accepts.
+
+    A table is compared when the chain owns it; an index, constraint or column
+    when its table is; a model index whose ``ddl_if`` keeps it off ``dialect``
+    never (the database never creates it).
+    """
+    if type_ == "table":
+        return owns(name)
+    if type_ == "index" and not reflected and not _created_on(obj, dialect):
+        return False
+    parent = getattr(obj, "table", None)
+    if parent is not None:
+        return owns(parent.name)
+    return True
 
 
 def module_package_of(env_file: str | os.PathLike[str]) -> str:
@@ -203,6 +290,120 @@ def module_package_of(env_file: str | os.PathLike[str]) -> str:
         parts.append(current.name)
         current = current.parent
     return ".".join(reversed(parts))
+
+
+def _created_on(obj: Any, dialect: Dialect | None) -> bool:
+    """Whether ``obj``'s ``ddl_if`` lets ``dialect`` create it.
+
+    Alembic does not read ``ddl_if``; without this, autogenerate would emit an
+    index a database never creates (such as a substring-search index where the
+    database has none).
+    """
+    # Only the indexes of the portable forms (``sandloom.rendered_on`` in their
+    # info): another library's ddl_if callable may need arguments this check
+    # cannot give it.
+    condition = getattr(obj, "_ddl_if", None)
+    info = getattr(obj, "info", None) or {}
+    if condition is None or dialect is None or "sandloom.rendered_on" not in info:
+        return True
+    names = condition.dialect
+    if names is not None:
+        allowed = (names,) if isinstance(names, str) else tuple(names)
+        if dialect.name not in allowed:
+            return False
+    check = condition.callable_
+    return check is None or bool(
+        check(
+            None,
+            obj,
+            None,
+            tables=None,
+            state=None,
+            dialect=dialect,
+            compiler=None,
+            checkfirst=False,
+        )
+    )
+
+
+def _refuse_unrestricted_partial_indexes(metadata: Any, dialect: Dialect) -> None:
+    """Refuse when a ``partial_index`` has no condition on ``dialect``.
+
+    Autogenerate would otherwise write, and an upgrade create, an index over
+    every row (SANDLOOM-R015). Read from the ``Index.info`` keys the portable
+    forms leave, so the environment needs no import of them.
+    """
+    unrestricted = [
+        f"{table.name}.{index.name}"
+        for table in metadata.tables.values()
+        for index in table.indexes
+        if "sandloom.partial_where" in index.info
+        and dialect.name not in index.info.get("sandloom.rendered_on", ())
+    ]
+    if unrestricted:
+        raise RuntimeError(
+            f"partial indexes with no condition on {dialect.name!r}: "
+            + ", ".join(unrestricted)
+            + " [SANDLOOM-R015]: the database's SQL dialect renderer cannot "
+            "restrict them; run this chain on a database that can (PostgreSQL)"
+        )
+
+
+def _direct_run_lock(connection: Any, url: str) -> LockStatement | None:
+    """The transaction lock a direct ``alembic upgrade`` takes, or ``None``.
+
+    ``None`` for a URL whose run-wide session lock ``sandloom migrate`` already
+    holds (``LOCKED_URLS``): taking the transaction lock on the same key from
+    another connection would wait for ourselves. ``None`` too where the
+    database has no transaction lock.
+    """
+    if url in LOCKED_URLS:
+        return None
+    return optional_lock_statement_for(
+        connection, MIGRATION_LOCK_KEY, scope="transaction", wait=True
+    )
+
+
+def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
+    """Write a Sandloom column type as the database's own type.
+
+    A migration is one database's DDL history, so it may name the dialect type
+    (``postgresql.CITEXT()``) and imports it; the Sandloom type itself is a
+    kernel class a migration must not depend on.
+    """
+    if type_ != "type" or not _sandloom_type(obj):
+        return False
+    return _render_type(obj, autogen_context)
+
+
+def _sandloom_type(type_: Any) -> bool:
+    return isinstance(type_, TypeDecorator) and type(type_).__module__.startswith(
+        "sandloom."
+    )
+
+
+def _render_type(type_: Any, autogen_context: Any) -> str:
+    """``type_`` as the database's own type; an array's item type rendered
+    the same way (``postgresql.ARRAY(sa.String(length=40))``)."""
+    impl = (
+        type_.load_dialect_impl(autogen_context.dialect)
+        if _sandloom_type(type_)
+        else type_
+    )
+    module = type(impl).__module__
+    prefix = "sa"
+    if module.startswith("sqlalchemy.dialects."):
+        prefix = module.split(".")[2]
+        autogen_context.imports.add(f"from sqlalchemy.dialects import {prefix}")
+    item = getattr(impl, "item_type", None)
+    if isinstance(item, TypeEngine):
+        # The public class: the dialect may hand back its DBAPI's subclass
+        # (psycopg's ``_PsycopgARRAY``).
+        name = next(
+            c.__name__ for c in type(impl).__mro__ if not c.__name__.startswith("_")
+        )
+        return f"{prefix}.{name}({_render_type(item, autogen_context)})"
+    return f"{prefix}.{impl!r}"
 
 
 def run_module_migrations(

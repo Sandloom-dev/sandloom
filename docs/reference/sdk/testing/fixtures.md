@@ -21,9 +21,12 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`_sandloom_cancel_leftover_tasks`](#_sandloom_cancel_leftover_tasks) | fixture | Cancel the asyncio tasks a test left running on the session loop. |
+| [`_sandloom_db_feature_skip`](#_sandloom_db_feature_skip) | fixture | Skip a test marked `sandloom.core.testing.infra.skip_unless_db_feature` whose database instance lacks a feature (the harness app's advert... |
 | [`_sandloom_isolate_module_globals`](#_sandloom_isolate_module_globals) | fixture | Start every test module from the session baseline (the harness app's runtime) and put the process's runtime bindings back to it afterwards. |
 | [`_sandloom_isolate_process_globals`](#_sandloom_isolate_process_globals) | fixture | Restore the process's runtime bindings after every test. |
-| [`_sandloom_release_default_pools`](#_sandloom_release_default_pools) | fixture | Return the `default` engines' pooled connections after every test. |
+| [`_sandloom_loop_engines`](#_sandloom_loop_engines) | fixture | Name the session loop for `db_engine`; when the run ends, dispose the test engines kept on it (`sandloom.core.testing.database.LoopEngine... |
+| [`_sandloom_release_default_pools`](#_sandloom_release_default_pools) | fixture | Return the `default` engines' pooled connections after a test whose loop ends with it. |
 | [`_sandloom_sdk_kit`](#_sandloom_sdk_kit) | fixture | Record `published` events; bind `Contract` resolution to the app. |
 | [`ambient_uow`](#ambient_uow) | fixture | Bind an in-memory recording UoW for the whole test. |
 | [`async_client`](#async_client) | fixture |  |
@@ -51,6 +54,36 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`user_headers`](#user_headers) | fixture | Headers of a default user (random user id and tenant). |
 
 ## Advanced names
+
+### `_sandloom_cancel_leftover_tasks`
+
+```python
+@pytest.fixture
+def _sandloom_cancel_leftover_tasks(
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[None]
+```
+
+Cancel the asyncio tasks a test left running on the session loop.
+
+With a loop per test, closing the loop cancelled whatever the test (or its
+function-scoped fixtures) had started and not finished: a keeper task, a
+delayed check, a server handler. On the session loop they would live on
+into the next test. This fixture is set up after every higher-scoped
+fixture of the test (pytest orders them by scope), so the tasks those
+started are already in its snapshot and survive; it is torn down after
+the test's other function-scoped fixtures, as the loop used to close.
+
+### `_sandloom_db_feature_skip`
+
+```python
+@pytest.fixture
+def _sandloom_db_feature_skip(request: pytest.FixtureRequest) -> None
+```
+
+Skip a test marked `sandloom.core.testing.infra.skip_unless_db_feature`
+whose database instance lacks a feature (the harness app's advertised
+features: no app is built for a test without the marker).
 
 ### `_sandloom_isolate_module_globals`
 
@@ -88,19 +121,39 @@ registers on the bound core (a channel, a service, a startup task, a
 declared operation, ...) goes too (`CoreFacade.restore_registrations`),
 and the process caches it warmed are emptied (`PROCESS_CACHES`).
 
+### `_sandloom_loop_engines`
+
+```python
+@pytest.fixture
+def _sandloom_loop_engines() -> AsyncIterator[None]
+```
+
+Name the session loop for `db_engine`; when the run ends, dispose the
+test engines kept on it (`sandloom.core.testing.database.LoopEngines`).
+
+Only the tests that run on this loop (`asyncio_default_test_loop_scope =
+"session"`) reuse an engine; with a loop per test `db_engine` builds one
+per test, as it always did.
+
 ### `_sandloom_release_default_pools`
 
 ```python
 @pytest.fixture
-def _sandloom_release_default_pools() -> AsyncIterator[None]
+def _sandloom_release_default_pools(
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[None]
 ```
 
-Return the `default` engines' pooled connections after every test.
+Return the `default` engines' pooled connections after a test whose
+loop ends with it.
 
-Pooled asyncpg connections belong to the loop of the test that opened
-them; pytest-asyncio gives each test its own loop, so a later test reusing
-one fails with "attached to a different loop". Disposing on the test's own
-loop closes them cleanly; the engines survive and reconnect next time.
+Pooled asyncpg connections belong to the loop that opened them; with
+pytest-asyncio's default (a loop per test) a later test reusing one fails
+with "attached to a different loop". Disposing on the test's own loop
+closes them cleanly; the engines survive and reconnect next time. A test
+on the session loop keeps them (`runs_on_session_loop`); a sync
+test may have opened some on a loop of its own (`asyncio.run`), so the
+pools are released after it too.
 
 ### `_sandloom_sdk_kit`
 
@@ -183,6 +236,10 @@ def db_engine(sandloom_app: Any) -> AsyncIterator[Any]
 ```
 
 Engine on the test database; every table present and empty.
+
+On the session loop the engine (and its pool) is kept for the whole run
+and only the rows are reset; with a loop per test it is built and disposed
+for every test.
 
 ### `db_uow`
 
