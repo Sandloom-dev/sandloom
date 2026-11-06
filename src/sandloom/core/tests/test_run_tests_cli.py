@@ -19,11 +19,11 @@ def test_the_plan_of_the_framework_tree() -> None:
     root = Path(__file__).resolve().parents[4]  # backend/
     steps = run_tests.plan(root, "billing", full=False, gates=True, workers="auto")
     assert _names(steps) == [
+        "ruff check",
         "generated files",
         "schema & deploy",
         "billing",
         "suite (not slow)",
-        "ruff check",
         "ruff format",
         "mypy",
         "sandloom check",
@@ -34,10 +34,10 @@ def test_the_plan_of_the_framework_tree() -> None:
         "migration drift",
         "public API baseline",
     ]
-    suite = steps[3]
+    suite = steps[4]
     assert suite.argv[-6:] == ["-n", "auto", "--dist", "loadfile", "-m", "not slow"]
     assert suite.env["SANDLOOM_TEST_REDIS_DB_STRIDE"]
-    assert steps[2].argv[-1].endswith("sandloom_billing/tests")
+    assert steps[3].argv[-1].endswith("sandloom_billing/tests")
     full = run_tests.plan(root, None, full=True, gates=True, workers="auto")
     assert _names(full)[-1] == "typing tests"
 
@@ -80,6 +80,52 @@ def test_ci_never_writes_so_ruff_check_never_fixes() -> None:
         steps = run_tests.plan(root, None, full=False, gates=True, workers="2", ci=ci)
         ruff = next(s for s in steps if s.name == "ruff check")
         assert ("--no-fix" in ruff.argv) is ci
+
+
+def test_ci_keeps_ruff_check_among_the_gates() -> None:
+    """``--ci`` fixes nothing, so its order is unchanged: the generated files
+    first, ``ruff check --no-fix`` with the other gates."""
+    root = Path(__file__).resolve().parents[4]
+    names = _names(
+        run_tests.plan(root, None, full=False, gates=True, workers="2", ci=True)
+    )
+    assert names[:3] == ["generated files", "schema & deploy", "suite (not slow)"]
+    assert names[3:5] == ["ruff check", "ruff format"]
+
+
+def test_a_green_run_never_leaves_a_generated_file_stale_after_a_ruff_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app with ``fix = true`` and an import ``ruff check`` sorts onto
+    several lines (it moves every route below it, so the line-bearing index
+    ``sandloom generate`` wrote is stale): developer mode must not report OK
+    while the generated files no longer match the source. ``ruff check``
+    runs first, so the generated-files check sees the fixed source."""
+    (tmp_path / "architecture_rules.yml").write_text("")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.ruff]\nfix = true\nline-length = 60\n[tool.ruff.lint]\nselect = ["I"]\n'
+    )
+    api = tmp_path / "api.py"
+    api.write_text(
+        "from os.path import basename, dirname, join, normpath, splitext\n\n\n"
+        "def route() -> object:\n    return (basename, dirname, join, normpath, splitext)\n"
+    )
+    generated_from = api.read_text()  # what `sandloom generate` saw
+
+    def generated_check(argv: list[str]) -> int:  # stale once the source moved
+        return 0 if api.read_text() == generated_from else 1
+
+    monkeypatch.setattr(run_tests, "_generated", generated_check)
+    steps = run_tests.plan(
+        tmp_path, None, full=False, gates=True, workers="2", xdist=False
+    )
+    ran = [s for s in steps if s.name in {"ruff check", "generated files"}]
+    codes = [
+        step.call() if step.call is not None else run_tests._run_command(step, tmp_path)
+        for step in ran
+    ]
+    assert api.read_text() != generated_from, "ruff fixed the import"
+    assert any(codes), "a green run with a stale generated file"
 
 
 def test_sandloom_test_never_writes_a_generated_file(

@@ -94,6 +94,11 @@ def _read_receipt(root: Path) -> Doc:
     return receipt
 
 
+#: The index shapes a reader accepts. 2: a source location is a path and a
+#: qualified function name, its line looked up when printed; 1 stored the line.
+INDEX_SCHEMA_VERSIONS = (1, 2)
+
+
 class Reader:
     def __init__(self, root: Path, document: Doc | None = None) -> None:
         self.root = root.resolve()
@@ -108,7 +113,7 @@ class Reader:
         )
         if (
             self.doc.get("schema") != "sandloom.inspection"
-            or self.doc.get("schema_version") != 1
+            or self.doc.get("schema_version") not in INDEX_SCHEMA_VERSIONS
         ):
             raise InspectionError(
                 "unsupported_schema",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import shutil
 import subprocess
@@ -14,9 +15,10 @@ import pytest
 
 from sandloom.core.archcheck.manifest import ArchRules
 from sandloom.core.cli.generated import Generated, apply
-from sandloom.core.cli.inspection import collect, generation, graph
+from sandloom.core.cli.inspection import collect, generation, graph, processes
 from sandloom.core.cli.inspection.cli import main
 from sandloom.core.cli.inspection.model import INDEX, RECEIPT, encode
+from sandloom.core.cli.inspection.queries import _sources_by_path
 from sandloom.core.cli.inspection.read import Reader
 from sandloom.core.descriptors import (
     CapabilityRequirement,
@@ -2372,3 +2374,157 @@ def test_viewer_uses_full_scoped_module_cards_and_readable_freshness(
     assert len(cards) == 1 and cards[0]["id"] == "module:notes"
     assert cards[0]["routes"] == module["routes"]
     assert cards[0]["summary"] == "Notes purpose."
+
+
+def test_a_route_source_is_a_function_name_and_readers_print_its_line(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The tracked index records a route's file and qualified function, never
+    its line: an edit or a reformat above the route (ruff sorting an import
+    onto several lines) leaves the index current. ``sandloom context`` and
+    ``sandloom graph`` look the line up when they print."""
+    import importlib.util
+
+    from sandloom.core.cli.inspection import processes
+
+    api = project.root / "app/modules/notes/api.py"
+    api.write_text(
+        "def route(f):\n    return f\n\n\n@route\nasync def create_note() -> None: ...\n"
+    )
+    spec = importlib.util.spec_from_file_location("_inspection_probe_api", api)
+    assert spec is not None and spec.loader is not None
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    location = processes._location(probe.create_note, project.root.resolve())
+    assert location == {"path": "app/modules/notes/api.py", "function": "create_note"}
+
+    document = Reader(project.root).doc
+    assert document["schema_version"] == 2
+    notes = next(m for m in document["modules"] if m["id"] == "module:notes")
+    notes["routes"] = [
+        {
+            "method": "POST",
+            "path": "/notes",
+            "name": "create_note",
+            "auth": "user",
+            "policy": {},
+            "source": location,
+        }
+    ]
+    _publish(project, document)
+    index = (project.root / INDEX).read_bytes()
+
+    def printed() -> tuple[object, object]:
+        rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
+        assert rc == 0, err + text
+        routes = json.loads(text)["data"]["routes"][0]["routes"]
+        rc, text, err = run(project, capsys, "graph", "notes", "--detail", "full")
+        assert rc == 0, err + text
+        modules = json.loads(text)["data"]["modules"]
+        graph_route = next(m for m in modules if m["id"] == "module:notes")["routes"]
+        return routes[0]["source"]["line"], graph_route[0]["source"]["line"]
+
+    assert printed() == (5, 5)  # the decorator's line, as co_firstlineno
+    api.write_text("import os\nimport sys\n\n" + api.read_text())
+    assert printed() == (8, 8)
+    assert (project.root / INDEX).read_bytes() == index
+
+
+def test_the_source_line_lookup_follows_qualified_names(tmp_path: Path) -> None:
+    from sandloom.core.cli.inspection.files import with_lines
+
+    (tmp_path / "m.py").write_text(
+        "class A:\n"  # 1
+        "    def f(self): ...\n"  # 2
+        "    def g(self):\n"  # 3
+        "        def h(): ...\n"  # 4
+        "\n"  # 5
+        "def outer():\n"  # 6
+        "    def inner(): ...\n"  # 7
+        "    return inner\n"  # 8
+        "def twice(): ...\n"  # 9
+        "def twice(): ...\n"  # 10
+        "try:\n"  # 11
+        "    import fast\n"  # 12
+        "except ImportError:\n"  # 13
+        "    def fallback(): ...\n"  # 14
+        "if True:\n"  # 15
+        "    class B:\n"  # 16
+        "        with open(__file__):\n"  # 17
+        "            def m(self): ...\n"  # 18
+        "key = lambda: 0\n"  # 19
+    )
+
+    def line(function: str) -> object:
+        return with_lines(tmp_path, {"path": "m.py", "function": function}).get("line")
+
+    assert line("A.f") == 2
+    assert line("A.g.<locals>.h") == 4
+    assert line("A.h") is None  # only <locals> enters a function body
+    assert line("outer.<locals>.inner") == 7
+    assert line("inner") is None
+    assert line("twice") == 10  # the binding Python keeps
+    assert line("fallback") == 14
+    assert line("B.m") == 18
+    assert line("<lambda>") is None
+    assert line("gone") is None
+    assert with_lines(tmp_path, {"path": "missing.py", "function": "f"}) == {
+        "path": "missing.py",
+        "function": "f",
+    }
+
+
+def test_a_wrapped_callback_is_located_by_its_own_code(tmp_path: Path) -> None:
+    """``functools.wraps`` copies the wrapped ``__qualname__`` onto a wrapper
+    defined elsewhere; the location names the code object, path and name
+    alike, so the reader finds its line."""
+
+    def target() -> None: ...
+
+    def decorate(fn):  # type: ignore[no-untyped-def]
+        @functools.wraps(fn)
+        def wrapper() -> None: ...
+
+        return wrapper
+
+    wrapped = decorate(target)
+    assert wrapped.__qualname__ != wrapped.__code__.co_qualname
+    root = Path(__file__).resolve().parent
+    location = processes._location(wrapped, root)
+    assert location is not None
+    assert location["function"] == wrapped.__code__.co_qualname
+
+
+def test_graph_diff_keeps_event_schema_data_that_looks_like_a_location() -> None:
+    """Only the places ``processes`` writes a location are reduced to a path;
+    the same keys inside an event schema are data, compared whole."""
+    schema = {"const": {"source": {"path": "/a", "line": 3}, "path": "/b", "line": 4}}
+    document = {
+        "nodes": [],
+        "edges": [],
+        "modules": [
+            {"id": "m", "routes": [{"source": {"path": "m.py", "function": "f"}}]}
+        ],
+        "processes": [
+            {
+                "id": "p",
+                "source": {"path": "r.py", "function": "g"},
+                "steps": [
+                    {
+                        "source": {"path": "s.py", "function": "do"},
+                        "compensation_source": {"path": "s.py", "function": "undo"},
+                    }
+                ],
+            }
+        ],
+        "event_schemas": {"e.v1": schema},
+    }
+    reduced = _sources_by_path(document)
+    assert reduced["event_schemas"] == {"e.v1": schema}
+    assert reduced["modules"][0]["routes"][0]["source"] == {"path": "m.py"}
+    assert reduced["processes"][0]["source"] == {"path": "r.py"}
+    assert reduced["processes"][0]["steps"][0] == {
+        "source": {"path": "s.py"},
+        "compensation_source": {"path": "s.py"},
+    }
+    assert document["modules"][0]["routes"][0]["source"]["function"] == "f"

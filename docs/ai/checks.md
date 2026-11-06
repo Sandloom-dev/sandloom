@@ -61,11 +61,11 @@ A code is never reused. [Error codes](../reference/error-codes.md) lists every o
 ```text
 sandloom test summary
 ----------------
+  FAIL (exit 1)    ruff check               0.6s
   PASS             generated files          0.4s
   PASS             schema & deploy          0.0s
   PASS             notes                    4.7s
   PASS             suite (not slow)         6.7s
-  FAIL (exit 1)    ruff check               0.6s
   FAIL (exit 1)    ruff format              0.0s
   PASS             mypy                     6.5s
   FAIL (exit 1)    sandloom check           0.1s  -> sandloom explain SANDLOOM-C0xx (per violation)
@@ -77,7 +77,7 @@ sandloom test: FAILED (ruff check, ruff format, sandloom check)
 ```
 
 <!-- prose-ok: P6 the option list and the failure kinds are real lists, not rhythm -->
-The module you name runs first, then the fast suite and the static checks. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](../modules/testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
+`ruff check` runs first: what it fixes is in the tree the generated-files check and the tests see. Then the module you name, the fast suite and the other static checks. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](../modules/testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
 
 ## Run sandloom check alone
 

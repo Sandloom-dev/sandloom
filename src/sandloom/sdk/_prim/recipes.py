@@ -31,6 +31,13 @@ contract and the subscription fact; no tenancy or billing data is needed.
     @router.get("/orgs/{org_id}/report", dependencies=[Depends(PAID_ADMIN)])
     async def report(org_id: UUID, user: CurrentUser) -> ReportOut: ...
 
+A route without `org_id` in its path or query (the module binds the tenant
+from the token): `ORG = Account.org(param=None)`, the organization the request
+is bound to. `Account.org(param="org_id")` there fails `sandloom check`
+(SANDLOOM-C027). `Account.bound_tenant()` also accepts a personal tenant (it
+then checks the caller's own subscription): use it only when either account
+is meant.
+
 Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
 
     from sandloom.sdk.testing import as_user, fake_access_fact, fake_contract

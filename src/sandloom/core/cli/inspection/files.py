@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import hashlib
 import os
 import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from sandloom.core.cli.inspection.model import InspectionError
 
@@ -183,3 +185,85 @@ def ignored(root: Path, locator: str) -> bool:
             "unsupported_ignore", ".sandloomignore does not support negation"
         )
     return any(fnmatch.fnmatchcase(locator, pattern) for pattern in patterns)
+
+
+_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _definitions(block: list[ast.stmt]) -> list[ast.AST]:
+    """The definitions ``block`` binds, in source order: its own and those
+    under ``if`` / ``try`` / ``with`` / ``for`` / ``while`` / ``match``, never
+    those inside another definition's body."""
+    found: list[ast.AST] = []
+    for stmt in block:
+        if isinstance(stmt, _DEFS):
+            found.append(stmt)
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            found += _definitions(getattr(stmt, field, []))
+        for handler in getattr(stmt, "handlers", []):
+            found += _definitions(handler.body)
+        for case in getattr(stmt, "cases", []):
+            found += _definitions(case.body)
+    return found
+
+
+def _line(tree: ast.Module, qualname: str) -> int | None:
+    """The first line (its first decorator, as ``co_firstlineno``) of the
+    definition ``qualname`` names in ``tree``; ``None`` when it is gone, or
+    for a lambda. The last definition of a name wins, as Python binds it; only
+    ``<locals>`` enters a function's body."""
+    scope: list[ast.stmt] | None = tree.body
+    node: ast.AST | None = None
+    for part in qualname.split("."):
+        if part == "<locals>":
+            scope = node.body if isinstance(node, _FUNCTIONS) else None
+            continue
+        if scope is None:
+            return None
+        named = [
+            n for n in _definitions(scope) if isinstance(n, _DEFS) and n.name == part
+        ]
+        if not named:
+            return None
+        node = named[-1]
+        scope = node.body if isinstance(node, ast.ClassDef) else None
+    if not isinstance(node, _DEFS):
+        return None
+    return min([node.lineno, *(d.lineno for d in node.decorator_list)])
+
+
+def with_lines(root: Path, value: Any) -> Any:
+    """``value`` with each ``{"path", "function"}`` source location given the
+    ``line`` it is at now (looked up in the source, never stored in the
+    index); a location whose file or function is gone keeps no line."""
+    trees: dict[str, ast.Module | None] = {}
+
+    def line(location: dict[str, Any]) -> int | None:
+        path = location["path"]
+        if path not in trees:
+            try:
+                trees[path] = ast.parse(source(root, path))
+            except (InspectionError, OSError, SyntaxError, UnicodeError, ValueError):
+                trees[path] = None
+        tree = trees[path]
+        return _line(tree, location["function"]) if tree is not None else None
+
+    def walk(item: Any) -> Any:
+        if isinstance(item, dict):
+            out = {k: walk(v) for k, v in item.items()}
+            if (
+                isinstance(item.get("path"), str)
+                and isinstance(item.get("function"), str)
+                and "line" not in item
+            ):
+                found = line(item)
+                if found is not None:
+                    out["line"] = found
+            return out
+        if isinstance(item, list):
+            return [walk(v) for v in item]
+        return item
+
+    return walk(value)
