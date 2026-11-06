@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from sandloom.sdk.testing import skip_unless_db_feature
 from sandloom_tenancy.exceptions import TenancyForbiddenError, TenancyNotFoundError
 from sandloom_tenancy.models import (
     ROLE_ADMIN,
@@ -49,9 +50,11 @@ async def _until_a_transaction_waits_on_a_lock(holder: AsyncSession) -> None:
     connections, both in use by the two transactions under test."""
     for _ in range(1000):
         # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
         await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
         waiting = (
             await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
                 text(
                     "SELECT count(*) FROM pg_stat_activity "
                     "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
@@ -128,6 +131,7 @@ async def _race_with_open_demotion(
     return await asyncio.wait_for(racer, timeout=10)
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_remove_a_member(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -144,6 +148,7 @@ async def test_demoted_actor_cannot_remove_a_member(
         assert await MembershipService.get_role(org_id, member, db) == ROLE_MEMBER
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_removed_actor_cannot_change_a_role(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -163,6 +168,7 @@ async def test_removed_actor_cannot_change_a_role(
         assert await MembershipService.get_role(org_id, member, db) == ROLE_MEMBER
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_update_the_organization(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -181,6 +187,7 @@ async def test_demoted_actor_cannot_update_the_organization(
         assert (await OrganizationService.get_or_404(org_id, db)).name == "Lock Co"
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_invite(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -200,6 +207,7 @@ async def test_demoted_actor_cannot_invite(
     assert pending == []
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demoted_actor_cannot_revoke_an_invitation(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:
@@ -224,6 +232,7 @@ async def test_demoted_actor_cannot_revoke_an_invitation(
     assert row is not None and row.revoked_at is None
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_action_committed_first_serialises_the_demotion(
     sessions: async_sessionmaker[AsyncSession], captured
 ) -> None:

@@ -24,6 +24,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom.sdk.security import create_access_token
+from sandloom.sdk.testing import skip_unless_db_feature
 from sandloom_identity.events import EventActor
 from sandloom_identity.models.permission import Permission
 from sandloom_identity.models.role import Role
@@ -159,9 +160,11 @@ async def _until_a_transaction_waits_on_a_lock(holder: AsyncSession) -> None:
     connections, both in use by the two transactions under test."""
     for _ in range(1000):
         # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
         await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
         waiting = (
             await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
                 text(
                     "SELECT count(*) FROM pg_stat_activity "
                     "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
@@ -238,6 +241,7 @@ def _assign_as(
     return run
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_demotion_committing_mid_request_refuses_the_admin_action(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -256,6 +260,7 @@ async def test_demotion_committing_mid_request_refuses_the_admin_action(
         assert await RoleService.list_user_roles(b, db) == []
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_deactivation_committing_mid_request_refuses_the_admin_action(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -272,6 +277,7 @@ async def test_deactivation_committing_mid_request_refuses_the_admin_action(
     assert isinstance(outcome, HTTPException) and outcome.status_code == 403, outcome
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_admin_action_in_flight_serialises_the_demotion(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:

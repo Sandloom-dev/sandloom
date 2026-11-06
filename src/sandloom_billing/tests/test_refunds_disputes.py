@@ -18,10 +18,11 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from sandloom.sdk.data import WallClock
+from sandloom.sdk.testing import skip_unless_db_feature
 from sandloom_billing.models import CreditLedgerEntry, PspPaymentState
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
@@ -152,9 +153,11 @@ async def _until_transactions_wait_on_a_lock(holder: Any, count: int = 1) -> Non
     ``holder``, the session holding the lock: no extra pool connection."""
     for _ in range(1000):
         # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
         await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
         waiting = (
             await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
                 text(
                     "SELECT count(*) FROM pg_stat_activity "
                     "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
@@ -597,6 +600,7 @@ async def test_refund_without_a_psp_customer_is_refused(
 # --------------------------------------------------------------------------- #
 
 
+@skip_unless_db_feature("concurrent_writers")  # PostgreSQL lock waits
 async def test_concurrent_first_refund_and_completion_both_converge(
     test_engine: Any, catalog: dict[str, Any]
 ) -> None:

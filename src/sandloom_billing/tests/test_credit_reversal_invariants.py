@@ -224,11 +224,13 @@ async def _until_transactions_wait_on_a_lock(holder: Any, count: int = 1) -> Non
     ``holder``, the session holding the lock: no extra pool connection."""
     for _ in range(1000):
         # pg_stat_activity is a snapshot per transaction: drop it each round.
+        # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
         await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
         # Every waiter, not only those `pg_blocking_pids` names ``holder`` for:
         # the second caller queues behind the first, which then blocks it.
         waiting = (
             await holder.execute(
+                # sandloom: raw-sql PostgreSQL's lock-wait view; its callers need concurrent_writers
                 text(
                     "SELECT count(*) FROM pg_stat_activity WHERE datname = "
                     "current_database() AND wait_event_type = 'Lock'"

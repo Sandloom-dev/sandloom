@@ -41,17 +41,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import MetaData, UniqueConstraint
 from sqlalchemy import (
     MetaData,
     UniqueConstraint,
-    delete,
     event,
-    func,
-    literal,
-    select,
-    text,
-    union_all,
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, DisconnectionError

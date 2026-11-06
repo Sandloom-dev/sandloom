@@ -32,8 +32,8 @@ import pytest
 
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixtures
     COMPOSITION_ROOT_INI,
-    _sandloom_db_feature_skip,
     _sandloom_cancel_leftover_tasks,
+    _sandloom_db_feature_skip,
     _sandloom_isolate_module_globals,
     _sandloom_isolate_process_globals,
     _sandloom_loop_engines,
