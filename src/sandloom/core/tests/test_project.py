@@ -952,3 +952,100 @@ def test_an_unmarked_advanced_import_fails_the_app_gate(tmp_path: Path) -> None:
         )
     )
     assert beginner_tier_problems(root) == []
+
+
+_UNMIGRATED_MODEL = '''"""A model added without a revision."""
+
+import uuid
+
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from sandloom.sdk import Base, new_id
+
+
+class GadgetsTag(Base):
+    __tablename__ = "gadgets_tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    label: Mapped[str] = mapped_column(String(40))
+'''
+
+
+def _app_command(root: Path, database_url: str, *argv: str) -> tuple[int, str]:
+    """``python -m <argv>`` in the generated app, on ``database_url`` (no
+    database or Redis is reached: the static steps only read the URL)."""
+    import os
+    import subprocess
+
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "PYTHONPATH": str(root),
+        "ENVIRONMENT": "test",
+        "DATABASE_URL": database_url,
+        "CACHE_URL": "redis://127.0.0.1:9/0",
+        "BROKER_URL": "redis://127.0.0.1:9/1",
+        "JWT_SECRET": "test-only-not-a-secret-0123456789abcdef0123",
+        "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
+    }
+    proc = subprocess.run(
+        [sys.executable, "-m", *argv],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def test_a_model_change_on_sqlite_passes_the_chain_checks_with_a_skip(
+    tmp_path: Path,
+) -> None:
+    """An app on SQLite cannot write a revision (``sandloom migrate new``
+    refuses, SANDLOOM-B028): its ``sandloom test`` chain steps skip, saying
+    the chain is owed on PostgreSQL before production. The same app on
+    PostgreSQL fails SANDLOOM-T002 for the model without a revision."""
+    generate_project("probe", tmp_path, sample_module="gadgets")
+    root = tmp_path / "probe"
+    models = root / "probe" / "modules" / "gadgets" / "models"
+    (models / "tag.py").write_text(_UNMIGRATED_MODEL)
+    sqlite = f"sqlite+aiosqlite:///{tmp_path}/probe_test.db"
+    postgresql = "postgresql+asyncpg://u:p@127.0.0.1:9/probe_test"
+    static = ("sandloom.core.testing.static_checks", "--root", str(root))
+
+    code, out = _app_command(root, sqlite, *static)
+    assert code == 0, out
+    assert "migration chains (SANDLOOM-T002): coverage and ownership skipped" in out
+    assert "SANDLOOM-B029" in out and "before production" in out, out
+    assert "schema & deploy: OK (migration chains skipped)" in out, out
+    assert "gadgets_tags" not in out, out
+
+    code, out = _app_command(root, sqlite, "sandloom.core.cli.migrate", "drift")
+    assert code == 0, out
+    assert "migration drift: skipped" in out and "SANDLOOM-B029" in out, out
+
+    code, out = _app_command(root, postgresql, *static)
+    assert code == 1, out
+    assert "table gadgets_tags is not created by its owning chain" in out, out
+    assert "SANDLOOM-T002" in out and "skipped" not in out, out
+
+    # The deploy gate: the chains are applied only once they create every
+    # model's table; the refusal comes before any database is reached.
+    migrate = "sandloom.core.cli.migrate"
+    for command in (["upgrade-all", "--apply"], ["upgrade-all"]):
+        code, out = _app_command(root, postgresql, migrate, *command)
+        assert code == 1, out
+        assert "the migration chains do not create what the models declare" in out
+        assert "[SANDLOOM-T002]; nothing was applied" in out, out
+        assert "table gadgets_tags is not created" in out, out
+        assert 'sandloom migrate new gadgets "<message>"' in out, out
+        assert "cannot reach" not in out, out
+    # the core chain covers its own tables: upgrade-core goes on (to the
+    # unreachable database)
+    code, out = _app_command(root, postgresql, migrate, "upgrade-core", "--apply")
+    assert "SANDLOOM-T002" not in out and "cannot reach" in out, out
+    (models / "tag.py").unlink()
+    code, out = _app_command(root, postgresql, migrate, "upgrade-all", "--apply")
+    assert "SANDLOOM-T002" not in out and "cannot reach" in out, out

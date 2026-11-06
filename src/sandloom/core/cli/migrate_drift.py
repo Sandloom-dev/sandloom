@@ -14,7 +14,9 @@ its revision ships a schema the code does not expect. The check:
 
 Any difference fails with the module, the operations autogenerate found and
 the fix (``sandloom migrate new <module> "<message>"``). A module with no chain is
-skipped; a non-PostgreSQL default database skips the check (said so).
+skipped; a default database that takes its schema from the models
+(SQLite) skips the check with the reason, as does any other non-PostgreSQL
+one (the scratch database is PostgreSQL's).
 
 Nothing touches the configured databases: the scratch database is the only
 one written.
@@ -41,6 +43,7 @@ from sandloom.core.migrations.migrations import (
     run_core_upgrade,
     version_table_for,
 )
+from sandloom.core.sql_alchemy.portable import schema_from_models
 
 #: The catalogue code of a drift (``sandloom explain SANDLOOM-T006``).
 CODE = "SANDLOOM-T006"
@@ -123,6 +126,14 @@ def find_drift(descriptors: Sequence[ModuleDescriptor]) -> list[Drift]:
 def drift_supported() -> str | None:
     """Why the drift check cannot run here (``None``: it can)."""
     backend = make_url(resolve_database_sync_url("default")).get_backend_name()
+    if schema_from_models(backend):
+        return (
+            f"the default database ({backend}) takes its schema from the models "
+            "and runs no migration chain (SANDLOOM-B028); the chains are checked "
+            "on PostgreSQL: write each model change's revision there (sandloom "
+            "migrate new) before production, which refuses this database "
+            "(SANDLOOM-B029)"
+        )
     if backend != "postgresql":
         return f"the default database is {backend}, not PostgreSQL"
     return None

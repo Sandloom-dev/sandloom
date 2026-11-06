@@ -447,6 +447,8 @@ def test_a_worker_checks_the_schema_and_never_recreates() -> None:
 
 
 async def test_a_postgresql_provider_leaves_its_schema_to_the_chains() -> None:
+    if driver.get_default_engine().dialect.name != "postgresql":
+        pytest.skip("the default test database is not PostgreSQL")
     provider = driver.SQLAlchemyDatabaseProvider(
         name="default",
         driver="sqlalchemy",

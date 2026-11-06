@@ -288,9 +288,10 @@ them. Its renderer says `schema_from_models`, so the app builds the schema at
 startup with `metadata.create_all` over every mapped table, the kernel's
 included. Every SQLite instance gets every table.
 `sandloom migrate` refuses such a database with
-[SANDLOOM-B028](../reference/error-codes.md#sandloom-b028); only
-`sandloom migrate databases`, which lists, still runs. Write and apply a
-module's migrations against PostgreSQL.
+[SANDLOOM-B028](../reference/error-codes.md#sandloom-b028). Two sub-commands
+still run: `sandloom migrate databases`, which lists, and `sandloom migrate
+drift`, which says it skips. Write and apply a module's migrations against
+PostgreSQL.
 
 `create_all` creates a missing table and never alters an existing one. After a
 model change the file's tables lag the models. Startup compares the columns,
@@ -347,9 +348,16 @@ uv run pytest -n 4 --dist loadfile src/my_module/tests
   read sees the last commit and holds no lock, as in a PostgreSQL test
   transaction. The first write takes the database's write lock. A `FOR
   UPDATE` read, a savepoint and `transaction_lock` take it too. The
-  application's units then nest in the `db` session, as in production.
-- **Migration tests skip.** The `scratch_database` fixture skips: the chains
-  are PostgreSQL's.
+  application's units then nest in the `db` session, as in production. That
+  includes the `saga_harness`'s units in a test that also uses `client`. The
+  outbox events of a nested unit are rows of the `db` transaction, which
+  never commits. So they are neither published nor marked delivered, like
+  the events of the `client` fixture's requests. Its `on_commit` callbacks
+  run after the next successful request.
+- **Migration tests and checks skip.** The `scratch_database` fixture skips:
+  the chains are PostgreSQL's. So do the chain checks: the chain coverage of
+  `sandloom test`'s "schema & deploy" step (SANDLOOM-T002) and the
+  migrations-match-models tests (SANDLOOM-T006). Each says why.
 - **A test needing a feature SQLite lacks** is marked
   `@skip_unless_db_feature("arrays")`
   ([testing reference](../reference/testing.md#tests-that-need-a-database-feature)).
@@ -376,11 +384,19 @@ dev up` refuses and leaves `.env` as it is. The line must be the last
 `DATABASE_URL` of the file, outside the block; a PostgreSQL URL there is
 still `dev up`'s to manage. The
 schema is built at startup. `sandloom migrate upgrade-all` refuses
-(SANDLOOM-B028), and `sandloom test`'s "migration drift" step skips. To run
-the app's tests and gates on SQLite, set
+(SANDLOOM-B028). To run the app's tests and gates on SQLite, set
 `SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///./data/app_test.db` for
-`uv run sandloom test`. The migrations-match-models test skips there. The
-generated README says the same.
+`uv run sandloom test`. The migration checks skip there, each with its
+reason. They are the chain coverage of the "schema & deploy" step
+(SANDLOOM-T002), the migrations-match-models tests and the "migration drift"
+step (SANDLOOM-T006).
+A model or a column added on SQLite therefore passes without a revision.
+Before production, write the revision against PostgreSQL
+(`sandloom migrate new <module> "<message>"`), where the checks run.
+`sandloom migrate upgrade-all` and `upgrade-core` refuse a chain that does
+not create a model's table or index, before they apply anything
+(SANDLOOM-T002). Production refuses SQLite (SANDLOOM-B029). The generated
+README says the same.
 
 ### The CI lanes
 
@@ -456,6 +472,21 @@ projection watermarks. `CreatedAt` / `UpdatedAt` are stamped by each
 database's clock (`clock_timestamp()` on PostgreSQL, UTC milliseconds on
 SQLite). The platform's modules start on a SQLite file and serve requests.
 Nested write units commit with their caller, and module test suites run on a
-SQLite file. Gaps remain. `sandloom new` does not yet generate a SQLite
-application. Identity's claims query uses `array_agg` and `LATERAL`, so a
-login on SQLite fails. Until those close, run applications on PostgreSQL.
+SQLite file. An application from `sandloom new` with the standard modules
+runs on a file: sign-up, login, token refresh and organizations included
+([An application on SQLite](#an-application-on-sqlite)). PostgreSQL is still
+needed for:
+
+- **Production.** SQLite is refused there
+  ([Not in production](#not-in-production)).
+- **Migrations.** The chains are written and applied against PostgreSQL. A
+  model changed on SQLite needs its revision written there before a deploy.
+  `sandloom migrate upgrade-all` refuses a chain that does not create a
+  model's table or index
+  ([SANDLOOM-T002](../reference/error-codes.md#sandloom-t002)).
+- **Row security.** Tenant isolation on SQLite is the ORM guard alone.
+- **Concurrent writers.** One unit writes at a time. Tests of two writers
+  holding row locks skip there (`concurrent_writers`, `skip_locked`).
+- **The forms SQLite lacks:** `arrays`, `fulltext_search` and
+  `json_contains`. A module that declares one does not start on SQLite
+  ([SANDLOOM-B033](../reference/error-codes.md#sandloom-b033)).

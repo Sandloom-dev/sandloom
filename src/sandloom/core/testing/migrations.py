@@ -32,7 +32,7 @@ import os
 import re
 import unittest
 import uuid
-from collections.abc import Iterator
+from collections.abc import Container, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +60,17 @@ def runs_no_chains(url: str) -> bool:
     """The test database ``url`` takes its schema from the models (SQLite):
     no migration chain runs on it (SANDLOOM-B028)."""
     return bool(url) and schema_from_models(dialect_of_url(url))
+
+
+#: Why the migration-chain checks (coverage SANDLOOM-T002, migrations match
+#: models SANDLOOM-T006) skip on a database that takes its schema from the
+#: models, and what is still owed before production.
+CHAINS_CHECKED_ON_POSTGRESQL = (
+    "the test database takes its schema from the models and runs no migration "
+    "chain (SANDLOOM-B028); the chains are checked on PostgreSQL: write each "
+    "model change's revision there (sandloom migrate new) before production, "
+    "which refuses this database (SANDLOOM-B029)"
+)
 
 
 def _sync(url: str, db: str) -> str:
@@ -288,8 +299,22 @@ def chain_coverage_problems(core: Any = None) -> list[str]:
     production (SANDLOOM-T002). Each problem names the table, the model's owning
     module and that module's chain directory.
     """
-    problems: list[str] = []
-    owners = model_tables(core)
+    return [problem for _chain, problem in uncovered_by_chain(core)]
+
+
+def uncovered_by_chain(
+    core: Any = None, *, chains: Container[str] | None = None
+) -> list[tuple[MigrationChain, str]]:
+    """:func:`chain_coverage_problems` with the owning chain of each problem;
+    ``chains``: only the chains of these keys (``"core"``: the kernel's). Read
+    from the models and the revisions' source only: no database is reached,
+    so ``sandloom migrate`` runs it before it applies anything."""
+    problems: list[tuple[MigrationChain, str]] = []
+    owners = {
+        table: chain
+        for table, chain in model_tables(core).items()
+        if chains is None or chain.key in chains
+    }
     sources: dict[str, str] = {}
     created: dict[str, set[str]] = {}
     for chain in {c.key: c for c in owners.values()}.values():
@@ -305,15 +330,21 @@ def chain_coverage_problems(core: Any = None) -> list[str]:
         )
         if table not in created[chain.key]:
             problems.append(
-                f"table {table} is not created by its owning chain {where} — "
-                f"{fix} (SANDLOOM-T002)"
+                (
+                    chain,
+                    f"table {table} is not created by its owning chain {where} — "
+                    f"{fix} (SANDLOOM-T002)",
+                )
             )
             continue
         problems += [
-            f"index {table}.{index.name} is not created by its owning chain "
-            f"{where} — {fix}; a revision names each index literally, as "
-            "autogenerate writes it (a name built at runtime, such as an "
-            "f-string in a loop, is not recognised) (SANDLOOM-T002)"
+            (
+                chain,
+                f"index {table}.{index.name} is not created by its owning chain "
+                f"{where} — {fix}; a revision names each index literally, as "
+                "autogenerate writes it (a name built at runtime, such as an "
+                "f-string in a loop, is not recognised) (SANDLOOM-T002)",
+            )
             for index in Base.metadata.tables[table].indexes
             if not re.search(rf"\b{re.escape(str(index.name))}\b", sources[chain.key])
         ]
@@ -381,9 +412,8 @@ def _owned_tables(chain: MigrationChain, core: Any) -> frozenset[str]:
 
 
 _NEEDS_POSTGRESQL = (
-    "migrations match models needs PostgreSQL: this test database takes its "
-    "schema from the models and runs no migration chain (SANDLOOM-B028), or "
-    "no DATABASE_URL is set"
+    "migrations match models needs PostgreSQL: no DATABASE_URL is set, or "
+    + CHAINS_CHECKED_ON_POSTGRESQL
 )
 
 
@@ -482,5 +512,6 @@ __all__ = [
     "run_sql",
     "tables_created_by",
     "temporary_database",
+    "uncovered_by_chain",
     "upgrade_core_chain",
 ]

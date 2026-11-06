@@ -397,7 +397,12 @@ needs PostgreSQL (SANDLOOM-B029).
 
 The tests run on SQLite with `SANDLOOM_TEST_DATABASE_URL`; a test that needs
 a feature SQLite lacks skips (`skip_unless_db_feature`), and the migration
-checks skip:
+checks skip, each saying why: the chain coverage of `schema & deploy`
+(SANDLOOM-T002), the migrations-match-models tests and `migration drift`
+(SANDLOOM-T006). A new model or column passes there without a revision.
+Before production, write its revision against PostgreSQL (`sandloom migrate
+new <module> "<message>"`); those checks run there, and `sandloom migrate
+upgrade-all` refuses a chain without it (SANDLOOM-T002):
 
 ```bash
 SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///./data/app_test.db uv run sandloom test

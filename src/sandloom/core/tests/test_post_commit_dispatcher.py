@@ -926,6 +926,8 @@ async def test_a_drain_cancelling_the_coalescers_flush_leaves_no_cyclic_garbage(
     import uuid
     import weakref
 
+    from sqlalchemy.engine import Engine
+
     from sandloom.core.infra.contracts import OutboxHandle
 
     monkeypatch.setattr(uow_dispatch, "_MARK_FLUSH_INTERVAL_SECONDS", 3600.0)
@@ -985,10 +987,23 @@ async def test_a_drain_cancelling_the_coalescers_flush_leaves_no_cyclic_garbage(
         for _ in range(3):  # the stop's gather callbacks still reference the task
             await asyncio.sleep(0)
         gc.collect()
+        # An engine of an earlier test (SQLAlchemy's own cycles) may become
+        # unreachable in this window; what the kernel caches on it (a
+        # serial-writer database's nesting policy) goes with it and is no
+        # part of the job.
+        on_engines = {
+            id(value)
+            for obj in gc.garbage
+            if isinstance(obj, Engine)
+            for value in vars(obj).values()
+        }
         ours = [
             obj
             for obj in gc.garbage
-            if type(obj).__module__.startswith("sandloom.") or isinstance(obj, _Marker)
+            if (
+                type(obj).__module__.startswith("sandloom.") or isinstance(obj, _Marker)
+            )
+            and id(obj) not in on_engines
         ]
     finally:
         gc.set_debug(0)

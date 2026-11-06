@@ -1495,6 +1495,13 @@ breaks production. The check reads the revisions' source: a revision names
 each table and index literally (or a table through a module-level string
 constant), as `sandloom migrate new` writes it; a name built at runtime, such as
 an f-string in a loop, is not recognised.
+
+On a test database that takes its schema from the models (SQLite) coverage
+and ownership skip, with the reason: no chain runs there and no revision can
+be written. `sandloom migrate upgrade-all` and `upgrade-core` run the coverage
+check before they apply anything and refuse with this code, naming the
+missing table or index and the `sandloom migrate new` command to write it
+against PostgreSQL.
 """,
     ),
     _entry(

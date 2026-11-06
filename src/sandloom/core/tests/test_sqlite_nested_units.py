@@ -527,6 +527,9 @@ _SAGA_TESTS = (
     "test_duplicate_deliveries_never_run_a_step_twice",
     "src/sandloom/core/tests/test_sagas_recovery.py::"
     "test_refused_before_the_pivot_compensates_the_applied_steps",
+    # the harness beside the client fixture: no mark waits for db's lock
+    "src/sandloom/core/tests/test_saga_harness_with_client.py::"
+    "test_a_saga_run_between_requests_waits_for_no_lock",
 )
 
 
