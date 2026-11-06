@@ -587,6 +587,7 @@ jobs:
           tests/laws/test_saga_laws.py
           src/sandloom/core/tests/test_sqlite_nested_units.py
           src/sandloom/core/tests/test_nesting_policy.py
+          src/sandloom/core/tests/test_testing_loop_engines.py
           tests/integration/test_durable_command_idempotency.py
         env:
           SANDLOOM_TEST_DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/kernel_test.db

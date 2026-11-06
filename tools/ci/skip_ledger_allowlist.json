@@ -24,6 +24,10 @@
     {
       "test": "tests/extraction/test_extraction_e2e.py::*",
       "reason": "opt-in (SANDLOOM_EXTRACTION_E2E): the extraction-e2e workflow runs it"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_dev/test_dev_external.py::*",
+      "reason": "opt-in: `sandloom dev` against a developer's own PostgreSQL and Redis named in SANDLOOM_TEST_DATABASE_URL / SANDLOOM_TEST_CACHE_URL; the CI lanes provide their services without those variables"
     }
   ]
 }
