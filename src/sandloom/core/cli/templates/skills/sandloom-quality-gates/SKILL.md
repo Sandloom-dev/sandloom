@@ -16,15 +16,16 @@ Run from the app root. Every step must pass before work is done.
 
    ```bash
    uv run sandloom generate        # after a declaration change (snapshots, stubs)
-   uv run sandloom test <module>   # its tests first, then the fast suite and gates
+   uv run sandloom test <module>   # ruff check, its tests, the fast suite and gates
    uv run sandloom test            # once, at the end: the whole app
    ```
 
-   - It runs: the generated files (only checked: a stale one fails with
+   - It runs: `ruff check` first (what it fixes is in the tree the next
+     steps see), the generated files (only checked: a stale one fails with
      "run `sandloom generate`"),
-     `schema & deploy`, the tests in parallel, `ruff check`, `ruff format
-     --check`, `mypy`, `sandloom check`, the contract and route snapshots and
-     the migration drift check. `--full` adds the slow tests; `--plan`
+     `schema & deploy`, the tests in parallel, `ruff format --check`,
+     `mypy`, `sandloom check`, the contract and route snapshots and the
+     migration drift check. `--full` adds the slow tests; `--plan`
      prints the steps.
    - Never re-run a serial `pytest -q` after each fix: re-run
      `sandloom test <module>`.

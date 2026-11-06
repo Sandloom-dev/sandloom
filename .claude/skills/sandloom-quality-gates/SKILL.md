@@ -24,10 +24,12 @@ Run the gates from the repository root; every one must pass before work is done.
    ```
 
    - **What `sandloom test` runs:**
+     - `ruff check` first (what it fixes is in the tree the next steps see;
+       `--ci` runs `ruff check --no-fix` with the gates instead);
      - the module's tests;
      - `pytest -q -m "not slow" -n auto --dist loadfile` (with
        `SANDLOOM_TEST_REDIS_DB_STRIDE=auto`);
-     - `ruff check`, `ruff format --check`, `mypy`, `sandloom check`, the
+     - `ruff format --check`, `mypy`, `sandloom check`, the
        architecture tests, `lint-imports`, the contract and route snapshots
        and the public API baseline;
      - the generated files (`module.snapshot.json`, contract stubs and DTO

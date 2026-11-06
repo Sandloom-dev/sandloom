@@ -16,6 +16,10 @@ before the steps and again after a failure.
 
 Steps, in order (all run; the summary lists each, exit 1 if any failed):
 
+0. ``ruff check`` (with the gates, developer mode only): first, because a
+   project's ``fix = true`` lets it rewrite source; the generated files and
+   the tests then see the fixed tree, so a green run implies a green
+   ``--ci`` run on the same tree;
 1. ``generated files`` (with the gates): the L1 modules' generated files --
    ``module.snapshot.json``, the route and contract snapshots, the exported
    producer event schemas, the contract stubs and the DTO copies in the
@@ -31,7 +35,7 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
 3. ``suite``: ``pytest -m "not slow" -n auto --dist loadfile`` with
    ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` (``--full``: without ``-m "not slow"``;
    serially, with a notice, when pytest-xdist is not installed);
-4. static gates: ``ruff check`` (``--no-fix`` with ``--ci``), ``ruff format
+4. static gates: ``ruff check --no-fix`` (``--ci`` only), ``ruff format
    --check``, ``mypy``,
    ``sandloom check`` (architecture rules, SANDLOOM-Cnnn), the framework tree's
    architecture tests (which reuse the rule run ``sandloom check`` recorded,

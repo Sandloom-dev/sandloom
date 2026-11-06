@@ -188,20 +188,47 @@ def ignored(root: Path, locator: str) -> bool:
 
 
 _DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _definitions(block: list[ast.stmt]) -> list[ast.AST]:
+    """The definitions ``block`` binds, in source order: its own and those
+    under ``if`` / ``try`` / ``with`` / ``for`` / ``while`` / ``match``, never
+    those inside another definition's body."""
+    found: list[ast.AST] = []
+    for stmt in block:
+        if isinstance(stmt, _DEFS):
+            found.append(stmt)
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            found += _definitions(getattr(stmt, field, []))
+        for handler in getattr(stmt, "handlers", []):
+            found += _definitions(handler.body)
+        for case in getattr(stmt, "cases", []):
+            found += _definitions(case.body)
+    return found
 
 
 def _line(tree: ast.Module, qualname: str) -> int | None:
     """The first line (its first decorator, as ``co_firstlineno``) of the
-    definition ``qualname`` names in ``tree``; ``None`` when it is gone."""
-    scope: list[ast.AST] = list(tree.body)
+    definition ``qualname`` names in ``tree``; ``None`` when it is gone, or
+    for a lambda. The last definition of a name wins, as Python binds it; only
+    ``<locals>`` enters a function's body."""
+    scope: list[ast.stmt] | None = tree.body
     node: ast.AST | None = None
     for part in qualname.split("."):
         if part == "<locals>":
+            scope = node.body if isinstance(node, _FUNCTIONS) else None
             continue
-        node = next((n for n in scope if isinstance(n, _DEFS) and n.name == part), None)
-        if node is None:
+        if scope is None:
             return None
-        scope = [n for n in ast.walk(node) if n is not node and isinstance(n, _DEFS)]
+        named = [
+            n for n in _definitions(scope) if isinstance(n, _DEFS) and n.name == part
+        ]
+        if not named:
+            return None
+        node = named[-1]
+        scope = node.body if isinstance(node, ast.ClassDef) else None
     if not isinstance(node, _DEFS):
         return None
     return min([node.lineno, *(d.lineno for d in node.decorator_list)])

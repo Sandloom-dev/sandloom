@@ -2432,15 +2432,39 @@ def test_the_source_line_lookup_follows_qualified_names(tmp_path: Path) -> None:
     from sandloom.core.cli.inspection.files import with_lines
 
     (tmp_path / "m.py").write_text(
-        "class A:\n    def f(self): ...\n\n"
-        "def outer():\n    def inner(): ...\n    return inner\n"
+        "class A:\n"  # 1
+        "    def f(self): ...\n"  # 2
+        "    def g(self):\n"  # 3
+        "        def h(): ...\n"  # 4
+        "\n"  # 5
+        "def outer():\n"  # 6
+        "    def inner(): ...\n"  # 7
+        "    return inner\n"  # 8
+        "def twice(): ...\n"  # 9
+        "def twice(): ...\n"  # 10
+        "try:\n"  # 11
+        "    import fast\n"  # 12
+        "except ImportError:\n"  # 13
+        "    def fallback(): ...\n"  # 14
+        "if True:\n"  # 15
+        "    class B:\n"  # 16
+        "        with open(__file__):\n"  # 17
+        "            def m(self): ...\n"  # 18
+        "key = lambda: 0\n"  # 19
     )
 
     def line(function: str) -> object:
         return with_lines(tmp_path, {"path": "m.py", "function": function}).get("line")
 
     assert line("A.f") == 2
-    assert line("outer.<locals>.inner") == 5
+    assert line("A.g.<locals>.h") == 4
+    assert line("A.h") is None  # only <locals> enters a function body
+    assert line("outer.<locals>.inner") == 7
+    assert line("inner") is None
+    assert line("twice") == 10  # the binding Python keeps
+    assert line("fallback") == 14
+    assert line("B.m") == 18
+    assert line("<lambda>") is None
     assert line("gone") is None
     assert with_lines(tmp_path, {"path": "missing.py", "function": "f"}) == {
         "path": "missing.py",

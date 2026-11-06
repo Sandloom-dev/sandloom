@@ -507,7 +507,10 @@ website renders this same changelog.
   stale, and two branches no longer conflict on it for that reason. Its
   `distributions` record the public version, without a local `+g<sha>` build
   tag, so a framework rebuild leaves it current. Readers still accept a
-  schema 1 index, and `sandloom graph diff` compares across both.
+  schema 1 index, and `sandloom graph diff` compares across both. It
+  compares a route's or step's source by file only: moving a handler within
+  its file is not a reported change (a rename still shows in the route's
+  `name`).
 
   **Upgrade:** run `uv run sandloom generate` and commit
   `.sandloom/inspection.json`.

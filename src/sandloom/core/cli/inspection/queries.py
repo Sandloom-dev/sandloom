@@ -109,7 +109,9 @@ def impact(reader: Reader, selector: str, require: bool) -> Doc:
 
 def _sources_by_path(value: Any) -> Any:
     """``value`` with each source location reduced to its file: schema 1
-    stored a line, schema 2 a function name; neither is a declared change."""
+    stored a line, schema 2 a function name; neither is a declared change.
+    So ``graph diff`` reports no change when a handler moves or is renamed
+    within its file (a route's ``name`` field still shows the rename)."""
     if isinstance(value, dict):
         if isinstance(value.get("path"), str) and (
             "line" in value or "function" in value

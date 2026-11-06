@@ -6,13 +6,16 @@ exports its invitations — the same mechanism: an org-admin gate and a LIVE
 subscription gate on the organization's account (billing battery loaded),
 the billing contract declared or derived."""
 
+import ast
 import json
 import re
+from pathlib import Path
 
 from _dx import (
     Route,
     app_mode,
     changed_under,
+    definitions,
     expanded_head,
     module_dir,
     module_prefix,
@@ -38,9 +41,9 @@ def _export() -> list[Route]:
     return [r for r in routes(MODULE) if "export" in (r.path + r.function).lower()]
 
 
-def _gate_text(route: Route) -> str:
+def _gate_text(route: Route, root: Path = MODULE) -> str:
     """The route plus the module-level policy constants it names (resolved)."""
-    return route.text + "\n" + expanded_head(route, MODULE)
+    return route.text + "\n" + expanded_head(route, root)
 
 
 def _spellings(values: tuple[str, ...]) -> str:
@@ -76,22 +79,112 @@ def test_dev_live_subscription_gate() -> None:
     )
 
 
-def _org_account(blob: str) -> bool:
-    """of=Account.org(...) (``param="org_id"`` or ``param=None``), the org fact,
-    or Account.bound_tenant() next to an organization admin role: the role
-    fails on a personal tenant, so the pair checks only an organization's
-    account."""
+#: The organization roles that make ``Account.bound_tenant()`` an organization
+#: account: the role check fails on a personal tenant. ``require_org_role``
+#: is not one: it reads the path's ``org_id`` without comparing it with the
+#: bound tenant.
+_ORG_ADMIN_ROLES = {"admin", "owner"}
+
+
+def _callee(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+
+
+def _resolved(node: ast.expr, defs: dict[str, str], seen: frozenset[str]) -> ast.expr:
+    """``node`` with each module-level constant it names replaced by its
+    definition, transitively."""
+
+    class Expand(ast.NodeTransformer):
+        def visit_Name(self, name: ast.Name) -> ast.AST:
+            if name.id in defs and name.id not in seen:
+                try:
+                    value = ast.parse(defs[name.id], mode="eval").body
+                except SyntaxError:
+                    return name
+                return _resolved(value, defs, seen | {name.id})
+            return name
+
+    return Expand().visit(node)
+
+
+def _conjuncts(expr: ast.expr) -> list[ast.expr]:
+    """The terms every request must pass: ``A & B`` splits, ``A | B`` does not."""
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitAnd):
+        return _conjuncts(expr.left) + _conjuncts(expr.right)
+    return [expr]
+
+
+def gate_terms(route: Route, root: Path) -> list[ast.expr]:
+    """The conjuncts of every ``require(...)`` on the route (its decorator and
+    its parameters' defaults, constants resolved), parsed, never matched as
+    text."""
+    parsed = ast.parse(route.file.read_text(errors="replace"))
+    defs = definitions(root)
+    terms: list[ast.expr] = []
+    for node in ast.walk(parsed):
+        if not (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == route.function
+        ):
+            continue
+        args = node.args
+        for part in [*node.decorator_list, *args.defaults, *args.kw_defaults]:
+            if part is None:
+                continue
+            for call in ast.walk(_resolved(part, defs, frozenset())):
+                if (
+                    isinstance(call, ast.Call)
+                    and _callee(call) == "require"
+                    and call.args
+                ):
+                    terms += _conjuncts(call.args[0])
+    return terms
+
+
+def _org_admin_role(term: ast.expr) -> bool:
+    if _callee(term) != "OrgRole":
+        return False
+    assert isinstance(term, ast.Call)
+    values = [*term.args[:1], *(k.value for k in term.keywords if k.arg == "role")]
+    return any(
+        isinstance(v, ast.Constant) and v.value in _ORG_ADMIN_ROLES for v in values
+    )
+
+
+def _of_bound_tenant(term: ast.expr) -> bool:
+    if not isinstance(term, ast.Call):
+        return False
+    return any(
+        k.arg == "of" and _callee(k.value) == "bound_tenant" for k in term.keywords
+    )
+
+
+def bound_tenant_under_org_admin(terms: list[ast.expr]) -> bool:
+    """A billing atom ``of=Account.bound_tenant()`` AND an ``OrgRole("admin")``
+    / ``OrgRole("owner")`` term of the same route's gates (an ``|`` keeps
+    either from being a term)."""
+    return any(map(_of_bound_tenant, terms)) and any(map(_org_admin_role, terms))
+
+
+def _org_account(route: Route, root: Path) -> bool:
+    """of=Account.org(...) (``param="org_id"`` or ``param=None``), the org
+    fact, or Account.bound_tenant() required together with an organization
+    admin role (:func:`bound_tenant_under_org_admin`)."""
+    blob = _gate_text(route, root)
     if "Account.org(" in blob or _org_fact_gate(blob):
         return True
-    return "Account.bound_tenant()" in blob and any(g in blob for g in ADMIN_GATES)
+    return bound_tenant_under_org_admin(gate_terms(route, root))
 
 
 def test_dev_gate_checks_the_organization() -> None:
     """The organization's subscription, not the caller's: of=Account.org(...),
-    the org fact, or Account.bound_tenant() under an admin role
+    the org fact, or Account.bound_tenant() AND OrgRole("admin"/"owner")
     (Account.user(reason=...) passes SANDLOOM-C027 but checks the wrong
     account)."""
-    assert any(_org_account(_gate_text(r)) for r in _export())
+    assert any(_org_account(r, MODULE) for r in _export())
 
 
 def _derived_consumes() -> set[str]:
