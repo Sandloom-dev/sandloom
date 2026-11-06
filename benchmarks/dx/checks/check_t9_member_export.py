@@ -101,7 +101,9 @@ def _resolved(node: ast.expr, defs: dict[str, str], seen: frozenset[str]) -> ast
         def visit_Name(self, name: ast.Name) -> ast.AST:
             if name.id in defs and name.id not in seen:
                 try:
-                    value = ast.parse(defs[name.id], mode="eval").body
+                    # parenthesised: a multiline ``A\n & B`` constant loses
+                    # its own parentheses in the extracted source segment
+                    value = ast.parse(f"({defs[name.id]})", mode="eval").body
                 except SyntaxError:
                     return name
                 return _resolved(value, defs, seen | {name.id})
@@ -117,30 +119,39 @@ def _conjuncts(expr: ast.expr) -> list[ast.expr]:
     return [expr]
 
 
+def _require_terms(part: ast.expr, defs: dict[str, str]) -> list[ast.expr]:
+    terms: list[ast.expr] = []
+    for call in ast.walk(_resolved(part, defs, frozenset())):
+        if isinstance(call, ast.Call) and _callee(call) == "require" and call.args:
+            terms += _conjuncts(call.args[0])
+    return terms
+
+
 def gate_terms(route: Route, root: Path) -> list[ast.expr]:
-    """The conjuncts of every ``require(...)`` on the route (its decorator and
-    its parameters' defaults, constants resolved), parsed, never matched as
-    text."""
+    """The conjuncts of every ``require(...)`` on the route (its decorator,
+    its parameters' defaults and its router's own definition, constants
+    resolved), parsed, never matched as text. The route's function is the
+    one defined at ``route.line``: a same-named method elsewhere in the file
+    contributes nothing."""
     parsed = ast.parse(route.file.read_text(errors="replace"))
     defs = definitions(root)
     terms: list[ast.expr] = []
+    if route.router:
+        try:
+            terms += _require_terms(ast.parse(route.router, mode="eval").body, defs)
+        except SyntaxError:
+            pass
     for node in ast.walk(parsed):
         if not (
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name == route.function
+            and (not route.line or node.lineno == route.line)
         ):
             continue
         args = node.args
         for part in [*node.decorator_list, *args.defaults, *args.kw_defaults]:
-            if part is None:
-                continue
-            for call in ast.walk(_resolved(part, defs, frozenset())):
-                if (
-                    isinstance(call, ast.Call)
-                    and _callee(call) == "require"
-                    and call.args
-                ):
-                    terms += _conjuncts(call.args[0])
+            if part is not None:
+                terms += _require_terms(part, defs)
     return terms
 
 
@@ -169,14 +180,33 @@ def bound_tenant_under_org_admin(terms: list[ast.expr]) -> bool:
     return any(map(_of_bound_tenant, terms)) and any(map(_org_admin_role, terms))
 
 
+def _of_org(term: ast.expr) -> bool:
+    """A billing atom whose ``of=`` is ``Account.org(...)``."""
+    if not isinstance(term, ast.Call):
+        return False
+    return any(k.arg == "of" and _callee(k.value) == "org" for k in term.keywords)
+
+
+def _org_fact(term: ast.expr) -> bool:
+    """``Entitled("organization.subscription.active")`` (constants resolved)."""
+    if _callee(term) != "Entitled":
+        return False
+    assert isinstance(term, ast.Call)
+    values = [*term.args[:1], *(k.value for k in term.keywords if k.arg == "fact_name")]
+    return any(isinstance(v, ast.Constant) and v.value == ORG_FACT for v in values)
+
+
 def _org_account(route: Route, root: Path) -> bool:
-    """of=Account.org(...) (``param="org_id"`` or ``param=None``), the org
-    fact, or Account.bound_tenant() required together with an organization
-    admin role (:func:`bound_tenant_under_org_admin`)."""
-    blob = _gate_text(route, root)
-    if "Account.org(" in blob or _org_fact_gate(blob):
+    """A gate term every request passes: a billing atom of=Account.org(...)
+    (``param="org_id"`` or ``param=None``), the org fact, or
+    Account.bound_tenant() required together with an organization admin
+    role (:func:`bound_tenant_under_org_admin`). Terms are parsed from the
+    route's and its router's ``require(...)``: a docstring, a comment or an
+    ``|`` alternative naming them is not a gate."""
+    terms = gate_terms(route, root)
+    if any(_of_org(t) or _org_fact(t) for t in terms):
         return True
-    return bound_tenant_under_org_admin(gate_terms(route, root))
+    return bound_tenant_under_org_admin(terms)
 
 
 def test_dev_gate_checks_the_organization() -> None:

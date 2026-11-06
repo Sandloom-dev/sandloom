@@ -167,6 +167,8 @@ class Route:
     file: Path
     text: str  # decorator + signature + the router's own definition + body
     head: str = ""  # decorator + signature + the router's own definition
+    line: int = 0  # the ``def`` line: tells same-named functions apart
+    router: str = ""  # the router's own definition (``module_router(...)``)
 
 
 @dataclass
@@ -225,6 +227,8 @@ def routes(root: Path) -> list[Route]:
                         file=path,
                         text="\n".join((head, body)),
                         head=head,
+                        line=node.lineno,
+                        router=router_src,
                     )
                 )
     return found

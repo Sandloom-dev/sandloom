@@ -62,3 +62,67 @@ def test_a_docstring_naming_the_role_is_not_a_gate(tmp_path: Path) -> None:
 def test_the_org_account_forms_pass(tmp_path: Path) -> None:
     gate = 'require(OrgRole("admin") & SubscriptionActive(of=Account.org(param=None)))'
     assert _route(tmp_path, gate)
+
+
+def test_a_multiline_gate_constant_parses(tmp_path: Path) -> None:
+    (tmp_path / "api.py").write_text(
+        "GATE = (\n"
+        '    OrgRole("admin")\n'
+        "    & SubscriptionActive(of=Account.bound_tenant())\n"
+        ")\n"
+        "\n"
+        '@router.get("/invitations/export", dependencies=[Depends(require(GATE))])\n'
+        "async def export() -> None: ...\n"
+    )
+    (route,) = routes(tmp_path)
+    assert check._org_account(route, tmp_path)
+
+
+def test_a_same_named_method_lends_no_gate(tmp_path: Path) -> None:
+    (tmp_path / "api.py").write_text(
+        "class Other:\n"
+        f"    def export(self, _=Depends({GATES['t9']})) -> None: ...\n"
+        "\n"
+        f'@router.get("/invitations/export", dependencies=[Depends({GATES["no_role"]})])\n'
+        "async def export() -> None: ...\n"
+    )
+    (route,) = routes(tmp_path)
+    assert not check._org_account(route, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "docstring",
+    ['Account.org(param="org_id")', 'Entitled("organization.subscription.active")'],
+)
+def test_org_forms_in_text_are_not_a_gate(tmp_path: Path, docstring: str) -> None:
+    assert not _route(tmp_path, GATES["user"], docstring=docstring)
+
+
+@pytest.mark.parametrize(
+    "gate",
+    [
+        'require(OrgRole("admin") | SubscriptionActive(of=Account.org(param=None)))',
+        'require(OrgRole("admin") | Entitled("organization.subscription.active"))',
+    ],
+)
+def test_org_forms_in_an_alternative_are_not_a_gate(tmp_path: Path, gate: str) -> None:
+    assert not _route(tmp_path, gate)
+
+
+def test_the_org_fact_passes(tmp_path: Path) -> None:
+    assert _route(
+        tmp_path,
+        'require(OrgRole("admin") & Entitled("organization.subscription.active"))',
+    )
+
+
+def test_a_router_level_gate_counts(tmp_path: Path) -> None:
+    (tmp_path / "api.py").write_text(
+        "router = module_router(dependencies=[Depends(require("
+        'SubscriptionActive(of=Account.org(param="org_id"))))])\n'
+        "\n"
+        '@router.get("/invitations/export")\n'
+        "async def export() -> None: ...\n"
+    )
+    (route,) = routes(tmp_path)
+    assert check._org_account(route, tmp_path)

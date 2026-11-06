@@ -97,6 +97,12 @@ Summary: mode=app, tasks=10, tasks_ran=10, errored=[], passed=6, dev_checks_fail
     that run. This is the only task whose route derives a `requires_contract` edge
     (billing.entitlements.v1) from a gate. Unconfirmed lead: the inspection output depends on the
     environment or is nondeterministic.
-- **Cost and time:** tokens, turns and minutes went up (mean tokens 0.81M → 1.10M; t1 1.0M → 2.6M,
-  t3 1.2M → 1.9M, t4 0.5M → 0.9M). With one sample per task this is within the ±30% noise for
-  most tasks. t1 has the largest change.
+- **Cost and time:** tokens, turns and minutes went up (mean tokens 0.81M → 1.10M, +35%; t1
+  1.0M → 2.6M, t3 1.2M → 1.9M, t4 0.5M → 0.9M). Five of the ten tasks changed tokens by less than
+  30% (t2, t5, t7, t8, t10); t1, t3, t4, t6 and t9 changed by more. With one sample per task
+  these numbers cannot tell a regression from run-to-run variation. t1 has the largest change.
+- **t2's report:** the agent writes that the `dedupe_key` of `welcome:<user_id>` means "a retry
+  after a failed commit can't send a second copy". That is not so: `Notification.dedupe_key` is a
+  key a driver *may* use (`sandloom/core/infra/contracts.py`), and the SMTP driver ignores it, so
+  a send that succeeded before a failed commit is sent again on retry. The report is kept as the
+  agent wrote it; no check scores this claim.

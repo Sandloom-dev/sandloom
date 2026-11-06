@@ -28,7 +28,10 @@ def _location(callback: Any, root: Path) -> Doc | None:
         return None
     return {
         "path": path.relative_to(root).as_posix(),
-        "function": getattr(callback, "__qualname__", code.co_qualname),
+        # the code object's own name, like its file: a ``functools.wraps``
+        # wrapper copies the wrapped function's ``__qualname__`` but keeps
+        # its own ``__code__``
+        "function": code.co_qualname,
     }
 
 

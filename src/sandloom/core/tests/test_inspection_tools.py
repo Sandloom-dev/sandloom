@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import shutil
 import subprocess
@@ -14,9 +15,10 @@ import pytest
 
 from sandloom.core.archcheck.manifest import ArchRules
 from sandloom.core.cli.generated import Generated, apply
-from sandloom.core.cli.inspection import collect, generation, graph
+from sandloom.core.cli.inspection import collect, generation, graph, processes
 from sandloom.core.cli.inspection.cli import main
 from sandloom.core.cli.inspection.model import INDEX, RECEIPT, encode
+from sandloom.core.cli.inspection.queries import _sources_by_path
 from sandloom.core.cli.inspection.read import Reader
 from sandloom.core.descriptors import (
     CapabilityRequirement,
@@ -2470,3 +2472,33 @@ def test_the_source_line_lookup_follows_qualified_names(tmp_path: Path) -> None:
         "path": "missing.py",
         "function": "f",
     }
+
+
+def test_a_wrapped_callback_is_located_by_its_own_code(tmp_path: Path) -> None:
+    """``functools.wraps`` copies the wrapped ``__qualname__`` onto a wrapper
+    defined elsewhere; the location names the code object, path and name
+    alike, so the reader finds its line."""
+
+    def target() -> None: ...
+
+    def decorate(fn):  # type: ignore[no-untyped-def]
+        @functools.wraps(fn)
+        def wrapper() -> None: ...
+
+        return wrapper
+
+    wrapped = decorate(target)
+    assert wrapped.__qualname__ != wrapped.__code__.co_qualname
+    root = Path(__file__).resolve().parent
+    location = processes._location(wrapped, root)
+    assert location is not None
+    assert location["function"] == wrapped.__code__.co_qualname
+
+
+def test_graph_diff_keeps_event_schema_data_that_looks_like_a_location() -> None:
+    schema = {"const": {"path": "/a", "line": 3}}
+    route = {"source": {"path": "m.py", "function": "f"}}
+    step = {"compensation_source": {"path": "s.py", "function": "undo"}}
+    assert _sources_by_path(schema) == schema
+    assert _sources_by_path(route) == {"source": {"path": "m.py"}}
+    assert _sources_by_path(step) == {"compensation_source": {"path": "s.py"}}

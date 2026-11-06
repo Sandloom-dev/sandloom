@@ -107,17 +107,27 @@ def impact(reader: Reader, selector: str, require: bool) -> Doc:
     )
 
 
+#: The index keys that hold a source location (``processes._location``):
+#: a route's and a saga step's ``source``, a step's ``compensation_source``.
+_LOCATION_KEYS = frozenset({"source", "compensation_source"})
+
+
 def _sources_by_path(value: Any) -> Any:
     """``value`` with each source location reduced to its file: schema 1
     stored a line, schema 2 a function name; neither is a declared change.
     So ``graph diff`` reports no change when a handler moves or is renamed
-    within its file (a route's ``name`` field still shows the rename)."""
+    within its file (a route's ``name`` field still shows the rename). Only
+    the values of :data:`_LOCATION_KEYS` are locations: an event schema's
+    ``{"path", "line"}`` data is compared whole."""
     if isinstance(value, dict):
-        if isinstance(value.get("path"), str) and (
-            "line" in value or "function" in value
-        ):
-            return {"path": value["path"]}
-        return {k: _sources_by_path(v) for k, v in value.items()}
+        return {
+            k: {"path": v["path"]}
+            if k in _LOCATION_KEYS
+            and isinstance(v, dict)
+            and isinstance(v.get("path"), str)
+            else _sources_by_path(v)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
         return [_sources_by_path(v) for v in value]
     return value
