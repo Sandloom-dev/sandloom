@@ -10,7 +10,7 @@
   cancels the task. Work after the response (post-commit dispatch) is never
   cancelled.
 * **instrumentation** — counts every call / outcome of
-  ``tenant_rls._merged_begin`` (looked up by global name at call time, so the
+  ``dbapi_asyncpg._merged_begin`` (looked up by global name at call time, so the
   patch is seen by the installed hook), the pool's ``connect`` / ``checkout``
   / ``invalidate`` events, and serves them with the pool state on
   ``GET /_soak/state`` (the wrapper answers it; it never reaches the app).
@@ -26,8 +26,8 @@ import os
 from collections import Counter
 from typing import Any
 
-from sandloom.core.sql_alchemy import driver_compat, tenant_rls
 from benchsuite.apps.sandloom_app import app as sandloom_app
+from sandloom.core.drivers import dbapi_asyncpg
 
 STATS: dict[str, Any] = {
     "merged_calls": 0,
@@ -42,13 +42,13 @@ STATS: dict[str, Any] = {
     "requests": 0,
 }
 
-_orig_merged_begin = tenant_rls._merged_begin
+_orig_merged_begin = dbapi_asyncpg._merged_begin
 
 
-async def _counting_merged_begin(adapter: Any, value: str) -> bool:
+async def _counting_merged_begin(adapter: Any, value: str, *args: Any) -> bool:
     STATS["merged_calls"] += 1
     try:
-        done = await _orig_merged_begin(adapter, value)
+        done = await _orig_merged_begin(adapter, value, *args)
     except BaseException as error:
         STATS["merged_err"][type(error).__name__] += 1
         raise
@@ -56,7 +56,7 @@ async def _counting_merged_begin(adapter: Any, value: str) -> bool:
     return done
 
 
-tenant_rls._merged_begin = _counting_merged_begin  # type: ignore[assignment]
+dbapi_asyncpg._merged_begin = _counting_merged_begin  # type: ignore[assignment]
 _listening = False
 
 
@@ -95,7 +95,7 @@ def _state() -> dict[str, Any]:
     return {
         "pid": os.getpid(),
         "merged_setting": settings.db_rls_merged_begin,
-        "probe_ok": driver_compat.asyncpg_fast_paths_ok(),
+        "probe_ok": dbapi_asyncpg.asyncpg_fast_paths_ok(),
         "pool": {
             "size": pool.size(),
             "checkedout": pool.checkedout(),
@@ -112,7 +112,9 @@ def _dead_conn_replaced() -> dict[str, float]:
     """Dead pooled connections replaced before a byte was sent, by phase
     (``sandloom_db_dead_connection_replaced_total``; empty on older servers)."""
     try:
-        from sandloom.core.observability.metrics import db_dead_connection_replaced_total
+        from sandloom.core.observability.metrics import (
+            db_dead_connection_replaced_total,
+        )
     except ImportError:
         return {}
     out: dict[str, float] = {}

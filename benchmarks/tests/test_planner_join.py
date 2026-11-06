@@ -95,8 +95,8 @@ DDL = [
         parent_id BIGINT NOT NULL REFERENCES bench_join_parents(id),
         code VARCHAR(32) NOT NULL, role VARCHAR(16) NOT NULL, other_id BIGINT,
         UNIQUE (parent_id, code))""",
-    *enable_tenant_rls_statements("bench_join_parents"),
-    *enable_tenant_rls_statements("bench_join_children"),
+    *enable_tenant_rls_statements("bench_join_parents", dialect="postgresql"),
+    *enable_tenant_rls_statements("bench_join_children", dialect="postgresql"),
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON bench_join_parents, "
     f"bench_join_children TO {ROLE}",
     f"""INSERT INTO bench_join_parents VALUES

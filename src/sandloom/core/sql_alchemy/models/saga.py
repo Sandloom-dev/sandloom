@@ -31,12 +31,12 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
-    text,
+    Uuid,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.core.sql_alchemy.base import Base
+from sandloom.core.sql_alchemy.portable import partial_index
 
 #: Statuses an instance can be advanced from.
 ACTIVE_STATUSES = ("running", "compensating")
@@ -47,24 +47,22 @@ class SagaInstance(Base):
     __table_args__ = (
         UniqueConstraint("saga_type", "saga_id", name="uq_saga_instances_type_id"),
         # The sweep's due scan: active rows only (terminal ones never match).
-        Index(
+        partial_index(
             "ix_saga_instances_due",
             "next_attempt_at",
-            postgresql_where=text("status IN ('running', 'compensating')"),
+            where="status IN ('running', 'compensating')",
         ),
         Index("ix_saga_instances_status_updated", "status", "updated_at"),
         Index("ix_saga_instances_tenant_id", "tenant_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True)
     #: ``<module>.<name>`` of the definition.
     saga_type: Mapped[str] = mapped_column(String(200), nullable=False)
     definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
     #: The business id (unique per type): starting it again is a create-or-get.
     saga_id: Mapped[str] = mapped_column(String(200), nullable=False)
-    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), nullable=True)
     #: running | compensating | completed | compensated | parked
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     #: Index of the step to run next (forward) or to compensate next (backward).
@@ -115,15 +113,13 @@ class SagaStepRecord(Base):
     __tablename__ = "saga_steps"
     __table_args__ = (Index("ix_saga_steps_tenant_id", "tenant_id"),)
 
-    instance_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    instance_id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True)
     step: Mapped[str] = mapped_column(String(64), primary_key=True)
     #: do | undo
     direction: Mapped[str] = mapped_column(String(4), primary_key=True)
     #: Copied from the instance: filters (extract-module, metrics) and RLS.
     saga_type: Mapped[str] = mapped_column(String(200), nullable=False)
-    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), nullable=True)
     #: succeeded | failed | refused | resolved_applied | resolved_skipped
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     #: Outcome class of the last attempt.

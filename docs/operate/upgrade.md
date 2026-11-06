@@ -52,6 +52,8 @@ See [module maps](../ai/module-context.md) and the
 [architecture explorer](../ai/architecture-graph.md) for formats and freshness.
 
 For a breaking event payload, use [dual-publish versioning](../modules/between/event-versioning.md).
+The release after `0.7.0a10` has its own guide:
+[Upgrade to portable SQL and SQLite](upgrade-sqlite-and-portable-sql.md).
 The [Public API 1.0 migration](upgrade-1.0.md) is a specific historical source
 migration guide, not the general package-upgrade procedure.
 

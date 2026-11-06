@@ -37,14 +37,14 @@ from test_s5_secure_read import (  # noqa: F401 - fixtures
     s5,
 )
 
+from benchsuite.bench.api import ItemOut
+from benchsuite.bench.operations import get_tenant_item
+from benchsuite.bench.tenant_models import BenchTenantItem
 from sandloom.core.di import SnapshotReads, TenantScope
 from sandloom.core.orm import ReadOperation, session_reads
 from sandloom.core.planner import PlanningError, Reads, plan_for, read_scope
 from sandloom.core.tenant import bind_tenant
 from sandloom.core.unit_of_work import db_session
-from benchsuite.bench.api import ItemOut
-from benchsuite.bench.operations import get_tenant_item
-from benchsuite.bench.tenant_models import BenchTenantItem
 
 pytestmark = pytest.mark.asyncio
 
@@ -76,7 +76,9 @@ async def test_default_scope_is_read_committed(s5: S5, sandloom_core: Any) -> No
 
 
 @BOTH
-async def test_repeatable_read_scope_is_one_snapshot(s5: S5, sandloom_core: Any) -> None:
+async def test_repeatable_read_scope_is_one_snapshot(
+    s5: S5, sandloom_core: Any
+) -> None:
     core = sandloom_core.runtime_view()
     pid = await _clean(s5)
     try:
@@ -200,8 +202,8 @@ async def test_general_executor_transaction_isolation_is_explicit(
     from sqlalchemy import text
 
     adapter = sandloom_core.database("default").execution_adapter()
-    saved = adapter._rc_default
-    adapter._rc_default = server_default_is_rc
+    saved = adapter._statement_default
+    adapter._statement_default = server_default_is_rc
     try:
         async with adapter.session(_ctx(A)) as session:
             row = (
@@ -213,9 +215,9 @@ async def test_general_executor_transaction_isolation_is_explicit(
                 )
             ).one()
     finally:
-        adapter._rc_default = saved
+        adapter._statement_default = saved
     assert tuple(row) == ("read committed", "on")
-    ru = adapter.read_unit("REPEATABLE READ")
+    ru = adapter.read_unit(snapshot=True)
     with bind_tenant(A):
         await ru.fetch(
             plan_for(sandloom_core.runtime_view(), get_tenant_item),

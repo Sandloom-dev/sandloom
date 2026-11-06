@@ -11,9 +11,16 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import Column, UniqueConstraint
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import ColumnProperty, Session
 from sqlalchemy.sql import sqltypes
+
+from sandloom.core.sql_alchemy.dbapi import dbapi_adapter_of
+from sandloom.core.sql_alchemy.portable import (
+    CaseInsensitiveText,
+    UtcDateTime,
+    is_partial_index,
+    is_plain_index,
+)
 
 _NATIVE_TYPES = (
     sqltypes.Integer,
@@ -25,12 +32,21 @@ _NATIVE_TYPES = (
     sqltypes.LargeBinary,
     sqltypes.Uuid,
 )
-#: Exact dialect types that are native as RESULT columns only. PostgreSQL's
-#: ``citext`` has no SQLAlchemy result processing and asyncpg decodes it to the
-#: same ``str`` (text I/O) on both executors. As a key, filter or order column
-#: its comparison semantics depend on the parameter's inferred type (``citext``
-#: vs a cast ``varchar``/``text`` is case-sensitive), so those stay general.
-_RESULT_ONLY_TYPES: tuple[type, ...] = (postgresql.CITEXT,)
+#: Exact types that are native as RESULT columns only: ``CaseInsensitiveText``
+#: here, plus the dialect types the DBAPI adapter's raw executor decodes as
+#: SQLAlchemy would (``DbapiAdapter.raw_result_only_types``: asyncpg's
+#: ``citext``, the same ``str`` on both executors). As a key, filter or order
+#: column its comparison semantics depend on the parameter's inferred type
+#: (``citext`` vs a cast ``varchar``/``text`` is case-sensitive), so those
+#: stay general.
+_RESULT_ONLY_TYPES: tuple[type, ...] = (CaseInsensitiveText,)
+#: Sandloom's portable types whose processing is the identity on what the raw
+#: executor reads and on the keyset values it binds: ``UtcDateTime``
+#: (``CreatedAt`` / ``UpdatedAt``) is a ``timestamptz``, which asyncpg returns
+#: aware, and a keyset value comes from such a row. A caller's key or filter
+#: of this type goes to the general executor, whose bind processing refuses a
+#: naive time (``NaiveDateTimeError``).
+_PORTABLE_NATIVE_TYPES: tuple[type, ...] = (UtcDateTime,)
 _ENGINE_EVENTS = (
     "before_execute",
     "after_execute",
@@ -114,7 +130,14 @@ def optimized_reason(  # noqa: C901
     *,
     parameters: Sequence[Any] = (),
     constants: Sequence[tuple[Any, Any]] = (),
+    ordered: Sequence[Any] = (),
 ) -> str | None:
+    """Why ``columns`` cannot run on the raw executor, or ``None``.
+
+    ``parameters`` are the columns bound per call (keys, filters and the
+    ``ordered`` keyset columns, whose values come from a page already read),
+    ``constants`` the columns bound to a declared value.
+    """
     reason = policy_reason(engine, mappers)
     if reason:
         return reason
@@ -146,15 +169,32 @@ def optimized_reason(  # noqa: C901
             return "custom column comparator requires the general executor"
     bound = {id(column) for column in parameters}
     bound.update(id(column) for column, _ in constants)
+    #: bound from a caller's value: a key, a filter or a declared constant
+    #: (a keyset column's value was read back, aware, from the last page)
+    supplied = bound - {id(column) for column in ordered}
+    result_only = (
+        *dbapi_adapter_of(engine).raw_result_only_types,
+        *_RESULT_ONLY_TYPES,
+    )
     for column in columns:
         if not isinstance(column, Column):
             return "an expression is not a plain column"
         kind = column.type
-        if type(kind) in _RESULT_ONLY_TYPES and not kind._variant_mapping:
+        if type(kind) in result_only and not kind._variant_mapping:
             if id(column) in bound:
                 return (
                     f"column {column.name!r}: a {type(kind).__name__} key, filter "
                     "or order column requires SQLAlchemy bind processing"
+                )
+            continue
+        if type(kind) in _PORTABLE_NATIVE_TYPES:
+            if id(column) in supplied:
+                # UtcDateTime refuses a naive time in its bind processing,
+                # which the raw executor skips.
+                return (
+                    f"column {column.name!r}: a {type(kind).__name__} key or "
+                    "filter requires SQLAlchemy bind processing (a naive time "
+                    "is refused)"
                 )
             continue
         if (
@@ -193,21 +233,18 @@ def unique_keys(mapper: Any) -> list[set[Any]]:
     keys.extend(
         set(ix.columns)
         for ix in table.indexes
-        if ix.unique and ix.dialect_options["postgresql"].get("where") is None
+        if ix.unique and not is_partial_index(ix)
     )
     return keys
 
 
 def covering_indexes(mapper: Any) -> list[list[Any]]:
+    """Ordered keys over every row: a partial or search/full-text index
+    (another access method) cannot serve a keyset scan."""
     table = mapper.local_table
     candidates = [list(mapper.primary_key)]
     candidates.extend(
         list(c.columns) for c in table.constraints if isinstance(c, UniqueConstraint)
     )
-    candidates.extend(
-        list(ix.columns)
-        for ix in table.indexes
-        if ix.dialect_options["postgresql"].get("where") is None
-        and ix.dialect_options["postgresql"].get("using") in (None, False, "btree")
-    )
+    candidates.extend(list(ix.columns) for ix in table.indexes if is_plain_index(ix))
     return candidates

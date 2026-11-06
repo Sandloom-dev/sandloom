@@ -2,8 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -21,12 +20,12 @@ class Organization(Base):
     # the organization lists' keyset order (ListOperation active_orgs_of_user)
     __table_args__ = (Index("ix_tenancy_organizations_created", "created_at", "id"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(
         String(100), unique=True, nullable=False, index=True
     )
-    owner_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     created_at: Mapped[CreatedAt]

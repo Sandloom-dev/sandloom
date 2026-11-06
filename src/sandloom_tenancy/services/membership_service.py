@@ -16,11 +16,11 @@ organizations, so a deleted org stops granting any role.
 from uuid import UUID
 
 from sqlalchemy import bindparam, literal, select, tuple_
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
+from sandloom.sdk.data import conflict_insert
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.security import revoke_user_tokens_on_commit
 from sandloom_tenancy import events
@@ -158,7 +158,7 @@ class MembershipService:
         event, after the change itself succeeded.
         """
         stmt = (
-            pg_insert(OrganizationMemberVersion)
+            conflict_insert(OrganizationMemberVersion, session=db)
             .values(organization_id=organization_id, user_id=user_id, version=1)
             .on_conflict_do_update(
                 index_elements=[

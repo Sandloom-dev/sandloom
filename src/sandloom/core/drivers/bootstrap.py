@@ -48,6 +48,7 @@ from sandloom.core.drivers.smtp_notifier import (
 )
 from sandloom.core.drivers.sqlalchemy_database import (
     SQLALCHEMY_DB_FEATURES,
+    SQLALCHEMY_SQL_DIALECTS,
     SQLAlchemyDatabaseOptions,
     create_sqlalchemy_database,
     sqlalchemy_db_features,
@@ -85,6 +86,7 @@ def register_builtin_drivers(
         features=SQLALCHEMY_DB_FEATURES,
         config_schema=SQLAlchemyDatabaseOptions,
         instance_features=sqlalchemy_db_features,
+        sql_dialects=SQLALCHEMY_SQL_DIALECTS,
     )
     registry.register_driver(
         "cache",

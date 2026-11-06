@@ -121,7 +121,7 @@ def test_root_reexports_the_beginner_code_names() -> None:
             "TenantScoped", "db", "Event", "on", "contract", "command",
             "Contract", "require", "Subscribed", "SubscriptionActive",
             "Credits", "OrgRole", "Owner", "authorize_resource",
-            "record_audit", "on_commit", "new_id", "CreatedAt",
+            "record_audit", "on_commit", "new_id", "CreatedAt", "UtcDateTime",
         ]
     )  # fmt: skip
     testing = importlib.import_module("sandloom.sdk.testing")

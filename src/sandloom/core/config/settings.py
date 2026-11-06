@@ -14,6 +14,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import threading
 from difflib import get_close_matches
 from typing import Any
@@ -65,6 +66,33 @@ def effective_secrets_dir(settings_cls: type[BaseSettings]) -> str | None:
     if configured:
         return str(configured)
     return os.getenv("SECRETS_DIR") or None
+
+
+#: ``<dialect>+<dbapi>://…``: a SQLAlchemy URL that names its DBAPI (an async
+#: engine needs one). Which dialects and DBAPIs serve is not this layer's to
+#: judge (``sandloom.core.config`` is a leaf, ADR-0007): startup asks the
+#: drivers, renderers and DBAPI adapters (SANDLOOM-B024, SANDLOOM-B032).
+_DATABASE_URL = re.compile(r"^[a-z][a-z0-9_]*\+[a-z][a-z0-9_]*://.*$")
+
+
+def database_url_problem(name: str, value: str) -> str | None:
+    """Why ``value`` cannot be the database URL setting ``name``, or ``None``.
+
+    The shape only: a dialect and its DBAPI. Whether an installed driver
+    serves them is checked when a process boots (SANDLOOM-B024)."""
+    if _DATABASE_URL.match(value):
+        return None
+    scheme = value.partition("://")[0]
+    if _DATABASE_URL.match(value.replace(scheme, scheme.lower(), 1)):
+        return (
+            f"{name} must spell its scheme in lower case: "
+            f"{scheme.lower()}://… (SQLAlchemy's dialect and DBAPI names)"
+        )
+    return (
+        f"{name} must be a database URL that names its dialect and async "
+        "DBAPI, <dialect>+<dbapi>://… (the driver's documentation lists them; "
+        "startup refuses one no installed driver serves, SANDLOOM-B024)"
+    )
 
 
 class Settings(
@@ -247,21 +275,17 @@ class Settings(
     @field_validator("database_url")
     @classmethod
     def _db_dsn_ok(cls, v: str) -> str:
-        if not v.startswith("postgresql+asyncpg://"):
-            raise ValueError(
-                "DATABASE_URL must look like "
-                "postgresql+asyncpg://user:pass@host:port/db"
-            )
+        problem = database_url_problem("DATABASE_URL", v)
+        if problem:
+            raise ValueError(problem)
         return v
 
     @field_validator("database_system_url")
     @classmethod
     def _system_dsn_ok(cls, v: str | None) -> str | None:
-        if v and not v.startswith("postgresql+asyncpg://"):
-            raise ValueError(
-                "DATABASE_SYSTEM_URL must look like "
-                "postgresql+asyncpg://sandloom_system:pass@host:port/db"
-            )
+        problem = database_url_problem("DATABASE_SYSTEM_URL", v) if v else None
+        if problem:
+            raise ValueError(problem)
         return v or None
 
     @field_validator("gc_thresholds", mode="before")

@@ -509,9 +509,11 @@ def record_self_revocation(session: Any, subject: str, token: Any) -> None:
         info.setdefault(SELF_REVOKED_KEY, []).append((subject, token))
 
 
-def note_committed(session: Any) -> None:
+def note_committed(session: Any, *, nested: bool = False) -> None:
     """A unit committed: its surviving self-revocations now count for the
-    request's later commits (spec §4.5 item 2/3)."""
+    request's later commits (spec §4.5 item 2/3). ``nested``: the unit was a
+    SAVEPOINT of its caller's transaction, so it is no separately committed
+    store (best-effort 1PC)."""
     info = getattr(session, "info", None)
     if not isinstance(info, dict):
         return
@@ -523,7 +525,7 @@ def note_committed(session: Any) -> None:
         scope.self_revoked = scope.self_revoked | final
     if info.get(INTENT_UNIT_KEY) and scope.intent is not None:
         scope.intent.on_unit_commit(int(info.get(WRITES_KEY, 0)))
-    if scope.secondaries and info.get(WRITES_KEY):
+    if scope.secondaries and info.get(WRITES_KEY) and not nested:
         # best-effort 1PC: a later failing commit leaves this store committed
         scope.committed = (*getattr(scope, "committed", ()), info.get(_DB_NAME_KEY))
 

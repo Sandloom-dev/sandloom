@@ -193,20 +193,25 @@ def test_role_at_least_unknown_minimum_fails_closed() -> None:
         role_at_least("owner", "admn")
 
 
-def test_prebuilt_membership_reads_are_the_inline_sql() -> None:
-    """The prebuilt contract reads compile to exactly the per-call SQL they replaced."""
+@pytest.mark.asyncio
+async def test_prebuilt_membership_reads_are_the_inline_sql(
+    test_db: AsyncSession,
+) -> None:
+    """The prebuilt contract reads compile to exactly the per-call SQL they
+    replaced, on the database the suite runs on."""
     import re
     import uuid
 
     from sqlalchemy import select
-    from sqlalchemy.dialects import postgresql
 
     from sandloom_tenancy.models import Organization, OrganizationMember
     from sandloom_tenancy.services import membership_service as ms
 
-    dialect = postgresql.asyncpg.dialect()  # type: ignore[attr-defined]
+    # Compiled for the test database's own dialect, whichever runs the suite.
+    dialect = test_db.bind.dialect
 
     def sql(stmt: object) -> str:
+        # asyncpg's numbered binds (with their casts) and qmark binds alike
         return re.sub(r"\$\d+(::\w+)?", "?", str(stmt.compile(dialect=dialect)))  # type: ignore[attr-defined]
 
     x = uuid.uuid4()

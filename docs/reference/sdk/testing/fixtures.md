@@ -21,6 +21,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`_sandloom_db_feature_skip`](#_sandloom_db_feature_skip) | fixture | Skip a test marked `sandloom.core.testing.infra.skip_unless_db_feature` whose database instance lacks a feature (the harness app's advert... |
 | [`_sandloom_isolate_module_globals`](#_sandloom_isolate_module_globals) | fixture | Start every test module from the session baseline (the harness app's runtime) and put the process's runtime bindings back to it afterwards. |
 | [`_sandloom_isolate_process_globals`](#_sandloom_isolate_process_globals) | fixture | Restore the process's runtime bindings after every test. |
 | [`_sandloom_release_default_pools`](#_sandloom_release_default_pools) | fixture | Return the `default` engines' pooled connections after every test. |
@@ -51,6 +52,17 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`user_headers`](#user_headers) | fixture | Headers of a default user (random user id and tenant). |
 
 ## Advanced names
+
+### `_sandloom_db_feature_skip`
+
+```python
+@pytest.fixture
+def _sandloom_db_feature_skip(request: pytest.FixtureRequest) -> None
+```
+
+Skip a test marked `sandloom.core.testing.infra.skip_unless_db_feature`
+whose database instance lacks a feature (the harness app's advertised
+features: no app is built for a test without the marker).
 
 ### `_sandloom_isolate_module_globals`
 

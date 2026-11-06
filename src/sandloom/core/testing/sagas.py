@@ -71,7 +71,13 @@ from sandloom.core.sagas.registry import (
     SagaRegistry,
     build_registry,
 )
-from sandloom.core.sagas.runtime import SagaHandle, SagaRuntime, StepCall, utcnow
+from sandloom.core.sagas.runtime import (
+    MARKED,
+    SagaHandle,
+    SagaRuntime,
+    StepCall,
+    utcnow,
+)
 from sandloom.core.sql_alchemy.models.saga import ACTIVE_STATUSES
 from sandloom.core.sql_alchemy.saga_store import InstanceRow
 from sandloom.core.tenant_context import bind_tenant, unscoped
@@ -247,8 +253,12 @@ class SagaHarness:
         self._crash_after: list[_Fault] = []
         self._twice = False
         self._nudges: list[tuple[uuid.UUID, int]] = []
+        #: ``None`` when a continuation after ``marked`` started, then its result
+        self._continued: list[str | None] = []
         self._calls: list[StepCall] = []
         self._fakes: list[str] = []
+        #: fakes registered with ``database=`` (their binding is forgotten)
+        self._fake_databases: list[str] = []
         #: Executions of each fake method body (NOT replays): ``"name.method"``.
         self.fake_calls: dict[str, list[dict[str, Any]]] = {}
         self.auto_advance = True
@@ -268,6 +278,19 @@ class SagaHarness:
             self._nudges.append((instance_id, version))
 
         self.runtime.publish_nudge = recording  # type: ignore[method-assign]
+
+        # The transition a ``marked`` one runs after its COMMIT (an
+        # on_commit callback of the delivery's unit): recorded so ``drive``
+        # lists it after the ``marked`` one, a crash in it included.
+        continue_after_mark = self.runtime.continue_after_mark
+
+        async def continuing(*args: Any, **kwargs: Any) -> str:
+            self._continued.append(None)  # a marked transition committed
+            result = await continue_after_mark(*args, **kwargs)
+            self._continued.append(result)
+            return result
+
+        self.runtime.continue_after_mark = continuing  # type: ignore[method-assign]
 
     def register(
         self, definition: Saga[Any], *, module: str = HARNESS_MODULE
@@ -302,6 +325,7 @@ class SagaHarness:
         name: str,
         *,
         idempotency_key: str = "operation_key",
+        database: str | None = None,
         **methods: Callable[..., Any],
     ) -> type:
         """Register ``name`` as a command contract made of plain functions.
@@ -311,14 +335,18 @@ class SagaHarness:
         ``@contract_method(command=True)`` — its calls go through the durable
         command log like a real provider's. ``fake_calls["name.method"]``
         records the executions (a replay does not execute the body).
+        ``database``: the instance the provider's unit runs on (the
+        registering module's, else ``default``, when omitted).
         """
         recorded = {
             method: self._recording(f"{name}.{method}", fn)
             for method, fn in methods.items()
         }
         provider = _fake_contract_class(name, idempotency_key, recorded)
-        self.core.register_service(name, provider)
+        self.core.register_service(name, provider, database=database)
         self._fakes.append(name)
+        if database is not None:
+            self._fake_databases.append(name)
         return provider
 
     def _recording(self, label: str, fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -339,7 +367,10 @@ class SagaHarness:
         for name in self._fakes:
             self.core.service_registry.remove(name)
             self.core._bound_contracts.pop(name, None)
+        for name in self._fake_databases:
+            self.core._service_databases.pop(name, None)
         self._fakes.clear()
+        self._fake_databases.clear()
 
     # -- faults -----------------------------------------------------------
     def fail_step(
@@ -476,12 +507,17 @@ class SagaHarness:
                 self.clock.advance_to(_next_due(row))
                 version = row.version
             for _delivery in range(2 if self._twice else 1):
+                self._continued.clear()
                 try:
-                    transitions.append(await self.deliver(reg, row, version))
+                    outcome = await self.deliver(reg, row, version)
                 except SimulatedCrash:
+                    if self._continued:  # the crash came after a marked COMMIT
+                        transitions.append(MARKED)
                     crashes += 1
                     transitions.append("crash")
                     break
+                transitions.append(outcome)
+                transitions.extend(r for r in self._continued if r is not None)
         else:
             raise AssertionError(
                 f"{reg.saga_type} {sid!r} did not settle in {max_transitions} "

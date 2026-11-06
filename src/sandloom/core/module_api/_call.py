@@ -21,6 +21,7 @@ import sandloom.core.unit_of_work.risk as _risk
 import sandloom.core.unit_of_work.scope as _scope
 from sandloom.core import unit_of_work as uow
 from sandloom.core.module_api._bootstrap import (
+    _contract_read_uow_factory,
     _contract_uow_factory,
     _isolated_uow_scope,
     _require_core,
@@ -277,7 +278,11 @@ async def _run_contract_unit(  # noqa: C901
         )
         if outcome is not _SCOPE_FALLBACK:
             return outcome
-    factory = _contract_uow_factory(core, database)
+    factory = (
+        _contract_read_uow_factory(core, database)
+        if spec.readonly
+        else _contract_uow_factory(core, database)
+    )
     unit = factory()
     result: Any = None
     session: Any = None
@@ -333,6 +338,56 @@ async def _run_contract_unit(  # noqa: C901
         return result
     except _ReplayRollback as replayed:
         return replayed.value
+
+    if uow.nested_host(session) is not None:
+        # A unit nested in its caller's transaction as a SAVEPOINT (a
+        # database whose writers are serial) commits with the caller: its
+        # dispatch, the amended record and the dedupe record's write wait
+        # for that COMMIT and are dropped when the caller rolls back.
+        uow.defer_to_host(
+            session,
+            partial(
+                _after_contract_commit,
+                session,
+                result,
+                callbacks,
+                durable,
+                recorder,
+                recorded,
+                factory,
+                after_commit,
+                qualname,
+            ),
+        )
+        return result
+    await _after_contract_commit(
+        session,
+        result,
+        callbacks,
+        durable,
+        recorder,
+        recorded,
+        factory,
+        after_commit,
+        qualname,
+    )
+    return result
+
+
+async def _after_contract_commit(
+    session: Any,
+    result: Any,
+    callbacks: list[Any],
+    durable: _DurableCommandClaim | None,
+    recorder: _risk.EffectRecorder | None,
+    recorded: dict[str, Any] | None,
+    factory: Callable[[], Any],
+    after_commit: Callable[[Any, list[Any]], Awaitable[None]] | None,
+    qualname: str,
+) -> None:
+    """The stages after a contract unit's COMMIT: the outbox dispatch and
+    ``on_commit`` callbacks, then the dedupe record corrected with what they
+    left (G-SENS-04)."""
     if callbacks and durable is not None and recorder is not None:
         # the durable record's effects, corrected with what the callbacks
         # actually left (a closure's; a declared one that did not run), on
@@ -355,7 +410,7 @@ async def _run_contract_unit(  # noqa: C901
                 await _finish_record(
                     partial(_amend, durable, factory, recorded, fx), qualname
                 )
-        return result
+        return
     if after_commit is not None:
         # the cache record is written AFTER the on_commit callbacks: what
         # they leave on the caller is part of the replayed effects; even a
@@ -367,9 +422,8 @@ async def _run_contract_unit(  # noqa: C901
             finished = True
         finally:
             await after_commit(result, [] if finished else callbacks)
-        return result
+        return
     await uow._dispatch_outbox_after_commit(session)
-    return result
 
 
 #: Post-commit dedupe-record writes still running: a strong reference, since

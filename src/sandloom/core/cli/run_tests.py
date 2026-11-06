@@ -77,11 +77,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import sandloom.core.cli.generated as _generated_cli
+import sandloom.core.cli.migrate_drift as _migrate_drift
 import sandloom.core.cli.tool_process as _tool_process
 import sandloom.core.testing.static_checks as _static_checks_cli
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.cli import check as _check
 from sandloom.core.descriptors.module_names import installed_modules
+from sandloom.core.migrations.migrations import MigrationDependencyError
 from sandloom.core.testing.env import find_env_file, load_test_env
 from sandloom.core.testing.slots import (
     SLOT_LOST_MESSAGE,
@@ -114,6 +116,8 @@ class Step:
     call: Callable[[], int] | None = None
     env: dict[str, str] = field(default_factory=dict)
     cwd: Path | None = None
+    #: After the step ran: what it skipped, shown on its summary line.
+    note: Callable[[], str | None] | None = None
 
     def describe(self) -> str:
         if self.call is not None:
@@ -264,6 +268,15 @@ def _static_checks(argv: list[str]) -> int:
     return _static_checks_cli.main(argv)
 
 
+def _drift_note() -> str | None:
+    """ "skipped" on the drift step's summary line when it skipped itself."""
+    try:
+        skipped = _migrate_drift.drift_supported() is not None
+    except MigrationDependencyError:  # no default database: the step said so
+        return None
+    return "skipped: no migration chains" if skipped else None
+
+
 def _routes(argv: list[str]) -> int:
     from sandloom.core.cli.routes import main  # noqa: PLC0415 - cold: configured command - builds settings; sandloom test loads .env.test first, the static steps stay settings-free
 
@@ -303,6 +316,7 @@ def plan(
             Step(
                 "schema & deploy",
                 call=_in_process(_static_checks, ["--root", str(root)]),
+                note=_static_checks_cli.skip_note,
             )
         )
     if module:
@@ -395,7 +409,9 @@ def _gate_steps(
     if (root / "architecture_rules.yml").is_file():
         steps.append(
             Step(
-                "migration drift", [python, "-m", "sandloom.core.cli.migrate", "drift"]
+                "migration drift",
+                [python, "-m", "sandloom.core.cli.migrate", "drift"],
+                note=_drift_note,
             )
         )
     baseline = root / "tools" / "packaging" / "check_public_api.py"
@@ -414,6 +430,8 @@ class Outcome:
     step: Step
     code: int
     seconds: float
+    #: What the step skipped (:attr:`Step.note`), shown after a pass.
+    note: str = ""
 
 
 def run(steps: list[Step], root: Path) -> list[Outcome]:
@@ -422,7 +440,8 @@ def run(steps: list[Step], root: Path) -> list[Outcome]:
         print(f"\n=== sandloom test: {step.name}\n$ {step.describe()}", flush=True)
         started = time.perf_counter()
         code = step.call() if step.call is not None else _run_command(step, root)
-        outcomes.append(Outcome(step, code, time.perf_counter() - started))
+        note = (step.note() if step.note is not None else None) or ""
+        outcomes.append(Outcome(step, code, time.perf_counter() - started, note))
     return outcomes
 
 
@@ -432,6 +451,8 @@ def summary(outcomes: list[Outcome]) -> str:
         status = "PASS" if o.code == 0 else f"FAIL (exit {o.code})"
         code = _STEP_CODES.get(o.step.name)
         hint = f"  -> sandloom explain {code}" if o.code and code else ""
+        if not o.code and o.note:
+            hint = f"  ({o.note})"
         lines.append(f"  {status:16} {o.step.name:20} {o.seconds:7.1f}s{hint}")
     failed = [o.step.name for o in outcomes if o.code]
     lines.append("")

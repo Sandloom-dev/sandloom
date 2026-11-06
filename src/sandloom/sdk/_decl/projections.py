@@ -41,14 +41,13 @@ from typing import Any, ClassVar, Generic, Literal, Protocol, TypeVar, cast
 from uuid import UUID
 
 from fastapi import Request, Response, params
-from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import case, delete, func, select
 
 from sandloom.sdk._decl._owner import OWNER_ATTR, caller_module
 from sandloom.sdk._decl.errors import ProjectionDefinitionError
 from sandloom.sdk._decl.events import Event, from_wire, is_concrete, wire_name
 from sandloom.sdk._prim.contracts import service
-from sandloom.sdk._prim.data import Page, TenantScoped, open_uow
+from sandloom.sdk._prim.data import Page, TenantScoped, conflict_insert, open_uow
 from sandloom.sdk._prim.events import EventEnvelope
 from sandloom.sdk._prim.infra import CapabilityRef, capability
 from sandloom.sdk._prim.projections import (
@@ -578,11 +577,15 @@ class Projection:
                 "does not match the bound tenant"
             )
         row = {**key, **self._seed(event), **values, group.version_column: version}
-        stmt = pg_insert(table).values(**row)
+        stmt = conflict_insert(table, session=session).values(**row)
         update = {c: table.c[c] + stmt.excluded[c] for c in values}
-        update[group.version_column] = func.greatest(
-            func.coalesce(table.c[group.version_column], version),
-            stmt.excluded[group.version_column],
+        # The larger of the stored and the incoming version, written with no
+        # database's own function; both sides are coalesced, so it is never
+        # NULL.
+        stored = func.coalesce(table.c[group.version_column], version)
+        incoming = func.coalesce(stmt.excluded[group.version_column], version)
+        update[group.version_column] = case(
+            (stored >= incoming, stored), else_=incoming
         )
         upsert = stmt.on_conflict_do_update(
             index_elements=list(self.key),

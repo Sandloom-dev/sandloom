@@ -1154,6 +1154,26 @@ def test_dev_run_without_port_serves_the_checkouts_port(
     assert f"http://127.0.0.1:{sticky}" in _text(ctx.out)
 
 
+def test_dev_run_signals_the_app_to_set_a_stale_database_aside(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SANDLOOM-B028: only the app `dev run` serves sets a SQLite file whose
+    tables lag the models aside; an explicit setting wins."""
+    ctx = _ctx(repo, environ)
+    (repo / ".env").write_text(envfile.render_block(_VALUES))
+    state = _state(ctx)
+    commands.checkout_row(ctx, state)
+    save_state(ctx.state_dir, state)
+    _reachable(monkeypatch, up=True)
+    envs: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env, **kw: envs.append(env) or 0
+    )
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert envs[0]["DB_RECREATE_ON_MODEL_CHANGE"] == "true"
+    assert "DB_RECREATE_ON_MODEL_CHANGE" not in environ
+
+
 def test_dev_run_names_a_free_port_when_the_sticky_one_is_taken(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1320,6 +1340,100 @@ def test_dev_run_without_a_block_starts_the_services(
     monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
     assert commands.run(ctx, port=None, reload=False) == 0
     assert "starting the dev services" in _text(ctx.out)
+
+
+def test_dev_run_serves_a_database_named_in_env_without_dev_services(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The generated README's SQLite lines: ``DATABASE_URL`` set in ``.env``
+    outside the (empty) block names the checkout's own database; `dev run`
+    starts nothing, applies no block and serves with the file's values."""
+    ctx = _ctx(repo, environ)
+    environ.pop("DATABASE_URL", None)
+    (repo / ".env").write_text(
+        envfile.empty_block()
+        + "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
+        + "CACHE_URL=redis://127.0.0.1:6379/0\n"
+    )
+    monkeypatch.setattr(commands, "up", lambda c, o: pytest.fail("started"))
+    monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
+    envs: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        commands, "_serve", lambda c, argv, env, **kw: envs.append(env) or 0
+    )
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert "starting" not in _text(ctx.out)
+    assert "DATABASE_URL" not in envs[0]  # the app reads it from .env
+    assert envs[0]["DB_RECREATE_ON_MODEL_CHANGE"] == "true"
+
+
+def test_the_winning_database_url_is_the_last_assignment_in_the_file() -> None:
+    sqlite = "export DATABASE_URL='sqlite+aiosqlite:///./app.db'\n"
+    block = envfile.render_block({"DATABASE_URL": "postgresql://block"})
+    text = "DATABASE_URL=postgresql://first\n" + block + sqlite
+    assert envfile.winning_assignment(text, "DATABASE_URL") == (
+        "sqlite+aiosqlite:///./app.db",
+        True,
+    )
+    # A SQLite line at the top, a filled block after it: the block wins.
+    assert envfile.winning_assignment(sqlite + block, "DATABASE_URL") == (
+        "postgresql://block",
+        False,
+    )
+    commented = "# DATABASE_URL=sqlite+aiosqlite:///x\n" + envfile.empty_block()
+    assert envfile.winning_assignment(commented, "DATABASE_URL") == ("", False)
+
+
+@pytest.mark.parametrize(
+    ("env_text", "own"),
+    [
+        # The README's lines after the (empty) block: the checkout's own.
+        (envfile.empty_block() + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n", True),
+        # PostgreSQL outside the block stays `dev up`'s to manage.
+        (envfile.empty_block() + "DATABASE_URL=postgresql+asyncpg://u@h/d\n", False),
+        # A SQLite line on top, a filled block after it: the block wins.
+        (
+            "DATABASE_URL=sqlite+aiosqlite:///./a.db\n" + envfile.render_block(_VALUES),
+            False,
+        ),
+    ],
+)
+def test_only_a_winning_schema_from_models_url_outside_the_block_is_own(
+    repo: Path, env_text: str, own: bool
+) -> None:
+    (repo / ".env").write_text(env_text)
+    assert bool(commands._own_database_url(repo)) is own
+
+
+def test_dev_run_starts_the_services_for_a_postgresql_url_in_env(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    environ.pop("DATABASE_URL", None)
+    (repo / ".env").write_text(
+        envfile.empty_block() + "DATABASE_URL=postgresql+asyncpg://u@127.0.0.1/x\n"
+    )
+
+    def up(c: commands.Context, options: commands.UpOptions) -> int:
+        (repo / ".env").write_text(envfile.render_block(_VALUES))
+        return 0
+
+    monkeypatch.setattr(commands, "up", up)
+    monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)
+    monkeypatch.setattr(commands, "_serve", lambda c, argv, env, **kw: 0)
+    assert commands.run(ctx, port=None, reload=False) == 0
+    assert "starting the dev services" in _text(ctx.out)
+
+
+def test_dev_up_leaves_a_checkouts_own_sqlite_database_alone(
+    repo: Path, environ: dict[str, str]
+) -> None:
+    ctx = _ctx(repo, environ)
+    text = envfile.empty_block() + "DATABASE_URL=sqlite+aiosqlite:///./a.db\n"
+    (repo / ".env").write_text(text)
+    with pytest.raises(commands.DevError, match="its own database"):
+        commands.up(ctx, commands.UpOptions())
+    assert (repo / ".env").read_text() == text
 
 
 def test_a_failing_start_is_one_line(

@@ -13,7 +13,534 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`UtcDateTime` refuses a naive `datetime`** (`NaiveDateTimeError`), in a
+  value and in a comparison: its instant is not known (asyncpg reads it in the
+  process's local time zone, SQLite as UTC). `CreatedAt`, `UpdatedAt` and every
+  `UtcDateTime()` column are affected. `column - timedelta(...)` still binds an
+  interval. The planner's raw executor takes no caller's key or filter of this
+  type (it runs on the general executor, whose bind processing refuses a naive
+  time); keyset columns, read back aware, stay on the raw executor.
+
+  **Upgrade:** bind aware times to `CreatedAt`, `UpdatedAt` and `UtcDateTime`
+  columns (`datetime.now(UTC)`, `value.replace(tzinfo=UTC)`); replace a module's
+  `DateTime(timezone=True)` with `UtcDateTime()` (no migration on PostgreSQL).
+- **Autogenerate and the migration drift step compare server defaults**
+  (SANDLOOM-T006). `sandloom migrate new`, `sandloom migrate drift` (the drift
+  step of `sandloom test`) and the migrations-match-models test share one set
+  of options, `COMPARE_OPTIONS` in the migration environment: types and, now,
+  column server defaults. A chain whose default differs from its model's fails
+  the step, and `migrate new` writes the change. A JSON column's default is
+  compared as the value it writes (PostgreSQL's `json` has no `=`). The
+  standard modules and the examples had no such difference.
+
+  **Upgrade:** run `uv run sandloom migrate drift` on PostgreSQL. For each
+  `server default differs` it reports, add a revision with
+  `uv run sandloom migrate new <module> "<message>"` and review it, or correct
+  the model's `server_default`.
+- **SQLite 3.38 or newer** (was 3.35): `json_path` uses its built-in JSON
+  functions (SANDLOOM-B030 refuses an older one).
+
+  **Upgrade:** check `python -c "import sqlite3; print(sqlite3.sqlite_version)"`
+  where the application runs on SQLite.
+- **`sandloom check` refuses SQL that not every database runs alike, in a
+  module and in its tests** (SANDLOOM-C031 `portable-sql`, new, an error). A
+  `func.<name>` (`sa.func`, an alias, `sqlalchemy.sql.functions`) outside the
+  portable list (`abs`, `char_length`, `coalesce`, `count`, `length`, `max`,
+  `min`, `nullif`, `sum`, each run on PostgreSQL and SQLite by a test, value
+  and type) is a finding. That includes `func.now()` (the transaction's start
+  on PostgreSQL, whole seconds on SQLite, outside the stored `UtcDateTime`
+  format), `lower` / `upper` (ASCII only on SQLite) and `avg` (a `Decimal` on
+  PostgreSQL, a `float` on SQLite). Raw SQL (`text()`, `literal_column()`,
+  `DDL()`, `exec_driver_sql()`, `.op()`, `.bool_op()`, a string given to
+  `.prefix_with()`, `.suffix_with()` or `.with_hint()`) needs `# sandloom:
+  raw-sql <reason>` on the call or alone on the line above, except a plain
+  literal (`server_default=text("0")`); a test decorated with
+  `skip_unless_db_feature(...)` is not reported. Reading the database's name
+  (`x.dialect.name`, `dialect_name()`, `get_backend_name()`) is a finding too,
+  and so is a database URL literal naming a backend (`"postgresql://"`,
+  `"postgresql+asyncpg://"`, `"sqlite+aiosqlite://"`, a
+  `create_mock_engine` of one), each admitted only by the marker. Migrations are exempt; `CheckConstraint` and
+  `Computed` strings are not read. The PostgreSQL cast (`::`) in `text()` moved here from
+  SANDLOOM-C028, and the marker does not admit it.
+
+  **Upgrade:** run `uv run sandloom check --only portable-sql`. Replace
+  `func.now()` with `WallClock()` from `sandloom.sdk.data` (the database's
+  clock at the statement, read back as an aware UTC time) or a bound
+  `datetime.now(UTC)`; write raw SQL as SQLAlchemy expressions (a module test
+  reads a kernel table through `sqlalchemy.table("audit_log", column(...))`),
+  or mark a reviewed line. A test that asked `dialect.name` asks what it needs:
+  `skip_unless_db_feature(...)` (a race test whose writers must overlap:
+  `skip_unless_db_feature("concurrent_writers")`) or `has_optimized_reads(engine)`
+  from `sandloom.sdk.testing`. A test that named a database URL takes the
+  configured one (`settings.database_url`) or compiles against its session's
+  dialect (`db.bind.dialect`).
+
+- **Modules write no SQL dialect** (SANDLOOM-C028, an error). `sandloom check`
+  fails on a `sqlalchemy.dialects` import in module code (also
+  `sa.dialects...`) and on dialect options such as `postgresql_where=`;
+  migrations are exempt. `sandloom.sdk.data` has the portable forms modules
+  used dialects for: `CaseInsensitiveText`, `partial_index`, `search_index`,
+  `conflict_insert(Model)` (`ConflictInsert` for annotations) and
+  `await transaction_lock(key)`; ids use `sqlalchemy.Uuid`. Each database's
+  SQL dialect renderer writes the forms, found in the `sandloom.sql_dialects`
+  entry-point group (shipped: PostgreSQL and SQLite). A form the database
+  cannot write refuses (SANDLOOM-R015), and a database without a renderer
+  stops startup (SANDLOOM-B024). On PostgreSQL every form renders the SQL the
+  modules wrote before: the schema and the migrations do not change.
+  Identity, tenancy, billing and every example use them. The kernel follows
+  the same rule: its outbox, inbox, command and HTTP idempotency stores, saga
+  store, projection upserts and watermarks, locks, row security, read-only
+  units and identity's claims all go through the renderer, and SQL functions
+  only one database has are SANDLOOM-C031's. An architecture test counts
+  every place outside the database driver that names a database (a dialect
+  import, a `dialect.name` comparison, PostgreSQL-only SQL or functions, a
+  dialect option or `dialect_options["postgresql"]`, a URL prefix test, an
+  error-code check); the count may only shrink. The final allowlist has 21
+  sites in 10 files, each with its reason, none in the driver's dialect-neutral
+  code: the migration environment and provisioning, `sandloom dev`,
+  `sandloom migrate extract-module` and the test harness's per-database
+  provisioning.
+
+  **Upgrade:** run `uv run sandloom check --only dialect-imports`. In your
+  modules, replace `from sqlalchemy.dialects.postgresql import UUID` with
+  `from sqlalchemy import Uuid`, `CITEXT` with `CaseInsensitiveText`,
+  `postgresql_where=` indexes with `partial_index(...)`, `pg_insert(Model)`
+  with `conflict_insert(Model)`, and `func.pg_advisory_xact_lock(key)` with
+  `await transaction_lock(key)` (a 64-bit integer key, and the
+  `transaction_locks` feature declared: SANDLOOM-C030). Then
+  `uv run sandloom migrate drift` reports no difference.
+- **A bare `DateTime(timezone=True)` in module code is an error**
+  (SANDLOOM-C029, new). `sandloom check` flags it (also `DateTime(True)` and
+  `TIMESTAMP(timezone=True)`) outside migrations: SQLite returns its values
+  naive. `UtcDateTime()` from `sandloom.sdk.data` reads them back aware in UTC
+  on every database and is the same `timestamptz` on PostgreSQL. Identity's
+  token expiries, tenancy's invitation times, billing's `*_at` columns, the
+  projection generator's `deleted_at` and the members recipe use it.
+
+  **Upgrade:** run `uv run sandloom check --only utc-datetime-columns` and
+  declare each finding `UtcDateTime()`; no migration follows on PostgreSQL.
+- **`sandloom_identity.claims.identity_claims_select` and
+  `identity_claims_lateral` are removed.** Identity's claims are two
+  correlated scalar subqueries of `aggregate_list`,
+  `identity_claims_columns(user_id)`, which run on SQLite as on PostgreSQL
+  (no `LATERAL`, no `array_agg`).
+
+  **Upgrade:** replace a join of `identity_claims_lateral(...)` or a select
+  from `identity_claims_select(...)` with
+  `roles, permissions = identity_claims_columns(<user id column>)` in your
+  `select(...)`; the two columns read the same lists.
+- **`sandloom dev up` refuses a checkout whose `.env` names a SQLite
+  database.** A SQLite `DATABASE_URL` that is the last one in `.env` and
+  stands outside the `sandloom dev` block is the checkout's own database:
+  `dev up` refuses and leaves `.env` as it is (before, it commented the line
+  out), and `dev run` serves the file and starts no dev services (before, it
+  started PostgreSQL and Redis in Docker). A PostgreSQL `DATABASE_URL` is
+  handled as before.
+
+  **Upgrade:** a checkout whose `.env` ends with a SQLite `DATABASE_URL` and
+  that uses the dev services removes or comments out that line.
+
+### Deprecated
+
+- **`transaction_lock` without a declared `transaction_locks` feature.**
+  `sandloom check` warns (SANDLOOM-C030, new) and the warning says it becomes
+  an error in the next minor release. Startup does not refuse such a module
+  for it (SANDLOOM-B033 counts only declared features and tables built with a
+  feature form). Identity now declares it.
+
+  **Upgrade:** in the module's `define_module`, replace `"database"` in
+  `capabilities=` with `CapabilityRequirement("database",
+  features=frozenset({"transaction_locks"}))` (`sandloom.sdk.module`).
+
+### Added
+
+- **CI runs the module suites on SQLite too: the `second-db-test-lane` job, and
+  a skip ledger.** PostgreSQL (`backend-tests`) stays the mandatory lane. The
+  new lane runs the standard modules' suites, every example's tests and an
+  application from `sandloom new` with the standard modules (served on a
+  SQLite file, signed up to an organization through the API, then its own
+  `sandloom test`) on SQLite files. Each lane writes the tests it ran and
+  skipped (`-p sandloom.core.testing.skip_ledger
+  --sandloom-skip-ledger=<file>`, or `SANDLOOM_SKIP_LEDGER`), and the
+  `skip-ledger` job (`tools/ci/skip_ledger.py`) fails on a test skipped on
+  every lane, unless `tools/ci/skip_ledger_allowlist.json` names it with a
+  reason. `tools/smoke/quickstart_check.py --database sqlite` runs the
+  quickstart on SQLite. A new `database` feature, `concurrent_writers`
+  (write transactions overlap, each holding its row locks), is derived from
+  a renderer's `serial_writers` fact: PostgreSQL has it, SQLite does not, and
+  a renderer that declares it itself is refused (SANDLOOM-B025). Race tests
+  carry `skip_unless_db_feature("concurrent_writers")` and run on PostgreSQL
+  only.
+  `faulthandler_timeout` in the framework's (600 s) and the generated
+  application's (300 s) pytest configuration: a hung test prints every
+  thread's stack.
+
+- **Migrations match models: `migration_drift(module)` and
+  `assert_migrations_match_models(module)` in `sandloom.sdk.testing`**
+  (advanced). On a scratch PostgreSQL database the helper applies the core
+  chain, the chains the module depends on and its own chain to head, then
+  compares the result with the module's models through Alembic's
+  `compare_metadata`, with the options `sandloom migrate new` uses. It also
+  compares each index as the database reflects it (access method, operator
+  classes, sort order, included columns, `NULLS NOT DISTINCT`, a partial
+  index's condition) with the same index created from the models in a second
+  scratch database. Not compared: RLS policies, extensions, triggers, CHECK
+  constraints and an index's collation. It returns one line per difference;
+  the assertion fails naming each and the fix. A loaded module with no
+  `migrations/` directory skips. On SQLite it skips: SQLite builds its schema from
+  the models and never runs a chain (SANDLOOM-B028), and this test is what
+  keeps the PostgreSQL schema the chains build equal to those models. Each
+  standard module with a chain (identity, tenancy, billing) and the core chain
+  has the test; `sandloom add module` writes `tests/test_migrations.py` with
+  it. **Upgrade:** add the same one-line test to each of your modules that has
+  a chain: `assert_migrations_match_models("<module>")`.
+- **`has_optimized_reads(bind)` in `sandloom.sdk.testing`** (advanced):
+  whether the planner's optimized executor can run on the test database (the
+  DBAPI adapter's `raw_executor`), for declared-read tests that used to read
+  `dialect.name`. A module's race test asks for overlapping writers with
+  `skip_unless_db_feature("concurrent_writers")`; whether writers take turns
+  (`has_serial_writers`) is a question of the kernel's own tests only, in
+  `sandloom.core.testing.infra`.
+- **`aggregate_list` in `sandloom.sdk.data`** (slice 10 of the database
+  capability): the values of a group as one Python list, an aggregate like
+  `count`. PostgreSQL writes `array_agg`; SQLite writes `json_group_array`,
+  read back through the item type (a `Uuid` as a `UUID`, a `Boolean` as a
+  `bool`, a `UtcDateTime` aware). A group without rows reads `[]` on both.
+  JSON, array and binary values are refused. It is a feature form: it needs
+  the new renderer feature `list_aggregates`, which both built-in renderers
+  declare (members `aggregate_list`, `aggregate_list_type`). A module using
+  it declares the feature (SANDLOOM-C030), and startup refuses it on a
+  database whose renderer lacks it (SANDLOOM-B033). `SqlDialectConformance`
+  checks the two members.
+- **Identity's claims and refresh rotation run on SQLite.** The claims
+  contributor and the refresh rotation built roles and permissions with
+  `func.array_agg`, joined `LATERAL` into a data-modifying CTE; none of the
+  three exists in SQLite. The claims are now two correlated scalar
+  subqueries of `aggregate_list`
+  (`sandloom_identity.claims.identity_claims_columns`; see Breaking changes). A refresh loads the
+  token, its user and the claims in one `SELECT`, then consumes the token
+  with a plain `UPDATE ... RETURNING` compare-and-set: still five statements
+  on PostgreSQL, the same on SQLite, and no claims query. Identity now
+  declares `list_aggregates` beside `transaction_locks`.
+- **Test runs: an explicit `SANDLOOM_TEST_DATABASE_URL` beats an exported
+  `DATABASE_URL`** (also the cache and broker URLs). The framework's root
+  conftest seeded the overrides with `setdefault`, so a shell that still
+  exported `DATABASE_URL` snapshotted settings on that database while the
+  fixtures used the override: `skip_unless_db_feature` read the wrong
+  database.
+
+- **Nested write units commit with their caller on SQLite** (slice 8c). On a
+  database whose renderer says `serial_writers` (SQLite), a local contract
+  call, a saga step's unit or a child `open_uow()` inside a writing unit of
+  the same task and database instance runs as a SAVEPOINT on the caller's
+  connection instead of being refused (SANDLOOM-R016). Its rollback undoes
+  only itself; the caller's rollback undoes its rows, outbox events and
+  command record; its outbox dispatch, `on_commit` callbacks and amended
+  command record wait for the caller's COMMIT. Units of other tasks nest one
+  task at a time. The guarantee lattice computes the label "commits with the
+  caller" (`nested_unit_label`; `effect_label("command", ...)` carries it when
+  its `Mechanism` states `serial_writers`) and startup warns once per such
+  database. R016 now refuses only a writer whose lock holder is not one of
+  the task's open units. Read contracts, and a request's contract read scope,
+  read through a read-only unit on SQLite, as on PostgreSQL never seeing the
+  caller's uncommitted writes. PostgreSQL is unchanged: no savepoint, a fresh
+  unit.
+- **Module test suites run on SQLite** (slice 8c):
+  `SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<dir>/<name>_test.db`. Each
+  xdist worker gets `<name>_test_gw<N>.db`, the file's owner is
+  `<file>.owner`, the schema is built from the models and emptied between
+  tests, the `db` fixture and a test's own sessions begin their transaction
+  at their first write (each read sees the last commit until then), the
+  application's units nest in the `db` session, and `scratch_database`
+  skips. The per-database reset moved to `sandloom.core.drivers.schema_reset`.
+  `skip_unless_db_feature(*features, database=)` (`sandloom.sdk.testing`,
+  advanced) skips a test whose database instance lacks a feature.
+
+- **Database features as `sandloom.sdk.data` forms** (slice 9 of the database
+  capability). `Array(item_type)` (feature `arrays`), `fulltext_index(name,
+  *columns, language=)` with `matches(columns, query)` (`fulltext_search`),
+  `json_path(column, *path)` (`json_path`) and `json_contains(column, value)`
+  (`json_contains`). Each database's renderer writes them; PostgreSQL declares
+  all four (`item_type[]`, a GIN index over `to_tsvector` and
+  `websearch_to_tsquery`, `#>>`, `jsonb @>`), SQLite `json_path`
+  (`json_extract`, numbers through `->`). `json_path` reads the scalar's JSON
+  text as stored, the same on both: a string unquoted, `true` / `false`, a
+  number as written (`1.50`, `1e2`, `-0.0`, every digit of a large integer).
+  It is compared with a `str`; a number on either side (`== 1.5`, `> 2`,
+  `Model.id == json_path(...)`, an integer subquery, `coalesce(..., 0)`, a
+  number bound to its parameter) raises `TypeError`, since PostgreSQL refuses
+  text against a number and SQLite answers differently. Ordering uses each
+  database's collation (`.collate("C")` for byte order on PostgreSQL). An index step reads arrays
+  only (`NULL` on an object) and a negative one is refused. A module that uses a new form
+  declares the feature (SANDLOOM-C030, an error; a `*` import from
+  `sandloom.sdk.data` and a declaration it cannot read are findings too),
+  and a module whose tables are built
+  with `Array` or `fulltext_index`, or that declares a feature, is refused at
+  load on an instance without it, naming the module, the form, the feature
+  and the instance (SANDLOOM-B033, new). A statement compiled for a database
+  without the feature refuses (SANDLOOM-R015, which now names the feature).
+  Renderers write the forms through optional contract-2 members; one that
+  declares such a feature without them is refused (SANDLOOM-B025), and
+  `SqlDialectConformance` compiles each declared form, and runs
+  `JSON_PATH_READS` (numbers as written) on the database through
+  `read_json_paths`, which a renderer declaring `json_path` must override. Migrations render an
+  `Array` as the database's type (`postgresql.ARRAY(sa.String(length=40))`).
+
+- **An application starts on a SQLite file** (slice 8b of the database
+  capability). `DATABASE_URL` and `DATABASE_SYSTEM_URL` accept any
+  `<dialect>+<dbapi>://` URL, such as `sqlite+aiosqlite:///var/app.db`; startup
+  refuses a dialect without a renderer, a DBAPI SQLAlchemy does not know and a
+  synchronous DBAPI (SANDLOOM-B024). A database whose renderer says
+  `schema_from_models` (SQLite) takes its schema from the models: the app runs
+  `metadata.create_all` over every mapped table at startup, and a worker does
+  too (`DatabaseProvider.ensure_model_schema`, default no-op). `create_all`
+  never alters a table: a file whose columns, nullability, indexes or unique
+  constraints differ from the models stops startup naming each difference
+  (SANDLOOM-B028, new). Only the new ops setting
+  `DB_RECREATE_ON_MODEL_CHANGE=true`, which `sandloom dev run` sets for the app
+  it serves, sets such a file aside instead (renamed
+  `<file>.stale-<UTC time>` with its WAL; nothing dropped) and builds a fresh
+  one; a worker never does, production ignores it.
+  `sandloom migrate` refuses such a database (B028; `migrate databases` still
+  lists). A renderer that says `development_only` (SQLite) stops a production
+  process unless it accepts the new risk `development_database_in_prod`, and
+  the strict profile refuses it always (SANDLOOM-B029, new).
+  `DATABASE_SYSTEM_URL` on a database without row security is refused instead
+  of ignored (SANDLOOM-B026), and every system URL (`DATABASE_SYSTEM_URL`, an
+  instance's `system_url`) gets B024's checks too. The platform's modules (identity, tenancy,
+  billing, admin) start on SQLite and serve requests; the test harness on
+  SQLite is next (slice 8c).
+- **SQL dialect renderers, contract version 2.** A renderer states its
+  `contract_version`, `name`, `minimum_server_version`, the database features it
+  can give (`features()`) and what an error means (`classify_error`). The loader
+  refuses another version or an unknown feature (SANDLOOM-B025). A database
+  instance now advertises the renderer's features (`skip_locked`,
+  `transaction_locks`, `snapshot_reads`, `readonly_transactions` on PostgreSQL),
+  and the first connection refuses a server older than the renderer supports
+  (SANDLOOM-B030: PostgreSQL 14, SQLite 3.35). An architecture test counts every
+  place outside the driver that names a database, and the count may only shrink
+  (design/infra-agnostic/spec.md).
+
+- **The kernel's claims and upserts go through the SQL dialect renderer.** A
+  renderer gains `greatest(*exprs)` (PostgreSQL `greatest`, SQLite `max`),
+  `id_in(column, ids, key=)` (PostgreSQL one array bind, `= ANY(:key)`; others
+  `IN`) and `array_insert_sql` (the outbox and audit bulk insert's SQL,
+  PostgreSQL `unnest`; `None` elsewhere). The loader refuses a renderer missing
+  any member of the contract (SANDLOOM-B025); `SqlDialectConformance` checks
+  the new forms.
+  The command, HTTP and inbox claims, the outbox writes and `id` matches, the
+  saga store, the projection upserts and watermarks build their `INSERT ... ON
+  CONFLICT` and `greatest` from it instead of naming PostgreSQL. A completed
+  command or HTTP record restarts its expiry on every database (computed in
+  Python from the claim, or read back from the row with a warning when the
+  completing session did not claim it; it was PostgreSQL-only), and a lock timeout of the
+  claim is recognised through `classify_error` (still `Busy`, the unit rolls
+  back). The kernel's outbox, inbox, audit and saga tables declare `Uuid` and
+  `partial_index`: the PostgreSQL DDL is unchanged, no migration follows. The
+  claim and the outbox statements render the same SQL on PostgreSQL.
+
+- **The kernel's locks go through the SQL dialect renderer.** A renderer's
+  `transaction_lock` form becomes `lock_statement(key, *, scope=, wait=)` and
+  `unlock_statement(key)`: a `LockStatement(statement, parameters)` (from
+  `sandloom.driverkit`) that takes (or releases) a named lock, or `None` when
+  the database has none. The statement is built once per key shape and the key
+  travels in `parameters`; the kernel runs `execute(lock.statement,
+  lock.parameters)`, so a lock taken per request builds no SQL. A key is a 64-bit `int`, a
+  `(namespace, int | str)` pair or a `str`; PostgreSQL hashes a string on the
+  server (`hashtextextended`, or `hashtext` in a pair), so two releases still
+  exclude each other during a rolling deploy. The HTTP idempotency try-lock
+  (still "busy, never wait"), the projection purge and rebuild lock, the
+  migration run-wide and provisioning locks and the chain lock of a direct
+  `alembic upgrade` ask it instead of naming PostgreSQL; on PostgreSQL the SQL
+  is the same (the migration locks bind the key instead of inlining it).
+  `transaction_lock` keeps its signature and SQL and still refuses on SQLite
+  (SANDLOOM-R015). `SqlDialectConformance` checks that each lock is a
+  `LockStatement` whose parameters bind its statement, or absent, that a
+  never-waiting lock selects a boolean, that a session lock has its unlock,
+  and that two keys of one shape share the statement and differ in their
+  parameters (`test_a_lock_binds_its_key_at_execution`). A renderer may state
+  the optional fact `aware_times` (PostgreSQL does): `DateTime(timezone=True)`
+  keeps the instant and its DBAPI reads values back aware, so `UtcDateTime`
+  converts nothing there and only refuses a naive time; a renderer stating it
+  overrides the kit's `read_aware_time` to show it on the database.
+
+- **Locks through the renderer.** The kernel's advisory locks (the HTTP
+  idempotency try-lock, the projection purge lock, the migration and
+  provisioning locks) come from the SQL dialect renderer's `lock_statement`;
+  PostgreSQL takes the same locks with the same keys. `transaction_lock(key)` now
+  refuses a key that is not a 64-bit integer (a `bool` included) with
+  `TypeError` before it reaches the database.
+
+- **Queue claims without `SKIP LOCKED`.** On a database whose renderer lacks
+  `skip_locked`, the outbox relay claims each due row by compare-and-set on its
+  lease (`locked_until`/`locked_by`, taken when one row changed, re-checking
+  that the row is still due) and the saga sweep claims each due instance by
+  compare-and-set on `swept_at`, one short transaction per instance, skipping
+  an instance a transition moved since the sweep read it. On this path relays
+  and sweeps run safely in parallel but do not split the work: a claim waits
+  for a row another worker holds instead of skipping it, and a saga transition
+  waits for the instance row lock. Delivery stays at-least-once. The batched
+  relay claim needs `skip_locked` and `UPDATE ... RETURNING`; other databases
+  use the per-row relay. On PostgreSQL nothing changes; no migration.
+- **Timestamps on any database.** `CreatedAt` / `UpdatedAt` are stamped by
+  the database's clock at the call through the new renderer member
+  `wall_clock()` (PostgreSQL: `clock_timestamp()`, as before; SQLite: the UTC
+  time to the millisecond, ties ordered by the UUIDv7 id), and read back as
+  timezone-aware UTC times through `UtcDateTime`, new in `sandloom.sdk.data`
+  (advanced): a `DateTime(timezone=True)` that writes aware times in UTC and
+  attaches UTC to the naive values SQLite returns (the planner's raw executor
+  still serves these columns). Use it for your own time columns. On
+  PostgreSQL the DDL, the update SQL and the migrations `sandloom migrate new`
+  writes do not change; no migration. `wall_clock()` is a required member of
+  renderer contract version 2 and checked by `SqlDialectConformance`.
+- **Two more renderer forms.** `for_update(stmt, *, skip_locked, read=False)`
+  locks the rows a query reads (PostgreSQL: `FOR UPDATE [SKIP LOCKED]` /
+  `FOR SHARE`, as before; SQLite: unchanged, its writers are serial) and
+  `relaxed_commit_clause()` lets the outbox's mark-delivered commit without a
+  durable-flush wait (PostgreSQL: today's `synchronous_commit` term; SQLite:
+  none). Both are required members of renderer contract version 2 and checked
+  by `SqlDialectConformance`; the PostgreSQL SQL is byte-identical (pinned by
+  tests). The kernel's row locks and the mark-delivered statement use them, and
+  the kernel names a database at 33 sites, down from 40.
+- **Row security through the renderer; application-enforced isolation said
+  aloud.** The renderer member `row_security()` returns a `RowSecurity`
+  (`sandloom.driverkit`, with `TENANT_SETTING`): the tenant policy DDL of
+  `enable_tenant_rls` / `disable_tenant_rls`, the per-transaction binding of
+  the tenant (the merged `BEGIN` text included) and the startup role and
+  coverage queries. PostgreSQL returns them byte-identical to before (pinned
+  by tests); SQLite returns `None`. The binding text is built once per engine.
+  `tenant_rls`, `system_url` or `require_system_channel` on a database without
+  row security stops startup (SANDLOOM-B026, new). Without them, its
+  `TenantScoped` isolation is the ORM guard only: startup warns
+  "application-enforced tenant isolation" for the instance, the guarantee
+  lattice computes that label from the instance's features
+  (`Mechanism.from_features`, `tenant_isolation_label`), and
+  `multi_tenant_strict` still refuses it. `enable_tenant_rls_statements` (an
+  internal helper) now takes `dialect=`. The kernel names a database at 23
+  sites, down from 30.
+- **Read-only and snapshot units through the renderer; no silent snapshot
+  downgrade.** Renderer members `begin_statement(write=, read_only=, snapshot=)`
+  (the `BEGIN` text, `None` for the plain one) and `transaction_options(read_only=,
+  snapshot=)` (the SQLAlchemy execution options to the same effect) shape the
+  planner's read units and `ReadOnlyDbSession`. PostgreSQL returns today's
+  texts and options (pinned against the pre-slice code by tests), computed once;
+  SQLite the plain `BEGIN` and no options. A `SnapshotReads` route or a
+  `read_scope(..., isolation="repeatable_read")` on a database without
+  `snapshot_reads` is refused (SANDLOOM-B027, new): at startup when the default
+  database lacks it, else when the scope's read unit opens, before any I/O.
+  Before, the planner silently read without a snapshot there. A read-only unit
+  on a database without `readonly_transactions` relies on the read-only scope
+  and the ORM read guard. The planner adapter's `read_unit` takes
+  `snapshot=` instead of an isolation name (`ISOLATION_LEVELS` is now
+  `SNAPSHOT_ISOLATION`). The kernel names a database at 15 sites, down from 23.
+- **The DBAPI adapter; `DB_READ_ONLY_SESSIONS` needs a guard.** What the
+  `sqlalchemy` driver knows about one DBAPI moved behind a `DbapiAdapter`
+  (`sandloom.driverkit`: `DbapiAdapter`, `DBAPI_CAPABILITIES`,
+  `register_dbapi_adapter`), chosen by the URL's DBAPI: how a lost connection
+  looks, the connect arguments carrying the server timeouts, and the fast paths
+  (the merged row-security `BEGIN`, the planner's raw executor, the client
+  read-only policy, the dead-connection recovery, the reconnect backoff). The
+  asyncpg code lives in `sandloom.core.drivers.dbapi_asyncpg`; any other DBAPI
+  takes the plain path. An adapter states `contract_version` (1); a driver
+  package's adapter may claim only `read_only_policy` and `reconnect_backoff`
+  and is never replaced by the shipped one (SANDLOOM-B025). The plain path
+  classifies a lost connection through the renderer, so `postgresql+psycopg`
+  answers 503 too. The merged `BEGIN` takes its text from the renderer's
+  `begin_statement`, the planner's source. On PostgreSQL with asyncpg every SQL
+  text, connect argument and error classification is unchanged (pinned against
+  the pre-slice code by tests). A new error kind, `transaction_aborted`
+  (PostgreSQL's 25P02), replaces the kernel's own SQLSTATE checks.
+  `DB_READ_ONLY_SESSIONS=true` on a default database with neither
+  `readonly_transactions` nor a client read-only policy stops startup
+  (SANDLOOM-B031, new). The kernel names a database at 6 sites, down from 15.
+- **SQLite in the `sqlalchemy` driver, for development and tests.** The driver
+  serves `sqlite+aiosqlite://` (the new `sqlite` extra:
+  `pip install 'sandloom[sqlite]'`). The aiosqlite adapter
+  (`sandloom.core.drivers.dbapi_aiosqlite`) turns pysqlite's implicit
+  transactions off and emits each unit's `BEGIN` itself, so savepoints work.
+  Every unit not declared read-only begins `BEGIN IMMEDIATE`, reads before its
+  first write included, so writers are serial; a read-only unit begins deferred
+  with `PRAGMA query_only` on. Each connection opens with WAL, `foreign_keys`
+  and `busy_timeout` (`DB_STATEMENT_TIMEOUT_MS`: 30 s by default, 5 s when it
+  is 0). SQLite now
+  declares `transaction_locks` (`transaction_lock` and the projection purge
+  lock succeed inside a unit that may write, R015 in a read-only one; new
+  `WRITE_LOCK_HELD` in `sandloom.driverkit`), `snapshot_reads` and
+  `readonly_transactions`. `SQLITE_BUSY`/`LOCKED` classify as
+  `lock_not_available`, `SQLITE_BUSY_SNAPSHOT` as `serialization_failure`. An
+  in-memory database, a SQLite URL without `+aiosqlite` and a missing aiosqlite
+  stop startup (SANDLOOM-B032, new); only a test engine on one shared
+  connection may be in memory, and it advertises neither `snapshot_reads` nor
+  `transaction_locks` (its `transaction_lock` refuses, R015). A second unit of
+  the same task that begins a write while the task's first unit holds the
+  write lock (a local contract call, a saga step, a child `open_uow()`) is
+  refused at its BEGIN (SANDLOOM-R016, new) instead of waiting for itself until
+  `busy_timeout`. Startup asks each database's DBAPI adapter for a
+  build-free `config_problem(url)`. The outbox's AUTOCOMMIT mark-delivered runs on any
+  database. `DbapiAdapter` gains `config_problem`, `ping`, `connection_closed`
+  and `prepare_engine`: the pool's idle probe and closed-connection check are the
+  adapter's (asyncpg's unchanged). The conformance kit requires non-empty
+  `transaction_options` for a snapshot unit when `snapshot_reads` is declared;
+  a per-statement read unit may begin like the snapshot one only when the
+  test sets `read_units_share_one_snapshot` (SQLite). The
+  kernel names a database at 5 sites, down from 6.
+
+- **A process refuses a SQLite file replaced under it** (SANDLOOM-B028). A
+  recreate (`sandloom dev run` after a model change) renames the file while
+  workers, beat or the admin may still hold it open, and they would go on
+  writing to the renamed file. Each process now remembers the file it opened
+  (device and inode) and checks the path at each connection checkout, one
+  `stat`; once the path names another file, or none, the checkout fails with
+  `DatabaseFileReplaced`, which names the file and says to restart the
+  process. The process that sets the file aside opens the new one. Only a
+  development-only database (SQLite) is checked; PostgreSQL pays nothing.
+  Restart the workers, beat and admin after a recreate.
+
 ### Changed
+
+- **`UtcDateTime` is a beginner name**: `from sandloom.sdk import UtcDateTime`,
+  like `CreatedAt`, with no `# sandloom: advanced` marker; the beginner tier
+  is 30 names. SANDLOOM-C029 requires `UtcDateTime()` for every time column
+  in module code, so its fix used to fail SANDLOOM-T009 unless the import
+  carried a marker. `sandloom.sdk.data` still exports it.
+
+- **Command dedupe and saga crash recovery are stated for both databases**
+  (G-CMD-01, G-SAGA-07, G-UOW-09). A command's dedupe record commits in the
+  same transaction as its effect: the provider's own unit, or on SQLite the
+  caller's transaction a local command joins. A saga step that crashed after
+  its effect committed is replayed from the command log where the provider
+  commits on its own (PostgreSQL); on SQLite the effect, its record and the
+  step's state commit together, so a crash loses all three and the redrive
+  runs the step once. G-UOW-09 now says a unit nests only inside a caller
+  that has already run a statement. The saga crash tests are laws that hold
+  on PostgreSQL and SQLite. One behaviour changed, on SQLite only: a forward
+  command step whose provider commits on its own (over RPC, or on another
+  database instance) first commits its "started" marker in a transition of
+  its own (`marked`), then calls in the next one. Before, the marker joined
+  the calling transition and a crash after the provider committed lost it,
+  so the deadline compensated without resolving the step and the post-TTL
+  guard could re-issue it. PostgreSQL is unchanged.
+
+- **An application from `sandloom new` runs on SQLite out of the box.** Its
+  `dev` dependencies bring the framework's `sqlite` extra (aiosqlite), and its
+  README says how: `DATABASE_URL=sqlite+aiosqlite:///./data/app.db` with
+  `CACHE_URL` / `BROKER_URL` in `.env`, outside the `sandloom dev` block.
+  A `DATABASE_URL` whose database takes its schema from the models (SQLite)
+  is the checkout's own database when it is the assignment that wins in
+  `.env` (the last one) and stands outside the block. `sandloom dev run` then
+  serves it and starts no dev services; before, it started PostgreSQL and
+  Redis in Docker and served the app on them. `sandloom dev up` refuses and
+  leaves `.env` as it is; before, it commented the line out. A PostgreSQL
+  `DATABASE_URL` outside the block is handled as before. `sandloom migrate
+  drift`, the "migration drift" step of `sandloom test`, says it skips on a
+  database without migration chains instead of failing with SANDLOOM-B028,
+  so `sandloom test` passes on SQLite.
+
+  **Upgrade:** an existing app adds `sqlite` to its `sandloom[check,testing]`
+  dev requirement to run on SQLite. The `.env` change of `sandloom dev up`
+  and `dev run`: see Breaking changes.
 
 - **The API docs look like sandloom.dev outside production.** `/docs` (Swagger UI) and
   `/redoc` get the site's header with the app's name and links (console, Swagger UI,
@@ -27,10 +554,52 @@ website renders this same changelog.
 
 ### Fixed
 
+- **The read planner's prefix filter is literal, and keeps its case, on
+  SQLite.** The general form bound `_` and `%` escaped with backslashes,
+  PostgreSQL's default `LIKE` escape, without naming the escape; SQLite has
+  none, so `D_v` found nothing (`examples/projecthub`'s filter test on
+  SQLite). And SQLite's `LIKE` folds ASCII case, so a case-sensitive `prefix=`
+  matched case-insensitively. The filter is now the renderer's: two optional
+  members of renderer contract 2, `prefix_pattern` and `prefix_match` (both or
+  neither, SANDLOOM-B025; checked by `SqlDialectConformance`). PostgreSQL
+  keeps `LIKE` / `ILIKE` with a backslash `ESCAPE`; SQLite writes a
+  case-sensitive prefix as a `GLOB` (`*`, `?`, `[` as one-character classes)
+  and a case-insensitive one as `lower(...) LIKE lower(...) ESCAPE`.
+
 - **A failed `sandloom dev up` names the cause.** Docker wraps long errors, and the
   message showed only the last wrapped line (`(exit status 4))`); it now starts at the
   line that names the error and joins the lines it wraps onto. Images the dev and test
   services share are listed and pulled once, without `docker pull` output.
+- **A cancelled post-commit dispatcher no longer outlives its event loop.**
+  On SQLite a cancel landing in a statement came back as
+  `PendingRollbackError`: the SQLite adapter's rollback hook read the state of
+  the connection the cancel had invalidated. The dispatcher logged it and waited
+  on its queue forever, and the loop's close (a test's teardown, a worker's
+  shutdown) never returned: a third to half of the runs of a test file hung. The
+  hook now skips an invalidated connection, so the cancel comes out, and the
+  write-lock mark of an invalidated connection is released when the pool
+  invalidates it: the same task's retry on another connection is no longer
+  refused as a nested writer (SANDLOOM-R016). The dispatcher, its marks, and the
+  in-line publish and mark of a `db_session()` unit (workers, scripts) end on a
+  cancellation whatever error a driver turns it into. The unmarked rows stay
+  the relay's, as before.
+- **Identity, tenancy and billing stamp and compare times with the database's
+  clock in the stored format** (`WallClock()`, was `func.now()`): enabling 2FA,
+  issuing an operation intent, and superseding, revoking and accepting an
+  invitation. On SQLite `func.now()` wrote whole seconds, which compared with
+  the microsecond text of the `expires_at` column within a second off. On
+  PostgreSQL the time is the statement's (`clock_timestamp()`) rather than the
+  transaction's start; no schema change.
+- **Billing's reconciler could not escalate an intent on SQLite.** Closing an
+  owed compensation whose checkout session was paid meanwhile wrote
+  `greatest(...)`, which SQLite does not have; it is a `CASE` now.
+- **The test harness never waits without bound.** The PostgreSQL schema reset
+  sets `lock_timeout` (30 s), so a database shared by mistake with another
+  run's open transaction fails at once instead of hanging (no fallback reset
+  waits again); creating a worker's database connects with a 5 s timeout. The
+  SQLite and PostgreSQL fixtures of the nested-units tests, and
+  `open_test_engine`, finish the post-commit dispatch before closing their
+  engine (bounded; a slow drain never fails the teardown).
 
 ## [0.7.0a10] — 2026-11-03
 

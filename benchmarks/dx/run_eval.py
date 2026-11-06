@@ -82,7 +82,11 @@ DEFAULT_MODE = "app"
 DEFAULT_APP = {"tasks": "teamhub", "product": "academy"}
 #: Paths removed from the agent's worktree before it starts (hidden from it).
 HIDDEN = ("benchmarks/dx", "docs/design/dx-cognitive-load-2026-10-25.md")
-PG = "postgresql+asyncpg://test_user:test_password@localhost:5433"
+#: The test PostgreSQL server (no database name): the per-task databases are
+#: created on it (``SANDLOOM_DX_PG`` — a shared machine points it at its own).
+PG = os.environ.get(
+    "SANDLOOM_DX_PG", "postgresql+asyncpg://test_user:test_password@localhost:5433"
+).rstrip("/")
 #: The test Redis, and (``SANDLOOM_DX_REDIS_INDEXES=200-239``) the indexes the
 #: per-task pairs may come from — a shared machine gives each runner its own.
 REDIS = os.environ.get("SANDLOOM_DX_REDIS", "redis://localhost:6380")
@@ -467,12 +471,15 @@ def product_spec(modules: list[str], mode: str = "framework") -> str:
     return "\n\n".join(parts) + "\n"
 
 
-#: A framework module path and its app-mode equivalent.
-_FRAMEWORK_MODULE = re.compile(r"^src/sandloom_([a-z0-9_]+)/")
+#: A framework module path (a bundled ``src/sandloom_<m>/`` or a new business
+#: module ``src/sandloom/<m>/``) and its app-mode equivalent.
+_FRAMEWORK_MODULE = re.compile(r"^src/sandloom[_/]([a-z0-9_]+)/")
 
 
 def derive_app_allowed(allowed: list[str]) -> list[str]:
-    """``src/sandloom_<m>/`` -> ``{app}/modules/<m>/``; ``deploy/`` stays."""
+    """``src/sandloom_<m>/`` and ``src/sandloom/<m>/`` -> ``{app}/modules/<m>/``
+    (resolved against the app's ``modules_path`` when scored:
+    :func:`appmode.resolve_app_allowed`); ``deploy/`` stays."""
     return [
         _FRAMEWORK_MODULE.sub(r"{app}/modules/\1/", a)
         if _FRAMEWORK_MODULE.match(a)
@@ -1092,8 +1099,7 @@ def score_app(
         )
     ]
     edits = [c for c in changed if c not in result.generated_files]
-    allowed = [a.removeprefix(f"{task.app}/") for a in task.app_allowed]
-    allowed = [f"{app.name}/{a}" if a.startswith("modules/") else a for a in allowed]
+    allowed = appmode.resolve_app_allowed(task.app_allowed, task.app, app)
     outside_ = [c for c in edits if not any(c.startswith(p) for p in allowed)]
     result.expected_wiring = [
         c
@@ -1130,7 +1136,7 @@ def score_app(
             and not c.startswith("tests/")
         ]  # fmt: skip
         result.config_changes = [c for c in changed if c not in result.code_changes]
-        prefix = f"{app.name}/modules/"
+        prefix = appmode.modules_path(app) + "/"
         touched = sorted(
             {c[len(prefix) :].split("/")[0] for c in changed if c.startswith(prefix)}
         )

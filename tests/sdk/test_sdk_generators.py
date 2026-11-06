@@ -348,14 +348,16 @@ def _tier_problems(paths: list[Path]) -> list[str]:
     ]
 
 
-def test_the_beginner_tier_is_the_29_names() -> None:
+def test_the_beginner_tier_is_the_30_names() -> None:
     """27 names of the 1.0 spec, plus ``new_id`` and ``CreatedAt``: the id
-    and timestamp idiom every generated model uses (owner, 2026-10-27)."""
+    and timestamp idiom every generated model uses (owner, 2026-10-27), plus
+    ``UtcDateTime``, the type SANDLOOM-C029 asks for on every other time
+    column (owner, 2026-11-05)."""
     beginner = api10_rules.beginner_names(SDK)
     code = beginner["sandloom.sdk"]
     testing = beginner["sandloom.sdk.testing"] | beginner["sandloom.sdk.testing.plugin"]
-    assert len(code) == 23 and len(testing) == 6
-    assert {"new_id", "CreatedAt"} <= code
+    assert len(code) == 24 and len(testing) == 6
+    assert {"new_id", "CreatedAt", "UtcDateTime"} <= code
 
 
 def test_generated_code_uses_only_the_beginner_tier(tmp_path: Path) -> None:

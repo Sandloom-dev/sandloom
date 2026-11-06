@@ -15,16 +15,19 @@ from uuid import uuid4
 import pyotp
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.testing import bind_contract_session, bind_test_uow
 from sandloom_identity.contracts import SECURITY_SERVICE_V1
 from sandloom_identity.models.refresh_token import RefreshToken
+from sandloom_identity.models.role import Role
 from sandloom_identity.models.twofa_backup_code import TwoFABackupCode
 from sandloom_identity.models.twofa_secret import TwoFASecret
 from sandloom_identity.models.user import User
+from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.services.twofa_service import TwoFAService, _encrypt_secret
+from sandloom_identity.tests.utils.kernel_tables import AUDIT_LOG
 
 from ..conftest import _login_headers
 
@@ -38,11 +41,9 @@ def _key() -> dict[str, str]:
 
 async def _audit(db: AsyncSession, user: User) -> list[tuple[str, str, Any]]:
     rows = await db.execute(
-        text(
-            "SELECT action, actor_type, data FROM audit_log "
-            "WHERE resource_id = :rid ORDER BY occurred_at"
-        ),
-        {"rid": str(user.id)},
+        select(AUDIT_LOG.c.action, AUDIT_LOG.c.actor_type, AUDIT_LOG.c.data)
+        .where(AUDIT_LOG.c.resource_id == str(user.id))
+        .order_by(AUDIT_LOG.c.occurred_at)
     )
     return [(r[0], r[1], r[2]) for r in rows]
 
@@ -113,13 +114,12 @@ async def test_operator_reset_2fa_removes_factor_ends_sessions_and_audits(
     assert audit[0][0] == "identity.twofa.reset"
     assert audit[0][2] == {"reason": REASON["reason"], "was_enabled": True}
     actor = await test_db.scalar(
-        text(
-            "SELECT actor_id FROM audit_log WHERE action = 'identity.twofa.reset' "
-            "AND resource_id = :rid"
-        ),
-        {"rid": str(test_user.id)},
+        select(AUDIT_LOG.c.actor_id).where(
+            AUDIT_LOG.c.action == "identity.twofa.reset",
+            AUDIT_LOG.c.resource_id == str(test_user.id),
+        )
     )
-    assert str(actor) == str(admin_user.id)
+    assert actor == admin_user.id
     # The password alone signs in again (the user re-enrols).
     assert (await _login(async_client, test_user)).status_code == 200
 
@@ -271,11 +271,9 @@ async def test_appointing_the_first_admin_grants_verifies_and_audits(
         )
     assert granted is True
     held = await test_db.execute(
-        text(
-            "SELECT r.code, r.is_system FROM user_roles ur "
-            "JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = :uid"
-        ),
-        {"uid": test_user.id},
+        select(Role.code, Role.is_system)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == test_user.id)
     )
     assert [tuple(row) for row in held] == [("admin", True)]
     trail = await _audit(test_db, test_user)
@@ -294,8 +292,9 @@ async def test_appointing_twice_keeps_one_assignment(
                 test_user.id, "first administrator", "alice", key
             )
     count = await test_db.scalar(
-        text("SELECT count(*) FROM user_roles WHERE user_id = :uid"),
-        {"uid": test_user.id},
+        select(func.count())
+        .select_from(UserRole)
+        .where(UserRole.user_id == test_user.id)
     )
     assert count == 1
 

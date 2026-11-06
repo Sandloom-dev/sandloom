@@ -10,8 +10,7 @@ version column so out-of-order / duplicate deliveries never roll a row back.
 
 import uuid
 
-from sqlalchemy import BigInteger, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, TenantScoped
@@ -21,7 +20,7 @@ from sandloom.sdk.data import UpdatedAt  # sandloom: advanced last-write time
 class ProjectTaskQueryIndex(TenantScoped, Base):
     __tablename__ = "taskboard_project_task_query_index"
 
-    task_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     # ``tenant_id`` comes from TenantScoped: every ORM query is filtered to the
     # bound tenant (fail closed when none is bound).
 
@@ -29,7 +28,7 @@ class ProjectTaskQueryIndex(TenantScoped, Base):
     task_status: Mapped[str] = mapped_column(String(32), nullable=False)
     task_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     project_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     project_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="unknown"

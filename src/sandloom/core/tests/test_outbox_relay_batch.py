@@ -422,7 +422,7 @@ async def test_failed_mark_leaves_rows_to_the_relay(
 
     ids = await _seed(factory, 3)
 
-    def _drops() -> Any:
+    def _drops(_bind: Any) -> Any:
         raise OperationalError("UPDATE outbox_messages", {}, ConnectionResetError())
 
     monkeypatch.setattr(store_mod, "_mark_delivered_statement", _drops)

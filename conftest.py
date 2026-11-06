@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
@@ -12,7 +11,7 @@ import pytest
 import pytest_asyncio
 from dotenv import dotenv_values
 
-from sandloom.core.testing.workers import explicit_test_overrides
+from sandloom.core.testing.workers import seed_test_environ
 
 #: Settings ``.env.test`` must not leak into the framework suite's snapshot:
 #: the suite runs as ``ENVIRONMENT=dev`` (it gates on ``is_prod``, never
@@ -28,21 +27,17 @@ def _seed_test_env() -> None:
     run died with ``DATABASE_URL Field required``; a ``.env`` copied from
     ``.env.example`` made the suite depend on dev values. Now ``.env.test``
     fills the process env (it beats ``.env`` in pydantic-settings) for every
-    key the shell leaves unset, ``SANDLOOM_TEST_DATABASE_URL`` /
-    ``SANDLOOM_TEST_CACHE_URL``
-    / ``SANDLOOM_TEST_BROKER_URL`` still win, and ``ENVIRONMENT`` stays the dev
-    default. A shell that exports ``DATABASE_URL`` itself (CI) is left alone.
-    Missing test defaults are seeded even when CI supplies DATABASE_URL;
-    setdefault below preserves every explicit shell value.
+    key the shell leaves unset, an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
+    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` wins over the
+    file and over a shell-exported ``DATABASE_URL`` / ``CACHE_URL`` /
+    ``BROKER_URL``, and ``ENVIRONMENT`` stays the dev default. A shell that
+    exports ``DATABASE_URL`` itself without an override (CI) is left alone
+    (:func:`~sandloom.core.testing.workers.seed_test_environ`).
     """
     env_test = Path(__file__).resolve().parents[0] / ".env.test"
     if not env_test.is_file():
         return
-    values = {k: v for k, v in dotenv_values(env_test).items() if v is not None}
-    values.update(explicit_test_overrides())
-    for key, value in values.items():
-        if key not in _SEED_SKIP:
-            os.environ.setdefault(key, value)
+    seed_test_environ(dotenv_values(env_test), skip=_SEED_SKIP)
     if not (Path.cwd() / ".env").is_file():
         print(
             f"sandloom tests: settings from {env_test.name} (no .env needed). Start "

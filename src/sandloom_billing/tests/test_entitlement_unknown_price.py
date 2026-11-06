@@ -19,11 +19,12 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom_billing.models import BillingSubscription
 from sandloom_billing.services import BillingService
+from sandloom_billing.tests.conftest import audit_count
 from sandloom_billing.tests.test_operation_intents import (
     sessions,  # noqa: F401 - fixture
 )
@@ -65,10 +66,7 @@ def _with_price(event: dict, stripe_price: str) -> dict:
 
 
 async def _audits(db: AsyncSession, action: str) -> int:
-    count = await db.execute(
-        text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": action}
-    )
-    return int(count.scalar_one())
+    return await audit_count(db, action)
 
 
 # --------------------------------------------------------------------------- #

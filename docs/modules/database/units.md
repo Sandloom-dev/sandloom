@@ -182,6 +182,33 @@ transaction opened after the request, never nested inside it. A route whose
 job is a sequence of short units around an external call (billing checkout)
 uses the operation-intent mode ([Lifecycle](../../advanced/lifecycle.md)).
 
+## Read units: read-only and one snapshot
+
+A route that only reads declares it, and the framework runs its reads in a
+read-only unit instead of the request's writable one:
+
+| You declare | What the unit is |
+| --- | --- |
+| `reads: PlannedReads` ([execution planner](../../advanced/execution-planner.md)) | read-only; each statement sees what was committed before it started |
+| `reads: SnapshotReads` | read-only; every read of the route sees one snapshot, so the reads agree with each other |
+| `read_scope(core, owner, isolation="repeatable_read")` | the same one-snapshot scope, in a task or a script |
+
+The database's SQL dialect renderer decides how such a unit begins. Two
+features of the database instance say what it can promise:
+
+- **`snapshot_reads`: one snapshot.** PostgreSQL has it
+  (`REPEATABLE READ READ ONLY`). Where the database lacks it, as SQLite
+  does, a `SnapshotReads` scope is refused instead of reading without a
+  snapshot ([SANDLOOM-B027](../../reference/error-codes.md#sandloom-b027)).
+  Startup refuses a route declaring `SnapshotReads` when the default
+  database lacks the feature. A scope reading from another database is
+  refused when its read unit opens, before any I/O.
+- **`readonly_transactions`: the database refuses writes.** PostgreSQL has it
+  (`READ ONLY`). Where the database lacks it, a read-only unit is not refused.
+  The read-only scope still refuses events, audit and post-commit callbacks,
+  and the ORM read guard refuses ORM writes. A raw `text()` statement that
+  writes is then refused by nothing, so keep raw writes out of read routes.
+
 ## What breaks it
 
 | Code | What it catches |
@@ -193,6 +220,7 @@ uses the operation-intent mode ([Lifecycle](../../advanced/lifecycle.md)).
 | [SANDLOOM-R013](../../reference/error-codes.md#sandloom-r013) | `db()` from a task that does not own the unit |
 | [SANDLOOM-R007](../../reference/error-codes.md#sandloom-r007) | a second writing unit in one request |
 | [SANDLOOM-R008](../../reference/error-codes.md#sandloom-r008) | nested or overlapping units where they are not allowed |
+| [SANDLOOM-B027](../../reference/error-codes.md#sandloom-b027) | a one-snapshot read scope on a database without `snapshot_reads` |
 
 ??? note "Guarantees, precisely"
 

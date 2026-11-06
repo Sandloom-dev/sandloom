@@ -200,6 +200,15 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
             )
 
 
+def database_instance_url(options: Any, settings: Any) -> str | None:
+    """The URL of a database instance: its ``url`` option, else the
+    process's ``DATABASE_URL``; ``None`` without either."""
+    url = (options.get("url") if options else None) or getattr(
+        settings, "database_url", None
+    )
+    return str(url) if url else None
+
+
 def load_infra_config(settings: Settings) -> InfraConfig:
     """Return the fully merged infrastructure configuration."""
     config = _synthesize_defaults(settings)
@@ -213,6 +222,7 @@ def load_infra_config(settings: Settings) -> InfraConfig:
 
 __all__ = [
     "DEFAULT_INSTANCE",
+    "database_instance_url",
     "InstanceConfig",
     "InfraConfig",
     "InfraConfigError",

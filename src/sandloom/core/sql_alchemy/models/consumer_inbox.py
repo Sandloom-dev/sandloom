@@ -24,8 +24,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Index, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Index, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.core.sql_alchemy.base import Base
@@ -46,9 +45,7 @@ class ConsumerInboxEntry(Base):
         Index("ix_consumer_inbox_processed_at", "processed_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     # Logical consumer identity, e.g. "billing.credits@orders.paid.v1".
     consumer: Mapped[str] = mapped_column(String(200), nullable=False)
     # Stable domain event id (== outbox row id == envelope id).

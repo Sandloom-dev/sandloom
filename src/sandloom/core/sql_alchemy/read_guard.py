@@ -10,7 +10,9 @@ reports what is still queued when the body returns. A violation the body
 caught and swallowed is remembered and reported at the end too.
 
 Not covered: a raw ``text()`` statement that writes (its kind is opaque to the
-client). PostgreSQL ``READ ONLY`` sessions are the backstop for that.
+client). A read-only transaction is the backstop for that where the database
+has ``readonly_transactions``; without the feature (SQLite) nothing refuses
+it, and the unit's rollback discards what it wrote.
 """
 
 from __future__ import annotations

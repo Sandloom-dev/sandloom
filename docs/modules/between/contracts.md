@@ -189,7 +189,9 @@ then `if not await quota.may_create_item(): ...`.
 - **A command is not atomic with the caller.** It has committed when it
   returns; if the caller later rolls back, the command stays applied. Design
   it as a saga step: compensate, or drive the effect from an event. See
-  [Sagas](sagas.md).
+  [Sagas](sagas.md). On SQLite, a development database with one writer, a
+  local command called inside your writing unit commits with your unit
+  instead: [Nested units](../../infrastructure/database.md#nested-units-commit-with-their-caller).
 
 ### Required or optional
 
@@ -292,9 +294,11 @@ proves that local and in-process RPC calls agree. See the
       and per-request memo; no idempotency record.
     - **Commands (G-CMD-01 to 09, G-CONTRACT-03).** The dedupe record
       `(contract, method, bound tenant, calling end user, key) -> (args
-      digest, status, result)` is claimed in the command's own unit before
-      the body runs and commits iff the effect commits, so a retry after a
-      crash past COMMIT replays the result and never re-runs. The calling end
+      digest, status, result)` is claimed in the same transaction as the
+      command's effect before the body runs and commits iff the effect
+      commits: the command's own unit, or on SQLite the caller's transaction
+      a local command joins (G-UOW-09). A retry after a crash past that
+      COMMIT replays the result and never re-runs. The calling end
       user (the request's subject, or the signed caller facts of an RPC call) is in
       the scope because the body authorizes it: another user reusing the key
       runs the body and gets its own decision, never the stored result

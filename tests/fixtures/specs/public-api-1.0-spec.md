@@ -659,6 +659,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.TestResourceOwnershipError` | aja.sdk.testing (advanced) | kept | 0 | args, kwargs |  |
 | `core.testing.apply_worker_env` | aja.sdk.testing (advanced) | kept | 0 | environ, create_database |  |
 | `core.testing.assert_operation_classes` | aja.sdk.testing.assert_route_snapshot (C-TEST-07) | adr0009 | 4 | app | G-OPCLASS-01, C-TEST-04 |
+| `core.testing.assert_migrations_match_models` | aja.sdk.testing (advanced) | kept | 0 | module, core |  |
 | `core.testing.assert_route_snapshot` | aja.sdk.testing | kept | 3 | app, modules |  |
 | `core.testing.bind_test_uow` | aja.sdk.testing | kept | 1 | session, database, outbox, audit | C-EFFECT-02, C-TEST-06 |
 | `core.testing.block_mark_key` | aja.sdk.testing | kept | 1 | user_id |  |
@@ -673,6 +674,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.make_user_headers` | aja.sdk.testing.as_user | renamed | 23 | user_id, tenant_id, email, email_verified, tenant, claims |  |
 | `core.testing.migrate_module` | aja.sdk.testing | kept | 4 | url, package, revision, downgrade, chain |  |
 | `core.testing.migration_chains` | aja.sdk.testing (advanced) | kept | 0 | core |  |
+| `core.testing.migration_drift` | aja.sdk.testing (advanced) | kept | 0 | module, core |  |
 | `core.testing.model_tables` | aja.sdk.testing (advanced) | kept | 0 | core |  |
 | `core.testing.open_saga_harness` | aja.sdk.testing | kept | 0 | core |  |
 | `core.testing.operation_classes` | aja.sdk.testing.assert_route_snapshot (C-TEST-07) | adr0009 | 1 | app |  |
@@ -687,6 +689,8 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.run_on_commit` | aja.sdk.testing | kept | 5 | session, database | G-EFFECT-03, C-EFFECT-02 |
 | `core.testing.run_sql` | aja.sdk.testing | kept | 7 | url, sql, params |  |
 | `core.testing.set_environment` | aja.sdk.testing | kept | 2 | monkeypatch, name |  |
+| `core.testing.skip_unless_db_feature` | aja.sdk.testing (advanced) | kept | 0 | features, database |  |
+| `core.testing.has_optimized_reads` | aja.sdk.testing (advanced) | kept | 0 | bind |  |
 | `core.testing.stop_revocation_listener` | aja.sdk.testing | kept | 1 |  |  |
 | `core.testing.tables_created_by` | aja.sdk.testing (advanced) | kept | 0 | chain |  |
 | `core.testing.temporary_database` | aja.sdk.testing (advanced) | kept | 0 | base_url |  |

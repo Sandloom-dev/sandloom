@@ -365,6 +365,22 @@ run_module_migrations(__file__)
     files["migrations/script.py.mako"] = _MAKO
     files[f"migrations/versions/0001_{name}_baseline.py"] = _baseline(name)
     files["tests/__init__.py"] = ""
+    files["tests/test_migrations.py"] = f'''\
+"""The chain at head builds the schema the models declare.
+
+A test database on SQLite takes its schema from the models and runs no chain;
+on PostgreSQL this compares the two (it skips on SQLite). A model change
+without its revision fails here: ``sandloom migrate new {name} "<message>"``.
+"""
+
+from sandloom.sdk.testing import (  # sandloom: advanced migrations gate
+    assert_migrations_match_models,
+)
+
+
+def test_migrations_match_models() -> None:
+    assert_migrations_match_models("{name}")
+'''
     items = f'"/api/v1/{name}/items"'
     create = _call(
         "    created = await client.post",
@@ -1017,10 +1033,10 @@ def add_projection(module: str, name: str, where: Layout) -> list[Path]:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, TenantScoped
+from sandloom.sdk import Base, TenantScoped, UtcDateTime
 
 
 class {cls}Row(TenantScoped, Base):
@@ -1029,9 +1045,7 @@ class {cls}Row(TenantScoped, Base):
     {name}_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 '''
     projection = f'''"""The {module}.{name} projection (spec §6.4).
 

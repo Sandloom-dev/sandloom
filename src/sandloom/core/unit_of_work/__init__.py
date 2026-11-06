@@ -25,6 +25,7 @@ from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from prometheus_client import Counter
@@ -47,6 +48,7 @@ from sandloom.core.unit_of_work.dispatch import _METRIC_POST_COMMIT_DISPATCH_FAI
 from sandloom.core.unit_of_work.hooks import (
     _run_before_commit_callbacks,
     _run_on_commit_callbacks,
+    queue_on_commit,
 )
 from sandloom.core.unit_of_work.request import (
     SCOPE_KEY,
@@ -56,6 +58,7 @@ from sandloom.core.unit_of_work.request import (
 from sandloom.core.unit_of_work.scope import (
     _DB_NAME_KEY,
     _EVENT_BUS_KEY,
+    _NESTED_HOST_KEY,
     _UOW_FACTORY_KEY,
     _active_uow_sessions,
     _bind_uow_scope,
@@ -129,10 +132,45 @@ async def _dispatch_outbox_after_commit(
     are left to the outbox relay — failing here would answer an error for a
     durable change and invite a client retry that re-runs the effect.
     Cancellation (``BaseException``) still propagates.
+
+    A unit nested in its caller's transaction as a SAVEPOINT (a database whose
+    writers are serial) did not commit yet: its stages 3-4 wait for the
+    caller's COMMIT (:func:`defer_to_host`), and dispatch only when the
+    caller's did: a caller whose transaction the test owns (``dispatch=False``)
+    never commits the nested unit's outbox rows either.
     """
-    note_committed(session)
+    info = getattr(session, "info", None)
+    if isinstance(info, dict) and (
+        _NESTED_HOST_KEY in info or _NESTED_NOTED_KEY in info
+    ):
+        if _NESTED_HOST_KEY in info:
+            defer_to_host(
+                session,
+                partial(
+                    _deferred_stages,
+                    session,
+                    info[_NESTED_HOST_KEY],
+                    wait=wait,
+                    dispatch=dispatch,
+                ),
+            )
+            return
+        info.pop(_NESTED_NOTED_KEY, None)  # noted when its savepoint released
+    else:
+        note_committed(session)
     if not dispatch:
-        await _run_on_commit_callbacks(session)
+        # A test-owned transaction (the ``client`` fixture's ``db``): the
+        # stages of units nested in it run now, without their outbox stage.
+        owned = info if isinstance(info, dict) else None
+        if owned is not None and _OWNED_BY_TEST_KEY in owned:
+            owned = None  # an outer call marked it, and unmarks it
+        if owned is not None:
+            owned[_OWNED_BY_TEST_KEY] = True
+        try:
+            await _run_on_commit_callbacks(session)
+        finally:
+            if owned is not None:
+                owned.pop(_OWNED_BY_TEST_KEY, None)
         return
     try:
         await _dispatch._dispatch_pending_events(session, wait=wait)
@@ -145,6 +183,67 @@ async def _dispatch_outbox_after_commit(
         )
     finally:
         await _run_on_commit_callbacks(session)
+
+
+#: ``session.info`` key: a nested unit's commit was noted when its savepoint
+#: was released (:func:`defer_to_host`); its deferred stages note nothing.
+_NESTED_NOTED_KEY = "sandloom_nested_noted"
+
+#: ``session.info`` key, set while a host runs its ``on_commit`` stage without
+#: an outbox stage (``dispatch=False``: a transaction the test owns, which
+#: never commits): the stages of the units nested in it skip theirs too.
+_OWNED_BY_TEST_KEY = "sandloom_owned_by_test"
+
+
+async def _deferred_stages(
+    session: Any, host: Any, *, wait: bool, dispatch: bool
+) -> None:
+    """A nested unit's stages 3-4, run in its caller's ``on_commit`` stage.
+
+    The unit's outbox rows are rows of the caller's transaction: they are
+    published (and marked delivered) only when the caller's commit dispatches.
+    Under a test-owned caller (the ``client`` fixture's shared ``db``, whose
+    stages run after each successful request with ``dispatch=False``) the
+    rows never commit; publishing them would announce events that roll back,
+    and marking them, on a connection of its own, would wait for the
+    caller's write lock on a serial-writer database (SQLite's busy timeout)."""
+    host_info = getattr(host, "info", None)
+    owned = isinstance(host_info, dict) and bool(host_info.get(_OWNED_BY_TEST_KEY))
+    await _dispatch_outbox_after_commit(
+        session, wait=wait, dispatch=dispatch and not owned
+    )
+
+
+def nested_host(session: Any) -> Any:
+    """The caller's session a unit runs nested in as a SAVEPOINT, or ``None``
+    (a unit with a transaction of its own)."""
+    info = getattr(session, "info", None)
+    return info.get(_NESTED_HOST_KEY) if isinstance(info, dict) else None
+
+
+def defer_to_host(session: Any, after_commit: Callable[[], Any]) -> bool:
+    """When ``session``'s unit ran nested in its caller's transaction as a
+    SAVEPOINT (released: the unit "committed"), queue ``after_commit`` (its
+    post-commit stages) on the caller's unit and return ``True``: it runs
+    after the caller's COMMIT, in the caller's ``on_commit`` stage, and never
+    when the caller rolls back (or a savepoint of the caller around the call
+    does). ``False`` (nothing queued) for a unit that committed on its own.
+
+    Nothing claims durability before the outer COMMIT: the unit's outbox
+    events are dispatched, its ``on_commit`` callbacks run and its command
+    record is amended only then. The request bookkeeping that the caller's
+    own commit reads (self-revocations) is noted at once; the unit is not
+    reported as a separately committed store (best-effort 1PC)."""
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return False
+    host = info.pop(_NESTED_HOST_KEY, None)
+    if host is None:
+        return False
+    note_committed(session, nested=True)
+    info[_NESTED_NOTED_KEY] = True
+    queue_on_commit(host, after_commit)
+    return True
 
 
 def _note_commit_failed(session: Any) -> None:
@@ -485,4 +584,6 @@ __all__ = [
     "COMMIT_PIPELINE",
     "consumer_db_session",
     "db_session",
+    "defer_to_host",
+    "nested_host",
 ]

@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from sandloom.sdk import record_audit
+from sandloom.sdk.data import transaction_lock
 from sandloom_identity.events import (
     EventActor,
     create_user_role_assigned_event,
@@ -28,7 +29,7 @@ from sandloom_identity.schemas.rbac import (
 )
 from sandloom_identity.sessions import revoke_sessions
 
-#: ``pg_advisory_xact_lock`` key of RBAC / user administration (ADR-0003 G2):
+#: ``transaction_lock`` key of RBAC / user administration (ADR-0003 G2):
 #: every class-A admin mutation takes it FIRST (``require_admin_in_tx``), so
 #: they serialise in one global order — no deadlock between two admins acting
 #: on each other — and each re-reads the actor's role after the previous one
@@ -344,7 +345,7 @@ class RoleService:
         committed before (the read sees it) or waits until this transaction
         ends — never "checked as admin, demoted, acted anyway".
         """
-        await db.execute(select(func.pg_advisory_xact_lock(RBAC_ADMIN_LOCK_KEY)))
+        await transaction_lock(RBAC_ADMIN_LOCK_KEY, session=db)
         held = await db.execute(
             select(UserRole.id)
             .join(Role, Role.id == UserRole.role_id)

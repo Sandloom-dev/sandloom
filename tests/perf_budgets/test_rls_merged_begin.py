@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.sql import column, table
 
 from sandloom.core.di import bind_tenant
-from sandloom.core.sql_alchemy import tenant_rls
+from sandloom.core.drivers import dbapi_asyncpg
 from sandloom.core.sql_alchemy.rls import enable_tenant_rls_statements
 from sandloom.core.sql_alchemy.tenant_rls import install_tenant_rls
 from sandloom.core.tenant_context import _current_tenant
@@ -108,7 +108,7 @@ async def env(pg_proxy: PgCountingProxy) -> AsyncIterator[Env]:
                 "name text NOT NULL)"
             )
         )
-        for sql in enable_tenant_rls_statements(name):
+        for sql in enable_tenant_rls_statements(name, dialect=conn):
             await conn.execute(text(sql))
         # A table whose COMMIT takes 0.5 s (deferred constraint trigger).
         await conn.execute(text(f"CREATE TABLE {name}_slow (id int)"))
@@ -232,7 +232,7 @@ async def test_probe_fails_falls_back_to_the_plain_path(
 
     monkeypatch.setitem(
         driver_compat.PROBES,
-        driver_compat.ASYNCPG_TRANSACTION,
+        dbapi_asyncpg.ASYNCPG_TRANSACTION,
         lambda: ["simulated: AsyncAdapt_asyncpg_connection._execute_mutex missing"],
     )
     driver_compat.reset_driver_probes()
@@ -309,11 +309,11 @@ async def test_server_error_inside_the_merged_message(
     engine = env.engine()
     try:
         pid = await env.assert_clean(engine)
-        original = tenant_rls._merged_begin_sql
+        original = dbapi_asyncpg._merged_begin_sql
         monkeypatch.setattr(
-            tenant_rls,
+            dbapi_asyncpg,
             "_merged_begin_sql",
-            lambda adapter, value: original(adapter, value).replace(
+            lambda *args: original(*args).replace(
                 "set_config('sandloom.tenant_id', ",
                 "set_config('sandloom.tenant_id', (1/0)::text || ",
             ),
@@ -321,7 +321,7 @@ async def test_server_error_inside_the_merged_message(
         with bind_tenant(A):
             with pytest.raises(DBAPIError, match="division by zero"):
                 await env.names(engine)
-        monkeypatch.setattr(tenant_rls, "_merged_begin_sql", original)
+        monkeypatch.setattr(dbapi_asyncpg, "_merged_begin_sql", original)
         assert await env.assert_clean(engine) != pid  # the connection was replaced
         await env.assert_no_idle_in_transaction()
         with bind_tenant(B):
@@ -363,13 +363,11 @@ async def test_cancellation_leaves_nothing_on_the_pooled_connection(
     try:
         pid = await env.assert_clean(engine)
         if point == "merged":  # the BEGIN; set_config reply is 1 s away
-            original = tenant_rls._merged_begin_sql
+            original = dbapi_asyncpg._merged_begin_sql
             monkeypatch.setattr(
-                tenant_rls,
+                dbapi_asyncpg,
                 "_merged_begin_sql",
-                lambda adapter, value: (
-                    original(adapter, value) + "; SELECT pg_sleep(1)"
-                ),
+                lambda *args: original(*args) + "; SELECT pg_sleep(1)",
             )
         if point == "between":  # BEGIN + tenant done, SELECT not sent yet
             prepare: Any = AsyncAdapt_asyncpg_connection._prepare

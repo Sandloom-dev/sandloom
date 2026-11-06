@@ -157,7 +157,7 @@ DDL = [
         created_at TIMESTAMPTZ NOT NULL, rank INTEGER NOT NULL, note VARCHAR(32))""",
     "CREATE INDEX ix_bench_lo_items_grp_created_rank "
     "ON bench_lo_items (grp, created_at, rank)",
-    *enable_tenant_rls_statements("bench_lo_items"),
+    *enable_tenant_rls_statements("bench_lo_items", dialect="postgresql"),
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON bench_lo_items TO {ROLE}",
 ]
 

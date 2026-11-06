@@ -113,6 +113,11 @@ _EVENT_BUS_KEY = "sandloom_event_bus"
 # model (the relational store is the only thing that knows OutboxMessage).
 _OUTBOX_STORE_KEY = "sandloom_outbox_store"
 _AUDIT_STORE_KEY = "sandloom_audit_store"
+# Key in session.info holding the session of the CALLER's unit when this unit
+# runs nested inside it as a SAVEPOINT (a database whose writers are serial,
+# docs/infrastructure/database.md): its commit is the caller's, so its
+# post-commit stages wait for the caller's COMMIT (unit_of_work.defer_to_host).
+_NESTED_HOST_KEY = "sandloom_nested_host"
 # Sentinel stashed when a provider exposes no outbox/audit store (its driver
 # lacks the transactional_outbox / audit feature).
 _UNSUPPORTED = object()

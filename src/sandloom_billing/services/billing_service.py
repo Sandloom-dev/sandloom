@@ -14,12 +14,11 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import BindParameter, ColumnElement, Select, bindparam, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
-from sandloom.sdk.data import Reads
+from sandloom.sdk.data import Reads, conflict_insert
 from sandloom.sdk.infra import settings
 from sandloom_billing import events
 from sandloom_billing.exceptions import (
@@ -124,7 +123,7 @@ class BillingService:
             return customer
 
         inserted = await db.execute(
-            pg_insert(BillingCustomer)
+            conflict_insert(BillingCustomer, session=db)
             .values(id=uuid.uuid4(), user_id=user_id, organization_id=organization_id)
             # create-or-get of the customer row, not a dedupe
             .on_conflict_do_nothing()
@@ -133,7 +132,7 @@ class BillingService:
         new_id = inserted.scalar_one_or_none()
         if new_id is not None:
             await db.execute(
-                pg_insert(CreditBalance)
+                conflict_insert(CreditBalance, session=db)
                 .values(customer_id=new_id, amount=0)
                 # create-or-get of the balance row, not a dedupe
                 .on_conflict_do_nothing(index_elements=[CreditBalance.customer_id])
@@ -584,7 +583,7 @@ class BillingService:
             return await cls._replay(customer_id, amount, operation_key, db)
 
         result = await db.execute(
-            pg_insert(CreditBalance)
+            conflict_insert(CreditBalance, session=db)
             .values(customer_id=customer_id, amount=amount)
             .on_conflict_do_update(
                 index_elements=[CreditBalance.customer_id],
@@ -621,7 +620,7 @@ class BillingService:
             # 409) and the spent event — with the balance unchanged. The
             # balance row may not exist yet for a customer never credited.
             await db.execute(
-                pg_insert(CreditBalance)
+                conflict_insert(CreditBalance, session=db)
                 .values(customer_id=customer_id, amount=0)
                 .on_conflict_do_nothing(index_elements=[CreditBalance.customer_id])
             )
@@ -705,7 +704,7 @@ class BillingService:
         if ledger_id is None:
             return None
         result = await db.execute(
-            pg_insert(CreditBalance)
+            conflict_insert(CreditBalance, session=db)
             .values(customer_id=customer.id, amount=-amount)
             .on_conflict_do_update(
                 index_elements=[CreditBalance.customer_id],
@@ -741,7 +740,7 @@ class BillingService:
         for this customer.
         """
         result = await db.execute(
-            pg_insert(CreditLedgerEntry)
+            conflict_insert(CreditLedgerEntry, session=db)
             .values(
                 customer_id=customer_id,
                 delta=delta,

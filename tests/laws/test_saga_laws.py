@@ -67,7 +67,9 @@ from sandloom.core.module_api import Saga, SagaContext, local_step, step
 from sandloom.core.sagas import runtime as saga_runtime
 from sandloom.core.sql_alchemy.saga_store import InstanceRow
 from sandloom.core.testing.fixtures import *  # noqa: F403
+from sandloom.core.testing.infra import has_serial_writers
 from sandloom.core.testing.sagas import open_saga_harness
+from sandloom.core.unit_of_work.request import db as unit_db
 
 BILLING = "lawsbilling.credits.v1"
 ACCESS = "lawsaccess.grants.v1"
@@ -82,6 +84,18 @@ RESERVATIONS = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("saga_id", String(100), nullable=False, index=True),
 )
+#: Each provider call's effect, written in the command's own unit: it commits
+#: iff that unit commits (on its own, or with the caller's transaction on a
+#: serial-writer database, G-UOW-09). ``amount``: money moved (spend < 0).
+EFFECTS = Table(
+    "laws_saga_effects",
+    _METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("method", String(40), nullable=False),
+    Column("operation_key", String(400), nullable=False, index=True),
+    Column("amount", Integer, nullable=False),
+    Column("refunds", String(400), nullable=True),  # a reverse: the spend's key
+)
 
 
 class LawsInput(BaseModel):
@@ -89,8 +103,37 @@ class LawsInput(BaseModel):
     price: int
 
 
+async def _effect(
+    method: str, operation_key: str, amount: int = 0, refunds: str | None = None
+) -> None:
+    await unit_db().execute(
+        insert(EFFECTS).values(
+            method=method, operation_key=operation_key, amount=amount, refunds=refunds
+        )
+    )
+
+
+async def _charged(of_operation_key: str) -> int:
+    """What the spend under ``of_operation_key`` durably took, not refunded yet
+    (read in the provider's unit)."""
+    moved = (
+        await unit_db().execute(
+            select(func.coalesce(func.sum(EFFECTS.c.amount), 0)).where(
+                (EFFECTS.c.operation_key == of_operation_key)
+                | (EFFECTS.c.refunds == of_operation_key)
+            )
+        )
+    ).scalar_one()
+    return -int(moved)
+
+
 class Ledger:
-    """In-memory provider state of one example (the providers are fakes)."""
+    """Provider state of one example (the providers are fakes): in memory,
+    and each call's effect as an :data:`EFFECTS` row in the command's unit.
+
+    The in-memory state keeps what a body did even when its unit rolled back
+    (a serial-writer database rolls a provider back with its caller); the
+    rows are what the providers durably did, on every database."""
 
     def __init__(self) -> None:
         self.balance = START_BALANCE
@@ -99,6 +142,7 @@ class Ledger:
     async def spend(
         self, customer_id: uuid.UUID, amount: int, operation_key: str
     ) -> int:
+        await _effect("spend", operation_key, -amount)
         self.balance -= amount
         self.charges[operation_key] = amount
         return self.balance
@@ -110,15 +154,19 @@ class Ledger:
         of_operation_key: str,
         operation_key: str,
     ) -> int:
+        charged = await _charged(of_operation_key)  # nothing to undo is ok
+        await _effect("reverse", operation_key, charged, refunds=of_operation_key)
         self.balance += self.charges.pop(of_operation_key, 0)  # nothing to undo is ok
         return self.balance
 
     async def grant(self, customer_id: uuid.UUID, operation_key: str) -> str:
+        await _effect("grant", operation_key)
         return f"grant-{operation_key[-8:]}"
 
     async def send(
         self, customer_id: uuid.UUID, template: str, operation_key: str
     ) -> str:
+        await _effect("send", operation_key)
         return "sent"
 
 
@@ -331,6 +379,42 @@ def _assert_each_body_ran_at_most_once_per_key(
         assert len(keys) == len(set(keys)), (label, keys)
 
 
+async def _assert_committed_effects(
+    engine: Any, saga_id: str, run: Any, reserved: int
+) -> None:
+    """Step idempotence over the committed effects: each call's effect at
+    most once per operation key, and the final effects match the status."""
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                select(EFFECTS.c.method, EFFECTS.c.operation_key, EFFECTS.c.amount)
+                .where(EFFECTS.c.operation_key.contains(f":{saga_id}:"))
+                .order_by(EFFECTS.c.id)
+            )
+        ).all()
+    keys = [key for _method, key, _amount in rows]
+    assert len(keys) == len(set(keys)), keys
+    count = {m: sum(1 for method, _k, _a in rows if method == m) for m in METHODS}
+    balance = START_BALANCE + sum(amount for _m, _k, amount in rows)
+    assert count["spend"] <= 1 and count["grant"] <= 1 and count["send"] <= 1
+    assert reserved <= 1
+    if run.status == "completed":
+        assert (count["spend"], reserved, count["grant"], count["send"]) == (
+            1,
+            1,
+            1,
+            1,
+        ), run.calls
+        assert balance == START_BALANCE - PRICE
+    elif run.status == "compensated":
+        # nothing remains, and an applied pivot is never compensated
+        assert (reserved, count["grant"], count["send"]) == (0, 0, 0), run.calls
+        assert balance == START_BALANCE
+
+
+METHODS = ("spend", "reverse", "grant", "send")
+
+
 def _crash_then_deadline(ops: list[Any]) -> bool:
     """The once-open gap (fixed; see the regression test): a crash after a
     forward command step's provider committed, then the deadline."""
@@ -472,17 +556,25 @@ async def _check_saga_laws(
         _assert_forward_only(seen)
 
         # step idempotence
-        _assert_each_body_ran_at_most_once_per_key(harness.fake_calls)
-        spent = len(harness.fake_calls[f"{BILLING}.spend"])
-        granted = len(harness.fake_calls[f"{ACCESS}.grant"])
-        sent = len(harness.fake_calls[f"{MAIL}.send"])
         reserved = await _reserved_rows(reservations, saga_id)
-        assert spent <= 1 and granted <= 1 and sent <= 1 and reserved <= 1
-        assert ledger.balance == START_BALANCE - PRICE * len(ledger.charges)
-        if run.status == "completed":
-            assert (spent, reserved, granted, sent) == (1, 1, 1, 1), run.calls
-            assert ledger.balance == START_BALANCE - PRICE
-        elif run.status == "compensated":
-            # nothing remains, and an applied pivot is never compensated
-            assert (reserved, granted, sent) == (0, 0, 0), run.calls
-            assert ledger.balance == START_BALANCE
+        if not has_serial_writers(reservations):
+            # each provider commits on its own: a body that ran is an effect,
+            # and a re-issue after it replays from the command log
+            _assert_each_body_ran_at_most_once_per_key(harness.fake_calls)
+            spent = len(harness.fake_calls[f"{BILLING}.spend"])
+            granted = len(harness.fake_calls[f"{ACCESS}.grant"])
+            sent = len(harness.fake_calls[f"{MAIL}.send"])
+            assert spent <= 1 and granted <= 1 and sent <= 1 and reserved <= 1
+            assert ledger.balance == START_BALANCE - PRICE * len(ledger.charges)
+            if run.status == "completed":
+                assert (spent, reserved, granted, sent) == (1, 1, 1, 1), run.calls
+                assert ledger.balance == START_BALANCE - PRICE
+            elif run.status == "compensated":
+                # nothing remains, and an applied pivot is never compensated
+                assert (reserved, granted, sent) == (0, 0, 0), run.calls
+                assert ledger.balance == START_BALANCE
+        # On every database, from what the providers durably committed: on a
+        # serial-writer database a provider's unit commits with the
+        # transition it runs in (G-UOW-09), so a body whose transition
+        # crashed ran but left nothing, and the redrive runs it again.
+        await _assert_committed_effects(reservations, saga_id, run, reserved)

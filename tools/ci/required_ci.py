@@ -28,6 +28,9 @@ AREA_JOBS = {
     "backend-static": ("backend",),
     "supply-chain": ("backend",),
     "backend-tests": ("backend",),
+    # The second database (SQLite) and the merge of the lanes' skip ledgers.
+    "second-db-test-lane": ("backend", "examples"),
+    "skip-ledger": ("backend", "examples"),
     "benchmarks-security": ("benchmarks",),
     "examples": ("examples",),
     "deploy-profiles": ("deploy",),

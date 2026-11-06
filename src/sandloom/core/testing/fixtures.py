@@ -82,7 +82,11 @@ import sandloom.core.testing as _testing
 import sandloom.core.testing.env as _env
 from sandloom.core.testing import isolation
 from sandloom.core.testing.auth import make_user_headers
-from sandloom.core.testing.infra import override_instance
+from sandloom.core.testing.infra import (
+    DB_FEATURE_MARKER,
+    db_feature_skip_reason,
+    override_instance,
+)
 from sandloom.core.testing.server_errors import ALLOW_MARKER, raise_server_errors
 
 #: Test-environment file the harness loads (walking up the directory tree).
@@ -410,8 +414,16 @@ def scratch_database(sandloom_test_env: Path) -> Iterator[str]:
     For a module's migration tests (``sandloom.core.testing.migrations``): walk its
     chain up and down without touching the shared test database.
     """
-    from sandloom.core.testing.migrations import temporary_database  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
+    from sandloom.core.testing.migrations import (  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
+        runs_no_chains,
+        temporary_database,
+    )
 
+    if runs_no_chains(os.getenv("DATABASE_URL") or ""):
+        pytest.skip(
+            "migration chains do not run on this test database: it takes its "
+            "schema from the models (SANDLOOM-B028)"
+        )
     with temporary_database() as url:
         yield url
 
@@ -494,6 +506,24 @@ def _sandloom_isolate_process_globals() -> Iterator[None]:
 
 
 # --------------------------------------------------------------------------- #
+# Database features
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _sandloom_db_feature_skip(request: pytest.FixtureRequest) -> None:
+    """Skip a test marked :func:`~sandloom.core.testing.infra.skip_unless_db_feature`
+    whose database instance lacks a feature (the harness app's advertised
+    features: no app is built for a test without the marker)."""
+    if request.node.get_closest_marker(DB_FEATURE_MARKER) is None:
+        return
+    core = harness_app(request.config).state.core
+    reason = db_feature_skip_reason(core, request.node)
+    if reason is not None:
+        pytest.skip(reason)
+
+
+# --------------------------------------------------------------------------- #
 # Per-test pool hygiene
 # --------------------------------------------------------------------------- #
 
@@ -552,6 +582,7 @@ __all__ = [
     "test_db",
     "test_engine",
     "user_headers",
+    "_sandloom_db_feature_skip",
     "_sandloom_isolate_module_globals",
     "_sandloom_isolate_process_globals",
     "_sandloom_release_default_pools",

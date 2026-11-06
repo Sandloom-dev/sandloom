@@ -16,6 +16,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
+from sandloom.sdk.data import WallClock
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.infra import settings
 from sandloom_identity.events import (
@@ -389,7 +390,7 @@ class TwoFAService:
             )
 
         twofa_secret.is_enabled = True
-        twofa_secret.enabled_at = func.now()
+        twofa_secret.enabled_at = WallClock()
         await db.flush()
 
         record_audit(

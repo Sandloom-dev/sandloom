@@ -157,7 +157,7 @@ async def rls_role(pg_proxy: PgCountingProxy) -> AsyncIterator[tuple[str, str]]:
                 "name text NOT NULL)"
             )
         )
-        for sql in enable_tenant_rls_statements(name):
+        for sql in enable_tenant_rls_statements(name, dialect=conn):
             await conn.execute(text(sql))
         await conn.execute(
             text(

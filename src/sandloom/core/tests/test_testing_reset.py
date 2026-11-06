@@ -190,3 +190,38 @@ async def test_a_row_outside_the_schema_blocking_a_delete_falls_back(
     async with engine.connect() as conn:
         left = await conn.execute(text("SELECT count(*) FROM reset_outsider"))
         assert left.scalar() == 0
+
+
+async def test_a_reset_blocked_by_another_transaction_fails_within_its_lock_timeout(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Risk fix 1: another run's open transaction on a database shared by
+    mistake makes the reset fail with ``lock_timeout``, never wait unbounded."""
+    import asyncio
+    import time
+
+    from sandloom.core.drivers import schema_reset
+
+    await reset.reset_schema(engine, metadata)
+    async with engine.begin() as conn:
+        await conn.execute(untouched.insert())
+    monkeypatch.setattr(
+        schema_reset, "_SET_LOCK_TIMEOUT", "SET LOCAL lock_timeout = '300ms'"
+    )
+    async with engine.connect() as holder:
+        await holder.begin()
+        await holder.execute(
+            text("LOCK TABLE reset_untouched IN ACCESS EXCLUSIVE MODE")
+        )
+        fallbacks: list[str] = []
+
+        async def _no_fallback(*_a: Any, **_k: Any) -> None:
+            fallbacks.append("truncate all")
+
+        monkeypatch.setattr(reset, "_truncate_all", _no_fallback)
+        started = time.monotonic()
+        with pytest.raises(DBAPIError, match="lock timeout"):
+            await asyncio.wait_for(reset.reset_schema(engine, metadata), 20)
+        assert time.monotonic() - started < 10
+        assert fallbacks == []  # failed at once: no fallback waits again
+        await holder.rollback()

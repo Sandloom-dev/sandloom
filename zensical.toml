@@ -170,6 +170,7 @@ Infrastructure = [
     "operate/slo.md",
     "operate/upgrade.md",
     "operate/upgrade-1.0.md",
+    "operate/upgrade-sqlite-and-portable-sql.md",
 ]
 Advanced = [
     "advanced/index.md",
@@ -404,6 +405,7 @@ Infrastructure = [
     { SLOs = "operate/slo.md" },
     { "Upgrade an application" = "operate/upgrade.md" },
     { "Upgrading to Public API 1.0" = "operate/upgrade-1.0.md" },
+    { "Upgrade to portable SQL and SQLite" = "operate/upgrade-sqlite-and-portable-sql.md" },
 ]
 
 [[project.nav]]

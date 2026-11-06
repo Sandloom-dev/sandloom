@@ -11,11 +11,12 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.user import User
+from sandloom_identity.tests.utils.kernel_tables import AUDIT_LOG
 
 from ..conftest import _login_headers
 
@@ -28,10 +29,9 @@ def _key() -> dict[str, str]:
 
 async def _audit_actions(db: AsyncSession, user: User) -> list[str]:
     rows = await db.execute(
-        text(
-            "SELECT action FROM audit_log WHERE resource_id = :rid ORDER BY occurred_at"
-        ),
-        {"rid": str(user.id)},
+        select(AUDIT_LOG.c.action)
+        .where(AUDIT_LOG.c.resource_id == str(user.id))
+        .order_by(AUDIT_LOG.c.occurred_at)
     )
     return [r[0] for r in rows]
 

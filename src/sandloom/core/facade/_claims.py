@@ -25,6 +25,7 @@ from sandloom.core.facade._services import (
     claims_contract_name,
 )
 from sandloom.core.module_api import contract_method
+from sandloom.core.sql_alchemy.portable import is_error_kind
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
@@ -46,34 +47,11 @@ class ClaimsUnavailable(HTTPException):
         self.owner = owner
 
 
-#: SQLSTATE ``in_failed_sql_transaction``.
-_FAILED_TRANSACTION_SQLSTATE = "25P02"
-
-
 def _in_failed_transaction(exc: BaseException) -> bool:
-    """True when ``exc`` (or what it wraps) is "current transaction is aborted".
-
-    Duck-typed (``sqlstate`` / ``pgcode`` on the driver error, reached through
-    ``orig`` / ``__cause__`` / ``__context__``): the kernel imports no driver.
-    """
-    seen: set[int] = set()
-    stack: list[Any] = [exc]
-    while stack:
-        current = stack.pop()
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        for attr in ("sqlstate", "pgcode"):
-            if getattr(current, attr, None) == _FAILED_TRANSACTION_SQLSTATE:
-                return True
-        stack.extend(
-            (
-                getattr(current, "orig", None),
-                getattr(current, "__cause__", None),
-                getattr(current, "__context__", None),
-            )
-        )
-    return False
+    """True when ``exc`` (or what it wraps) is "current transaction is
+    aborted": the renderer's ``transaction_aborted`` kind (PostgreSQL's
+    SQLSTATE 25P02). The kernel imports no driver."""
+    return is_error_kind(exc, "transaction_aborted")
 
 
 #: One planned claims owner: ``(owner, critical, call, database)`` — the

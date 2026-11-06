@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnElement, and_, bindparam, delete, true, update
+from sqlalchemy import ColumnElement, and_, bindparam, delete, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -17,7 +17,7 @@ from sandloom.sdk.security import create_access_token, ensure_user_not_blocked
 from sandloom_identity.claims import (
     claims_from_codes,
     contribute_identity_claims,
-    identity_claims_lateral,
+    identity_claims_columns,
 )
 from sandloom_identity.errors import CommittedHTTPError
 from sandloom_identity.models.refresh_token import RefreshToken
@@ -29,28 +29,36 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.sdk.infra import CoreRuntime
 
 
-#: The rotation's compare-and-set consume (``is_revoked = false`` → ``true``)
-#: as a data-modifying CTE, joined to ``users``: the row comes back only when
-#: THIS call flipped the flag, together with the user the new pair is for.
-#: Built once; the token id and ``now`` are bound per call.
-_consumed = (
+#: The presented token, the user it belongs to and identity's claims for that
+#: user (roles / permissions, the contributor's own aggregates as correlated
+#: scalar subqueries), in ONE statement: the claims are handed to claims
+#: collection as precomputed for ``contribute_identity_claims``, so a refresh
+#: never runs the contributor's query. Built once; the hash is bound per call.
+_role_codes, _permission_codes = identity_claims_columns(User.id)
+_LOAD_TOKEN_USER_AND_CLAIMS = (
+    select(RefreshToken, User, _role_codes, _permission_codes)
+    .join(User, User.id == RefreshToken.user_id)
+    .where(RefreshToken.token == bindparam("b_token_hash"))
+)
+#: The rotation's compare-and-set consume (``is_revoked = false`` → ``true``):
+#: the row comes back only when THIS call flipped the flag. The token is
+#: already in the session (``_LOAD_TOKEN_USER_AND_CLAIMS``), so its state is
+#: not synchronised from the statement. Built once; the token id and ``now``
+#: are bound per call.
+_CONSUME = (
     update(RefreshToken)
     .where(
-        RefreshToken.id == bindparam("b_token_id"),
+        RefreshToken.id == bindparam("b_token_id", type_=RefreshToken.id.type),
         RefreshToken.is_revoked.is_(False),
     )
-    .values(is_revoked=True, revoked_at=bindparam("b_now"))
-    .returning(RefreshToken.user_id)
-    .cte("consumed_refresh_token")
-)
-#: Identity's claims (roles / permissions) come back in the same statement —
-#: the contributor's own aggregate, LATERAL-joined to the user — and are handed
-#: to claims collection as precomputed for ``contribute_identity_claims``.
-_identity_claims = identity_claims_lateral(User.id)
-_CONSUME_AND_LOAD_USER = (
-    select(User, _identity_claims.c.role_codes, _identity_claims.c.permission_codes)
-    .join(_consumed, User.id == _consumed.c.user_id)
-    .join(_identity_claims, true())
+    # Typed binds: a bare ``bindparam`` would reach the driver untyped, and
+    # SQLite would store ``now`` in the DBAPI's text, not the column's.
+    .values(
+        is_revoked=True,
+        revoked_at=bindparam("b_now", type_=RefreshToken.__table__.c.revoked_at.type),
+    )
+    .returning(RefreshToken.id)
+    .execution_options(synchronize_session=False)
 )
 
 
@@ -211,17 +219,17 @@ class TokenService:
         now = datetime.now(UTC)
         token_hash = RefreshTokenUtils.hash_token(refresh_token)
 
-        result = await db.execute(
-            select(RefreshToken).where(RefreshToken.token == token_hash)
-        )
-        token_obj = result.scalar_one_or_none()
+        loaded = (
+            await db.execute(_LOAD_TOKEN_USER_AND_CLAIMS, {"b_token_hash": token_hash})
+        ).one_or_none()
 
-        if token_obj is None:
+        if loaded is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
             )
 
+        token_obj, user, role_codes, permission_codes = loaded
         family_id = token_obj.family_id
         auth_time = token_obj.auth_time
         token_id = token_obj.id
@@ -257,19 +265,15 @@ class TokenService:
             )
 
         # Atomic consume (CAS): only one concurrent caller can flip the flag.
-        # The user the new pair is minted for comes back in the SAME
-        # statement (the UPDATE is a data-modifying CTE joined to ``users``),
-        # one round trip instead of the consume plus a user SELECT — and so do
-        # the user's roles / permissions (identity's claims).
+        # The user the new pair is minted for, and the user's roles /
+        # permissions (identity's claims), came with the token above: a
+        # refresh is one SELECT and this UPDATE, with no user or claims query.
         consumed = (
-            await db.execute(
-                _CONSUME_AND_LOAD_USER, {"b_token_id": token_id, "b_now": now}
-            )
+            await db.execute(_CONSUME, {"b_token_id": token_id, "b_now": now})
         ).one_or_none()
         if consumed is None:
             # Lost the CAS race to a concurrent refresh of the same token.
             await cls._reject_rotated(token_id, family_id, user_id, now, db)
-        user, role_codes, permission_codes = consumed
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active"

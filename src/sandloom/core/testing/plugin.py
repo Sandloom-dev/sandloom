@@ -32,6 +32,7 @@ import pytest
 
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixtures
     COMPOSITION_ROOT_INI,
+    _sandloom_db_feature_skip,
     _sandloom_isolate_module_globals,
     _sandloom_isolate_process_globals,
     _sandloom_release_default_pools,
@@ -55,6 +56,7 @@ from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixt
     test_engine,
     user_headers,
 )
+from sandloom.core.testing.infra import DB_FEATURE_MARKER_LINE
 from sandloom.core.testing.slots import (
     SLOT_LOST_MESSAGE,
     SlotsExhausted,
@@ -70,6 +72,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "sandloom_allow_server_errors: the client returns a masked 500 instead of "
         "re-raising the endpoint's exception (SANDLOOM-R006)",
     )
+    config.addinivalue_line("markers", DB_FEATURE_MARKER_LINE)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

@@ -301,7 +301,8 @@ def heartbeat_is_fresh(
 
 
 def verify_worker_infra(core: Any) -> None:
-    """Run the database security checks the API lifespan runs (worker boot).
+    """Run the database checks the API lifespan runs (worker boot): the
+    schema of a database built from the models, and the security checks.
 
     The worker never enters the ASGI lifespan, so ``aopen_all`` does not run
     here; a ``tenant_rls`` database whose application role could escape
@@ -324,11 +325,20 @@ def verify_worker_infra(core: Any) -> None:
     ]
     from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
 
+    # A database that takes its schema from the models (SQLite) is built or
+    # checked here too, never recreated: a worker refuses one whose tables
+    # differ from the models (SANDLOOM-B028). The provider releases its pool
+    # after, before the worker forks.
+    schemas = [
+        p.ensure_model_schema for p in providers if hasattr(p, "ensure_model_schema")
+    ]
     strict = strict_profile_active(getattr(core, "settings", None))
-    if not checks and not strict:
+    if not checks and not strict and not schemas:
         return
 
     async def _run() -> None:
+        for ensure in schemas:
+            await ensure(None, recreate=False)
         for check in checks:
             await check()
         if strict:  # PRODUCTION_PROFILE=multi_tenant_strict: RLS coverage

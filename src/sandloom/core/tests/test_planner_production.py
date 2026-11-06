@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
-from sqlalchemy import ForeignKey, Index, String, Uuid, event, text
+from sqlalchemy import ForeignKey, Index, String, Uuid, event, make_url, text
+from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -15,6 +17,12 @@ from sqlalchemy.types import TypeDecorator
 from sandloom.core.config.settings import Settings
 from sandloom.core.planner import JoinRead, ListOperation, PlanningError, ReadOperation
 from sandloom.core.sql_alchemy.planner_adapter import SQLAlchemyExecutionAdapter
+from sandloom.core.sql_alchemy.planner_safety import covering_indexes, unique_keys
+from sandloom.core.sql_alchemy.portable import (
+    fulltext_index,
+    partial_index,
+    search_index,
+)
 
 
 class _Base(DeclarativeBase):
@@ -44,12 +52,10 @@ class _Parent(_Base):
     variant: Mapped[str] = mapped_column(String().with_variant(_Codec(), "postgresql"))
     __table_args__ = (
         Index("ix_planner_production_enabled_id", "enabled", "id"),
-        Index(
-            "ix_planner_partial",
-            "partial",
-            unique=True,
-            postgresql_where=text("id > 10"),
-        ),
+        partial_index("ix_planner_partial", "partial", where="id > 10", unique=True),
+        Index("ix_planner_production_code", "code"),
+        search_index("ix_planner_production_search", "variant"),
+        fulltext_index("ix_planner_production_fts", "variant", language="simple"),
     )
 
 
@@ -251,6 +257,37 @@ def test_partial_unique_index_does_not_prove_a_global_unique_key(adapter):
     assert adapter.compile(op, optimized=True).executor == "general"
 
 
+def _index_keys(mapper: Any) -> tuple[list[set[str]], list[list[str]]]:
+    return (
+        [{c.name for c in key} for key in unique_keys(mapper)],
+        [[c.name for c in key] for key in covering_indexes(mapper)],
+    )
+
+
+def test_index_decisions_read_the_form_not_a_database_option() -> None:
+    """The planner knows a partial or search index from the form that made
+    it (``Index.info``), so its unique-key and covering-index decisions are
+    the same whichever renderers gave the index their options."""
+    mapper = _Parent.__mapper__
+    expected = ([{"id"}], [["id"], ["name"], ["optional"], ["enabled", "id"], ["code"]])
+    keys, covering = _index_keys(mapper)
+    assert keys == expected[0]
+    assert sorted(covering) == sorted(expected[1])
+    table = _Parent.__table__
+    saved = {ix.name: dict(ix.dialect_kwargs) for ix in table.indexes}
+    try:
+        # as on a database whose renderer is not PostgreSQL's
+        for ix in table.indexes:
+            for key in [k for k in ix.dialect_kwargs if k.startswith("postgresql_")]:
+                del ix.dialect_kwargs[key]
+        keys, covering = _index_keys(mapper)
+        assert keys == expected[0]
+        assert sorted(covering) == sorted(expected[1])
+    finally:
+        for ix in table.indexes:
+            ix.dialect_kwargs.update(saved[ix.name])
+
+
 @pytest.mark.parametrize(
     "target,event_name", [(Session, "do_orm_execute"), (_Parent, "load")]
 )
@@ -375,6 +412,89 @@ def test_optional_and_prefix_filters_are_optimized(adapter):
     assert "status = $2" in form.sql and "ILIKE $3" in form.sql, form.sql
     # the forms of one combination are built once
     assert plan.compiled.bind([1, "x", "y"])[0] is form
+
+
+#: Mixed case and every character a LIKE or GLOB pattern treats specially.
+_PREFIX_TITLES = [
+    "Ab%x", "ab%x", "abx", "a_b", "aXb", "a*b", "aZZb", "a?b", "a!b",
+    "a[b]", "ab]", "a\\b", "a\\\\b", "AB*", "ab*", "",
+]  # fmt: skip
+_PREFIXES = ["a", "A", "ab%", "a_", "a*", "a?", "a[", "a\\", "a\\\\", "AB", "Ab%x", "x"]
+
+
+async def _prefix_engine(name: str, tmp_path: Any) -> Any:
+    from sandloom.core.drivers import sqlalchemy_database as driver
+    from sandloom.core.testing.workers import worker_env_values
+
+    if name == "sqlite":
+        return driver._build_engine(f"sqlite+aiosqlite:///{tmp_path / 'prefix.db'}")
+    repo = Path(__file__).resolve().parents[4]
+    url = worker_env_values(repo / ".env.test")["DATABASE_URL"]
+    if make_url(url).get_backend_name() != "postgresql":
+        pytest.skip("the test environment's DATABASE_URL is not PostgreSQL")
+    return driver.build_disposable_engine(url)
+
+
+@pytest.mark.parametrize("database", ["postgresql", "sqlite"])
+@pytest.mark.parametrize("ignore_case", [False, True])
+async def test_the_general_prefix_filter_is_literal_and_keeps_its_case(
+    database: str, ignore_case: bool, tmp_path: Any
+) -> None:
+    """The renderer's prefix_pattern / prefix_match: literal on both databases
+    (``%``, ``_``, ``*``, ``?``, ``[``, ``\\`` match themselves), case-sensitive
+    unless ``prefix_ignore_case`` (SQLite's LIKE folds case: a GLOB there)."""
+    engine = await _prefix_engine(database, tmp_path)
+    adapter = SQLAlchemyExecutionAdapter(engine)
+    plan = adapter.compile(_board(prefix_ignore_case=ignore_case), optimized=False)
+    try:
+        async with engine.connect() as conn:
+            transaction = await conn.begin()
+            try:
+                await conn.exec_driver_sql(  # CITEXT has no SQLite type
+                    "CREATE TABLE planner_production_board (id INTEGER PRIMARY "
+                    "KEY, grp INTEGER, status TEXT, title TEXT, email TEXT, "
+                    "flag BOOLEAN)"
+                )
+                for i, title in enumerate(_PREFIX_TITLES, 1):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO planner_production_board VALUES "
+                            "(:i, 7, 's', :t, 'e', false)"
+                        ),
+                        {"i": i, "t": title},
+                    )
+                for prefix in _PREFIXES:
+                    form, values, names = plan.compiled.bind([7, None, prefix])
+                    params = {**dict(zip(names, values, strict=True)), "_limit": 50}
+                    rows = (await conn.execute(form.stmt, params)).all()
+                    found = sorted(_PREFIX_TITLES[row.id - 1] for row in rows)
+                    expected = sorted(
+                        t
+                        for t in _PREFIX_TITLES
+                        if (
+                            t.lower().startswith(prefix.lower())
+                            if ignore_case
+                            else t.startswith(prefix)
+                        )
+                    )
+                    assert found == expected, (database, prefix, ignore_case)
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+def test_a_renderer_without_the_prefix_members_falls_back_to_like() -> None:
+    from sqlalchemy.dialects import sqlite as sqlite_dialect
+
+    from sandloom.core.sql_alchemy import portable
+
+    assert portable.prefix_pattern("no_such", "a_%", ignore_case=False) == "a\\_\\%%"
+    expr = portable.prefix_match(
+        "no_such", _Board.title, sa_bindparam("p"), ignore_case=False
+    )
+    sql = str(expr.compile(dialect=sqlite_dialect.dialect()))
+    assert "LIKE" in sql and "ESCAPE" in sql, sql
 
 
 def test_prefix_needs_a_string_column(adapter):

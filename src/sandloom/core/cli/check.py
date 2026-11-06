@@ -34,6 +34,16 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            after the auth / TenantScope() they need
     consumed-contracts     get_service literals are declared in consumes=
     db-dependency-scope    Depends(get_db...) carries scope="function"
+    dialect-imports        no sqlalchemy.dialects outside migrations (one
+                           database's types; sandloom.sdk.data is portable)
+    utc-datetime-columns   time columns are UtcDateTime(), not a bare
+                           DateTime(timezone=True) (naive on SQLite)
+    database-feature-forms a form needing a database feature (Array,
+                           fulltext_index, matches, json_path, json_contains,
+                           transaction_lock) declares it in capabilities=
+    portable-sql           a module and its tests call only the SQL functions
+                           every database runs alike (no func.now(); WallClock)
+                           and mark raw SQL `# sandloom: raw-sql <reason>`
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):

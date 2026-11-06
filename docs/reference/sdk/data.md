@@ -9,7 +9,10 @@ description: "Reference of sandloom.sdk.data: every public name with its signatu
 
 Tables, sessions and reads: `Base`, `TenantScoped`, `new_id`,
 `CreatedAt` / `UpdatedAt`, `db()`, RLS
-helpers, the read planner.
+helpers, the read planner, and the portable SQL forms. Some forms need a
+database feature (`Array`, `fulltext_index` / `matches`, `json_path`,
+`json_contains`, `transaction_lock`): a module declares it
+(SANDLOOM-C030), and startup refuses an instance without it (SANDLOOM-B033).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -24,33 +27,48 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`db`](#db) | function | The session of the innermost open unit of the current task (§4.3): |
 | [`new_id`](#new_id) | function | A new time-ordered id (UUIDv7, RFC 9562) for a primary key: |
 | [`TenantScoped`](#tenantscoped) | class | Mixin marking a model as tenant-owned (adds the indexed `tenant_id`). |
+| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 
 ## Advanced
 
 | Name | Kind | Summary |
 | --- | --- | --- |
-| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable RLS on `table` (for downgrade). |
-| [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on `table`. |
+| [`aggregate_list`](#aggregate_list) | function | The values of `value` over the rows of a group, as one Python list (an aggregate, like `count`): |
+| [`Array`](#array) | class | A column holding a list of `item_type` values (feature `arrays`). |
+| [`CaseInsensitiveText`](#caseinsensitivetext) | class | Text that compares, sorts and enforces uniqueness without regard to case. |
+| [`conflict_insert`](#conflict_insert) | function | `INSERT ... ON CONFLICT` for `table` (a model class or a table): |
+| [`ConflictInsert`](#conflictinsert) | class | For annotations only: the shape `conflict_insert` returns (`.on_conflict_do_nothing(index_elements=, index_where=)`, `.on_conflict_do_upd... |
+| [`disable_tenant_rls`](#disable_tenant_rls) | function | Drop the Sandloom tenant policies and disable row security on `table` (for downgrade). |
+| [`enable_tenant_rls`](#enable_tenant_rls) | function | Enable + FORCE the database's row security with the Sandloom tenant policy on `table`. |
+| [`fulltext_index`](#fulltext_index) | function | An index that serves `matches` over `columns` (feature `fulltext_search`), for `__table_args__`: |
 | [`get_planned_reads`](#get_planned_reads) | function | The handle of a route DECLARED read-only (execution planner). |
 | [`get_read_only_db`](#get_read_only_db) | function | PROTOTYPE: request session for a route DECLARED read-only. |
-| [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot: `REPEATABLE READ READ ONLY`. |
+| [`get_snapshot_reads`](#get_snapshot_reads) | function | `PlannedReads` with ONE snapshot (PostgreSQL: `REPEATABLE READ READ ONLY`). |
 | [`get_uow_reads`](#get_uow_reads) | async function | Planned reads INSIDE the request Unit of Work (mixed routes). |
 | [`InvalidCursor`](#invalidcursor) | exception | A pagination cursor that is malformed, tampered with or foreign (400). |
 | [`JoinRead`](#joinread) | class | A declared single-row read of `entity` joined to `join` on a FK. |
+| [`json_contains`](#json_contains) | function | The JSON in `column` contains `value` (feature `json_contains`): |
+| [`json_path`](#json_path) | function | The scalar at `path` inside a JSON column, as text (feature `json_path`): |
+| [`JsonPathKey`](#jsonpathkey) | constant |  |
 | [`ListOperation`](#listoperation) | class | A declared list read: `entity` rows, one keyset page per call. |
 | [`make_cursor`](#make_cursor) | function | A cursor starting after `position` (the operation's order values, in `order_by` + primary-key order) for these filter arguments and the b... |
 | [`make_db_dependency`](#make_db_dependency) | callable | Build a request dependency yielding a session for a NAMED database. |
+| [`matches`](#matches) | function | `column` (or a list of columns) matches the search `query` (feature `fulltext_search`): |
 | [`MoneyLedger`](#moneyledger) | class | Model mixin of a money ledger: names its unique operation-key column. |
 | [`open_uow`](#open_uow) | function | Open a unit of work on `database` (today `db_session`, §4.3): |
 | [`Page`](#page) | class | One page of a `ListOperation`: the DTOs and the next cursor. |
 | [`PageLimitError`](#pagelimiterror) | exception | `limit` missing, &lt; 1 or above the operation's page cap (400). |
+| [`partial_index`](#partial_index) | function | An index over the rows `where` selects, for `__table_args__`. |
 | [`PlannedReads`](#plannedreads) | annotated type |  |
 | [`ReadOperation`](#readoperation) | class | A declared single-row read: `entity` WHERE `by` columns = arguments. |
 | [`Reads`](#reads) | class | Handle that runs declared operations. |
+| [`search_index`](#search_index) | function | An index that serves substring search (`column.ilike('%term%')`). |
 | [`session_reads`](#session_reads) | function | Run declared operations ON `session` (an open Unit of Work). |
 | [`SnapshotReads`](#snapshotreads) | annotated type |  |
+| [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
+| [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
 
@@ -116,7 +134,208 @@ Mixin marking a model as tenant-owned (adds the indexed `tenant_id`).
 Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
 
+### `UtcDateTime`
+
+```python
+class UtcDateTime(TypeDecorator)(*args: Any, **kwargs: Any)
+```
+
+A timezone-aware time: always read back aware, in UTC on asyncpg and
+SQLite.
+
+The column is `DateTime(timezone=True)` (`TIMESTAMP WITH TIME ZONE` on
+PostgreSQL, which keeps the instant and returns an aware value: in UTC
+on asyncpg, in the session's `TimeZone` on psycopg). There
+(the renderer's `aware_times`) the type converts nothing. A database
+that keeps no offset (SQLite stores the text of the time) hands back a
+naive value: there this type writes an aware time in UTC and attaches UTC
+to what it reads, so a module compares and orders the same aware values on
+every database. An expression typed `UtcDateTime` that PostgreSQL
+answers as `timestamp without time zone` (`... AT TIME ZONE 'UTC'`)
+reads back naive there. Bind aware times: a naive one has no known instant (on
+PostgreSQL asyncpg would read it in the process's local time zone, on
+SQLite it would mean UTC), so it is refused with
+`NaiveDateTimeError`, in a value and in a comparison alike. The
+planner's raw executor, which skips bind processing, takes no caller's
+value of this type: such a key or filter runs on the general executor.
+
+#### `UtcDateTime.bind_processor`
+
+```python
+def bind_processor(self, dialect: Dialect) -> Any
+```
+
+Where the database keeps the instant (`aware_times`), only the
+refusal of a naive time; elsewhere `process_bind_param`.
+
+#### `UtcDateTime.result_processor`
+
+```python
+def result_processor(self, dialect: Dialect, coltype: Any) -> Any
+```
+
+Where the DBAPI reads aware values (`aware_times`), the
+column's own processor (none on asyncpg); elsewhere
+`process_result_value`.
+
+#### `UtcDateTime.process_bind_param`
+
+```python
+def process_bind_param(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+An aware value as the same instant in UTC; a naive one refused.
+
+#### `UtcDateTime.coerce_compared_value`
+
+```python
+def coerce_compared_value(self, op: Any, value: Any) -> Any
+```
+
+A time compared with the column is bound as this type (an aware
+time is required); anything else (`column - timedelta(...)`) as
+`DateTime` would bind it (an interval).
+
+#### `UtcDateTime.process_result_value`
+
+```python
+def process_result_value(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+A loaded value with UTC attached when the database kept no offset.
+
 ## Advanced names
+
+### `aggregate_list`
+
+```python
+def aggregate_list(
+    value: ColumnElement[Any] | QueryableAttribute[Any],
+) -> ColumnElement[list[Any]]
+```
+
+The values of `value` over the rows of a group, as one Python list
+(an aggregate, like `count`):
+
+```python
+select(Tag.post_id, aggregate_list(Tag.name)).group_by(Tag.post_id)
+```
+
+Each item reads back as `value`'s type does: a `Uuid` as a
+`UUID`, a `Boolean` as a `bool`. A `NULL` value is a `None`
+item, and no rows read `[]`. The order of the items is unspecified, as in
+SQL: sort them in Python. A scalar subquery of it returns a list per
+outer row in the same statement:
+
+```python
+roles = select(aggregate_list(Role.code)).where(
+    UserRole.role_id == Role.id, UserRole.user_id == User.id
+)
+select(User, roles.scalar_subquery())
+```
+
+It needs the database feature `list_aggregates`, which every built-in
+database has (PostgreSQL `array_agg`, SQLite `json_group_array` read
+back to the same list): declare it like any feature form
+(SANDLOOM-C030), so startup refuses a database whose renderer lacks it
+(SANDLOOM-B033). `value` is a scalar: a JSON, array or binary value is
+refused.
+
+### `Array`
+
+```python
+class Array(TypeDecorator)(item_type: TypeEngine[Any] | type[TypeEngine[Any]]) -> None
+```
+
+A column holding a list of `item_type` values (feature `arrays`).
+
+`tags: Mapped[list[str]] = mapped_column(Array(String(40)))`. The
+database stores it as its own array type (PostgreSQL `VARCHAR(40)[]`);
+a database without arrays refuses the column when its DDL or a statement
+is compiled (SANDLOOM-R015), and startup refuses a module whose table has
+one on such an instance (SANDLOOM-B033). Find a row by an item with
+`sqlalchemy.any_`: `select(T).where(value == any_(T.tags))`.
+
+#### `Array.load_dialect_impl`
+
+```python
+def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]
+```
+
+The database's own array type, from its renderer.
+
+#### `Array.python_type`
+
+```python
+python_type  (property)
+```
+
+`list`: a value of the column is a list of items.
+
+### `CaseInsensitiveText`
+
+```python
+class CaseInsensitiveText(TypeDecorator)(length: int | None = None) -> None
+```
+
+Text that compares, sorts and enforces uniqueness without regard to case.
+
+The stored value keeps the case it was written with: `Ann@Example.com`
+reads back as written and is equal to `ann@example.com`.
+`CaseInsensitiveText(80)` caps the length where the database stores one.
+How far case folding reaches is the database's: PostgreSQL's `citext`
+folds every letter, SQLite's `NOCASE` only ASCII letters.
+
+#### `CaseInsensitiveText.load_dialect_impl`
+
+```python
+def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]
+```
+
+The database's own type for this column, from its renderer.
+
+### `conflict_insert`
+
+```python
+def conflict_insert(
+    table: Any,
+    *,
+    session: AsyncSession | None = None,
+) -> ConflictInsert
+```
+
+`INSERT ... ON CONFLICT` for `table` (a model class or a table):
+
+```python
+stmt = conflict_insert(Counter).values(key=k, n=1)
+stmt = stmt.on_conflict_do_update(
+    index_elements=[Counter.key], set_={"n": Counter.n + 1}
+)
+await db().execute(stmt)
+```
+
+The database of `session` (default: `db`) writes it; one without
+`ON CONFLICT` refuses (SANDLOOM-R015).
+
+### `ConflictInsert`
+
+```python
+class ConflictInsert(Insert)(table: _DMLTableArgument)
+```
+
+For annotations only: the shape `conflict_insert` returns
+(`.on_conflict_do_nothing(index_elements=, index_where=)`,
+`.on_conflict_do_update(index_elements=, index_where=, set_=,
+where=)`, `.excluded`). The statement itself is the database's own
+insert, not an instance of this class.
 
 ### `disable_tenant_rls`
 
@@ -124,7 +343,7 @@ tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
 def disable_tenant_rls(op: _Executes, table: str, *, schema: str | None = None) -> None
 ```
 
-Drop the Sandloom tenant policies and disable RLS on
+Drop the Sandloom tenant policies and disable row security on
 `table` (for downgrade).
 
 ### `enable_tenant_rls`
@@ -141,14 +360,35 @@ def enable_tenant_rls(
 ) -> None
 ```
 
-Enable + FORCE PostgreSQL RLS with the Sandloom tenant policy on `table`.
+Enable + FORCE the database's row security with the Sandloom tenant
+policy on `table`.
 
-`op` is the Alembic `op` module (or any object with `execute(str)`).
-`column` must be the table's `uuid` tenant column (`TenantScoped`
-declares `tenant_id`). `system_access=True` lets the system-channel
-role (`system_role`, default `sandloom_system`; it must already exist) read
-and write every tenant's rows of THIS table. Re-running is safe (policies
-are replaced).
+`op` is the Alembic `op` module; its migration context names the
+database, whose renderer writes the SQL. `column` must be the table's
+`uuid` tenant column (`TenantScoped` declares `tenant_id`).
+`system_access=True` lets the system-channel role (`system_role`,
+default `sandloom_system`; it must already exist) read and write every
+tenant's rows of THIS table. Re-running is safe (policies are replaced).
+
+### `fulltext_index`
+
+```python
+def fulltext_index(name: str, *columns: str, language: str = 'english') -> Index
+```
+
+An index that serves `matches` over `columns` (feature
+`fulltext_search`), for `__table_args__`:
+
+```python
+fulltext_index("ix_articles_text", "title", "body")
+```
+
+`language` names the database's text search configuration (stemming and
+stop words: `"english"`, `"simple"`, ...); `matches` over the same
+columns, in the same order and language, uses the index. PostgreSQL: a GIN
+index over `to_tsvector`. A database without full-text search refuses
+the index when its DDL is compiled, and startup refuses the module on
+such an instance (SANDLOOM-B033).
 
 ### `get_planned_reads`
 
@@ -171,10 +411,12 @@ def get_read_only_db(request: Request) -> AsyncGenerator[AsyncSession, None]
 PROTOTYPE: request session for a route DECLARED read-only.
 
 With `DB_READ_ONLY_SESSIONS=true` statements run in a server-enforced
-READ ONLY transaction. The client policy also refuses writes, flushes,
-locking reads and raw statements before sending them. PostgreSQL remains
-the backstop for SELECT functions with side effects. Off (default):
-exactly `get_db`.
+read-only transaction where the database has `readonly_transactions`.
+The client policy also refuses writes, flushes, locking reads and raw
+statements before sending them. The database remains the backstop for
+SELECT functions with side effects. A database without
+`readonly_transactions` needs the DBAPI's client policy, else startup
+refuses the setting (SANDLOOM-B031). Off (default): exactly `get_db`.
 
 ### `get_snapshot_reads`
 
@@ -182,12 +424,15 @@ exactly `get_db`.
 def get_snapshot_reads(request: Request) -> AsyncGenerator[Any, None]
 ```
 
-`PlannedReads` with ONE snapshot: `REPEATABLE READ READ ONLY`.
+`PlannedReads` with ONE snapshot (PostgreSQL: `REPEATABLE READ READ ONLY`).
 
 Every declared read of the route runs in the route's read unit, in one
-`REPEATABLE READ` read-only transaction (the default `PlannedReads` is
-READ COMMITTED: two reads may see different snapshots). Use it when the
-route's reads must be mutually consistent.
+read-only transaction that sees one snapshot (the default
+`PlannedReads` takes a fresh snapshot per statement: two reads may see
+different data). Use it when the route's reads must be mutually
+consistent. It needs the database's `snapshot_reads` feature: startup
+refuses such a route when the default database lacks it, and a read on
+another database without it is refused before any I/O (SANDLOOM-B027).
 
 ### `get_uow_reads`
 
@@ -253,6 +498,74 @@ A declared single-row read of `entity` joined to `join` on a FK.
 SIDE: every `TenantScoped` table of the join gets the tenant predicate
 (and RLS). Both entities must belong to the declaring module (the import
 boundary rules already forbid reaching another module's models).
+
+### `json_contains`
+
+```python
+def json_contains(
+    column: ColumnElement[Any] | QueryableAttribute[Any],
+    value: Any,
+) -> ColumnElement[bool]
+```
+
+The JSON in `column` contains `value` (feature `json_contains`):
+
+```python
+select(Order).where(json_contains(Order.meta, {"tags": ["gift"]}))
+```
+
+An object contains another when it has each of its keys with a contained
+value; an array contains each item of another array; a scalar only
+itself (PostgreSQL `jsonb @>`). `value` is bound as JSON. A database
+without JSON containment refuses the statement when it is compiled
+(SANDLOOM-R015).
+
+### `json_path`
+
+```python
+def json_path(
+    column: ColumnElement[Any] | QueryableAttribute[Any],
+    *path: JsonPathKey,
+) -> ColumnElement[str]
+```
+
+The scalar at `path` inside a JSON column, as text (feature
+`json_path`):
+
+```python
+select(Order).where(json_path(Order.meta, "shipping", "country") == "FR")
+```
+
+Each step is an object key (`str`) or an array index (`int`, from 0;
+an index step on an object reads `NULL`, a negative one is refused).
+The value is the scalar's JSON text as stored, the same on every
+database: a string reads as itself (unquoted), a boolean `'true'` /
+`'false'`, a number as written (`1.50` reads `'1.50'`, `1e2`
+`'1e2'`, a 30-digit integer all its digits); `NULL` when the path is
+missing or holds JSON `null`. Objects and arrays read differently on
+each database (whitespace). Compare the value with a `str`: a number
+on either side (`== 1.5`, `Model.id == json_path(...)`, an integer
+subquery, `coalesce(..., 0)`) is refused when the query is built or
+compiled, and a non-`str` bound to a parameter compared with it when
+the statement runs (`TypeError`), since PostgreSQL refuses text
+against a number and SQLite answers otherwise. Do not cast it to a
+number in SQL either (SQLite reads `CAST('1e2' AS INTEGER)` as 1 and
+`CAST('abc' AS NUMERIC)` as 0, PostgreSQL raises): compare numbers in
+Python. Ordering (`<`, `ORDER BY`, `GROUP BY`, `DISTINCT`)
+uses the database's collation: SQLite's is byte order, PostgreSQL's
+usually linguistic (`'a' < 'B'`), even for ASCII; use
+`.collate("C")` on PostgreSQL when byte order matters, or compare in
+Python. `column` is a `sqlalchemy.JSON` column (or one the
+database stores JSON in). The steps are bound parameters, so an index on
+a `json_path` expression would not serve the query.
+
+### `JsonPathKey`
+
+```python
+JsonPathKey: UnionType
+```
+
+*(no docstring)*
 
 ### `ListOperation`
 
@@ -361,6 +674,31 @@ transactional outbox.
 
 `DbSession` remains the canonical dependency for the default database.
 
+### `matches`
+
+```python
+def matches(
+    column: ColumnElement[Any] | QueryableAttribute[Any] | Sequence[ColumnElement[Any] | QueryableAttribute[Any]],
+    query: str | ColumnElement[str],
+    *,
+    language: str = 'english',
+) -> ColumnElement[bool]
+```
+
+`column` (or a list of columns) matches the search `query`
+(feature `fulltext_search`):
+
+```python
+select(Article).where(matches([Article.title, Article.body], "cat -dog"))
+```
+
+`query` is what a user types: words, `"quoted phrases"`, `or` and
+`-excluded` words (PostgreSQL `websearch_to_tsquery`). Name the
+columns of a `fulltext_index`, in its order, and its language to
+use it: with another language the database scans every row. A database
+without full-text search refuses the statement when it is compiled
+(SANDLOOM-R015).
+
 ### `MoneyLedger`
 
 ```python
@@ -400,6 +738,30 @@ class PageLimitError(ValueError)(detail: str) -> None
 ```
 
 `limit` missing, &lt; 1 or above the operation's page cap (400).
+
+### `partial_index`
+
+```python
+def partial_index(
+    name: str,
+    *columns: str | ColumnElement[Any],
+    where: str | ColumnElement[bool] | TextClause,
+    unique: bool = False,
+) -> Index
+```
+
+An index over the rows `where` selects, for `__table_args__`.
+
+`unique=True` makes the columns unique among those rows only, such as
+one pending invitation per email:
+
+```python
+partial_index("uq_inv", "email", where="accepted_at IS NULL", unique=True)
+```
+
+Each database's renderer writes the condition its own way. A database
+whose renderer cannot is refused at startup and by the migration
+environment rather than given an index over every row.
 
 ### `PlannedReads`
 
@@ -506,6 +868,24 @@ async def aclose(self) -> None
 
 End the scope's read units (the scope owner calls it, once).
 
+### `search_index`
+
+```python
+def search_index(
+    name: str,
+    *columns: str,
+    case_insensitive: Iterable[str] = (),
+) -> Index
+```
+
+An index that serves substring search (`column.ilike('%term%')`).
+
+Name each `CaseInsensitiveText` column in `case_insensitive`; a
+search on it compares `cast(column, Text)` to use the index. The index
+is created only on a database whose renderer has one (PostgreSQL: a
+`pg_trgm` GIN index, the extension the generated deploy files create);
+elsewhere the search runs unindexed.
+
 ### `session_reads`
 
 ```python
@@ -527,6 +907,25 @@ SnapshotReads = Annotated[Any, Depends(dependency=<function get_snapshot_reads>,
 
 *(no docstring)*
 
+### `transaction_lock`
+
+```python
+async def transaction_lock(key: int, *, session: AsyncSession | None = None) -> None
+```
+
+Hold the lock `key` until the transaction of `session` ends:
+
+```python
+await transaction_lock(ADMIN_LOCK_KEY)   # the section runs one at a time
+```
+
+`key` is a signed 64-bit integer the module chooses and keeps stable; the
+commit or the rollback releases it. `session` defaults to `db`. A
+database without such a lock refuses (SANDLOOM-R015). It needs the database
+feature `transaction_locks`: declare it in `define_module` with
+`CapabilityRequirement("database", features=frozenset({"transaction_locks"}))`
+(SANDLOOM-C030).
+
 ### `UowReads`
 
 ```python
@@ -542,6 +941,26 @@ UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn
 ```
 
 *(no docstring)*
+
+### `WallClock`
+
+```python
+class WallClock(FunctionElement)(
+    *clauses: _ColumnExpressionOrLiteralArgument[Any],
+) -> None
+```
+
+The database's clock when the statement runs ("now, at the call").
+
+A column's `server_default=WallClock()` or `onupdate=WallClock()`,
+and "now" in a statement: `.values(revoked_at=WallClock())`,
+`.where(Model.expires_at > WallClock())`. Each database's renderer
+writes it (`SqlDialect.wall_clock`): PostgreSQL
+`clock_timestamp()`, SQLite the current UTC time to the millisecond in
+the text a bound `UtcDateTime` has. Unlike a transaction's start time
+(`now()`), rows one transaction writes get ordered times; order ties by
+a UUIDv7 id. A module writes it instead of `func.now()`, which SQLite
+answers in whole seconds (SANDLOOM-C031).
 
 ## Examples and related guides
 

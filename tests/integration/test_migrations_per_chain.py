@@ -21,6 +21,7 @@ import pytest
 
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
+from sandloom.core.sql_alchemy.portable import WallClock
 from sandloom.core.testing import (
     MigrationChain,
     migration_chains,
@@ -194,10 +195,11 @@ def test_chains_reproduce_orm_schema_exactly(_scratch_db: str) -> None:
             orm_cols = set(Base.metadata.tables[table].columns.keys())
             db_columns = {c["name"]: c for c in insp.get_columns(table)}
             assert orm_cols == set(db_columns), f"column drift on {table}"
-            # A CreatedAt / UpdatedAt column defaults to clock_timestamp() in
-            # the migrated database too (autogenerate compares no defaults).
+            # A CreatedAt / UpdatedAt column (WallClock) defaults to
+            # clock_timestamp() in the migrated PostgreSQL database too
+            # (autogenerate compares no defaults).
             for column in Base.metadata.tables[table].columns:
-                if "clock_timestamp" in str(getattr(column.server_default, "arg", "")):
+                if isinstance(getattr(column.server_default, "arg", None), WallClock):
                     assert db_columns[column.name]["default"] == "clock_timestamp()", (
                         f"{table}.{column.name}: the chain's default is "
                         f"{db_columns[column.name]['default']!r}"

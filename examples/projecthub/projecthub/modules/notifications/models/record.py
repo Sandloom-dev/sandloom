@@ -7,8 +7,7 @@ another.
 
 import uuid
 
-from sqlalchemy import Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
@@ -22,8 +21,8 @@ class NotificationRecord(TenantScoped, Base):
         Index("ix_notifications_inapp_tenant_created", "tenant_id", "created_at", "id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
-    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     kind: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)

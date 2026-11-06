@@ -27,7 +27,7 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
   (`docs/contributing/lint-policy.md`).
 - **`sandloom.sdk` is the only public surface for modules** (ADR-0010; `sandloom.driverkit` is for driver packages, ADR-0011). Each
   public module declares `__all__` and `__beginner__`; the root re-exports
-  the 29 beginner names. `public_api_baseline.json` records every
+  the 30 beginner names. `public_api_baseline.json` records every
   name and signature (SANDLOOM-T008), and each module's generated reference block
   stays current (`sandloom docs --write`). Adding a name is an API decision.
   - **Levels:** public facades > `sandloom.sdk._decl` (L1, declarative) >

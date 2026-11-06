@@ -6,9 +6,10 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import JSON, column, select, table
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.sdk.data import json_path
 from sandloom.sdk.testing import committing_uow
 from sandloom_billing.exceptions import (
     BillingError,
@@ -173,8 +174,6 @@ class TestCreditIdempotencyHardening:
         negative; a free item is still recorded there (delta-0 ledger row
         under its key, the spent event, an idempotent replay), while a paid
         spend stays refused."""
-        from sqlalchemy import text
-
         customer = await BillingService.get_or_create_customer(
             test_db, user_id=uuid.uuid4()
         )
@@ -200,12 +199,14 @@ class TestCreditIdempotencyHardening:
             (0, "free", -1),
         ]
         assert await BillingService.get_credit_balance(customer_id, test_db) == -1
+        payload = column("payload", JSON())
         spent = await test_db.execute(
-            text(
-                "SELECT payload FROM outbox_messages WHERE channel = "
-                "'billing.credits.spent.v1' AND payload->>'customer_id' = :c"
-            ),
-            {"c": str(customer_id)},
+            select(payload)
+            .select_from(table("outbox_messages"))
+            .where(
+                column("channel") == "billing.credits.spent.v1",
+                json_path(payload, "customer_id") == str(customer_id),
+            )
         )
         assert [p["data"] for (p,) in spent] == [
             {"amount": 0, "balance": -1, "reason": ""}

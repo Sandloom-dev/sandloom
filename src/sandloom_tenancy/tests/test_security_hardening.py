@@ -14,10 +14,10 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import String, column, literal, select, table, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom.sdk.testing import committing_uow
+from sandloom.sdk.testing import committing_uow, skip_unless_db_feature
 from sandloom_tenancy import events
 from sandloom_tenancy.exceptions import (
     TenancyConflictError,
@@ -38,6 +38,10 @@ from sandloom_tenancy.services import (
     OrganizationService,
 )
 from sandloom_tenancy.tests.conftest import email_of, make_user_headers
+
+#: The kernel's audit table (its model is the kernel's, which a module test
+#: does not import), read with SQLAlchemy Core (SANDLOOM-C031).
+_AUDIT_LOG = table("audit_log", column("action", String), column("resource_id", String))
 
 
 async def _invite(
@@ -440,8 +444,7 @@ async def test_required_audit_is_persisted_in_the_request_transaction(
     await test_db.flush()  # the audit store adds rows; flush before a Core read
     rows = (
         await test_db.execute(
-            text("SELECT action FROM audit_log WHERE resource_id = :rid"),
-            {"rid": inv["id"]},
+            select(_AUDIT_LOG.c.action).where(_AUDIT_LOG.c.resource_id == inv["id"])
         )
     ).all()
     assert sorted(r.action for r in rows) == [
@@ -531,6 +534,15 @@ async def _seed_org(
         return org.id
 
 
+#: How long a racer waits at the barrier for the others (seconds).
+RACE_BARRIER_TIMEOUT = 30.0
+
+#: The races need concurrent writers holding row locks (PostgreSQL). SQLite
+#: has one writer at a time, so the races skip there: the harness does not
+#: emulate them, and they run on the PostgreSQL lane.
+_ROW_LOCK_RACE = skip_unless_db_feature("concurrent_writers")
+
+
 class _Barrier:
     """Minimal asyncio barrier (``asyncio.Barrier`` needs Python 3.11)."""
 
@@ -540,10 +552,12 @@ class _Barrier:
         self._event = asyncio.Event()
 
     async def wait(self) -> None:
+        """Wait for the other racers, at most ``RACE_BARRIER_TIMEOUT`` seconds:
+        a racer that never arrives fails the test instead of hanging it."""
         self._arrived += 1
         if self._arrived >= self._parties:
             self._event.set()
-        await self._event.wait()
+        await asyncio.wait_for(self._event.wait(), RACE_BARRIER_TIMEOUT)
 
 
 async def _run_committed(
@@ -559,7 +573,7 @@ async def _run_committed(
     async with sessions() as db:
         try:
             if barrier is not None:
-                await db.execute(text("SELECT 1"))
+                await db.execute(select(literal(1)))
                 await barrier.wait()
             result = await fn(db)
             await db.commit()
@@ -569,6 +583,7 @@ async def _run_committed(
             return exc
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_accept_admits_exactly_one(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -611,6 +626,7 @@ async def test_concurrent_accept_admits_exactly_one(
     assert len(members) == 2  # owner + exactly one invitee
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_accept_same_user_no_500(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -643,6 +659,7 @@ async def test_concurrent_accept_same_user_no_500(
             assert isinstance(r, TenancyNotFoundError | TenancyConflictError), r
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_ownership_transfers_leave_one_owner(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -690,6 +707,7 @@ async def test_concurrent_ownership_transfers_leave_one_owner(
     assert len(owners) == 1
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_concurrent_duplicate_invitations_one_wins(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -712,6 +730,7 @@ async def test_concurrent_duplicate_invitations_one_wins(
     assert len(errors) == 1 and isinstance(errors[0], TenancyConflictError)
 
 
+@_ROW_LOCK_RACE
 @pytest.mark.asyncio
 async def test_slug_race_is_conflict_not_500(
     sessions: async_sessionmaker[AsyncSession], captured
@@ -758,9 +777,16 @@ async def test_migration_hash_matches_python_hash(test_db: AsyncSession) -> None
     """The 0002 backfill SQL must hash exactly like ``hash_invitation_token``."""
     from sandloom_tenancy.models.invitation import hash_invitation_token
 
+    # sandloom: raw-sql the migration's own PostgreSQL SQL, run where the chain runs
+    if test_db.get_bind().dialect.name != "postgresql":
+        pytest.skip(
+            "the 0002 backfill is the migration chain's PostgreSQL SQL; this "
+            "database takes its schema from the models and runs no chain"
+        )
     token = "abc-DEF_123~ünï"
     sql = (
         await test_db.execute(
+            # sandloom: raw-sql the 0002 migration's PostgreSQL backfill SQL itself
             text("SELECT encode(sha256(convert_to(:t, 'UTF8')), 'hex')"),
             {"t": token},
         )

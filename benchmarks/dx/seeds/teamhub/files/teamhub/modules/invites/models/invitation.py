@@ -3,10 +3,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
+from sandloom.sdk import Base, CreatedAt, TenantScoped, UtcDateTime, new_id
 
 PENDING = "pending"
 ACCEPTED = "accepted"
@@ -22,6 +22,6 @@ class Invitation(TenantScoped, Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
     status: Mapped[str] = mapped_column(String(16), default=PENDING)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime(), index=True)
     invited_by: Mapped[uuid.UUID] = mapped_column()
     created_at: Mapped[CreatedAt]

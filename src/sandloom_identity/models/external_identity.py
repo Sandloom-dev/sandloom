@@ -3,8 +3,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sandloom.sdk import Base, CreatedAt, new_id
@@ -20,9 +19,9 @@ class ExternalIdentity(Base):
 
     __tablename__ = "external_identities"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=new_id)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
     provider: Mapped[Provider] = mapped_column(String(50), nullable=False)

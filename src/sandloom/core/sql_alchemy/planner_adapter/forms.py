@@ -36,7 +36,7 @@ from sandloom.core.planner import (
 from sandloom.core.sql_alchemy.planner_safety import (
     unique_keys,
 )
-from sandloom.core.sql_alchemy.rls import TENANT_SETTING
+from sandloom.core.sql_alchemy.portable import RowSecurity, prefix_match
 from sandloom.core.tenant import TenantScoped
 
 Checkpoint = Callable[[str], Awaitable[None]]
@@ -106,6 +106,12 @@ class _CompiledList:
     prefix_at: tuple[bool, ...] = ()
     #: every key name, in ``op.keys`` order (GENERAL parameter names)
     names: tuple[str, ...] = ()
+    #: a prefix argument as the value to bind (the renderer's
+    #: ``prefix_pattern``; PostgreSQL's is ``like_prefix``, which the
+    #: optimized SQL reads too)
+    pattern: Callable[[str], str] = field(
+        default=like_prefix, repr=False, compare=False
+    )
     #: builds the forms of one combination of present filters (bitmask)
     build: Any = field(default=None, repr=False, compare=False)
     variants: dict[int, _ListForm] = field(
@@ -129,7 +135,7 @@ class _CompiledList:
             if value is None:
                 continue
             mask |= 1 << i
-            values.append(like_prefix(value) if is_prefix else value)
+            values.append(self.pattern(value) if is_prefix else value)
             names.append(self.names[n + i])
         if not mask:
             return self, values, names
@@ -158,36 +164,50 @@ class _CompiledList:
 _TENANT_PARAM = "_sandloom_tenant"
 
 
-def begin_read_only_sql(tenant: uuid.UUID | None) -> str:
-    """``BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY`` + the tenant GUC as ONE
-    simple-protocol message (the isolation is explicit: part of the contract).
+class ReadOnlyBegin:
+    """The optimized executor's ``BEGIN`` (the renderer's
+    ``begin_statement(read_only=True)``, a fresh snapshot per statement) +
+    the tenant binding as ONE simple-protocol message, in the words of the
+    database's row security (built once per adapter; without row security,
+    the ``BEGIN`` alone: there is nothing to bind).
 
     The simple protocol has no parameters: the tenant is a literal, but only
     ever ``str(uuid.UUID(...))`` (hex digits and dashes) or ``''``. An exact
     ``uuid.UUID`` (the bound tenant) is already canonical: its statement is
     built once and kept in a small bounded cache; anything else is re-parsed.
     """
-    if type(tenant) is uuid.UUID:
-        sql = _BEGIN_SQL.get(tenant)
-        if sql is None:
-            if len(_BEGIN_SQL) >= _BEGIN_SQL_CACHE_SIZE:
-                _BEGIN_SQL.pop(next(iter(_BEGIN_SQL)), None)
-            sql = _BEGIN_SQL[tenant] = _begin_sql(str(tenant))
-        return sql
-    return _begin_sql(str(uuid.UUID(str(tenant))) if tenant is not None else "")
+
+    __slots__ = ("_begin_sql", "_cache", "_security", "rebind_sql")
+
+    def __init__(self, security: RowSecurity | None, begin: str) -> None:
+        self._security = security
+        self._begin_sql = begin
+        #: exact ``uuid.UUID`` tenant -> its statement (oldest dropped).
+        self._cache: dict[uuid.UUID, str] = {}
+        #: Re-binds another tenant inside the open transaction (``$1``), or
+        #: ``None`` without row security.
+        self.rebind_sql = None if security is None else security.bind_statement("$1")
+
+    def sql(self, tenant: uuid.UUID | None) -> str:
+        """The statement that opens the read for ``tenant``."""
+        if type(tenant) is uuid.UUID:
+            cache = self._cache
+            sql = cache.get(tenant)
+            if sql is None:
+                if len(cache) >= _BEGIN_SQL_CACHE_SIZE:
+                    cache.pop(next(iter(cache)), None)
+                sql = cache[tenant] = self._begin(str(tenant))
+            return sql
+        return self._begin(str(uuid.UUID(str(tenant))) if tenant is not None else "")
+
+    def _begin(self, value: str) -> str:
+        if self._security is None:
+            return self._begin_sql
+        return self._security.begin_and_bind(self._begin_sql, value)
 
 
-def _begin_sql(value: str) -> str:
-    return (
-        "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; "
-        f"SELECT set_config('{TENANT_SETTING}', '{value}', true)"
-    )
-
-
-#: Bound of :data:`_BEGIN_SQL` (tenants seen by this process; oldest dropped).
+#: Bound of each :class:`ReadOnlyBegin` cache (tenants seen; oldest dropped).
 _BEGIN_SQL_CACHE_SIZE = 4096
-#: exact ``uuid.UUID`` tenant -> its read-only BEGIN statement.
-_BEGIN_SQL: dict[uuid.UUID, str] = {}
 
 
 def _mapper(op: ReadOperation[Any], entity: Any) -> Any:
@@ -437,6 +457,8 @@ class _GeneralList:
     cmp: Any
     ordering: list[Any]
     limit_param: Any
+    #: the engine's dialect name: its renderer writes the prefix filter
+    dialect: str = ""
 
     def __call__(self, mask: int) -> tuple[Any, Any]:
         op, ent, jn = self.op, self.sides.ent, self.sides.jn
@@ -453,10 +475,18 @@ class _GeneralList:
                 attr = getattr(ent, col)
                 if not is_prefix:
                     preds.append(attr == bindparam(arg))
-                elif op.prefix_ignore_case:
-                    preds.append(attr.ilike(bindparam(arg)))
                 else:
-                    preds.append(attr.like(bindparam(arg)))
+                    # The renderer's literal prefix match over the value its
+                    # prefix_pattern bound (PostgreSQL: LIKE / ILIKE with a
+                    # backslash ESCAPE; SQLite: GLOB, case-sensitive).
+                    preds.append(
+                        prefix_match(
+                            self.dialect,
+                            attr,
+                            bindparam(arg),
+                            ignore_case=op.prefix_ignore_case,
+                        )
+                    )
         if self.sides.scoped_e:
             preds.append(ent.tenant_id == bindparam(_TENANT_PARAM))
         if self.sides.scoped_j:
@@ -477,6 +507,7 @@ def _general_list(
     order_keys: list[str],
     extra_keys: list[str],
     onclause: Any,
+    dialect: str = "",
 ) -> tuple[_GeneralList, int]:
     """The GENERAL form builder and the number of ORM entities it loads."""
     ent, jn, cols_e = sides.ent, sides.jn, sides.cols_e
@@ -501,7 +532,10 @@ def _general_list(
     )
     ordering = [c.desc() if op.descending else c.asc() for c in order_cols]
     limit_param = bindparam("_limit", type_=Integer())
-    return _GeneralList(op, sides, opt, sel, cmp, ordering, limit_param), n_entities
+    return (
+        _GeneralList(op, sides, opt, sel, cmp, ordering, limit_param, dialect),
+        n_entities,
+    )
 
 
 def _list_referenced_columns(

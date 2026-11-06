@@ -27,6 +27,7 @@ from typing import Any
 import sandloom.core.cli.dev.errors as _dev_errors
 import sandloom.core.cli.migrate_drift as _migrate_drift
 import sandloom.core.cli.migrate_rls as _migrate_rls
+import sandloom.core.testing.migrations as _chain_checks
 from sandloom.core.app_factory import enforce_configuration
 from sandloom.core.cli.extract import (
     ExtractionError,
@@ -55,6 +56,7 @@ from sandloom.core.migrations.migrations import (
     ensure_database,
     list_database_instances,
     migration_lock,
+    migration_path_problem,
     resolve_database_sync_url,
     revision_module,
     run_core_upgrade,
@@ -442,6 +444,13 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI wr
     # SystemExit carrying the reason), also for the commands that never
     # build the application.
     enforce_configuration(settings)
+    # `databases` only lists; `drift` (a step of `sandloom test`) says
+    # itself that it skips a database without migration chains (SQLite).
+    if args.cmd not in ("databases", "drift"):
+        refusal = migration_path_problem()
+        if refusal is not None:
+            print(refusal, file=sys.stderr)
+            return 2
 
     # Migration failures must produce a non-zero exit code: CI/CD treats 0
     # as "deploy may proceed". _load_core() runs load_modules(), which raises
@@ -494,9 +503,45 @@ def _cmd_databases(
     return 0
 
 
+def _uncovered_refusal(
+    core: CoreFacade, command: str, *, chains: frozenset[str] | None = None
+) -> str | None:
+    """The refusal of ``command`` when a model declares a table or index its
+    owning chain does not create (SANDLOOM-T002), or ``None``.
+
+    Read from the models and the revisions' source, before anything is
+    applied: a deploy that runs the chains would boot with the table missing
+    (its first query fails). The usual cause is a model added on a database
+    that takes its schema from the models (SQLite), where the test suite
+    skips this check and no revision can be written."""
+    uncovered = _chain_checks.uncovered_by_chain(core, chains=chains)
+    if not uncovered:
+        return None
+    lines = "\n  ".join(problem for _chain, problem in uncovered)
+    fixes = "\n  ".join(
+        dict.fromkeys(
+            f'sandloom migrate new {_module_name(chain.module)} "<message>"'
+            if chain.module
+            else f"the core chain is the kernel's: add a revision in {chain.versions}"
+            for chain, _problem in uncovered
+        )
+    )
+    return (
+        f"sandloom migrate {command}: the migration chains do not create what "
+        f"the models declare [SANDLOOM-T002]; nothing was applied:\n  {lines}\n"
+        "fix: write the missing revision against this (PostgreSQL) database, "
+        "review it, then run this command again (a model added on SQLite, "
+        f"which runs no chain, needs its revision here):\n  {fixes}"
+    )
+
+
 def _cmd_upgrade_core(
     core: CoreFacade, descriptors: list[ModuleDescriptor], args: argparse.Namespace
 ) -> int:
+    refusal = _uncovered_refusal(core, "upgrade-core", chains=frozenset({"core"}))
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 1
     targets = list(list_database_instances()) if args.all_databases else [args.database]
     urls = [resolve_database_sync_url(db_name) for db_name in targets]
     with migration_lock(urls if args.apply else [], timeout=args.lock_timeout):
@@ -637,6 +682,10 @@ def _cmd_upgrade_all(
     #    transactional outbox. ``default`` is always a host.
     # The whole run holds a per-database advisory lock so concurrent
     # migrate jobs serialise instead of racing DDL / version rows.
+    refusal = _uncovered_refusal(core, "upgrade-all")
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 1
     hosting = _hosting_databases(descriptors)
     urls = {db: resolve_database_sync_url(db) for db in hosting}
     if args.create_databases:

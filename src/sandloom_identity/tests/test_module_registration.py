@@ -39,7 +39,9 @@ EXPECTED_DESCRIPTOR = ModuleDescriptor(
     name="sandloom_identity",
     version="1.0.0",
     capabilities=[
-        CapabilityRequirement("database"),
+        CapabilityRequirement(
+            "database", features=frozenset({"transaction_locks", "list_aggregates"})
+        ),
         CapabilityRequirement("cache"),
         CapabilityRequirement("eventbus"),
     ],

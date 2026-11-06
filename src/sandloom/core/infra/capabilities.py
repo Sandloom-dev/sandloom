@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
+from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
 from sandloom.core.infra.contracts import (
     CacheProvider,
     DatabaseProvider,
@@ -117,6 +118,28 @@ class CapabilityRef(Generic[P]):
 # that publishes events requires it — so the guarantee is capability-gated, not
 # assumed. Sibling storage paradigms (document_store, graph_store, …) are
 # separate specs in ``extra_capabilities`` with their own, weaker features.
+#: The ``database`` features a SQL dialect renderer may declare for its
+#: database (design/infra-agnostic/spec.md, section 2): an instance advertises
+#: them only when its URL's renderer does.
+DATABASE_RENDERER_FEATURES = frozenset(
+    {
+        # Write transactions overlap, each holding its own row locks (what a
+        # race test needs). Never declared by a renderer: derived from its
+        # ``serial_writers`` fact (``portable.renderer_features``), so the
+        # two cannot disagree.
+        "concurrent_writers",
+        "skip_locked",
+        "transaction_locks",
+        "snapshot_reads",
+        "readonly_transactions",
+        "arrays",
+        "fulltext_search",
+        "json_path",
+        "json_contains",
+        "list_aggregates",
+    }
+)
+
 DATABASE_CAPABILITY = CapabilitySpec(
     name="database",
     version="v1",
@@ -145,6 +168,7 @@ DATABASE_CAPABILITY = CapabilitySpec(
             "command_idempotency",
             "http_idempotency",
         }
+        | DATABASE_RENDERER_FEATURES
     ),
     description="Relational (transactional) persistence — Unit of Work factory.",
 )
@@ -228,6 +252,8 @@ __all__ = [
     "CapabilitySpec",
     "CapabilityStability",
     "DATABASE_CAPABILITY",
+    "DATABASE_FORM_FEATURES",
+    "DATABASE_RENDERER_FEATURES",
     "RELATIONAL_CAPABILITY",
     "CACHE_CAPABILITY",
     "OBJECTSTORE_CAPABILITY",

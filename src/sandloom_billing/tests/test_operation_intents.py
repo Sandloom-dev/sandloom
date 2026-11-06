@@ -43,7 +43,11 @@ from sandloom_billing.models import (
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
 from sandloom_billing.tests import tenancy_api
-from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
+from sandloom_billing.tests.conftest import (
+    WEBHOOK_SECRET,
+    audit_count,
+    make_user_headers,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -82,13 +86,8 @@ async def _intents(sessions: async_sessionmaker[AsyncSession]) -> list[Any]:
 
 
 async def _audits(sessions: async_sessionmaker[AsyncSession], action: str) -> int:
-    from sqlalchemy import text
-
     async with sessions() as db:
-        count = await db.execute(
-            text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": action}
-        )
-        return int(count.scalar_one())
+        return await audit_count(db, action)
 
 
 #: Each test org's owner headers (the owner demotes the admin through
@@ -617,12 +616,7 @@ async def _count_in(db: AsyncSession, model: Any) -> int:
 
 
 async def _audit_in(db: AsyncSession, action: str) -> int:
-    from sqlalchemy import text
-
-    count = await db.execute(
-        text("SELECT count(*) FROM audit_log WHERE action = :a"), {"a": action}
-    )
-    return int(count.scalar_one())
+    return await audit_count(db, action)
 
 
 # --------------------------------------------------------------------------- #

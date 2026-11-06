@@ -211,6 +211,16 @@ runtime re-issues the forward call with the same key first (the command log
 replays it, waits for it or runs it) and compensates only an applied step. A
 parked instance never moves without an operator.
 
+**On SQLite** a step's call to a local provider runs inside the step's
+transaction ([nested units](../../infrastructure/database.md#nested-units-commit-with-their-caller)).
+A crash after the call loses the provider's effect with the step's state.
+The command-log record goes with them. The redrive then runs the step once
+more, and only that run commits. A provider on another database instance, or
+one called over RPC, still commits on its own. For such a step the runtime
+commits the step's "started" marker in a transition of its own and calls in
+the next one. So a crash after that provider committed keeps the marker, and
+resolve-before-compensate and the post-TTL guard work as on PostgreSQL.
+
 ### Operation keys
 
 Every command a flow issues more than once for the same business fact needs a
@@ -313,9 +323,13 @@ the repair steps are in [A parked saga](../../operate/operator-reference.md#runb
       create-or-get on `saga_id`.
     - **Steps (G-SAGA-04, 06, 07).** Each command step carries its derived
       key; duplicate, stale or concurrent nudges never run a step twice; a
-      crash before the call or after the provider committed converges without
-      re-applying the step (same key, command-log replay). Exactly once holds
-      at the provider only within the command-dedupe TTL.
+      crash before the call or after the step's effect committed converges
+      without re-applying the step. Where the provider commits on its own
+      (PostgreSQL), the redrive replays the same key from the command log.
+      On SQLite a local provider commits with the step's transition. A crash
+      loses its effect and record with the step's state, and the redrive runs
+      the step once. Exactly once holds at the provider only within the
+      command-dedupe TTL.
     - **Recovery (G-SAGA-09 to 12).** A closed outcome table; compensation in
       reverse before the pivot; parking with an audit row after it; resolve
       before compensate; no blind re-call after the TTL.

@@ -52,6 +52,10 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C025`](#sandloom-c025) | `event-view-compat` | check | an event view is incompatible with (or unverified against) its producer, or a view calls .publish() | active |
 | [`SANDLOOM-C026`](#sandloom-c026) | `contract-union-hint` | check | a contract signature uses an ambiguous union (information) | active |
 | [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates billing with of=Account.user() | active |
+| [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
+| [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
+| [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
+| [`SANDLOOM-C031`](#sandloom-c031) | `portable-sql` | check | a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -74,6 +78,16 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
+| [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one | active |
+| [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
+| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security | active |
+| [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
+| [`SANDLOOM-B028`](#sandloom-b028) | `schema-from-models` | boot | sandloom migrate on a database that takes its schema from the models (SQLite), or such a database whose tables differ from the models | active |
+| [`SANDLOOM-B029`](#sandloom-b029) | `development-database-in-prod` | boot | ENVIRONMENT=prod on a database that serves development and tests only (SQLite), without the accepted risk development_database_in_prod, or under PRODUCTION_PROFILE=multi_tenant_strict | active |
+| [`SANDLOOM-B030`](#sandloom-b030) | `database-server-too-old` | boot | the database server is older than its SQL dialect renderer supports | active |
+| [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
+| [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
+| [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -89,6 +103,8 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R012`](#sandloom-r012) | `intent-release-unchecked` | runtime | an operation-intent route answered 2xx outside the two release cases, or release_check() lacked the authority | active |
 | [`SANDLOOM-R013`](#sandloom-r013) | `concurrent-session-use` | runtime | db() (or the unit's session) was used from a task that does not own the unit | active |
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
+| [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
+| [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -537,6 +553,114 @@ the combination unless the atom states why (spec §7.3).
 
 **More:** `tests/fixtures/specs/public-api-1.0-spec.md`
 
+### SANDLOOM-C028
+
+**a database dialect (sqlalchemy.dialects) imported in module code**
+
+Slug: `dialect-imports` · kind: check · status: active
+
+**What happened and why it matters**
+
+Business logic is isolated from the infrastructure: the driver chosen in
+configuration decides which database runs a module, not the module. A dialect
+import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
+one database. sandloom.sdk.data offers what modules used dialects for, and on
+PostgreSQL it renders the same SQL, so switching needs no migration.
+Migrations are exempt: a migration is one database's DDL history. This check
+reads imports and dialect options only; SQL functions and raw SQL text,
+a PostgreSQL cast (::) in text() included, are SANDLOOM-C031's.
+
+**Fix:** use the portable form: sqlalchemy.Uuid for ids, and from sandloom.sdk.data CaseInsensitiveText, partial_index, search_index, conflict_insert, transaction_lock
+
+**More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C029
+
+**a time column declared DateTime(timezone=True) in module code**
+
+Slug: `utc-datetime-columns` · kind: check · status: active
+
+**What happened and why it matters**
+
+SQLite keeps no time zone offset: a DateTime(timezone=True) column reads back
+naive there, and a naive time compares with nothing a module writes.
+UtcDateTime() is the same timestamptz on PostgreSQL, so moving a column onto it
+needs no migration; it writes an aware time in UTC and attaches UTC on load on
+every database, and it refuses a naive time, whose instant is not known.
+Migrations are exempt: a migration keeps the DDL type it was generated with.
+
+**Fix:** declare it UtcDateTime() (`from sandloom.sdk import UtcDateTime`, a beginner name), and bind aware times (datetime.now(UTC))
+
+**More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C030
+
+**a module uses a sandloom.sdk.data form that needs a database feature it does not declare**
+
+Slug: `database-feature-forms` · kind: check · status: active
+
+**What happened and why it matters**
+
+Some forms of sandloom.sdk.data need a feature of the database capability that
+not every database has: Array (arrays), fulltext_index and matches
+(fulltext_search), json_path (json_path), json_contains (json_contains),
+aggregate_list (list_aggregates) and transaction_lock (transaction_locks).
+PostgreSQL has every one; SQLite has json_path, list_aggregates and
+transaction_locks. Declaring the feature makes the module's need
+explicit, so startup refuses it on an instance without the feature
+(SANDLOOM-B033) instead of a statement failing when it first runs
+(SANDLOOM-R015). The check reads the module's code: every reference to a
+form imported from sandloom.sdk.data, called or not, needs its feature in a
+CapabilityRequirement("database", features=...) inside the capabilities= of
+the module's define_module, with the features written as a set, list, tuple
+or frozenset of strings. A declaration it cannot read statically, and a
+"from sandloom.sdk.data import *" (which hides the forms used), are findings
+too. An undeclared transaction_lock is a warning for one minor release, then
+an error. Tests and migrations are exempt.
+
+**Fix:** declare it in define_module: capabilities=[CapabilityRequirement("database", features=frozenset({"arrays"}))] (the feature the message names), with CapabilityRequirement from sandloom.sdk.module
+
+**More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C031
+
+**a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them**
+
+Slug: `portable-sql` · kind: check · status: active
+
+**What happened and why it matters**
+
+The driver in configuration decides which database runs a module, and a module
+never tests which one it is. SQLAlchemy writes func.&lt;name> verbatim, so a name
+only PostgreSQL knows (array_agg, greatest, jsonb_*) fails on SQLite when the
+statement first runs, and a name both know may answer differently: func.now()
+is the transaction's start on PostgreSQL and whole seconds on SQLite, outside
+the stored time format; lower and upper fold only ASCII on SQLite; avg is a
+Decimal on PostgreSQL and a float on SQLite. A module calls only the portable
+SQL functions (abs, char_length, coalesce, count, length, max, min, nullif,
+sum; each run by a test on every shipped database, value and type) and the
+forms of sandloom.sdk.data. Raw SQL (text(), literal_column(), DDL(),
+exec_driver_sql(), .op(), .bool_op(), and a string given to .prefix_with(),
+.suffix_with() or .with_hint()) reaches the database unread: a reviewed line
+carries `# sandloom: raw-sql <reason>` on the call, or alone on the line above
+it. A text that is only a number, a quoted string, NULL, TRUE or FALSE
+(server_default=text("0")) is every database's, and a PostgreSQL cast (::) is
+a finding the marker does not admit. Reading the database's name
+(x.dialect.name, dialect_name(x), url.get_backend_name()) is a finding too,
+and so is a database URL literal naming a backend ("postgresql://",
+"postgresql+asyncpg://", "sqlite+aiosqlite://", create_mock_engine of one):
+take the database from the configuration or the test's engine instead. Both
+are admitted only by the raw-sql marker. The check reads the module and its tests:
+a test or class decorated with skip_unless_db_feature(...), or a test file
+whose pytestmark carries it, runs only where its feature is, and its SQL is
+not reported. Migrations are exempt; the SQL strings of CheckConstraint and
+Computed are not read. Tenant admission is a separate question: raw SQL inside
+a function also needs unscoped() (SANDLOOM-C015).
+
+**Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) (a race test: skip_unless_db_feature("concurrent_writers")) or ask has_optimized_reads()
+
+**More:** `docs/modules/database/conventions.md`
+
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
 ### SANDLOOM-B001
@@ -907,6 +1031,243 @@ reports it.
 
 **More:** `docs/reference/configuration.md`
 
+### SANDLOOM-B024
+
+**a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one**
+
+Slug: `sql-dialect-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Modules write the portable forms of sandloom.sdk.data (CaseInsensitiveText,
+partial_index, search_index, conflict_insert, transaction_lock), and each
+database's SQL dialect renderer turns them into that database's SQL. Renderers
+are found by the SQLAlchemy dialect name in the sandloom.sql_dialects
+entry-point group; the sandloom package ships PostgreSQL and SQLite. Without
+one, the first table or statement that uses a form would fail, so the process
+does not start. The settings check only the URL's shape
+(&lt;dialect>+&lt;dbapi>://); this check, at boot, also refuses a DBAPI SQLAlchemy
+has no dialect class for and a synchronous one, since the driver builds async
+engines only.
+
+**Fix:** install the driver package that provides the renderer for that database, or point the database at one Sandloom renders (PostgreSQL, SQLite) through an async DBAPI (postgresql+asyncpg, sqlite+aiosqlite)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B025
+
+**a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself**
+
+Slug: `sql-dialect-incompatible` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A SQL dialect renderer (the sandloom.sql_dialects entry-point group) states
+the contract version it implements; a renderer without one is version 1. The
+kernel loads only renderers of its own version, so a renderer never answers a
+question it does not know. A renderer may declare only the database
+capability's renderer features (skip_locked, transaction_locks, snapshot_reads,
+readonly_transactions, arrays, fulltext_search, json_path, json_contains,
+list_aggregates):
+anything else would be advertised to modules without a meaning. It never
+declares concurrent_writers, which the kernel derives from its serial_writers
+fact. A renderer
+that declares a feature form's feature (arrays, fulltext_search, json_path,
+json_contains, list_aggregates) must also write the form: array_type,
+fulltext_index_options, fulltext_document, fulltext_match, json_path,
+json_contains, aggregate_list and aggregate_list_type. A DBAPI
+adapter (sandloom.driverkit.DbapiAdapter) states its contract_version the same
+way. Outside the kernel it may claim only read_only_policy and
+reconnect_backoff: merged_begin, raw_executor and connection_recovery drive
+asyncpg's API and SQLAlchemy's private state, so only the kernel's adapters
+claim them.
+
+**Fix:** upgrade the driver package that ships the renderer or adapter, or remove the unknown feature or capability
+
+**More:** `docs/infrastructure/write-a-driver.md`
+
+### SANDLOOM-B026
+
+**tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security**
+
+Slug: `row-security-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+With tenant_rls the database itself confines every statement to the bound
+tenant: the SQL dialect renderer writes the policy DDL, the per-transaction
+binding and the startup role checks (its row_security()). The system channel
+is the privileged path around those policies, so it needs them too. A
+database whose renderer has no row security (SQLite) cannot enforce any of
+it, and running on would promise isolation nothing provides. Without these
+options TenantScoped isolation there is the ORM guard alone; startup says so
+with a warning, and the strict production profile refuses such an instance.
+
+**Fix:** remove those options from the instance (its tenant isolation is then the ORM guard only, application-enforced), or run it on a database with row security (PostgreSQL)
+
+**More:** `docs/modules/database/multi-tenancy.md`
+
+### SANDLOOM-B027
+
+**a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature**
+
+Slug: `snapshot-reads-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+SnapshotReads and read_scope(..., isolation="repeatable_read") promise that
+every read of the scope sees one snapshot, so the reads agree with each other.
+The database gives that promise only where its SQL dialect renderer declares
+the snapshot_reads feature: PostgreSQL and a SQLite file do, an in-memory SQLite
+test engine does not. Reading without the
+snapshot would return data that may never have existed together, so the scope
+is refused instead: at startup for a route declaring SnapshotReads when the
+default database lacks the feature, and before any I/O when a scope's read unit
+opens on another database without it. A read-only unit on a database without
+readonly_transactions is not refused: the read-only scope and the ORM read
+guard are its only guard there.
+
+**Fix:** use PlannedReads (a fresh snapshot per statement) for the route or read_scope, or run its database on one with snapshot reads (PostgreSQL)
+
+**More:** `docs/modules/database/units.md`
+
+### SANDLOOM-B028
+
+**sandloom migrate on a database that takes its schema from the models (SQLite), or such a database whose tables differ from the models**
+
+Slug: `schema-from-models` · kind: boot · status: active
+
+**What happened and why it matters**
+
+The migration chains are PostgreSQL's DDL history (row-security policies,
+clock_timestamp() defaults, trigram indexes), so a database whose SQL dialect
+renderer says schema_from_models (SQLite) runs none of them: sandloom migrate
+refuses it, except `sandloom migrate databases`, which only lists. The app and
+the worker build that database's schema at startup with metadata.create_all
+over every mapped table, the kernel's included. create_all creates a missing
+table and never alters an existing one, so a file whose tables differ from the
+models (a column, its nullability, an index or a unique constraint) is refused
+at startup with each difference named, instead of failing on the first
+statement that touches it. Only DB_RECREATE_ON_MODEL_CHANGE=true, which
+sandloom dev run sets for the app it serves, changes that: the file and its
+WAL are renamed to &lt;file>.stale-&lt;UTC time> and a fresh file is built. No
+table is dropped, the environment alone never triggers it, a worker never
+does it, and production ignores the setting. The data is not migrated.
+
+Restart the workers, beat and any other process on the file after a recreate.
+A process that held the old file open would go on writing to it under its new
+name, so each process remembers the file it opened and refuses a connection
+once the path names another file (or none): DatabaseFileReplaced, naming the
+file and telling you to restart that process.
+
+**Fix:** after a model change, move the SQLite file away or start the app with sandloom dev run, which sets the file aside and builds a fresh one; write and apply migrations against a PostgreSQL DATABASE_URL
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B029
+
+**ENVIRONMENT=prod on a database that serves development and tests only (SQLite), without the accepted risk development_database_in_prod, or under PRODUCTION_PROFILE=multi_tenant_strict**
+
+Slug: `development-database-in-prod` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A SQLite database is one file on one host: no replication, no row security
+(tenant isolation is the ORM guard only), its schema built from the models with
+no migration path, and writers serialised on one lock. Its SQL dialect renderer
+says development_only, so a production process refuses it at startup,
+build-free, before any connection. A deployment that accepts these limits names
+the accepted risk; it is logged at every start like every accepted risk. The
+strict production profile refuses it even when accepted, as it refuses any
+database without row security.
+
+**Fix:** point DATABASE_URL at a production database (PostgreSQL); a deployment that knowingly runs on SQLite sets SANDLOOM_ACCEPTED_RISKS=["development_database_in_prod"] (refused under the strict profile)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B030
+
+**the database server is older than its SQL dialect renderer supports**
+
+Slug: `database-server-too-old` · kind: boot · status: active
+
+**What happened and why it matters**
+
+Each SQL dialect renderer states the oldest server version it supports; the
+SQL it writes (ON CONFLICT, RETURNING, advisory locks, SQLite's built-in JSON
+functions) needs it. The check
+runs on the engine's first connection, before any statement.
+
+**Fix:** upgrade the database server (PostgreSQL 14 or newer, SQLite 3.38 or newer)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B031
+
+**DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI**
+
+Slug: `read-only-sessions-unguarded` · kind: boot · status: active
+
+**What happened and why it matters**
+
+ReadOnlyDbSession promises that a route declared read-only cannot write. Two
+things keep that promise: the database's read-only transaction, where its SQL
+dialect renderer declares the readonly_transactions feature, and a client
+policy that refuses writes, locking reads and raw statements before they are
+sent, where the DBAPI adapter has one (asyncpg). PostgreSQL and SQLite
+(PRAGMA query_only) have the first. A database with neither would run the
+session's writes, so the
+setting is refused: at startup, build-free, and when the first read-only
+session factory is built.
+
+**Fix:** set DB_READ_ONLY_SESSIONS=false (read-only routes then use DbSession), or run the database on one with read-only transactions (PostgreSQL, SQLite)
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B032
+
+**a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed**
+
+Slug: `sqlite-unavailable` · kind: boot · status: active
+
+**What happened and why it matters**
+
+The sqlalchemy driver serves SQLite through aiosqlite, for development and
+tests. An in-memory database (sqlite://, :memory:, mode=memory) has no WAL and
+exists once per connection, so a second unit, the outbox relay or a worker
+would each see another, empty database: it is refused, except the engine a
+test builds on one shared connection, and it never advertises snapshot_reads
+or transaction_locks. A URL without +aiosqlite names a blocking DBAPI, and
+aiosqlite is an optional dependency (the sqlite extra), so both are refused
+before the first connection with what to change.
+
+**Fix:** point the database at a file, sqlite+aiosqlite:///&lt;path>.db, and install the sqlite extra: pip install 'sandloom[sqlite]'
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B033
+
+**a module needs a database feature the instance it runs on lacks**
+
+Slug: `database-feature-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A database feature belongs to the instance: its SQL dialect renderer declares
+what its database can do. A module that needs one, because its tables are built
+with an Array column or a fulltext_index, or because it declares
+CapabilityRequirement("database", features=...), is refused when it loads on an
+instance that lacks it, naming the module, the form (and table), the feature and
+the instance. Without the refusal the module would load and fail at its first
+statement, or its table would not be created (SQLite builds its schema from the
+models). The forms used inside statements (matches, json_path, json_contains,
+transaction_lock) are covered by the declaration, which sandloom check
+requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
+
+**Fix:** run the module on a database whose SQL dialect renderer declares the feature (PostgreSQL declares arrays, fulltext_search, json_path, json_contains, list_aggregates and transaction_locks), or move the module off the form
+
+**More:** `docs/infrastructure/database.md`
+
 ### SANDLOOM-B020
 
 **a requested module name has two providers (two installed packages, or an installed package and a local module)**
@@ -1155,6 +1516,50 @@ Usual causes:
 
 **Fix:** start the dev services: `uv run sandloom dev up` (then `uv run sandloom dev status` shows the ports and URLs)
 
+### SANDLOOM-R016
+
+**a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units**
+
+Slug: `nested-writer-refused` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+SQLite has one writer at a time: every unit that may write begins BEGIN
+IMMEDIATE and holds the database's write lock until it ends. A local contract
+call, a saga step or a child open_uow() inside a unit of the same task, on
+the same database instance, runs as a SAVEPOINT on the caller's connection
+and commits with it (docs/infrastructure/database.md, "Nested units commit
+with their caller"). What cannot nest still would wait for its own task until
+busy_timeout: a writer opened while the lock is held by a connection that is
+not one of the task's open units (a bare session, a connection outside a
+unit, a second engine on the same file). The driver refuses it at once
+instead. The refusal is per task: a unit in another task still waits its
+turn. PostgreSQL runs both units side by side.
+
+**Fix:** open the nested write inside the task's unit (it then runs as a savepoint of it), do it in the caller's unit, run it after the caller commits, or run the database on PostgreSQL
+
+**More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-R015
+
+**a portable SQL form the database cannot write**
+
+Slug: `sql-form-unsupported` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+A portable form of sandloom.sdk.data refused instead of running other SQL: a
+partial index that cannot be restricted would index every row, and a
+transaction lock that cannot be taken would leave a check-then-act section
+unprotected. SQLite, for development and tests, has no substring-search index
+(the index is skipped), and its transaction lock is the unit's own write lock
+(BEGIN IMMEDIATE): transaction_lock refuses in a read-only unit and on an
+in-memory test database.
+
+**Fix:** run the module on a database whose renderer writes the form (PostgreSQL writes all of them), or add the form to the renderer
+
+**More:** `docs/infrastructure/database.md`
+
 ## Test-harness and snapshot gates (`sandloom test`)
 
 ### SANDLOOM-T016
@@ -1231,6 +1636,13 @@ each table and index literally (or a table through a module-level string
 constant), as `sandloom migrate new` writes it; a name built at runtime, such as
 an f-string in a loop, is not recognised.
 
+On a test database that takes its schema from the models (SQLite) coverage
+and ownership skip, with the reason: no chain runs there and no revision can
+be written. `sandloom migrate upgrade-all` and `upgrade-core` run the coverage
+check before they apply anything and refuse with this code, naming the
+missing table or index and the `sandloom migrate new` command to write it
+against PostgreSQL.
+
 **Fix:** add a revision to the owning module's chain: `sandloom migrate new <module> "<message>"` (row-level security included)
 
 ### SANDLOOM-T004
@@ -1286,7 +1698,7 @@ Slug: `migration-drift` · kind: test · status: active
 
 **What happened and why it matters**
 
-sandloom test compares the module's models with its chain head (spec §5.6).
+sandloom test compares the module's models with its chain head (spec §5.6): the migration drift step for every chain, and each module's `assert_migrations_match_models` test (types, server defaults, and indexes as the database reflects them: access method, operator classes, sort order, included columns, condition) on PostgreSQL. SQLite builds its schema from the models and runs no chain, so this is what keeps the two equal.
 
 **Fix:** run `sandloom migrate new <module> "<message>"` and review the revision
 
@@ -1328,7 +1740,7 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 29 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Generators and examples teach the 30 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
 

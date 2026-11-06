@@ -4,6 +4,13 @@ Two-phase delivery of committed outbox rows by the outbox relay: claim a batch
 under a lease (``FOR UPDATE SKIP LOCKED``), publish OUTSIDE the transaction,
 then settle each row — delivered, deferred while the broker is unavailable
 (no attempt burnt), or retried with backoff until it is dead-lettered.
+
+A database without ``skip_locked`` (:func:`skips_locked_rows`) claims each row
+by compare-and-set on its lease instead (``UPDATE … SET locked_until,
+locked_by WHERE id = :id AND (locked_until IS NULL OR locked_until < :now)``,
+the row is ours when one row changed): relays run safely in parallel but do
+not split the work on this path, and the settle still proves the lease by its
+token.
 """
 
 from __future__ import annotations
@@ -31,11 +38,20 @@ from sandloom.core.sql_alchemy.outbox_store.statements import (
     _UNAVAILABLE_DEFER_SECONDS,
     _any_id,
     _hold_or_release,
-    _is_postgres,
     _PublishOutcome,
     _system_uow,
     default_backoff,
 )
+from sandloom.core.sql_alchemy.portable import for_update_for, skips_locked_rows
+
+
+def _claims_batches(session: Any) -> bool:
+    """Whether the batched claim (:meth:`_RelayMixin.deliver_batch`) runs on
+    ``session``'s database: concurrent relays split the backlog with ``SKIP
+    LOCKED``, and one ``UPDATE ... FROM due RETURNING`` claims the batch."""
+    if not skips_locked_rows(session):
+        return False
+    return bool(getattr(session.get_bind().dialect, "update_returning", False))
 
 
 class _RelayMixin(OutboxStore):
@@ -64,7 +80,7 @@ class _RelayMixin(OutboxStore):
         with its budget intact and ``"unavailable"`` tells the relay to stop the
         batch instead of burning every pending row's budget on the outage.
         """
-        claim = await self._claim(uow_factory, message_id)
+        claim = await self._claim(uow_factory, message_id, max_attempts=max_attempts)
         if claim is None:
             return "skipped"
         channel, payload, schema_version, msg_id_str, token, trace_id, emitted_at = (
@@ -93,12 +109,16 @@ class _RelayMixin(OutboxStore):
         self,
         uow_factory: Callable[[], UnitOfWorkContract],
         message_id: uuid.UUID,
+        *,
+        max_attempts: int | None = None,
     ) -> tuple[str, dict[str, Any], str, str, uuid.UUID, str | None, datetime] | None:
         """Lease the row and COMMIT; return its publish fields + ownership token.
 
         Mints a fresh ``locked_by`` token so settle can prove the lease is still
         ours. Captures channel/payload/version/id INSIDE the transaction because
         the ORM instance expires once the lease transaction commits.
+        ``max_attempts`` bounds the compare-and-set claim (see
+        :meth:`_claim_by_lease`).
         """
 
         now = _utc_naive_now()
@@ -106,18 +126,29 @@ class _RelayMixin(OutboxStore):
         token = uuid.uuid4()
         async with _system_uow(uow_factory) as uow:
             assert uow.session is not None  # noqa: S101 - type narrowing of an invariant
-            locked = await uow.session.execute(
-                select(OutboxMessage)
-                .where(
-                    OutboxMessage.id == message_id,
-                    OutboxMessage.delivered_at.is_(None),
-                    OutboxMessage.dead_at.is_(None),
-                    or_(
-                        OutboxMessage.locked_until.is_(None),
-                        OutboxMessage.locked_until < now,
-                    ),
+            if not skips_locked_rows(uow.session):
+                return await self._claim_by_lease(
+                    uow.session,
+                    message_id,
+                    now,
+                    lease_until,
+                    token,
+                    max_attempts=max_attempts,
                 )
-                .with_for_update(skip_locked=True)
+            locked = await uow.session.execute(
+                for_update_for(
+                    uow.session,
+                    select(OutboxMessage).where(
+                        OutboxMessage.id == message_id,
+                        OutboxMessage.delivered_at.is_(None),
+                        OutboxMessage.dead_at.is_(None),
+                        or_(
+                            OutboxMessage.locked_until.is_(None),
+                            OutboxMessage.locked_until < now,
+                        ),
+                    ),
+                    skip_locked=True,
+                )
             )
             msg = locked.scalars().first()
             if msg is None:
@@ -133,6 +164,64 @@ class _RelayMixin(OutboxStore):
                 msg.trace_id,
                 msg.emitted_at,
             )
+
+    @staticmethod
+    async def _claim_by_lease(
+        session: Any,
+        message_id: uuid.UUID,
+        now: datetime,
+        lease_until: datetime,
+        token: uuid.UUID,
+        *,
+        max_attempts: int | None = None,
+    ) -> tuple[str, dict[str, Any], str, str, uuid.UUID, str | None, datetime] | None:
+        """:meth:`_claim` without ``skip_locked``: compare-and-set the lease.
+
+        Two relays racing for the row both run the ``UPDATE``; the database
+        applies one, and the other's re-checked condition no longer matches
+        (the lease is in the future), so exactly one sees one row changed.
+        The ``UPDATE`` re-checks what the unlocked pending read selected: a
+        row another relay settled meanwhile (delivered, dead, backed off or
+        out of attempts) is not claimed again.
+        """
+        table: Any = OutboxMessage.__table__
+        attempts = (
+            [] if max_attempts is None else [table.c.delivery_attempts < max_attempts]
+        )
+        claimed = await session.execute(
+            update(table)
+            .where(
+                table.c.id == message_id,
+                table.c.delivered_at.is_(None),
+                table.c.dead_at.is_(None),
+                or_(table.c.locked_until.is_(None), table.c.locked_until < now),
+                or_(table.c.next_attempt_at.is_(None), table.c.next_attempt_at <= now),
+                *attempts,
+            )
+            .values(locked_until=lease_until, locked_by=token)
+        )
+        if claimed.rowcount != 1:
+            return None
+        row = (
+            await session.execute(
+                select(
+                    table.c.channel,
+                    table.c.payload,
+                    table.c.schema_version,
+                    table.c.trace_id,
+                    table.c.emitted_at,
+                ).where(table.c.id == message_id)
+            )
+        ).one()
+        return (
+            row.channel,
+            dict(row.payload),
+            row.schema_version,
+            str(message_id),
+            token,
+            row.trace_id,
+            row.emitted_at,
+        )
 
     @staticmethod
     async def _locked_owned(
@@ -222,7 +311,7 @@ class _RelayMixin(OutboxStore):
             msg.next_attempt_at = _utc_naive_now() + timedelta(seconds=delay)
             return "failed"
 
-    # -- batched relay (PostgreSQL) ----------------------------------------------
+    # -- batched relay (skip_locked) ----------------------------------------------
     async def deliver_batch(
         self,
         uow_factory: Callable[[], UnitOfWorkContract],
@@ -265,16 +354,18 @@ class _RelayMixin(OutboxStore):
         owner's rows: those count as ``skipped`` (the duplicate publish is
         deduped by consumers — at-least-once). Publishing stops early (rest
         released) once half the lease is used, so a slow broker cannot let a
-        lease lapse mid-batch. Non-PostgreSQL backends use the per-row default.
+        lease lapse mid-batch. It needs ``skip_locked`` and ``UPDATE ...
+        RETURNING`` (:func:`_claims_batches`); any other database uses the
+        per-row default, each row claimed by compare-and-set on its lease.
         """
         async with _system_uow(uow_factory) as uow:
             assert uow.session is not None  # noqa: S101 - type narrowing of an invariant
-            postgres = _is_postgres(uow.session)
-            if postgres:
+            batched = _claims_batches(uow.session)
+            if batched:
                 claimed = await self._claim_batch(
                     uow.session, max_attempts, grace_seconds, limit
                 )
-        if not postgres:
+        if not batched:
             return await super().deliver_batch(
                 uow_factory,
                 publish,
@@ -405,7 +496,7 @@ class _RelayMixin(OutboxStore):
         table: Any = OutboxMessage.__table__
         now = _utc_naive_now()
         token = uuid.uuid4()
-        due = (
+        candidates = (
             select(table.c.id)
             .where(
                 table.c.delivered_at.is_(None),
@@ -417,9 +508,8 @@ class _RelayMixin(OutboxStore):
             )
             .order_by(table.c.emitted_at)
             .limit(limit)
-            .with_for_update(skip_locked=True)
-            .cte("due")
         )
+        due = for_update_for(session, candidates, skip_locked=True).cte("due")
         result = await session.execute(
             update(table)
             .where(table.c.id == due.c.id)
@@ -469,7 +559,7 @@ class _RelayMixin(OutboxStore):
         delivered = 0
         if ok:
             result = await session.execute(
-                owned(_any_id(table, ok)).values(
+                owned(_any_id(session, table, ok)).values(
                     delivered_at=now,
                     last_error=None,
                     locked_until=None,
@@ -533,7 +623,7 @@ class _RelayMixin(OutboxStore):
         if released:
             # Unpublished: hand the rows straight back (no attempt, no delay).
             await session.execute(
-                owned(_any_id(table, released)).values(
+                owned(_any_id(session, table, released)).values(
                     locked_until=None, locked_by=None
                 )
             )

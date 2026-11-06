@@ -16,7 +16,7 @@ import sandloom.core.unit_of_work.request as _request
 from sandloom.core import contract_wire
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._bootstrap import (
-    _contract_uow_factory,
+    _contract_read_uow_factory,
     _isolated_uow_scope,
 )
 from sandloom.core.module_api._errors import (
@@ -27,6 +27,7 @@ from sandloom.core.module_api._read_guard import (
     _guard_read_contract,
     _read_contract_writes,
 )
+from sandloom.core.sql_alchemy.portable import is_error_kind
 
 # Hot receivers are bound by ASSIGNMENT, not by ``from ... import``: CPython
 # (3.12+) compiles ``name.method()`` on an imported name without the
@@ -200,7 +201,7 @@ class ContractReadScope:
             unit: Any = None
             try:
                 uow = _unit_of_work
-                factory = _contract_uow_factory(core, database)
+                factory = _contract_read_uow_factory(core, database)
                 unit = factory()
                 await unit.__aenter__()
                 session = uow._bind_uow_session(unit.session, core, factory, database)
@@ -352,34 +353,11 @@ class ContractReadScope:
             await asyncio.gather(*tuple(self._closing), return_exceptions=True)
 
 
-#: SQLSTATE ``in_failed_sql_transaction`` ("current transaction is aborted").
-_FAILED_TRANSACTION_SQLSTATE = "25P02"
-
-
 def _in_failed_transaction(exc: BaseException) -> bool:
-    """True when ``exc`` (or what it wraps) is "current transaction is aborted".
-
-    Duck-typed (``sqlstate`` / ``pgcode`` on the driver error, reached through
-    ``orig`` / ``__cause__`` / ``__context__``): the kernel imports no driver.
-    """
-    seen: set[int] = set()
-    stack: list[Any] = [exc]
-    while stack:
-        current = stack.pop()
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        for attr in ("sqlstate", "pgcode"):
-            if getattr(current, attr, None) == _FAILED_TRANSACTION_SQLSTATE:
-                return True
-        stack.extend(
-            (
-                getattr(current, "orig", None),
-                getattr(current, "__cause__", None),
-                getattr(current, "__context__", None),
-            )
-        )
-    return False
+    """True when ``exc`` (or what it wraps) is "current transaction is
+    aborted": the renderer's ``transaction_aborted`` kind (PostgreSQL's
+    SQLSTATE 25P02). The kernel imports no driver."""
+    return is_error_kind(exc, "transaction_aborted")
 
 
 async def _rollback_unit(unit: Any) -> None:

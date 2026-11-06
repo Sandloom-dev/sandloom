@@ -528,14 +528,24 @@ def render_module(module: ModuleType) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+_COUNT_WORDS = {6: "six", 7: "seven", 8: "eight"}
+
+
 def render_index(modules: list[ModuleType]) -> str:
     """``docs/reference/sdk/index.md``: the namespace, its modules, the tiers."""
     root = next(m for m in modules if m.__name__ == "sandloom.sdk")
+    code_names = tuple(getattr(root, "__all__", ()))
+    testing_names = tuple(
+        name
+        for mod in modules
+        if mod.__name__ in ("sandloom.sdk.testing", "sandloom.sdk.testing.plugin")
+        for name in getattr(mod, "__beginner__", ())
+    )
     out = [
         "---",
         "title: sandloom.sdk",
-        "description: The Public API 1.0 namespace — every public module, the 29 "
-        "beginner names and where each name lives.",
+        "description: The Public API 1.0 namespace — every public module, the "
+        f"{len(code_names) + len(testing_names)} beginner names and where each name lives.",
         "---",
         "",
         GENERATED,
@@ -546,7 +556,8 @@ def render_index(modules: list[ModuleType]) -> str:
         "",
         "## The beginner names",
         "",
-        "These 21 code names are importable from `sandloom.sdk` directly; the six "
+        f"These {len(code_names)} code names are importable from `sandloom.sdk` "
+        f"directly; the {_COUNT_WORDS.get(len(testing_names), len(testing_names))} "
         "testing names (`client`, `as_user`, `published`, `deliver`, "
         "`fake_contract`, `fake_access_fact`) come from `sandloom.sdk.testing` and "
         "its pytest plugin. Each links to its entry on its home page.",
