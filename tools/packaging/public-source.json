@@ -325,6 +325,7 @@
         "benchmarks/dx/checks/check_t8_purge_invitations.py",
         "benchmarks/dx/checks/check_t9_member_export.py",
         "benchmarks/dx/checks/pytest.ini",
+        "benchmarks/dx/checks/selftest_check_t9_member_export.py",
         "benchmarks/dx/footer.app.md",
         "benchmarks/dx/footer.md",
         "benchmarks/dx/product/README.md",
