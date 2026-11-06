@@ -36,8 +36,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +49,7 @@ from sqlalchemy import (
     event,
 )
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import DBAPIError, DisconnectionError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import sandloom.core.sql_alchemy.models
@@ -260,12 +262,12 @@ async def open_test_engine(
 #   temporary tables;
 # - the prepared-statement cache, whose plans are stale once a test dropped
 #   and recreated a table (a schema rebuild, a migration test).
-
-#: A pooled connection back to how a new one starts (asyncpg's own pool runs
-#: much the same on release). One simple-protocol round trip.
-RESET_SESSION_SQL = (
-    "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL"
-)
+#
+# That is PostgreSQL's reset (``SchemaReset.reset_kept_connection``); on SQLite,
+# which has no reset statement, the connection is opened anew instead: what a
+# test left on it, the driver's write-lock marks included, never reaches the
+# next. A test's own sessions get the database's caller engine, as from
+# :func:`open_test_engine` (SQLite: begun at their first write).
 
 _GENERATION = "sandloom_test_generation"
 
@@ -276,40 +278,45 @@ class LoopEngines:
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self._engines: dict[tuple[str, int], AsyncEngine] = {}
+        #: Per kept engine, the one a test's own sessions use (what
+        #: :func:`open_test_engine` yields: on SQLite their transactions
+        #: begin at their first write).
+        self._callers: dict[tuple[str, int], AsyncEngine] = {}
+        #: The engines whose pools get the reset, and their listener.
+        self._watched: weakref.WeakKeyDictionary[Any, Any] = weakref.WeakKeyDictionary()
         #: One per test; a connection last used in an older one is reset on
         #: its next checkout.
         self.generation = 0
 
-    def _on_checkout(self, dbapi_connection: Any, record: Any, _proxy: Any) -> None:
+    def _on_checkout(
+        self, reset: Any, dbapi_connection: Any, record: Any, _proxy: Any
+    ) -> None:
         seen = record.info.get(_GENERATION)
         if seen == self.generation:
             return
         if seen is not None:  # opened in an earlier test
-            try:
-                dbapi_connection.run_async(lambda conn: conn.execute(RESET_SESSION_SQL))
-            except Exception as exc:
-                # A backend that died between tests (a server restart, a
-                # terminated session): the pool opens a new connection.
-                raise DisconnectionError(str(exc)) from exc
-            # SQLAlchemy's asyncpg adapter caches prepared statements per
-            # connection: drop them, a table may have been recreated since.
-            cache = getattr(dbapi_connection, "_prepared_statement_cache", None)
-            if cache:
-                cache.clear()
+            # PostgreSQL: reset in place; SQLite: DisconnectionError, the pool
+            # opens a new connection (whose info starts empty)
+            reset.reset_kept_connection(dbapi_connection)
         record.info[_GENERATION] = self.generation
 
     def watch(self, engine: AsyncEngine) -> None:
         """Give ``engine``'s pooled connections the same reset on their first
         checkout in each test (an engine the run keeps, not ``db_engine``'s)."""
-        if not event.contains(engine.sync_engine, "checkout", self._on_checkout):
-            event.listen(engine.sync_engine, "checkout", self._on_checkout)
+        sync_engine = engine.sync_engine
+        if sync_engine in self._watched:
+            return
+        listener = partial(self._on_checkout, schema_reset_for(engine))
+        event.listen(sync_engine, "checkout", listener)
+        self._watched[sync_engine] = listener
 
     def next_test(self) -> None:
         """A new test starts: every watched connection is reset on its next
         checkout."""
         self.generation += 1
 
-    def _engine(self, url: str, metadata: MetaData) -> AsyncEngine:
+    def _engine(self, url: str, metadata: MetaData) -> tuple[AsyncEngine, AsyncEngine]:
+        """The kept engine of ``url`` and ``metadata``, and its caller engine."""
         key = (url, id(metadata))
         engine = self._engines.get(key)
         if engine is None:
@@ -320,7 +327,8 @@ class LoopEngines:
             )
             self.watch(engine)
             self._engines[key] = engine
-        return engine
+            self._callers[key] = schema_reset_for(engine).caller_engine(engine)
+        return engine, self._callers[key]
 
     @asynccontextmanager
     async def test_engine(
@@ -341,12 +349,16 @@ class LoopEngines:
         if metadata is None:
             metadata = Base.metadata
         self.next_test()
-        engine = self._engine(url, metadata)
+        engine, caller = self._engine(url, metadata)
         await reset_schema(engine, metadata)
-        yield engine
+        # a test's own sessions, as open_test_engine gives them (SQLite: begun
+        # at their first write, so a read never asks for the write lock the
+        # ``db`` fixture's session holds in the same task: SANDLOOM-R016)
+        yield caller
 
     async def aclose(self) -> None:
         engines, self._engines = list(self._engines.values()), {}
+        self._callers = {}
         for engine in engines:
             await engine.dispose()
 
@@ -474,7 +486,6 @@ def tenant_keys_without_tenant(
 
 
 __all__ = [
-    "RESET_SESSION_SQL",
     "LoopEngines",
     "assert_disposable_test_database",
     "is_run_database",

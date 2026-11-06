@@ -33,6 +33,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import MetaData, delete, func, literal, select, text, union_all
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from sandloom.core.drivers.dbapi_aiosqlite import BEGIN_AT_FIRST_WRITE
@@ -46,6 +47,12 @@ PG_EXTENSIONS = ("uuid-ossp", "citext", "pg_trgm")
 PG_RESET_LOCK_TIMEOUT = "30s"
 _SET_LOCK_TIMEOUT = f"SET LOCAL lock_timeout = '{PG_RESET_LOCK_TIMEOUT}'"
 _LOCK_NOT_AVAILABLE = "55P03"
+
+#: A pooled connection back to how a new one starts (asyncpg's own pool runs
+#: much the same on release). One simple-protocol round trip.
+PG_RESET_SESSION_SQL = (
+    "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL"
+)
 
 _OWNED_SEQUENCES = """
 SELECT quote_ident(sn.nspname) || '.' || quote_ident(s.relname)
@@ -117,6 +124,21 @@ class SchemaReset:
         """The engine of the sessions a test opens itself (``db_engine``)."""
         return engine
 
+    def reset_kept_connection(self, dbapi_connection: Any) -> None:
+        """Put a pooled connection an earlier test used back to how a new one
+        starts (the harness keeps one engine per event loop:
+        :class:`sandloom.core.testing.database.LoopEngines`; called from the
+        pool's ``checkout`` event).
+
+        The plain path knows no reset statement: the connection is dropped
+        and the pool opens a new one, as a new engine per test did. Nothing a
+        test left on it (temporary objects, pragmas, a driver's write-lock
+        marks: released when the pool invalidates it) reaches the next test.
+        """
+        raise DisconnectionError(
+            "a test connection kept from an earlier test is opened anew"
+        )
+
     def unit_engine(self, engine: AsyncEngine) -> AsyncEngine:
         """The engine of the ``db`` fixture's session, which stands in for
         the request's unit."""
@@ -152,6 +174,23 @@ class PostgresqlSchemaReset(SchemaReset):
         orig = getattr(error, "orig", error)
         code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
         return code == _LOCK_NOT_AVAILABLE
+
+    def reset_kept_connection(self, dbapi_connection: Any) -> None:
+        """``RESET ALL`` (settings, ``SET ROLE``, ``search_path``), session
+        advisory locks, ``LISTEN``, open cursors and temporary tables
+        (:data:`PG_RESET_SESSION_SQL`), then the prepared-statement cache,
+        whose plans are stale once a test dropped and recreated a table."""
+        try:
+            dbapi_connection.run_async(lambda conn: conn.execute(PG_RESET_SESSION_SQL))
+        except Exception as exc:
+            # A backend that died between tests (a server restart, a
+            # terminated session): the pool opens a new connection.
+            raise DisconnectionError(str(exc)) from exc
+        # SQLAlchemy's asyncpg adapter caches prepared statements per
+        # connection: drop them, a table may have been recreated since.
+        cache = getattr(dbapi_connection, "_prepared_statement_cache", None)
+        if cache:
+            cache.clear()
 
     async def rebuild(self, engine: AsyncEngine, metadata: MetaData) -> None:
         async with engine.begin() as conn:
@@ -248,6 +287,7 @@ def schema_reset_for(engine: AsyncEngine) -> SchemaReset:
 __all__ = [
     "PG_EXTENSIONS",
     "PG_RESET_LOCK_TIMEOUT",
+    "PG_RESET_SESSION_SQL",
     "PostgresqlSchemaReset",
     "SchemaReset",
     "SqliteSchemaReset",
