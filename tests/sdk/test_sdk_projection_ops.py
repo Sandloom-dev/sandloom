@@ -55,6 +55,10 @@ from sandloom.sdk.projections import (
 from sandloom.sdk.tenant import bind_tenant
 
 KEYS = {"k1": "s" * 32}
+#: A waiting read returns as soon as its group catches up: the budget only
+#: bounds a failure, so it is generous (a busy machine commits the 10 ms
+#: writer well after 100 ms, and the read then served the stale row).
+WAIT_MS = 5000
 SAVED_GROUP = NOTE_INDEX.groups[0]
 
 
@@ -600,7 +604,7 @@ async def test_a_waiting_read_rereads_until_its_group_catches_up(
     memory_store: MemoryDocumentStoreProvider,
 ) -> None:
     """A cached row behind the token is reread while waiting: v2 arriving
-    10 ms into a 100 ms budget is served fresh (stale=False)."""
+    10 ms into the wait budget is served fresh (stale=False)."""
     projection = _store_projection()
     group = projection.groups[0]
     saved = group.events[NoteSaved]
@@ -621,7 +625,7 @@ async def test_a_waiting_read_rereads_until_its_group_catches_up(
         v1 = NoteSaved(note_id=note, tenant_id=tenant, title="v1", version=1)
         await projection.apply(None, group, v1, saved)
         view: ProjectionView[NoteRow] = ProjectionView(
-            projection, NoteRow, None, wait_ms=100, token=token, response=Response()
+            projection, NoteRow, None, wait_ms=WAIT_MS, token=token, response=Response()
         )
         writer = asyncio.create_task(later_v2())
         page = await view.query()
@@ -658,7 +662,7 @@ async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(
 ) -> None:
     """G-MSTORE-07 on a relational target: the reader's session already
     holds the v1 row (ORM identity map); v2 is committed by another session
-    10 ms into a 100 ms wait. The reread must RELOAD the row: the query and
+    10 ms into the wait. The reread must RELOAD the row: the query and
     the get serve v2 fresh (stale=False), never the cached v1."""
     sessions = committed_index
     saved = SAVED_GROUP.events[NoteSaved]
@@ -699,7 +703,7 @@ async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(
                 NOTE_INDEX,
                 NoteRow,
                 reader,
-                wait_ms=100,
+                wait_ms=WAIT_MS,
                 token=token_for(2),
                 response=Response(),
             )
@@ -714,7 +718,7 @@ async def test_a_waiting_relational_read_reloads_the_rows_it_already_holds(
                 NOTE_INDEX,
                 NoteRow,
                 reader,
-                wait_ms=100,
+                wait_ms=WAIT_MS,
                 token=token_for(3),
                 response=Response(),
             )

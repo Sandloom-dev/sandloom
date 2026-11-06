@@ -157,6 +157,26 @@ async def _terminate(admin: AsyncEngine, pid: int) -> None:
         await asyncio.sleep(0.02)
 
 
+async def _wait_running(admin: AsyncEngine, pid: int, statement: str) -> None:
+    """Until backend ``pid`` is running ``statement`` (instead of a fixed
+    sleep that guesses when it got there)."""
+    for _ in range(1000):
+        async with admin.connect() as conn:
+            running = (
+                await conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity WHERE pid = :p "
+                        "AND state = 'active' AND query ILIKE :q"
+                    ),
+                    {"p": pid, "q": f"%{statement}%"},
+                )
+            ).scalar_one()
+        if running:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"backend {pid} never ran {statement!r}")
+
+
 async def _wait_closed(raw: Any) -> None:
     for _ in range(200):
         if raw.is_closed():
@@ -474,7 +494,7 @@ async def test_fault_matrix(
             slow = "INSERT INTO deadconn_orders (note) SELECT :n FROM pg_sleep(2)"
 
             async def killer() -> None:
-                await asyncio.sleep(0.4)
+                await _wait_running(admin, pid, "pg_sleep")
                 await _terminate(admin, pid)
 
             kill = asyncio.create_task(killer())
@@ -511,7 +531,7 @@ async def test_fault_matrix(
 
             async def killer() -> None:
                 await committing.wait()
-                await asyncio.sleep(0.5)
+                await _wait_running(admin, pid, "COMMIT")
                 await _terminate(admin, pid)
 
             kill = asyncio.create_task(killer())

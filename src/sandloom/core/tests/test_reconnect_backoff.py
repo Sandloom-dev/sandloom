@@ -81,7 +81,10 @@ async def test_many_waiters_share_one_recovery_probe():
 
 
 async def test_cancelled_probe_releases_admission_and_wait_is_bounded():
-    gate = reconnect.ReconnectBackoff(base=0.01, cap=0.01, wait_timeout=0.03)
+    # The probe first sleeps out the backoff inside the same wait_timeout: the
+    # timeout must leave room for a busy loop's late wake-up (a 10 ms backoff
+    # in a 30 ms timeout timed the probe out under a loaded suite).
+    gate = reconnect.ReconnectBackoff(base=0.001, cap=0.001, wait_timeout=0.5)
     failing = SimpleNamespace(
         connect=lambda: (_ for _ in ()).throw(ConnectionRefusedError())
     )

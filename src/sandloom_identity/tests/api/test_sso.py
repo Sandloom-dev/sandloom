@@ -470,21 +470,3 @@ class TestSSOSecurityReal:
             ], f"Malicious state '{malicious_state}' should be rejected"
 
             print(f"✅ Malicious state '{malicious_state}' correctly rejected")
-
-    @pytest.mark.asyncio
-    async def test_redis_connection_failure_handling(
-        self, async_client: AsyncClient, test_db: AsyncSession
-    ) -> None:
-        """Test behavior when Redis is unavailable (graceful degradation test)."""
-        # This test would require temporarily breaking Redis connection
-        # For now, we'll just verify that the service expects Redis to be available
-
-        # Try to get redirect URL - should work if Redis is available
-        response = await async_client.get("/auth/sso/google/redirect")
-
-        if response.status_code == 200:
-            print("✅ Redis connection is working for state storage")
-        else:
-            print(f"⚠️ Redis connection issue: {response.status_code} - {response.text}")
-            # In a real test, we'd want to test Redis failure scenarios
-            # but that requires more complex setup

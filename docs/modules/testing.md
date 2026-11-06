@@ -315,7 +315,7 @@ The harness protects concurrent runs on one machine from each other:
 - **Pre-push hook.** `backend-full-tests` refuses to run the full suite unless
   `SANDLOOM_TEST_DATABASE_URL` names this checkout's own database
   (`tools/checks/prepush_full_tests.sh`; `SKIP=backend-full-tests` skips
-  it once).
+  it once). It runs the suite in a fresh seeded order and prints the seed.
 
 ### Test isolation
 
@@ -324,7 +324,10 @@ run with a fixed distribution hides a test that passes only because an
 earlier one left a registry, a binding, a cache key or a row behind, so the
 gates run the tests in a **seeded random order**
 (`sandloom.core.testing.shuffle`: the files, then the tests inside each file; a
-file's module fixtures are still set up once):
+file's module fixtures are still set up once). A seeded run puts the files
+that hold a test marked `slow` first. It also turns off xdist's
+`--loadscope-reorder`, which hands files out largest first. The workers then
+take the files in the seeded order, and a long file starts at once.
 
 - **`sandloom test`** shuffles every test step with a fresh seed. It prints the
   seed before the steps and again after a failure:

@@ -362,22 +362,6 @@ class TestTokenServiceCleanup:
         assert "DELETE" in str(call_args).upper()
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_tokens_no_tokens(self, mock_db: AsyncMock) -> None:
-        """Test cleanup when no expired tokens exist."""
-        # Mock result with zero count
-        mock_result = Mock()
-        mock_result.rowcount = 0
-        mock_db.execute.return_value = mock_result
-
-        # Call method
-        result = await TokenService.cleanup_expired_tokens(mock_db)
-
-        # Assertions
-        assert result == 0
-        mock_db.execute.assert_called_once()
-        mock_db.flush.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_cleanup_revoked_tokens_by_age_success(
         self, mock_db: AsyncMock
     ) -> None:

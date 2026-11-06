@@ -30,6 +30,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from email.parser import BytesParser
 from pathlib import Path
 
@@ -216,11 +217,15 @@ def _entry_points(wheel: Path) -> dict[str, dict[str, str]]:
 
 
 def build(out: Path) -> dict[str, Path]:
-    """sdist + wheel of every package; returns ``{package: rebuilt wheel}``."""
+    """sdist + wheel of every package; returns ``{package: rebuilt wheel}``.
+
+    The packages build side by side (each into its own files; the build hook
+    writes only temporary directories); a package's two builds stay in order.
+    """
     wheels = out / "wheels"
     wheels.mkdir()
-    built: dict[str, Path] = {}
-    for package in PACKAGES:
+
+    def build_one(package: str) -> Path:
         _run("uv", "build", "--out-dir", str(wheels), str(PACKAGE_ROOT / package))
         # Compare the wheel rebuilt from a standalone sdist (uv's default)
         # with the direct monorepo wheel; the runtime files must match.
@@ -238,8 +243,10 @@ def build(out: Path) -> dict[str, Path]:
         if _contents(rebuilt) != _contents(original):
             raise RuntimeError(f"{package}: sdist roundtrip changed wheel contents")
         _check_contents(package, rebuilt)
-        built[package] = rebuilt
-    return built
+        return rebuilt
+
+    with ThreadPoolExecutor(max_workers=len(PACKAGES)) as pool:
+        return dict(zip(PACKAGES, pool.map(build_one, PACKAGES), strict=True))
 
 
 def check_layering(wheels: dict[str, Path]) -> None:
@@ -264,11 +271,49 @@ def _subcommands(sandloom: Path, env: dict[str, str], cwd: Path) -> list[str]:
     return match.group(1).split(",")
 
 
+def _check_battery_handoff(sandloom: Path, env: dict[str, str], work: Path) -> None:
+    """``sandloom new --with <batteries>`` from the bare CLI hands the missing
+    module packages over to ``uv sync`` (one app directory each, side by side)."""
+
+    def new_with(batteries: str) -> subprocess.CompletedProcess[str]:
+        app = "probe_" + batteries.replace(",", "_")
+        return _run(
+            str(sandloom),
+            "new",
+            app,
+            "--with",
+            batteries,
+            "--dir",
+            str(work),
+            env=env,
+            cwd=work,
+            capture_output=True,
+        )
+
+    every = ("identity", "tenancy", "billing", "identity,tenancy,billing")
+    with ThreadPoolExecutor(max_workers=len(every)) as pool:
+        created_apps = list(pool.map(new_with, every))
+    for batteries, created in zip(every, created_apps, strict=True):
+        if "ModuleLoadError" in created.stdout or "run `uv sync`" not in created.stdout:
+            raise RuntimeError(
+                f"bare CLI with {batteries}: unclear dependency handoff:\n{created.stdout}"
+            )
+        if created.stdout.index("uv run sandloom generate") > created.stdout.index(
+            "uv run sandloom test"
+        ):
+            raise RuntimeError("initial generation must precede the app's CI gate")
+
+
 def check_lean_install(temp: Path, wheel: Path) -> None:
     """``pip install sandloom`` alone: every CLI entry point works."""
     venv = temp / "lean"
     _run("uv", "venv", str(venv))
-    _run("uv", "pip", "install", "--python", str(_python(venv)), str(wheel))
+    # --compile-bytecode: as `pip install` does; else every cold CLI process
+    # below compiles the same modules at once.
+    _run(
+        "uv", "pip", "install", "--compile-bytecode",
+        "--python", str(_python(venv)), str(wheel),
+    )  # fmt: skip
     installed = json.loads(
         _run(
             "uv", "pip", "list", "--python", str(_python(venv)), "--format", "json",
@@ -288,8 +333,8 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     commands = _subcommands(sandloom, env, work)
     if len(commands) < 20:
         raise RuntimeError(f"too few subcommands found: {commands}")
-    broken: list[str] = []
-    for command in commands:
+
+    def help_failure(command: str) -> str | None:
         print(f"+ sandloom {command} --help", flush=True)
         done = subprocess.run(
             [str(sandloom), command, "--help"],
@@ -299,47 +344,59 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
             capture_output=True,
             check=False,
         )
-        if done.returncode:
-            tail = "\n    ".join((done.stderr or done.stdout).strip().splitlines()[-4:])
-            broken.append(
-                f"sandloom {command} --help (exit {done.returncode}):\n    {tail}"
-            )
+        if not done.returncode:
+            return None
+        tail = "\n    ".join((done.stderr or done.stdout).strip().splitlines()[-4:])
+        return f"sandloom {command} --help (exit {done.returncode}):\n    {tail}"
+
+    # Each --help is a cold interpreter: run them side by side (one per CPU),
+    # the failures reported in the subcommand order.
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+        broken = [f for f in pool.map(help_failure, commands) if f is not None]
     if broken:
         raise RuntimeError("lean install: subcommands fail:\n  " + "\n  ".join(broken))
+    # The rest of the lean checks are independent of each other (their own
+    # directories under `work`, the RPC smoke in its own temporary one): side
+    # by side; the first failure, in this order, is raised after all ran.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        lean_checks = [
+            pool.submit(_check_docs, sandloom, env, work),
+            pool.submit(inspection_smoke.check, _python(venv), work),
+            pool.submit(_check_new_app, sandloom, env, work),
+            pool.submit(_check_battery_handoff, sandloom, env, work),
+            pool.submit(_check_kernel_factory, venv, env, work),
+            # The internal-RPC transport from the installed lean wheel: aiohttp
+            # probe + live call, then the httpx fallback on an internals mismatch.
+            pool.submit(
+                _run,
+                sys.executable,
+                str(BACKEND_ROOT / "tools/packaging/check_wheel_rpc_transport.py"),
+                "--python",
+                str(_python(venv)),
+            ),
+        ]
+    for check in lean_checks:
+        check.result()
+
+
+def _check_docs(sandloom: Path, env: dict[str, str], work: Path) -> None:
     for name in DOCS_NAMES:
         shown = _run(
             str(sandloom), "docs", name, env=env, cwd=work, capture_output=True
         )
         if name.rsplit(".", 1)[-1] not in shown.stdout:
             raise RuntimeError(f"`sandloom docs {name}` printed:\n{shown.stdout}")
-    inspection_smoke.check(_python(venv), work)
+
+
+def _check_new_app(sandloom: Path, env: dict[str, str], work: Path) -> None:
     _run(str(sandloom), "version", env=env, cwd=work)
     _run(str(sandloom), "new", "probe", "--dir", str(work), env=env, cwd=work)
     pyproject = (work / "probe" / "pyproject.toml").read_text()
     if '"sandloom' not in pyproject:
         raise RuntimeError("the generated app does not depend on sandloom")
-    for batteries in ("identity", "tenancy", "billing", "identity,tenancy,billing"):
-        app = "probe_" + batteries.replace(",", "_")
-        created = _run(
-            str(sandloom),
-            "new",
-            app,
-            "--with",
-            batteries,
-            "--dir",
-            str(work),
-            env=env,
-            cwd=work,
-            capture_output=True,
-        )
-        if "ModuleLoadError" in created.stdout or "run `uv sync`" not in created.stdout:
-            raise RuntimeError(
-                f"bare CLI with {batteries}: unclear dependency handoff:\n{created.stdout}"
-            )
-        if created.stdout.index("uv run sandloom generate") > created.stdout.index(
-            "uv run sandloom test"
-        ):
-            raise RuntimeError("initial generation must precede the app's CI gate")
+
+
+def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
     _run(
         str(_python(venv)),
         "-c",
@@ -354,14 +411,6 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )
-    # The internal-RPC transport from the installed lean wheel: aiohttp
-    # probe + live call, then the httpx fallback on an internals mismatch.
-    _run(
-        sys.executable,
-        str(BACKEND_ROOT / "tools" / "packaging" / "check_wheel_rpc_transport.py"),
-        "--python",
-        str(_python(venv)),
-    )
 
 
 def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
@@ -370,7 +419,7 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     _run("uv", "venv", str(venv))
     kernel = wheels["sandloom"]
     _run(
-        "uv", "pip", "install", "--python", str(_python(venv)),
+        "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
         f"sandloom[standard] @ {kernel.resolve().as_uri()}",
         *(str(w) for p, w in wheels.items() if p not in ("sandloom", "sandloom-admin")),
     )  # fmt: skip
@@ -396,6 +445,7 @@ def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
         "uv",
         "pip",
         "install",
+        "--compile-bytecode",
         "--python",
         str(_python(venv)),
         f"sandloom[admin] @ {wheels['sandloom'].resolve().as_uri()}",
@@ -443,9 +493,16 @@ def main(argv: list[str] | None = None) -> int:
         }
         check_layering(wheels)
         if not args.skip_install:
-            check_lean_install(temp, wheels["sandloom"])
-            check_standard_install(temp, wheels)
-            check_admin_install(temp, wheels)
+            # Three independent clean environments: checked side by side; the
+            # first failure (in this order) is raised once all three finished.
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                checks = [
+                    pool.submit(check_lean_install, temp, wheels["sandloom"]),
+                    pool.submit(check_standard_install, temp, wheels),
+                    pool.submit(check_admin_install, temp, wheels),
+                ]
+            for check in checks:
+                check.result()
         if args.dist_dir is not None:
             if any(
                 hashlib.sha256(file.read_bytes()).hexdigest() != checksums[file.name]

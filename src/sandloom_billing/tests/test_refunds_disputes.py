@@ -9,6 +9,7 @@ is refused until purchases cover it). A dispute reverses the remaining
 credits at once; a dispute closed ``won`` restores what the dispute reversed.
 """
 
+import asyncio
 import json
 import time
 import uuid
@@ -143,6 +144,27 @@ def _dispute(
 
 async def _balance(db: AsyncSession, intent: Any) -> int:
     return await BillingService.get_credit_balance(intent.customer_id, db)
+
+
+async def _until_transactions_wait_on_a_lock(holder: Any, count: int = 1) -> None:
+    """Until ``count`` other transactions wait on a lock ``holder`` holds
+    (instead of a fixed 0.5 s that guessed they did). Asked through
+    ``holder``, the session holding the lock: no extra pool connection."""
+    for _ in range(1000):
+        # pg_stat_activity is a snapshot per transaction: drop it each round.
+        await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = (
+            await holder.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if waiting >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"fewer than {count} transaction(s) waited on the lock")
 
 
 async def test_same_payment_intent_under_another_session_never_double_grants(
@@ -619,7 +641,8 @@ async def test_concurrent_first_refund_and_completion_both_converge(
     async with committing_uow(maker) as a:
         await WebhookService._apply_charge_refunded(refund, refund["data"]["object"], a)
         racing = asyncio.create_task(completion())
-        await asyncio.sleep(0.5)  # the completion runs while the refund is open
+        # the completion runs, and waits on the state row, while the refund is open
+        await _until_transactions_wait_on_a_lock(a)
     await asyncio.wait_for(racing, timeout=10)
 
     async with maker() as s:

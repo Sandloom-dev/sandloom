@@ -551,6 +551,21 @@ website renders this same changelog.
   served by the app (no font service). Swagger UI keeps the authorization across
   reloads and shows request durations. Production keeps FastAPI's own pages: a
   deployed app's API docs are the app's.
+- **Seeded test runs hand the slow files to the workers first.** With a seed
+  (every `sandloom test`, `--sandloom-shuffle`), the shuffle plugin turns off
+  pytest-xdist's `--loadscope-reorder`, which handed the files of `--dist loadfile`
+  out largest first, and puts the files that hold a test marked `slow` first. A long
+  one-test file used to start after every other file; it now starts at once. In the
+  framework's full suite this alone took ~150 s off the wall time. (tm: test-speed)
+- **`sandloom test` runs the architecture rules once.** The `sandloom check` step
+  records what it found, and the framework's architecture tests read it back instead
+  of running every rule again; run alone, they still run the rules. (tm: test-speed-2)
+- **The framework's own checks are faster.** The package check builds, installs and
+  smoke-tests the distributions side by side (131 s to 29 s alone), the docs
+  generator check builds its scratch apps side by side (15 s to 7 s), and the
+  pre-push hook runs the suite in a printed random order, like CI. Fixed waits in the
+  tests became waits for the event itself (a lock waited on, a key expired, a
+  statement running). (tm: test-speed, test-speed-2)
 
 ### Fixed
 
@@ -565,7 +580,12 @@ website renders this same changelog.
   keeps `LIKE` / `ILIKE` with a backslash `ESCAPE`; SQLite writes a
   case-sensitive prefix as a `GLOB` (`*`, `?`, `[` as one-character classes)
   and a case-insensitive one as `lower(...) LIKE lower(...) ESCAPE`.
-
+- **Framework tests that failed on a busy machine.** Waits sized for an idle
+  machine (a 100 ms projection read, a 30 ms reconnect budget, 0.1 s RPC attempts
+  in a 0.4 s call, a 60 ms stream lease, a wall-clock micro-benchmark, a 2 s RPC
+  timeout) failed under load; each now has room, or waits for the event, and
+  still asserts the same thing. `test_dev_external` used Redis index 860 while the
+  test Redis has 256 databases. (tm: test-speed, test-speed-2)
 - **A failed `sandloom dev up` names the cause.** Docker wraps long errors, and the
   message showed only the last wrapped line (`(exit status 4))`); it now starts at the
   line that names the error and joins the lines it wraps onto. Images the dev and test

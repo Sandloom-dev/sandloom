@@ -76,15 +76,3 @@ class TestJWTTokenFixtures:
         assert token1 != token2, "Different users should get different tokens"
 
         print("✅ Different users receive different JWT tokens")
-
-    def test_fixture_improvements_summary(self) -> None:
-        """Summarize the improvements made to JWT token fixtures."""
-        print("\n🎯 JWT Token Fixture Improvements:")
-        print("✅ Before: Fake tokens like 'test-access-token'")
-        print("✅ After: Real JWT tokens via TokenService.create_tokens()")
-        print("✅ Benefits:")
-        print("   - API integration tests can now pass authentication")
-        print("   - Guards like get_current_user can decode real tokens")
-        print("   - No more 401 Unauthorized errors in API tests")
-        print("   - Higher API endpoint coverage achievable")
-        print("🚀 Ready for comprehensive API testing!")

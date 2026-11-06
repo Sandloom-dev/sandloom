@@ -34,7 +34,8 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
 4. static gates: ``ruff check`` (``--no-fix`` with ``--ci``), ``ruff format
    --check``, ``mypy``,
    ``sandloom check`` (architecture rules, SANDLOOM-Cnnn), the framework tree's
-   architecture tests, ``lint-imports`` (when the project has a
+   architecture tests (which reuse the rule run ``sandloom check`` recorded,
+   :data:`ARCH_RECORD_ENV`), ``lint-imports`` (when the project has a
    ``.importlinter``), the contract snapshots (SANDLOOM-T004), the route
    snapshots (SANDLOOM-T001), the migration drift (SANDLOOM-T006: every module chain
    applied to a scratch database and compared with the models) and, in the
@@ -70,6 +71,7 @@ import importlib.util
 import os
 import random
 import sys
+import tempfile
 import time
 import tomllib
 from collections.abc import Callable
@@ -109,7 +111,8 @@ class Step:
     """One step: an external command (``argv``) or an in-process ``call``.
 
     ``env`` holds DEFAULTS for the command's environment (an exported value
-    of the same variable wins)."""
+    of the same variable wins); ``run_env`` holds values of this run that
+    always win (set by :func:`main`, never planned)."""
 
     name: str
     argv: list[str] = field(default_factory=list)
@@ -118,6 +121,7 @@ class Step:
     cwd: Path | None = None
     #: After the step ran: what it skipped, shown on its summary line.
     note: Callable[[], str | None] | None = None
+    run_env: dict[str, str] = field(default_factory=dict)
 
     def describe(self) -> str:
         if self.call is not None:
@@ -131,6 +135,7 @@ def _run_command(step: Step, root: Path) -> int:
     env = dict(os.environ)
     for key, value in step.env.items():
         env.setdefault(key, value)
+    env.update(step.run_env)
     return _tool_process.run_tool(step.argv, cwd=step.cwd or root, env=env).returncode
 
 
@@ -250,8 +255,25 @@ def _in_process(fn: Callable[[list[str]], int], argv: list[str]) -> Callable[[],
     return _call
 
 
+#: The variable that names, for the architecture tests step, the file where
+#: the ``sandloom check`` step of the same run recorded its violations (a
+#: directory this run creates): the architecture tests then reuse that rule
+#: run instead of repeating it.
+ARCH_RECORD_ENV = _check.RECORD_ENV
+
+
+@dataclass
+class _ArchRecord:
+    """The record file of the running ``sandloom test`` (set by :func:`main`)."""
+
+    path: Path | None = None
+
+
+_ARCH_RECORD = _ArchRecord()
+
+
 def _sandloom_check(argv: list[str]) -> int:
-    return _check.main(argv)
+    return _check.main(argv, record=_ARCH_RECORD.path)
 
 
 def _contracts(argv: list[str]) -> int:
@@ -445,6 +467,23 @@ def run(steps: list[Step], root: Path) -> list[Outcome]:
     return outcomes
 
 
+def _run_recording_the_rules(steps: list[Step], root: Path) -> list[Outcome]:
+    """:func:`run`, the ``sandloom check`` step recording its violations in a
+    file of this run that the architecture tests step reads back."""
+    with tempfile.TemporaryDirectory(prefix="sandloom-test-") as scratch:
+        record = Path(scratch) / "architecture-check.json"
+        _ARCH_RECORD.path = record
+        for step in steps:
+            if step.name == "architecture tests":
+                # Always this run's file: an exported or inherited path (a
+                # `sandloom test` inside a test) could name another run's.
+                step.run_env[ARCH_RECORD_ENV] = str(record)
+        try:
+            return run(steps, root)
+        finally:
+            _ARCH_RECORD.path = None
+
+
 def summary(outcomes: list[Outcome]) -> str:
     lines = ["", "sandloom test summary", "----------------"]
     for o in outcomes:
@@ -534,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
             f"sandloom test: test order seed {seed} (replay: "
             f"sandloom test --seed {seed})"
         )
-    outcomes = run(steps, root)
+    outcomes = _run_recording_the_rules(steps, root)
     print(summary(outcomes))
     if slot_lost():
         print(SLOT_LOST_MESSAGE, file=sys.stderr)
@@ -548,6 +587,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "ARCH_RECORD_ENV",
     "SHUFFLE_PLUGIN",
     "XDIST_MISSING_NOTICE",
     "Outcome",
