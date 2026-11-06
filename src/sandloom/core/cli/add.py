@@ -1036,8 +1036,7 @@ from datetime import datetime
 from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, TenantScoped
-from sandloom.sdk.data import UtcDateTime  # sandloom: advanced UTC on every database
+from sandloom.sdk import Base, TenantScoped, UtcDateTime
 
 
 class {cls}Row(TenantScoped, Base):

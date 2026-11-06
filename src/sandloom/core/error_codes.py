@@ -544,8 +544,8 @@ a PostgreSQL cast (::) in text() included, are SANDLOOM-C031's.
         "utc-datetime-columns",
         "check",
         "a time column declared DateTime(timezone=True) in module code",
-        "declare it UtcDateTime() from sandloom.sdk.data, and bind aware times "
-        "(datetime.now(UTC))",
+        "declare it UtcDateTime() (`from sandloom.sdk import UtcDateTime`, a "
+        "beginner name), and bind aware times (datetime.now(UTC))",
         """
 SQLite keeps no time zone offset: a DateTime(timezone=True) column reads back
 naive there, and a naive time compares with nothing a module writes.
@@ -1585,7 +1585,7 @@ reports breaking changes.
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 29 beginner names (spec §2.2), and an "
+        "Generators and examples teach the 30 beginner names (spec §2.2), and an "
         "application's modules keep to them: the `schema & deploy` step of "
         "`sandloom test` reports an advanced import that has no marker.",
     ),

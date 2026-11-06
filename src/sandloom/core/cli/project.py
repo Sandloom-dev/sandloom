@@ -292,7 +292,7 @@ CRUD, events and cross-module calls:
 | need | names (`from sandloom.sdk import ...`) |
 | --- | --- |
 | a module | `define_module` |
-| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt` |
+| tables | `Base`, `TenantScoped`, `db`, `new_id`, `CreatedAt`, `UtcDateTime` |
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
@@ -304,7 +304,8 @@ CRUD, events and cross-module calls:
 
 Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
-(`clock_timestamp()`), so a list ordered by `created_at, id` never ties.
+(`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
+other time column is `UtcDateTime()` (SANDLOOM-C029).
 
 Routes declare nothing but their exceptions: every route is authenticated
 (`CurrentUser`, or a gate) unless it says `public(reason="...")`; writes get

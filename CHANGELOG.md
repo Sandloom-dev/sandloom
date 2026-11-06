@@ -500,6 +500,12 @@ website renders this same changelog.
 
 ### Changed
 
+- **`UtcDateTime` is a beginner name**: `from sandloom.sdk import UtcDateTime`,
+  like `CreatedAt`, with no `# sandloom: advanced` marker; the beginner tier
+  is 30 names. SANDLOOM-C029 requires `UtcDateTime()` for every time column
+  in module code, so its fix used to fail SANDLOOM-T009 unless the import
+  carried a marker. `sandloom.sdk.data` still exports it.
+
 - **Command dedupe and saga crash recovery are stated for both databases**
   (G-CMD-01, G-SAGA-07, G-UOW-09). A command's dedupe record commits in the
   same transaction as its effect: the provider's own unit, or on SQLite the

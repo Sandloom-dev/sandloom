@@ -27,6 +27,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`db`](#db) | function | The session of the innermost open unit of the current task (§4.3): |
 | [`new_id`](#new_id) | function | A new time-ordered id (UUIDv7, RFC 9562) for a primary key: |
 | [`TenantScoped`](#tenantscoped) | class | Mixin marking a model as tenant-owned (adds the indexed `tenant_id`). |
+| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 
 ## Advanced
 
@@ -67,7 +68,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`transaction_lock`](#transaction_lock) | async function | Hold the lock `key` until the transaction of `session` ends: |
 | [`UowReads`](#uowreads) | annotated type |  |
 | [`UpdatedAt`](#updatedat) | annotated type |  |
-| [`UtcDateTime`](#utcdatetime) | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 | [`WallClock`](#wallclock) | class | The database's clock when the statement runs ("now, at the call"). |
 
 ## Beginner names
@@ -133,6 +133,84 @@ Mixin marking a model as tenant-owned (adds the indexed `tenant_id`).
 
 Inheriting this both declares the column and opts the model into automatic
 tenant filtering. Declare models as `class Foo(TenantScoped, Base)`.
+
+### `UtcDateTime`
+
+```python
+class UtcDateTime(TypeDecorator)(*args: Any, **kwargs: Any)
+```
+
+A timezone-aware time: always read back aware, in UTC on asyncpg and
+SQLite.
+
+The column is `DateTime(timezone=True)` (`TIMESTAMP WITH TIME ZONE` on
+PostgreSQL, which keeps the instant and returns an aware value: in UTC
+on asyncpg, in the session's `TimeZone` on psycopg). There
+(the renderer's `aware_times`) the type converts nothing. A database
+that keeps no offset (SQLite stores the text of the time) hands back a
+naive value: there this type writes an aware time in UTC and attaches UTC
+to what it reads, so a module compares and orders the same aware values on
+every database. An expression typed `UtcDateTime` that PostgreSQL
+answers as `timestamp without time zone` (`... AT TIME ZONE 'UTC'`)
+reads back naive there. Bind aware times: a naive one has no known instant (on
+PostgreSQL asyncpg would read it in the process's local time zone, on
+SQLite it would mean UTC), so it is refused with
+`NaiveDateTimeError`, in a value and in a comparison alike. The
+planner's raw executor, which skips bind processing, takes no caller's
+value of this type: such a key or filter runs on the general executor.
+
+#### `UtcDateTime.bind_processor`
+
+```python
+def bind_processor(self, dialect: Dialect) -> Any
+```
+
+Where the database keeps the instant (`aware_times`), only the
+refusal of a naive time; elsewhere `process_bind_param`.
+
+#### `UtcDateTime.result_processor`
+
+```python
+def result_processor(self, dialect: Dialect, coltype: Any) -> Any
+```
+
+Where the DBAPI reads aware values (`aware_times`), the
+column's own processor (none on asyncpg); elsewhere
+`process_result_value`.
+
+#### `UtcDateTime.process_bind_param`
+
+```python
+def process_bind_param(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+An aware value as the same instant in UTC; a naive one refused.
+
+#### `UtcDateTime.coerce_compared_value`
+
+```python
+def coerce_compared_value(self, op: Any, value: Any) -> Any
+```
+
+A time compared with the column is bound as this type (an aware
+time is required); anything else (`column - timedelta(...)`) as
+`DateTime` would bind it (an interval).
+
+#### `UtcDateTime.process_result_value`
+
+```python
+def process_result_value(
+    self,
+    value: datetime | None,
+    dialect: Dialect,
+) -> datetime | None
+```
+
+A loaded value with UTC attached when the database kept no offset.
 
 ## Advanced names
 
@@ -863,84 +941,6 @@ UpdatedAt = Annotated[datetime.datetime, <sqlalchemy.orm.properties.MappedColumn
 ```
 
 *(no docstring)*
-
-### `UtcDateTime`
-
-```python
-class UtcDateTime(TypeDecorator)(*args: Any, **kwargs: Any)
-```
-
-A timezone-aware time: always read back aware, in UTC on asyncpg and
-SQLite.
-
-The column is `DateTime(timezone=True)` (`TIMESTAMP WITH TIME ZONE` on
-PostgreSQL, which keeps the instant and returns an aware value: in UTC
-on asyncpg, in the session's `TimeZone` on psycopg). There
-(the renderer's `aware_times`) the type converts nothing. A database
-that keeps no offset (SQLite stores the text of the time) hands back a
-naive value: there this type writes an aware time in UTC and attaches UTC
-to what it reads, so a module compares and orders the same aware values on
-every database. An expression typed `UtcDateTime` that PostgreSQL
-answers as `timestamp without time zone` (`... AT TIME ZONE 'UTC'`)
-reads back naive there. Bind aware times: a naive one has no known instant (on
-PostgreSQL asyncpg would read it in the process's local time zone, on
-SQLite it would mean UTC), so it is refused with
-`NaiveDateTimeError`, in a value and in a comparison alike. The
-planner's raw executor, which skips bind processing, takes no caller's
-value of this type: such a key or filter runs on the general executor.
-
-#### `UtcDateTime.bind_processor`
-
-```python
-def bind_processor(self, dialect: Dialect) -> Any
-```
-
-Where the database keeps the instant (`aware_times`), only the
-refusal of a naive time; elsewhere `process_bind_param`.
-
-#### `UtcDateTime.result_processor`
-
-```python
-def result_processor(self, dialect: Dialect, coltype: Any) -> Any
-```
-
-Where the DBAPI reads aware values (`aware_times`), the
-column's own processor (none on asyncpg); elsewhere
-`process_result_value`.
-
-#### `UtcDateTime.process_bind_param`
-
-```python
-def process_bind_param(
-    self,
-    value: datetime | None,
-    dialect: Dialect,
-) -> datetime | None
-```
-
-An aware value as the same instant in UTC; a naive one refused.
-
-#### `UtcDateTime.coerce_compared_value`
-
-```python
-def coerce_compared_value(self, op: Any, value: Any) -> Any
-```
-
-A time compared with the column is bound as this type (an aware
-time is required); anything else (`column - timedelta(...)`) as
-`DateTime` would bind it (an interval).
-
-#### `UtcDateTime.process_result_value`
-
-```python
-def process_result_value(
-    self,
-    value: datetime | None,
-    dialect: Dialect,
-) -> datetime | None
-```
-
-A loaded value with UTC attached when the database kept no offset.
 
 ### `WallClock`
 

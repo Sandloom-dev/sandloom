@@ -439,8 +439,7 @@ The table, keyed by the tenant first, and its migration:
     from sqlalchemy import Integer, PrimaryKeyConstraint, String
     from sqlalchemy.orm import Mapped, mapped_column
 
-    from sandloom.sdk import Base, TenantScoped
-    from sandloom.sdk.data import UtcDateTime  # sandloom: advanced UTC on every database
+    from sandloom.sdk import Base, TenantScoped, UtcDateTime
 
 
     class Member(TenantScoped, Base):

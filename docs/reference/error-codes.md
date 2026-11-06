@@ -589,7 +589,7 @@ needs no migration; it writes an aware time in UTC and attaches UTC on load on
 every database, and it refuses a naive time, whose instant is not known.
 Migrations are exempt: a migration keeps the DDL type it was generated with.
 
-**Fix:** declare it UtcDateTime() from sandloom.sdk.data, and bind aware times (datetime.now(UTC))
+**Fix:** declare it UtcDateTime() (`from sandloom.sdk import UtcDateTime`, a beginner name), and bind aware times (datetime.now(UTC))
 
 **More:** `docs/modules/database/conventions.md`
 
@@ -1733,7 +1733,7 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 29 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Generators and examples teach the 30 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
 

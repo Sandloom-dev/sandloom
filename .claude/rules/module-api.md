@@ -3,7 +3,7 @@ paths: ["src/sandloom_*/**", "src/*/{api,schemas,services,events,consumers,contr
 ---
 ## Public API cheat-sheet (`sandloom.sdk`; any other signature: `uv run sandloom docs <name>`)
 
-The 29 beginner names, exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
+The 30 beginner names, exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
 
 ```python
 # from sandloom.sdk import ...
@@ -11,6 +11,7 @@ register = define_module(__name__, *, version="0.1.0", consumes=(), capabilities
               depends_on=(), setup: Callable[[ModuleAPI], None] | None = None, ...)  # __init__.py
 class Note(TenantScoped, Base): ...        # tenant_id column + automatic filter; Base alone: global
     id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id); created_at: Mapped[CreatedAt]
+    due_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)  # any other time (C029)
 db() -> AsyncSession                       # the running unit's session: add/flush, never commit
 router = module_router(*, prefix=None, tags=None, tenant="derive", dependencies=())  # api.py
 public(*, reason: str, issues_tokens=False) -> Depends   # dependencies=[public(reason="...")]

@@ -6,8 +6,7 @@ from datetime import datetime
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sandloom.sdk import Base, CreatedAt, TenantScoped, new_id
-from sandloom.sdk.data import UtcDateTime  # sandloom: advanced time column (C029)
+from sandloom.sdk import Base, CreatedAt, TenantScoped, UtcDateTime, new_id
 
 PENDING = "pending"
 ACCEPTED = "accepted"

@@ -96,7 +96,7 @@ A `DateTime(timezone=True)` column in module code (also `DateTime(True)` and
 uv run sandloom check --only utc-datetime-columns
 ```
 
-Declare it `UtcDateTime()` from `sandloom.sdk.data`. On PostgreSQL it is the
+Declare it `UtcDateTime()` from `sandloom.sdk`, a beginner name. On PostgreSQL it is the
 same `timestamptz`, so no migration follows.
 
 ### Locks need a declared feature (SANDLOOM-C030)
