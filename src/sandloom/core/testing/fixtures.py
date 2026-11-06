@@ -59,8 +59,11 @@ Fixtures
 ``test_db`` / ``async_client`` / ``test_engine``
     Back-compat aliases of ``db`` / ``client`` / ``db_engine``.
 
-Every test also returns the ``default`` engines' pooled connections on its own
-event loop afterwards, so loop-bound pools never leak into the next test, and
+Every test whose event loop ends with it (pytest-asyncio's default: a loop
+per test) also returns the ``default`` engines' pooled connections on that loop
+afterwards, so loop-bound pools never leak into the next test; with a session
+loop (``asyncio_default_test_loop_scope = "session"``) the engines and their
+pools are kept for the run and only the rows are reset. Every test also
 gets the process's runtime bindings (active core / infra / event bus, the
 settings' module lists) restored, so an app a test built never leaks into the
 next test (:mod:`sandloom.core.testing.isolation`).
@@ -68,6 +71,8 @@ next test (:mod:`sandloom.core.testing.isolation`).
 
 from __future__ import annotations
 
+import asyncio
+import importlib
 import os
 import sys
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
@@ -166,12 +171,64 @@ def sandloom_app(pytestconfig: pytest.Config, sandloom_test_env: Path) -> Any:
     return harness_app(pytestconfig)
 
 
+def runs_on_session_loop(item: Any) -> bool:
+    """Whether the async test ``item`` runs on the run-wide (session) loop.
+
+    True with ``asyncio_default_test_loop_scope = "session"`` (or a
+    ``@pytest.mark.asyncio(loop_scope="session")``): the loop, and every pooled
+    connection opened on it, outlives the test. With pytest-asyncio's default
+    (a loop per test) nothing pooled may survive the test.
+    """
+    if not isinstance(item, pytest.Function) or not pytest_asyncio.is_async_test(item):
+        return False
+    marker = item.get_closest_marker("asyncio")
+    scope = None
+    if marker is not None:
+        scope = marker.kwargs.get("loop_scope") or marker.kwargs.get("scope")
+    if scope is None:
+        scope = item.config.getini("asyncio_default_test_loop_scope")
+    return bool(scope == "session")
+
+
+#: The run-wide event loop, while one is up (``_sandloom_loop_engines``).
+_SESSION_LOOP: list[asyncio.AbstractEventLoop] = []
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
+async def _sandloom_loop_engines() -> AsyncIterator[None]:
+    """Name the session loop for ``db_engine``; when the run ends, dispose the
+    test engines kept on it (:class:`sandloom.core.testing.database.LoopEngines`).
+
+    Only the tests that run on this loop (``asyncio_default_test_loop_scope =
+    "session"``) reuse an engine; with a loop per test ``db_engine`` builds one
+    per test, as it always did.
+    """
+    _SESSION_LOOP[:] = [asyncio.get_running_loop()]
+    try:
+        yield
+    finally:
+        _SESSION_LOOP.clear()
+        database = sys.modules.get("sandloom.core.testing.database")
+        if database is not None:  # loaded: an engine may be kept
+            await database.close_loop_engines()
+
+
 @pytest_asyncio.fixture
 async def db_engine(sandloom_app: Any) -> AsyncIterator[Any]:
-    """Engine on the test database; every table present and empty."""
-    from sandloom.core.testing.database import open_test_engine  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
+    """Engine on the test database; every table present and empty.
 
-    async with open_test_engine() as engine:
+    On the session loop the engine (and its pool) is kept for the whole run
+    and only the rows are reset; with a loop per test it is built and disposed
+    for every test.
+    """
+    from sandloom.core.testing.database import loop_engines, open_test_engine  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
+
+    loop = asyncio.get_running_loop()
+    if _SESSION_LOOP and _SESSION_LOOP[0] is loop:
+        opened = loop_engines(loop).test_engine()
+    else:
+        opened = open_test_engine()
+    async with opened as engine:
         yield engine
 
 
@@ -529,27 +586,118 @@ def _sandloom_db_feature_skip(request: pytest.FixtureRequest) -> None:
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _sandloom_release_default_pools() -> AsyncIterator[None]:
-    """Return the ``default`` engines' pooled connections after every test.
+async def _sandloom_cancel_leftover_tasks(
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[None]:
+    """Cancel the asyncio tasks a test left running on the session loop.
 
-    Pooled asyncpg connections belong to the loop of the test that opened
-    them; pytest-asyncio gives each test its own loop, so a later test reusing
-    one fails with "attached to a different loop". Disposing on the test's own
-    loop closes them cleanly; the engines survive and reconnect next time.
+    With a loop per test, closing the loop cancelled whatever the test (or its
+    function-scoped fixtures) had started and not finished: a keeper task, a
+    delayed check, a server handler. On the session loop they would live on
+    into the next test. This fixture is set up after every higher-scoped
+    fixture of the test (pytest orders them by scope), so the tasks those
+    started are already in its snapshot and survive; it is torn down after
+    the test's other function-scoped fixtures, as the loop used to close.
+    """
+    if not runs_on_session_loop(request.node):
+        yield
+        return
+    before = asyncio.all_tasks()
+    yield
+    # The post-commit coalescer is such a task: let it finish its work first.
+    await end_post_commit_dispatch()
+    current = asyncio.current_task()
+    left = [
+        task
+        for task in asyncio.all_tasks()
+        if task not in before and task is not current and not task.done()
+    ]
+    for task in left:
+        task.cancel()
+    if left:
+        await asyncio.wait(left, timeout=10)
+
+
+async def end_post_commit_dispatch() -> None:
+    """Finish this test's background post-commit dispatch; the next test gets
+    a dispatcher of its own.
+
+    The dispatcher is one per event loop (``post_commit_dispatcher()``): it
+    publishes and marks committed events after the request, and keeps a
+    broker cool-down and pending marks. Its work may mark rows on the pools,
+    so it is finished first (bounded; what is left is the relay's). On a loop
+    that outlives the test it is then dropped, as a new loop would drop it,
+    so no cool-down or pending mark of this test reaches the next one.
+    """
+    if "sandloom.core.unit_of_work" not in sys.modules:
+        return
+    from sandloom.core.unit_of_work import dispatch  # noqa: PLC0415 - cold: only when a test already loaded the UoW / default database
+
+    try:
+        await dispatch.drain_post_commit(timeout=10)
+    except Exception:  # noqa: BLE001, S110 - never fail teardown on it
+        pass
+    dispatcher = dispatch._dispatcher  # test seam
+    if dispatcher is None:
+        return
+    if dispatcher.loop is asyncio.get_running_loop():
+        await dispatcher.aclose()
+        dispatch._dispatcher = None
+    elif dispatcher.loop.is_closed():
+        dispatch._dispatcher = None  # its loop, and its task, are gone
+    # else: another loop that lives on (a class- or module-scoped loop) keeps
+    # its dispatcher, as it did before
+
+
+def reset_kept_pools() -> None:
+    """On the session loop the ``default`` engines (and the app's database
+    providers') keep their pools too: their connections get ``db_engine``'s
+    reset (:class:`sandloom.core.testing.database.LoopEngines`) on their first
+    checkout in the next test."""
+    drivers = sys.modules.get("sandloom.core.drivers.sqlalchemy_database")
+    if drivers is None:
+        return  # nothing built a default engine
+    database = importlib.import_module("sandloom.core.testing.database")
+    engines = [drivers._default_engine, drivers._default_contract_engine]
+    core = drivers._runtime.get_active_core()
+    try:
+        providers = core.infra.all_built() if core is not None else []
+    except RuntimeError:  # no infrastructure registry wired
+        providers = []
+    for provider in providers:
+        engines += [
+            getattr(provider, "_engine", None),
+            getattr(provider, "_contract_engine", None),
+        ]
+    kept = database.loop_engines(asyncio.get_running_loop())
+    for engine in engines:
+        if engine is not None and hasattr(engine, "sync_engine"):
+            kept.watch(engine)
+    kept.next_test()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _sandloom_release_default_pools(
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[None]:
+    """Return the ``default`` engines' pooled connections after a test whose
+    loop ends with it.
+
+    Pooled asyncpg connections belong to the loop that opened them; with
+    pytest-asyncio's default (a loop per test) a later test reusing one fails
+    with "attached to a different loop". Disposing on the test's own loop
+    closes them cleanly; the engines survive and reconnect next time. A test
+    on the session loop keeps them (:func:`runs_on_session_loop`); a sync
+    test may have opened some on a loop of its own (``asyncio.run``), so the
+    pools are released after it too.
     """
     yield
-    if "sandloom.core.unit_of_work" in sys.modules:
-        # Background post-commit dispatch of this test's requests runs on the
-        # test's loop: finish it (it may mark rows on the pools) before the
-        # pools are released and the loop closes.
-        from sandloom.core.unit_of_work.dispatch import drain_post_commit  # noqa: PLC0415 - cold: only when a test already loaded the UoW / default database
-
-        try:
-            await drain_post_commit(timeout=10)
-        except Exception:  # noqa: BLE001, S110 - never fail teardown on it
-            pass
+    await end_post_commit_dispatch()
     if "sandloom.core._internal.db_provider" not in sys.modules:
         return  # nothing touched the default database
+    if runs_on_session_loop(request.node):
+        reset_kept_pools()  # the loop, and the pooled connections, live on
+        return
     from sandloom.core._internal.db_provider import (  # noqa: PLC0415 - cold: only when a test already loaded the UoW / default database
         release_default_pools,
     )
@@ -585,5 +733,10 @@ __all__ = [
     "_sandloom_db_feature_skip",
     "_sandloom_isolate_module_globals",
     "_sandloom_isolate_process_globals",
+    "_sandloom_cancel_leftover_tasks",
+    "_sandloom_loop_engines",
     "_sandloom_release_default_pools",
+    "end_post_commit_dispatch",
+    "reset_kept_pools",
+    "runs_on_session_loop",
 ]

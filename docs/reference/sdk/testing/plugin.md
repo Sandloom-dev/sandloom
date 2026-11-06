@@ -128,6 +128,10 @@ def db_engine(sandloom_app: Any) -> AsyncIterator[Any]
 
 Engine on the test database; every table present and empty.
 
+On the session loop the engine (and its pool) is kept for the whole run
+and only the rows are reset; with a loop per test it is built and disposed
+for every test.
+
 ### `db_uow`
 
 ```python
