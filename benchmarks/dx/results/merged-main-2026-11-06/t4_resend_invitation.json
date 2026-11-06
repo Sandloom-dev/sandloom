@@ -1,0 +1,71 @@
+{
+  "task": "t4_resend_invitation",
+  "label": "merged-main-2026-11-06",
+  "ref": "c270cbc",
+  "model": "claude-sonnet-5-5",
+  "mode": "app",
+  "outcome": "pass",
+  "gates": {
+    "ci: generated files": true,
+    "ci: schema & deploy": true,
+    "ci: suite (not slow)": true,
+    "ci: ruff check": true,
+    "ci: ruff format": true,
+    "ci: mypy": true,
+    "ci: sandloom check": true,
+    "ci: contract snapshots": true,
+    "ci: route snapshots": true,
+    "ci: migration drift": true,
+    "sandloom-test": true,
+    "module-tests": true
+  },
+  "fn_checks": {
+    "test_fn_resend_route": true,
+    "test_fn_tests_changed": true,
+    "test_fn_new_link_delivered": true
+  },
+  "dev_checks": {
+    "test_dev_keeps_the_route_defaults": true,
+    "test_dev_admin_only": true,
+    "test_dev_audited_or_evented": true
+  },
+  "uncaught_deviations": [],
+  "tokens_total": 860948,
+  "tokens_output": 7485,
+  "cost_usd": 0.3034962,
+  "turns": 17,
+  "tool_calls": 15,
+  "wall_min": 13.3,
+  "kernel_files_read": [],
+  "shared_files_read": [],
+  "docs_read": [],
+  "edited_outside": [
+    ".sandloom/cache/inspection-receipt.json",
+    ".sandloom/inspection.json"
+  ],
+  "edited_inside": 3,
+  "generated_files": [
+    "teamhub/modules/invites/routes.snapshot.json"
+  ],
+  "permission_denials": 0,
+  "created_env_file": false,
+  "kernel_reads": [],
+  "outside_by_kind": {
+    "other": [
+      ".sandloom/cache/inspection-receipt.json",
+      ".sandloom/inspection.json"
+    ]
+  },
+  "framework_edits": 0,
+  "other_module_edits": 0,
+  "kind": "task",
+  "acceptance": {},
+  "footguns": {},
+  "code_changes": [],
+  "config_changes": [],
+  "modules_touched": [],
+  "app_dir": "teamhub",
+  "expected_wiring": [],
+  "pristine": "seed:teamhub",
+  "error": ""
+}
