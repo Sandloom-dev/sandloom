@@ -2496,9 +2496,35 @@ def test_a_wrapped_callback_is_located_by_its_own_code(tmp_path: Path) -> None:
 
 
 def test_graph_diff_keeps_event_schema_data_that_looks_like_a_location() -> None:
-    schema = {"const": {"path": "/a", "line": 3}}
-    route = {"source": {"path": "m.py", "function": "f"}}
-    step = {"compensation_source": {"path": "s.py", "function": "undo"}}
-    assert _sources_by_path(schema) == schema
-    assert _sources_by_path(route) == {"source": {"path": "m.py"}}
-    assert _sources_by_path(step) == {"compensation_source": {"path": "s.py"}}
+    """Only the places ``processes`` writes a location are reduced to a path;
+    the same keys inside an event schema are data, compared whole."""
+    schema = {"const": {"source": {"path": "/a", "line": 3}, "path": "/b", "line": 4}}
+    document = {
+        "nodes": [],
+        "edges": [],
+        "modules": [
+            {"id": "m", "routes": [{"source": {"path": "m.py", "function": "f"}}]}
+        ],
+        "processes": [
+            {
+                "id": "p",
+                "source": {"path": "r.py", "function": "g"},
+                "steps": [
+                    {
+                        "source": {"path": "s.py", "function": "do"},
+                        "compensation_source": {"path": "s.py", "function": "undo"},
+                    }
+                ],
+            }
+        ],
+        "event_schemas": {"e.v1": schema},
+    }
+    reduced = _sources_by_path(document)
+    assert reduced["event_schemas"] == {"e.v1": schema}
+    assert reduced["modules"][0]["routes"][0]["source"] == {"path": "m.py"}
+    assert reduced["processes"][0]["source"] == {"path": "r.py"}
+    assert reduced["processes"][0]["steps"][0] == {
+        "source": {"path": "s.py"},
+        "compensation_source": {"path": "s.py"},
+    }
+    assert document["modules"][0]["routes"][0]["source"]["function"] == "f"

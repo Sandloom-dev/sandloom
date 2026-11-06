@@ -107,30 +107,46 @@ def impact(reader: Reader, selector: str, require: bool) -> Doc:
     )
 
 
-#: The index keys that hold a source location (``processes._location``):
-#: a route's and a saga step's ``source``, a step's ``compensation_source``.
-_LOCATION_KEYS = frozenset({"source", "compensation_source"})
+def _path_only(location: Any) -> Any:
+    if isinstance(location, dict) and isinstance(location.get("path"), str):
+        return {"path": location["path"]}
+    return location
 
 
-def _sources_by_path(value: Any) -> Any:
-    """``value`` with each source location reduced to its file: schema 1
+def _located(item: Any, keys: tuple[str, ...]) -> Any:
+    if not isinstance(item, dict):
+        return item
+    return {k: _path_only(v) if k in keys else v for k, v in item.items()}
+
+
+def _sources_by_path(document: Doc) -> Doc:
+    """``document`` with each source location reduced to its file: schema 1
     stored a line, schema 2 a function name; neither is a declared change.
     So ``graph diff`` reports no change when a handler moves or is renamed
-    within its file (a route's ``name`` field still shows the rename). Only
-    the values of :data:`_LOCATION_KEYS` are locations: an event schema's
-    ``{"path", "line"}`` data is compared whole."""
-    if isinstance(value, dict):
-        return {
-            k: {"path": v["path"]}
-            if k in _LOCATION_KEYS
-            and isinstance(v, dict)
-            and isinstance(v.get("path"), str)
-            else _sources_by_path(v)
-            for k, v in value.items()
-        }
-    if isinstance(value, list):
-        return [_sources_by_path(v) for v in value]
-    return value
+    within its file (a route's ``name`` field still shows the rename).
+    Locations are where ``processes`` writes them, and only there: a
+    module route's ``source``, a process's ``source``, a saga step's
+    ``source`` and ``compensation_source``. Anything else, an event schema
+    included, is compared whole."""
+    result = dict(document)
+    result["modules"] = [
+        {**m, "routes": [_located(r, ("source",)) for r in m.get("routes", [])]}
+        if isinstance(m, dict) and "routes" in m
+        else m
+        for m in document.get("modules", [])
+    ]
+    processes = []
+    for process in document.get("processes", []):
+        process = _located(process, ("source",))
+        if isinstance(process, dict) and isinstance(process.get("steps"), list):
+            process["steps"] = [
+                _located(step, ("source", "compensation_source"))
+                for step in process["steps"]
+            ]
+        processes.append(process)
+    if "processes" in document:
+        result["processes"] = processes
+    return result
 
 
 def _entities(document: Doc) -> dict[str, Doc]:
