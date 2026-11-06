@@ -4982,12 +4982,12 @@ guarantees:
   - tests/sdk/test_sdk_l1_registration.py::test_example_modules_register_identically_through_l1
 - id: G-SDK-04
   statement: 'Generated code (sandloom new, every sandloom add generator) and every example file that imports
-    sandloom.sdk use only the 29 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
+    sandloom.sdk use only the 30 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
     import (SANDLOOM-T009).'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
   tests:
-  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_29_names
+  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_30_names
   - tests/sdk/test_sdk_generators.py::test_generated_code_uses_only_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_examples_importing_the_sdk_stay_in_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_the_pin_reports_an_unmarked_advanced_name

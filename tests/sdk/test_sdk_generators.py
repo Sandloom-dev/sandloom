@@ -348,7 +348,7 @@ def _tier_problems(paths: list[Path]) -> list[str]:
     ]
 
 
-def test_the_beginner_tier_is_the_29_names() -> None:
+def test_the_beginner_tier_is_the_30_names() -> None:
     """27 names of the 1.0 spec, plus ``new_id`` and ``CreatedAt``: the id
     and timestamp idiom every generated model uses (owner, 2026-10-27), plus
     ``UtcDateTime``, the type SANDLOOM-C029 asks for on every other time
