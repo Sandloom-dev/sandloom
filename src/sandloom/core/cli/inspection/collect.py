@@ -235,8 +235,10 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
     }
     route_sources = processes.route_sources(app, root)
     descriptors = {d.name: d for d in app.state.core.module_descriptors}
+    # The public version only: a local ``+g<sha>`` build tag would make the
+    # tracked index stale on every framework rebuild.
     distributions = {
-        ep.value: {ep.dist.metadata["Name"]: ep.dist.version}
+        ep.value: {ep.dist.metadata["Name"]: ep.dist.version.split("+", 1)[0]}
         for ep in importlib.metadata.entry_points(group="sandloom.modules")
         if ep.dist is not None
     }
@@ -305,7 +307,7 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
     ]
     return {
         "schema": "sandloom.inspection",
-        "schema_version": 1,
+        "schema_version": 2,
         "producer_protocol": 1,
         "layout": config,
         "scope": {

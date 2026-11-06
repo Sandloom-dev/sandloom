@@ -500,6 +500,26 @@ website renders this same changelog.
 
 ### Changed
 
+- **The inspection index records no line numbers** (`.sandloom/inspection.json`,
+  schema 2). A route's or saga step's source is its file and qualified function
+  name; `sandloom context` and `sandloom graph` look the line up when they
+  print. An edit or a reformat above a route no longer makes the tracked index
+  stale, and two branches no longer conflict on it for that reason. Its
+  `distributions` record the public version, without a local `+g<sha>` build
+  tag, so a framework rebuild leaves it current. Readers still accept a
+  schema 1 index, and `sandloom graph diff` compares across both.
+
+  **Upgrade:** run `uv run sandloom generate` and commit
+  `.sandloom/inspection.json`.
+
+- **Docs: the organization billing gate on a route without `org_id`.** The
+  `org-gate` recipe (`sandloom docs recipe org-gate`) and
+  `docs/modules/http/authorization.md` say to use
+  `of=Account.org(param=None)`, the organization the request is bound to, on a
+  tenant-bound route with no `org_id` in its path or query
+  (`Account.org(param="org_id")` fails SANDLOOM-C027 there), and that
+  `Account.bound_tenant()` also accepts a personal tenant.
+
 - **`UtcDateTime` is a beginner name**: `from sandloom.sdk import UtcDateTime`,
   like `CreatedAt`, with no `# sandloom: advanced` marker; the beginner tier
   is 30 names. SANDLOOM-C029 requires `UtcDateTime()` for every time column
@@ -568,6 +588,13 @@ website renders this same changelog.
   statement running). (tm: test-speed, test-speed-2)
 
 ### Fixed
+
+- **A green `sandloom test` no longer leaves a generated file stale.** With a
+  project's `fix = true`, `ruff check` could rewrite source (an import sorted
+  onto several lines) after the generated-files check had passed, moving the
+  routes the inspection index pointed at: `sandloom test` was green and
+  `sandloom test --ci` on the same tree failed with SANDLOOM-T015. Developer
+  mode now runs `ruff check` first; `--ci` is unchanged (it fixes nothing).
 
 - **The read planner's prefix filter is literal, and keeps its case, on
   SQLite.** The general form bound `_` and `%` escaped with backslashes,

@@ -17,13 +17,19 @@ def identity(kind: str, name: str) -> str:
 
 
 def _location(callback: Any, root: Path) -> Doc | None:
+    """Where a callback is defined: its file and qualified name. No line: an
+    edit or a reformat above it would make the tracked index stale; the
+    readers look the line up when they print (:func:`files.with_lines`)."""
     code = getattr(callback, "__code__", None)
     if code is None:
         return None
     path = Path(code.co_filename).resolve()
     if not path.is_relative_to(root):
         return None
-    return {"path": path.relative_to(root).as_posix(), "line": code.co_firstlineno}
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "function": getattr(callback, "__qualname__", code.co_qualname),
+    }
 
 
 def route_sources(app: Any, root: Path) -> dict[tuple[str, str, str], Doc | None]:

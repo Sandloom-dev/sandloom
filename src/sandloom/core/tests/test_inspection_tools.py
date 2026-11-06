@@ -2372,3 +2372,77 @@ def test_viewer_uses_full_scoped_module_cards_and_readable_freshness(
     assert len(cards) == 1 and cards[0]["id"] == "module:notes"
     assert cards[0]["routes"] == module["routes"]
     assert cards[0]["summary"] == "Notes purpose."
+
+
+def test_a_route_source_is_a_function_name_and_readers_print_its_line(
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The tracked index records a route's file and qualified function, never
+    its line: an edit or a reformat above the route (ruff sorting an import
+    onto several lines) leaves the index current. ``sandloom context`` and
+    ``sandloom graph`` look the line up when they print."""
+    import importlib.util
+
+    from sandloom.core.cli.inspection import processes
+
+    api = project.root / "app/modules/notes/api.py"
+    api.write_text(
+        "def route(f):\n    return f\n\n\n@route\nasync def create_note() -> None: ...\n"
+    )
+    spec = importlib.util.spec_from_file_location("_inspection_probe_api", api)
+    assert spec is not None and spec.loader is not None
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    location = processes._location(probe.create_note, project.root.resolve())
+    assert location == {"path": "app/modules/notes/api.py", "function": "create_note"}
+
+    document = Reader(project.root).doc
+    assert document["schema_version"] == 2
+    notes = next(m for m in document["modules"] if m["id"] == "module:notes")
+    notes["routes"] = [
+        {
+            "method": "POST",
+            "path": "/notes",
+            "name": "create_note",
+            "auth": "user",
+            "policy": {},
+            "source": location,
+        }
+    ]
+    _publish(project, document)
+    index = (project.root / INDEX).read_bytes()
+
+    def printed() -> tuple[object, object]:
+        rc, text, err = run(project, capsys, "context", "notes", "--format", "json")
+        assert rc == 0, err + text
+        routes = json.loads(text)["data"]["routes"][0]["routes"]
+        rc, text, err = run(project, capsys, "graph", "notes", "--detail", "full")
+        assert rc == 0, err + text
+        modules = json.loads(text)["data"]["modules"]
+        graph_route = next(m for m in modules if m["id"] == "module:notes")["routes"]
+        return routes[0]["source"]["line"], graph_route[0]["source"]["line"]
+
+    assert printed() == (5, 5)  # the decorator's line, as co_firstlineno
+    api.write_text("import os\nimport sys\n\n" + api.read_text())
+    assert printed() == (8, 8)
+    assert (project.root / INDEX).read_bytes() == index
+
+
+def test_the_source_line_lookup_follows_qualified_names(tmp_path: Path) -> None:
+    from sandloom.core.cli.inspection.files import with_lines
+
+    (tmp_path / "m.py").write_text(
+        "class A:\n    def f(self): ...\n\n"
+        "def outer():\n    def inner(): ...\n    return inner\n"
+    )
+
+    def line(function: str) -> object:
+        return with_lines(tmp_path, {"path": "m.py", "function": function}).get("line")
+
+    assert line("A.f") == 2
+    assert line("outer.<locals>.inner") == 5
+    assert line("gone") is None
+    assert with_lines(tmp_path, {"path": "missing.py", "function": "f"}) == {
+        "path": "missing.py",
+        "function": "f",
+    }

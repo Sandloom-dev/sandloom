@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import hashlib
 import os
 import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from sandloom.core.cli.inspection.model import InspectionError
 
@@ -183,3 +185,58 @@ def ignored(root: Path, locator: str) -> bool:
             "unsupported_ignore", ".sandloomignore does not support negation"
         )
     return any(fnmatch.fnmatchcase(locator, pattern) for pattern in patterns)
+
+
+_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def _line(tree: ast.Module, qualname: str) -> int | None:
+    """The first line (its first decorator, as ``co_firstlineno``) of the
+    definition ``qualname`` names in ``tree``; ``None`` when it is gone."""
+    scope: list[ast.AST] = list(tree.body)
+    node: ast.AST | None = None
+    for part in qualname.split("."):
+        if part == "<locals>":
+            continue
+        node = next((n for n in scope if isinstance(n, _DEFS) and n.name == part), None)
+        if node is None:
+            return None
+        scope = [n for n in ast.walk(node) if n is not node and isinstance(n, _DEFS)]
+    if not isinstance(node, _DEFS):
+        return None
+    return min([node.lineno, *(d.lineno for d in node.decorator_list)])
+
+
+def with_lines(root: Path, value: Any) -> Any:
+    """``value`` with each ``{"path", "function"}`` source location given the
+    ``line`` it is at now (looked up in the source, never stored in the
+    index); a location whose file or function is gone keeps no line."""
+    trees: dict[str, ast.Module | None] = {}
+
+    def line(location: dict[str, Any]) -> int | None:
+        path = location["path"]
+        if path not in trees:
+            try:
+                trees[path] = ast.parse(source(root, path))
+            except (InspectionError, OSError, SyntaxError, UnicodeError, ValueError):
+                trees[path] = None
+        tree = trees[path]
+        return _line(tree, location["function"]) if tree is not None else None
+
+    def walk(item: Any) -> Any:
+        if isinstance(item, dict):
+            out = {k: walk(v) for k, v in item.items()}
+            if (
+                isinstance(item.get("path"), str)
+                and isinstance(item.get("function"), str)
+                and "line" not in item
+            ):
+                found = line(item)
+                if found is not None:
+                    out["line"] = found
+            return out
+        if isinstance(item, list):
+            return [walk(v) for v in item]
+        return item
+
+    return walk(value)

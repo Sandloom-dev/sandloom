@@ -76,14 +76,22 @@ def test_dev_live_subscription_gate() -> None:
     )
 
 
+def _org_account(blob: str) -> bool:
+    """of=Account.org(...) (``param="org_id"`` or ``param=None``), the org fact,
+    or Account.bound_tenant() next to an organization admin role: the role
+    fails on a personal tenant, so the pair checks only an organization's
+    account."""
+    if "Account.org(" in blob or _org_fact_gate(blob):
+        return True
+    return "Account.bound_tenant()" in blob and any(g in blob for g in ADMIN_GATES)
+
+
 def test_dev_gate_checks_the_organization() -> None:
-    """The organization's subscription, not the caller's: of=Account.org(...)
-    or the org fact (Account.user(reason=...) passes SANDLOOM-C027 but checks the
-    wrong account)."""
-    assert any(
-        "Account.org(" in (blob := _gate_text(r)) or _org_fact_gate(blob)
-        for r in _export()
-    )
+    """The organization's subscription, not the caller's: of=Account.org(...),
+    the org fact, or Account.bound_tenant() under an admin role
+    (Account.user(reason=...) passes SANDLOOM-C027 but checks the wrong
+    account)."""
+    assert any(_org_account(_gate_text(r)) for r in _export())
 
 
 def _derived_consumes() -> set[str]:

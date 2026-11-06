@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 from sandloom.core.cli.inspection import files, graph, history
 from sandloom.core.cli.inspection.model import Doc, InspectionError, digest, response
-from sandloom.core.cli.inspection.read import Reader, parse
+from sandloom.core.cli.inspection.read import INDEX_SCHEMA_VERSIONS, Reader, parse
 from sandloom.core.contracts.compatibility import compare_contract
 from sandloom.core.contracts.schema_compatibility import schema_problems
 
@@ -106,7 +107,22 @@ def impact(reader: Reader, selector: str, require: bool) -> Doc:
     )
 
 
+def _sources_by_path(value: Any) -> Any:
+    """``value`` with each source location reduced to its file: schema 1
+    stored a line, schema 2 a function name; neither is a declared change."""
+    if isinstance(value, dict):
+        if isinstance(value.get("path"), str) and (
+            "line" in value or "function" in value
+        ):
+            return {"path": value["path"]}
+        return {k: _sources_by_path(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sources_by_path(v) for v in value]
+    return value
+
+
 def _entities(document: Doc) -> dict[str, Doc]:
+    document = _sources_by_path(document)
     result = {n["id"]: n for n in document["nodes"]}
     for edge in document["edges"]:
         result[edge["id"]] = edge
@@ -164,11 +180,11 @@ def compare_revision(reader: Reader, revision: str, require: bool) -> Doc:
 def compare_data(reader: Reader, previous: Doc, before: str, require: bool) -> Doc:
     if (
         previous.get("schema") != "sandloom.inspection"
-        or previous.get("schema_version") != 1
+        or previous.get("schema_version") not in INDEX_SCHEMA_VERSIONS
     ):
         raise InspectionError(
             "unsupported_schema",
-            "Comparison requires a saved inspection index, schema 1",
+            "Comparison requires a saved inspection index, schema 1 or 2",
         )
     old, new = _entities(previous), _entities(reader.doc)
     changes = []

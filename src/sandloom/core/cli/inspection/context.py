@@ -268,7 +268,9 @@ def build(
         },
         "rules": reader.rules(module),
         **interfaces.build(reader, module),
-        "routes": interfaces.routes(module.get("routes", [])),
+        "routes": files.with_lines(
+            reader.root, interfaces.routes(module.get("routes", []))
+        ),
         "tables": module.get("models", []),
         "sagas": sorted(
             (

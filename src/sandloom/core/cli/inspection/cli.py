@@ -10,6 +10,7 @@ from typing import Literal, NoReturn
 
 from sandloom.core.cli.inspection import (
     context,
+    files,
     graph,
     queries,
     sequences,
@@ -212,6 +213,7 @@ def _render(command: str, args: argparse.Namespace, reader: Reader) -> str:
             raise InspectionError(
                 "usage", str(exc), code=2, actions=exc.actions
             ) from exc
+    envelope = files.with_lines(reader.root, envelope)  # the index has no lines
     text = _graph_text(envelope, args, reader)
     if args.format == "json" and len(text.encode()) > args.max_bytes:
         raise InspectionError(

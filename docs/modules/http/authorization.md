@@ -134,8 +134,8 @@ and startup fails ([SANDLOOM-B017](../../reference/error-codes.md#sandloom-b017)
 | --- | --- |
 | `Account.user()` | the caller's personal account. `Subscribed(of=Account.user())` stays claims-only with zero I/O |
 | `Account.org(param="org_id")` | the organization in the path or query parameter `param`, else `X-Tenant-Id`, else the bound tenant, each validated against the signed allowlist and membership. No organization, or the caller's own personal tenant, is indeterminate: never the caller's user id |
-| `Account.org(param=None)` | the header or the bound tenant only |
-| `Account.bound_tenant()` | by tenant kind: personal → the user's account; organization → the organization's account; canonical or unknown → indeterminate |
+| `Account.org(param=None)` | the header or the bound tenant only: the form for a tenant-bound route without an organization parameter (`param="org_id"` there fails [SANDLOOM-C027](../../reference/error-codes.md#sandloom-c027)) |
+| `Account.bound_tenant()` | by tenant kind: personal → the user's account; organization → the organization's account; canonical or unknown → indeterminate. A personal tenant checks the caller's own account; for an organization-only gate use `Account.org(...)` |
 
 - **A route under `/orgs/{org_id}` with `of=Account.user()` is refused**
   statically unless the atom says why:
