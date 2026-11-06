@@ -23,6 +23,14 @@ GATES = {
     "or": 'require(OrgRole("admin") | SubscriptionActive(of=Account.bound_tenant()))',
     "user": 'require(OrgRole("admin") & SubscriptionActive(of=Account.user(reason="x")))',
     "no_role": "require(SubscriptionActive(of=Account.bound_tenant()))",
+    "credits_bound": (
+        'require(OrgRole("admin") & Credits(1, of=Account.bound_tenant())'
+        ' & SubscriptionActive(of=Account.user(reason="x")))'
+    ),
+    "credits_org": (
+        'require(OrgRole("admin") & Credits(1, of=Account.org(param=None))'
+        ' & SubscriptionActive(of=Account.user(reason="x")))'
+    ),
 }
 
 
@@ -47,6 +55,8 @@ def _route(tmp_path: Path, gate: str, *, docstring: str = "") -> bool:
         ("or", False),
         ("user", False),
         ("no_role", False),
+        ("credits_bound", False),
+        ("credits_org", False),
     ],
 )
 def test_bound_tenant_counts_only_under_an_org_admin_role(

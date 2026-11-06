@@ -165,12 +165,18 @@ def _org_admin_role(term: ast.expr) -> bool:
     )
 
 
-def _of_bound_tenant(term: ast.expr) -> bool:
-    if not isinstance(term, ast.Call):
+def _subscription_of(term: ast.expr, account: str) -> bool:
+    """A live ``SubscriptionActive(of=Account.<account>(...))`` atom: the
+    account of another billing atom (``Credits(..., of=...)``) says nothing
+    about whose subscription is checked."""
+    if _callee(term) != "SubscriptionActive":
         return False
-    return any(
-        k.arg == "of" and _callee(k.value) == "bound_tenant" for k in term.keywords
-    )
+    assert isinstance(term, ast.Call)
+    return any(k.arg == "of" and _callee(k.value) == account for k in term.keywords)
+
+
+def _of_bound_tenant(term: ast.expr) -> bool:
+    return _subscription_of(term, "bound_tenant")
 
 
 def bound_tenant_under_org_admin(terms: list[ast.expr]) -> bool:
@@ -181,10 +187,8 @@ def bound_tenant_under_org_admin(terms: list[ast.expr]) -> bool:
 
 
 def _of_org(term: ast.expr) -> bool:
-    """A billing atom whose ``of=`` is ``Account.org(...)``."""
-    if not isinstance(term, ast.Call):
-        return False
-    return any(k.arg == "of" and _callee(k.value) == "org" for k in term.keywords)
+    """``SubscriptionActive(of=Account.org(...))``."""
+    return _subscription_of(term, "org")
 
 
 def _org_fact(term: ast.expr) -> bool:
@@ -197,7 +201,7 @@ def _org_fact(term: ast.expr) -> bool:
 
 
 def _org_account(route: Route, root: Path) -> bool:
-    """A gate term every request passes: a billing atom of=Account.org(...)
+    """A gate term every request passes: SubscriptionActive(of=Account.org(...))
     (``param="org_id"`` or ``param=None``), the org fact, or
     Account.bound_tenant() required together with an organization admin
     role (:func:`bound_tenant_under_org_admin`). Terms are parsed from the
