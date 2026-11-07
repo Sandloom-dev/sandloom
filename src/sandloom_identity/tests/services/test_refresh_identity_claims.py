@@ -233,3 +233,68 @@ async def test_a_change_before_the_refresh_leaves_its_fresh_token_valid(
         async_client, monkeypatch, "refresh-fresh@example.com", revoke_before=1.5
     )
     assert status == 200
+
+
+@pytest.mark.asyncio
+async def test_a_mark_the_issuer_sees_after_the_read_never_lifts_the_token(
+    async_client: AsyncClient, make_user: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Between the claims' read and the mint, a role change commits on a
+    revoker whose clock runs 1.5 s behind the issuer's (within the 2 s skew),
+    and the issuer itself reads that mark (the issuance check, run again):
+    the mark looks earlier than the read + skew, yet it must not lift the
+    stale token past itself."""
+    import asyncio
+    import time
+
+    import sandloom_identity.services.token_service as token_service
+    from sandloom.sdk.security import ensure_user_not_blocked, revoke_user_tokens
+
+    await make_user("refresh-seen-after@example.com", password=PW)
+    login = await async_client.post(
+        "/auth/login",
+        json={"email": "refresh-seen-after@example.com", "password": PW},
+    )
+    assert login.status_code == 200, login.text
+    sub = decode_token(login.json()["access_token"])["sub"]
+
+    async def _revoke_on_a_slow_clock() -> None:
+        with monkeypatch.context() as patch:
+            behind = time.time() - 1.5
+            patch.setattr(time, "time", lambda: behind)
+            assert await revoke_user_tokens(sub) is True
+
+    class _Core:
+        """The refresh's core, with a change landing after its claims read."""
+
+        def __init__(self, real: Any) -> None:
+            self._real = real
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+        async def collect_claims(self, *args: Any, **kwargs: Any) -> Any:
+            claims = await self._real.collect_claims(*args, **kwargs)
+            await asyncio.create_task(_revoke_on_a_slow_clock())
+            await ensure_user_not_blocked(sub)  # the issuer sees the mark now
+            return claims
+
+    create = token_service.TokenService.create_tokens.__func__
+
+    async def _create_tokens(
+        cls: Any, user: Any, db: Any, core: Any = None, **kw: Any
+    ) -> Any:
+        return await create(cls, user, db, _Core(core) if core else core, **kw)
+
+    monkeypatch.setattr(
+        token_service.TokenService, "create_tokens", classmethod(_create_tokens)
+    )
+    resp = await async_client.post(
+        "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
+    )
+    assert resp.status_code == 200, resp.text
+    me = await async_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {resp.json()['access_token']}"},
+    )
+    assert me.status_code == 401
