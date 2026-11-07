@@ -75,6 +75,12 @@ def pytest_configure(config: pytest.Config) -> None:
         "re-raising the endpoint's exception (SANDLOOM-R006)",
     )
     config.addinivalue_line("markers", DB_FEATURE_MARKER_LINE)
+    # On SQLite a joined unit rolls back with its caller; on PostgreSQL it
+    # stays committed. A test relying on that rollback fails (G-UOW-09).
+    config.addinivalue_line(
+        "filterwarnings",
+        "error::sandloom.core.unit_of_work.JoinedUnitRolledBack",
+    )
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

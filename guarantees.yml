@@ -569,8 +569,9 @@ guarantees:
     The caller's rollback undoes its rows, outbox rows and command-log claim. Its outbox dispatch, on_commit
     callbacks and command-record amendment run only after the caller's COMMIT. Its own failure rolls back only
     to its savepoint. Units of other tasks nest one task at a time. A read-only unit (a read contract's included)
-    never nests. The weakening has the computed label "commits with the caller" (nested_unit_label) and a startup
-    warning per such instance. On PostgreSQL a nested unit opens its own transaction and commits on its own,
+    never nests. The weakening has the computed label "commits with the caller" (nested_unit_label), a startup
+    warning per such instance, and a JoinedUnitRolledBack warning when a caller rolls back after a unit joined it
+    (an error in tests). On PostgreSQL a nested unit opens its own transaction and commits on its own,
     unchanged.
   sources:
   - docs/infrastructure/database.md#Nested units commit with their caller
@@ -586,6 +587,7 @@ guarantees:
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_read_contract_in_a_writing_unit_reads_committed_rows_only
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_postgresql_still_opens_a_fresh_independent_unit
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_startup_warns_once_per_serial_writer_instance
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_caller_rolling_back_a_joined_unit_warns
   startup_checks: warn_nested_units_join_caller at create_app
 - id: G-UNIT-01
   statement: 'db() is the session of the innermost open unit of the current context; outside any unit it is SANDLOOM-R002;

@@ -67,6 +67,7 @@ from sandloom.core.testing.connections import (
 )
 from sandloom.core.testing.ownership import claim_database
 from sandloom.core.unit_of_work.dispatch import drain_post_commit
+from sandloom.core.unit_of_work.scope import ROLLBACK_EXPECTED_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +393,8 @@ async def open_test_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         schema_reset_for(engine).unit_engine(engine), expire_on_commit=False
     )
     async with factory() as session:
+        # the rollback below ends the test, not the application's work
+        session.info[ROLLBACK_EXPECTED_KEY] = True
         try:
             # a unit the test's task opens while this session holds the
             # write lock of a database whose writers are serial nests in it

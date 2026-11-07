@@ -60,6 +60,8 @@ from sandloom.core.unit_of_work.scope import (
     _EVENT_BUS_KEY,
     _NESTED_HOST_KEY,
     _UOW_FACTORY_KEY,
+    JOINED_COUNT_KEY,
+    JoinedUnitRolledBack,
     _active_uow_sessions,
     _bind_uow_scope,
     _current_uow_session,
@@ -243,6 +245,9 @@ def defer_to_host(session: Any, after_commit: Callable[[], Any]) -> bool:
     note_committed(session, nested=True)
     info[_NESTED_NOTED_KEY] = True
     queue_on_commit(host, after_commit)
+    host_info = getattr(host, "info", None)
+    if isinstance(host_info, dict):  # a host's rollback undoes it (G-UOW-09)
+        host_info[JOINED_COUNT_KEY] = host_info.get(JOINED_COUNT_KEY, 0) + 1
     return True
 
 
@@ -582,6 +587,7 @@ def consumer_db_session(
 
 __all__ = [
     "COMMIT_PIPELINE",
+    "JoinedUnitRolledBack",
     "consumer_db_session",
     "db_session",
     "defer_to_host",

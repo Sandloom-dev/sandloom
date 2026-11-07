@@ -118,6 +118,28 @@ _AUDIT_STORE_KEY = "sandloom_audit_store"
 # docs/infrastructure/database.md): its commit is the caller's, so its
 # post-commit stages wait for the caller's COMMIT (unit_of_work.defer_to_host).
 _NESTED_HOST_KEY = "sandloom_nested_host"
+# ``session.info`` key: the session's rollback is expected and handled where it
+# happens (a test's own ``db``, rolled back when the test ends; a saga
+# transition, whose step protocol covers both kinds of database, G-SAGA-07),
+# so units that joined it are not reported (JoinedUnitRolledBack).
+ROLLBACK_EXPECTED_KEY = "sandloom_rollback_expected"
+# ``session.info`` key of a host: how many nested units released their
+# savepoint into its open transaction (cleared by its COMMIT).
+JOINED_COUNT_KEY = "sandloom_joined_units"
+
+
+class JoinedUnitRolledBack(UserWarning):
+    """A unit that joined its caller's transaction (G-UOW-09: a serial-writer
+    database such as SQLite) was undone by the caller's rollback.
+
+    On PostgreSQL, and wherever the unit's provider runs elsewhere, that unit
+    committed on its own and stays committed: code that relies on the
+    rollback passes on SQLite and fails there. The test harness turns this
+    warning into a failure; a test that means it opts out with
+    ``@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")``.
+    """
+
+
 # Sentinel stashed when a provider exposes no outbox/audit store (its driver
 # lacks the transactional_outbox / audit feature).
 _UNSUPPORTED = object()

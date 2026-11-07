@@ -282,6 +282,8 @@ SQLite keeps no time zone offset. A time column is `UtcDateTime()`, which
 reads back in UTC on every database and refuses a naive time
 ([SANDLOOM-C029](../reference/error-codes.md#sandloom-c029)).
 
+A caller that rolls back after a unit joined it raises the warning `JoinedUnitRolledBack`. On PostgreSQL that unit stays committed, so code relying on the rollback works only on SQLite. Tests fail on the warning; a test that rolls back on purpose opts out with `@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")`.
+
 A saga step whose provider commits on its own (over RPC, or on another database instance) is called inside the saga's transition. On SQLite that transition holds the database's write lock, so other writers wait until the call returns. Keep such providers short in development, or run the saga on PostgreSQL.
 
 ### The schema comes from the models

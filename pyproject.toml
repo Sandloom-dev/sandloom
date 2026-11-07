@@ -234,6 +234,9 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 filterwarnings = [
     "error::DeprecationWarning:sandloom",
+    # G-UOW-09: a test relying on SQLite rolling a joined unit back with its
+    # caller would pass here and fail on PostgreSQL.
+    "error::sandloom.core.unit_of_work.JoinedUnitRolledBack",
 ]
 
 [tool.coverage.run]
