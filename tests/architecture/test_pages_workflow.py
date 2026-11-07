@@ -14,10 +14,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def workflow() -> dict:
+    """The parsed ``pages.yml``."""
     return yaml.safe_load((ROOT / ".github/workflows/pages.yml").read_text())
 
 
 def test_pages_publishes_on_a_main_dispatch_or_after_a_published_release() -> None:
+    """The triggers, permissions and job conditions that limit publication."""
     document = workflow()
     trigger = document.get("on", document.get(True))
     assert set(trigger) == {"workflow_dispatch", "workflow_run"}
@@ -103,6 +105,7 @@ def test_only_a_release_whose_github_release_succeeded_publishes(
 def test_pages_refuses_a_host_or_path_that_breaks_root_assets(
     host: str, prefix: str, accepted: bool
 ) -> None:
+    """The deploy job's guard accepts only sandloom.dev at the root."""
     guard = next(
         step
         for step in workflow()["jobs"]["deploy"]["steps"]
