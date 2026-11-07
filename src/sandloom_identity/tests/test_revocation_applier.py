@@ -20,6 +20,15 @@ from sandloom.sdk.testing import InMemoryCache, revocation_mark_key, use_securit
 from sandloom_identity.sessions import apply_token_revocation
 
 
+def _reads_as_us(stored: str) -> int:
+    """The instant (µs) a stored ``after`` value reads as. A revocation writes
+    one microsecond less plus its identity digits past the microsecond, and
+    every reader rounds up (``sandloom.core.auth.marks``)."""
+    whole, _, frac = stored.removeprefix("v1:after:").partition(".")
+    us = int(whole) * 1_000_000 + int(frac[:6].ljust(6, "0"))
+    return us + (1 if frac[6:].strip("0") else 0)
+
+
 @pytest.fixture
 def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
     fake = InMemoryCache()
@@ -49,7 +58,7 @@ async def test_applier_writes_the_pending_mark_once_the_cache_is_back(
     await apply_token_revocation(None, envelope)
     await apply_token_revocation(None, envelope)  # duplicate delivery: no-op
     stored = mem_cache.store[revocation_mark_key(sub)]
-    assert float(stored.removeprefix("v1:after:")) == pytest.approx(mark, abs=1e-6)
+    assert _reads_as_us(stored) == round(mark * 1_000_000)
     issued_before = {"sub": sub, "iat": int(mark) - 5}
     with pytest.raises(HTTPException) as revoked:
         await ensure_token_not_revoked(None, issued_before)
@@ -64,4 +73,4 @@ async def test_applier_never_moves_a_newer_mark_backwards(
     await revoke_user_tokens(sub, valid_after=newer)
     await apply_token_revocation(None, _envelope(sub, newer - 30))  # late, stale
     stored = mem_cache.store[revocation_mark_key(sub)]
-    assert float(stored.removeprefix("v1:after:")) == pytest.approx(newer, abs=1e-6)
+    assert _reads_as_us(stored) == round(newer * 1_000_000)
