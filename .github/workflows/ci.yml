@@ -370,6 +370,26 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      - name: Install the PostgreSQL 16 client (slow lanes)
+        # The real pg_dump -> pg_restore round trip of `sandloom backup verify`
+        # (test_backup_cli.py::test_real_pg_dump_round_trip, slow) needs a
+        # client of the service's major version. The GitHub runner image ships
+        # one; the local CI runner's Debian job container gets it from PGDG.
+        if: ${{ matrix.slow }}
+        run: |
+          sudo=$(command -v sudo || true)
+          if ! /usr/lib/postgresql/16/bin/pg_dump --version 2>/dev/null; then
+            export DEBIAN_FRONTEND=noninteractive
+            $sudo apt-get update -qq
+            if ! $sudo apt-get install -y -qq postgresql-client-16; then
+              $sudo apt-get install -y -qq postgresql-common
+              $sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+              $sudo apt-get install -y -qq postgresql-client-16
+            fi
+            /usr/lib/postgresql/16/bin/pg_dump --version
+          fi
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+
       - name: Full test suite (modules + core)
         # --sandloom-shuffle: a fresh seeded order per run (printed in the header
         # and the summary; replay with --sandloom-shuffle=<seed>). The skip
@@ -403,6 +423,10 @@ jobs:
           # monolith, real uvicorn processes) must RUN in CI: with this set,
           # missing Postgres/Redis fails the job instead of skipping.
           SANDLOOM_E2E_REQUIRED: "1"
+          # The pg_dump round trip runs where the client step installed it:
+          # `env` resolves pg_dump / pg_restore on the PATH it added.
+          SANDLOOM_TEST_PG_CLIENT: ${{ matrix.slow && 'env' || '' }}
+          SANDLOOM_TEST_PG_CLIENT_URL: ${{ matrix.slow && 'postgresql://test_user:test_password@127.0.0.1:5433/sandloom_test' || '' }}
 
       - name: Upload the skip ledger
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
