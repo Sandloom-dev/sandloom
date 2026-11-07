@@ -621,11 +621,13 @@ website renders this same changelog.
   read the active core. A request of the first app could then publish to the
   second app's event bus. Every request and the app's lifespan now run with
   their own core bound to the context (`use_active_core`), and the
-  background tasks they start inherit it.
+  background tasks they start inherit it. The binding carries the app's
+  infrastructure registry too, so `cache()`, `notifier()`, the object store
+  and the task queue a module resolves are its own app's.
 - **The service registry's strict name check cannot be skipped.** It was
   imported under `except Exception`, so a failed import registered services
   under the weaker check; the import is now required.
-- **A refresh no longer mints a role removed while it ran** (CWE-362). The
+- **A refresh mints a role removed while it ran in one remaining case only** (CWE-362). The
   refresh read the user's roles before its issuance check and minted the
   access token later; a role change committed in between revoked it only if
   the token was minted within the revocation's clock skew. The refresh now
