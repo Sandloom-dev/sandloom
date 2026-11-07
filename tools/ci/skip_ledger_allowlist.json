@@ -32,6 +32,10 @@
     {
       "test": "src/sandloom/core/tests/test_quickstart.py::test_quickstart_end_to_end",
       "reason": "slow, and it needs SANDLOOM_QUICKSTART_POSTGRES_URL, which no test lane sets: the quickstart jobs run the same scenario through tools/smoke/quickstart_check.py (PR CI deselects it with -m \"not slow\"; release validation runs slow tests)"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_backup_cli.py::test_real_pg_dump_round_trip",
+      "reason": "slow, and it needs a PostgreSQL client (SANDLOOM_TEST_PG_CLIENT / _URL); docker exec into the lane's service would work on GitHub, but the local CI runner (tools/ci/ci_local.py) cannot map job.services.<id> and its job containers have no docker: tracked as a follow-up. The other backup tests cover the CLI with a fake client"
     }
   ]
 }

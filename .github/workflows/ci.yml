@@ -394,10 +394,6 @@ jobs:
           CACHE_URL: redis://127.0.0.1:6380/0
           BROKER_URL: redis://127.0.0.1:6380/14
           JWT_SECRET: ci-full-suite-not-a-real-secret
-          # The real pg_dump / pg_restore round trip (slow): the lane's own
-          # PostgreSQL service as the client, through docker exec.
-          SANDLOOM_TEST_PG_CLIENT: docker exec -i ${{ job.services.postgres.id }}
-          SANDLOOM_TEST_PG_CLIENT_URL: postgresql://test_user:test_password@127.0.0.1:5432/sandloom_test
           # SSO redirect tests need a "configured" Google provider; the values
           # are never sent anywhere (the test only inspects the built auth URL).
           GOOGLE_CLIENT_ID: ci-dummy-google-client-id
