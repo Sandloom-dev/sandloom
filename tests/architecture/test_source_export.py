@@ -356,6 +356,8 @@ def test_dx_classification_and_triggers_follow_the_exported_layout(
     for path in (
         "public_api_baseline.json",
         "src/sandloom/core/cli/templates/api-cheatsheet.md",
+        "src/sandloom/core/cli/image_secrets.py",
+        "src/sandloom/core/cli/dev/envfile.py",
     ):
         assert any(pattern.search(path) for pattern in namespace["TRIGGERS"])
     for path in ("architecture_rules.yml", "AGENTS.md", ".claude/rules/tests.md"):
