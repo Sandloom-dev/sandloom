@@ -293,14 +293,14 @@ async def test_a_token_stamped_at_its_claims_read_is_revoked_by_a_later_change(
 async def test_a_mark_seen_before_minting_still_lifts_a_stamped_token(
     mem_cache: _MemoryCache, skew: Any
 ) -> None:
-    """A revocation the issuer saw (the issuance check) still stamps the token
-    after it, even when its claims were read earlier: no self-revocation."""
+    """A revocation committed before the claims were read, which the issuer
+    saw, still stamps the token after its mark: no self-revocation."""
     from sandloom.core.auth.blocks import ensure_user_not_blocked
 
     skew(2.0)
     sub = str(uuid4())
+    await revocation.revoke_user_tokens(sub)  # committed before the read
     read = datetime.now(UTC)
-    await revocation.revoke_user_tokens(sub)
     await ensure_user_not_blocked(sub)
     fresh = tokens.decode_token(
         tokens.create_access_token(
@@ -322,3 +322,26 @@ class _FrozenDatetime:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(datetime, name)
+
+
+async def test_a_mark_of_a_change_after_the_read_never_lifts_a_stamped_token(
+    mem_cache: _MemoryCache, skew: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Claims read at R; the role change commits after R and its mark (commit
+    + skew) is written before the issuance check reads it: the seen mark must
+    not stamp the stale token past itself (CWE-362)."""
+    from sandloom.core.auth.blocks import ensure_user_not_blocked
+
+    skew(0.5)
+    sub = str(uuid4())
+    read = datetime.now(UTC)
+    # committed 1 s after the read, by another request: mark = commit + skew
+    await asyncio.create_task(_revoke_at(monkeypatch, sub, read.timestamp() + 1.0))
+    await ensure_user_not_blocked(sub)  # the issuer sees that mark
+    stale = tokens.decode_token(
+        tokens.create_access_token(
+            {"sub": sub, "token_type": "access"}, claims_read_at=read
+        )
+    )
+    assert stale is not None
+    assert await verification.is_token_revoked(stale) is True

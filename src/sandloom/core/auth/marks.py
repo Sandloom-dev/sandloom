@@ -272,12 +272,23 @@ def _note_issue_floor(subject: Any, mark_us: int | None) -> None:
     _issue_floors.set(floors)
 
 
-def _issue_instant_us(subject: Any, now: datetime) -> int:
+def _issue_instant_us(subject: Any, now: datetime, *, claims_read: bool = False) -> int:
+    """The revocation instant of a token minted for ``subject`` at ``now``:
+    ``now``, lifted past a mark this context saw.
+
+    ``claims_read``: ``now`` is when the token's claims were read, and the mark
+    may have been seen after that. A mark later than ``now`` + the clock skew
+    belongs to a change committed after the read (a mark is the change's
+    commit time + skew), so the claims predate it: such a mark never lifts the
+    token, which it then revokes. A mark within the skew of the read lifts it
+    (its change committed before the read; the claims show it)."""
     now_us = _datetime_us(now)
     if subject is None:
         return now_us
     floor = (_issue_floors.get() or {}).get(str(subject))
     if floor is None:
+        return now_us
+    if claims_read and floor > now_us + _seconds_to_us(_clock_skew_margin()):
         return now_us
     return max(now_us, floor + 1)
 

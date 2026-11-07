@@ -47,7 +47,9 @@ def create_access_token(
     ``claims_read_at``: when the claims were read, if before now. ``iat_us``
     then starts there instead of now, so a revocation committed after that
     read (a role removed while the claims were collected) revokes the token
-    whenever it is minted, not only within the revocation's clock skew.
+    whenever it is minted, not only within the revocation's clock skew; a
+    mark the issuer saw lifts it only when that change committed before the
+    read (its mark is within the skew of the read).
     ``iss``/``aud`` are added only when configured (``JWT_ISSUER`` /
     ``JWT_AUDIENCE``). Caller-supplied claims win (``setdefault``), so a
     refresh-token mint or an explicit ``token_type`` is preserved. When
@@ -64,8 +66,12 @@ def create_access_token(
     if IAT_US_CLAIM not in to_encode:
         supplied_iat = to_encode.get("iat")
         if supplied_iat is None:
-            read = now if claims_read_at is None else min(now, claims_read_at)
-            to_encode[IAT_US_CLAIM] = _issue_instant_us(to_encode.get("sub"), read)
+            if claims_read_at is None:
+                to_encode[IAT_US_CLAIM] = _issue_instant_us(to_encode.get("sub"), now)
+            else:
+                to_encode[IAT_US_CLAIM] = _issue_instant_us(
+                    to_encode.get("sub"), min(now, claims_read_at), claims_read=True
+                )
         elif isinstance(supplied_iat, datetime):
             to_encode[IAT_US_CLAIM] = _datetime_us(supplied_iat)
         else:  # an explicit numeric ``iat`` (seconds)
