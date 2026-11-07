@@ -485,7 +485,9 @@ Table(_TENANT_TABLE, _TENANT_METADATA, Column("id", Integer, primary_key=True))
 
 @pytest.fixture(autouse=True)
 def _tenant_tables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(app_factory.config, "tenant_scoped_tables", lambda: [_TENANT_TABLE])
+    monkeypatch.setattr(
+        app_factory.config, "tenant_scoped_tables", lambda: [_TENANT_TABLE]
+    )
 
 
 class _Infra:
