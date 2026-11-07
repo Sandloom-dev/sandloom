@@ -95,10 +95,16 @@ def TenantKind(*args, **kwargs)
 ### `unscoped`
 
 ```python
-def unscoped() -> Iterator[None]
+def unscoped(*, reason: str | None = None) -> AbstractContextManager[None]
 ```
 
 Disable tenant enforcement for deliberate admin/system work.
+
+`reason` says why (logged at DEBUG with the calling module); every scope
+is counted in `sandloom_tenant_unscoped_total{caller}`, so a bypass is
+visible in metrics even where nobody passes a reason. The caller is the
+code that calls `unscoped()`, however the scope is entered (`with`,
+`ExitStack.enter_context`).
 
 ## Examples and related guides
 

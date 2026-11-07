@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
+import sandloom.core.runtime as _runtime
 from sandloom.core import rpc_transport_compat
 from sandloom.core.config.settings import settings as _global_settings
 
@@ -113,6 +114,22 @@ def _retire_client(client: Any) -> None:
             ]
 
     close_later(finish)
+
+
+async def close_rpc_client_for(core: Any) -> None:
+    """``core``'s shutdown: close the shared outbound RPC client, unless
+    another application of this process is its default now (two apps in one
+    process share the client). That one may be mid-call: the client is then
+    retired instead (no new call uses it; in-flight ones finish, then it
+    closes), and its next call builds a fresh client."""
+    global _rpc_client_instance, _rpc_client_kind
+    current = _runtime.get_process_core()
+    if current is None or current is core:
+        await close_rpc_client()
+        return
+    client, _rpc_client_instance, _rpc_client_kind = _rpc_client_instance, None, None
+    if client is not None and not client.is_closed:
+        _retire_client(client)
 
 
 def _new_rpc_client(kind: str) -> Any:

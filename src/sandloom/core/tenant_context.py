@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from typing import Any
+
+from prometheus_client import Counter
 
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar(
     "sandloom_current_tenant", default=None
@@ -78,9 +82,39 @@ def configured_tenant_scope(settings: Any) -> Iterator[uuid.UUID | None]:
         yield canonical
 
 
+#: Every ``unscoped()`` scope entered, by the module that entered it: a bypass
+#: of tenant isolation is never silent (the ``reason`` goes to the log).
+_UNSCOPED_TOTAL = Counter(
+    "sandloom_tenant_unscoped_total",
+    "Scopes that disabled tenant enforcement (unscoped()), by calling module",
+    ["caller"],
+)
+_unscoped_log = logging.getLogger("sandloom.tenant.unscoped")
+
+
+def unscoped(*, reason: str | None = None) -> AbstractContextManager[None]:
+    """Disable tenant enforcement for deliberate admin/system work.
+
+    ``reason`` says why (logged at DEBUG with the calling module); every scope
+    is counted in ``sandloom_tenant_unscoped_total{caller}``, so a bypass is
+    visible in metrics even where nobody passes a reason. The caller is the
+    code that calls ``unscoped()``, however the scope is entered (``with``,
+    ``ExitStack.enter_context``).
+    """
+    caller = str(sys._getframe(1).f_globals.get("__name__", "?"))
+    return _unscoped_scope(caller, reason)
+
+
 @contextmanager
-def unscoped() -> Iterator[None]:
-    """Disable tenant enforcement for deliberate admin/system work."""
+def _unscoped_scope(caller: str, reason: str | None) -> Iterator[None]:
+    """The scope ``unscoped()`` returns: counted, logged, enforcement off."""
+    _UNSCOPED_TOTAL.labels(caller=caller).inc()
+    if _unscoped_log.isEnabledFor(logging.DEBUG):
+        _unscoped_log.debug(
+            "tenant enforcement disabled by %s (%s)",
+            caller,
+            reason or "no reason given",
+        )
     token = _bypass.set(True)
     try:
         yield

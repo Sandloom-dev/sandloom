@@ -77,7 +77,6 @@ from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
 )
 from sandloom.core.eventing.core_events import register_core_event_schemas
-from sandloom.core.eventing.event_bus import set_active_event_bus
 from sandloom.core.facade import CoreFacade
 from sandloom.core.guarantee_windows import enforce_guarantee_windows
 from sandloom.core.http.error_handlers import register_error_handlers
@@ -86,7 +85,6 @@ from sandloom.core.idempotency.durable import (
     install_durable_capture,
     validate_money_guards,
 )
-from sandloom.core.infra.active import set_active_infra
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.loader.manifest import AppManifest
 from sandloom.core.loader.plugin_loader import (
@@ -320,9 +318,6 @@ def _bind_infrastructure(
     # multiple instances (e.g. several databases) coexist via configuration.
     infra = build_infra_registry(schema_registry_service)
     core_facade.set_infra(infra)
-    # Bind the process-wide accessor so non-request callers (Celery tasks,
-    # scripts, service helpers) can resolve default instances by logical name.
-    set_active_infra(infra)
 
     # The event bus is the default eventbus instance; bind it everywhere the
     # lazy module-level accessor is used (outbox dispatch, relay).
@@ -342,10 +337,10 @@ def _bind_infrastructure(
         )
     bus = eventbus_provider.bus()
     core_facade.set_event_bus(bus)
-    set_active_event_bus(bus)
-    # Bind the app-owned runtime so non-request callers (post-commit dispatch,
-    # relay helpers, Celery tasks via db_session) resolve THIS application's bus
-    # and UoW factories, not a process-global accessor (multi-app safe).
+    # Bind the app-owned runtime (the core with its registry and bus, in one
+    # call) so non-request callers (post-commit dispatch, relay helpers,
+    # Celery tasks via db_session, cache() in a script) resolve THIS
+    # application's instances.
     set_active_core(core_facade)
 
     core_facade.ensure_tracer()

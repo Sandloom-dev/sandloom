@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover  # noqa: BLE001 - metrics are optional
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import (
     ENTRY_POINT_GROUP,
+    AmbiguousModuleError,
     installed_modules,
     module_name,
     resolve_module_names,
@@ -557,13 +558,28 @@ def _load_list(  # noqa: C901
                 raise
 
 
+def _enumeration_failure(exc: BaseException) -> FailedModule:
+    """The required failure recorded when the installed module entry points
+    cannot be listed: the installed modules are unknown."""
+    return FailedModule(
+        name=f"<entry points: {ENTRY_POINT_GROUP}>",
+        error=f"enumeration failed: {type(exc).__name__}: {exc}",
+        required=True,
+    )
+
+
 def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  # noqa: C901
+    """Load every ``sandloom.modules`` entry point not skipped by name."""
     try:
         group: Iterable[Any] = tuple(
             metadata.entry_points().select(group=ENTRY_POINT_GROUP)
         )
-    except Exception:  # pragma: no cover
+    except Exception as exc:
+        # The installed modules are unknown: starting without them would serve
+        # a smaller application than the one deployed. Fail closed (a required
+        # failure: ModuleLoadError at the end of the pass).
         logger.exception("[plugin_loader] Entry points enumeration failed")
+        summary.failed.append(_enumeration_failure(exc))
         return
     for ep in group:
         value = getattr(ep, "value", "")
@@ -655,23 +671,35 @@ def _load_with_summary(
     *,
     enforce_bindings: bool,
 ) -> ModuleLoadSummary:
+    """Resolve the names, then load the explicit modules and the entry points."""
     # Entries name a module by import path or by its `sandloom.modules`
     # entry-point name; an ambiguous name is refused before anything loads
     # (SANDLOOM-B020).
-    explicit = resolve_module_names(
-        list(modules)
-        if modules is not None
-        else list(getattr(settings, "sandloom_modules", []))
-    )
-    if getattr(settings, "module_load_entrypoints", False):
-        # Auto-discovered providers are requested too. Validate the complete
-        # set before either explicit or automatic registration can run.
-        resolve_module_names(
-            [
-                *explicit,
-                *(m.path for m in installed_modules() if not _should_skip(m.name)),
-            ]
+    try:
+        explicit = resolve_module_names(
+            list(modules)
+            if modules is not None
+            else list(getattr(settings, "sandloom_modules", []))
         )
+        if getattr(settings, "module_load_entrypoints", False):
+            # Auto-discovered providers are requested too. Validate the
+            # complete set before either explicit or automatic registration.
+            resolve_module_names(
+                [
+                    *explicit,
+                    *(m.path for m in installed_modules() if not _should_skip(m.name)),
+                ]
+            )
+    except AmbiguousModuleError:
+        raise
+    except Exception as exc:
+        # Name resolution lists the installed entry points: when that fails
+        # the installed modules are unknown. Fail closed, the same way as a
+        # failure during the pass (_load_entry_points).
+        logger.exception("[plugin_loader] Entry points enumeration failed")
+        failed = ModuleLoadSummary(explicit=[])
+        failed.failed.append(_enumeration_failure(exc))
+        raise ModuleLoadError(failed) from exc
     summary = ModuleLoadSummary(explicit=explicit)
     core_facade._known_module_packages.update(explicit)
     if getattr(settings, "module_load_entrypoints", False):
