@@ -117,6 +117,105 @@ def cycles(links: list[Doc]) -> list[Doc]:
     ]
 
 
+SYNC_KINDS = ("required_contract", "optional_contract")
+CRITICAL_LIMIT = 3
+
+
+def _longest_chains(
+    adjacent: dict[str, set[str]], group_of: dict[str, int], cyclic: set[int]
+) -> dict[int, tuple[int, list[str], bool]]:
+    """Per component: (depth, chain of modules after the start, reaches a cycle).
+
+    Runs over the condensation, a DAG: a postorder of the module graph finishes
+    every successor component before the one that reaches it. A chain stops at
+    the first cyclic component it enters.
+    """
+    best: dict[int, tuple[int, list[str], bool]] = {}
+    for node in _postorder(adjacent):
+        index = group_of[node]
+        if index in best:
+            continue
+        if index in cyclic:
+            best[index] = (0, [], True)
+            continue
+        depth, chain, reaches = 0, [], False
+        for target in sorted(adjacent[node]):
+            sub_depth, sub_chain, sub_reaches = best[group_of[target]]
+            if sub_depth + 1 > depth:
+                depth, chain = sub_depth + 1, [target, *sub_chain]
+            reaches = reaches or sub_reaches
+        best[index] = (depth, chain, reaches)
+    return best
+
+
+def sync_coupling(links: list[Doc], module_ids: list[str]) -> Doc:
+    """Synchronous contract coupling per module, from declared requires.
+
+    An upper bound: a declared require may never be called on a given path.
+    Each module gets its direct dependencies, fan-out, fan-in and ``depth``,
+    the longest chain of sequential contract hops it may start. A chain stops
+    where it enters a contract cycle (``reaches_cycle``); a module inside one
+    has no finite depth, so it reports ``in_cycle`` and ``depth`` None.
+    """
+    adjacent: dict[str, set[str]] = {m: set() for m in module_ids}
+    required: dict[tuple[str, str], bool] = {}
+    for link in links:
+        if link["kind"] not in SYNC_KINDS:
+            continue
+        source, target = link["source"], link["target"]
+        adjacent.setdefault(source, set()).add(target)
+        adjacent.setdefault(target, set())
+        pair = (source, target)
+        required[pair] = required.get(pair, False) or link["kind"] == SYNC_KINDS[0]
+    groups = _components(adjacent)
+    group_of = {node: index for index, group in enumerate(groups) for node in group}
+    cyclic = {
+        index
+        for index, group in enumerate(groups)
+        if len(group) > 1 or group[0] in adjacent[group[0]]
+    }
+    best = _longest_chains(adjacent, group_of, cyclic)
+    fan_in: dict[str, int] = dict.fromkeys(adjacent, 0)
+    for node, targets in adjacent.items():
+        for target in targets - {node}:
+            fan_in[target] += 1
+    modules = []
+    for node in sorted(adjacent):
+        index = group_of[node]
+        depth, chain, reaches = best[index]
+        in_cycle = index in cyclic
+        modules.append(
+            {
+                "module_id": node,
+                "depends_on": [
+                    {"module_id": target, "required": required[(node, target)]}
+                    for target in sorted(adjacent[node] - {node})
+                ],
+                "fan_out": len(adjacent[node] - {node}),
+                "fan_in": fan_in[node],
+                "depth": None if in_cycle else depth,
+                "longest_chain": [] if in_cycle else [node, *chain],
+                "in_cycle": in_cycle,
+                "cycle_module_ids": groups[index] if in_cycle else [],
+                "reaches_cycle": not in_cycle and reaches,
+            }
+        )
+    ranked = sorted((n for n in fan_in if fan_in[n]), key=lambda n: (-fan_in[n], n))
+    return {
+        "basis": "declared_requires",
+        "meaning": "upper bound from declared contract requires; not measured calls",
+        "relation_kinds": list(SYNC_KINDS),
+        "modules": modules,
+        "critical": [
+            {"module_id": node, "fan_in": fan_in[node]}
+            for node in ranked[:CRITICAL_LIMIT]
+        ],
+        "max_depth": max(
+            (best[i][0] for i in set(group_of.values()) - cyclic), default=0
+        ),
+    }
+
+
 def build(
     reader: Reader,
     *,
@@ -219,6 +318,7 @@ def build(
         "edges": edges,
         "module_relations": projected,
         "cycles": cycles(projected),
+        "sync_coupling": sync_coupling(projected, sorted(selected)),
         "unresolved": [
             u for u in reader.doc["unresolved"] if u["module_id"] in selected
         ],
