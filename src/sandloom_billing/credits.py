@@ -46,7 +46,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.core.module_api import contract_session
+from sandloom.sdk import db
 from sandloom.sdk.infra import settings
 from sandloom.sdk.tenant import current_tenant_id_optional
 from sandloom_billing.entitlements import EntitlementsService
@@ -58,7 +58,7 @@ from sandloom_billing.services.billing_service import BillingService
 from sandloom_billing.services.tenant_resolver import TENANT_ORGANIZATION
 
 CREDITS_SERVICE_V1 = "billing.credits.v1"
-#: ``contract_session().info`` key: the end user a contract call runs for
+#: ``db().info`` key: the end user a contract call runs for
 #: (stamped by the contract runtime; the signed ``usr`` over RPC).
 CALLER_USER_INFO_KEY = "sandloom_contract_caller_user"
 
@@ -112,7 +112,7 @@ def ensure_tenant_matches(tenant_type: str, tenant_id: UUID) -> None:
     the module docstring for the rule (single-tenant).
     """
     if tenant_type != TENANT_ORGANIZATION:
-        caller = contract_session().info.get(CALLER_USER_INFO_KEY)
+        caller = db().info.get(CALLER_USER_INFO_KEY)
         if caller is not None and caller != tenant_id:
             raise BillingTenantMismatchError()
         return

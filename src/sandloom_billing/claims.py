@@ -25,13 +25,13 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sandloom.core.module_api import contract_session
+from sandloom.sdk import db
 from sandloom_billing.entitlements import EntitlementsService
 
 
 async def contribute_billing_claims(user_id: UUID | str) -> dict[str, Any]:
     """Return subscription claims for the user's personal tenant (read in
     billing's contract session)."""
-    session = contract_session()
+    session = db()
     uid = user_id if isinstance(user_id, UUID) else UUID(str(user_id))
     return await EntitlementsService.subscription_claims("user", uid, session)
