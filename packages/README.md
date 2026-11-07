@@ -27,7 +27,7 @@ Extras of `sandloom`:
 | --- | --- | --- |
 | `redis` | `redis` | the Redis cache and the Redis Streams event bus |
 | `celery` | `celery[redis]` | the Celery task queue |
-| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a11,<0.8`) | the batteries-included set | <!-- sandloom-release -->
+| `standard` | `sandloom[redis,celery]`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a11,<0.8`) | the batteries-included set <!-- sandloom-release --> |
 | `admin` | `sandloom[redis,celery]`, `sandloom-admin`, `sandloom-identity` | the admin console; deliberately not in `standard`, because an installed module joins `sandloom.main` and a console is a decision |
 | `fast` | `redis[hiredis]`, `jsonschema-rs` | optional accelerators |
 | `check` | `PyYAML` | `sandloom check` (reads YAML manifests) |

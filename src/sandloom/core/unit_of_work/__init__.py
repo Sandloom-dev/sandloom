@@ -247,7 +247,13 @@ def defer_to_host(session: Any, after_commit: Callable[[], Any]) -> bool:
     queue_on_commit(host, after_commit)
     host_info = getattr(host, "info", None)
     if isinstance(host_info, dict):  # a host's rollback undoes it (G-UOW-09)
-        host_info[JOINED_COUNT_KEY] = host_info.get(JOINED_COUNT_KEY, 0) + 1
+        # Counted per outermost transaction of the host, which a SAVEPOINT's
+        # commit or rollback never ends.
+        sync = getattr(host, "sync_session", host)
+        get_root = getattr(sync, "get_transaction", None)
+        root = id(get_root()) if callable(get_root) else 0
+        counts = host_info.setdefault(JOINED_COUNT_KEY, {})
+        counts[root] = counts.get(root, 0) + 1
     return True
 
 

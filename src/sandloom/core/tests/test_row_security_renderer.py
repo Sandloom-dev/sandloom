@@ -382,9 +382,25 @@ def test_a_system_channel_on_another_database_is_b026_without_any_option() -> No
     lite = "sqlite+aiosqlite:///sys.db"
     problem = row_security_problem("default", pg, {}, system_url=lite)
     assert problem is not None and "SANDLOOM-B026" in problem
-    assert "'sqlite'" in problem and "'postgresql'" in problem
+    assert "sqlite" in problem and "postgresql" in problem
     problem = row_security_problem("default", pg, {"system_url": lite})
     assert problem is not None and "SANDLOOM-B026" in problem
+
+
+def test_a_system_channel_on_another_database_of_the_same_server_is_b026() -> None:
+    """The same dialect but another database name is refused; the system
+    role's own credentials and address are not (the password is never shown)."""
+    pg = "postgresql+asyncpg://app:pw@h:5432/db"
+    other = "postgresql+asyncpg://system:secret@h:5432/other"
+    problem = row_security_problem("default", pg, {}, system_url=other)
+    assert problem is not None and "SANDLOOM-B026" in problem
+    assert "secret" not in problem
+    # the same database through another address (a pooler) and role
+    same = "postgresql+asyncpg://system:secret@pooler:6432/db"
+    assert (
+        row_security_problem("default", pg, {"tenant_rls": True}, system_url=same)
+        is None
+    )
 
 
 async def test_startup_checks_on_a_database_without_row_security_are_fatal() -> None:

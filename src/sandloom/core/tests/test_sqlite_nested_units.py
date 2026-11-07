@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import uuid
+import warnings
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -626,3 +627,34 @@ async def test_a_caller_rolling_back_a_joined_unit_warns(core: CoreFacade) -> No
             await _write_lock(core)
             await items.add(8, operation_key="k-8")
             raise RuntimeError("outer failed")
+
+
+@pytest.mark.asyncio
+async def test_a_savepoint_of_the_caller_keeps_the_joined_count(
+    core: CoreFacade,
+) -> None:
+    """A SAVEPOINT the caller commits (or rolls back) after the command does
+    not end its transaction: the outer rollback still reports the command."""
+    items = core.get_service("nested.items.v1")
+    with (
+        pytest.warns(JoinedUnitRolledBack, match="1 unit"),
+        pytest.raises(RuntimeError, match="outer failed"),
+    ):
+        async with db_session():
+            await _write_lock(core)
+            await items.add(9, operation_key="k-9")
+            async with db().begin_nested():
+                await db().execute(insert(ITEMS).values(id=11))
+            savepoint = await db().begin_nested()
+            await savepoint.rollback()
+            raise RuntimeError("outer failed")
+
+
+@pytest.mark.asyncio
+async def test_a_committed_caller_reports_nothing(core: CoreFacade) -> None:
+    items = core.get_service("nested.items.v1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", JoinedUnitRolledBack)
+        async with db_session():
+            await _write_lock(core)
+            await items.add(12, operation_key="k-12")

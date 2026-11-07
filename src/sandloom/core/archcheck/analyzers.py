@@ -655,7 +655,7 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
 DIALECT_MODULE = "sqlalchemy.dialects"
 #: SQLAlchemy's built-in dialect names: ``<name>_<option>=`` keyword arguments
 #: (``postgresql_where=``, ``sqlite_where=``) are that database's options.
-DIALECT_NAMES = ("mssql", "mysql", "oracle", "postgresql", "sqlite")
+DIALECT_NAMES = ("mariadb", "mssql", "mysql", "oracle", "postgresql", "sqlite")
 
 
 def _is_dialect_module(module: str) -> bool:

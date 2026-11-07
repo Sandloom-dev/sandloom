@@ -379,18 +379,34 @@ def _watch_host_rollback(host: AsyncSession) -> None:
     sync = host.sync_session
     if sync.info.get(_JOINED_WATCHED_KEY):
         return
-    event.listen(sync, "after_commit", _forget_joined)
-    event.listen(sync, "after_rollback", _joined_rolled_back)
+    event.listen(sync, "after_commit", _note_committed)
+    event.listen(sync, "after_transaction_end", _joined_transaction_ended)
     sync.info[_JOINED_WATCHED_KEY] = True
 
 
-def _forget_joined(sync_session: Session) -> None:
-    sync_session.info.pop(JOINED_COUNT_KEY, None)
+#: ``session.info`` key: ids of outermost transactions that committed. A
+#: SAVEPOINT's commit fires ``after_commit`` too, with the savepoint current.
+_COMMITTED_ROOTS_KEY = "sandloom_committed_roots"
 
 
-def _joined_rolled_back(sync_session: Session) -> None:
-    count = sync_session.info.pop(JOINED_COUNT_KEY, 0)
-    if not count or sync_session.info.get(ROLLBACK_EXPECTED_KEY):
+def _note_committed(sync_session: Session) -> None:
+    if sync_session.in_nested_transaction():
+        return  # a SAVEPOINT released: the outer transaction goes on
+    root = sync_session.get_transaction()
+    if root is not None:
+        sync_session.info.setdefault(_COMMITTED_ROOTS_KEY, set()).add(id(root))
+
+
+def _joined_transaction_ended(sync_session: Session, transaction: Any) -> None:
+    """The outermost transaction ended: warn when units joined it and it did
+    not commit. A SAVEPOINT's end leaves the counts of its outer transaction."""
+    if transaction.parent is not None:
+        return
+    info = sync_session.info
+    count = info.get(JOINED_COUNT_KEY, {}).pop(id(transaction), 0)
+    committed = id(transaction) in info.get(_COMMITTED_ROOTS_KEY, set())
+    info.get(_COMMITTED_ROOTS_KEY, set()).discard(id(transaction))
+    if not count or committed or info.get(ROLLBACK_EXPECTED_KEY):
         return
     warnings.warn(
         JoinedUnitRolledBack(

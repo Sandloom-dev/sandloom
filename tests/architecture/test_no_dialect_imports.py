@@ -61,6 +61,8 @@ def test_module_imports_no_dialect(root: Path) -> None:
         "w = index.dialect_options['postgresql']['where']\n",
         "w = index.dialect_kwargs['sqlite_where']\n",
         "w = index.dialect_options.get('postgresql')\n",
+        "w = index.dialect_options['mariadb']['length']\n",
+        "w = index.dialect_kwargs['mariadb_length']\n",
     ],
 )
 def test_the_analyzer_catches_every_spelling(tmp_path: Path, source: str) -> None:
