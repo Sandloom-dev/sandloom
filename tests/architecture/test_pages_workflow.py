@@ -39,9 +39,17 @@ def test_pages_publishes_on_a_main_dispatch_or_after_a_published_release() -> No
     assert not any("deploy-pages" in step.get("uses", "") for step in build["steps"])
     assert not any("configure-pages" in step.get("uses", "") for step in build["steps"])
     deploy = document["jobs"]["deploy"]
-    assert "github.ref == 'refs/heads/main'" in deploy["if"]
     assert "needs.build.result == 'success'" in deploy["if"]
-    assert "(inputs.deploy || needs.released.outputs.publish == 'true')" in deploy["if"]
+    # a dispatch publishes from main with deploy; a release run from main
+    # (its own branch: github.ref is the default branch on workflow_run)
+    assert (
+        "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+        " && inputs.deploy)"
+    ) in deploy["if"]
+    assert (
+        "(github.event_name == 'workflow_run' && github.event.workflow_run.head_branch"
+        " == 'main' && needs.released.outputs.publish == 'true')"
+    ) in deploy["if"]
     assert deploy["needs"] == ["released", "build"]
     assert deploy["environment"]["name"] == "github-pages"
     assert deploy["permissions"] == {

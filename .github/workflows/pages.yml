@@ -84,7 +84,7 @@ jobs:
           retention-days: 3
 
   deploy:
-    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/main' && (inputs.deploy || needs.released.outputs.publish == 'true') }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy) || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && needs.released.outputs.publish == 'true')) }}
     needs: [released, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
