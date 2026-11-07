@@ -259,6 +259,11 @@ def _default_mark_us() -> int:
 _issue_floors: ContextVar[dict[str, int] | None] = ContextVar(
     "sandloom_revocation_issue_floors", default=None
 )
+#: When each floor was noted (µs, this process's clock): a token whose claims
+#: were read before that moment cannot show the change behind the mark.
+_issue_floor_noted: ContextVar[dict[str, int] | None] = ContextVar(
+    "sandloom_revocation_issue_floor_noted", default=None
+)
 
 
 def _note_issue_floor(subject: Any, mark_us: int | None) -> None:
@@ -270,25 +275,29 @@ def _note_issue_floor(subject: Any, mark_us: int | None) -> None:
         return
     floors[key] = mark_us
     _issue_floors.set(floors)
+    noted = dict(_issue_floor_noted.get() or {})
+    noted[key] = _datetime_us(datetime.now(UTC))
+    _issue_floor_noted.set(noted)
 
 
 def _issue_instant_us(subject: Any, now: datetime, *, claims_read: bool = False) -> int:
     """The revocation instant of a token minted for ``subject`` at ``now``:
     ``now``, lifted past a mark this context saw.
 
-    ``claims_read``: ``now`` is when the token's claims were read, and the mark
-    may have been seen after that. A mark later than ``now`` + the clock skew
-    belongs to a change committed after the read (a mark is the change's
-    commit time + skew), so the claims predate it: such a mark never lifts the
-    token, which it then revokes. A mark within the skew of the read lifts it
-    (its change committed before the read; the claims show it)."""
+    ``claims_read``: ``now`` is when the token's claims were read. Only a mark
+    noted before that read lifts the token (the claims were read after it was
+    visible, so they show its change). A mark noted after the read never
+    does, whatever its value: issuer and revoker clocks may differ within the
+    skew, so its value cannot tell whether its change preceded the read.
+    Read the claims after the issuance check (``ensure_user_not_blocked``)."""
     now_us = _datetime_us(now)
     if subject is None:
         return now_us
-    floor = (_issue_floors.get() or {}).get(str(subject))
+    key = str(subject)
+    floor = (_issue_floors.get() or {}).get(key)
     if floor is None:
         return now_us
-    if claims_read and floor > now_us + _seconds_to_us(_clock_skew_margin()):
+    if claims_read and (_issue_floor_noted.get() or {}).get(key, 0) > now_us:
         return now_us
     return max(now_us, floor + 1)
 

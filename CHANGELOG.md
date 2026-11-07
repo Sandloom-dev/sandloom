@@ -626,14 +626,14 @@ website renders this same changelog.
   imported under `except Exception`, so a failed import registered services
   under the weaker check; the import is now required.
 - **A refresh no longer mints a role removed while it ran** (CWE-362). The
-  refresh read the user's roles, then minted the access token; a role change
-  committed in between revoked it only if the token was minted within the
-  revocation's clock skew. The token is now stamped when its claims were read
-  (`create_access_token(..., claims_read_at=)`), so the change's revocation
-  mark revokes it. A mark the issuer sees before minting lifts the token past
-  it only when that change committed before the read (its mark is within the
-  clock skew of the read). Issuer and revoker clocks must agree within
-  `AUTH_REVOCATION_CLOCK_SKEW_SECONDS`, as for every revocation.
+  refresh read the user's roles before its issuance check and minted the
+  access token later; a role change committed in between revoked it only if
+  the token was minted within the revocation's clock skew. The refresh now
+  collects the claims after the issuance check and the token's consume, and
+  stamps the token at that read (`create_access_token(..., claims_read_at=)`).
+  A revocation mark the check saw lifts the token past it; a mark noted after
+  the read never does, whatever the issuer and revoker clocks say. A refresh
+  takes one more statement (the claims are no longer read with the token).
 - **Billing named PostgreSQL in its code.** Its intent insert read the partial
   index's predicate back as `dialect_options["postgresql"]`; the predicate is
   now the model's own constant. SANDLOOM-C028 now reports a module that reads

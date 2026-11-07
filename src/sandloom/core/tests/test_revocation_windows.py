@@ -300,8 +300,8 @@ async def test_a_mark_seen_before_minting_still_lifts_a_stamped_token(
     skew(2.0)
     sub = str(uuid4())
     await revocation.revoke_user_tokens(sub)  # committed before the read
+    await ensure_user_not_blocked(sub)  # the issuance check, before the read
     read = datetime.now(UTC)
-    await ensure_user_not_blocked(sub)
     fresh = tokens.decode_token(
         tokens.create_access_token(
             {"sub": sub, "token_type": "access"}, claims_read_at=read
@@ -338,6 +338,28 @@ async def test_a_mark_of_a_change_after_the_read_never_lifts_a_stamped_token(
     # committed 1 s after the read, by another request: mark = commit + skew
     await asyncio.create_task(_revoke_at(monkeypatch, sub, read.timestamp() + 1.0))
     await ensure_user_not_blocked(sub)  # the issuer sees that mark
+    stale = tokens.decode_token(
+        tokens.create_access_token(
+            {"sub": sub, "token_type": "access"}, claims_read_at=read
+        )
+    )
+    assert stale is not None
+    assert await verification.is_token_revoked(stale) is True
+
+
+async def test_a_mark_noted_after_the_read_never_lifts_even_within_the_skew(
+    mem_cache: _MemoryCache, skew: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revoker clock behind the issuer's (within the skew) writes a mark that
+    looks earlier than the read; noted after the read, it still never lifts."""
+    from sandloom.core.auth.blocks import ensure_user_not_blocked
+
+    skew(2.0)
+    sub = str(uuid4())
+    read = datetime.now(UTC)
+    # committed after the read, stamped by a clock 1.5 s behind: mark < read + skew
+    await asyncio.create_task(_revoke_at(monkeypatch, sub, read.timestamp() - 1.5))
+    await ensure_user_not_blocked(sub)
     stale = tokens.decode_token(
         tokens.create_access_token(
             {"sub": sub, "token_type": "access"}, claims_read_at=read
