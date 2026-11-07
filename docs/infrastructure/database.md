@@ -282,6 +282,8 @@ SQLite keeps no time zone offset. A time column is `UtcDateTime()`, which
 reads back in UTC on every database and refuses a naive time
 ([SANDLOOM-C029](../reference/error-codes.md#sandloom-c029)).
 
+A saga step whose provider commits on its own (over RPC, or on another database instance) is called inside the saga's transition. On SQLite that transition holds the database's write lock, so other writers wait until the call returns. Keep such providers short in development, or run the saga on PostgreSQL.
+
 ### The schema comes from the models
 
 The migration chains are PostgreSQL's DDL history: row-security policies,
