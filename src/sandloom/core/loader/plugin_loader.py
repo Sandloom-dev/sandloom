@@ -671,10 +671,10 @@ def _load_with_summary(
     *,
     enforce_bindings: bool,
 ) -> ModuleLoadSummary:
+    """Resolve the names, then load the explicit modules and the entry points."""
     # Entries name a module by import path or by its `sandloom.modules`
     # entry-point name; an ambiguous name is refused before anything loads
     # (SANDLOOM-B020).
-    """Resolve the names, then load the explicit modules and the entry points."""
     try:
         explicit = resolve_module_names(
             list(modules)
