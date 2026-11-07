@@ -38,13 +38,17 @@ async def _enabled_user(test_db, make_user, email="2fa@example.com"):
     user = await make_user(email)
     init = await TwoFAService.init_2fa(user, test_db, current_password=PASSWORD)
     now_step = int(time.time()) // 30
-    # Use the previous step so "now" stays available for the test body.
-    await TwoFAService.enable_2fa(
-        user,
-        _code_for_step(init.secret, now_step - 1),
-        test_db,
-        current_password=PASSWORD,
-    )
+    # Use the previous step so "now" stays available for the test body. The
+    # clock is held at that step while enabling: the password check is slow
+    # (argon2, slower under coverage), and a step boundary crossed meanwhile
+    # would put the previous step's code out of the window ("Invalid OTP").
+    with patch.object(twofa_mod.time, "time", return_value=now_step * 30 + 1.0):
+        await TwoFAService.enable_2fa(
+            user,
+            _code_for_step(init.secret, now_step - 1),
+            test_db,
+            current_password=PASSWORD,
+        )
     await test_db.commit()
     return user, init
 

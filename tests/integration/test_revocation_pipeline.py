@@ -172,26 +172,30 @@ async def test_a_immediate_removal_needs_no_applier_after_a_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Member removal (``require_immediate``): the mark is written before
-    commit, so a crash after commit leaves NO window; the outbox row is only
-    a durable duplicate (applied idempotently)."""
+    commit, so a crash after commit leaves NO window for the old tokens; the
+    outbox row stands in for the lost post-commit re-mark (one microsecond
+    past the early mark: above a token an issuer stamped past it before the
+    commit) and is applied idempotently."""
     org_id, owner_id, member_id = await _org_with_member(sessions)
     old = _claims(member_id)
 
     async def _die(delay: float) -> None:
         raise _Crash
 
-    real_revoke = revocation.revoke_user_tokens
+    real_write = revocation._write_revocation
     calls = 0
 
-    async def _fail_after_first(user_id: Any, *, valid_after: Any = None) -> bool:
+    async def _fail_after_first(
+        user_id: Any, mark_us: int, tail: Any, *, replay: bool = False
+    ) -> Any:
         nonlocal calls
         calls += 1
         if calls == 1:  # the synchronous, pre-commit write succeeds
-            return await real_revoke(user_id, valid_after=valid_after)
-        return False  # the post-commit re-mark fails, then the process dies
+            return await real_write(user_id, mark_us, tail, replay=replay)
+        return None  # the post-commit re-mark fails, then the process dies
 
     with monkeypatch.context() as patch, pytest.raises(_Crash):
-        patch.setattr(revocation, "revoke_user_tokens", _fail_after_first)
+        patch.setattr(revocation, "_write_revocation", _fail_after_first)
         patch.setattr(asyncio, "sleep", _die)
         async with committing_uow(sessions) as db:
             await MembershipService.remove_member(
@@ -199,9 +203,13 @@ async def test_a_immediate_removal_needs_no_applier_after_a_crash(
             )
     assert await verification.is_token_revoked(old) is True  # no window at all
     (envelope,) = await _outbox(sessions, marks.TOKENS_REVOKED_CHANNEL)
-    stored = mem_cache.store[marks.subject_key(member_id)]
-    await apply_token_revocation(None, envelope)  # late duplicate: no-op
-    assert mem_cache.store[marks.subject_key(member_id)] == stored
+    early = marks._parse_mark_us(mem_cache.store[marks.subject_key(member_id)])
+    assert early is not None
+    await apply_token_revocation(None, envelope)  # the missing re-mark
+    applied = mem_cache.store[marks.subject_key(member_id)]
+    assert marks._parse_mark_us(applied) == early + 1
+    await apply_token_revocation(None, envelope)  # redelivered: no-op
+    assert mem_cache.store[marks.subject_key(member_id)] == applied
 
 
 # --------------------------------------------------------------------------- #
@@ -220,7 +228,13 @@ async def test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark(
     )
     assert all(results)
     stored = await sandloom_cache.get(marks.subject_key(sub))
-    assert marks._parse_mark_us(stored) == marks._seconds_to_us(max(mark_values))
+    # Never below the highest mark. A revocation that finds the stored mark at
+    # or past its own writes it one microsecond further (above every token an
+    # issuer stamped past it), so concurrent ones may end a few µs above it.
+    highest = marks._seconds_to_us(max(mark_values))
+    stored_us = marks._parse_mark_us(stored)
+    assert stored_us is not None
+    assert highest <= stored_us <= highest + len(mark_values)
 
 
 class _InterleavingCache(InMemoryCache):

@@ -15,7 +15,7 @@ It registers no event consumers and owns no tables.
 
 With ``CONF_FAULT_INJECTION=1`` (only the matrix's ``fault-revocation``
 deployment sets it) it also exposes ``POST /_conf/fault/revocation/{mode}``,
-which makes THIS process's revocation-mark writes (``revoke_user_tokens``)
+which makes THIS process's revocation-mark writes (``_write_revocation``)
 behave as: ``off`` (normal), ``outage`` (the cache is unreachable: the write
 reports failure) or ``lost`` (the write is acknowledged but never lands — an
 acknowledged write lost in a Redis failover). The read path is untouched.
@@ -110,17 +110,19 @@ def _install_revocation_fault(router: object) -> None:
     from sandloom.core.auth import revocation
     from sandloom.core.di import public
 
-    real = revocation.revoke_user_tokens
+    real = revocation._write_revocation
 
-    async def _faulty(user_id: Any, *, valid_after: float | None = None) -> bool:
+    async def _faulty(
+        user_id: Any, mark_us: int, tail: str | None, *, replay: bool = False
+    ) -> str | None:
         mode = _FAULT["mode"]
         if mode == "outage":
-            return False
-        if mode == "lost":
-            return True
-        return await real(user_id, valid_after=valid_after)
+            return None
+        if mode == "lost":  # acknowledged as written, never stored
+            return f"v1:after:{mark_us // 1_000_000}.{mark_us % 1_000_000:06d}"
+        return await real(user_id, mark_us, tail, replay=replay)
 
-    revocation.revoke_user_tokens = _faulty  # type: ignore[assignment]
+    revocation._write_revocation = _faulty  # type: ignore[assignment]
 
     async def set_fault(mode: str) -> dict[str, str]:
         if mode not in ("off", "outage", "lost"):

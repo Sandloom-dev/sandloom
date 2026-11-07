@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import secrets
 import time
 from typing import Any
 
@@ -17,14 +18,22 @@ from sandloom.core.auth.marks import (
     _METRIC_REVOCATION_IMMEDIATE_REFUSED,
     _METRIC_REVOCATION_MALFORMED,
     _METRIC_REVOCATION_REMARK_OVERTOOK_FLOOR,
+    PHASE_EARLY,
+    PHASE_SETTLED,
+    STATE_BLOCKED,
     TOKENS_REVOKED_CHANNEL,
     RevocationUnavailableError,
     _clock_skew_margin,
     _default_mark_us,
     _format_mark,
+    _format_revocation,
+    _issue_floors,
     _note_issue_floor,
+    _parse_mark_us,
+    _parse_state,
     _revocation_ttl_seconds,
     _seconds_to_us,
+    _state_tail,
     state_covers,
     subject_key,
 )
@@ -36,7 +45,7 @@ from sandloom.core.infra.contracts import (
     portable_set_subject_state,
 )
 from sandloom.core.unit_of_work.effects import publish_event
-from sandloom.core.unit_of_work.hooks import _savepoint_token, on_commit
+from sandloom.core.unit_of_work.hooks import _ON_COMMIT_KEY, _savepoint_token, on_commit
 from sandloom.core.unit_of_work.request import (
     current_request_scope,
     record_self_revocation,
@@ -76,11 +85,60 @@ async def revoke_user_tokens(user_id: Any, *, valid_after: float | None = None) 
     ``compare_and_set`` loop elsewhere that retries while the stored value
     ranks below ours), so a concurrent lower mark can never overwrite a higher
     one, a ``blocked`` record outranks it, and contention alone never fails a
-    revocation.
+    revocation. When the stored mark is already at or past ours (a mark set
+    into the future by an earlier revocation), the mark moves one microsecond
+    past it: an issuer that saw the stored mark stamped its token there, from
+    claims read before this revocation (:func:`_record_revocation_mark`).
     """
     mark_us = (
         _seconds_to_us(valid_after) if valid_after is not None else _default_mark_us()
     )
+    stored = await _write_revocation(
+        user_id, mark_us, _new_revocation_id() + PHASE_SETTLED
+    )
+    return stored is not None
+
+
+#: ``session.info`` key of the revocation identities of a unit, per subject:
+#: ``(on-commit queue, {subject: id})``. Every revocation of one subject in
+#: one unit shares an identity — they commit together, so their post-commit
+#: writes (and the durable applier's replays) recognise each other's write
+#: instead of each lifting the mark again. The queue anchors the entry to
+#: the unit's current commit: the kernel replaces it when the unit commits,
+#: so a session reused after a commit never shares an identity across commits.
+_REVOCATION_IDS_KEY = "sandloom_revocation_ids"
+
+
+def _new_revocation_id() -> str:
+    """A fresh revocation identity: decimal digits, which extend a mark's
+    instant past the microsecond
+    (:func:`~sandloom.core.auth.marks._format_revocation`)."""
+    return str(secrets.randbits(62))
+
+
+def _unit_revocation_id(user_id: Any, database: str | None) -> str:
+    """The identity of ``user_id``'s revocations in the current unit (a fresh
+    one outside a unit)."""
+    session = _resolve_scoped_session(database, op="revoke_user_tokens_on_commit")
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return _new_revocation_id()
+    queue = info.setdefault(_ON_COMMIT_KEY, [])
+    entry = info.get(_REVOCATION_IDS_KEY)
+    if not entry or entry[0] is not queue:
+        entry = (queue, {})
+        info[_REVOCATION_IDS_KEY] = entry
+    ids: dict[str, str] = entry[1]
+    return ids.setdefault(str(user_id), _new_revocation_id())
+
+
+async def _write_revocation(
+    user_id: Any, mark_us: int, tail: str | None, *, replay: bool = False
+) -> str | None:
+    """Write a revocation of ``user_id`` up to ``mark_us`` with identity
+    ``tail`` (:func:`_record_revocation_mark`); the stored value after the
+    write, ``None`` on failure. The floor this context mints past is the
+    stored value's instant (a token minted next is stamped after it)."""
     _note_issue_floor(user_id, mark_us)
     try:
         provider = _access.security_cache()
@@ -88,33 +146,85 @@ async def revoke_user_tokens(user_id: Any, *, valid_after: float | None = None) 
         logger.error(
             "Could not record token revocation for subject %s", user_id, exc_info=True
         )
-        return False
-    return await _record_revocation_mark(provider, user_id, mark_us) is not None
+        return None
+    stored = await _record_revocation_mark(
+        provider, user_id, mark_us, tail=tail, replay=replay
+    )
+    if stored is not None:
+        _note_issue_floor(user_id, _parse_mark_us(stored))
+    return stored
 
 
 async def _record_revocation_mark(
-    provider: Any, user_id: Any, mark_us: int
-) -> bool | None:
-    """Monotonically write the ``after`` value of :func:`revoke_user_tokens`.
+    provider: Any,
+    user_id: Any,
+    mark_us: int,
+    *,
+    tail: str | None,
+    replay: bool = False,
+) -> str | None:
+    """Write the ``after`` value of a revocation up to ``mark_us``.
 
-    One cache ``set_subject_state``: the value is replaced only by a LATER
-    ``after`` one, never over a ``blocked`` record, in a single atomic round
-    trip on drivers with the ``subject_state`` feature (Redis: a Lua script).
-    Concurrent revocations therefore never fail each other and the stored
-    mark always ends at the maximum. Duck-typed caches without the op get the
-    portable read / add / compare-and-set loop
-    (:func:`~sandloom.core.infra.contracts.portable_set_subject_state`). Only a
-    cache error (outage) fails (``None``) — or a cache without
-    ``compare_and_set``: a plain overwrite could lower the mark or lift a
-    block, so the write is refused (logged) instead.
+    **Strictly above what an issuer may have stamped.** An issuer that read a
+    stored mark ``S`` stamps the token it mints at ``S + 1`` µs — whatever
+    the claims it carries (:func:`~sandloom.core.auth.marks._issue_instant_us`).
+    A revocation is written at ``now + skew`` of ITS clock, so a change
+    committed after such a mint can carry a mark ``<= S`` (a slower clock,
+    or ``S`` itself in the future): kept at the maximum, the stale token
+    would outlive it. So the value written reads as ``max(mark_us, S + 1)``
+    — one microsecond past the stored one when that already covers
+    ``mark_us`` — and carries ``tail``, the revocation's identity
+    (:func:`~sandloom.core.auth.marks._format_revocation`). A write that
+    finds its own identity already stored at or past ``mark_us`` is done
+    (the post-commit write and the durable applier replay one revocation:
+    neither lifts the mark again, so the revoking request's own fresh pair,
+    stamped past that value, stays valid).
 
-    Returns ``None`` on failure, else whether the stored value may have MOVED:
-    ``False`` only when the stored value already covered ``mark_us``.
+    ``replay`` (the durable applier) re-applies a revocation whose
+    post-commit write normally already ran: a stored value covering
+    ``mark_us`` that was written after SOME change committed (a settled
+    tail, or a value without a tail) counts as applied, so a late replay of
+    an older revocation never lifts a newer revocation's mark (and revokes
+    the fresh pair that one's request minted past it). Only a covering
+    value written BEFORE a commit (a ``require_immediate`` early write: its
+    post-commit re-mark failed) is lifted past. ``tail=None`` (a durable
+    record without an identity, from an older producer) writes ``mark_us``
+    unless the stored value covers it.
+
+    One read, then the cache's monotonic ``set_subject_state``: the value is
+    replaced only by a HIGHER ``after`` one, never over a ``blocked``
+    record, in a single atomic round trip on drivers with the
+    ``subject_state`` feature (Redis: a Lua script); duck-typed caches
+    without the op get the portable read / add / compare-and-set loop
+    (:func:`~sandloom.core.infra.contracts.portable_set_subject_state`).
+    A concurrent writer that stored a higher value first wins, which covers
+    ours: it was written after our read, so past every stamp we had to
+    cover. Concurrent revocations therefore never fail each other and the
+    mark never moves backwards. Only a cache error (outage) fails
+    (``None``) — or a cache without ``compare_and_set``: a plain overwrite
+    could lower the mark or lift a block, so the write is refused (logged).
+
+    Returns the value the record holds after the call, ``None`` on failure.
     """
     key = subject_key(user_id)
     ttl = _revocation_ttl_seconds()
-    value = _format_mark(mark_us)
     try:
+        current = await provider.get(key)
+        state = _parse_state(current)
+        if state is not None and state[0] == STATE_BLOCKED:
+            return _text(current)
+        reading = None if state is None else state[1]
+        if reading is not None and reading >= mark_us:
+            held = _state_tail(current)
+            if tail is None or held == tail:
+                return _text(current)
+            if replay and (held is None or held.endswith(PHASE_SETTLED)):
+                return _text(current)
+        if tail is None:
+            value = _format_mark(mark_us)
+        else:
+            target = mark_us if reading is None else max(mark_us, reading + 1)
+            value = _format_revocation(target, tail)
         own = getattr(type(provider), "set_subject_state", None)
         if own is not None and own is not CacheProvider.set_subject_state:
             stored = await provider.set_subject_state(key, value, ttl_seconds=ttl)
@@ -127,18 +237,27 @@ async def _record_revocation_mark(
             "Could not record token revocation for subject %s", user_id, exc_info=True
         )
         return None
-    return stored == value or not state_covers(stored, mark_us)
+    return _text(stored)
+
+
+def _text(raw: Any) -> str:
+    return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
 
 
 async def _publish_pending_revocation(
-    user_id: Any, mark: float, reason: str, database: str | None
+    user_id: Any, mark: float, reason: str, database: str | None, revocation_id: str
 ) -> None:
     """Write the durable revocation record into the current UoW's outbox."""
     if _resolve_scoped_session(database, op="publish_event") is None:
         return  # no transaction: the write below runs now, nothing to persist
     await publish_event(
         TOKENS_REVOKED_CHANNEL,
-        {"user_id": str(user_id), "valid_after": mark, "reason": reason},
+        {
+            "user_id": str(user_id),
+            "valid_after": mark,
+            "reason": reason,
+            "revocation_id": revocation_id,
+        },
         database=database,
     )
 
@@ -183,7 +302,14 @@ async def revoke_user_tokens_on_commit(
     revoked when the change rolls back. ``valid_after`` (unix seconds, sub-second
     precision; default ``now + AUTH_REVOCATION_CLOCK_SKEW_SECONDS``) is fixed
     NOW, not at commit, and returned. Tokens the same request mints afterwards
-    (the fresh pair of a password change) are stamped after it and stay valid.
+    (the fresh pair of a password change) are stamped after it and stay valid
+    — also when the stored mark is already past it and the write after commit
+    lands one microsecond past that (:func:`_record_revocation_mark`): the
+    early write of ``require_immediate`` reads the stored mark, and without it
+    the request's issuance check (``ensure_user_not_blocked``) has. Every
+    revocation of one subject in one unit shares an identity, written into
+    the value, so the post-commit write and the durable applier's replay
+    recognise each other and never move the mark past that pair.
 
     Delivery is at-least-once:
 
@@ -210,7 +336,8 @@ async def revoke_user_tokens_on_commit(
     the user logged out (the safe direction; they re-authenticate). After
     commit a second mark ``max(valid_after, commit time + skew)`` is written,
     so a token an issuer minted between the early mark and the commit (claims
-    read before the change was visible) is revoked too; tokens this request
+    read before the change was visible) is revoked too (one microsecond past
+    the early mark when that is higher); tokens this request
     mints after the call are stamped past that second mark PROVIDED the UoW
     commits within ``AUTH_REVOCATION_CLOCK_SKEW_SECONDS`` of the call. A slower
     commit revokes them too (fail-closed: the client re-authenticates) and is
@@ -220,8 +347,11 @@ async def revoke_user_tokens_on_commit(
     margin = _clock_skew_margin()
     mark = float(valid_after) if valid_after is not None else time.time() + margin
     mark_us = _seconds_to_us(mark)
+    revocation_id = _unit_revocation_id(user_id, database)
+    seen_us = (_issue_floors.get() or {}).get(str(user_id))
     if require_immediate:
-        if not await revoke_user_tokens(user_id, valid_after=mark):
+        early = await _write_revocation(user_id, mark_us, revocation_id + PHASE_EARLY)
+        if early is None:
             _METRIC_REVOCATION_IMMEDIATE_REFUSED.inc()
             logger.error(
                 "Refusing change: the token revocation of subject %s (%s) could "
@@ -233,11 +363,21 @@ async def revoke_user_tokens_on_commit(
                 "token revocation store unavailable: change refused"
             )
         _METRIC_REVOCATION_APPLIED.labels(path="immediate").inc()
-    await _publish_pending_revocation(user_id, mark, reason, database)
-
-    # This context mints AFTER the revocation from here on (same request) —
-    # past the post-commit re-mark too when the revocation is immediate.
-    issue_floor_us = mark_us + (_seconds_to_us(margin) if require_immediate else 0)
+        early_us = _parse_mark_us(early)
+        # Past the post-commit re-mark: ``max(mark, commit + skew)``, or one
+        # microsecond past the early value when that already covers it.
+        issue_floor_us = max(
+            mark_us + _seconds_to_us(margin),
+            (mark_us if early_us is None else early_us) + 1,
+        )
+    elif seen_us is not None and seen_us >= mark_us:
+        # The stored mark this context saw already covers ours: the write
+        # after commit lands one microsecond past it.
+        issue_floor_us = seen_us + 1
+    else:
+        issue_floor_us = mark_us
+    await _publish_pending_revocation(user_id, mark, reason, database, revocation_id)
+    settled = revocation_id + PHASE_SETTLED
 
     async def _revoke() -> None:
         target = mark
@@ -260,7 +400,7 @@ async def revoke_user_tokens_on_commit(
         attempts = max(int(getattr(settings, "auth_revocation_write_attempts", 1)), 1)
         base = max(float(getattr(settings, "auth_revocation_retry_base_seconds", 0)), 0)
         for attempt in range(attempts):
-            if await revoke_user_tokens(user_id, valid_after=target):
+            if await _write_revocation(user_id, _seconds_to_us(target), settled):
                 _METRIC_REVOCATION_APPLIED.labels(path="on_commit").inc()
                 return
             if attempt + 1 < attempts and base > 0:
@@ -275,6 +415,8 @@ async def revoke_user_tokens_on_commit(
             TOKENS_REVOKED_CHANNEL,
         )
 
+    # This context mints AFTER the revocation from here on (same request) —
+    # past the post-commit write too.
     _note_issue_floor(user_id, issue_floor_us)
     await on_commit(_revoke, database=database)
     return mark
@@ -311,7 +453,10 @@ def pending_revocations() -> dict[str, float]:
 async def apply_pending_revocation(payload: dict[str, Any]) -> None:
     """Apply a durable ``core.auth.tokens_revoked.v1`` record (consumer body).
 
-    Idempotent (the mark is monotonic: an already-covered mark is a no-op).
+    Idempotent: a stored mark that covers the record's and was written after
+    a commit (this revocation's post-commit write, or another's) is left as
+    it is; only a ``require_immediate`` early mark whose post-commit write was
+    lost is lifted past (:func:`_record_revocation_mark`, ``replay``).
     When the mark cannot be written it raises
     :class:`RevocationUnavailableError`, so the delivery is retried — the
     session owner registers the consumer with ``dead_letter=False``: it is
@@ -345,7 +490,19 @@ async def apply_pending_revocation(payload: dict[str, Any]) -> None:
         )
         raise PoisonEventError(f"malformed {TOKENS_REVOKED_CHANNEL} payload")
     subject = str(user_id)
-    if not await revoke_user_tokens(user_id, valid_after=mark):
+    revocation_id = payload.get("revocation_id")
+    tail = (
+        revocation_id + PHASE_SETTLED
+        if isinstance(revocation_id, str)
+        and revocation_id.isascii()
+        and revocation_id.isdigit()
+        and len(revocation_id) <= 32
+        else None
+    )
+    if (
+        await _write_revocation(user_id, _seconds_to_us(mark), tail, replay=True)
+        is None
+    ):
         _METRIC_REVOCATION_APPLIER_FAILURES.inc()
         since = min(
             _stuck_revocations.get(subject, math.inf), mark - _clock_skew_margin()

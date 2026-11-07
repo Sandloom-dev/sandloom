@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+import sandloom.core.descriptors.module_names as module_names
 import sandloom.driverkit
 import sandloom.driverkit.testing
 from sandloom.core.drivers.bootstrap import build_infra_registry
@@ -83,6 +84,9 @@ def _install(monkeypatch: pytest.MonkeyPatch, **groups: list[Any]) -> None:
     monkeypatch.setattr(
         "sandloom.core.infra.registry.metadata.entry_points", lambda: _Entries()
     )
+    # importlib.metadata is patched process-wide: the module-name cache filled
+    # meanwhile must not outlive the test (monkeypatch restores the real one).
+    monkeypatch.setattr(module_names, "_cache", None)
 
 
 def _config(driver: str = "x", **options: Any) -> dict[str, dict[str, InstanceConfig]]:

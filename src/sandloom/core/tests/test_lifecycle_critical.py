@@ -8,7 +8,7 @@ import pytest
 from fastapi import APIRouter, FastAPI
 
 from sandloom.core.config.settings import settings
-from sandloom.core.descriptors import ModuleDescriptor, ModuleLoadSummary
+from sandloom.core.descriptors import ModuleDescriptor, ModuleLoadSummary, module_names
 from sandloom.core.exceptions import DatabaseUnavailable
 from sandloom.core.facade import CoreFacade
 from sandloom.core.lifecycle import CriticalStartupError, run_startup
@@ -141,6 +141,9 @@ def test_entrypoint_fail_fast_honors_module_required(
             return [_FailingEntryPoint()] if group == "sandloom.modules" else []
 
     monkeypatch.setattr(plugin_loader.metadata, "entry_points", lambda: _EntryPoints())
+    # importlib.metadata is patched process-wide: the module-name cache filled
+    # meanwhile must not outlive the test (monkeypatch restores the real one).
+    monkeypatch.setattr(module_names, "_cache", None)
     monkeypatch.setattr(settings, "module_fail_fast", True, raising=False)
     monkeypatch.setattr(
         settings, "module_required", ["sandloom.required_ep"], raising=False

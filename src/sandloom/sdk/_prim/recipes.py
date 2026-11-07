@@ -459,9 +459,7 @@ The table, keyed by the tenant first, and its migration:
         user_id: Mapped[uuid.UUID] = mapped_column()
         role: Mapped[str | None] = mapped_column(String(32), nullable=True)
         version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-        deleted_at: Mapped[datetime | None] = mapped_column(
-            UtcDateTime(), nullable=True
-        )
+        deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     uv run sandloom migrate new <module> "members read model"
 
