@@ -104,9 +104,7 @@ async def test_mark_never_moves_backwards_at_sub_second_precision(
     await revocation.revoke_user_tokens(sub, valid_after=base + 0.7)
     await revocation.revoke_user_tokens(sub, valid_after=base + 0.2)
     stored = mem_cache.store[marks.subject_key(sub)]
-    assert (marks._parse_mark_us(stored) / 1_000_000) == pytest.approx(
-        base + 0.7, abs=1e-6
-    )
+    assert marks._parse_mark_us(stored) == marks._seconds_to_us(base + 0.7) + 1
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +221,9 @@ async def test_revocation_is_persisted_in_the_uow_for_the_durable_applier(
         mark = await revocation.revoke_user_tokens_on_commit(sub, reason="test")
         events = list(session.events)
     revoked = [p for c, p, _ in events if c == marks.TOKENS_REVOKED_CHANNEL]
+    assert len(revoked) == 1
+    revocation_id = revoked[0].pop("revocation_id")
+    assert revocation_id.isdigit()
     assert revoked == [{"user_id": sub, "valid_after": mark, "reason": "test"}]
 
 
@@ -366,4 +367,118 @@ async def test_a_mark_noted_after_the_read_never_lifts_even_within_the_skew(
         )
     )
     assert stale is not None
+    assert await verification.is_token_revoked(stale) is True
+
+
+@pytest.mark.parametrize("immediate", [False, True])
+async def test_a_later_change_from_a_slower_clock_revokes_a_token_stamped_past_a_higher_mark(
+    mem_cache: _MemoryCache,
+    skew: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    immediate: bool,
+) -> None:
+    """Change 1 (a fast clock) leaves a mark M in the future. A refresh sees M,
+    reads the claims and mints a token stamped M + 1. Change 2 (a role
+    removed) commits after that read, from a clock whose ``now + skew`` is
+    below M: its revocation lands past M + 1, so the stale token is revoked,
+    while the fresh token the revoking request mints stays valid — after the
+    post-commit write and after the durable applier's replay (CWE-362)."""
+    from sandloom.core.auth.blocks import ensure_user_not_blocked
+    from sandloom.core.testing import recording_uow, run_on_commit
+
+    skew(2.0)
+    sub = str(uuid4())
+    now = time.time()
+    # change 1, revoked by another request on a clock 10 s ahead: M = now + 12
+    await asyncio.create_task(_revoke_at(monkeypatch, sub, now + 10.0))
+    high = marks._parse_mark_us(mem_cache.store[marks.subject_key(sub)])
+    assert high is not None and high > marks._seconds_to_us(now + 11)
+
+    async def _refresh() -> dict[str, Any] | None:
+        await ensure_user_not_blocked(sub)  # sees M
+        read = datetime.now(UTC)  # the claims, read before change 2
+        return tokens.decode_token(
+            tokens.create_access_token(
+                {"sub": sub, "token_type": "access"}, claims_read_at=read
+            )
+        )
+
+    stale = await asyncio.create_task(_refresh())
+    assert stale is not None and stale[marks.IAT_US_CLAIM] == high + 1
+
+    async def _change_2() -> tuple[dict[str, Any] | None, list[Any]]:
+        # the revoking request; its own clock 1 s behind: R = now + 1 < M
+        with monkeypatch.context() as patch:
+            patch.setattr(time, "time", lambda: now - 1.0)
+            if not immediate:
+                await ensure_user_not_blocked(sub)  # the request's issuance check
+            with recording_uow() as session:
+                await revocation.revoke_user_tokens_on_commit(
+                    sub, reason="role_removed", require_immediate=immediate
+                )
+                fresh = tokens.decode_token(
+                    tokens.create_access_token({"sub": sub, "token_type": "access"})
+                )
+                events = list(session.events)
+                await run_on_commit(session)
+        return fresh, events
+
+    fresh, events = await asyncio.create_task(_change_2())
+    assert fresh is not None
+    assert await verification.is_token_revoked(stale) is True
+    assert await verification.is_token_revoked(fresh) is False
+
+    # the durable applier replays the same revocation: nothing moves
+    stored = mem_cache.store[marks.subject_key(sub)]
+    (payload,) = [p for c, p, _ in events if c == marks.TOKENS_REVOKED_CHANNEL]
+    await revocation.apply_pending_revocation(payload)
+    assert mem_cache.store[marks.subject_key(sub)] == stored
+    assert await verification.is_token_revoked(stale) is True
+    assert await verification.is_token_revoked(fresh) is False
+
+    # an issuer that reads the new mark mints a valid token
+    async def _relogin() -> dict[str, Any] | None:
+        await ensure_user_not_blocked(sub)
+        return tokens.decode_token(
+            tokens.create_access_token({"sub": sub, "token_type": "access"})
+        )
+
+    relogin = await asyncio.create_task(_relogin())
+    assert relogin is not None
+    assert await verification.is_token_revoked(relogin) is False
+
+
+async def test_a_durable_replay_lifts_past_an_early_mark_whose_re_mark_was_lost(
+    mem_cache: _MemoryCache, skew: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``require_immediate`` wrote its early mark E, the commit happened, the
+    post-commit re-mark was lost; a token an issuer stamped past E before the
+    commit (pre-change claims) is revoked by the durable applier's replay."""
+    from sandloom.core.auth.blocks import ensure_user_not_blocked
+    from sandloom.core.testing import recording_uow
+
+    skew(2.0)
+    sub = str(uuid4())
+
+    async def _change() -> list[Any]:  # the revoking request
+        with recording_uow() as session:
+            await revocation.revoke_user_tokens_on_commit(
+                sub, reason="role_removed", require_immediate=True
+            )
+            # never committed through run_on_commit: the re-mark is lost
+            return list(session.events)
+
+    events = await asyncio.create_task(_change())
+
+    async def _refresh() -> dict[str, Any] | None:  # before the commit
+        await ensure_user_not_blocked(sub)  # sees E
+        return tokens.decode_token(
+            tokens.create_access_token({"sub": sub, "token_type": "access"})
+        )
+
+    stale = await asyncio.create_task(_refresh())
+    assert stale is not None
+    assert await verification.is_token_revoked(stale) is False  # the window
+    (payload,) = [p for c, p, _ in events if c == marks.TOKENS_REVOKED_CHANNEL]
+    await revocation.apply_pending_revocation(payload)
     assert await verification.is_token_revoked(stale) is True

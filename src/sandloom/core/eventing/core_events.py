@@ -76,6 +76,10 @@ TOKENS_REVOKED_SCHEMA: dict[str, Any] = {
         # unix seconds, sub-second precision (the mark, skew margin included)
         "valid_after": {"type": "number"},
         "reason": {"type": "string"},
+        # decimal digits: the revoking unit's identity, so the durable applier
+        # recognises the post-commit write of the same revocation (optional:
+        # a record without it is applied as a plain monotonic mark)
+        "revocation_id": {"type": "string"},
     },
     "required": ["user_id", "valid_after"],
     "additionalProperties": False,
