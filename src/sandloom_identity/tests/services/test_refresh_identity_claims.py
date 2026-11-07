@@ -154,3 +154,82 @@ async def test_refresh_stamps_the_token_at_the_claims_read(
     assert before <= seen[0] <= datetime.now(UTC)
     claims = decode_token(resp.json()["access_token"])
     assert claims["iat_us"] <= int(seen[0].timestamp() * 1_000_000) + 1
+
+
+async def _refresh_then_me(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    email: str,
+    *,
+    revoke_before: float | None = None,
+    revoke_after_read: float | None = None,
+) -> int:
+    """Log in, refresh, call ``/auth/me`` with the new access token.
+
+    ``revoke_before``: another request revokes the user before the refresh,
+    with a mark that many seconds from now. ``revoke_after_read``: a change
+    commits after the refresh read its claims, and its mark is that many
+    seconds after the read (a revoker clock behind the issuer's, within the
+    skew, makes it look close to the read)."""
+    import asyncio
+    from datetime import UTC, datetime
+
+    import sandloom_identity.services.token_service as token_service
+    from sandloom.sdk.security import revoke_user_tokens
+
+    login = await async_client.post(
+        "/auth/login", json={"email": email, "password": PW}
+    )
+    assert login.status_code == 200, login.text
+    sub = decode_token(login.json()["access_token"])["sub"]
+    if revoke_before is not None:
+        mark = datetime.now(UTC).timestamp() + revoke_before
+        await asyncio.create_task(revoke_user_tokens(sub, valid_after=mark))
+    reads: list[Any] = []
+    mint = token_service.create_access_token
+
+    def _mint(*, data: dict[str, Any], **kwargs: Any) -> str:
+        reads.append(kwargs.get("claims_read_at"))
+        return mint(data=data, **kwargs)
+
+    monkeypatch.setattr(token_service, "create_access_token", _mint)
+    resp = await async_client.post(
+        "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
+    )
+    assert resp.status_code == 200, resp.text
+    if revoke_after_read is not None:
+        mark = reads[0].timestamp() + revoke_after_read
+        await asyncio.create_task(revoke_user_tokens(sub, valid_after=mark))
+    me = await async_client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {resp.json()['access_token']}"},
+    )
+    return me.status_code
+
+
+@pytest.mark.asyncio
+async def test_a_change_after_the_claims_read_revokes_the_refreshed_token(
+    async_client: AsyncClient, make_user: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A role change committed after the refresh read its claims, its mark
+    stamped by a clock behind the issuer's (within the skew): the token the
+    refresh minted is refused."""
+    await make_user("refresh-stale@example.com", password=PW)
+    status = await _refresh_then_me(
+        async_client, monkeypatch, "refresh-stale@example.com", revoke_after_read=0.5
+    )
+    assert status == 401
+
+
+@pytest.mark.asyncio
+async def test_a_change_before_the_refresh_leaves_its_fresh_token_valid(
+    async_client: AsyncClient, make_user: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revocation committed before the refresh (its mark still in the
+    future): the refresh sees it first, reads fresh claims and its token is
+    accepted."""
+    await make_user("refresh-fresh@example.com", password=PW)
+    status = await _refresh_then_me(
+        async_client, monkeypatch, "refresh-fresh@example.com", revoke_before=1.5
+    )
+    assert status == 200
