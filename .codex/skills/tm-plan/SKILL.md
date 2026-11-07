@@ -115,15 +115,17 @@ desktop window, a driver suite, a port, a device. Two slices with no file in
 common still collide over one of those, and the collision does not read as a
 collision — it reads as "my change broke it".
 
-Such a slice carries the resource as a `requiredCapabilities` entry, and the
-orchestrator hands that capability to exactly one agent in a run. Everyone else
-stops seeing the slice on their front, and `task_start` refuses it even by
-alias (`CAPABILITY_MISMATCH`).
+Such a slice carries the resource as an **area entry starting with `@`** —
+`@<resource>` — beside any files it edits. It is held the way a file is: two
+claims whose areas both name it collide, and `task_start` refuses the second
+with `AREA_CONFLICT` naming the holder. Nothing is granted to a record and
+nobody has to issue anything. The entry is not a path: it matches only itself,
+the checkout is not asked whether it exists, and the claim guard ignores it.
 
 **What the entry is CALLED is a fact about the project, and this skill does not
 know it.** Look it up before writing one: the project's `CLAUDE.md` or
 `AGENTS.md` names the resource it has, and `list_tasks` shows what its existing
-tasks already require.
+tasks already name.
 If neither says anything, the project has no such resource — ask rather than
 invent, because an invented name is not a second lock, it is a second name for
 one, and the two never meet.
@@ -142,22 +144,22 @@ serialises work, so a careless one is a stop-work:
   slice needs the live run or the driver, not whether the slice happens to be
   under the app. Work that widget tests and an audit close out gets no label.
 - **Label the leaf, not the container.** Leaves are what get claimed. A label on
-  a container stops nobody and only hides it from the front of an agent who
-  lacks it.
+  a container stops nobody and only holds the entry for nothing.
 
-**The core reads capabilities off the actor's record**, not off the call, so a
-label on a task is a real gate: an agent whose record lacks the entry cannot
-claim it. What the core still cannot tell is whether the RESOURCE is free —
-that the window is actually open, that nobody else is driving it. So the label
-routes co-operating agents; exclusivity holds because the capability was
-**granted to one record**, and granting it to two is what breaks it.
+**An area of resources only constrains no file.** A slice whose area is just
+`@<resource>` reads like an area-less one to the claim guard: it speaks for
+every path and so names no owner of any file, and the edits of an agent
+holding it are checked against nothing. It conflicts with a claim only over the
+resource: an area-less claim conflicts with nothing, a claim of files only
+does not meet it, and one that names the resource and files meets both the
+other holders of the resource and the holders of those files. Give the slice
+its files as well when it has them.
 
-That has a consequence worth knowing before you rely on it: there is an issuer
-only when somebody is orchestrating. Two independent sessions have nobody
-handing anything out, so between them the entry is a convention rather than a
-lock. A project that has decided such a resource exists will have written the
-decision down; if you cannot find where, that is a question for the project and
-not a gap to fill from here.
+**The conflict is between holders.** A holder is a session and, inside it, a
+subagent: `AREA_CONFLICT` keeps two sessions apart, and two subagents of one
+orchestrating session as well, the orchestrator being a holder of its own. Only
+the claim guard on edits reads the session as a whole, so it does not tell
+subagents apart; the area of each claim is what keeps their files apart.
 
 ## Defaults worth setting deliberately
 
@@ -174,7 +176,9 @@ to start. Three defaults are worth a thought rather than a shrug:
   "the review on the parent" instead: a parent with children is a container,
   its status comes from them, and it never goes to review itself.
 - **`requiredCapabilities`** keeps a slice off the front of anyone who cannot
-  do it, which is how "ready for a human" is expressed without a tag.
+  do it, which is how "ready for a human" is expressed without a tag. A skill
+  an actor has, not a resource that exists once: those are `@<resource>` area
+  entries.
 - **`requiresDeliverable`** on anything whose result is a file or a commit, so
   a completion cannot be claimed empty.
 - **`metadata.design`** on a slice tagged `design`: `{file, version, readAt}`,

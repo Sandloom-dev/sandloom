@@ -17,9 +17,10 @@ the core has: the core does not call an LLM, so it cannot **write** anything.
 What consolidation is FOR is synthesis, and synthesis is why this skill exists
 and why the work arrives as a task an agent claims rather than as a button.
 
-You are usually here because `consolidate-when-ready.sh` noticed on a
-`task_done` that the project was over the threshold and filed a task. That hook
-only notices. Nothing about it decided what should be written.
+You are usually here because a `task_done` found the project over the threshold
+and filed a task — where the checkout's `.tm/project.yaml` says
+`consolidate_hook: on`. That only notices. Nothing about it decided what should
+be written.
 
 ## 1. Preview first. Always.
 

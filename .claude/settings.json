@@ -2,29 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__tm(-[A-Za-z0-9-]+)?__.*)$",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-tm-claim.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/report-bash-writes.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm(-[A-Za-z0-9-]+)?__.*$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tm-hook.sh"
+            "command": "tm hook claude-code"
           }
         ]
       }
@@ -35,25 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/report-bash-writes.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm(-[A-Za-z0-9-]+)?__task_done$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/consolidate-when-ready.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm(-[A-Za-z0-9-]+)?__task_start$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tm-hook.sh"
+            "command": "tm hook claude-code"
           }
         ]
       }
@@ -64,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tm-hook.sh"
+            "command": "tm hook claude-code"
           }
         ]
       }

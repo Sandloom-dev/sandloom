@@ -1,8 +1,8 @@
 // Written by `tm skills install --harness opencode`; the next install rewrites
 // it. The half of tm's plugin for OpenCode 2 that runs in its TUI: what the
-// server half, `../tm.ts`, has for the person — who a session acts as, a call
-// the hook could not check — arrives as an event of that plugin's RPC and is
-// shown here as a toast. A server plugin has no toast of its own.
+// server half, `../tm.ts`, has for the person — what the hook says as a
+// session begins, a call the hook could not check — arrives as an event of
+// that plugin's RPC and is shown here as a toast. A server plugin has no toast of its own.
 //
 // OpenCode 2 loads a TUI plugin that is not a package from a directory under
 // `.opencode/plugins/` holding a `tui` module; the server passes such a

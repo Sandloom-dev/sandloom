@@ -7,24 +7,26 @@
 // a tool, context beside an allowed call has no channel and is dropped. A hook
 // that could not check the call says so to the person, and the tool runs.
 //
-// A server plugin has no toast. What the person is to see — who a session
-// acts as, a call left unchecked — is an event of this plugin's RPC, which
-// tm's TUI plugin, `tm-notices/tui.ts` beside this file, shows as a toast; it
-// goes to the console of OpenCode's server too, where it is all there is when
-// no TUI is attached.
+// A server plugin has no toast. What the person is to see — what the hook
+// says as a session begins, a call left unchecked — is an event of this
+// plugin's RPC, which tm's TUI plugin, `tm-notices/tui.ts` beside this file,
+// shows as a toast; it goes to the console of OpenCode's server too, where it
+// is all there is when no TUI is attached.
 //
-// Each session is its own actor to the tracker. A session that begins is
-// handed to the hook, which attaches an actor to it; a subagent's session is
-// handed over with the session it was started under, which tm records, so
-// that the subagent signs as its root's actor. OpenCode puts the session's id
+// A call signs as the role of its harness, `opencode`, and any number of
+// sessions sign as it; what a session holds is its claims. A session that
+// begins is handed to the hook; a subagent's session is handed over with the
+// session it was started under, which tm records, so that the subagent's
+// calls count as its root's and a claim of the root speaks for its edits.
+// OpenCode puts the session's id
 // in every command its shell tool runs, in OPENCODE_SESSION_ID, which is what
 // `tm` reads to know whose call it is. OpenCode gives its MCP servers no
 // session at all, so a claim is taken with `tm` in the shell, where the
 // session is; the `tm mcp` registration in opencode.json is `--readonly`.
 import { accessSync, constants, readFileSync } from "node:fs"
 
-// The binary, in the order the shell hooks look: TM_BIN, the one the
-// machine's registry names, the freshly installed one, then PATH. OpenCode
+// The binary, looked for in this order: TM_BIN, the one the machine's
+// registry names, the freshly installed one, then PATH. OpenCode
 // started from a desktop session may have no ~/.local/bin on its PATH, and an
 // older `dart pub global` shim may sit ahead.
 // pi's extension looks the same way, in the same lines from `executable` to
@@ -38,7 +40,7 @@ const executable = (p: string) => {
     return false
   }
 }
-// `tm:` at the top of ~/.tm/tm.yaml, read as the shell hooks read it: the one
+// `tm:` at the top of ~/.tm/tm.yaml, read as a line, with no parser: the one
 // line of that key, a value plain or quoted, `~/` read as the home.
 const registered = (() => {
   try {
@@ -134,8 +136,8 @@ export default {
 
     // Each session's start, told to the hook once: from the bus event where it
     // arrives, else before the session's first tool call — a subscription can
-    // miss an event, and a session never told would have no actor. A subagent
-    // is told with its parent, after the parent itself.
+    // miss an event, and a session never told would be unknown to the hook. A
+    // subagent is told with its parent, after the parent itself.
     const started = new Map<string, Promise<void>>()
     const start = (sessionID: string, info?: { parentID?: string; location?: { directory?: string } }) => {
       let told = started.get(sessionID)
@@ -153,8 +155,8 @@ export default {
             cwd: known?.location?.directory || directory,
             source: "startup",
           })
-          // Nothing the model reads comes of a bus event, so who the session
-          // acts as is the person's, beside the warnings.
+          // Nothing the model reads comes of a bus event, so what the hook
+          // says as the session begins is the person's, beside the warnings.
           const context = answer.additionalContext
           if (typeof context === "string" && context.trim()) {
             tell(context, "info", sessionID)
@@ -201,12 +203,10 @@ export default {
       }
     }))
 
-    // Only a call that completed: a failed one has no result to append to,
+    // A failed call too: a command that wrote and then exited non-zero is
+    // still checked, and its snapshot taken. It has no result to append to,
     // and its error is OpenCode's to word.
     hooks.push(await api.tool.hook("execute.after", async (call: any) => {
-      if (call.status !== "completed") {
-        return
-      }
       const result = call.result
       const answer = await hook("post-tool-use", {
         hook_event_name: "tool.execute.after",
@@ -217,7 +217,7 @@ export default {
         tool_response: result,
       })
       const note = typeof answer.refused === "string" ? answer.refused : answer.additionalContext
-      if (typeof note !== "string") {
+      if (typeof note !== "string" || call.status !== "completed") {
         return
       }
       // What the model reads is `content`, or the output where there is none —
@@ -234,7 +234,7 @@ export default {
     // The session a command runs in is OpenCode's to set, after this hook.
     // Claude Code's variable is removed: OpenCode started from Claude Code's
     // shell inherits that session's id, which `tm` reads first, and the
-    // command would act as Claude Code's actor.
+    // command would carry that session.
     hooks.push(await api.shell.hook("create.before", (shell: any) => {
       delete shell.env.CLAUDE_CODE_SESSION_ID
     }))
