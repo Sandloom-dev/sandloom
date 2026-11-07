@@ -23,6 +23,7 @@ from sandloom.core.runtime import get_active_core, set_active_core
 
 @pytest.fixture
 def restore_process_runtime() -> Iterator[None]:
+    """Restore the process default core, registry and bus after the test."""
     core, infra, bus = get_active_core(), get_active_infra(), get_event_bus()
     try:
         yield
@@ -34,6 +35,8 @@ def restore_process_runtime() -> Iterator[None]:
 
 
 def _probe(application: Any) -> None:
+    """Add a route that reports the core and registry a request sees."""
+
     @application.get("/_probe/core", include_in_schema=False)
     async def core_id() -> dict[str, int]:
         seen: dict[str, int] = {
@@ -52,6 +55,7 @@ def _probe(application: Any) -> None:
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("restore_process_runtime")
 async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
+    """Each app's request and its task see their own core and registry."""
     first = create_app()
     _probe(first)
     second = create_app()  # moves the process default to the second app

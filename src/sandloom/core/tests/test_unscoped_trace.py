@@ -11,12 +11,14 @@ from sandloom.core.tenant_context import _UNSCOPED_TOTAL, unscoped
 
 
 def _count(caller: str) -> float:
+    """The counter value for ``caller``."""
     return _UNSCOPED_TOTAL.labels(caller=caller)._value.get()
 
 
 def test_each_scope_is_counted_for_its_calling_module(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """A scope is counted for its module, with or without a reason."""
     before = _count(__name__)
     with caplog.at_level(logging.DEBUG, logger="sandloom.tenant.unscoped"):
         with unscoped(reason="nightly cleanup of every tenant"):

@@ -569,6 +569,7 @@ def _enumeration_failure(exc: BaseException) -> FailedModule:
 
 
 def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  # noqa: C901
+    """Load every ``sandloom.modules`` entry point not skipped by name."""
     try:
         group: Iterable[Any] = tuple(
             metadata.entry_points().select(group=ENTRY_POINT_GROUP)
@@ -673,6 +674,7 @@ def _load_with_summary(
     # Entries name a module by import path or by its `sandloom.modules`
     # entry-point name; an ambiguous name is refused before anything loads
     # (SANDLOOM-B020).
+    """Resolve the names, then load the explicit modules and the entry points."""
     try:
         explicit = resolve_module_names(
             list(modules)

@@ -107,6 +107,7 @@ def unscoped(*, reason: str | None = None) -> AbstractContextManager[None]:
 
 @contextmanager
 def _unscoped_scope(caller: str, reason: str | None) -> Iterator[None]:
+    """The scope ``unscoped()`` returns: counted, logged, enforcement off."""
     _UNSCOPED_TOTAL.labels(caller=caller).inc()
     if _unscoped_log.isEnabledFor(logging.DEBUG):
         _unscoped_log.debug(

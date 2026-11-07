@@ -16,6 +16,7 @@ from sandloom.core.runtime import get_active_core, set_active_core
 
 @pytest.fixture
 def restore_process_runtime() -> Iterator[None]:
+    """Restore the process default core, registry and bus after the test."""
     core, infra, bus = get_active_core(), get_active_infra(), get_event_bus()
     try:
         yield
@@ -27,9 +28,12 @@ def restore_process_runtime() -> Iterator[None]:
 
 
 class _Client:
+    """A stand-in pooled client that records its close."""
+
     is_closed = False
 
     async def aclose(self) -> None:
+        """Mark the client closed."""
         self.is_closed = True
 
 
@@ -38,6 +42,7 @@ class _Client:
 async def test_shutdown_closes_the_shared_rpc_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The only app's shutdown closes the shared client."""
     application = create_app()
     client = _Client()
     monkeypatch.setattr(rpc_client, "_rpc_client_instance", client)

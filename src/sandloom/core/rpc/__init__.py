@@ -131,6 +131,7 @@ def _close_rpc_task(core: Any) -> Any:
     (:func:`~sandloom.core.rpc.client.close_rpc_client_for`)."""
 
     async def close_rpc_client() -> None:
+        """Close or retire the shared RPC client for this app."""
         await close_rpc_client_for(core)
 
     return close_rpc_client
