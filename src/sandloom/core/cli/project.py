@@ -393,7 +393,10 @@ builds its tables from the models at startup; there is no
 worker, beat or admin process on the file then (each refuses the replaced
 file, SANDLOOM-B028). Tenant isolation
 is the ORM guard only (no row security), and writers take turns. Production
-needs PostgreSQL (SANDLOOM-B029).
+needs PostgreSQL (SANDLOOM-B029), and CI runs the tests on PostgreSQL: keep it
+so. On SQLite a contract command joins its caller's transaction, while on
+PostgreSQL it commits on its own (the tests fail on `JoinedUnitRolledBack`
+where code relies on the difference).
 
 The tests run on SQLite with `SANDLOOM_TEST_DATABASE_URL`; a test that needs
 a feature SQLite lacks skips (`skip_unless_db_feature`), and the migration
