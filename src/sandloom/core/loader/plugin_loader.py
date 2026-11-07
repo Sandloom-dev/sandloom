@@ -562,8 +562,18 @@ def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  #
         group: Iterable[Any] = tuple(
             metadata.entry_points().select(group=ENTRY_POINT_GROUP)
         )
-    except Exception:  # pragma: no cover
+    except Exception as exc:
+        # The installed modules are unknown: starting without them would serve
+        # a smaller application than the one deployed. Fail closed (a required
+        # failure: ModuleLoadError at the end of the pass).
         logger.exception("[plugin_loader] Entry points enumeration failed")
+        summary.failed.append(
+            FailedModule(
+                name=f"<entry points: {ENTRY_POINT_GROUP}>",
+                error=f"enumeration failed: {type(exc).__name__}: {exc}",
+                required=True,
+            )
+        )
         return
     for ep in group:
         value = getattr(ep, "value", "")

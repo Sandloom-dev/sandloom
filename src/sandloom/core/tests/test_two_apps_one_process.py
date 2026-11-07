@@ -70,7 +70,9 @@ async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
             "infra": id(core.infra),
             "task_infra": id(core.infra),
         }
-    assert id(get_active_infra()) == id(second.state.core.infra)  # the default
+    # the process defaults: one owner call bound the core, its registry and bus
+    assert id(get_active_infra()) == id(second.state.core.infra)
+    assert get_event_bus() is second.state.core.event_bus
 
 
 @pytest.mark.asyncio

@@ -215,7 +215,8 @@ def _report(
             f"sandloom check: OK ({len(modules)} module(s) under "
             f"{rules.modules_package or 'the top level'}: "
             f"{', '.join(modules) or '-'}"
-            f"{'; boot clean' if boot_requested else ''})"
+            f"{'; boot clean' if boot_requested else ''}). Static rules only: "
+            "`sandloom test` also boots the app and runs the tests"
         )
         return 0
     if not errors:

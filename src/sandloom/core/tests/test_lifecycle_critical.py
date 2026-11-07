@@ -220,3 +220,22 @@ async def test_an_unreachable_backend_in_a_startup_task_is_one_line(
     assert "cannot reach PostgreSQL at 127.0.0.1:23470" in message
     assert "uv run sandloom dev up" in message and "\n" not in message
     assert loud[0].exc_info is None
+
+
+def test_entry_point_enumeration_failure_fails_the_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entry points that cannot be listed leave the installed modules unknown:
+    the load records a required failure instead of starting without them."""
+    from sandloom.core.loader import plugin_loader
+
+    def _broken() -> object:
+        raise OSError("metadata unreadable")
+
+    monkeypatch.setattr(plugin_loader.metadata, "entry_points", _broken)
+    monkeypatch.setattr(module_names, "_cache", None)
+    core = CoreFacade(app=FastAPI())
+    summary = ModuleLoadSummary(explicit=[])
+    _load_entry_points(core, summary)
+    assert [f.required for f in summary.failed] == [True]
+    assert "metadata unreadable" in summary.failed[0].error

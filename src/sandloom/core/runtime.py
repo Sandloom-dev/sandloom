@@ -42,9 +42,21 @@ _process_core: CoreFacade | None = None
 
 
 def set_active_core(core: CoreFacade) -> None:
-    """Bind the process-wide active core (called once by ``create_app``)."""
+    """Bind the process-wide active runtime (called once by ``create_app``).
+
+    The one owner call: the core, and with it the infrastructure registry and
+    the event bus it owns, become the process defaults together, so the three
+    accessors (``get_active_core``, ``get_active_infra``, ``get_event_bus``)
+    never point at different applications.
+    """
     global _process_core
     _process_core = core
+    infra = getattr(core, "_infra", None)
+    if infra is not None:
+        _infra_active.set_active_infra(infra)
+    bus = getattr(core, "_event_bus", None)
+    if bus is not None:
+        _event_bus.set_active_event_bus(bus)
 
 
 def clear_active_core() -> None:

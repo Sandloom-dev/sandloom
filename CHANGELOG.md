@@ -13,6 +13,26 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **`unscoped()` takes an optional `reason=` and is never silent.** Every
+  scope that disables tenant enforcement is counted in
+  `sandloom_tenant_unscoped_total{caller}` by the module that entered it; the
+  reason goes to the `sandloom.tenant.unscoped` log at DEBUG.
+- **`set_active_core` binds the whole runtime.** The core, its infrastructure
+  registry and its event bus become the process defaults in one call, so the
+  three accessors never point at different applications.
+- **`sandloom check: OK` says what it covers:** static rules only; `sandloom
+  test` also boots the app and runs the tests.
+
+### Fixed
+
+- **A failure to list the installed module entry points stops startup.** The
+  loader logged it and started without those modules; it is now a required
+  module failure (`ModuleLoadError`).
+- **The application's shutdown closes the pooled outbound RPC client.**
+  `close_rpc_client` existed but no shutdown task called it.
+
 ## [0.7.0a11] — 2026-11-07
 
 ### Breaking changes

@@ -162,8 +162,8 @@ def test_create_app_refuses_an_unauthenticated_route(
         real(application)
 
     monkeypatch.setattr(app_factory, "_validate_and_index_routes", _with_bad_route)
-    for name in ("set_active_infra", "set_active_event_bus", "set_active_core"):
-        monkeypatch.setattr(app_factory, name, lambda *_a, **_k: None)
+    # set_active_core binds the whole runtime (core, registry, bus) in one call
+    monkeypatch.setattr(app_factory, "set_active_core", lambda *_a, **_k: None)
     with pytest.raises(RoutePolicyError, match="POST /bad: no authenticator"):
         app_factory.create_app()
 
