@@ -28,6 +28,14 @@
     {
       "test": "src/sandloom/core/tests/test_dev/test_dev_external.py::*",
       "reason": "opt-in: `sandloom dev` against a developer's own PostgreSQL and Redis named in SANDLOOM_TEST_DATABASE_URL / SANDLOOM_TEST_CACHE_URL; the CI lanes provide their services without those variables"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_quickstart.py::test_quickstart_end_to_end",
+      "reason": "slow, and it needs SANDLOOM_QUICKSTART_POSTGRES_URL, which no test lane sets: the quickstart jobs run the same scenario through tools/smoke/quickstart_check.py (PR CI deselects it with -m \"not slow\"; release validation runs slow tests)"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_backup_cli.py::test_real_pg_dump_round_trip",
+      "reason": "slow, and it needs a PostgreSQL client (SANDLOOM_TEST_PG_CLIENT / _URL) that the test jobs do not install; the other backup tests cover the CLI with a fake client"
     }
   ]
 }
