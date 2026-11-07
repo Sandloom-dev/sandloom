@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a11] — 2026-11-07
+
 ### Breaking changes
 
 - **`UtcDateTime` refuses a naive `datetime`** (`NaiveDateTimeError`), in a
