@@ -19,6 +19,7 @@ from sqlalchemy.dialects import mysql, postgresql, sqlite
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 import sandloom.core.app_factory as app_factory
+import sandloom.core.descriptors.module_names as module_names
 import sandloom.core.sql_alchemy.portable as portable
 from sandloom.core.app_factory import sql_dialect_problem
 from sandloom.core.drivers.sql_dialects import PostgresqlSql
@@ -305,6 +306,9 @@ def test_a_renderer_that_uses_a_form_on_import_does_not_hang(
             return [Entry()]
 
     monkeypatch.setattr(importlib.metadata, "entry_points", EntryPoints)
+    # importlib.metadata is patched process-wide: the module-name cache filled
+    # meanwhile must not outlive the test (monkeypatch restores the real one).
+    monkeypatch.setattr(module_names, "_cache", None)
     portable._registered.clear()
     portable._state["loaded"] = False
     done = threading.Event()
