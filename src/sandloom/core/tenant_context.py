@@ -6,7 +6,7 @@ import logging
 import sys
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -92,16 +92,21 @@ _UNSCOPED_TOTAL = Counter(
 _unscoped_log = logging.getLogger("sandloom.tenant.unscoped")
 
 
-@contextmanager
-def unscoped(*, reason: str | None = None) -> Iterator[None]:
+def unscoped(*, reason: str | None = None) -> AbstractContextManager[None]:
     """Disable tenant enforcement for deliberate admin/system work.
 
     ``reason`` says why (logged at DEBUG with the calling module); every scope
     is counted in ``sandloom_tenant_unscoped_total{caller}``, so a bypass is
-    visible in metrics even where nobody passes a reason.
+    visible in metrics even where nobody passes a reason. The caller is the
+    code that calls ``unscoped()``, however the scope is entered (``with``,
+    ``ExitStack.enter_context``).
     """
-    frame = sys._getframe(2)  # the caller, past contextlib's __enter__
-    caller = str(frame.f_globals.get("__name__", "?"))
+    caller = str(sys._getframe(1).f_globals.get("__name__", "?"))
+    return _unscoped_scope(caller, reason)
+
+
+@contextmanager
+def _unscoped_scope(caller: str, reason: str | None) -> Iterator[None]:
     _UNSCOPED_TOTAL.labels(caller=caller).inc()
     if _unscoped_log.isEnabledFor(logging.DEBUG):
         _unscoped_log.debug(

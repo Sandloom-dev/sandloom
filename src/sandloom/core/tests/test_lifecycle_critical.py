@@ -239,3 +239,21 @@ def test_entry_point_enumeration_failure_fails_the_load(
     _load_entry_points(core, summary)
     assert [f.required for f in summary.failed] == [True]
     assert "metadata unreadable" in summary.failed[0].error
+
+
+def test_entry_point_enumeration_failure_during_name_resolution_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Name resolution lists the entry points before the pass: a failure
+    there is a ModuleLoadError too, not a bare exception."""
+    from sandloom.core.loader import plugin_loader
+
+    def _broken() -> object:
+        raise OSError("metadata unreadable")
+
+    monkeypatch.setattr(plugin_loader.metadata, "entry_points", _broken)
+    monkeypatch.setattr(module_names, "_cache", None)
+    monkeypatch.setattr(settings, "module_load_entrypoints", True, raising=False)
+    core = CoreFacade(app=FastAPI())
+    with pytest.raises(plugin_loader.ModuleLoadError, match="metadata unreadable"):
+        plugin_loader._load_with_summary(core, [], enforce_bindings=False)

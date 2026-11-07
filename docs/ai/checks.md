@@ -92,7 +92,7 @@ uv run sandloom check --list-rules
 
 A `sandloom check` rule that must not apply to one line is waived on that line, with its reason: `# sandloom: allow SANDLOOM-C001 <reason>` (the rule name `module-boundaries` works too). A waiver without a reason does not apply, and the other families cannot be waived this way.
 
-The checks prove the structure, not the behaviour: whether a feature does what you meant is for your tests. `sandloom check: OK` covers only what the code shows. It cannot see an import built from a string at runtime, a name reached through `getattr`, or behaviour set by configuration. `--boot` and the tests in `sandloom test` cover those. Some rules have no check yet; the framework's [module-author contract](https://github.com/Sandloom-dev/sandloom/blob/main/src/sandloom/AGENTS.md#rules-no-check-enforces-yet-get-these-right-yourself) lists them.
+The checks prove the structure, not the behaviour: whether a feature does what you meant is for your tests. `sandloom check: OK` covers only what the code shows. It cannot see an import built from a string at runtime, a name reached through `getattr`, or behaviour set by configuration. `--boot` builds the application but serves no request. The tests in `sandloom test` catch such cases only on the paths they run. Some rules have no check yet; the framework's [module-author contract](https://github.com/Sandloom-dev/sandloom/blob/main/src/sandloom/AGENTS.md#rules-no-check-enforces-yet-get-these-right-yourself) lists them.
 
 ## Go deeper
 
