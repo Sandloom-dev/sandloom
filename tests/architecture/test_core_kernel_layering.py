@@ -119,8 +119,11 @@ def _rel(p: Path) -> str:
 FACADE_IMPORT_BASELINE = {
     # The kernel application factory: the composition root itself (moved here
     # from sandloom/main.py so a kernel-only install can build an app) — it is what
-    # constructs the facade, not a low-level module reaching up to it.
-    "app_factory.py",
+    # constructs the facade, not a low-level module reaching up to it. A
+    # package since it was split by responsibility (2026-11-07).
+    "app_factory/__init__.py",
+    "app_factory/lifecycle.py",
+    "app_factory/ops.py",
     "di.py",
     "lifecycle.py",
     "cli/migrate.py",
@@ -171,7 +174,8 @@ def test_no_unbaselined_runtime_facade_import() -> None:
 DRIVER_IMPORT_ALLOWLIST = {
     "_internal/db_provider.py",
     # The composition root builds the registry (sandloom.core.drivers.bootstrap).
-    "app_factory.py",
+    "app_factory/__init__.py",
+    "app_factory/lifecycle.py",
 }
 
 

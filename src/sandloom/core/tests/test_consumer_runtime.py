@@ -614,8 +614,8 @@ async def test_lifespan_aborts_when_required_consumer_cannot_start(
     async def noop_lifecycle(_core: object) -> None:
         return None
 
-    monkeypatch.setattr("sandloom.core.app_factory.run_startup", noop_lifecycle)
-    monkeypatch.setattr("sandloom.core.app_factory.run_shutdown", noop_lifecycle)
+    monkeypatch.setattr("sandloom.core.app_factory.lifecycle.run_startup", noop_lifecycle)
+    monkeypatch.setattr("sandloom.core.app_factory.lifecycle.run_shutdown", noop_lifecycle)
     monkeypatch.setattr(
         "sandloom.core.consumers.runtime.ConsumerRuntime",
         _FailingRuntime,

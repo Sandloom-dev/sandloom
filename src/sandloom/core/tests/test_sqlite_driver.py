@@ -745,7 +745,7 @@ def test_startup_refuses_an_in_memory_database_build_free(
     def _load(database: str) -> None:
         instances = {"lite": SimpleNamespace(options={"url": database})}
         monkeypatch.setattr(
-            app_factory, "load_infra_config", lambda _cfg: {"database": instances}
+            app_factory.config, "load_infra_config", lambda _cfg: {"database": instances}
         )
 
     cfg = SimpleNamespace(database_url="postgresql+asyncpg://u:p@h/db")

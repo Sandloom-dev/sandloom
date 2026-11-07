@@ -272,8 +272,8 @@ async def test_token_signing_refusal_happens_before_startup_network_work(
     from sandloom.core import app_factory
 
     startup = AsyncMock()
-    monkeypatch.setattr(app_factory, "run_startup", startup)
-    monkeypatch.setattr(app_factory, "run_shutdown", AsyncMock())
+    monkeypatch.setattr(app_factory.lifecycle, "run_startup", startup)
+    monkeypatch.setattr(app_factory.lifecycle, "run_shutdown", AsyncMock())
     monkeypatch.setattr(
         "sandloom.core.auth.tokens.token_signing_problem",
         lambda **_: "bad signing role",

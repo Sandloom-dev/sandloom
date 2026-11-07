@@ -175,7 +175,7 @@ def test_the_kernel_names_no_module() -> None:
     paths = {f"sandloom_{n}" for n in names} | {f"sandloom.{n}" for n in names}
     sources = [
         *sorted((root / "core" / "config").glob("*.py")),
-        root / "core" / "app_factory.py",
+        *sorted((root / "core" / "app_factory").glob("*.py")),
         root / "core" / "loader" / "plugin_loader.py",
         root / "main.py",
     ]

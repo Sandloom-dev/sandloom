@@ -374,7 +374,7 @@ def _load_infra(monkeypatch: pytest.MonkeyPatch, url: str | None) -> None:
     options = {} if url is None else {"url": url}
     instances = {"default": SimpleNamespace(options=options)}
     monkeypatch.setattr(
-        app_factory, "load_infra_config", lambda _cfg: {"database": instances}
+        app_factory.config, "load_infra_config", lambda _cfg: {"database": instances}
     )
 
 

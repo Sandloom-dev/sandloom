@@ -69,7 +69,7 @@ async def test_startup_task_is_critical_and_strict_in_prod(
     path = tmp_path / "schemas.json"
     path.write_text("{not json")
     monkeypatch.setattr(
-        app_factory,
+        app_factory.lifecycle,
         "settings",
         SimpleNamespace(
             is_prod=is_prod,

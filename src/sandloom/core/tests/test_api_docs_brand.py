@@ -90,7 +90,12 @@ async def test_the_stylesheet_and_fonts_are_served_by_the_app() -> None:
         assert response.status_code == 200, font
         assert response.headers["content-type"] == "font/woff2"
     assert "https://" not in css.text
-    for name in ("README.md", "Manrope-OFL.txt", "../app_factory.py", "nope.css"):
+    for name in (
+        "README.md",
+        "Manrope-OFL.txt",
+        "../app_factory/__init__.py",
+        "nope.css",
+    ):
         assert (await _get(app, f"/docs/assets/{name}")).status_code == 404, name
     licenses = app_factory._API_DOCS
     assert (licenses / "Manrope-OFL.txt").is_file()
