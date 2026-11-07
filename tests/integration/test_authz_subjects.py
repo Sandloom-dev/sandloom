@@ -307,7 +307,7 @@ async def test_org_feature_and_limit_need_the_owners_fact() -> None:
 # billing's personal-spend check (spec §7.4)
 # --------------------------------------------------------------------------- #
 async def test_a_personal_spend_must_be_the_callers_own() -> None:
-    import sandloom.core.contract_context as cc
+    from sandloom.core.module_api._bootstrap import _isolated_uow_scope
     from sandloom.core.module_api._context import caller_user_id, stamp_caller
     from sandloom.core.unit_of_work.request import RequestScope, bind_request_scope
     from sandloom_billing.credits import CALLER_USER_INFO_KEY, ensure_tenant_matches
@@ -326,14 +326,12 @@ async def test_a_personal_spend_must_be_the_callers_own() -> None:
         assert caller_user_id() == alice
         stamp_caller(session)
     assert session.info[CALLER_USER_INFO_KEY] == alice
-    bound = cc._contract_session_var.set(session)
-    try:
+    # the contract runtime binds its unit as the only one: db() is it
+    with _isolated_uow_scope(session, "default"):
         ensure_tenant_matches("user", alice)
         with pytest.raises(Exception) as exc:
             ensure_tenant_matches("user", bob)
         assert type(exc.value).__name__ == "BillingTenantMismatchError"
-    finally:
-        cc._contract_session_var.reset(bound)
     # over RPC: the signed caller facts, bound as the call's request scope
     from sandloom.core.rpc.context import _caller_scope
 
@@ -343,8 +341,6 @@ async def test_a_personal_spend_must_be_the_callers_own() -> None:
     session.info = {}
     stamp_caller(session)
     assert session.info[CALLER_USER_INFO_KEY] is None
-    bound = cc._contract_session_var.set(session)
-    try:
+    # the contract runtime binds its unit as the only one: db() is it
+    with _isolated_uow_scope(session, "default"):
         ensure_tenant_matches("user", bob)
-    finally:
-        cc._contract_session_var.reset(bound)

@@ -11,12 +11,13 @@ advanced: BACKWARD, ContractMethodRuntime, ContractMethodSpec,
     OptionalContract, bind_contract, caller_user_id, contract_dto_problems,
     contract_error, contract_kind, contract_method, contract_read_scope,
     contract_reads, contract_schema, contract_session_bound, contract_spec,
-    current_contract_read_scope, invalidate_contract_read_memo,
-    normalize_contract_error, run_contract_call, service
+    current_contract_read_scope, dto_copy, invalidate_contract_read_memo,
+    normalize_contract_error, run_contract_call, service, undigested
 docs: docs/reference/sdk/contracts.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
 
+from sandloom.core.descriptors.contract_refs import dto_copy
 from sandloom.core.module_api import (
     BACKWARD,
     DEFAULT_CONTRACT_DTO_PACKAGES,
@@ -42,6 +43,7 @@ from sandloom.core.module_api import (
     invalidate_contract_read_memo,
     normalize_contract_error,
     run_contract_call,
+    undigested,
 )
 from sandloom.sdk._decl.contracts import (
     Contract,
@@ -81,10 +83,12 @@ __all__ = [
     "contract_session_bound",
     "contract_spec",
     "current_contract_read_scope",
+    "dto_copy",
     "invalidate_contract_read_memo",
     "normalize_contract_error",
     "run_contract_call",
     "service",
+    "undigested",
 ]
 #: The beginner tier of this module (spec §2.2).
 __beginner__ = (

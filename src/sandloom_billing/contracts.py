@@ -16,8 +16,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
-from sandloom.core.module_api import contract_session
-from sandloom.sdk import command, contract
+from sandloom.sdk import command, contract, db
 from sandloom_billing.credits import CreditsService, ensure_tenant_matches
 from sandloom_billing.entitlements import EntitlementsService
 from sandloom_billing.exceptions import BillingError
@@ -44,7 +43,7 @@ class EntitlementsContract:
         its period, or ``past_due`` within the grace window (unless the
         deployment denies on ``past_due``). False without a billing customer."""
         return await EntitlementsService.check_subscription_active(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )
 
     async def get_credit_balance(self, tenant_type: str, tenant_id: UUID) -> int:
@@ -52,7 +51,7 @@ class EntitlementsContract:
         A read for display: to spend, call ``billing.credits.v1.spend`` (it
         checks the balance atomically)."""
         return await EntitlementsService.get_credit_balance(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )
 
     async def subscription_claims(
@@ -63,7 +62,7 @@ class EntitlementsContract:
         subscription) and ``plan_code`` (the plan's name, while access is
         granted). ``{}`` when the tenant has no billing customer."""
         return await EntitlementsService.subscription_claims(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )
 
 
@@ -112,7 +111,7 @@ class CreditsContract:
                 tenant_id,
                 amount,
                 operation_key,
-                contract_session(),
+                db(),
                 reason=reason,
             )
         except BillingError as exc:
@@ -129,5 +128,5 @@ class CreditsContract:
         except BillingError as exc:
             raise exc.to_http() from exc
         return await EntitlementsService.get_credit_balance(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )

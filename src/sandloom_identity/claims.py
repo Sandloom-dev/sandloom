@@ -23,7 +23,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, Label, Select, bindparam, select
 from sqlalchemy.orm import QueryableAttribute
 
-from sandloom.core.module_api import contract_session
+from sandloom.sdk import db
 from sandloom.sdk.data import aggregate_list
 from sandloom_identity.models import Permission, Role, RolePermission, UserRole
 
@@ -83,6 +83,6 @@ async def contribute_identity_claims(user_id: UUID) -> dict[str, Any]:
     codes of the permissions they grant, each aggregated
     (:func:`identity_claims_columns`).
     """
-    session = contract_session()
+    session = db()
     row = (await session.execute(_CONTRIBUTOR_QUERY, {"b_user_id": user_id})).one()
     return claims_from_codes(row.role_codes, row.permission_codes)

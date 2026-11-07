@@ -22,6 +22,13 @@ website renders this same changelog.
 - **`set_active_core` binds the whole runtime.** The core, its infrastructure
   registry and its event bus become the process defaults in one call, so the
   three accessors never point at different applications.
+- **`undigested` and `dto_copy` are public in `sandloom.sdk.contracts`**
+  (advanced; `dto_copy` is written by `sandloom generate` into the DTO
+  copies), and the
+  bundled billing, identity and tenancy modules import nothing from
+  `sandloom.core`: their contract methods and claims contributors read the
+  provider's session through `db()`, which inside a contract call is the
+  contract's own unit.
 - **`sandloom check: OK` says what it covers:** static rules only; `sandloom
   test` also boots the app and runs the tests.
 

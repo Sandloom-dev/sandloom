@@ -22,8 +22,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, select
 
-from sandloom.core.module_api import contract_session
-from sandloom.sdk import contract
+from sandloom.sdk import contract, db
 from sandloom.sdk.contracts import contract_reads
 from sandloom.sdk.infra import settings
 from sandloom_tenancy.models import (
@@ -94,7 +93,7 @@ class MembershipReadContract:
         never issued one), read in one snapshot. What a projection's
         ``rebuild_from`` returns, and what a v1 consumer re-reads when an event
         has no version (``sandloom.shared.membership``)."""
-        db = contract_session()
+        session = db()
         member = and_(
             OrganizationMember.organization_id == organization_id,
             OrganizationMember.user_id == user_id,
@@ -117,7 +116,7 @@ class MembershipReadContract:
             )
             .scalar_subquery()
         )
-        row = (await db.execute(select(role, version))).one()
+        row = (await session.execute(select(role, version))).one()
         return MemberState(
             organization_id=organization_id,
             user_id=user_id,
@@ -155,7 +154,7 @@ class MembershipReadContract:
         """Member user ids of an organization (active or not), in id order,
         strictly after ``after``: keyset paging, at most 1000 per call (a
         larger ``limit`` is capped). Page until fewer than ``limit`` return."""
-        db = contract_session()
+        session = db()
         stmt = (
             select(OrganizationMember.user_id)
             .where(OrganizationMember.organization_id == organization_id)
@@ -164,7 +163,7 @@ class MembershipReadContract:
         )
         if after is not None:
             stmt = stmt.where(OrganizationMember.user_id > after)
-        return list((await db.execute(stmt)).scalars())
+        return list((await session.execute(stmt)).scalars())
 
 
 __all__ = ["MembershipReadContract"]

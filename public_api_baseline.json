@@ -3444,6 +3444,10 @@
       "kind": "function",
       "signature": "() -> ContractReadScope | None"
     },
+    "dto_copy": {
+      "kind": "function",
+      "signature": "(origin:POSITIONAL_OR_KEYWORD|str) -> Callable[[T], T]"
+    },
     "invalidate_contract_read_memo": {
       "kind": "function",
       "signature": "() -> None"
@@ -3459,6 +3463,10 @@
     "service": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, optional:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "undigested": {
+      "kind": "function",
+      "signature": "(names:VAR_POSITIONAL|str) -> Callable[[Any], Any]"
     }
   },
   "sandloom.sdk.data": {
