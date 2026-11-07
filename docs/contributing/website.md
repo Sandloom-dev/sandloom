@@ -28,9 +28,15 @@ uv run python tools/docs/docs_site.py build --site-url https://sandloom.dev
 SANDLOOM_DOCS_SITE_PUBLIC=1 uv run python -m unittest discover -s tools/docs -p test_docs_site.py
 ```
 
-The **Website (GitHub Pages)** workflow is manual. Its `deploy` input defaults
-to **false**, so a normal dispatch only builds and retains a Pages artifact.
-PR documentation checks also build without publishing.
+The **Website (GitHub Pages)** workflow publishes the site from `main` by
+itself after a release. It runs when **Release (PyPI)** finishes on `main`,
+and publishes only if that run's `github-release` job succeeded. A dry run or
+a failed release leaves the site as it is.
+
+It can also be started by hand. Its `deploy` input defaults to **false**, so a
+plain dispatch only builds and keeps a Pages artifact. To publish documentation
+changes between releases, dispatch it from `main` with `deploy` set. PR
+documentation checks also build without publishing.
 
 ## Configure the domain once
 

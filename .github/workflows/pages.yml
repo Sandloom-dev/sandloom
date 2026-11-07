@@ -1,7 +1,9 @@
 name: Website (GitHub Pages)
 
-# A build never publishes by itself. The owner explicitly requests a deployment
-# from main after configuring the custom domain and reviewing the site.
+# The site publishes from main in two ways only: the owner dispatches it with
+# deploy, or a release from main finished publishing (its PyPI upload was
+# approved and its GitHub Release published). A dry run, a failed release or
+# a release from a tag builds nothing here.
 on:
   workflow_dispatch:
     inputs:
@@ -10,6 +12,10 @@ on:
         type: boolean
         default: false
         required: true
+  workflow_run:
+    workflows: ["Release (PyPI)"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -19,7 +25,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  released:
+    # After a release run: did it publish? Its github-release job runs only
+    # after the owner-approved PyPI upload was verified (never on a dry run).
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          conclusion="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" --paginate \
+            --jq '.jobs[] | select(.name == "github-release") | .conclusion')"
+          if [ "$conclusion" = "success" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release run $RUN_ID published nothing (github-release: ${conclusion:-absent}); the site stays."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: released
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.released.outputs.publish == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -50,8 +84,8 @@ jobs:
           retention-days: 3
 
   deploy:
-    if: ${{ inputs.deploy && github.ref == 'refs/heads/main' }}
-    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy) || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && needs.released.outputs.publish == 'true')) }}
+    needs: [released, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
