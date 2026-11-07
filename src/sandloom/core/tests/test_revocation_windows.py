@@ -260,3 +260,65 @@ async def test_apply_pending_revocation_is_idempotent_and_raises_on_outage(
     mem_cache.broken = False
     await revocation.apply_pending_revocation(payload)  # clears the stuck entry
     assert revocation.pending_revocations()["count"] == 0
+
+
+async def test_a_token_stamped_at_its_claims_read_is_revoked_by_a_later_change(
+    mem_cache: _MemoryCache, skew: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Claims read at R, a role change committed after R (its mark: commit
+    time + skew), the token minted long after that mark: without
+    ``claims_read_at`` it outlives the mark with the old claims; with it, its
+    revocation instant is R and the mark revokes it."""
+    skew(0.5)
+    sub = str(uuid4())
+    read = datetime.now(UTC)
+    # the change, revoked by another request (its own context)
+    await asyncio.create_task(_revoke_at(monkeypatch, sub, read.timestamp() + 0.1))
+    late = time.time() + 5.0  # a slow refresh: minted after the mark
+    with monkeypatch.context() as patch:
+        patch.setattr(tokens, "datetime", _FrozenDatetime(late))
+        stale = tokens.decode_token(
+            tokens.create_access_token({"sub": sub, "token_type": "access"})
+        )
+        stamped = tokens.decode_token(
+            tokens.create_access_token(
+                {"sub": sub, "token_type": "access"}, claims_read_at=read
+            )
+        )
+    assert stale is not None and stamped is not None
+    assert await verification.is_token_revoked(stale) is False  # the old gap
+    assert await verification.is_token_revoked(stamped) is True
+
+
+async def test_a_mark_seen_before_minting_still_lifts_a_stamped_token(
+    mem_cache: _MemoryCache, skew: Any
+) -> None:
+    """A revocation the issuer saw (the issuance check) still stamps the token
+    after it, even when its claims were read earlier: no self-revocation."""
+    from sandloom.core.auth.blocks import ensure_user_not_blocked
+
+    skew(2.0)
+    sub = str(uuid4())
+    read = datetime.now(UTC)
+    await revocation.revoke_user_tokens(sub)
+    await ensure_user_not_blocked(sub)
+    fresh = tokens.decode_token(
+        tokens.create_access_token(
+            {"sub": sub, "token_type": "access"}, claims_read_at=read
+        )
+    )
+    assert fresh is not None
+    assert await verification.is_token_revoked(fresh) is False
+
+
+class _FrozenDatetime:
+    """``datetime`` whose ``now`` reads ``instant`` (unix seconds)."""
+
+    def __init__(self, instant: float) -> None:
+        self._instant = instant
+
+    def now(self, tz: Any = None) -> datetime:
+        return datetime.fromtimestamp(self._instant, tz or UTC)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(datetime, name)

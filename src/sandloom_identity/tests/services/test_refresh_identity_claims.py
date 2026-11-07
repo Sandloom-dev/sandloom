@@ -134,3 +134,41 @@ async def test_refresh_of_a_user_without_roles(
 
     assert claims["roles"] == [] and claims["permissions"] == []
     assert "identity" in claims["claims_sources"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_stamps_the_token_at_the_claims_read(
+    async_client: AsyncClient,
+    test_db: Any,
+    make_user: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The access token's revocation instant is the moment the claims were
+    read, before the rotation: a role change committed after the read revokes
+    it however long the refresh takes."""
+    from datetime import UTC, datetime
+
+    import sandloom_identity.services.token_service as token_service
+
+    await make_user("refresh-stamp@example.com", password=PW)
+    login = await async_client.post(
+        "/auth/login", json={"email": "refresh-stamp@example.com", "password": PW}
+    )
+    assert login.status_code == 200, login.text
+    seen: list[Any] = []
+    mint = token_service.create_access_token
+
+    def _mint(*, data: dict[str, Any], **kwargs: Any) -> str:
+        seen.append(kwargs.get("claims_read_at"))
+        return mint(data=data, **kwargs)
+
+    monkeypatch.setattr(token_service, "create_access_token", _mint)
+    before = datetime.now(UTC)
+    resp = await async_client.post(
+        "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(seen) == 1 and seen[0] is not None
+    assert before <= seen[0] <= datetime.now(UTC)
+    claims = decode_token(resp.json()["access_token"])
+    assert claims["iat_us"] <= int(seen[0].timestamp() * 1_000_000) + 1

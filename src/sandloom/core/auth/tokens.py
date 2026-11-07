@@ -28,7 +28,12 @@ from sandloom.core.signing_keys import (
 )
 
 
-def create_access_token(data: dict[str, Any], expires_delta: int | None = None) -> str:
+def create_access_token(
+    data: dict[str, Any],
+    expires_delta: int | None = None,
+    *,
+    claims_read_at: datetime | None = None,
+) -> str:
     """Mint a JWT.
 
     Adds the standard registered claims every token should carry: ``iat``
@@ -39,6 +44,10 @@ def create_access_token(data: dict[str, Any], expires_delta: int | None = None) 
     seen for the subject (the issuance check :func:`ensure_user_not_blocked`
     or a revocation scheduled earlier in the same request), so a token minted
     after a revocation is never caught by its clock-skew margin.
+    ``claims_read_at``: when the claims were read, if before now. ``iat_us``
+    then starts there instead of now, so a revocation committed after that
+    read (a role removed while the claims were collected) revokes the token
+    whenever it is minted, not only within the revocation's clock skew.
     ``iss``/``aud`` are added only when configured (``JWT_ISSUER`` /
     ``JWT_AUDIENCE``). Caller-supplied claims win (``setdefault``), so a
     refresh-token mint or an explicit ``token_type`` is preserved. When
@@ -55,7 +64,8 @@ def create_access_token(data: dict[str, Any], expires_delta: int | None = None) 
     if IAT_US_CLAIM not in to_encode:
         supplied_iat = to_encode.get("iat")
         if supplied_iat is None:
-            to_encode[IAT_US_CLAIM] = _issue_instant_us(to_encode.get("sub"), now)
+            read = now if claims_read_at is None else min(now, claims_read_at)
+            to_encode[IAT_US_CLAIM] = _issue_instant_us(to_encode.get("sub"), read)
         elif isinstance(supplied_iat, datetime):
             to_encode[IAT_US_CLAIM] = _datetime_us(supplied_iat)
         else:  # an explicit numeric ``iat`` (seconds)

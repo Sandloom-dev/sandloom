@@ -81,8 +81,12 @@ class TokenService:
         auth_time: datetime | None = None,
         block_checked: bool = False,
         identity_claims: dict[str, Any] | None = None,
+        claims_read_at: datetime | None = None,
     ) -> TokenPair:
         """Create access and refresh tokens for user.
+
+        ``claims_read_at``: when ``identity_claims`` were read (a refresh);
+        the access token's revocation instant starts there.
 
         When ``core`` is provided, every registered claims contributor runs and
         its claims (roles, permissions, subscription, …) are embedded in the
@@ -149,7 +153,7 @@ class TokenService:
         }
         if auth_time is not None:
             claims["auth_time"] = int(auth_time.timestamp())
-        access_token = create_access_token(data=claims)
+        access_token = create_access_token(data=claims, claims_read_at=claims_read_at)
 
         # Create refresh token
         refresh_token_value = secrets.token_urlsafe(32)
@@ -219,6 +223,9 @@ class TokenService:
         now = datetime.now(UTC)
         token_hash = RefreshTokenUtils.hash_token(refresh_token)
 
+        # The claims below are read now: a revocation committed after this
+        # instant revokes the token minted from them (claims_read_at).
+        claims_read_at = datetime.now(UTC)
         loaded = (
             await db.execute(_LOAD_TOKEN_USER_AND_CLAIMS, {"b_token_hash": token_hash})
         ).one_or_none()
@@ -269,12 +276,10 @@ class TokenService:
         # permissions (identity's claims), came with the token above: a
         # refresh is one SELECT and this UPDATE, with no user or claims query.
         # Claims read before the consume may predate a role or membership
-        # change committing meanwhile. ``revoke_user_tokens_on_commit``'s
-        # second mark (commit time + clock skew) revokes the token minted here
-        # only when it is minted within that skew of the change's commit; a
-        # refresh slower than the skew keeps the old claims until the access
-        # token expires (a known gap: stamping the token at the claims' read
-        # time would close it).
+        # change committing meanwhile. The access token is stamped at the
+        # claims' read time (``claims_read_at``), so that change's revocation
+        # mark (``revoke_user_tokens_on_commit``: commit time + clock skew, later
+        # than the read) revokes it however long this refresh takes.
         consumed = (
             await db.execute(_CONSUME, {"b_token_id": token_id, "b_now": now})
         ).one_or_none()
@@ -296,6 +301,7 @@ class TokenService:
             auth_time=auth_time,
             block_checked=True,
             identity_claims=claims_from_codes(role_codes, permission_codes),
+            claims_read_at=claims_read_at,
         )
 
     @classmethod

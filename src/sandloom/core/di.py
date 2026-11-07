@@ -16,6 +16,7 @@ import inspect
 import math
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import suppress
+from datetime import datetime
 from functools import cache as _dependency_cache
 from typing import Annotated, Any, Literal, TypeVar, cast
 
@@ -580,14 +581,21 @@ def decode_token_cached(request: Any, token: str) -> dict[str, Any] | None:
 
 
 def create_access_token(
-    *, data: dict[str, Any], expires_delta: int | None = None
+    *,
+    data: dict[str, Any],
+    expires_delta: int | None = None,
+    claims_read_at: datetime | None = None,
 ) -> str:
     """Create JWT access token via sandloom.core.auth (stable adapter).
 
+    ``claims_read_at``: when the token's claims were read; a revocation
+    committed after it revokes the token (its revocation instant starts there).
     Import at call-time so test patches against security are honored.
     """
 
-    return _tokens.create_access_token(data=data, expires_delta=expires_delta)
+    return _tokens.create_access_token(
+        data=data, expires_delta=expires_delta, claims_read_at=claims_read_at
+    )
 
 
 async def run_password_hashing(fn: Callable[..., _T], *args: Any) -> _T:

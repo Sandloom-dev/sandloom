@@ -107,11 +107,14 @@ def create_access_token(
     *,
     data: dict[str, Any],
     expires_delta: int | None = None,
+    claims_read_at: datetime | None = None,
 ) -> str
 ```
 
 Create JWT access token via sandloom.core.auth (stable adapter).
 
+`claims_read_at`: when the token's claims were read; a revocation
+committed after it revokes the token (its revocation instant starts there).
 Import at call-time so test patches against security are honored.
 
 ### `decode_token`
