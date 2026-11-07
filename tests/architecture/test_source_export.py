@@ -352,8 +352,14 @@ def test_dx_classification_and_triggers_follow_the_exported_layout(
     assert kind("public_api_baseline.json") == "framework"
     assert kind("tools/checks/check_architecture.py") == "framework"
     assert kind("src/sandloom_tenancy/api/organizations.py") == "other-module"
-    for path in ("architecture_rules.yml", "public_api_baseline.json"):
+    # The eval measures what ships to new projects, not the framework repo's own context.
+    for path in (
+        "public_api_baseline.json",
+        "src/sandloom/core/cli/templates/api-cheatsheet.md",
+    ):
         assert any(pattern.search(path) for pattern in namespace["TRIGGERS"])
+    for path in ("architecture_rules.yml", "AGENTS.md", ".claude/rules/tests.md"):
+        assert not any(pattern.search(path) for pattern in namespace["TRIGGERS"])
 
 
 def test_public_ignore_transformation_preserves_source_and_records_both_hashes(
