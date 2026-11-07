@@ -71,3 +71,58 @@ async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
             "task_infra": id(core.infra),
         }
     assert id(get_active_infra()) == id(second.state.core.infra)  # the default
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("restore_process_runtime")
+async def test_a_task_outliving_the_request_keeps_the_first_apps_core() -> None:
+    """A task a request starts and does not await still sees its app's core
+    after the response is sent and the second app is the process default."""
+    first = create_app()
+    seen: dict[str, int] = {}
+    done = asyncio.Event()
+
+    @first.get("/_probe/later", include_in_schema=False)
+    async def later() -> dict[str, bool]:
+        async def background() -> None:
+            await asyncio.sleep(0)
+            seen["task"] = id(get_active_core())
+            done.set()
+
+        asyncio.get_running_loop().create_task(background())
+        return {"ok": True}
+
+    create_app()  # the second app: the process default now
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=first), base_url="http://test"
+    ) as http:
+        assert (await http.get("/_probe/later")).status_code == 200
+    await asyncio.wait_for(done.wait(), 5)
+    assert seen["task"] == id(first.state.core)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("restore_process_runtime")
+async def test_the_lifespan_runs_with_its_own_apps_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup and shutdown of the first app run bound to its core."""
+    import sandloom.core.app_factory.lifecycle as lifecycle
+
+    phases: dict[str, int] = {}
+
+    async def startup(_core: object) -> None:
+        phases["startup"] = id(get_active_core())
+
+    async def shutdown(_core: object, **_kw: Any) -> None:
+        phases["shutdown"] = id(get_active_core())
+
+    monkeypatch.setattr(lifecycle, "run_startup", startup)
+    monkeypatch.setattr(lifecycle, "run_shutdown", shutdown)
+    monkeypatch.setattr(lifecycle.settings, "outbox_relay_enabled", "off")
+    first = create_app()
+    create_app()
+    async with first.router.lifespan_context(first):
+        pass
+    expected = id(first.state.core)
+    assert phases == {"startup": expected, "shutdown": expected}

@@ -423,7 +423,7 @@ def _load_infra(monkeypatch: pytest.MonkeyPatch, databases: dict[str, Any]) -> N
         name: SimpleNamespace(options=options) for name, options in databases.items()
     }
     monkeypatch.setattr(
-        app_factory, "load_infra_config", lambda _cfg: {"database": instances}
+        app_factory.config, "load_infra_config", lambda _cfg: {"database": instances}
     )
 
 
@@ -485,7 +485,9 @@ Table(_TENANT_TABLE, _TENANT_METADATA, Column("id", Integer, primary_key=True))
 
 @pytest.fixture(autouse=True)
 def _tenant_tables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(app_factory, "tenant_scoped_tables", lambda: [_TENANT_TABLE])
+    monkeypatch.setattr(
+        app_factory.config, "tenant_scoped_tables", lambda: [_TENANT_TABLE]
+    )
 
 
 class _Infra:

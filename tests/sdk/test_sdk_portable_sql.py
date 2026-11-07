@@ -342,13 +342,15 @@ def test_startup_refuses_a_database_without_a_renderer(
         instance = type("Instance", (), {"options": {"url": url}})()
         return lambda _cfg: {"database": {"default": instance}}
 
-    monkeypatch.setattr(app_factory, "load_infra_config", infra("mysql+aiomysql://h/d"))
+    monkeypatch.setattr(
+        app_factory.config, "load_infra_config", infra("mysql+aiomysql://h/d")
+    )
     problem = sql_dialect_problem(object())
     assert problem is not None
     assert "default (mysql)" in problem
     assert "SANDLOOM-B024" in problem
     monkeypatch.setattr(
-        app_factory, "load_infra_config", infra("postgresql+asyncpg://h/d")
+        app_factory.config, "load_infra_config", infra("postgresql+asyncpg://h/d")
     )
     assert sql_dialect_problem(object()) is None
 

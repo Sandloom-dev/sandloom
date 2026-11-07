@@ -31,7 +31,7 @@ src/sandloom/
   core/http/           #   middlewares, error_handlers, rate_limit
   core/migrations/     #   migration runner (`sandloom migrate`), alembic_support
   core/loader/         #   plugin_loader, service_registry (module wiring)
-  core/app_factory.py  #   kernel create_app() (public as sandloom.sdk.app.create_app);
+  core/app_factory/    #   kernel create_app() (public as sandloom.sdk.app.create_app);
                #   sandloom/main.py only adds every installed sandloom.modules
                #   entry point (the kernel names no module); enforce_configuration:
                #   the boot-time config checks every entry point runs (app,
@@ -70,7 +70,7 @@ migrations/core/versions/   # CORE chain: shared infra tables only
 architecture_rules.yml  # import-boundary manifest (main.py is the
                             # platform composition root and is allowlisted
                             # there; the wiring itself lives in
-                            # core/app_factory.py inside the kernel)
+                            # core/app_factory/ inside the kernel)
 public_api_baseline.json  # every public sandloom.sdk name and signature
                             # (a change fails `sandloom test`, SANDLOOM-T008)
 deploy/                     # monolith + microservices compose profiles
