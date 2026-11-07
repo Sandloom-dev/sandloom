@@ -47,9 +47,11 @@ def create_access_token(
     ``claims_read_at``: when the claims were read, if before now. ``iat_us``
     then starts there instead of now, so a revocation committed after that
     read (a role removed while the claims were collected) revokes the token
-    whenever it is minted, not only within the revocation's clock skew; a
-    mark the issuer saw lifts it only when that change committed before the
-    read (its mark is within the skew of the read).
+    whenever it is minted, not only within the revocation's clock skew. A
+    mark the issuer noted before the read lifts the token past it (the claims
+    were read after it was visible); a mark noted after the read never does,
+    whatever its value, since clocks may differ within the skew. Read the
+    claims after the issuance check (``ensure_user_not_blocked``).
     ``iss``/``aud`` are added only when configured (``JWT_ISSUER`` /
     ``JWT_AUDIENCE``). Caller-supplied claims win (``setdefault``), so a
     refresh-token mint or an explicit ``token_type`` is preserved. When

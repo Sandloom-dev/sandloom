@@ -36,10 +36,14 @@ def restore_process_runtime() -> Iterator[None]:
 def _probe(application: Any) -> None:
     @application.get("/_probe/core", include_in_schema=False)
     async def core_id() -> dict[str, int]:
-        seen: dict[str, int] = {"request": id(get_active_core())}
+        seen: dict[str, int] = {
+            "request": id(get_active_core()),
+            "infra": id(get_active_infra()),
+        }
 
         async def background() -> None:
             seen["task"] = id(get_active_core())
+            seen["task_infra"] = id(get_active_infra())
 
         await asyncio.create_task(background())
         return seen
@@ -59,8 +63,14 @@ async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
             transport=httpx.ASGITransport(app=application), base_url="http://test"
         ) as http:
             seen = (await http.get("/_probe/core")).json()
-        expected = id(application.state.core)
-        assert seen == {"request": expected, "task": expected}
+        core = application.state.core
+        assert seen == {
+            "request": id(core),
+            "task": id(core),
+            "infra": id(core.infra),
+            "task_infra": id(core.infra),
+        }
+    assert id(get_active_infra()) == id(second.state.core.infra)  # the default
 
 
 @pytest.mark.asyncio

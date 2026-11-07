@@ -621,11 +621,13 @@ website renders this same changelog.
   read the active core. A request of the first app could then publish to the
   second app's event bus. Every request and the app's lifespan now run with
   their own core bound to the context (`use_active_core`), and the
-  background tasks they start inherit it.
+  background tasks they start inherit it. The binding carries the app's
+  infrastructure registry too, so `cache()`, `notifier()`, the object store
+  and the task queue a module resolves are its own app's.
 - **The service registry's strict name check cannot be skipped.** It was
   imported under `except Exception`, so a failed import registered services
   under the weaker check; the import is now required.
-- **A refresh no longer mints a role removed while it ran** (CWE-362). The
+- **A refresh mints a role removed while it ran in one remaining case only** (CWE-362). The
   refresh read the user's roles before its issuance check and minted the
   access token later; a role change committed in between revoked it only if
   the token was minted within the revocation's clock skew. The refresh now
@@ -634,6 +636,11 @@ website renders this same changelog.
   A revocation mark the check saw lifts the token past it; a mark noted after
   the read never does, whatever the issuer and revoker clocks say. A refresh
   takes one more statement (the claims are no longer read with the token).
+  One case remains: when the subject already has a mark set into the future
+  (a revocation within the last clock skew), a token minted then is stamped
+  past it, and a second change committed before that mark passes, with a
+  lower mark, does not revoke it. Two changes to one user within the skew
+  and a refresh between them are needed; it is tracked as a follow-up.
 - **Billing named PostgreSQL in its code.** Its intent insert read the partial
   index's predicate back as `dialect_options["postgresql"]`; the predicate is
   now the model's own constant. SANDLOOM-C028 now reports a module that reads
