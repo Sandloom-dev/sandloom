@@ -57,7 +57,6 @@ before, so moving a module onto them changes no schema and needs no migration.
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import weakref
 from collections.abc import Iterable, Mapping, Sequence
@@ -729,7 +728,9 @@ REQUIRED_MEMBERS = (
 #:   :class:`Array`;
 #: * ``fulltext_index_options() -> dict | None``: ``Index`` keyword arguments
 #:   of a :func:`fulltext_index`;
-#: * ``fulltext_document(columns, language) -> ColumnElement | None``: the
+#: * ``fulltext_document(columns, language) -> ColumnElement | None`` (a
+#:   ``language`` of :data:`FULLTEXT_LANGUAGES`, mapped to the database's own
+#:   configuration by the renderer): the
 #:   searchable document of ``columns`` (an index expression and the left side
 #:   of :func:`matches`; constants inline, never bound, so the query's
 #:   expression is the index's);
@@ -1703,14 +1704,51 @@ class Array(TypeDecorator[list[Any]]):
         return list
 
 
-_LANGUAGE = re.compile(r"^[a-z][a-z_]{0,62}$")
+#: The languages a full-text form takes, by their English name: stemming and
+#: stop words of that language, or ``"simple"`` for neither. A renderer maps
+#: each to its database's own configuration (PostgreSQL: the text search
+#: configuration of the same name).
+FULLTEXT_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "simple",
+        "arabic",
+        "armenian",
+        "basque",
+        "catalan",
+        "danish",
+        "dutch",
+        "english",
+        "finnish",
+        "french",
+        "german",
+        "greek",
+        "hindi",
+        "hungarian",
+        "indonesian",
+        "irish",
+        "italian",
+        "lithuanian",
+        "nepali",
+        "norwegian",
+        "portuguese",
+        "romanian",
+        "russian",
+        "serbian",
+        "spanish",
+        "swedish",
+        "tamil",
+        "turkish",
+        "yiddish",
+    }
+)
 
 
 def _check_language(language: str) -> str:
-    if not isinstance(language, str) or not _LANGUAGE.match(language):
+    if not isinstance(language, str) or language not in FULLTEXT_LANGUAGES:
         raise ValueError(
-            f"a full-text search language is a lowercase name such as "
-            f"'english' or 'simple'; got {language!r}"
+            f"a full-text search language is a language's English name such as "
+            f"'english', 'german' or 'russian', or 'simple' for no stemming; got "
+            f"{language!r} (one of: {', '.join(sorted(FULLTEXT_LANGUAGES))})"
         )
     return language
 
@@ -1778,8 +1816,10 @@ def fulltext_index(name: str, *columns: str, language: str = "english") -> Index
 
         fulltext_index("ix_articles_text", "title", "body")
 
-    ``language`` names the database's text search configuration (stemming and
-    stop words: ``"english"``, ``"simple"``, ...); :func:`matches` over the same
+    ``language`` is the language of the text by its English name
+    (``"english"``, ``"german"``, ``"russian"``, ...: its stemming and stop
+    words; ``"simple"`` for neither), one of :data:`FULLTEXT_LANGUAGES`; each
+    database's renderer maps it to its own configuration. :func:`matches` over the same
     columns, in the same order and language, uses the index. PostgreSQL: a GIN
     index over ``to_tsvector``. A database without full-text search refuses
     the index when its DDL is compiled, and startup refuses the module on
