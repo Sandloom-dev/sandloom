@@ -229,6 +229,18 @@ def row_security_problem(
     get = getattr(options, "get", None)
     if get is None:
         return None
+    channel = get("system_url") or system_url
+    if channel and dialect_of_url(str(channel)) != dialect_of_url(str(url)):
+        # The system channel is the same database reached as a privileged
+        # role; another database (a SQLite file next to PostgreSQL) is a
+        # misconfiguration, whatever the instance's row-security options.
+        return (
+            f"database/{name}: its system channel is a "
+            f"{dialect_of_url(str(channel))!r} database and the instance a "
+            f"{dialect_of_url(str(url))!r} one [SANDLOOM-B026]: point the "
+            "system channel (DATABASE_SYSTEM_URL or the system_url option) at "
+            "the same database as the instance, or remove it"
+        )
     asked = ("tenant_rls", "system_url", "require_system_channel")
     wanted = [option for option in asked if get(option)]
     if not wanted and system_url and _lacks_row_security(str(url)) is not None:
@@ -237,7 +249,6 @@ def row_security_problem(
         wanted = ["DATABASE_SYSTEM_URL"]
     if not wanted:
         return None
-    channel = get("system_url") or system_url
     for which, target in (("its", url), ("its system channel's", channel)):
         if not target:
             continue

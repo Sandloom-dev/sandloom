@@ -1026,7 +1026,7 @@ claim them.
         "boot",
         "tenant_rls, system_url, require_system_channel or "
         "DATABASE_SYSTEM_URL on a database instance whose database has no row "
-        "security",
+        "security, or a system channel on another database than its instance",
         "remove those options from the instance (its tenant isolation is then "
         "the ORM guard only, application-enforced), or run it on a database "
         "with row security (PostgreSQL)",
@@ -1039,6 +1039,9 @@ database whose renderer has no row security (SQLite) cannot enforce any of
 it, and running on would promise isolation nothing provides. Without these
 options TenantScoped isolation there is the ORM guard alone; startup says so
 with a warning, and the strict production profile refuses such an instance.
+The system channel is the instance's own database reached as a privileged
+role, so a channel URL naming another database (a SQLite file next to
+PostgreSQL) is refused whatever the options say.
 """,
         docs="docs/modules/database/multi-tenancy.md",
     ),

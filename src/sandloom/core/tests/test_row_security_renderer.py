@@ -367,11 +367,24 @@ def test_the_system_channel_url_is_checked_too() -> None:
         "default", pg, {"require_system_channel": True}, system_url=lite
     )
     assert problem is not None
-    # a PostgreSQL system channel, or no row-security option at all: fine
+    # a PostgreSQL system channel, or no system channel at all: fine
     assert (
         row_security_problem("default", pg, {"tenant_rls": True}, system_url=pg) is None
     )
-    assert row_security_problem("default", pg, {}, system_url=lite) is None
+    assert row_security_problem("default", pg, {}) is None
+    assert row_security_problem("default", pg, {}, system_url=pg) is None
+
+
+def test_a_system_channel_on_another_database_is_b026_without_any_option() -> None:
+    """DATABASE_SYSTEM_URL naming a SQLite file next to a PostgreSQL instance
+    is refused even with no row-security option set."""
+    pg = "postgresql+asyncpg://h/db"
+    lite = "sqlite+aiosqlite:///sys.db"
+    problem = row_security_problem("default", pg, {}, system_url=lite)
+    assert problem is not None and "SANDLOOM-B026" in problem
+    assert "'sqlite'" in problem and "'postgresql'" in problem
+    problem = row_security_problem("default", pg, {"system_url": lite})
+    assert problem is not None and "SANDLOOM-B026" in problem
 
 
 async def test_startup_checks_on_a_database_without_row_security_are_fatal() -> None:
