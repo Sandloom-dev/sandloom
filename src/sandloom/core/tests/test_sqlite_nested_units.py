@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import uuid
+import warnings
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ from sandloom.core.testing import reload_test_env
 from sandloom.core.testing.database import assert_disposable_test_database
 from sandloom.core.testing.ownership import claim_database
 from sandloom.core.testing.workers import worker_env_values
-from sandloom.core.unit_of_work import db_session, open_uow
+from sandloom.core.unit_of_work import JoinedUnitRolledBack, db_session, open_uow
 from sandloom.core.unit_of_work.dispatch import drain_post_commit
 from sandloom.core.unit_of_work.effects import publish_event
 from sandloom.core.unit_of_work.hooks import on_commit
@@ -199,6 +200,7 @@ async def test_a_contract_command_in_a_unit_commits_with_the_outer(
     assert len(rows["claims"]) == 1
 
 
+@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")
 @pytest.mark.asyncio
 async def test_an_outer_rollback_undoes_the_inner_unit(core: CoreFacade) -> None:
     items = core.get_service("nested.items.v1")
@@ -232,6 +234,7 @@ async def test_an_inner_failure_rolls_back_only_the_inner_unit(
     assert rows["claims"] == []
 
 
+@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")
 @pytest.mark.asyncio
 async def test_a_savepoint_rollback_around_the_call_drops_its_effects(
     core: CoreFacade,
@@ -247,6 +250,7 @@ async def test_a_savepoint_rollback_around_the_call_drops_its_effects(
     assert await _rows(core) == {"items": [1], "outbox": [], "claims": []}
 
 
+@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")
 @pytest.mark.asyncio
 async def test_a_child_unit_runs_nested_and_commits_with_the_outer(
     core: CoreFacade, statements: list[str]
@@ -341,6 +345,7 @@ async def test_a_read_contract_in_a_writing_unit_reads_committed_rows_only(
         assert await items.count() == 1
 
 
+@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")
 @pytest.mark.asyncio
 async def test_units_of_concurrent_tasks_nest_one_task_at_a_time(
     core: CoreFacade,
@@ -607,3 +612,49 @@ async def test_postgresql_read_scope_keeps_the_contract_factory(
     pg_core: tuple[CoreFacade, Table],
 ) -> None:
     assert pg_core[0].database().contract_read_uow_factory() is None
+
+
+@pytest.mark.asyncio
+async def test_a_caller_rolling_back_a_joined_unit_warns(core: CoreFacade) -> None:
+    """On PostgreSQL the command would stay committed: relying on SQLite's
+    rollback of it is reported (G-UOW-09), and the harness fails on it."""
+    items = core.get_service("nested.items.v1")
+    with (
+        pytest.warns(JoinedUnitRolledBack, match="G-UOW-09"),
+        pytest.raises(RuntimeError, match="outer failed"),
+    ):
+        async with db_session():
+            await _write_lock(core)
+            await items.add(8, operation_key="k-8")
+            raise RuntimeError("outer failed")
+
+
+@pytest.mark.asyncio
+async def test_a_savepoint_of_the_caller_keeps_the_joined_count(
+    core: CoreFacade,
+) -> None:
+    """A SAVEPOINT the caller commits (or rolls back) after the command does
+    not end its transaction: the outer rollback still reports the command."""
+    items = core.get_service("nested.items.v1")
+    with (
+        pytest.warns(JoinedUnitRolledBack, match="1 unit"),
+        pytest.raises(RuntimeError, match="outer failed"),
+    ):
+        async with db_session():
+            await _write_lock(core)
+            await items.add(9, operation_key="k-9")
+            async with db().begin_nested():
+                await db().execute(insert(ITEMS).values(id=11))
+            savepoint = await db().begin_nested()
+            await savepoint.rollback()
+            raise RuntimeError("outer failed")
+
+
+@pytest.mark.asyncio
+async def test_a_committed_caller_reports_nothing(core: CoreFacade) -> None:
+    items = core.get_service("nested.items.v1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", JoinedUnitRolledBack)
+        async with db_session():
+            await _write_lock(core)
+            await items.add(12, operation_key="k-12")

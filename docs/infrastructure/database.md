@@ -89,9 +89,11 @@ renderer belongs to the database's driver package. It names itself in the
 | `transaction_lock` | `pg_advisory_xact_lock` | the unit's own write lock (`BEGIN IMMEDIATE`); refused in a read-only unit |
 | `aggregate_list` | `array_agg` | `json_group_array`, read back as the same list |
 | `Array(item_type)` | `item_type[]` | refused (no `arrays`) |
-| `fulltext_index`, `matches` | GIN index over `to_tsvector`, `@@ websearch_to_tsquery` | refused (no `fulltext_search`) |
+| `fulltext_index`, `matches` | GIN index over `to_tsvector` with the text search configuration named like `language`, `@@ websearch_to_tsquery` | refused (no `fulltext_search`) |
 | `json_path` | `#>>`, an index step only into an array | `json_extract`, booleans as `'true'` / `'false'`, numbers through `->` (the JSON text as written); the same text as PostgreSQL for every scalar |
 | `json_contains` | `jsonb @>` | refused (no `json_contains`) |
+
+`conflict_insert` names the key a row conflicts on and says to skip the row or update some columns. A database without `ON CONFLICT` gets a renderer that writes `MERGE` from the same calls. The full-text `language` is the text's language by its English name, such as `english` or `russian`; `simple` turns stemming off. Each renderer maps the name to its own configuration.
 
 The kernel's own locks come from the same renderer. Its `lock_statement` gives
 the HTTP idempotency try-lock, the projection purge lock and the migration
@@ -279,6 +281,10 @@ in memory. It advertises neither snapshot reads nor transaction locks, so its
 SQLite keeps no time zone offset. A time column is `UtcDateTime()`, which
 reads back in UTC on every database and refuses a naive time
 ([SANDLOOM-C029](../reference/error-codes.md#sandloom-c029)).
+
+A caller that rolls back after a unit joined it raises the warning `JoinedUnitRolledBack`. On PostgreSQL that unit stays committed, so code relying on the rollback works only on SQLite. Tests fail on the warning; a test that rolls back on purpose opts out with `@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")`.
+
+A saga step whose provider commits on its own (over RPC, or on another database instance) is called inside the saga's transition. On SQLite that transition holds the database's write lock, so other writers wait until the call returns. Keep such providers short in development, or run the saga on PostgreSQL.
 
 ### The schema comes from the models
 

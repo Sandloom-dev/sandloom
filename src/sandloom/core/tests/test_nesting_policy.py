@@ -85,6 +85,11 @@ from sandloom.core.unit_of_work.effects import publish_event
 from sandloom.core.unit_of_work.hooks import on_commit
 from sandloom.core.unit_of_work.request import db
 
+#: The oracle drives rollbacks of joined units on purpose (G-UOW-09).
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack"
+)
+
 _REPO = Path(__file__).resolve().parents[4]
 KERNEL_TABLES: list[Table] = [OutboxMessage.__table__, ContractCommandRecord.__table__]  # type: ignore[list-item]
 

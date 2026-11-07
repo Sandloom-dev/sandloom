@@ -1798,6 +1798,7 @@
         "src/sandloom/core/tests/test_transport.py",
         "src/sandloom/core/tests/test_transport_capabilities.py",
         "src/sandloom/core/tests/test_transport_redis.py",
+        "src/sandloom/core/tests/test_two_apps_one_process.py",
         "src/sandloom/core/tests/test_uow_commits_before_response.py",
         "src/sandloom/core/tests/test_uow_outbox.py",
         "src/sandloom/core/tests/test_utc_datetime.py",

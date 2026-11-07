@@ -27,13 +27,16 @@ as built" (guarantee G-UOW-09).
 from __future__ import annotations
 
 import asyncio
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.engine.base import OptionEngine
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from sandloom.core.sql_alchemy.portable import (
     WRITE_LOCK_HELD,
@@ -45,6 +48,9 @@ from sandloom.core.sql_alchemy.write_admission import UNIT_ATTR
 from sandloom.core.unit_of_work.request import CLOSED_KEY, OWNER_KEY, _task
 from sandloom.core.unit_of_work.scope import (
     _NESTED_HOST_KEY,
+    JOINED_COUNT_KEY,
+    ROLLBACK_EXPECTED_KEY,
+    JoinedUnitRolledBack,
     _active_uow_sessions,
     _current_uow_session,
 )
@@ -331,6 +337,7 @@ class JoinCallerAsSavepoint:
             connection = await host.connection()
             session = factory(bind=connection, join_transaction_mode="create_savepoint")
             session.info[_NESTED_HOST_KEY] = host
+            _watch_host_rollback(host)
             sync_connection = connection.sync_connection
             nested = _NestedUnit(
                 sync_connection, getattr(sync_connection, UNIT_ATTR, None), gate
@@ -360,3 +367,54 @@ __all__ = [
     "pin_test_host",
     "savepoint_host",
 ]
+
+
+#: ``host.info`` key: the host's COMMIT and rollback are watched (once).
+_JOINED_WATCHED_KEY = "sandloom_joined_watched"
+
+
+def _watch_host_rollback(host: AsyncSession) -> None:
+    """Warn when ``host`` rolls back after units joined its transaction
+    (:class:`~sandloom.core.unit_of_work.scope.JoinedUnitRolledBack`)."""
+    sync = host.sync_session
+    if sync.info.get(_JOINED_WATCHED_KEY):
+        return
+    event.listen(sync, "after_commit", _note_committed)
+    event.listen(sync, "after_transaction_end", _joined_transaction_ended)
+    sync.info[_JOINED_WATCHED_KEY] = True
+
+
+#: ``session.info`` key: ids of outermost transactions that committed. A
+#: SAVEPOINT's commit fires ``after_commit`` too, with the savepoint current.
+_COMMITTED_ROOTS_KEY = "sandloom_committed_roots"
+
+
+def _note_committed(sync_session: Session) -> None:
+    if sync_session.in_nested_transaction():
+        return  # a SAVEPOINT released: the outer transaction goes on
+    root = sync_session.get_transaction()
+    if root is not None:
+        sync_session.info.setdefault(_COMMITTED_ROOTS_KEY, set()).add(id(root))
+
+
+def _joined_transaction_ended(sync_session: Session, transaction: Any) -> None:
+    """The outermost transaction ended: warn when units joined it and it did
+    not commit. A SAVEPOINT's end leaves the counts of its outer transaction."""
+    if transaction.parent is not None:
+        return
+    info = sync_session.info
+    count = info.get(JOINED_COUNT_KEY, {}).pop(id(transaction), 0)
+    committed = id(transaction) in info.get(_COMMITTED_ROOTS_KEY, set())
+    info.get(_COMMITTED_ROOTS_KEY, set()).discard(id(transaction))
+    if not count or committed or info.get(ROLLBACK_EXPECTED_KEY):
+        return
+    warnings.warn(
+        JoinedUnitRolledBack(
+            f"{count} unit(s) that joined this transaction (a contract command, "
+            "a saga step or a child open_uow() on a serial-writer database) "
+            "rolled back with it. On PostgreSQL they committed on their own and "
+            "stay committed: do not rely on this rollback; make the call a saga "
+            "step or undo it explicitly (G-UOW-09)"
+        ),
+        stacklevel=2,
+    )

@@ -94,7 +94,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import TextClause
@@ -211,6 +211,20 @@ def _lacks_row_security(url: str) -> str | None:
     return dialect
 
 
+def _database_of(url: str) -> tuple[str, str | None]:
+    """The database ``url`` reaches: its backend and database name. The role,
+    its password, the host and the port are left out: the system channel is
+    the same database as another role, possibly through another address (a
+    pooler, or the primary directly)."""
+    return (dialect_of_url(url), make_url(url).database)
+
+
+def _shown(url: str) -> str:
+    """``url`` without its password or query (which may carry credentials,
+    such as ``?password=`` or ``?sslkey=``), for a message."""
+    return make_url(url).set(query={}).render_as_string(hide_password=True)
+
+
 def row_security_problem(
     name: str, url: str, options: Any, *, system_url: str | None = None
 ) -> str | None:
@@ -229,6 +243,19 @@ def row_security_problem(
     get = getattr(options, "get", None)
     if get is None:
         return None
+    channel = get("system_url") or system_url
+    if channel and _database_of(str(channel)) != _database_of(str(url)):
+        # The system channel is the same database reached as a privileged
+        # role (its own credentials); another database (a SQLite file next to
+        # PostgreSQL, another database name) is a misconfiguration, whatever
+        # the instance's row-security options.
+        return (
+            f"database/{name}: its system channel ({_shown(str(channel))}) is "
+            f"not the instance's database ({_shown(str(url))}) "
+            "[SANDLOOM-B026]: point the system channel (DATABASE_SYSTEM_URL or "
+            "the system_url option) at the same database as the instance, as "
+            "its privileged role, or remove it"
+        )
     asked = ("tenant_rls", "system_url", "require_system_channel")
     wanted = [option for option in asked if get(option)]
     if not wanted and system_url and _lacks_row_security(str(url)) is not None:
@@ -237,7 +264,6 @@ def row_security_problem(
         wanted = ["DATABASE_SYSTEM_URL"]
     if not wanted:
         return None
-    channel = get("system_url") or system_url
     for which, target in (("its", url), ("its system channel's", channel)):
         if not target:
             continue

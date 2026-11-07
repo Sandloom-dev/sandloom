@@ -58,6 +58,11 @@ def test_module_imports_no_dialect(root: Path) -> None:
         "from sqlalchemy import Index\nIndex('i', 'a', sqlite_where='a > 1')\n",
         "from sqlalchemy import Index\nIndex('i', 'a', **{'postgresql_where': 'a'})\n",
         "import sqlalchemy as sa\nsa.Column('a', sa.Text, postgresql_using='gin')\n",
+        "w = index.dialect_options['postgresql']['where']\n",
+        "w = index.dialect_kwargs['sqlite_where']\n",
+        "w = index.dialect_options.get('postgresql')\n",
+        "w = index.dialect_options['mariadb']['length']\n",
+        "w = index.dialect_kwargs['mariadb_length']\n",
     ],
 )
 def test_the_analyzer_catches_every_spelling(tmp_path: Path, source: str) -> None:
@@ -83,6 +88,17 @@ def test_an_ordinary_argument_named_like_a_dialect_passes(tmp_path: Path) -> Non
         "text('SELECT a FROM t WHERE b = :b')\n"
     )
     assert find_dialect_imports(sample) == []
+
+
+def test_writing_a_renderers_options_passes(tmp_path: Path) -> None:
+    """Only a read naming a database is one database's code."""
+    path = tmp_path / "m.py"
+    path.write_text(
+        "index.dialect_kwargs.update(options)\n"
+        "w = index.dialect_options[name]\n"
+        "v = index.dialect_kwargs.get(key)\n"
+    )
+    assert find_dialect_imports(path) == []
 
 
 def test_the_kernel_side_of_the_portable_forms_names_no_database() -> None:

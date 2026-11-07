@@ -197,7 +197,10 @@ async def test_concurrent_revocations_all_succeed_and_keep_the_max(
     )
     assert all(results)
     stored = cache.store[marks.subject_key(sub)]
-    assert marks._parse_mark_us(stored) == marks._seconds_to_us(max(mark_values))
+    # at the maximum, or past it by a microsecond per lower revocation that
+    # found a covering mark stored (it must land above what issuers stamped)
+    highest = marks._seconds_to_us(max(mark_values))
+    assert highest <= marks._parse_mark_us(stored) <= highest + len(mark_values)
     assert "Could not record token revocation" not in caplog.text
 
 
@@ -213,7 +216,12 @@ class _OvertakingCache(_AdversarialCache):
         self.competitors = competitor_marks
 
     def _overtake(self, key: str, value: str) -> None:
-        if value == self.target and self.competitors:
+        # the target writer's value reads as the target instant (a revocation
+        # carries its identity past the microsecond)
+        reads_as_target = marks._parse_mark_us(value) == marks._parse_mark_us(
+            self.target
+        )
+        if reads_as_target and self.competitors:
             self.store[key] = self.competitors.pop(0)
 
     async def add(
@@ -254,7 +262,10 @@ async def test_a_writer_overtaken_many_times_still_records_its_mark(
     else:
         assert await revocation.revoke_user_tokens(sub, valid_after=valid_after)
     assert cache.lost == 20
-    assert cache.store[marks.subject_key(sub)] == target
+    stored = marks._parse_mark_us(cache.store[marks.subject_key(sub)])
+    # outside a unit the post-commit re-mark runs at once: one microsecond
+    # past the early mark it found covering its own instant
+    assert stored == target_us + (1 if immediate else 0)
     assert "Could not record token revocation" not in caplog.text
 
 

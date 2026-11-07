@@ -569,8 +569,9 @@ guarantees:
     The caller's rollback undoes its rows, outbox rows and command-log claim. Its outbox dispatch, on_commit
     callbacks and command-record amendment run only after the caller's COMMIT. Its own failure rolls back only
     to its savepoint. Units of other tasks nest one task at a time. A read-only unit (a read contract's included)
-    never nests. The weakening has the computed label "commits with the caller" (nested_unit_label) and a startup
-    warning per such instance. On PostgreSQL a nested unit opens its own transaction and commits on its own,
+    never nests. The weakening has the computed label "commits with the caller" (nested_unit_label), a startup
+    warning per such instance, and a JoinedUnitRolledBack warning when a caller rolls back after a unit joined it
+    (an error in tests). On PostgreSQL a nested unit opens its own transaction and commits on its own,
     unchanged.
   sources:
   - docs/infrastructure/database.md#Nested units commit with their caller
@@ -586,6 +587,7 @@ guarantees:
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_read_contract_in_a_writing_unit_reads_committed_rows_only
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_postgresql_still_opens_a_fresh_independent_unit
   - src/sandloom/core/tests/test_sqlite_nested_units.py::test_startup_warns_once_per_serial_writer_instance
+  - src/sandloom/core/tests/test_sqlite_nested_units.py::test_a_caller_rolling_back_a_joined_unit_warns
   startup_checks: warn_nested_units_join_caller at create_app
 - id: G-UNIT-01
   statement: 'db() is the session of the innermost open unit of the current context; outside any unit it is SANDLOOM-R002;
@@ -1860,10 +1862,13 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_windows.py::test_skew_margin_rejects_tokens_from_an_issuer_clock_running_ahead
   - src/sandloom/core/tests/test_revocation_windows.py::test_issuer_that_saw_the_mark_mints_past_the_margin
   - src/sandloom/core/tests/test_revocation_windows.py::test_tokens_minted_later_in_the_revoking_request_stay_valid
+  - src/sandloom/core/tests/test_revocation_windows.py::test_a_later_change_from_a_slower_clock_revokes_a_token_stamped_past_a_higher_mark
 - id: G-REVOKE-03
   statement: The revocation mark is written with the cache's atomic set_max and never moves backwards;
-    concurrent revocations of one subject all succeed and end at the maximum; a security cache with neither
-    set_max nor cas is refused for revocation writes.
+    a revocation that finds the stored mark at or past its own instant writes it one microsecond further,
+    above every token an issuer stamped past it; concurrent revocations of one subject all succeed and end
+    at the maximum or a few microseconds past it; a security cache with neither set_max nor cas is refused
+    for revocation writes.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
@@ -1872,6 +1877,7 @@ guarantees:
   - src/sandloom/core/tests/test_cache_set_max.py::test_concurrent_revocations_all_succeed_and_keep_the_max
   - src/sandloom/core/tests/test_cache_set_max.py::test_revocation_refuses_a_cache_without_set_max_or_cas
   - tests/integration/test_revocation_pipeline.py::test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark
+  - src/sandloom/core/tests/test_revocation_windows.py::test_a_later_change_from_a_slower_clock_revokes_a_token_stamped_past_a_higher_mark
 - id: G-REVOKE-04
   statement: 'revoke_user_tokens_on_commit writes the mark only after the UoW commits: a rolled-back change
     never revokes (logs out) the user.'
@@ -1925,6 +1931,7 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_windows.py::test_exhausted_retries_count_a_deferred_revocation
   - src/sandloom_identity/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
   - tests/integration/test_revocation_pipeline.py::test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox
+  - src/sandloom/core/tests/test_revocation_windows.py::test_a_durable_replay_lifts_past_an_early_mark_whose_re_mark_was_lost
 - id: G-REVOKE-08
   statement: 'The revocation applier is registered dead_letter=False: an outage is retried forever with
     capped backoff (never parked in the DLQ), only a malformed payload is dead-lettered at once, and while

@@ -682,7 +682,7 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
     },
     "current_tenant_id": {
       "kind": "function",
@@ -5136,7 +5136,7 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
     },
     "decode_token": {
       "kind": "function",

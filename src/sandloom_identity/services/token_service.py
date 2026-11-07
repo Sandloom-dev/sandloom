@@ -15,9 +15,7 @@ from sandloom.sdk import record_audit
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import create_access_token, ensure_user_not_blocked
 from sandloom_identity.claims import (
-    claims_from_codes,
     contribute_identity_claims,
-    identity_claims_columns,
 )
 from sandloom_identity.errors import CommittedHTTPError
 from sandloom_identity.models.refresh_token import RefreshToken
@@ -29,20 +27,19 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.sdk.infra import CoreRuntime
 
 
-#: The presented token, the user it belongs to and identity's claims for that
-#: user (roles / permissions, the contributor's own aggregates as correlated
-#: scalar subqueries), in ONE statement: the claims are handed to claims
-#: collection as precomputed for ``contribute_identity_claims``, so a refresh
-#: never runs the contributor's query. Built once; the hash is bound per call.
-_role_codes, _permission_codes = identity_claims_columns(User.id)
-_LOAD_TOKEN_USER_AND_CLAIMS = (
-    select(RefreshToken, User, _role_codes, _permission_codes)
+#: The presented token and the user it belongs to, in one statement. Identity's
+#: claims are NOT read here: they are collected after the issuance check and
+#: the consume, so the token is stamped at a read that follows every
+#: revocation the check saw (``claims_read_at``). Built once; the hash is
+#: bound per call.
+_LOAD_TOKEN_AND_USER = (
+    select(RefreshToken, User)
     .join(User, User.id == RefreshToken.user_id)
     .where(RefreshToken.token == bindparam("b_token_hash"))
 )
 #: The rotation's compare-and-set consume (``is_revoked = false`` → ``true``):
 #: the row comes back only when THIS call flipped the flag. The token is
-#: already in the session (``_LOAD_TOKEN_USER_AND_CLAIMS``), so its state is
+#: already in the session (``_LOAD_TOKEN_AND_USER``), so its state is
 #: not synchronised from the statement. Built once; the token id and ``now``
 #: are bound per call.
 _CONSUME = (
@@ -81,8 +78,12 @@ class TokenService:
         auth_time: datetime | None = None,
         block_checked: bool = False,
         identity_claims: dict[str, Any] | None = None,
+        claims_read_at: datetime | None = None,
     ) -> TokenPair:
         """Create access and refresh tokens for user.
+
+        ``claims_read_at``: when the claims are read, after the issuance
+        check (a refresh); the access token's revocation instant starts there.
 
         When ``core`` is provided, every registered claims contributor runs and
         its claims (roles, permissions, subscription, …) are embedded in the
@@ -149,7 +150,7 @@ class TokenService:
         }
         if auth_time is not None:
             claims["auth_time"] = int(auth_time.timestamp())
-        access_token = create_access_token(data=claims)
+        access_token = create_access_token(data=claims, claims_read_at=claims_read_at)
 
         # Create refresh token
         refresh_token_value = secrets.token_urlsafe(32)
@@ -220,7 +221,7 @@ class TokenService:
         token_hash = RefreshTokenUtils.hash_token(refresh_token)
 
         loaded = (
-            await db.execute(_LOAD_TOKEN_USER_AND_CLAIMS, {"b_token_hash": token_hash})
+            await db.execute(_LOAD_TOKEN_AND_USER, {"b_token_hash": token_hash})
         ).one_or_none()
 
         if loaded is None:
@@ -229,7 +230,7 @@ class TokenService:
                 detail="Invalid or expired refresh token",
             )
 
-        token_obj, user, role_codes, permission_codes = loaded
+        token_obj, user = loaded
         family_id = token_obj.family_id
         auth_time = token_obj.auth_time
         token_id = token_obj.id
@@ -265,9 +266,6 @@ class TokenService:
             )
 
         # Atomic consume (CAS): only one concurrent caller can flip the flag.
-        # The user the new pair is minted for, and the user's roles /
-        # permissions (identity's claims), came with the token above: a
-        # refresh is one SELECT and this UPDATE, with no user or claims query.
         consumed = (
             await db.execute(_CONSUME, {"b_token_id": token_id, "b_now": now})
         ).one_or_none()
@@ -280,7 +278,11 @@ class TokenService:
             )
 
         # Create new tokens in the same family (re-embeds fresh claims; the
-        # primary authentication instant is carried over unchanged).
+        # primary authentication instant is carried over unchanged). The claims
+        # are read from here on, after the issuance check above: the token is
+        # stamped at this instant, so a role or membership change committed
+        # after it is revoked by its mark however long the refresh takes, and
+        # a mark the check saw (a change before it) lifts the token past it.
         return await cls.create_tokens(
             user,
             db,
@@ -288,7 +290,7 @@ class TokenService:
             family_id=family_id,
             auth_time=auth_time,
             block_checked=True,
-            identity_claims=claims_from_codes(role_codes, permission_codes),
+            claims_read_at=datetime.now(UTC),
         )
 
     @classmethod

@@ -655,7 +655,7 @@ def find_legacy_infra_imports(file_path: Path) -> list[str]:  # noqa: C901
 DIALECT_MODULE = "sqlalchemy.dialects"
 #: SQLAlchemy's built-in dialect names: ``<name>_<option>=`` keyword arguments
 #: (``postgresql_where=``, ``sqlite_where=``) are that database's options.
-DIALECT_NAMES = ("mssql", "mysql", "oracle", "postgresql", "sqlite")
+DIALECT_NAMES = ("mariadb", "mssql", "mysql", "oracle", "postgresql", "sqlite")
 
 
 def _is_dialect_module(module: str) -> bool:
@@ -681,6 +681,8 @@ SCHEMA_CALLEES = frozenset(
     }
 )
 _DIALECT_PREFIXES = tuple(f"{d}_" for d in DIALECT_NAMES)
+#: Where SQLAlchemy keeps a schema construct's per-database options.
+_DIALECT_OPTION_ATTRS = frozenset({"dialect_options", "dialect_kwargs"})
 
 
 def _callee(node: ast.Call) -> str | None:
@@ -718,11 +720,40 @@ def _sqlalchemy_aliases(tree: ast.AST) -> set[str]:
     return names
 
 
+def _dialect_option_key(node: ast.AST) -> str | None:
+    """``x.dialect_options["postgresql"]``, ``x.dialect_kwargs["sqlite_where"]``
+    or the same through ``.get(...)``: a read of one named database's option.
+    A write of what a renderer returned names no database and passes."""
+    if isinstance(node, ast.Subscript):
+        holder, key = node.value, node.slice
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and node.args
+    ):
+        holder, key = node.func.value, node.args[0]
+    else:
+        return None
+    if not (
+        isinstance(holder, ast.Attribute)
+        and holder.attr in _DIALECT_OPTION_ATTRS
+        and isinstance(key, ast.Constant)
+        and isinstance(key.value, str)
+    ):
+        return None
+    name = key.value
+    if name in DIALECT_NAMES or name.startswith(_DIALECT_PREFIXES):
+        return f".{holder.attr}[{name!r}]"
+    return None
+
+
 def find_dialect_imports(file_path: Path) -> list[str]:
     """Code that only runs on one database: a ``sqlalchemy.dialects`` import
     (static, ``from sqlalchemy import dialects``, dynamic), the package reached
     by attribute (``sa.dialects.postgresql``), or a dialect's own option on a
-    schema construct (``Index(..., postgresql_where=...)``). SQL functions
+    schema construct (``Index(..., postgresql_where=...)``) or read back from
+    one (``index.dialect_options["postgresql"]``). SQL functions
     only one database has (``func.array_agg``) and raw SQL (a PostgreSQL cast
     ``::`` in ``text()``) are :func:`find_unportable_sql`'s (SANDLOOM-C031)."""
     tree = parse_file(file_path)
@@ -751,6 +782,13 @@ def find_dialect_imports(file_path: Path) -> list[str]:
             and node.value.id in aliases
         ):
             violations.append(f"Line {node.lineno}: {node.value.id}.dialects")
+        elif (key := _dialect_option_key(node)) is not None:
+            # ``index.dialect_options["postgresql"]["where"]``: one database's
+            # option of a schema construct, read back.
+            violations.append(
+                f"Line {getattr(node, 'lineno', 0)}: {key} reads one database's option "
+                "(keep the value in your own constant)"
+            )
         elif isinstance(node, ast.Call) and _callee(node) in SCHEMA_CALLEES:
             violations.extend(
                 f"Line {node.lineno}: dialect option {name}= "

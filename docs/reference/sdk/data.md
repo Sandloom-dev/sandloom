@@ -337,6 +337,16 @@ For annotations only: the shape `conflict_insert` returns
 where=)`, `.excluded`). The statement itself is the database's own
 insert, not an instance of this class.
 
+The shape names no database: the key the row conflicts on (unique
+columns, and the predicate of a partial unique index), and either
+skip the row or update `set_` from the proposed row (`excluded`),
+as Django's `bulk_create(update_conflicts=...)` or Rails'
+`upsert_all(unique_by:)`. Modules see only these members (the type
+checker refuses any other). A renderer returns an `Insert` with
+exactly this shape and compiles it its database's way: `ON CONFLICT`
+(PostgreSQL, SQLite), `ON DUPLICATE KEY` or `MERGE`; the driver
+kit's conformance tests check the shape.
+
 ### `disable_tenant_rls`
 
 ```python
@@ -383,8 +393,10 @@ An index that serves `matches` over `columns` (feature
 fulltext_index("ix_articles_text", "title", "body")
 ```
 
-`language` names the database's text search configuration (stemming and
-stop words: `"english"`, `"simple"`, ...); `matches` over the same
+`language` is the language of the text by its English name
+(`"english"`, `"german"`, `"russian"`, ...: its stemming and stop
+words; `"simple"` for neither), one of `FULLTEXT_LANGUAGES`; each
+database's renderer maps it to its own configuration. `matches` over the same
 columns, in the same order and language, uses the index. PostgreSQL: a GIN
 index over `to_tsvector`. A database without full-text search refuses
 the index when its DDL is compiled, and startup refuses the module on

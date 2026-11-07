@@ -97,7 +97,10 @@ from sandloom.core.unit_of_work.effects import (
     record_audit,
 )
 from sandloom.core.unit_of_work.hooks import on_commit
-from sandloom.core.unit_of_work.scope import _resolve_scoped_session
+from sandloom.core.unit_of_work.scope import (
+    ROLLBACK_EXPECTED_KEY,
+    _resolve_scoped_session,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,6 +375,9 @@ class SagaRuntime:
         (the nudge is a no-op, as under tenant RLS). ``own_marker``: the
         transition right after this process's ``marked`` one, at the version
         it committed (:meth:`continue_after_mark`)."""
+        # A step unit joined to this transition (a serial-writer database)
+        # rolls back with it by the step protocol's design (G-SAGA-07).
+        session.info[ROLLBACK_EXPECTED_KEY] = True
         row = await _store.lock_instance(session, instance_id, tenant=tenant)
         if row is None:
             return NOOP_LOCKED

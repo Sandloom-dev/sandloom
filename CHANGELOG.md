@@ -13,6 +13,8 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a11] — 2026-11-07
+
 ### Breaking changes
 
 - **`UtcDateTime` refuses a naive `datetime`** (`NaiveDateTimeError`), in a
@@ -155,6 +157,18 @@ website renders this same changelog.
   features=frozenset({"transaction_locks"}))` (`sandloom.sdk.module`).
 
 ### Added
+
+- **A caller that rolls back a unit joined to it on SQLite warns, and tests fail
+  on it** (`JoinedUnitRolledBack`, G-UOW-09). On SQLite a contract command, a
+  saga step's unit or a child `open_uow()` joins its caller's transaction; on
+  PostgreSQL it commits on its own and stays committed. Code that relies on
+  the caller's rollback undoing it passed on SQLite and failed in production.
+  The `sandloom.sdk.testing` plugin turns the warning into an error. A test's
+  own `db` session and saga transitions are not reported.
+
+  **Upgrade:** a test that rolls back such a unit on purpose adds
+  `@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")`.
+  Elsewhere, make the call a saga step or undo it explicitly.
 
 - **CI runs the module suites on SQLite too: the `second-db-test-lane` job, and
   a skip ledger.** PostgreSQL (`backend-tests`) stays the mandatory lane. The
@@ -500,6 +514,15 @@ website renders this same changelog.
 
 ### Changed
 
+- **A full-text `language` is the text's language by its English name**
+  (`fulltext_index`, `matches`): one of `FULLTEXT_LANGUAGES`, or `"simple"` for
+  no stemming. Each SQL renderer maps it to its own configuration; PostgreSQL
+  uses its text search configuration of the same name, so existing values and
+  indexes are unchanged. A name outside the list is refused.
+- **`conflict_insert`'s shape is documented as database-neutral**: the key a row
+  conflicts on, and skip or update. A renderer for a database without
+  `ON CONFLICT` returns its own insert with the same methods.
+
 - **The inspection index records no line numbers** (`.sandloom/inspection.json`,
   schema 2). A route's or saga step's source is its file and qualified function
   name; `sandloom context` and `sandloom graph` look the line up when they
@@ -591,6 +614,51 @@ website renders this same changelog.
   statement running). (tm: test-speed, test-speed-2)
 
 ### Fixed
+
+- **Two applications in one process no longer share a runtime.**
+  `create_app` moves the process default core to the app it builds last, and
+  kernel paths outside a request handler (event publishing, units, services)
+  read the active core. A request of the first app could then publish to the
+  second app's event bus. Every request and the app's lifespan now run with
+  their own core bound to the context (`use_active_core`), and the
+  background tasks they start inherit it. The binding carries the app's
+  infrastructure registry too, so `cache()`, `notifier()`, the object store
+  and the task queue a module resolves are its own app's.
+- **The service registry's strict name check cannot be skipped.** It was
+  imported under `except Exception`, so a failed import registered services
+  under the weaker check; the import is now required.
+- **A refresh no longer mints a role removed while it ran** (CWE-362). The
+  refresh read the user's roles before its issuance check and minted the
+  access token later; a role change committed in between revoked it only if
+  the token was minted within the revocation's clock skew. The refresh now
+  collects the claims after the issuance check and the token's consume, and
+  stamps the token at that read (`create_access_token(..., claims_read_at=)`).
+  A revocation mark the check saw lifts the token past it; a mark noted after
+  the read never does, whatever the issuer and revoker clocks say. A refresh
+  takes one more statement (the claims are no longer read with the token).
+  A later change revokes a token stamped past a mark set into the future,
+  too: a refresh that saw a mark within the last clock skew stamps its token
+  past it, and a second change committed before that mark passed, from a
+  clock whose `now + skew` was lower, kept the stored maximum and left the
+  token valid. A revocation that finds the stored mark at or past its own
+  instant now writes it one microsecond further, above every token stamped
+  past it. The tokens the revoking request mints after the call stay valid:
+  they are stamped past that value, and the writes of one revocation (the
+  `require_immediate` early mark, the post-commit write, the durable
+  applier's replay) recognise each other through an identity in the value's
+  digits past the microsecond, so a repeated write does not move the mark
+  again. `core.auth.tokens_revoked.v1` gains the optional `revocation_id`
+  field. The durable applier also lifts past a `require_immediate` early
+  mark whose post-commit write was lost. Concurrent revocations of one
+  subject still all succeed; the stored mark ends at their maximum or a few
+  microseconds past it.
+- **Billing named PostgreSQL in its code.** Its intent insert read the partial
+  index's predicate back as `dialect_options["postgresql"]`; the predicate is
+  now the model's own constant. SANDLOOM-C028 now reports a module that reads
+  one database's option of a schema construct.
+- **A system channel on another database than its instance is refused at
+  startup** (SANDLOOM-B026). `DATABASE_SYSTEM_URL` naming a SQLite file next to
+  a PostgreSQL database passed when no row-security option was set.
 
 - **A green `sandloom test` no longer leaves a generated file stale.** With a
   project's `fix = true`, `ruff check` could rewrite source (an import sorted

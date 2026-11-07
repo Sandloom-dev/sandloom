@@ -181,6 +181,9 @@ def test_a_json_path_is_part_of_the_cache_key() -> None:
         (lambda c: json_path(c, True), TypeError),
         (lambda c: json_path(c, "a", -1), ValueError),
         (lambda c: matches(c, "x", language="english; DROP"), ValueError),
+        # a language by name, not one database's configuration
+        (lambda c: matches(c, "x", language="pg_catalog.english"), ValueError),
+        (lambda c: matches(c, "x", language="klingon"), ValueError),
         (lambda c: Array(Array(sa.String())), TypeError),
     ],
 )
@@ -838,3 +841,12 @@ def test_an_applications_compile_hooks_keep_working(before: bool) -> None:
     assert "json_path sqlite refused" in found
     # Hooks registered first: the refusing dispatch runs before them everywhere.
     assert ("json_path postgresql refused" in found) is before
+
+
+def test_a_language_is_mapped_by_the_renderer() -> None:
+    """``language`` is the text's language by name; PostgreSQL's renderer
+    maps it to its text search configuration of the same name."""
+    table = _docs()
+    stmt = sa.select(table.c.id).where(matches(table.c.doc, "x", language="german"))
+    sql = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "'german'::regconfig" in sql

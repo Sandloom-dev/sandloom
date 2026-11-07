@@ -80,12 +80,13 @@ async def test_login_round_trips(
     assert not any("user_roles.user_id IN" in s for s in sql_counter.statements)
 
 
-#: Statements of one refresh-token rotation: the token lookup, the CAS consume
-#: returning the user AND identity's roles / permissions (one data-modifying
-#: CTE with a LATERAL aggregate; was the consume + a user SELECT + the roles
-#: query), the other owners' claims queries (tenancy, billing) and the new
-#: token's INSERT.
-BUDGET_REFRESH_SQL = 5
+#: Statements of one refresh-token rotation: the token lookup with its user,
+#: the CAS consume, identity's roles / permissions, the other owners' claims
+#: queries (tenancy, billing) and the new token's INSERT. Identity's claims are
+#: read after the issuance check and the consume, not with the token (6, was
+#: 5): the token is stamped at that read, so a role removed while a refresh
+#: runs is revoked whatever the issuer's and revoker's clocks (CWE-362).
+BUDGET_REFRESH_SQL = 6
 
 
 async def test_refresh_round_trips(

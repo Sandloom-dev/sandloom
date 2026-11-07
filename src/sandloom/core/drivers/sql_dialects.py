@@ -42,6 +42,7 @@ from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.types import NullType, TypeDecorator, TypeEngine, Uuid
 
 from sandloom.core.sql_alchemy.portable import (
+    FULLTEXT_LANGUAGES,
     TENANT_SETTING,
     ArrayInsert,
     ConflictInsert,
@@ -390,8 +391,17 @@ def _pg_fulltext_document(
     document: ColumnElement[Any] = parts[0]
     for part in parts[1:]:
         document = document.op("||")(literal_column("' '")).op("||")(part)
-    # ``language`` is checked by the form: a lowercase name.
-    return func.to_tsvector(literal_column(f"'{language}'::regconfig"), document)
+    return func.to_tsvector(_pg_text_search_config(language), document)
+
+
+def _pg_text_search_config(language: str) -> ColumnElement[Any]:
+    """The text search configuration of ``language`` (a name of
+    ``FULLTEXT_LANGUAGES``, checked by the form): PostgreSQL ships one of the
+    same name for each. Inline, never bound: the index's expression and the
+    query's must be the same text."""
+    if language not in FULLTEXT_LANGUAGES:
+        raise ValueError(f"no PostgreSQL text search configuration for {language!r}")
+    return literal_column(f"'{language}'::regconfig")
 
 
 def _pg_text_path(path: tuple[JsonPathKey, ...]) -> ColumnElement[Any]:
@@ -515,9 +525,7 @@ class PostgresqlSql:
     def fulltext_match(
         self, document: ColumnElement[Any], query: ColumnElement[str], language: str
     ) -> ColumnElement[bool]:
-        tsquery = func.websearch_to_tsquery(
-            literal_column(f"'{language}'::regconfig"), query
-        )
+        tsquery = func.websearch_to_tsquery(_pg_text_search_config(language), query)
         return cast(
             "ColumnElement[bool]",
             document.op("@@", return_type=Boolean())(tsquery),

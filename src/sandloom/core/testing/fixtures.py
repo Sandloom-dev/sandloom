@@ -455,7 +455,15 @@ def revoked_tokens(monkeypatch: pytest.MonkeyPatch) -> RevokedTokens:
         calls.append(user_id)
         return True
 
+    async def _write(user_id: Any, mark_us: int, tail: str | None) -> str | None:
+        if not calls.available:
+            return None  # store unreachable: the mark was not written
+        calls.append(user_id)
+        return f"v1:after:{mark_us // 1_000_000}.{mark_us % 1_000_000:06d}"
+
     monkeypatch.setattr(revocation, "revoke_user_tokens", _record)
+    # every scheduled revocation (on commit, immediate, applier) writes here
+    monkeypatch.setattr(revocation, "_write_revocation", _write)
     return calls
 
 

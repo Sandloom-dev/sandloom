@@ -156,10 +156,17 @@ def sites(path: Path) -> int:
             if isinstance(func, ast.Attribute) and func.attr == "with_for_update":
                 # SKIP LOCKED / FOR SHARE compile to nothing on SQLite.
                 count += any(k.arg in ("skip_locked", "read") for k in node.keywords)
-        elif isinstance(node, ast.Subscript) and any(
-            _names_database(v) for v in _strings(node.slice)
+        elif (
+            isinstance(node, ast.Subscript)
+            and any(_names_database(v) for v in _strings(node.slice))
+            and not (
+                # dialect_options["postgresql"], dialect_kwargs["sqlite_where"]:
+                # counted by C028
+                isinstance(node.value, ast.Attribute)
+                and node.value.attr in ("dialect_options", "dialect_kwargs")
+            )
         ):
-            count += 1  # dialect_options["postgresql"], dialect_kwargs["sqlite_where"]
+            count += 1  # options["postgresql"]
         elif isinstance(node, ast.Attribute) and node.attr in ERROR_CODE_ATTRIBUTES:
             count += 1  # exc.pgcode / exc.orig.sqlstate
         elif (

@@ -4,14 +4,12 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+# Strict naming is part of the contract rules: a failure to load it fails the
+# import, never registers services under a weaker check.
+from sandloom.core.contracts import (
+    validate_service_name as _validate_service_contract,
+)
 from sandloom.core.module_api._provider import contract_schema
-
-try:  # Phase J: strict naming (optional fallback if import fails)
-    from sandloom.core.contracts import (
-        validate_service_name as _validate_service_contract,
-    )
-except Exception:  # pragma: no cover  # noqa: BLE001 - strict naming is optional
-    _validate_service_contract = None  # type: ignore
 
 
 class ServiceRegistryError(Exception):
@@ -76,11 +74,10 @@ def _validate_service_name(name: str) -> None:
             raise ServiceRegistryError(
                 f"Invalid characters in service name segment '{seg}'"
             )
-    if _validate_service_contract is not None:
-        try:
-            _validate_service_contract(name)
-        except Exception as exc:  # normalize to registry error type
-            raise ServiceRegistryError(str(exc)) from exc
+    try:
+        _validate_service_contract(name)
+    except Exception as exc:  # normalize to registry error type
+        raise ServiceRegistryError(str(exc)) from exc
 
 
 def is_valid_service_name(name: str) -> bool:
