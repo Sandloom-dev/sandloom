@@ -531,7 +531,10 @@ the combination unless the atom states why (spec §7.3).
 Business logic is isolated from the infrastructure: the driver chosen in
 configuration decides which database runs a module, not the module. A dialect
 import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
-one database. sandloom.sdk.data offers what modules used dialects for, and on
+one database, and so does reading a construct's per-database options back
+(index.dialect_options["postgresql"]): keep a value both places need, such as
+a partial index's predicate, in the module's own constant. sandloom.sdk.data
+offers what modules used dialects for, and on
 PostgreSQL it renders the same SQL, so switching needs no migration.
 Migrations are exempt: a migration is one database's DDL history. This check
 reads imports and dialect options only; SQL functions and raw SQL text,

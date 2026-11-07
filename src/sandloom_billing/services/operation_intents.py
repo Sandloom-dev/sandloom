@@ -70,7 +70,7 @@ from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
@@ -84,6 +84,7 @@ from sandloom_billing.models import (
     INTENT_PENDING,
     INTENT_REVOKED,
     LIVE_INTENT_STATUSES,
+    LIVE_REQUEST_WHERE,
     OPERATION_CHECKOUT,
     OPERATION_CUSTOMER_PORTAL,
     BillingCustomer,
@@ -98,16 +99,13 @@ from sandloom_billing.psp import (
 from sandloom_billing.services.billing_service import BillingService, CheckoutPlan
 from sandloom_billing.services.tenant_resolver import TenantContext, reverify_authority
 
-#: The live-request index's own predicate, as literal SQL. Bound parameters in
-#: the ON CONFLICT predicate stop matching the partial index once PostgreSQL
-#: plans the prepared INSERT generically (from its sixth run on one pooled
-#: connection): "no unique or exclusion constraint matching the ON CONFLICT
-#: specification".
-_LIVE_REQUEST_PREDICATE = next(
-    index
-    for index in OperationIntent.metadata.tables[OperationIntent.__tablename__].indexes
-    if index.name == "uq_billing_intent_live_request"
-).dialect_options["postgresql"]["where"]
+#: The live-request index's own predicate (the model's literal SQL, so the
+#: ON CONFLICT names the index's rows): a bound parameter here stops matching
+#: the partial index once PostgreSQL plans the prepared INSERT generically
+#: (from its sixth run on one pooled connection): "no unique or exclusion
+#: constraint matching the ON CONFLICT specification".
+# sandloom: raw-sql the partial index's own predicate, shared with the model
+_LIVE_REQUEST_PREDICATE = text(LIVE_REQUEST_WHERE)
 
 logger = logging.getLogger("sandloom_billing.intents")
 

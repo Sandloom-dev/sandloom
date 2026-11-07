@@ -40,6 +40,13 @@ INTENT_FAILED = "failed"
 #: Statuses that still own their request key (a retry reuses the intent).
 LIVE_INTENT_STATUSES = (INTENT_PENDING, INTENT_ISSUED)
 
+#: The live-request index's predicate, as literal SQL: the index and the
+#: ON CONFLICT of the intent insert (``services.operation_intents``) must name
+#: the same rows, and a bound parameter in the insert's predicate stops
+#: matching the partial index once PostgreSQL plans the prepared INSERT
+#: generically.
+LIVE_REQUEST_WHERE = "status IN ('pending', 'issued')"
+
 OPERATION_CHECKOUT = "checkout"
 OPERATION_CUSTOMER_PORTAL = "customer_portal"
 
@@ -61,7 +68,7 @@ class OperationIntent(Base):
             "operation",
             "request_key",
             unique=True,
-            where="status IN ('pending', 'issued')",
+            where=LIVE_REQUEST_WHERE,
         ),
         # The periodic reconciler's two selections (IntentReconciler): stale
         # pending intents, and revoked checkouts whose session expire failed.
