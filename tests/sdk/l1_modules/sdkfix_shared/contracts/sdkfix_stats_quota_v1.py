@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from sandloom.core.descriptors.contract_refs import ContractRef
+from sandloom.sdk.contracts import ContractRef
 
 
 class SdkfixStatsQuotaV1(Protocol):

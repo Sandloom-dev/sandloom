@@ -277,7 +277,7 @@ def render_stub(
     _stem, protocol, ref = stub_names(contract)
     imports = _Imports()
     imports.need("typing", "Protocol")
-    imports.need("sandloom.core.descriptors.contract_refs", "ContractRef")
+    imports.need("sandloom.sdk.contracts", "ContractRef")
     methods = []
     documented = False
     for name, runtime in sorted(contract_schema(provider).methods.items()):

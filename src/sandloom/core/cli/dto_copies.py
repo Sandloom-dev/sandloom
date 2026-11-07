@@ -14,7 +14,7 @@ defaults, the aliases (an ``alias_generator`` resolved to per-field
 ``model_config`` options of the allowed set. It does not carry methods,
 properties or validators: a validator is the provider's and runs where the
 provider binds an argument or builds its result. Each copy is marked with
-:func:`sandloom.core.descriptors.contract_refs.dto_copy` (its origin).
+:func:`sandloom.sdk.contracts.dto_copy` (its origin).
 
 What cannot be copied faithfully is refused (:class:`CopyError`, naming the
 field path and the fix): ``@contract`` checks the closed set when it
@@ -576,7 +576,7 @@ def render_module(module: str, resolver: Resolver) -> str:
     every class ``resolver`` placed for copying (and what those name)."""
     imports = Imports()
     r = Renderer(resolver, imports)
-    imports.need("sandloom.core.descriptors.contract_refs", "dto_copy")
+    imports.need("sandloom.sdk.contracts", "dto_copy")
     # Discover field/default dependencies before choosing any exported name.
     index = 0
     while index < len(resolver.copied):

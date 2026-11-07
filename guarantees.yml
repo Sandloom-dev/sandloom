@@ -6741,9 +6741,9 @@ capabilities:
   statement: 'sandloom add contract writes the provider in contracts.py and its DTO in the module''s own
     schemas (the provider authors its DTOs; a second contract of the module joins the same schemas import), and
     writes the stub and the DTO copy at once exactly as sandloom generate renders them (so a saga or caller in
-    the same scaffold boots); a generated stub imports ContractRef from its kernel home
-    sandloom.core.descriptors.contract_refs (no sandloom.sdk import, no advanced marker), names the generated
-    DTO copies, passes its Protocol, and is ruff format clean.'
+    the same scaffold boots); a generated stub imports ContractRef and a DTO copy imports dto_copy from the
+    public sandloom.sdk.contracts (never sandloom.core; the shared package is not module code, so no advanced
+    marker), names the generated DTO copies, passes its Protocol, and is ruff format clean.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.9 Generators
   tests:
