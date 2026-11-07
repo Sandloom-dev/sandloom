@@ -634,6 +634,11 @@ website renders this same changelog.
   A revocation mark the check saw lifts the token past it; a mark noted after
   the read never does, whatever the issuer and revoker clocks say. A refresh
   takes one more statement (the claims are no longer read with the token).
+  One case remains: when the subject already has a mark set into the future
+  (a revocation within the last clock skew), a token minted then is stamped
+  past it, and a second change committed before that mark passes, with a
+  lower mark, does not revoke it. Two changes to one user within the skew
+  and a refresh between them are needed; it is tracked as a follow-up.
 - **Billing named PostgreSQL in its code.** Its intent insert read the partial
   index's predicate back as `dialect_options["postgresql"]`; the predicate is
   now the model's own constant. SANDLOOM-C028 now reports a module that reads
