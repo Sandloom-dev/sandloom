@@ -126,12 +126,11 @@ class _Imports:
         groups: list[list[str]] = [[], []]
         for module in sorted(self.names):
             names = ", ".join(sorted(self.names[module]))
-            line = f"from {module} import {names}"
-            if module in self.comments:
-                line += f"  # {self.comments[module]}"
+            comment = f"  # {self.comments[module]}" if module in self.comments else ""
+            line = f"from {module} import {names}{comment}"
             if len(line) > _LINE:
                 inner = "".join(f"    {n},\n" for n in sorted(self.names[module]))
-                line = f"from {module} import (\n{inner})"
+                line = f"from {module} import ({comment}\n{inner})"
             groups[0 if module in _STDLIB else 1].append(line)
         return "\n\n".join("\n".join(g) for g in groups if g)
 

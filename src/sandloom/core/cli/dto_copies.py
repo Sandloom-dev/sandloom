@@ -596,17 +596,13 @@ def _render_copy(cls: type, renderer: Renderer) -> str:
     raise CopyError(cls.__qualname__, "is not a DTO", "use a model or Enum")
 
 
-def _refs_import(dto_package: str | None, name: str) -> tuple[str, str, str | None]:
-    home, marker = contract_refs_home(dto_package)
-    return home, name, marker
-
-
 def render_module(module: str, resolver: Resolver) -> str:
     """The generated DTO module of provider module ``module``: a copy of
     every class ``resolver`` placed for copying (and what those name)."""
     imports = Imports()
     r = Renderer(resolver, imports)
-    imports.need(*_refs_import(resolver.dto_package, "dto_copy"))
+    home, marker = contract_refs_home(resolver.dto_package)
+    imports.need(home, "dto_copy", marker)
     # Discover field/default dependencies before choosing any exported name.
     index = 0
     while index < len(resolver.copied):
