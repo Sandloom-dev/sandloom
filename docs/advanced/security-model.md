@@ -84,23 +84,22 @@ the concept page with the full detail.
   Redis; a read / `add` / `compare_and_set` loop on drivers without the fused
   op), so a later mark is never replaced by an earlier one, a revocation
   never lifts a block, and concurrent revocations of one subject never fail
-  each other: every writer reports success and the stored mark ends at the
+  each other: every writer reports success. The stored mark ends at the
   maximum or a few microseconds past it. Only a cache error fails a write.
   **A revocation lands above every token stamped past the stored mark.** An
-  issuer that read a mark `S` stamps the token it mints at `S` + 1 µs. A
-  change committed after that mint, on a clock whose `now + skew` is still
-  below `S` (two changes to one user within the skew), would leave that
-  token valid if the mark only kept its maximum. So a revocation that finds
-  the stored mark already at or past its own instant writes it one
-  microsecond further, and carries its unit's identity in the digits past
-  the microsecond (`v1:after:<seconds.micros><id><phase>`; readers round the
-  instant up and ignore them). The writes of one revocation — its
-  `require_immediate` early mark, its post-commit write, the durable
-  applier's replay — recognise their own unit's value instead of each moving
-  the mark again, so the revoking request's own fresh pair, stamped past the
-  post-commit value, stays valid. A replay treats any covering mark written
-  after a commit as applied; it lifts only past a `require_immediate` early
-  mark whose post-commit write was lost. The TTL is set only when the
+  issuer that read a mark `S` stamps its token at `S` + 1 µs. A later change
+  can carry a lower mark: its clock runs slower, or `S` lies in the future.
+  Keeping only the maximum would leave that token valid. A revocation that
+  finds the stored mark at or past its own instant therefore writes it one
+  microsecond further. The value also carries the unit's identity past the
+  microsecond: `v1:after:<seconds.micros><id><phase>`. Readers round the
+  instant up and ignore those digits. One revocation writes up to three
+  times: its `require_immediate` early mark, its post-commit write and the
+  durable applier's replay. Each recognises the value of its own unit and
+  leaves it as it is. The revoking request's own fresh pair, stamped past
+  the post-commit value, stays valid. A replay counts any covering mark
+  written after a commit as applied. It lifts only past an early mark whose
+  post-commit write was lost. The TTL is set only when the
   value is written; an existing equal/later value keeps its own TTL. A
   security cache driver without `compare_and_set` is refused for these
   writes (the write fails → retried / durable applier, `503` for
