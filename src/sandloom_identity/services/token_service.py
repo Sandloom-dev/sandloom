@@ -268,6 +268,10 @@ class TokenService:
         # The user the new pair is minted for, and the user's roles /
         # permissions (identity's claims), came with the token above: a
         # refresh is one SELECT and this UPDATE, with no user or claims query.
+        # Claims read before the consume are safe: a role or membership change
+        # revokes with ``revoke_user_tokens_on_commit``, whose second mark
+        # (commit time + clock skew) also revokes a token minted here from
+        # claims read before that change was visible.
         consumed = (
             await db.execute(_CONSUME, {"b_token_id": token_id, "b_now": now})
         ).one_or_none()
