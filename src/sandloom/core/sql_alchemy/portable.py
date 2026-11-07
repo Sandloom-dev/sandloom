@@ -305,6 +305,16 @@ else:
         ``.on_conflict_do_update(index_elements=, index_where=, set_=,
         where=)``, ``.excluded``). The statement itself is the database's own
         insert, not an instance of this class.
+
+        The shape names no database: the key the row conflicts on (unique
+        columns, and the predicate of a partial unique index), and either
+        skip the row or update ``set_`` from the proposed row (``excluded``),
+        as Django's ``bulk_create(update_conflicts=...)`` or Rails'
+        ``upsert_all(unique_by:)``. Modules see only these members (the type
+        checker refuses any other). A renderer returns an ``Insert`` with
+        exactly this shape and compiles it its database's way: ``ON CONFLICT``
+        (PostgreSQL, SQLite), ``ON DUPLICATE KEY`` or ``MERGE``; the driver
+        kit's conformance tests check the shape.
         """
 
 
