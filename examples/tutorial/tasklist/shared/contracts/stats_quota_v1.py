@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from sandloom.sdk.contracts import ContractRef
+from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
 
 class StatsQuotaV1(Protocol):

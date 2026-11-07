@@ -14,7 +14,8 @@ defaults, the aliases (an ``alias_generator`` resolved to per-field
 ``model_config`` options of the allowed set. It does not carry methods,
 properties or validators: a validator is the provider's and runs where the
 provider binds an argument or builds its result. Each copy is marked with
-:func:`sandloom.sdk.contracts.dto_copy` (its origin).
+:func:`sandloom.sdk.contracts.dto_copy` (its origin; the framework's own
+copies import it from its kernel home, :func:`contract_refs_home`).
 
 What cannot be copied faithfully is refused (:class:`CopyError`, naming the
 field path and the fix): ``@contract`` checks the closed set when it
@@ -75,6 +76,25 @@ def origin_of(cls: type) -> str:
 
 def _within(module: str, package: str) -> bool:
     return module == package or module.startswith(package + ".")
+
+
+#: The framework's own shared package: kernel, which never imports
+#: ``sandloom.sdk`` (ADR-0010, the import contract kernel-never-imports-sdk).
+KERNEL_SHARED = "sandloom.shared"
+
+
+def contract_refs_home(dto_package: str | None) -> tuple[str, str | None]:
+    """``(module, marker)`` a generated stub or DTO copy imports
+    ``ContractRef`` / ``dto_copy`` from, by the package it is written to.
+
+    The framework's own shared package takes the kernel home (no marker);
+    an application's takes the public ``sandloom.sdk.contracts`` with the
+    ``# sandloom: advanced`` marker of the beginner-tier pin (SANDLOOM-T009),
+    since both names are advanced. ``None`` (no target) is an application.
+    """
+    if dto_package is not None and _within(dto_package, KERNEL_SHARED):
+        return "sandloom.core.descriptors.contract_refs", None
+    return "sandloom.sdk.contracts", "sandloom: advanced generated code"
 
 
 # --------------------------------------------------------------------------- #
@@ -153,14 +173,19 @@ class Imports:
 
     def __init__(self) -> None:
         self.names: dict[str, set[str]] = {}
+        self.comments: dict[str, str] = {}
 
-    def need(self, module: str, name: str) -> str:
+    def need(self, module: str, name: str, comment: str | None = None) -> str:
+        """Import ``name`` from ``module``; ``comment`` trails its line."""
         self.names.setdefault(module, set()).add(name)
+        if comment:
+            self.comments[module] = comment
         return name
 
     def render(self) -> str:
         return "\n".join(
             f"from {module} import {', '.join(sorted(names))}"
+            + (f"  # {self.comments[module]}" if module in self.comments else "")
             for module, names in sorted(self.names.items())
         )
 
@@ -571,12 +596,17 @@ def _render_copy(cls: type, renderer: Renderer) -> str:
     raise CopyError(cls.__qualname__, "is not a DTO", "use a model or Enum")
 
 
+def _refs_import(dto_package: str | None, name: str) -> tuple[str, str, str | None]:
+    home, marker = contract_refs_home(dto_package)
+    return home, name, marker
+
+
 def render_module(module: str, resolver: Resolver) -> str:
     """The generated DTO module of provider module ``module``: a copy of
     every class ``resolver`` placed for copying (and what those name)."""
     imports = Imports()
     r = Renderer(resolver, imports)
-    imports.need("sandloom.sdk.contracts", "dto_copy")
+    imports.need(*_refs_import(resolver.dto_package, "dto_copy"))
     # Discover field/default dependencies before choosing any exported name.
     index = 0
     while index < len(resolver.copied):
@@ -686,8 +716,10 @@ __all__ = [
     "HEADER",
     "CopyError",
     "Imports",
+    "KERNEL_SHARED",
     "Renderer",
     "Resolver",
+    "contract_refs_home",
     "dto_module_stem",
     "origin_of",
     "render_module",

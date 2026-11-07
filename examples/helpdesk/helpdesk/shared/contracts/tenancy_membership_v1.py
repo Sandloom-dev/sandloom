@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import UUID
 
 from helpdesk.shared.contracts.tenancy_dto import MemberState
-from sandloom.sdk.contracts import ContractRef
+from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
 
 class TenancyMembershipV1(Protocol):

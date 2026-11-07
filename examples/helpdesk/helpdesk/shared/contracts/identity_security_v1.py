@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import UUID
 
 from helpdesk.shared.contracts.identity_dto import AccountStanding, PlatformAdmin
-from sandloom.sdk.contracts import ContractRef
+from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
 
 class IdentitySecurityV1(Protocol):

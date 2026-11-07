@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from demo.shared.contracts.notes_dto import OnboardingLedgerStatus
-from sandloom.sdk.contracts import ContractRef
+from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
 
 class NotesOnboardingLedgerV1(Protocol):
