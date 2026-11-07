@@ -901,7 +901,7 @@
     },
     "unscoped": {
       "kind": "function",
-      "signature": "(reason:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
+      "signature": "(reason:KEYWORD_ONLY|str | None=None) -> AbstractContextManager[None]"
     },
     "writes": {
       "kind": "function",
@@ -5246,7 +5246,7 @@
     },
     "unscoped": {
       "kind": "function",
-      "signature": "(reason:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
+      "signature": "(reason:KEYWORD_ONLY|str | None=None) -> AbstractContextManager[None]"
     }
   },
   "sandloom.sdk.testing": {
