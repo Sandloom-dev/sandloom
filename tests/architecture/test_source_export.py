@@ -332,6 +332,9 @@ def test_dangling_destination_link_is_refused(source: Path, tmp_path: Path) -> N
 def test_dx_classification_and_triggers_follow_the_exported_layout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The DX eval classifies changed paths by the exported layout and
+    triggers only on what ships to new projects: templates, the generators
+    and the public API, never the framework repository's own agent context."""
     import re
     import runpy
     import sys
@@ -340,6 +343,7 @@ def test_dx_classification_and_triggers_follow_the_exported_layout(
     namespace = runpy.run_path(str(exporter.ROOT / "benchmarks/dx/run_eval.py"))
 
     def kind(path: str) -> str:
+        """The first ``OUTSIDE_KINDS`` label whose pattern matches ``path``."""
         return next(
             label
             for pattern, label in namespace["OUTSIDE_KINDS"]
