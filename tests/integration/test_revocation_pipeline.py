@@ -228,7 +228,13 @@ async def test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark(
     )
     assert all(results)
     stored = await sandloom_cache.get(marks.subject_key(sub))
-    assert marks._parse_mark_us(stored) == marks._seconds_to_us(max(mark_values))
+    # Never below the highest mark. A revocation that finds the stored mark at
+    # or past its own writes it one microsecond further (above every token an
+    # issuer stamped past it), so concurrent ones may end a few µs above it.
+    highest = marks._seconds_to_us(max(mark_values))
+    stored_us = marks._parse_mark_us(stored)
+    assert stored_us is not None
+    assert highest <= stored_us <= highest + len(mark_values)
 
 
 class _InterleavingCache(InMemoryCache):
