@@ -2414,7 +2414,7 @@ TRIGGERS = (
     re.compile(r"^src/sandloom/core/cli/templates/"),
     re.compile(
         r"^src/sandloom/core/cli/(scaffold_wiring|scaffold_deploy|project|add|skills"
-        r"|image_secrets|dev/envfile)\.py$"
+        r"|image_secrets|dev/envfile|wizard|generated|dto_copies|contracts)\.py$"
     ),
     re.compile(r"^public_api_baseline\.json$"),
 )
