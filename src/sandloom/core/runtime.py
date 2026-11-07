@@ -83,6 +83,12 @@ def use_active_core(core: CoreFacade) -> Iterator[None]:
         _active_core.reset(token)
 
 
+def get_process_core() -> CoreFacade | None:
+    """The process default core (the app ``create_app`` built last), ignoring
+    any context binding."""
+    return _process_core
+
+
 def get_active_core() -> CoreFacade | None:
     """Return the active core: context binding first, then process default."""
     scoped = _active_core.get()
@@ -110,5 +116,6 @@ __all__ = [
     "clear_active_core",
     "use_active_core",
     "get_active_core",
+    "get_process_core",
     "active_event_bus",
 ]

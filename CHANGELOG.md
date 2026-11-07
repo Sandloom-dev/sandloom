@@ -30,8 +30,11 @@ website renders this same changelog.
 - **A failure to list the installed module entry points stops startup.** The
   loader logged it and started without those modules; it is now a required
   module failure (`ModuleLoadError`).
-- **The application's shutdown closes the pooled outbound RPC client.**
-  `close_rpc_client` existed but no shutdown task called it.
+- **One app's shutdown no longer closes the RPC client another app is
+  using.** Two applications in one process share the pooled outbound RPC
+  client; when the stopping app is no longer the process default, its
+  shutdown retires the client (in-flight calls finish, the next call builds a
+  fresh one) instead of closing it under the other app's calls.
 
 ## [0.7.0a11] — 2026-11-07
 

@@ -101,6 +101,7 @@ from sandloom.core.rpc import (
 from sandloom.core.rpc.client import check_rpc_transport as check_rpc_transport
 from sandloom.core.rpc.client import close_later as close_later
 from sandloom.core.rpc.client import close_rpc_client as close_rpc_client
+from sandloom.core.rpc.client import close_rpc_client_for
 from sandloom.core.rpc.dispatch import _is_command as _is_command
 from sandloom.core.rpc.envelope import _decode_envelope as _decode_envelope
 from sandloom.core.rpc.errors import (
@@ -124,6 +125,17 @@ from sandloom.core.rpc.server import RpcFastPathMiddleware as RpcFastPathMiddlew
 from sandloom.core.rpc.server import rpc_router as rpc_router
 
 
+def _close_rpc_task(core: Any) -> Any:
+    """This app's shutdown task for the shared outbound RPC client: closed,
+    or retired when another app of the process is the default now
+    (:func:`~sandloom.core.rpc.client.close_rpc_client_for`)."""
+
+    async def close_rpc_client() -> None:
+        await close_rpc_client_for(core)
+
+    return close_rpc_client
+
+
 def install_service_rpc_routes(app: Any, core: Any) -> None:
     """Wire the contract runtime into an app (inbound RPC + outbound resolver).
 
@@ -143,7 +155,7 @@ def install_service_rpc_routes(app: Any, core: Any) -> None:
 
     core.set_service_resolver(remote_service_proxy)
     core.add_startup_task(check_rpc_transport)
-    core.add_shutdown_task(close_rpc_client)
+    core.add_shutdown_task(_close_rpc_task(core))
     app.include_router(rpc_router(core))
     app.add_middleware(_module_api.ContractReadScopeMiddleware)
     # Added last = outermost: RPC requests skip every other middleware.

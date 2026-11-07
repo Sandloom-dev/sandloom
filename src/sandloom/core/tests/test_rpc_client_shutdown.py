@@ -44,3 +44,22 @@ async def test_shutdown_closes_the_shared_rpc_client(
     await run_shutdown(application.state.core)
     assert client.is_closed
     assert rpc_client._rpc_client_instance is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("restore_process_runtime")
+async def test_shutdown_of_an_older_app_retires_the_client_another_app_uses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two apps in one process share the client: the first one's shutdown
+    retires it (in-flight calls of the second finish) instead of closing it."""
+    first = create_app()
+    create_app()  # the process default now
+    client = _Client()
+    retired: list[object] = []
+    monkeypatch.setattr(rpc_client, "_rpc_client_instance", client)
+    monkeypatch.setattr(rpc_client, "_retire_client", retired.append)
+    await run_shutdown(first.state.core)
+    assert not client.is_closed
+    assert retired == [client]
+    assert rpc_client._rpc_client_instance is None  # the next call builds anew

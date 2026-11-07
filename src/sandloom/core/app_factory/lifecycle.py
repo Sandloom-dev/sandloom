@@ -37,7 +37,6 @@ from sandloom.core.production_profile import (
 from sandloom.core.rpc import (
     check_remote_contract_compat,
 )
-from sandloom.core.rpc.client import close_rpc_client
 from sandloom.core.runtime import use_active_core
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -171,8 +170,6 @@ def _register_infra_lifecycle(
     core_facade.add_shutdown_task(dispose_engine)
     core_facade.add_shutdown_task(shutdown_cache)
     core_facade.add_shutdown_task(close_infra)
-    # The pooled outbound RPC client: keep-alive connections to peers.
-    core_facade.add_shutdown_task(close_rpc_client)
 
 
 def _register_contract_compat_check(core_facade: CoreFacade) -> None:
