@@ -391,10 +391,10 @@ def test_a_system_channel_on_another_database_of_the_same_server_is_b026() -> No
     """The same dialect but another database name is refused; the system
     role's own credentials and address are not (the password is never shown)."""
     pg = "postgresql+asyncpg://app:pw@h:5432/db"
-    other = "postgresql+asyncpg://system:secret@h:5432/other"
+    other = "postgresql+asyncpg://system:secret@h:5432/other?password=qsecret"
     problem = row_security_problem("default", pg, {}, system_url=other)
     assert problem is not None and "SANDLOOM-B026" in problem
-    assert "secret" not in problem
+    assert "secret" not in problem and "qsecret" not in problem
     # the same database through another address (a pooler) and role
     same = "postgresql+asyncpg://system:secret@pooler:6432/db"
     assert (

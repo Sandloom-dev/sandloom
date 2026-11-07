@@ -71,6 +71,12 @@ def versions_compatible(registered: str, required: str) -> bool:
     Compatible iff the MAJOR components match (``v1`` requirement satisfied by
     ``v1``/``v1.2``, but not ``v2``). If either version is unparseable we fall
     back to exact-string equality — the safe, conservative behaviour.
+
+    The rule this relies on (ADR-0011, rules 4 and 5): every version of one
+    major has the same required methods, pinned per version by a test. A
+    minor version never adds an obligation; what only some drivers can do is
+    a declared feature, checked on its own (``supported_features``, the
+    requirement's ``features``), never inferred from a version number.
     """
     req_major = _major(required)
     reg_major = _major(registered)

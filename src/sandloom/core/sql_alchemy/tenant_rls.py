@@ -220,8 +220,9 @@ def _database_of(url: str) -> tuple[str, str | None]:
 
 
 def _shown(url: str) -> str:
-    """``url`` without its password, for a message."""
-    return make_url(url).render_as_string(hide_password=True)
+    """``url`` without its password or query (which may carry credentials,
+    such as ``?password=`` or ``?sslkey=``), for a message."""
+    return make_url(url).set(query={}).render_as_string(hide_password=True)
 
 
 def row_security_problem(

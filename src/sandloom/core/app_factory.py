@@ -122,7 +122,7 @@ from sandloom.core.rpc import (
     check_remote_service_bindings,
     install_service_rpc_routes,
 )
-from sandloom.core.runtime import set_active_core
+from sandloom.core.runtime import set_active_core, use_active_core
 from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.portable import (
@@ -608,6 +608,10 @@ def create_app(
     application.router.lifespan_context = _make_lifespan(
         application, core_facade, module_summary, consumer_runtime
     )
+    # Outermost: every request runs with this app's core bound to its context,
+    # so a second app built in the same process (which moves the process
+    # default) never receives this app's events or units.
+    application.add_middleware(_BindActiveCore, core=core_facade)
 
     _install_ops_endpoints(application, core_facade)
 
@@ -864,7 +868,42 @@ def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> No
     core_facade.register_health_check("infra", infra_instances_health)
 
 
+class _BindActiveCore:
+    """ASGI middleware: run each request, and the background work it starts,
+    with this application's core as the active runtime (``use_active_core``),
+    not the process default the last ``create_app`` set."""
+
+    def __init__(self, app: Any, *, core: CoreFacade) -> None:
+        self.app = app
+        self.core = core
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        with use_active_core(self.core):
+            await self.app(scope, receive, send)
+
+
 def _make_lifespan(
+    application: FastAPI,
+    core_facade: CoreFacade,
+    module_summary: ModuleLoadSummary,
+    consumer_runtime: Any,
+) -> Callable[[FastAPI], Any]:
+    body = _make_lifespan_body(
+        application, core_facade, module_summary, consumer_runtime
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
+        # Startup, the relay, consumers and shutdown run bound to this app's
+        # core; the background tasks they start inherit the binding.
+        with use_active_core(core_facade):
+            async with body(app):
+                yield
+
+    return lifespan
+
+
+def _make_lifespan_body(
     application: FastAPI,
     core_facade: CoreFacade,
     module_summary: ModuleLoadSummary,
