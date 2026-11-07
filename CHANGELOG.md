@@ -627,7 +627,7 @@ website renders this same changelog.
 - **The service registry's strict name check cannot be skipped.** It was
   imported under `except Exception`, so a failed import registered services
   under the weaker check; the import is now required.
-- **A refresh mints a role removed while it ran in one remaining case only** (CWE-362). The
+- **A refresh no longer mints a role removed while it ran** (CWE-362). The
   refresh read the user's roles before its issuance check and minted the
   access token later; a role change committed in between revoked it only if
   the token was minted within the revocation's clock skew. The refresh now
