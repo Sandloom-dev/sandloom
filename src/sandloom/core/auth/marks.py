@@ -5,7 +5,10 @@ The record ``sandloom:auth:subject:{id}`` holds one of two values:
 
 * ``v1:after:<seconds.micros>`` — every access token issued at or before the
   instant is revoked (a token is revoked iff its ``iat_us`` is ``<=`` it).
-  Written with a TTL (:func:`_revocation_ttl_seconds`), monotonic;
+  Written with a TTL (:func:`_revocation_ttl_seconds`), monotonic. A
+  revocation appends its identity past the microsecond
+  (:func:`_format_revocation`); readers round the instant up, so such a
+  value reads as the microsecond it was written for;
 * ``v1:blocked:<seconds.micros>`` — the subject is blocked since the instant
   (no TTL). It ranks above every ``after`` value, so a revocation never
   unblocks; unblocking replaces it by compare-and-set with an ``after`` value
@@ -198,6 +201,42 @@ def _format_instant(instant_us: int) -> str:
 def _format_mark(mark_us: int) -> str:
     """The ``after`` value revoking every token issued at or before ``mark_us``."""
     return f"v1:{STATE_AFTER}:{_format_instant(mark_us)}"
+
+
+#: Phase digits ending a revocation's identity tail (:func:`_format_revocation`):
+#: the pre-commit write of ``require_immediate`` and every write after the
+#: change committed (the post-commit write, its retries, the durable applier).
+PHASE_EARLY = "1"
+PHASE_SETTLED = "2"
+
+
+def _format_revocation(reading_us: int, tail: str) -> str:
+    """The ``after`` value a revocation writes: it READS as ``reading_us``
+    (every reader rounds the instant up to the microsecond) and carries
+    ``tail`` — the revocation's identity, in the digits past the microsecond.
+
+    ``tail`` is digits ending in a phase digit (never ``0``), so the value lies
+    strictly between ``reading_us - 1`` and ``reading_us``: the cache's exact
+    decimal order (``set_subject_state``) ranks it above every value that
+    reads as ``reading_us - 1`` or less, and a writer that reads it back can
+    tell its own unit's write (:func:`_state_tail`) from another revocation's.
+    """
+    return _format_mark(reading_us - 1) + tail
+
+
+def _state_tail(raw: Any) -> str | None:
+    """The identity tail of an ``after`` value (its digits past the
+    microsecond), ``None`` for a value without one or of another kind."""
+    if raw is None or _parse_state(raw) is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("ascii", "replace")
+    text = str(raw)
+    prefix = f"v1:{STATE_AFTER}:"
+    if not text.startswith(prefix):
+        return None
+    _, _, frac = text[len(prefix) :].partition(".")
+    return frac[6:] or None
 
 
 def _format_blocked(since_us: int) -> str:

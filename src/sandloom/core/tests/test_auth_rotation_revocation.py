@@ -326,10 +326,12 @@ async def test_revocation_mark_never_moves_backwards(mem_cache: _MemoryCache) ->
     now = int(time.time())
     await revocation.revoke_user_tokens("u", valid_after=now)
     await revocation.revoke_user_tokens("u", valid_after=now - 100)
+    # the lower, later revocation lands one microsecond past the stored mark
+    # (above a token an issuer stamped past it), never below
     assert (
         marks._parse_mark_us(mem_cache.store[f"{marks.SUBJECT_KEY_PREFIX}u"])
-        / 1_000_000
-    ) == now
+        == marks._seconds_to_us(now) + 1
+    )
 
 
 async def test_concurrent_revocations_never_move_the_mark_backwards(
@@ -353,7 +355,10 @@ async def test_concurrent_revocations_never_move_the_mark_backwards(
             revocation.revoke_user_tokens("race", valid_after=now - 100),
         )
         assert results == [True, True, True]
-        assert (marks._parse_mark_us(fake.store[key]) / 1_000_000) == now + 50, existing
+        highest = marks._seconds_to_us(now + 50)
+        stored = marks._parse_mark_us(fake.store[key])
+        assert stored is not None
+        assert highest <= stored <= highest + 2, existing
 
 
 async def test_revoke_on_commit_logs_failures_and_returns_the_mark(
@@ -364,11 +369,11 @@ async def test_revoke_on_commit_logs_failures_and_returns_the_mark(
 
     calls: list[tuple[Any, float | None]] = []
 
-    async def _fail(user_id: Any, *, valid_after: float | None = None) -> bool:
-        calls.append((user_id, valid_after))
-        return False
+    async def _fail(user_id: Any, mark_us: int, tail: str | None) -> str | None:
+        calls.append((user_id, mark_us / 1_000_000))
+        return None
 
-    monkeypatch.setattr(revocation, "revoke_user_tokens", _fail)
+    monkeypatch.setattr(revocation, "_write_revocation", _fail)
     monkeypatch.setattr(settings, "auth_revocation_retry_base_seconds", 0.0)
     with caplog.at_level("WARNING", logger="sandloom.core.auth.revocation"):
         mark = await revoke_user_tokens_on_commit("u-x", reason="test.reason")

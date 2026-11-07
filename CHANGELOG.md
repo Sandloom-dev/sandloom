@@ -636,11 +636,22 @@ website renders this same changelog.
   A revocation mark the check saw lifts the token past it; a mark noted after
   the read never does, whatever the issuer and revoker clocks say. A refresh
   takes one more statement (the claims are no longer read with the token).
-  One case remains: when the subject already has a mark set into the future
-  (a revocation within the last clock skew), a token minted then is stamped
-  past it, and a second change committed before that mark passes, with a
-  lower mark, does not revoke it. Two changes to one user within the skew
-  and a refresh between them are needed; it is tracked as a follow-up.
+  A later change revokes a token stamped past a mark set into the future,
+  too: a refresh that saw a mark within the last clock skew stamps its token
+  past it, and a second change committed before that mark passed, from a
+  clock whose `now + skew` was lower, kept the stored maximum and left the
+  token valid. A revocation that finds the stored mark at or past its own
+  instant now writes it one microsecond further, above every token stamped
+  past it. The tokens the revoking request mints after the call stay valid:
+  they are stamped past that value, and the writes of one revocation (the
+  `require_immediate` early mark, the post-commit write, the durable
+  applier's replay) recognise each other through an identity in the value's
+  digits past the microsecond, so a repeated write does not move the mark
+  again. `core.auth.tokens_revoked.v1` gains the optional `revocation_id`
+  field. The durable applier also lifts past a `require_immediate` early
+  mark whose post-commit write was lost. Concurrent revocations of one
+  subject still all succeed; the stored mark ends at their maximum or a few
+  microseconds past it.
 - **Billing named PostgreSQL in its code.** Its intent insert read the partial
   index's predicate back as `dialect_options["postgresql"]`; the predicate is
   now the model's own constant. SANDLOOM-C028 now reports a module that reads
