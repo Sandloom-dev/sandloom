@@ -786,7 +786,7 @@ def find_dialect_imports(file_path: Path) -> list[str]:
             # ``index.dialect_options["postgresql"]["where"]``: one database's
             # option of a schema construct, read back.
             violations.append(
-                f"Line {node.lineno}: {key} reads one database's option "
+                f"Line {getattr(node, 'lineno', 0)}: {key} reads one database's option "
                 "(keep the value in your own constant)"
             )
         elif isinstance(node, ast.Call) and _callee(node) in SCHEMA_CALLEES:

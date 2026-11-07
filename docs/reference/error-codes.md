@@ -80,7 +80,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
-| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security | active |
+| [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security, or a system channel on another database than its instance | active |
 | [`SANDLOOM-B027`](#sandloom-b027) | `snapshot-reads-missing` | boot | a read scope needs one snapshot (SnapshotReads, isolation="repeatable_read") on a database instance without the snapshot_reads feature | active |
 | [`SANDLOOM-B028`](#sandloom-b028) | `schema-from-models` | boot | sandloom migrate on a database that takes its schema from the models (SQLite), or such a database whose tables differ from the models | active |
 | [`SANDLOOM-B029`](#sandloom-b029) | `development-database-in-prod` | boot | ENVIRONMENT=prod on a database that serves development and tests only (SQLite), without the accepted risk development_database_in_prod, or under PRODUCTION_PROFILE=multi_tenant_strict | active |
@@ -564,7 +564,10 @@ Slug: `dialect-imports` · kind: check · status: active
 Business logic is isolated from the infrastructure: the driver chosen in
 configuration decides which database runs a module, not the module. A dialect
 import (PostgreSQL's UUID, CITEXT or insert, for example) ties the module to
-one database. sandloom.sdk.data offers what modules used dialects for, and on
+one database, and so does reading a construct's per-database options back
+(index.dialect_options["postgresql"]): keep a value both places need, such as
+a partial index's predicate, in the module's own constant. sandloom.sdk.data
+offers what modules used dialects for, and on
 PostgreSQL it renders the same SQL, so switching needs no migration.
 Migrations are exempt: a migration is one database's DDL history. This check
 reads imports and dialect options only; SQL functions and raw SQL text,
@@ -1088,7 +1091,7 @@ claim them.
 
 ### SANDLOOM-B026
 
-**tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security**
+**tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security, or a system channel on another database than its instance**
 
 Slug: `row-security-missing` · kind: boot · status: active
 
@@ -1102,6 +1105,9 @@ database whose renderer has no row security (SQLite) cannot enforce any of
 it, and running on would promise isolation nothing provides. Without these
 options TenantScoped isolation there is the ORM guard alone; startup says so
 with a warning, and the strict production profile refuses such an instance.
+The system channel is the instance's own database reached as a privileged
+role, so a channel URL naming another database (a SQLite file next to
+PostgreSQL) is refused whatever the options say.
 
 **Fix:** remove those options from the instance (its tenant isolation is then the ORM guard only, application-enforced), or run it on a database with row security (PostgreSQL)
 
