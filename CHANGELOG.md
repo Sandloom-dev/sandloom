@@ -156,6 +156,18 @@ website renders this same changelog.
 
 ### Added
 
+- **A caller that rolls back a unit joined to it on SQLite warns, and tests fail
+  on it** (`JoinedUnitRolledBack`, G-UOW-09). On SQLite a contract command, a
+  saga step's unit or a child `open_uow()` joins its caller's transaction; on
+  PostgreSQL it commits on its own and stays committed. Code that relies on
+  the caller's rollback undoing it passed on SQLite and failed in production.
+  The `sandloom.sdk.testing` plugin turns the warning into an error. A test's
+  own `db` session and saga transitions are not reported.
+
+  **Upgrade:** a test that rolls back such a unit on purpose adds
+  `@pytest.mark.filterwarnings("ignore::sandloom.core.unit_of_work.JoinedUnitRolledBack")`.
+  Elsewhere, make the call a saga step or undo it explicitly.
+
 - **CI runs the module suites on SQLite too: the `second-db-test-lane` job, and
   a skip ledger.** PostgreSQL (`backend-tests`) stays the mandatory lane. The
   new lane runs the standard modules' suites, every example's tests and an
@@ -500,6 +512,15 @@ website renders this same changelog.
 
 ### Changed
 
+- **A full-text `language` is the text's language by its English name**
+  (`fulltext_index`, `matches`): one of `FULLTEXT_LANGUAGES`, or `"simple"` for
+  no stemming. Each SQL renderer maps it to its own configuration; PostgreSQL
+  uses its text search configuration of the same name, so existing values and
+  indexes are unchanged. A name outside the list is refused.
+- **`conflict_insert`'s shape is documented as database-neutral**: the key a row
+  conflicts on, and skip or update. A renderer for a database without
+  `ON CONFLICT` returns its own insert with the same methods.
+
 - **The inspection index records no line numbers** (`.sandloom/inspection.json`,
   schema 2). A route's or saga step's source is its file and qualified function
   name; `sandloom context` and `sandloom graph` look the line up when they
@@ -591,6 +612,14 @@ website renders this same changelog.
   statement running). (tm: test-speed, test-speed-2)
 
 ### Fixed
+
+- **Billing named PostgreSQL in its code.** Its intent insert read the partial
+  index's predicate back as `dialect_options["postgresql"]`; the predicate is
+  now the model's own constant. SANDLOOM-C028 now reports a module that reads
+  one database's option of a schema construct.
+- **A system channel on another database than its instance is refused at
+  startup** (SANDLOOM-B026). `DATABASE_SYSTEM_URL` naming a SQLite file next to
+  a PostgreSQL database passed when no row-security option was set.
 
 - **A green `sandloom test` no longer leaves a generated file stale.** With a
   project's `fix = true`, `ruff check` could rewrite source (an import sorted
