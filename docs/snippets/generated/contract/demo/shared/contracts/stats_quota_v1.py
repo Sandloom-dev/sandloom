@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from demo.shared.contracts.stats_dto import QuotaStatus
-from sandloom.core.descriptors.contract_refs import ContractRef
+from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
 
 
 class StatsQuotaV1(Protocol):

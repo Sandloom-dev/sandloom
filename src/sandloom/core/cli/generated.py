@@ -112,9 +112,13 @@ _LINE = 88
 class _Imports:
     def __init__(self) -> None:
         self.names: dict[str, set[str]] = {}
+        self.comments: dict[str, str] = {}
 
-    def need(self, module: str, name: str) -> str:
+    def need(self, module: str, name: str, comment: str | None = None) -> str:
+        """Import ``name`` from ``module``; ``comment`` trails its line."""
         self.names.setdefault(module, set()).add(name)
+        if comment:
+            self.comments[module] = comment
         return name
 
     def render(self) -> str:
@@ -122,10 +126,11 @@ class _Imports:
         groups: list[list[str]] = [[], []]
         for module in sorted(self.names):
             names = ", ".join(sorted(self.names[module]))
-            line = f"from {module} import {names}"
+            comment = f"  # {self.comments[module]}" if module in self.comments else ""
+            line = f"from {module} import {names}{comment}"
             if len(line) > _LINE:
                 inner = "".join(f"    {n},\n" for n in sorted(self.names[module]))
-                line = f"from {module} import (\n{inner})"
+                line = f"from {module} import ({comment}\n{inner})"
             groups[0 if module in _STDLIB else 1].append(line)
         return "\n\n".join("\n".join(g) for g in groups if g)
 
@@ -277,7 +282,10 @@ def render_stub(
     _stem, protocol, ref = stub_names(contract)
     imports = _Imports()
     imports.need("typing", "Protocol")
-    imports.need("sandloom.core.descriptors.contract_refs", "ContractRef")
+    home, marker = _dto_copies.contract_refs_home(
+        resolver.dto_package if resolver is not None else None
+    )
+    imports.need(home, "ContractRef", marker)
     methods = []
     documented = False
     for name, runtime in sorted(contract_schema(provider).methods.items()):

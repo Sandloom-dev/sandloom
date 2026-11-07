@@ -23,6 +23,7 @@ from pydantic import (
     ValidationError,
 )
 
+from sandloom.core.cli import dto_copies as _dto_copies
 from sandloom.core.cli import generated
 from sandloom.core.cli.generated import (
     Generated,
@@ -48,6 +49,44 @@ def test_the_fixture_stub_is_the_generated_one() -> None:
     from sdkfix_stats.contracts import Quota
 
     assert render_stub("sdkfix_stats.quota.v1", Quota) == FIXTURE_STUB.read_text()
+
+
+def test_the_framework_tree_stubs_keep_the_kernel_home() -> None:
+    """``sandloom.shared`` is kernel, which never imports ``sandloom.sdk``
+    (ADR-0010): its stubs and DTO copies import ``ContractRef`` /
+    ``dto_copy`` from ``sandloom.core`` (C-GEN-03)."""
+    from sdkfix_stats.contracts import Quota
+
+    resolver = _dto_copies.Resolver(
+        provider_package="sdkfix_stats",
+        dto_package="sandloom.shared.contracts.sdkfix_stats_dto",
+        shared_packages=("sandloom.shared",),
+    )
+    stub = render_stub("sdkfix_stats.quota.v1", Quota, resolver)
+    assert "from sandloom.core.descriptors.contract_refs import ContractRef\n" in stub
+    assert "sandloom.sdk" not in stub
+    shared = Path(generated.__file__).parents[2] / "shared" / "contracts"
+    for py in sorted(shared.glob("*.py")):
+        text = py.read_text(encoding="utf-8")
+        if text.startswith(_dto_copies.HEADER):
+            assert "sandloom.sdk" not in text, py.name
+            assert "from sandloom.core.descriptors.contract_refs import" in text
+
+
+def test_an_application_stub_imports_the_public_home() -> None:
+    """Any other shared package (an application's) imports them from
+    ``sandloom.sdk.contracts``, marked advanced for the beginner-tier pin
+    (SANDLOOM-T009); no target is an application too (C-GEN-03)."""
+    assert _dto_copies.contract_refs_home("probe.shared.contracts.notes_dto") == (
+        "sandloom.sdk.contracts",
+        "sandloom: advanced generated code",
+    )
+    assert _dto_copies.contract_refs_home(None)[0] == "sandloom.sdk.contracts"
+    assert _dto_copies.contract_refs_home("sandloom.shared.contracts.x_dto") == (
+        "sandloom.core.descriptors.contract_refs",
+        None,
+    )
+    assert "sandloom.core" not in FIXTURE_STUB.read_text()
 
 
 def test_stub_names() -> None:
@@ -876,7 +915,7 @@ def test_plan_generates_the_l1_module_files(tmp_path: Path) -> None:
     )
     app = SimpleNamespace(state=SimpleNamespace(app_manifest=manifest, core=core))
     shared = tmp_path / "shared"
-    files = generated.plan(app, shared)
+    files = generated.plan(app, shared, shared_package="sdkfix_shared")
     targets = {f.path.relative_to(f.path.parents[1]).as_posix(): f for f in files}
     assert set(targets) == {
         "events/sdkfix_stats.counter.bumped.v1.json",

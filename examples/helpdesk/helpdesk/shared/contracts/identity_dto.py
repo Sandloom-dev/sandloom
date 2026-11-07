@@ -18,7 +18,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from sandloom.core.descriptors.contract_refs import dto_copy
+from sandloom.sdk.contracts import dto_copy  # sandloom: advanced generated code
 
 
 @dto_copy("sandloom_identity.schemas.operator:AccountStanding")

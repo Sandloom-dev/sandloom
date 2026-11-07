@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from sandloom.core.descriptors.contract_refs import dto_copy
+from sandloom.sdk.contracts import dto_copy  # sandloom: advanced generated code
 
 
 @dto_copy("demo.modules.stats.schemas:QuotaStatus")
