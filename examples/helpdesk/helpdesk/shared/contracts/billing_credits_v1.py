@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from sandloom.core.descriptors.contract_refs import ContractRef
+from sandloom.sdk.contracts import ContractRef
 
 
 class BillingCreditsV1(Protocol):

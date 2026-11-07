@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import UUID
 
 from helpdesk.shared.contracts.identity_dto import UserContact
-from sandloom.core.descriptors.contract_refs import ContractRef
+from sandloom.sdk.contracts import ContractRef
 
 
 class IdentityContactV1(Protocol):
