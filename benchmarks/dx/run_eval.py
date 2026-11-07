@@ -2405,16 +2405,17 @@ def score_checks_only(
     )
 
 
-#: Changes that must be re-measured (owner decision, DX plan section 8 Q9):
-#: the agent context, the generators / ``sandloom new`` output, the public API.
+#: Changes that must be re-measured: what a new project gets — the agent
+#: context and skills ``sandloom new`` ships (``templates/``), the generators,
+#: the public API (owner decision 2026-11-07). The framework repository's own
+#: agent context (root ``AGENTS.md``, ``.claude/``) is not shipped and does
+#: not trigger it.
 TRIGGERS = (
-    re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$"),
-    re.compile(r"^\.claude/(rules|skills/sandloom-[^/]+)/"),
-    re.compile(r"^\.agents/skills/sandloom-[^/]+/"),
-    re.compile(r"^src/sandloom/core/cli/(scaffold|project|add)\.py$"),
     re.compile(r"^src/sandloom/core/cli/templates/"),
+    re.compile(
+        r"^src/sandloom/core/cli/(scaffold_wiring|scaffold_deploy|project|add|skills)\.py$"
+    ),
     re.compile(r"^public_api_baseline\.json$"),
-    re.compile(r"^architecture_rules\.yml$"),
 )
 
 

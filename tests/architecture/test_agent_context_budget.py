@@ -2,10 +2,10 @@
 
 The root ``AGENTS.md`` is loaded into every agent session (Claude Code via
 ``CLAUDE.md``; Codex reads at most 32 KiB of instruction files). It stays a
-map: one rule, the non-negotiables with the check enforcing each, the golden
-path, an index and the intentional oddities. Detail lives in the nested
-contracts and ``docs/modules/``. These tests are the ratchet: grow a
-budget only together with an eval run (``benchmarks/dx``) showing it pays.
+map: which contract to read, the one rule, the golden path, where detail
+lives and the intentional oddities. Detail lives in the nested contracts and
+``docs/modules/``. These tests are the ratchet: grow a budget only with a
+reason the owner accepts.
 """
 
 from __future__ import annotations
