@@ -66,73 +66,52 @@ and take it from the marker if you do not have it.
 ### `--actor` is not cosmetic, and it works differently on each surface
 
 Who took part in a task — and so may not accept it — is read off the actors
-on its claims and submissions, so the actor is not cosmetic. Identity is a
-property of the **session**: the actor the session holds in the project's
-registry, which the session-start hook attaches — the one this checkout held
-last, or the first free one — and says so as the session's first line
-(`this session acts as …`). A hold is per project, so both surfaces read it in
-the project the call reaches: a session that holds `claude` here holds nothing
-in another project until it attaches there. Over MCP, a server registered with
-`--actor` speaks as that name while its session holds nothing. On the CLI,
-`--actor <name>` names the caller outside a harness session — a script, a
-fixture, a person at a terminal. Inside one it may only repeat what the
-session holds. Naming anyone else, or anyone at all while the session holds
-nothing, is refused with `SESSION_ACTOR`: the way to a name is `actor_attach`,
-which refuses one another live session holds.
+on its claims and submissions, so the actor is not cosmetic. An actor is a
+**role**: the program of the harness (`claude`, `opencode`, `pi`, `codex`,
+`agy`) or a name given on purpose, and any number of sessions sign as one. A
+session is not leased a role; what a session holds is its claims. Over MCP, a
+server signs as its `--actor`, else as the program of its harness. On the CLI,
+a call in a harness session signs as that harness's role, and `--actor <name>`
+names another, for a script, a fixture, a person at a terminal, or a second
+role of one harness.
 
 Every event also records its **door**, which the caller does not choose:
 `agent` for anything a harness runs, `terminal` for the CLI with a terminal on
 stdin and no harness around it, `console`, and `script` for the rest. A person
 at a terminal signs as their login, and their first write in a project enters
 them into its registry as a person. An agent shell has no terminal, so taking
-the harness variables out of it makes a script, not a person.
+the harness variables out of it makes a script, not a person. A name the
+project registers as a person is refused from an agent's session
+(`HUMAN_DOOR`).
 
-A session that holds no actor signs everything with the server's default;
-the claim guard refuses its edits and says how to attach. `attach_hook: off`
-in `.tm/project.yaml` switches the attaching off.
+The claims a session holds are its own: the session a claim belongs to is the
+one the harness's hook states in the call. `tm claims-lost` names the claims a
+session held and lost — granted to another session, taken over, run out — and
+the claim guard says the same when an edit meets none of the session's claims.
+`tm log` shows who signed each event and through which door.
 
-A project can refuse such writes outright: with `refuseAnonymousAgents` on in
-its policy (a person's `tm project policy`), a write from an agent session that holds
-no actor comes back `ANONYMOUS_AGENT`, naming what to do — take an actor, or
-register another when every one is held by a live session. It is not
-`ACTOR_BUSY`: that one says you already hold a claim, this one that you hold
-no name at all. Reads, and the calls that give a session a name, still pass;
-the console and a terminal no harness runs are never refused. `tm actor
-anonymous` counts the writes each door signed with its own default name, and
-the policy goes on once that count reads zero.
-
-A session can change its id while it runs: Claude Code moves a conversation
-into the background by forking it under a new id. The hook carries the actor
-across when the old session's transcript records the move, and says so on the
-first line. A session unsure whom it signs as asks `actor_signable`: it names
-the actor the session holds and the forks it made, and an empty answer means
-the server's default. Over
-MCP, `actor_attach` without `token` attaches the very session the server
-serves, and a `token` naming another session is refused — an attachment under
-any other handle signs none of this session's calls. The CLI takes `--token`
-as given; under Claude Code the session's handle is `CLAUDE_CODE_SESSION_ID`
-in the environment of its shell calls, which is what the CLI resolves its own
-actor by. `tm log` shows who signed each event and through which door, so the
-next mutation after attaching is the check.
-
-Agents left on a shared default are one person as far as the core is
-concerned, and cannot review each other's work.
+Agents left on a shared role are one person as far as the core is concerned,
+and cannot review each other's work.
 
 ## The rules that belong to no single call
 
-- **One claim at a time, and the core refuses the second** (`ACTOR_BUSY`).
-  Turning to something else means `task_hold` on what you hold, not a second
-  `task_start`. Two live claims mean one of them is lying to the Agent Fleet
-  view about work nobody is doing. The boundary is the project, so working in
-  two checkouts at once is unaffected, and a claim gone silent holds nothing.
-  Subagents of one session are one actor too, until each is given a fork
-  (`actor_fork`, then `as: <fork>` on its calls) — `tm-fleet` says how.
-  Review
-  does not keep you busy: `task_done` releases the claim, so the next task is
-  claimable while a person reads the last one.
+- **One claim at a time per holder, and the core refuses the second**
+  (`ACTOR_BUSY`). A holder is a session, or a subagent within it; each subagent
+  holds a claim of its own, named by the hook — `tm-fleet` says how. Turning to
+  something else means `task_hold` on what you hold, not a second `task_start`:
+  two live claims mean one of them is lying to the Agent Fleet view about work
+  nobody is doing. The boundary is the project, so working in two checkouts at
+  once is unaffected. Review does not keep you busy: `task_done` releases the
+  claim, so the next task is claimable while a person reads the last one.
 - **The claim comes before the first edit** — a hook refuses an edit no claim
-  covers, and says why. Keeping it alive is nobody's chore: it is live while
-  its task's stream keeps moving.
+  of the session covers, and says why. A claim has an epoch and a term (the
+  project's `claimTtl`, six hours unless a person set another) that every tm
+  call of the session renews, so keeping it alive is nobody's chore; one that
+  runs out puts the task back in the queue with its checkpoint. After `/clear`
+  or a restart the new session takes its work back with `task_start` on the
+  same task, and the old session is told once that it was superseded. A person
+  can take a claim over (`tm task take-over`, with a reason), and work sent back
+  by a review waits for its role.
 - **An agent submits; a person accepts.** Under a project's default `review`
   mode, `human`, `task_verify` accepts only from a person at the console or a
   terminal outside an agent's session, and never from anybody who claimed or
@@ -145,14 +124,17 @@ concerned, and cannot review each other's work.
   the person makes them at their terminal:
   - `requiresReview: false`, on a task or inside an `onSuccess` template, and
     a task — or a template — naming fewer kinds than the project's default;
-  - a switch to `solo`, the gate on nameless agents turned off, a kind taken
-    off the project's deliverable default, a path added to `unguardedPaths`;
-  - entering, changing, retiring, attaching or detaching a person;
+  - a switch to `solo`, a change of the claim term, the review term or the
+    planning limit or the limit of attempts, a kind taken off the project's deliverable default, a path
+    added to `unguardedPaths`;
+  - entering, changing or retiring a person, and the capabilities of any
+    actor;
   - cancelling, deleting, replanning or rolling back a task in review,
     removing a link out of one (or out of its parent), and switching a task
     it holds back to `oneCompleted`.
   Tightening passes any door. Making a project is a person's whatever the
-  mode: ask them to run `tm project create` at their terminal. What a refusal cannot stop is counted instead:
+  mode: ask them to run `tm project create` at their terminal. What a
+  refusal cannot stop is counted instead:
   `tm guards` lists own work accepted, work closed with no review,
   the policy loosened and the doors verdicts came through, and the console's
   guards draw the same.

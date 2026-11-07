@@ -47,40 +47,26 @@ division is data, verifiable before anybody starts.
   hook catches a stray edit as it happens; a paragraph catches it in a diff
   review afterwards, if at all.
 
-## 3. Give each agent a name of its own — a fork
+## 3. Each agent is named by the hook
 
-Subagents you launch share this session's MCP connection, so without more
-they are all signed as the actor the session holds: one claim at a time, one
-area. The second of them to run `task_start` is refused `ACTOR_BUSY`, naming
-the first one's task.
+Subagents you launch share this session's MCP connection and sign as the role
+the session signs as. They need no name and no argument: the hook puts the
+session and the subagent (`<type>#<id>`, shown as the type and the last four
+characters of the id) into every tm call they make, so a claim is held by the
+pair, and a subagent that runs a second `task_start` is refused `ACTOR_BUSY`
+only for its own second claim, never for its sibling's. Nothing is registered,
+passed or cleaned up: do not tell an agent to carry a name.
 
-**Before launching an agent, fork your actor for it:** `actor_fork` returns
-`<you>_<n>`, an agent record of its own — its own claim, its own area checked
-against its siblings', its own capabilities. Put the name in the prompt, with
-the instruction that every tm call carries `as: <fork>` (on the command line,
-`--actor <fork>`). Every tm tool takes `as`, though under Claude Code none
-lists it in its schema — the prompt is the only place the agent learns it. A write without it, from a
-subagent of a session that has forks, is refused by the fork guard naming the
-forks; one naming a fork this session did not make is refused `FORK_NOT_HELD`.
-
-- A fork lives while this session holds your actor. It needs no clean-up, and
-  it leaves `list_actors` when the session ends — but a claim it took stays
-  until somebody puts it down, so the agents hand over or `task_hold` before
-  they return.
-- `actor_fork` answers `{id, reused}`. The forks of your actor are a pool: a
-  free one — no claim, no task in review, not retired — is handed out again
-  (`reused: true`) with the capabilities you ask for now. First one of this
-  session whose agent claimed work and put it down; then one an earlier
-  session left behind (a restart, a detach), lowest number first, which
-  becomes this session's (`rebound: true`) — so restarts do not pile up
-  names either. Forks asked for before their agents claim anything are
-  distinct. Fork for the next agent only once the previous holder of a
-  reused name has returned: a name handed out again while its first agent
-  still runs is two agents under one name.
-- Edits are checked against the claims of the whole session: the guard knows
-  the session, not which subagent is typing. Two forks' areas are kept apart
-  when they claim; inside the session a subagent could still edit a sibling's
-  files, and dividing by area is what stops it.
+- A claim an agent took stays until somebody puts it down or its term runs out
+  (six hours, renewed by every tm call of the session), so the agents hand over
+  or `task_hold` before they return. An agent that comes back to a task after a
+  `/clear` or a restart takes it again with `task_start`.
+- `AREA_CONFLICT` keeps holders apart, subagents of one session included: the
+  second subagent whose area overlaps a sibling's claim is refused at its
+  claim. Edits are checked differently: the guard asks whether any claim of the
+  session covers the path, not which subagent is typing, so inside the session
+  a subagent could still edit a sibling's files. Dividing by area at the claim
+  is what stops it.
 
 ## 4. Issue the resources that exist once
 
@@ -88,25 +74,24 @@ Some things do not divide: a running window, a driver port, a device, a live
 server. Two agents on one of those produce timeouts that read as *my change
 broke it* — an hour, the first time.
 
-Those tasks carry the resource as a `requiredCapabilities` entry. **Grant it to
-exactly one actor's RECORD for the run**, and leave it off the others. With
-forks that is the `capabilities` of `actor_fork` for the one agent that gets
-the resource — a fork is given only what its parent has, so your own record
-carries it (`actor_update --capability …`), and you do not claim with it
-while the fork holds it. This is not a rule you keep — the core reads the
-record, so an agent whose record lacks the entry cannot claim the task and does
-not even see it on its front. Granting it to two records is the only way to get
-two claimants, and that is a thing you do rather than a thing that happens.
+Those tasks carry the resource as an **`@<resource>` entry in their area**, and
+`task_start` is the lock: a second claim naming it is refused with
+`AREA_CONFLICT`, naming who holds it. Nothing is granted to a record and
+there is nothing to take back when the run ends — the resource is free again
+when the holder's task is handed over or held.
 
-Take it back the same way when the run ends: a record that keeps the window
-capability keeps the window's work hidden from everybody else.
+The lock is between holders, and your subagents are holders of their own, you
+being one too: a second claim naming the resource is refused whichever session
+or subagent holds the first. **You are the issuer inside the run**: dispatch one
+agent with a task naming the resource at a time, and the next after its task is
+handed over or put down, so that the refusal never has to be what tells an
+agent to wait.
 
 Which entries this project uses, you read rather than remember: `list_tasks`
-carries `requiredCapabilities` on every row, `list_actors` says which record
-holds what, and the project's `CLAUDE.md` or `AGENTS.md` says what the
-resource behind a name actually is. A name that no record carries hides its work from everybody —
-which is the failure this arrangement can still produce, and the one to check
-for when a task nobody can see keeps not getting done.
+and `get_task` carry the `area`, and the project's `CLAUDE.md` or `AGENTS.md`
+says what the resource behind a name actually is. A name nobody spells the same
+way twice is two locks that never meet — check an entry against the ones the
+existing tasks use before dispatching.
 
 An agent without the resource does not skip the check — it returns **what you
 should look at**, in a list. That is not a formality: such a list can name a
@@ -133,7 +118,7 @@ times, and the second is paid before the first test runs. Your own numbers will
 differ; that they differ by that much is the part that generalises.
 
 **Measured once, and the shared tree was enough.** Four agents on four
-documentation slices with disjoint areas, each under its own fork, two of them
+documentation slices with disjoint areas, each a subagent of its own, two of them
 isolated and two in the shared checkout: the shared pair finished in 4:46 and
 8:10, the isolated pair in 5:37 and 10:17, and neither shared agent saw the
 other's work in its `git status` or in its tests. The isolated pair paid what
@@ -141,14 +126,14 @@ the paragraph above predicts — one package with a native build hook spent
 about seventy seconds compiling it before its first test — and paid in
 handling: git beyond a single plain command was refused inside the worktree,
 and the work had to be carried into the checkout by hand before it could be
-committed. So with disjoint areas and a fork per agent, the claim guard already
+committed. So with disjoint areas and a subagent per slice, the claim guard already
 gives what a worktree was meant to. Isolate an agent when its checks would
 collide with another's — the same package's tests, a shared build directory —
 not by default.
 
-**tm says when two forks share a package.** `task_start` by a fork answers
-with `sharedPackages` and a `worktreeHint` when another fork of the same
-session holds a live claim in a package its area reaches — the nearest
+**tm says when two agents share a package.** `task_start` answers
+with `sharedPackages` and a `worktreeHint` when another holder of the same
+session has a live claim in a package its area reaches — the nearest
 `pubspec.yaml` above a path, a workspace root passed over. Areas apart do not
 keep a package's compilation, generators or formatter apart: in one run an
 agent's uncommitted edit broke the compilation of another's tests, a
@@ -186,12 +171,11 @@ abandoned `worktree-*` branches pile up.
 
 **The rules every agent of the fleet follows are a file of the project:**
 `.tm/fleet-brief.md` beside `.tm/project.yaml`, with `{FORK}` wherever the
-agent's own name goes. `task_start` called by a fork answers with it as
-`brief`, the name put in, read from the file at each claim; an actor that is
-not a fork is handed none, and a project without the file hands none. So the
-prompt you write carries only what is particular to the agent — its fork
-name and the `as` it signs with (the one thing it needs before its first tm
-call), the task, the resource it was issued — and the shared rules are
+agent's own name goes. `task_start` called by a subagent answers with it as
+`brief`, the name (`<type>#<last four>`) put in, read from the file at each
+claim; a call that is not a subagent's is handed none, and a project without
+the file hands none. So the prompt you write carries only what is particular to the
+agent — the task and the resource it was issued — and the shared rules are
 changed in the file, in a commit, not in a copy you keep and substitute per
 agent.
 
@@ -216,7 +200,7 @@ Without these, an agent repeats a mistake this repository has already bought:
 agent that changed something a neighbour depends on, or found the
 neighbour's bug, leaves a reflection on the neighbour's task:
 `active_claims` with `covering: <path>` names the task and its executor,
-and `reflection_add` with that `task` (and its own `as`) writes the note.
+and `reflection_add` with that `task` writes the note.
 The holder is handed it on whatever tm call it makes next, beside the
 result under `notes`: one `{id, task, author, line}` per note other actors
 wrote on its task since it claimed it, each once, the line being the
@@ -302,7 +286,7 @@ ground.
 | an agent edited outside its area | the guard should have refused it — check the task's area is actually set, then `git checkout -- <the stray paths>` |
 | an agent failed the task | `task_fail` with the reason, and read whether the plan was wrong before relaunching |
 | two candidate tasks overlap in area | run one; the other waits — or `tm-plan` merges them, because they were one slice |
-| a task needs a one-of-a-kind resource and it is taken | it waits for the agent holding that capability; nothing else releases it |
+| a task needs a one-of-a-kind resource and it is taken | its `task_start` is refused with `AREA_CONFLICT`, naming the holder; it waits until that task is handed over or held |
 | rollback is needed | `git revert` the task's commit — it touches the task's area and nothing else, which is correct only because the boundary held, so it is the area that made rollback definable |
 | an agent asks for a decision | answer it yourself or give it back to the person; do not let it choose and report the choice as done |
 | an isolated agent's worktree outlives the run | `git worktree remove .claude/worktrees/<name>` once its work is in — the periodic sweep skips anything still holding changes, and neither it nor `prune` ever deletes the branch |

@@ -2,29 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "^(Write|Edit|MultiEdit|Bash|mcp__tm([-_][A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)?__.*)$",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/require-tm-claim.sh\" codex"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/report-bash-writes.sh\" codex"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm([-_][A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)?__.*$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/tm-hook.sh\" codex"
+            "command": "tm hook codex"
           }
         ]
       }
@@ -35,25 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/report-bash-writes.sh\" codex"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm([-_][A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)?__task_done$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/consolidate-when-ready.sh\" codex"
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__tm([-_][A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)?__task_start$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/tm-hook.sh\" codex"
+            "command": "tm hook codex"
           }
         ]
       }
@@ -64,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/tm-hook.sh\" codex"
+            "command": "tm hook codex"
           }
         ]
       }

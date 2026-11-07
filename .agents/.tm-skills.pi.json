@@ -1,21 +1,16 @@
 {
-  "files": [
+  "kept": [
     "skills/tm-consolidate/SKILL.md",
     "skills/tm-fleet/SKILL.md",
     "skills/tm-implement/SKILL.md",
-    "skills/tm-memory/SKILL.md",
     "skills/tm-plan/SKILL.md",
-    "skills/tm-review/SKILL.md",
     "skills/tm/SKILL.md"
   ],
   "sha256": {
     "skills/tm-consolidate/SKILL.md": "2c932cee1cf10b186b1b887a18216a2d0ed47ebc3e8e522b212ab2e26129868b",
     "skills/tm-fleet/SKILL.md": "537c6ff9d3a567a75922dcea9fad8b6ca04fdbf8246da3a87a85c885ff9a93b6",
     "skills/tm-implement/SKILL.md": "68bec894749749f238ff0d7970e757e9381da7a4180abd60bb485f097575483f",
-    "skills/tm-memory/SKILL.md": "214eb8fa879bdc4454923948c4027bea8243e30d97d2697812151d311f94657b",
     "skills/tm-plan/SKILL.md": "e14c610a8e7287c5c58a2dc161502bfaefe0e606d5a02c3bb0698f3be97fbffa",
-    "skills/tm-review/SKILL.md": "36cb09e0e1565e53c0b5cb7f8a66db8f6bd2e43f3ee166e43165fe8a4e8c5636",
     "skills/tm/SKILL.md": "76f3075b8d153b8438f43c172a758a3f3e4cfbb4967931bbece6addba2893846"
-  },
-  "installedBy": "dist-v0.1.7"
+  }
 }

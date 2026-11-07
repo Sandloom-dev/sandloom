@@ -23,23 +23,20 @@ claimed, or the plan needs `tm-plan`. Say which.
 If the person named the task, skip this and `get_task` it by alias or id.
 
 **You do not offer capabilities; the front already knows what you can do.**
-They live on your ACTOR RECORD in the project's registry, and both the front
-and `task_start` read them from there. Some of them stand for a resource that
-exists **once** — a running window, a driver port, a device — and it is the
-project that grants one to a record, not an agent that names it on a call.
-Which resource that is here, and what it is called, is the project's own
-business: its `CLAUDE.md` or `AGENTS.md` says.
+Your role's record in the project's registry carries them — skills such as
+"can review a design" — and both the front and `task_start` read them from
+there, so a task gated on one is invisible to a role that does not have it. A
+`CAPABILITY_MISMATCH` is an answer about the REGISTRY, not about your call:
+nobody has told it what the role can do, or this work is not the role's to
+take. The refusal names both sides, and the repair is `actor_update` by whoever
+decides, not a re-claim with a wider list. There is no wider list to send.
 
-So a task refusing with `CAPABILITY_MISMATCH` is an answer about the REGISTRY,
-not about your call: either nobody has told it what you can do, or this work is
-not yours to take. The refusal names both sides — what the task wants and what
-your record carries — and the repair is `actor_update` by whoever decides, not
-a re-claim with a wider list. There is no wider list to send.
-
-The same fact from the other side: work you cannot see on the front is not
-missing. A task gated on a resource is invisible to a record that does not hold
-it, which is what makes the gate work at all — ask for the capability rather
-than for the task.
+A thing that exists **once** — a running window, a driver port, a device — is
+not a capability. A task that needs it names it as an `@<resource>` entry in
+its area, and the claim holds it: `task_start` refuses a second claim naming
+it with `AREA_CONFLICT`, naming the holder. What the entry stands for here, and
+how to use it, is the project's own business: its `CLAUDE.md` or `AGENTS.md`
+says.
 
 ## 2. What the last agent left comes back with the claim
 
@@ -81,9 +78,10 @@ nobody writes it down either.
 
 ### Work that was sent back
 
-A rejected review hands the task back to its submitter with the claim, so
-there is no `task_start` to make — but there is a reading to do, and
-`memory_task_start` is it. The reply's `review` is the last round of review:
+A rejected review hands the task back to the submitter's role, reserved: no
+session holds it until one of the role calls `task_start` on it, which takes
+it under a new epoch. Read before that call, with `memory_task_start`, or from
+the reply to it. The reply's `review` is the last round of review:
 the verdict, its reason, and the comments written with it, each under an id,
 anchored to a `path` and `line` of a `commit` or to the review as a whole. `get_task` has every round under
 `reviewRounds`; `tm show` prints them.
@@ -116,23 +114,32 @@ review exists against. Answer the comment; the reviewer resolves it.
 A hook refuses `Write`/`Edit`/`MultiEdit` for any file **outside the area of
 what you hold**, and its refusal says why the claim comes first.
 
-Nothing has to be sent to keep the claim alive: liveness is read off the task's
-own stream, on a threshold measured in hours. Where there is something a
-successor would want to read, `task_checkpoint` records it — a note, not a
-pulse, and not on a timer.
+The claim is held by your session — and by your subagent within it — under an
+epoch, for the project's claim term (six hours unless the project set another).
+Nothing has to be sent to keep it alive: every tm call of the session renews
+all of its claims. A claim that runs out puts the task back in the queue with
+its checkpoint. Where there is something a successor would want to read,
+`task_checkpoint` records it — a note, not a pulse, and not on a timer.
+
+If the session ended — `/clear`, a restart — and the work is still yours,
+`task_start` on the same task takes it back under a new epoch; the old session
+is told once that its claim was superseded. If an edit is refused because no
+claim of the session covers it, `tm claims-lost` says whether the claim ran out
+or was taken over by a person (`tm task take-over`) or by another session.
 
 One at a time — and this is the core's answer, not yours to remember: a
-second `task_start` in the same project is refused with `ACTOR_BUSY`, naming
-what you already hold. Turning to something else is `task_hold` on this one
-first. A rejected review is the one way to end up holding two, because the
-verdict hands the claim back without asking; put one down.
+second `task_start` by the same session and subagent is refused with
+`ACTOR_BUSY`, naming what it already holds. Turning to something else is
+`task_hold` on this one first. Work a review sent back is reserved for the
+role and held by no session, so it does not count until you take it.
 
 **Read the task's `area` before you start**, because it is the boundary your
 edits are checked against. Two things follow:
 
-- A claim refused with `AREA_CONFLICT` means somebody else is live in those
-  paths. That is information, not an obstacle to get past: `active_claims` says
-  who, and the work is theirs until they put it down.
+- A claim refused with `AREA_CONFLICT` means another holder — a session, or a
+  sibling subagent of yours — is live in those paths. That is information, not
+  an obstacle to get past: `active_claims` says who, and the work is theirs
+  until they put it down.
 - Finding mid-task that you need a file outside the area is normal — a test, an
   ADR, a spec section. Widen it deliberately with `task_update --area`, listing
   the existing paths too (it replaces the set, not adds to it). What is not
@@ -143,7 +150,7 @@ planned before areas existed reads. Do not take that as licence to edit the
 repository at large under it.
 
 **A task tagged `design` was written against one version of a design**, and the
-design may have moved since. After `task_start` a hook says which version the
+design may have moved since. The answer to `task_start` says which version the
 task records in `metadata.design`, or that it records none. Read the live
 version before drawing and compare. If it moved, add to the task what changed
 and update `metadata.design` to the version you work from; the handover says
@@ -202,11 +209,12 @@ different answers to the same ask.
 
 **Commit the work before handing it over.** The review opens the changes from
 the commits the handover names, so work that is not in the history cannot be
-reviewed at all. For a task with an area, a hook enforces both halves before
-`task_done` runs: uncommitted work in the area refuses the handover and names
-the files, and the commits that touched the area since the claim are added to
-the deliverables for you — you do not have to copy hashes. A task with no area
-gets neither; name its commit yourself.
+reviewed at all. For a task with an area, both halves are enforced before
+`task_done` runs — by `tm task done` itself from the shell, and over MCP by
+tm's hook where the harness runs it: uncommitted work in the area refuses the
+handover and names the files, and the commits that touched the area since the
+claim are added to the deliverables for you — you do not have to copy hashes.
+A task with no area gets neither; name its commit yourself.
 
 This moves the task to `in_review`. **You cannot accept it yourself** — that is
 the point, not an obstacle: under the project's default `review` mode a person
@@ -224,6 +232,7 @@ without being asked; the queue is now the person's move.
 | putting it down without failing it | `task_hold` — releases the claim, keeps the task |
 | deliberately abandoning it | `task_cancel` — terminal and visible, cascades to children |
 | blocked on somebody else's answer | `task_hold` plus a `blocker` reflection saying what is awaited |
+| a handover refused with `NOT_APPROVED` | nothing you can call: a person reads the command the marker brought and runs `tm trust` at their terminal. Say so and stop; an agent's `tm trust` is refused, and getting past that, by a detached process or by writing `~/.tm/trust.json`, takes the person's decision from them |
 
 `task_fail` and `task_hold` are not interchangeable: one records an attempt
 that did not work, the other records that nobody is on it. The Agent Fleet view
