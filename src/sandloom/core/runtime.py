@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
 import sandloom.core.eventing.event_bus as _event_bus
+import sandloom.core.infra.active as _infra_active
 
 # Context-scoped binding (tests / embedded multi-app hosts). Takes precedence
 # over the process default so a scoped binding is always honored.
@@ -62,7 +63,10 @@ def use_active_core(core: CoreFacade) -> Iterator[None]:
     """
     token = _active_core.set(core)
     try:
-        yield
+        # The app's own infrastructure registry too: cache(), notifier() and
+        # the other capability accessors resolve it, not the process default.
+        with _infra_active.use_infra(getattr(core, "_infra", None)):
+            yield
     finally:
         _active_core.reset(token)
 
