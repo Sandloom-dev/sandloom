@@ -1705,6 +1705,7 @@
         "src/sandloom/core/tests/test_redis_cache_bounded.py",
         "src/sandloom/core/tests/test_redis_cache_loop_affinity.py",
         "src/sandloom/core/tests/test_redis_cache_retry_policy.py",
+        "src/sandloom/core/tests/test_registration_ownership.py",
         "src/sandloom/core/tests/test_relational_driver_contract.py",
         "src/sandloom/core/tests/test_relay_batch_publish.py",
         "src/sandloom/core/tests/test_release_pools.py",
