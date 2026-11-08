@@ -248,13 +248,34 @@ treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
 Contributors cannot override the identity claims (`sub`, `email`,
-`email_verified`, `token_type`). A claim key has one owner. A second module
-writing it (another module's `roles` or `permissions`, say) aborts minting
-(`503`). So does any module writing the token envelope or the provenance
-(`iat_us`, `auth_time`, `jti`, `claims_sources`, …). Provenance names only
-the modules that ran. Without this rule, a module could put
-`roles: ["admin"]` in a token stamped with identity and pass the platform
-administrator gate.
+`email_verified`, `token_type`). The composition root assigns each protected
+claim to the module that is its authority, in code:
+`create_app(claim_authorities={...})`, with an `issuer` entry naming the
+module that mints tokens. The kernel holds no default map; the standard
+composition (`sandloom_standard.main`) assigns `roles`, `permissions`,
+`email`, `email_verified` and the issuer to identity, `tenant_ids` to tenancy
+and the billing claims to billing, each only when that module is composed.
+The mint keeps a protected claim only from its authority: the module loaded
+from the assigned import path, or its pinned `<m>.claims.v1` binding. A name
+is not proof: a module merely named `identity` is not the authority. A
+contributor writing a protected claim it is not assigned, or the token
+envelope or the provenance (`iat_us`, `auth_time`, `jti`, `claims_sources`,
+…), is a violator. An optional violator loses its whole result
+(`claims_sources_failed`, an ERROR log, the
+`claims_contributor_violations_total` counter) and the login still
+succeeds; a critical violator refuses the mint (`503`) naming itself. Without
+this rule, a module could put `roles: ["admin"]` in a token stamped with
+identity and pass the platform administrator gate.
+
+Startup refuses an assignment the composition cannot honour
+(`SANDLOOM-B035`): an assigned path that names no module, an authority the
+issuing process neither loads nor binds, an issuer mismatch, and a
+non-critical authority of a claim whose readers have no fallback. Only the
+billing claims may come from a non-critical authority, because every reader
+treats their absence as "not granted" (the subscription check escalates to
+the live fact): a billing outage still lets users log in. A lean root with no
+map assigns nothing, so an issuer whose critical contributor writes `roles`
+refuses every mint rather than minting untrusted claims.
 
 The names in provenance are tied to the module that registers. Claims
 contributors and access facts are accepted only under the short name of the
@@ -267,7 +288,7 @@ or write claims in its name.
 Over RPC, the binding names the owner. A consumer drops a fact that
 `<m>.facts.v1` describes under another `owner_module`, and logs
 `SANDLOOM-B034`. The check compares names with the registering module; which
-module may write a given claim key is the first-writer rule above.
+module may write a given claim key is the assignment above.
 
 ### Authority at commit (admin and money effects)
 

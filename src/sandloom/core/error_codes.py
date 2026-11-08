@@ -1264,14 +1264,18 @@ another owner_module.
         "SANDLOOM-B035",
         "token-issuer-obligation",
         "boot",
-        "a token issuer cannot end its sessions on an emergency block: an "
-        "issues_tokens module registers no durable consumer of "
-        "core.auth.user_blocked.v1, or declares refresh_sessions=False and "
-        "still registers a refresh route, a session table or such a consumer",
+        "the token issuer's startup contract is broken: an issues_tokens "
+        "module cannot end its sessions on an emergency block (no durable "
+        "consumer of core.auth.user_blocked.v1, or refresh_sessions=False "
+        "contradicted), or the composition cannot honour its "
+        "claim_authorities (a path naming no module, an authority neither "
+        "loaded nor bound, a non-critical authority of a claim with no "
+        "fallback, an issuer mismatch)",
         "give the issuer a durable consumer of core.auth.user_blocked.v1 that "
-        "ends the user's refresh sessions; or, if it holds none, declare "
+        "ends the user's refresh sessions, or declare "
         "define_module(..., refresh_sessions=False) and remove what the "
-        "refusal names",
+        "refusal names; fix the claim_authorities entry the refusal names "
+        "(the path, the composition, critical=True, or the issuer entry)",
         """
 block_user (any service) revokes the user's access tokens and publishes
 core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
@@ -1283,6 +1287,21 @@ an absent consumer); startup verifies the declaration against what the module
 registers: a route whose path names "refresh", a table whose name contains
 "refresh" or "session", or its own consumer of core.auth.user_blocked.v1
 contradicts it and refuses the boot (ADR-0012 decision 5).
+
+The issuer mints only the claims the composition root assigned
+(create_app(claim_authorities={key: module, ..., "issuer": module}),
+ADR-0014): a protected claim (roles, permissions, tenant_ids, email,
+email_verified, the billing claims and every key the map names) is kept only
+from its authority, the module loaded from the assigned import path or its
+<m>.claims.v1 binding. Startup refuses, naming the key and the module: an
+assigned path that names no module (a typo); in the issuing process, an
+authority neither loaded nor bound, loaded under its name from another path,
+or loaded without a claims contributor; a non-critical authority (contributor
+critical=False, or binding "critical": false) of a claim whose readers have
+no fallback (only subscription_status, plan_code, features and limits may
+have one, decision 7); an issues_tokens module that is not the map's issuer,
+or the map's issuer loaded without issues_tokens=True. A root's default map
+(sandloom_standard.main) keeps only the entries whose module is composed.
 """,
         "docs/advanced/security-model.md",
     ),

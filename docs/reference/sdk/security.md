@@ -19,7 +19,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`apply_pending_revocation`](#apply_pending_revocation) | async function | Apply a `core.auth.tokens_revoked.v1` payload (durable applier body). |
 | [`block_user`](#block_user) | async function | Block `user_id` NOW: every authenticated request of theirs gets 401. |
-| [`ClaimsUnavailable`](#claimsunavailable) | exception | A CRITICAL claims contributor failed: the token must not be minted. |
+| [`ClaimsUnavailable`](#claimsunavailable) | exception | A CRITICAL claims contributor failed, or wrote a claim it may not write: the token must not be minted. |
 | [`create_access_token`](#create_access_token) | function | Create JWT access token via sandloom.core.auth (stable adapter). |
 | [`decode_token`](#decode_token) | function | Decode JWT using sandloom.core.auth.tokens (stable adapter). |
 | [`decode_token_cached`](#decode_token_cached) | function | Per-request-cached JWT decode via sandloom.core.auth (stable adapter). |
@@ -95,10 +95,12 @@ tokens on it, locally or in its own service.
 class ClaimsUnavailable(HTTPException)(owner: str) -> None
 ```
 
-A CRITICAL claims contributor failed: the token must not be minted.
+A CRITICAL claims contributor failed, or wrote a claim it may not
+write: the token must not be minted.
 
-Surfaces as `503` (retry later) — never a token silently missing
-security claims such as tenancy's `tenant_ids` allowlist.
+Surfaces as `503` (retry later) naming that contributor — never a token
+silently missing security claims such as tenancy's `tenant_ids`
+allowlist, nor one carrying another module's.
 
 ### `create_access_token`
 
