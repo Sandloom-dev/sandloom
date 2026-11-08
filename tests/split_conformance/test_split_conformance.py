@@ -1741,9 +1741,13 @@ def test_revocation_across_services_survives_a_failing_mark_write(
     1. tenancy cannot write the mark (cache outage in that process): the
        removal is REFUSED (503) — dave stays a member, nothing half-applied;
     2. tenancy's write is acknowledged but LOST (failover): the removal
-       commits; the durable ``core.auth.tokens_revoked.v1`` event, consumed
-       by identity in the OTHER process, writes the mark — dave's old token
-       is then rejected by every service. The measured lag is reported.
+       commits; the durable ``core.auth.tokens_revoked.v1`` event, applied by
+       the kernel's applier of every service (identity's applier is gone,
+       ADR-0012 decision 5), writes the mark — dave's old token is then
+       rejected by every service. The measured lag is reported.
+
+    Each process runs the applier in its own group,
+    ``sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>``.
     """
     dep = matrix.deployments[FAULT_DEPLOYMENT]
     ten = dep.target(T)
@@ -1751,6 +1755,21 @@ def test_revocation_across_services_survives_a_failing_mark_write(
 
     async def _run() -> tuple[dict[str, int], dict[str, int], float]:
         async with httpx.AsyncClient(timeout=30) as client:
+            for proc in dep.procs:
+                diag = await client.get(
+                    f"{proc.url}/diagnostics/consumers",
+                    headers={"X-Internal-Token": INTERNAL_TOKEN},
+                )
+                assert diag.status_code == 200, diag.text
+                appliers = [
+                    c
+                    for c in diag.json()["consumers"]
+                    if c["channel"] == "core.auth.tokens_revoked.v1"
+                ]
+                group = f"sandloom:auth@tokens_revoked@{dep.name}-{proc.label}"
+                assert [(c["group"], c["module"], c["state"]) for c in appliers] == [
+                    (group, "sandloom", "running")
+                ], appliers
             ids = await _fault_setup(client, dep, db_url)
             org, carol = ids["org"], {"Authorization": ids["carol_auth"]}
             remove = f"{ten.url}/api/v1/orgs/{org}/members/{ids['dave']}"
@@ -1779,7 +1798,7 @@ def test_revocation_across_services_survives_a_failing_mark_write(
     logs = matrix.logs(FAULT_DEPLOYMENT)[-6000:]
     # 1. refused removal: still a member everywhere, token still valid.
     assert set(during_outage.values()) == {200}, f"{during_outage}\n{logs}"
-    # 2. applied by identity's durable consumer in the other process.
+    # 2. applied by the kernel's durable applier (no identity applier).
     assert set(after.values()) == {401}, f"{after} after {lag:.2f}s\n{logs}"
     assert lag < 10, lag
     print(f"\n[fault-revocation] lost mark write -> rejected everywhere in {lag:.3f}s")

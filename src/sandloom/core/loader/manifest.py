@@ -163,6 +163,11 @@ class ModuleManifest:
     models: tuple[ModelEntry, ...] = ()
     chain: ChainEntry | None = None
     deviations: tuple[DeviationEntry, ...] = ()
+    #: The module mints access tokens (``issues_tokens=True``).
+    issues_tokens: bool = False
+    #: An issuer's declaration that it holds refresh sessions (``False``: a
+    #: stateless issuer, verified at startup; SANDLOOM-B035).
+    refresh_sessions: bool = True
 
 
 @dataclass(frozen=True)
@@ -424,6 +429,8 @@ def module_manifest(
             chain=descriptor.migrations_chain,
             path=descriptor.migrations_path,
         ),
+        issues_tokens=bool(getattr(descriptor, "issues_tokens", False)),
+        refresh_sessions=bool(getattr(descriptor, "refresh_sessions", True)),
     )
 
 

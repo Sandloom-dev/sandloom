@@ -101,6 +101,7 @@ def define_module(
     router: Any = AUTO,
     events: Any = AUTO,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from declarations + conventions.
 
@@ -127,7 +128,9 @@ def define_module(
     ``capabilities`` accept requirement objects or plain strings
     (``"tenancy.membership.v1"`` / ``"cache"``). ``issues_tokens=True``
     marks the module as the access-token issuer (see
-    :attr:`~sandloom.core.descriptors.ModuleDescriptor.issues_tokens`). Submodules
+    :attr:`~sandloom.core.descriptors.ModuleDescriptor.issues_tokens`);
+    ``refresh_sessions=False`` declares such an issuer stateless (no refresh
+    sessions to end on a block, verified at startup: SANDLOOM-B035). Submodules
     are imported lazily, inside ``register``, exactly like a hand-written one.
     Modules are REQUIRED by default (a failed load aborts startup, SANDLOOM-B001);
     ``optional=True`` declares one the process may run without.
@@ -178,6 +181,7 @@ def define_module(
                 for c in capabilities
             ],
             issues_tokens=issues_tokens,
+            refresh_sessions=refresh_sessions,
         )
 
     register.__qualname__ = register.__name__ = "register"

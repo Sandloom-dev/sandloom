@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from fastapi import FastAPI
 
 import sandloom.core.admin.api.platform as _platform
+import sandloom.core.app_factory.revocation_applier as _applier
 import sandloom.core.consumers.runtime as _runtime
 import sandloom.core.drivers.system_db as _system_db
 import sandloom.core.guard_order as _guard_order
@@ -199,6 +200,16 @@ def create_app(
     warn_nested_units_join_caller(infra, main_logger)
     # The application manifest (spec §5.7), built from the load pass, no I/O.
     application.state.app_manifest = AppManifest.from_summary(module_summary)
+    # ADR-0012 decision 5: the kernel applies durable token revocations in
+    # every composition (its group is per deployment), and a token issuer
+    # ends its refresh sessions on a block or declares it holds none.
+    _applier.register_kernel_revocation_applier(core_facade, settings)
+    _applier.enforce_issuer_obligation(
+        module_summary.loaded,
+        core_facade.event_consumers,
+        application.state.app_manifest,
+        log=main_logger,
+    )
     # Sagas (ADR-0008): check every registered definition against its
     # contracts, install the advance consumers and the timer sweep.
     saga_runtime = install_sagas(

@@ -605,6 +605,7 @@ def profile_problems(
         if topo.error:
             problem(f"service {name!r} does not load: {topo.error}")
     _issuer_only(procs, report.topologies, problem)
+    _service_names(procs, problem)
     _databases_and_migrations(compose, http, problem)
     _bindings(compose, http, report, problem)
     _keys_and_probes(compose, http, problem)
@@ -694,6 +695,38 @@ def _issuer_only(
                     f"{name}: {key} belongs to the token issuer's processes "
                     "only (a verify-only service must not be able to mint)"
                 )
+
+
+def _service_names(procs: dict[str, dict[str, Any]], problem: Any) -> None:
+    """Every process that consumes events names its deployment, uniquely.
+
+    ``SANDLOOM_SERVICE_NAME`` names the kernel's revocation applier group
+    (``sandloom:auth@tokens_revoked@<name>``, ADR-0012 decision 5): two
+    services with one name would share one group and each miss the other's
+    revocations. Replicas of one service share its name; a migrate one-shot
+    runs no consumers and is not counted.
+    """
+    seen: dict[str, list[str]] = {}
+    for name, svc in procs.items():
+        if process_kind(svc) == "migrate":
+            continue
+        value = str(
+            interpolate(str(_env(svc).get("SANDLOOM_SERVICE_NAME", "")))
+        ).strip()
+        if not value:
+            problem(
+                f"{name}: SANDLOOM_SERVICE_NAME is missing: it names the "
+                "revocation applier's consumer group on the shared bus"
+            )
+            continue
+        seen.setdefault(value, []).append(name)
+    for value, names in sorted(seen.items()):
+        if len(names) > 1:
+            problem(
+                f"SANDLOOM_SERVICE_NAME={value!r} is set in {sorted(names)}: each "
+                "service needs its own name, or they share one revocation "
+                "applier group and each misses the other's revocations"
+            )
 
 
 def _databases_and_migrations(

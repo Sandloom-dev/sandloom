@@ -198,10 +198,11 @@
         "migrations_path",
         "name",
         "optional",
+        "refresh_sessions",
         "routes",
         "version"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False, refresh_sessions:POSITIONAL_OR_KEYWORD|bool=True) -> None"
     },
     "ModuleLoadSummary": {
       "kind": "class",
@@ -1399,7 +1400,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
     },
     "invalidate_contract_read_memo": {
       "kind": "function",
@@ -2753,7 +2754,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
     },
     "module_router": {
       "kind": "function",
@@ -4722,10 +4723,11 @@
         "migrations_path",
         "name",
         "optional",
+        "refresh_sessions",
         "routes",
         "version"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False, refresh_sessions:POSITIONAL_OR_KEYWORD|bool=True) -> None"
     },
     "ModuleLoadSummary": {
       "kind": "class",
@@ -4752,7 +4754,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
     }
   },
   "sandloom.sdk.projections": {

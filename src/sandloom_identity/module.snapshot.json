@@ -10,17 +10,6 @@
       "name": "sessions@user_blocked",
       "required": true,
       "start_from": "earliest"
-    },
-    {
-      "bind_tenant_from": null,
-      "channel": "core.auth.tokens_revoked.v1",
-      "database": "default",
-      "dead_letter": false,
-      "durable": true,
-      "group": null,
-      "name": "sessions@tokens_revoked",
-      "required": true,
-      "start_from": "earliest"
     }
   ],
   "consumes": [],
@@ -1348,6 +1337,9 @@
     }
   },
   "format": 1,
+  "issuer": {
+    "refresh_sessions": true
+  },
   "module": "sandloom_identity",
   "projections": [],
   "sagas": []

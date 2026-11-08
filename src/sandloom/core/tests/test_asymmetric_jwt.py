@@ -359,6 +359,7 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
         "ENVIRONMENT": "prod",
         "JWT_SECRET": _STRONG,
         "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
+        "SANDLOOM_SERVICE_NAME": "api",  # prod's Streams bus (ADR-0012 d. 5)
     }
     problem = tokens.token_signing_problem
     monolith = _role_cfg(**env)

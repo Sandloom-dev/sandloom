@@ -1257,6 +1257,32 @@ another owner_module.
         "docs/advanced/security-model.md",
     ),
     _entry(
+        "SANDLOOM-B035",
+        "token-issuer-obligation",
+        "boot",
+        "a token issuer cannot end its sessions on an emergency block: an "
+        "issues_tokens module registers no durable consumer of "
+        "core.auth.user_blocked.v1, or declares refresh_sessions=False and "
+        "still registers a refresh route, a session table or such a consumer",
+        "give the issuer a durable consumer of core.auth.user_blocked.v1 that "
+        "ends the user's refresh sessions; or, if it holds none, declare "
+        "define_module(..., refresh_sessions=False) and remove what the "
+        "refusal names",
+        """
+block_user (any service) revokes the user's access tokens and publishes
+core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
+the module that mints tokens (issues_tokens=True) must end them when the
+event arrives, in a durable consumer, or lifting the block would revive
+them. An issuer that holds no refresh sessions says so explicitly with
+refresh_sessions=False (recorded in module.snapshot.json, never inferred from
+an absent consumer); startup verifies the declaration against what the module
+registers: a route whose path names "refresh", a table whose name contains
+"refresh" or "session", or its own consumer of core.auth.user_blocked.v1
+contradicts it and refuses the boot (ADR-0012 decision 5).
+""",
+        "docs/advanced/security-model.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",

@@ -17,7 +17,6 @@ from .consumers import revoke_refresh_tokens_on_block
 from .services import twofa_service
 from .services.auth_service import AuthService, drain_emails_on_shutdown
 from .services.operations import OPERATIONS
-from .sessions import apply_token_revocation
 
 
 def _setup(core: ModuleAPI) -> None:
@@ -71,19 +70,9 @@ def _setup(core: ModuleAPI) -> None:
         dead_letter=False,  # a block must never be silently parked in a DLQ
     )
 
-    # Durable token-revocation applier: every revoke_user_tokens_on_commit
-    # (identity's own, tenancy's member removal, block_user — in any service)
-    # writes core.auth.tokens_revoked.v1 into its transaction; a mark that
-    # could not be written after commit (cache outage) is written here,
-    # redelivered until it succeeds — FOREVER (dead_letter=False: capped
-    # backoff, never the DLQ; only a malformed payload is dead-lettered, as
-    # CRITICAL). Idempotent (marks are monotonic).
-    core.register_event_consumer(
-        "core.auth.tokens_revoked.v1",
-        apply_token_revocation,
-        name="sessions@tokens_revoked",
-        dead_letter=False,
-    )
+    # The durable token-revocation applier (core.auth.tokens_revoked.v1) is
+    # the kernel's (ADR-0012 decision 5): every service applies every
+    # revocation in its own group, whether identity is loaded there or not.
 
     # Account emails are delivered in the background after commit: give the
     # in-flight ones a bounded chance to finish before the process stops.

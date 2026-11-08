@@ -1125,6 +1125,35 @@ def test_the_split_invariants_report_what_breaks_them(
     assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
 
 
+@pytest.mark.parametrize(
+    "edit,expected",
+    [
+        (
+            (
+                "  SANDLOOM_SERVICE_NAME: tenancy\n",
+                "  SANDLOOM_SERVICE_NAME: identity\n",
+            ),
+            "SANDLOOM_SERVICE_NAME='identity' is set in",
+        ),
+        (
+            ("  SANDLOOM_SERVICE_NAME: tenancy\n", ""),
+            "tenancy: SANDLOOM_SERVICE_NAME is missing",
+        ),
+    ],
+    ids=["duplicate", "missing"],
+)
+def test_the_split_profile_names_each_service_once(
+    tmp_path: Path, edit: tuple[str, str], expected: str
+) -> None:
+    """Two services of one profile with one ``SANDLOOM_SERVICE_NAME`` would
+    share the revocation applier's group (ADR-0012 decision 5): T014."""
+    from sandloom.core.testing.deploy_profile import profile_problems
+
+    broken = _broken(tmp_path, {"compose/microservices.yml": edit})
+    problems = profile_problems(broken).problems
+    assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
+
+
 def test_sandloom_test_checks_the_split_profile_of_a_project(tmp_path: Path) -> None:
     """``schema & deploy`` runs the split invariants on the project's own
     profile (an application's ``deploy/``, the framework's ``../deploy``)."""

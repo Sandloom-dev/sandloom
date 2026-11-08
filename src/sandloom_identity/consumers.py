@@ -1,9 +1,10 @@
 """Identity's event consumers on kernel channels (registered in ``setup``).
 
-``core.auth.user_blocked.v1`` and ``core.auth.tokens_revoked.v1`` are kernel
-channels: identity consumes them with the L2 handler signature
-``(session, envelope)`` because the handlers work in the delivery's own unit.
-The tokens-revoked applier lives in :mod:`sandloom_identity.sessions`.
+``core.auth.user_blocked.v1`` is a kernel channel: identity consumes it with
+the L2 handler signature ``(session, envelope)`` because the handler works in
+the delivery's own unit. As the token issuer it must (ADR-0012 decision 5):
+the block ends its refresh sessions. ``core.auth.tokens_revoked.v1`` is
+applied by the kernel in every service, not here.
 """
 
 from __future__ import annotations

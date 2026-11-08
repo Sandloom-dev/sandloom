@@ -513,6 +513,7 @@ def define_module(
     router: Any = AUTO,
     events: Any = AUTO,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from its declarations (spec §5.7).
 
@@ -528,6 +529,12 @@ def define_module(
     (startup tasks, claims contributors, planner operations). ``router=`` /
     ``events=`` override discovery as today; ``consumes`` adds to the derived
     requirements. Modules are REQUIRED unless ``optional=True``.
+
+    ``issues_tokens=True`` marks the access-token issuer. An issuer ends its
+    refresh sessions on an emergency block with a durable consumer of
+    ``core.auth.user_blocked.v1``; one that holds no refresh sessions
+    declares ``refresh_sessions=False`` instead, which startup verifies
+    against its refresh routes, session tables and consumers (SANDLOOM-B035).
     """
     pkg = package or caller_module(1)
     if pkg == "__main__":
@@ -572,6 +579,7 @@ def define_module(
                 for c in capabilities
             ],
             issues_tokens=issues_tokens,
+            refresh_sessions=refresh_sessions,
         )
 
     register.__qualname__ = register.__name__ = "register"

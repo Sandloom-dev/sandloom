@@ -55,15 +55,20 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   revoking transaction, retries the after-commit mark write
   (`AUTH_REVOCATION_WRITE_ATTEMPTS`=3, backoff from
   `AUTH_REVOCATION_RETRY_BASE_SECONDS`=0.05) and, if it still fails, leaves it
-  to identity's durable consumer `sessions@tokens_revoked` (redelivered until
-  the cache is back; idempotent). Alerts:
+  to the kernel's durable applier `auth@tokens_revoked`, which every service
+  runs in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
+  (redelivered until the cache is back; idempotent). On a shared bus a
+  process without `SANDLOOM_SERVICE_NAME` refuses to start. Alerts:
   `increase(auth_revocation_deferred_total[5m]) > 0` (warning: revocations
   pending on the applier — a cache outage), and
   `increase(auth_revocation_applier_failures_total[10m]) > 0` sustained, or a
-  growing `sessions@tokens_revoked` pending count / DLQ entry on
-  `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted). A
-  deployment without identity has no applier — the retries are its only
-  backstop. Revocations made with `require_immediate=True` (every bundled
+  growing `auth@tokens_revoked` pending count / DLQ entry on
+  `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted).
+  `/ready` answers 503 when the applier is not running, or when its oldest
+  pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
+  It also answers 503 when such an event is dead-lettered. The reasons are
+  listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
+  exports the lag. Revocations made with `require_immediate=True` (every bundled
   security event) never depend on it: their mark is written before commit,
   or the change is refused with `503` —
   `increase(auth_revocation_immediate_refused_total[5m]) > 0` means changes
@@ -75,13 +80,14 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `auth_revocation_corrupt_mark_total` increase means some writer stored an
   unparsable mark: that user is locked out (fail-closed) until their next
   login repairs it — investigate the writer.
-- **Stuck / dead-lettered revocations (runbook).** identity's
-  `sessions@tokens_revoked` and `sessions@user_blocked` consumers are
+- **Stuck / dead-lettered revocations (runbook).** The kernel's
+  `auth@tokens_revoked` applier and identity's `sessions@user_blocked`
+  consumer are
   `dead_letter=False`: a delivery that fails (cache or database down) is
   retried forever with capped backoff (≤ 60 s), never parked. Alert on
   `auth_revocation_pending_seconds > 60` (warning) / `> 300` (critical: a
   revoked token may still be accepted wherever the cache is reachable); the
-  affected identity replica answers `/ready` 503 (`revocations_pending`) until
+  affected replica answers `/ready` 503 (`revocations_pending`) until
   it drains, and logs `Durable revocation of subject … still pending` at ERROR.
   Fix the cache; nothing else to do. A CRITICAL `Malformed durable revocation`
   log / `increase(auth_revocation_malformed_total[5m]) > 0` / a new entry with

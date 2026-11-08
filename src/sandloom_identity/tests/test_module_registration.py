@@ -98,11 +98,15 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
         ]
     )
     assert draft.health == []
-    # The emergency block (core.auth.user_blocked.v1) ends refresh sessions;
-    # the durable applier writes revocation marks that failed after commit.
+    # identity holds refresh sessions (the declaration's default): its
+    # durable block consumer below is the issuer's obligation (SANDLOOM-B035).
+    assert descriptor.issues_tokens is True
+    assert descriptor.refresh_sessions is True
+    # The emergency block (core.auth.user_blocked.v1) ends refresh sessions
+    # (the issuer's obligation); the durable revocation applier is the
+    # kernel's, registered in every composition (ADR-0012 decision 5).
     assert [(c.channel, c.name, c.required) for c in draft.event_consumers] == [
         ("core.auth.user_blocked.v1", "sessions@user_blocked", True),
-        ("core.auth.tokens_revoked.v1", "sessions@tokens_revoked", True),
     ]
     assert draft.event_schema_objs == []
     assert draft.query_projections == []

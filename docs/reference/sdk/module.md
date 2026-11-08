@@ -59,6 +59,7 @@ def define_module(
     router: Any = 'auto',
     events: Any = 'auto',
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
 ) -> Callable[[ModuleAPI], Any]
 ```
 
@@ -78,6 +79,12 @@ consumed contracts). `setup(core)` stays for what has no declaration
 (startup tasks, claims contributors, planner operations). `router=` /
 `events=` override discovery as today; `consumes` adds to the derived
 requirements. Modules are REQUIRED unless `optional=True`.
+
+`issues_tokens=True` marks the access-token issuer. An issuer ends its
+refresh sessions on an emergency block with a durable consumer of
+`core.auth.user_blocked.v1`; one that holds no refresh sessions
+declares `refresh_sessions=False` instead, which startup verifies
+against its refresh routes, session tables and consumers (SANDLOOM-B035).
 
 ## Advanced names
 
@@ -417,6 +424,7 @@ class ModuleDescriptor(
     migrations_chain: str | None = None,
     consumes: list[ContractRequirement] = <factory>,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
 ) -> None
 ```
 

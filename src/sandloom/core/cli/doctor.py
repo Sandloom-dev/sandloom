@@ -245,6 +245,23 @@ def check_modules(report: Report, core: Any) -> None:
         f"{len(modules)} module(s) loaded: {', '.join(modules) or '-'}",
         modules=modules,
     )
+    for descriptor in getattr(core, "module_descriptors", []) or []:
+        if not getattr(descriptor, "issues_tokens", False):
+            continue
+        # The issuer's declaration (ADR-0012 decision 5): checked at startup
+        # (SANDLOOM-B035), shown here so an operator sees which applies.
+        holds = bool(getattr(descriptor, "refresh_sessions", True))
+        report.add(
+            "modules",
+            f"{descriptor.name} issues tokens",
+            OK,
+            "holds refresh sessions: a block ends them "
+            "(durable consumer of core.auth.user_blocked.v1)"
+            if holds
+            else "declares refresh_sessions=False: a stateless issuer "
+            "(no refresh sessions to end on a block)",
+            refresh_sessions=holds,
+        )
 
     registry = getattr(core, "service_registry", None)
     local = set(registry.list()) if registry is not None else set()
