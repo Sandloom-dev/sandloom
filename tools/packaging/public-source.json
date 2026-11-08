@@ -2322,6 +2322,7 @@
         "tests/architecture/_fixtures/broken_module/utils.py.txt",
         "tests/architecture/_fixtures/ledger_pre_api10.json",
         "tests/architecture/kernel_dialect_allowlist.json",
+        "tests/architecture/kernel_module_imports_allowlist.json",
         "tests/architecture/test_access_canonical.py",
         "tests/architecture/test_admin_console_package.py",
         "tests/architecture/test_agent_context_budget.py",

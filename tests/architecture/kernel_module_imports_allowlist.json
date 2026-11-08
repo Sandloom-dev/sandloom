@@ -1,0 +1,8 @@
+{
+  "sandloom.core.cli.password_check": {
+    "imports": [
+      "sandloom_identity.password_policy"
+    ],
+    "reason": "B-I1 (design/kernel-boundary/baseline.md), violates I-02: `sandloom admin create` states identity's password length by importing identity's policy module (IDENTITY_POLICY) when it is importable. Debt until the kernel-boundary decision removes it; the checks fail once the import is gone, so delete this entry with it."
+  }
+}

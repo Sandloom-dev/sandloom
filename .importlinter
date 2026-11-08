@@ -16,6 +16,9 @@
 
 [importlinter]
 root_package = sandloom
+; External packages (every sandloom_* business module among them) are nodes of
+; the graph, so a contract can forbid them (kernel-imports-no-module).
+include_external_packages = true
 exclude_type_checking_imports = true
 
 [importlinter:contract:kernel-layers]
@@ -234,3 +237,25 @@ layers =
     module : app : migrations : tooling : web : data : tenant : events : effects : contracts : authz : sagas : projections : infra : security : errors : testing
     _decl
     _prim
+
+; ------------------------------------------------------- business modules
+; Invariant I-02 (design/kernel-boundary/requirements.md): shipped kernel code
+; imports no business-module implementation. forbidden_modules lists every
+; sandloom_* package of src/ and of the sandloom.modules entry points;
+; tests/architecture/test_kernel_import_contracts.py fails when one is
+; missing. Dynamic imports are not in the graph: test_shared_purity.py and
+; tools/packaging/distribution_imports.py read those.
+
+[importlinter:contract:kernel-imports-no-module]
+name = the kernel (sandloom.core, sandloom.sdk, sandloom.shared, sandloom.main) imports no business-module package (I-02)
+type = forbidden
+source_modules =
+    sandloom.core
+    sandloom.sdk
+    sandloom.shared
+    sandloom.main
+forbidden_modules =
+    sandloom_admin
+    sandloom_billing
+    sandloom_identity
+    sandloom_tenancy

@@ -4049,13 +4049,27 @@ guarantees:
   rules:
   - infra-imports
 - id: G-KERNEL-10
-  statement: 'sandloom.shared stays module-agnostic: it never imports a business module (absolute or relative),
-    so it cannot become a transitive coupling channel.'
+  statement: 'The kernel stays module-agnostic: no shipped code of sandloom.core, sandloom.sdk, sandloom.shared
+    or sandloom.main imports a business-module package (every sandloom_* package of the source layout or
+    of a sandloom.modules entry point, discovered; for sandloom.shared also a non-kernel sandloom.<m> subpackage),
+    absolute, relative, function-local, TYPE_CHECKING, or dynamic by a literal or module-level string constant,
+    beyond the shrink-only kernel_module_imports_allowlist.json (a stale entry fails); in the built wheels
+    a first-party import resolves through base requirements only, never through an extra. So shared cannot
+    become a transitive coupling channel.'
   sources:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
   - tests/architecture/test_shared_purity.py::test_shared_does_not_import_business_modules
+  - tests/architecture/test_shared_purity.py::test_the_kernel_imports_no_business_module_beyond_the_allowlist
+  - tests/architecture/test_shared_purity.py::test_the_scan_catches_planted_violations
+  - tests/architecture/test_shared_purity.py::test_the_allowlist_tolerates_listed_debt_and_fails_stale_entries
+  - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_names_every_business_module
+  - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_breaks_on_a_planted_import
+  - tests/architecture/test_distribution_imports.py::test_an_extra_is_not_a_dependency_for_first_party_imports
+  - tests/architecture/test_distribution_imports.py::test_an_allowlisted_violation_passes_and_a_stale_entry_fails
+  import_contracts:
+  - kernel-imports-no-module
 - id: G-KERNEL-11
   statement: The enforced public surface (the public_api modules of architecture_rules.yml, including the sandloom.sdk modules of Public API 1.0, + sandloom.shared.* and the test surfaces) is snapshotted in
     public_api_baseline.json and a backward-incompatible change fails the build.
