@@ -363,7 +363,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-06]
@@ -852,7 +852,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-07]
@@ -939,6 +939,21 @@ edges:
     prs: [KB-22]
     anchors:
       - {path: sandloom/shared/membership.py, symbol: refreshed_state_wins}
+
+  # --- rows added after the baseline ---------------------------------------------------------
+  - id: K1
+    class: b
+    type: configuration
+    scope: composition_text
+    owner: standard
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: "the standard composition root the shipped deploy scaffolding names (decision 3)"
+    prs: [KB-08]
+    anchors:
+      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: FRAMEWORK_COMPOSITION_ROOT}
+    note: "Added by KB-08 (#79): `sandloom add deploy` in the framework tree names sandloom_standard.main."
 
 loader_call_sites:
   - {path: sandloom/core/loader/plugin_loader.py, symbol: _load_list, row: A2, reason: the loader imports each configured or discovered module}

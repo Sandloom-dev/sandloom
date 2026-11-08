@@ -98,7 +98,7 @@ def test_the_register_holds_every_judged_row_of_the_design() -> None:
         }, rid
     assert rows["B-N20"].current_status == "retained"
     assert rows["B-N20"].reason == "docstring example"
-    protocol = [r for rid, r in rows.items() if rid not in design]
+    protocol = [r for rid, r in rows.items() if rid not in design and r.klass == "a"]
     assert len(protocol) == 20  # A1-A18 and the two family templates
     assert all(
         (r.klass, r.current_status, r.reason) == ("a", "retained", "protocol")
