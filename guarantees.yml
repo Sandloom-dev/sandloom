@@ -4061,7 +4061,8 @@ guarantees:
     or sandloom.main imports a business-module package (every sandloom_* package of the source layout or
     of a sandloom.modules entry point, discovered; for sandloom.shared also a non-kernel sandloom.<m> subpackage),
     absolute, relative, function-local, TYPE_CHECKING, or dynamic by a literal or module-level string constant,
-    beyond the shrink-only kernel_module_imports_allowlist.json (a stale entry fails); in the built wheels
+    beyond the open import rows of the edge register tests/architecture/kernel_edges.yml (a row whose
+    import is gone fails until it is set fixed); in the built wheels
     a first-party import resolves through base requirements only, never through an extra. So shared cannot
     become a transitive coupling channel.'
   sources:
@@ -4072,6 +4073,7 @@ guarantees:
   - tests/architecture/test_shared_purity.py::test_the_kernel_imports_no_business_module_beyond_the_allowlist
   - tests/architecture/test_shared_purity.py::test_the_scan_catches_planted_violations
   - tests/architecture/test_shared_purity.py::test_the_allowlist_tolerates_listed_debt_and_fails_stale_entries
+  - tests/architecture/test_distribution_imports.py::test_the_allowlist_is_the_registers_open_import_rows
   - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_names_every_business_module
   - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_breaks_on_a_planted_import
   - tests/architecture/test_distribution_imports.py::test_an_extra_is_not_a_dependency_for_first_party_imports
@@ -4102,7 +4104,10 @@ guarantees:
 - id: G-KERNEL-13
   statement: 'The kernel names no business module: sandloom.core settings carry no default module list, the standard
     root sandloom.main composes whatever module packages are installed (their sandloom.modules entry points),
-    and the kernel factory alone builds a working app.'
+    and the kernel factory alone builds a working app. Every place where shipped kernel code or the sandloom
+    wheel still names a module (a literal module name, package, non-core channel, declared module setting or
+    claim key, a computed dynamic import outside the listed loader call sites, a generated module file) is
+    a row of the edge register tests/architecture/kernel_edges.yml, checked by current status (SANDLOOM-T017).'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0001-framework-distribution.md#Boundary remediations required before the split
@@ -4110,6 +4115,12 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_generated_project_packaging.py::test_minimal_app_uses_the_kernel_factory
   - src/sandloom/core/tests/test_module_names.py::test_the_kernel_names_no_module
+  - tests/architecture/test_kernel_edges.py::test_the_seeded_register_passes
+  - tests/architecture/test_kernel_edges.py::test_a_planted_module_name_fails_naming_path_pattern_and_class
+  - tests/architecture/test_kernel_edges.py::test_a_computed_import_outside_the_loader_call_sites_fails
+  - tests/architecture/test_kernel_edges.py::test_a_module_file_in_the_wheel_fails
+  - tests/architecture/test_kernel_edges.py::test_a_fixed_row_with_a_finding_fails_as_a_regression
+  - tests/architecture/test_kernel_edges.py::test_a_documentation_row_never_covers_a_runtime_finding
 - id: G-INFRA-01
   statement: A backend constructor (create_async_engine, redis.from_url, Celery(...), Storage(...)) appears
     only inside sandloom.core.drivers/**; concrete drivers are imported only by the composition layer (app_factory,

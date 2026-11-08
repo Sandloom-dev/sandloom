@@ -121,6 +121,17 @@ website renders this same changelog.
   contract's own unit.
 - **`sandloom check: OK` says what it covers:** static rules only; `sandloom
   test` also boots the app and runs the tests.
+- **The kernel's module edges are one checked register (SANDLOOM-T017).**
+  Every place where shipped kernel code or the `sandloom` wheel names a module
+  (a module name, package, non-`core` channel, module setting or claim key, a
+  computed dynamic import outside the listed loader call sites, a generated
+  module file) is a row of `tests/architecture/kernel_edges.yml` with a current
+  status and a target (ADR-0012). `sandloom test` fails on an unrecorded edge,
+  on a `fixed` row whose edge is back, and on an `open` row whose edge is gone;
+  `uv run python tests/architecture/kernel_edges.py --report` prints the
+  counts. The register replaces `kernel_module_imports_allowlist.json` and the
+  literal scan of `test_module_names.py`. Framework contributors only: nothing
+  changes for applications.
 
 ### Fixed
 

@@ -339,3 +339,28 @@ def test_the_repository_allowlist_names_real_imports_with_reasons() -> None:
             )
         }
         assert set(targets) <= found, (module, targets, found)
+
+
+def test_the_allowlist_is_the_registers_open_import_rows(tmp_path: Path) -> None:
+    """The edge register absorbed the allowlist (ADR-0012 decision 2): an
+    open or retained runtime import row tolerates its literal anchor; a fixed
+    row, another type and a documentation row tolerate nothing."""
+    register = tmp_path / "kernel_edges.yml"
+    register.write_text(
+        "edges:\n"
+        "  - {id: I1, type: import, current_status: open, adr: ADR-0012,\n"
+        "     anchors: [{path: sandloom/core/cli/x.py, literal: sandloom_crm.api}]}\n"
+        "  - {id: I2, type: import, current_status: fixed, adr: ADR-0012,\n"
+        "     anchors: [{path: sandloom/core/y.py, literal: sandloom_crm.y}]}\n"
+        "  - {id: N1, type: naming, current_status: open, adr: ADR-0012,\n"
+        "     anchors: [{path: sandloom/core/z.py, literal: crm}]}\n"
+        "  - {id: D1, kind: documentation, type: import, current_status: retained,\n"
+        "     adr: ADR-0012, anchors: [{path: sandloom/core/d.py, literal: sandloom_crm}]}\n"
+    )
+    assert di.load_allowlist(register) == {"sandloom.core.cli.x": ("sandloom_crm.api",)}
+    register.write_text(
+        "edges:\n  - {id: I1, type: import, current_status: open,\n"
+        "     anchors: [{path: sandloom/core/x.py, literal: sandloom_crm}]}\n"
+    )
+    with pytest.raises(ValueError, match="needs an `adr`"):
+        di.load_allowlist(register)

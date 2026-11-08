@@ -36,7 +36,11 @@
 #                    retained and no finding fails ("set current_status: fixed"); a documentation
 #                    row is checked only as described under kind; target never makes the check
 #                    pass or fail, it is the plan)
-#   anchors          path (under src/ unless stated) and a literal or symbol; no line numbers
+#   anchors          path (under src/ unless stated; globs allowed) and a literal or symbol, or
+#                    the path alone (the whole file); no line numbers. KB-03 added the anchors the
+#                    first run of the check needed to cover every finding of the same edge (B-C2,
+#                    B-C5, B-C6, B-N5, B-N7, C1-C3); tests/architecture/kernel_edges.yml is the live
+#                    register from then on
 #   note             reason, especially for retained and deferred rows
 
 version: 1
@@ -294,6 +298,7 @@ edges:
       - tenancy declares TENANT_CLAIMS_MAX_ORGANIZATIONS; env name unchanged
     anchors:
       - {path: sandloom/core/config/auth.py, literal: "TENANT_CLAIMS_MAX_ORGANIZATIONS"}
+      - {path: sandloom/core/config/tiers.py, literal: '"TENANT_CLAIMS_MAX_ORGANIZATIONS"'}
 
   - id: B-C3
     class: b
@@ -344,6 +349,7 @@ edges:
       - risk namespace rule (a)-(d) in a split with one shared anchor (P4)
     anchors:
       - {path: sandloom/core/config/accepted_risks.py, literal: "fake_psp_in_prod"}
+      - {path: sandloom/core/config/accepted_risks.py, literal: "BILLING_PROVIDER=fake"}
     note: Becomes billing.fake_psp_in_prod, declared by billing; one-time migration, no alias (owner answer #28).
 
   - id: B-C6
@@ -361,6 +367,8 @@ edges:
       - core/tests/test_config_tiers.py at 12 / 14; per-module ratchet helper (P8)
     anchors:
       - {path: sandloom/core/config/tiers.py, literal: "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS"}
+      - {path: sandloom/core/config/tiers.py, symbol: OPS}
+      - {path: sandloom/core/config/tiers.py, symbol: REMOVED}
 
   - id: B-C7
     class: b
@@ -514,6 +522,8 @@ edges:
     tests: [composition_text scope of the kernel-edge check]
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _BUNDLED}
+      - {path: sandloom/core/cli/project.py, symbol: _normalize_modules}
+      - {path: sandloom/core/cli/project.py, symbol: generate_project}
     note: Starter phase after A-D.
 
   - id: B-N6
@@ -547,6 +557,8 @@ edges:
     tests: [composition_text scope of the kernel-edge check]
     anchors:
       - {path: sandloom/core/cli/wizard.py, symbol: MODULES}
+      - {path: sandloom/core/cli/wizard.py, symbol: _project_modules}
+      - {path: sandloom/core/cli/wizard.py, symbol: _MODULE_REQUIRES}
     note: Starter phase.
 
   - id: B-N8
@@ -810,6 +822,7 @@ edges:
       - {path: sandloom/shared/contracts/billing_credits_v1.py, literal: "billing.credits.v1"}
       - {path: sandloom/shared/contracts/tenancy_membership_v1.py, literal: "tenancy.membership.v1"}
       - {path: sandloom/shared/contracts/identity_security_v1.py, literal: "identity.security.v1"}
+      - {path: "sandloom/shared/contracts/*_v1.py"}
 
   - id: C2
     class: c
@@ -827,6 +840,7 @@ edges:
     anchors:
       - {path: sandloom/shared/contracts/tenancy_dto.py, symbol: MemberState}
       - {path: sandloom/shared/contracts/identity_dto.py, symbol: UserContact}
+      - {path: "sandloom/shared/contracts/*_dto.py"}
 
   - id: C3
     class: c
@@ -844,6 +858,7 @@ edges:
       - C025 reads the producer's module.snapshot.json
     anchors:
       - {path: "sandloom/shared/events/*.json", literal: "billing.credits.added.v1"}
+      - {path: "sandloom/shared/events/*.json"}
 
   - id: C4
     class: c

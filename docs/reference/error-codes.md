@@ -23,6 +23,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 
 | Code | Slug | Kind | What happened | Status |
 | --- | --- | --- | --- | --- |
+| [`SANDLOOM-T017`](#sandloom-t017) | `kernel-edge` | test | the kernel names a module its edge register does not record, or the register is out of date | active |
 | [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | the admin console's manifest is stale or cannot be compiled | active |
 | [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
 | [`SANDLOOM-C001`](#sandloom-c001) | `module-boundaries` | check | a business module imports a sibling business module | active |
@@ -1593,6 +1594,31 @@ in-memory test database.
 **More:** `docs/infrastructure/database.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
+
+### SANDLOOM-T017
+
+**the kernel names a module its edge register does not record, or the register is out of date**
+
+Slug: `kernel-edge` · kind: test · status: active
+
+**What happened and why it matters**
+
+Shipped kernel code (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`,
+`sandloom.main`) and the `sandloom` wheel name no module (ADR-0012). Every place
+where they still do is one row of `tests/architecture/kernel_edges.yml`, with a
+current status (`open`, `fixed`, `retained`) and a target. The check scans string
+literals outside docstrings for module names, module packages, non-`core` channels
+and the declared module settings and claim keys; dynamic imports with a computed
+argument outside the listed loader call sites; and generated module files in the
+wheel. It fails when a finding matches no runtime row, when a `fixed` row has a
+finding again, when an `open` or `retained` row has none left, when a `retained`
+row has no ADR id and reason, and when a documentation row's anchor no longer
+holds its text. `uv run python tests/architecture/kernel_edges.py --report`
+prints the counts and the rows a change moves, for the PR description.
+
+**Fix:** remove the name from kernel code, or record it in tests/architecture/kernel_edges.yml; a row whose edge is gone sets current_status: fixed
+
+**More:** `docs/adr/0012-kernel-boundary.md`
 
 ### SANDLOOM-T016
 

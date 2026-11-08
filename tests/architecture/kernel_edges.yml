@@ -1,0 +1,990 @@
+# The kernel's edge register (ADR-0012 decision 2), checked by SANDLOOM-T017.
+#
+# Every place where shipped kernel code (sandloom.core, sandloom.sdk, sandloom.shared,
+# sandloom.main; tests excluded) or the sandloom wheel names a module is one row here. The
+# check is tests/architecture/kernel_edges.py; `uv run sandloom explain SANDLOOM-T017` says
+# what each failure means. Seeded by KB-03 from design/kernel-boundary/edges.yml (the 46 judged
+# rows, all `open` except B-N20, the documentation row, `retained`) plus the 18 class (a)
+# protocol rows and the two family templates, `retained` with the reason "protocol".
+#
+# A PR that carries a row to its target sets its current_status in the same PR (the check
+# fails otherwise) and pastes the report into its description:
+#
+#   uv run python tests/architecture/kernel_edges.py --report --base origin/arch/kernel-boundary
+#
+# Row fields: id, kind (runtime | documentation; runtime when absent), class (a | b | c), type,
+# scope (runtime | composition_text), owner, baseline_verdict, current_status (open | fixed |
+# retained: the code now), target (fixed | retained | deferred: the plan; never decides the
+# check), adr, reason (required when retained), prs, anchors (path under src/ unless marked
+# "(repository root)", globs allowed; plus a literal or a symbol, never a line number), note.
+# Invariants and fitness tests of each row stay in design/kernel-boundary/edges.yml.
+#
+# An anchor literal written quoted ('"x"') is the exact string; unquoted, a substring. A
+# symbol anchor covers the findings inside its definition and resolves while the file still
+# defines or uses it; a path-only anchor covers the whole file.
+#
+# loader_call_sites: the only places where a dynamic import with a computed argument is
+# allowed (I-02), each with its reason; not_edges: literals that match a pattern but name no
+# module. Both only shrink: an entry that matches nothing fails.
+
+version: 1
+seeded_from: design/kernel-boundary/edges.yml (merged baseline c9b9b05)
+
+# What the scan matches besides module names, packages and channels. `settings` are the
+# module-owned settings (globs, case-insensitive) that ADR-0015 moves into module
+# declarations; `claim_keys` the module-owned claim keys of ADR-0014 that are not common
+# words; `protocol` the kernel's own words that equal a module name (the platform role
+# `admin`, ADR-0012 decision 1). When modules declare their settings and claim keys (KB-50,
+# KB-30), these lists are read from the declarations instead.
+vocabulary:
+  protocol: [admin]
+  claim_keys: [subscription_status, plan_code]
+  settings:
+    - TWOFA_*
+    - ADMIN_CONSOLE_*
+    - BILLING_*
+    - STRIPE_*
+    - GOOGLE_CLIENT_*
+    - GITHUB_CLIENT_*
+    - MICROSOFT_CLIENT_*
+    - LINKEDIN_CLIENT_*
+    - TELEGRAM_BOT_TOKEN
+    - SSO_*
+    - TENANT_CLAIMS_MAX_ORGANIZATIONS
+
+edges:
+  # --- class (a): protocol, retained (ADR-0012 decision 1; baseline.md section 3) -------
+  - id: A1
+    class: a
+    type: package
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/descriptors/module_names.py, symbol: ENTRY_POINT_GROUP}
+      - {path: sandloom/core/descriptors/module_names.py, symbol: module_name}
+    note: module names from sandloom.modules entry points
+  - id: A2
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/loader/plugin_loader.py, symbol: _load_list}
+      - {path: sandloom/core/loader/plugin_loader.py, symbol: _load_entry_points}
+    note: the loader imports each configured or discovered module
+  - id: A3
+    class: a
+    type: configuration
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/main.py, symbol: default_modules}
+    note: sandloom.main composes the installed modules
+  - id: A4
+    class: a
+    type: configuration
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/app_factory/__init__.py, symbol: create_app}
+    note: create_app applies default modules only when SANDLOOM_MODULES is unset
+  - id: A5
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/facade/_claims.py, symbol: _ClaimsMixin}
+    note: "claims contributors, remote as <owner>.claims.v1"
+  - id: A6
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/shared/authz/facts.py, symbol: fact_owner_contract}
+    note: "access facts resolved through <owner>.facts.v1"
+  - id: A7
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/admin/compiler.py, symbol: compile_app}
+    note: "the admin compiler reads each loaded module's admin resources"
+  - id: A8
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/admin/api/platform.py, symbol: install}
+    note: one platform operations router per loaded module
+  - id: A9
+    class: a
+    type: package
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/contract_compat.py, symbol: _candidate_packages}
+      - {path: sandloom/core/contract_compat.py, symbol: module_package_dir}
+    note: "contract compatibility finds the owner's package"
+  - id: A10
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/worker.py, symbol: discover_task_modules}
+    note: "the worker imports <pkg>.tasks of each loaded module"
+  - id: A11
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/tasks/periodic.py, symbol: has_periodic_tasks}
+    note: "beat reads a module's tasks.py without importing it"
+  - id: A12
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/migrations/alembic_support.py, symbol: run_migrations}
+    note: "migrations import each chain's model modules"
+  - id: A13
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/cli/generated.py, symbol: _module_dir}
+      - {path: sandloom/core/cli/generated.py, symbol: is_l1}
+    note: sandloom generate imports each module and its register
+  - id: A14
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/cli/extract.py, symbol: module_tables}
+    note: "sandloom migrate extract-module imports <pkg>.models"
+  - id: A15
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/testing/migrations.py, symbol: model_tables}
+    note: "the test harness imports <module>.models"
+  - id: A16
+    class: a
+    type: import
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/sdk/_decl/module.py, symbol: _optional_module}
+      - {path: sandloom/sdk/_decl/module.py, symbol: _walk}
+    note: "define_module imports the module's own submodules"
+  - id: A17
+    class: a
+    type: package
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/cli/inspection/collect.py, symbol: collect}
+      - {path: sandloom/sdk/_decl/_owner.py, symbol: _entry_point_names}
+    note: inspection and the SDK owner lookup read sandloom.modules entry points
+  - id: A18
+    class: a
+    type: security_authority
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/route_policy.py, symbol: public}
+      - {path: sandloom/core/module_api/_define.py, symbol: define_module}
+    note: the token issuer is a declaration (issues_tokens=True)
+  - id: F-CLAIMS
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/facade/_services.py, symbol: CLAIMS_CONTRACT_SUFFIX}
+    note: "the claims family <m>.claims.v1, built from descriptors at run time"
+  - id: F-FACTS
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: any
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: protocol
+    prs: []
+    anchors:
+      - {path: sandloom/core/facade/_services.py, symbol: FACTS_CONTRACT_SUFFIX}
+    note: "the facts family <m>.facts.v1, built from descriptors at run time"
+
+  # --- the 46 judged rows of design/kernel-boundary/edges.yml ----------------------------
+  - id: A19
+    class: a
+    type: runtime_call
+    scope: runtime
+    owner: [billing, tenancy]
+    baseline_verdict: disputed
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-13, KB-30, KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/live_contracts.py, symbol: register_live_adapter}
+      - {path: sandloom/sdk/authz.py, symbol: EntitlementsAdapter}
+      - {path: sandloom/sdk/authz.py, symbol: MembershipAdapter}
+  - id: B-I1
+    class: b
+    type: import
+    scope: runtime
+    owner: identity
+    baseline_verdict: violation
+    current_status: fixed
+    target: fixed
+    adr: ADR-0012
+    prs: [KB-06]
+    anchors:
+      - {path: sandloom/core/cli/password_check.py, literal: sandloom_identity.password_policy}
+  - id: B-R1
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: [billing, tenancy]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-30, KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/live_contracts.py, literal: billing.entitlements.v1}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: tenancy.membership.v1}
+  - id: B-R2
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-31]
+    anchors:
+      - {path: sandloom/shared/authz/account.py, symbol: _is_member}
+      - {path: sandloom/shared/authz/account.py, symbol: tenant_kind}
+  - id: B-R3
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-30, KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/facts.py, symbol: WELL_KNOWN_FACT_OWNERS}
+  - id: B-R4
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: identity
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-60]
+    anchors:
+      - {path: sandloom/core/cli/admin.py, literal: identity.security.v1}
+  - id: B-R5
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: [identity, tenancy]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-60]
+    anchors:
+      - {path: sandloom/core/cli/security.py, literal: identity.security.v1}
+      - {path: sandloom/core/cli/security.py, literal: tenancy.membership.v1}
+  - id: B-R6
+    class: b
+    type: runtime_call
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-34]
+    anchors:
+      - {path: sandloom/core/testing/authz.py, symbol: LIVE_SUBSCRIPTION_FACTS}
+      - {path: sandloom/core/testing/authz.py, literal: billing.entitlements.v1}
+  - id: B-S1
+    class: b
+    type: security_authority
+    scope: runtime
+    owner: identity
+    baseline_verdict: disputed
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-10, KB-11]
+    anchors:
+      - {path: sandloom/shared/guards/platform.py, literal: "\"identity\""}
+  - id: B-S2
+    class: b
+    type: security_authority
+    scope: runtime
+    owner: identity
+    baseline_verdict: disputed
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-10, KB-11]
+    anchors:
+      - {path: sandloom/core/admin/api/platform.py, symbol: platform_operator}
+      - {path: sandloom/core/admin/api/platform.py, literal: "\"identity\""}
+  - id: B-S3
+    class: b
+    type: security_authority
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: disputed
+    current_status: open
+    target: retained
+    adr: ADR-0014
+    prs: [KB-10, KB-11]
+    anchors:
+      - {path: sandloom/core/http/tenant_scope.py, literal: "\"tenant_ids\""}
+      - {path: sandloom/shared/authz/_resolve.py, literal: "\"tenant_ids\""}
+      - {path: sandloom/core/testing/auth.py, literal: "\"tenant_ids\""}
+  - id: B-C1
+    class: b
+    type: configuration
+    scope: runtime
+    owner: [identity, billing, admin]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-50, KB-52, KB-53, KB-54]
+    anchors:
+      - {path: sandloom/core/config/modules.py, symbol: ModulesConfig}
+  - id: B-C2
+    class: b
+    type: configuration
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-54]
+    anchors:
+      - {path: sandloom/core/config/auth.py, literal: TENANT_CLAIMS_MAX_ORGANIZATIONS}
+      - {path: sandloom/core/config/tiers.py, literal: "\"TENANT_CLAIMS_MAX_ORGANIZATIONS\""}
+  - id: B-C3
+    class: b
+    type: configuration
+    scope: runtime
+    owner: identity
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-53]
+    anchors:
+      - {path: sandloom/core/config/settings.py, literal: TWOFA_ENCRYPTION_KEY}
+  - id: B-C4
+    class: b
+    type: configuration
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-52]
+    anchors:
+      - {path: sandloom/core/config/settings.py, symbol: _billing_requirements}
+  - id: B-C5
+    class: b
+    type: configuration
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-51, KB-52]
+    anchors:
+      - {path: sandloom/core/config/accepted_risks.py, literal: fake_psp_in_prod}
+      - {path: sandloom/core/config/accepted_risks.py, literal: BILLING_PROVIDER=fake}
+  - id: B-C6
+    class: b
+    type: configuration
+    scope: runtime
+    owner: [billing, identity, admin]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-52, KB-53, KB-54]
+    anchors:
+      - {path: sandloom/core/config/tiers.py, literal: BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS}
+      - {path: sandloom/core/config/tiers.py, symbol: OPS}
+      - {path: sandloom/core/config/tiers.py, symbol: REMOVED}
+  - id: B-C7
+    class: b
+    type: configuration
+    scope: runtime
+    owner: [billing, identity]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-55]
+    anchors:
+      - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_DENY_ON_PAST_DUE}
+      - {path: sandloom/core/testing/deploy_profile.py, literal: TWOFA_ENCRYPTION_KEY}
+      - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_PROVIDER}
+  - id: B-C8
+    class: b
+    type: configuration
+    scope: runtime
+    owner: [identity, billing]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-55]
+    anchors:
+      - {path: sandloom/core/migrations/backup.py, literal: TWOFA_ENCRYPTION_KEY}
+      - {path: sandloom/core/migrations/backup.py, literal: STRIPE_}
+  - id: B-C9
+    class: b
+    type: configuration
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-52]
+    anchors:
+      - {path: sandloom/core/admin/api/platform.py, literal: "\"billing_provider\""}
+  - id: B-C10
+    class: b
+    type: configuration
+    scope: runtime
+    owner: admin
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-54]
+    anchors:
+      - {path: sandloom/core/cli/admin.py, symbol: admin_console_enabled}
+  - id: B-N1
+    class: b
+    type: naming
+    scope: runtime
+    owner: admin
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0012
+    prs: [KB-40]
+    anchors:
+      - {path: sandloom/core/cli/generated.py, literal: "\"sandloom_admin\""}
+  - id: B-N2
+    class: b
+    type: naming
+    scope: runtime
+    owner: admin
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0012
+    prs: [KB-40]
+    anchors:
+      - {path: sandloom/core/cli/generated.py, literal: admin-manifest.json}
+  - id: B-N3
+    class: b
+    type: naming
+    scope: runtime
+    owner: admin
+    baseline_verdict: violation
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-60]
+    anchors:
+      - {path: sandloom/core/cli/admin.py, literal: /admin/set-password}
+  - id: B-N4
+    class: b
+    type: naming
+    scope: runtime
+    owner: admin
+    baseline_verdict: violation
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-60]
+    anchors:
+      - {path: sandloom/core/app_factory/pages.py, literal: sandloom admin create}
+  - id: B-N5
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [identity, tenancy, billing, admin]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/core/cli/project.py, symbol: _BUNDLED}
+      - {path: sandloom/core/cli/project.py, symbol: _normalize_modules}
+      - {path: sandloom/core/cli/project.py, symbol: generate_project}
+  - id: B-N6
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [identity, billing]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
+      - {path: sandloom/core/cli/project.py, symbol: _BILLING_ENV}
+  - id: B-N7
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [identity, tenancy, billing, admin]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/core/cli/wizard.py, symbol: MODULES}
+      - {path: sandloom/core/cli/wizard.py, symbol: _project_modules}
+      - {path: sandloom/core/cli/wizard.py, symbol: _MODULE_REQUIRES}
+  - id: B-N8
+    class: b
+    type: naming
+    scope: runtime
+    owner: [identity, billing]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0015
+    prs: [KB-55]
+    anchors:
+      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: MODULE_ENV}
+  - id: B-N9
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [identity, tenancy, billing]
+    baseline_verdict: violation
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: identity}
+      - {path: sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl, literal: loading identity}
+      - {path: sandloom/core/cli/keys.py, literal: issuer ONLY (identity)}
+  - id: B-N10
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [identity, tenancy, billing]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/core/cli/templates/skills/sandloom-split-deploy/SKILL.md, literal: add deploy identity}
+  - id: B-N11
+    class: b
+    type: naming
+    scope: composition_text
+    owner: [tenancy, billing]
+    baseline_verdict: disputed
+    current_status: open
+    target: deferred
+    adr: ADR-0012
+    prs: [KB-61]
+    anchors:
+      - {path: sandloom/sdk/_prim/recipes.py, literal: TENANCY_MEMBERSHIP_V1}
+      - {path: sandloom/sdk/_prim/recipes.py, literal: BILLING_ENTITLEMENTS_V1}
+  - id: B-N12
+    class: b
+    type: naming
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-30, KB-33, KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/atoms_claims.py, symbol: ACTIVE_SUBSCRIPTION_STATUSES}
+      - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"subscription_status\""}
+      - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"features\""}
+      - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"limits\""}
+      - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
+      - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}
+  - id: B-N13
+    class: b
+    type: naming
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-30, KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/atoms_live.py, symbol: OrgRole}
+  - id: B-N14
+    class: b
+    type: naming
+    scope: runtime
+    owner: [billing, tenancy]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-34]
+    anchors:
+      - {path: sandloom/sdk/authz.py, literal: "\"OrgRole\""}
+      - {path: sandloom/sdk/authz.py, literal: "\"SubscriptionActive\""}
+      - {path: sandloom/sdk/__init__.py, literal: Credits}
+  - id: B-N15
+    class: b
+    type: naming
+    scope: runtime
+    owner: identity
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-34]
+    anchors:
+      - {path: sandloom/shared/authz/constants.py, symbol: Permissions}
+      - {path: sandloom/shared/authz/constants.py, symbol: Roles}
+  - id: B-N16
+    class: b
+    type: naming
+    scope: runtime
+    owner: identity
+    baseline_verdict: disputed
+    current_status: open
+    target: retained
+    adr: ADR-0014
+    prs: [KB-11]
+    anchors:
+      - {path: sandloom/shared/subject.py, literal: "From 'identity' module"}
+  - id: B-N17
+    class: b
+    type: naming
+    scope: runtime
+    owner: [tenancy, billing]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-32]
+    anchors:
+      - {path: sandloom/core/archcheck/api10_rules.py, literal: require_org_role}
+      - {path: sandloom/core/archcheck/api10_rules.py, symbol: BILLING_ATOMS}
+      - {path: sandloom/core/archcheck/module_rules.py, symbol: ORG_ATOMS}
+  - id: B-N18
+    class: b
+    type: naming
+    scope: runtime
+    owner: billing
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0014
+    prs: [KB-32]
+    anchors:
+      - {path: sandloom/core/error_codes.py, literal: SANDLOOM-B017}
+      - {path: sandloom/core/archcheck/runner.py, literal: account-route-mismatch}
+  - id: B-N19
+    class: b
+    type: naming
+    scope: runtime
+    owner: identity
+    baseline_verdict: violation
+    current_status: fixed
+    target: fixed
+    adr: ADR-0012
+    prs: [KB-07]
+    anchors:
+      - {path: sandloom/core/testing/static_checks.py, literal: ix_external_identities_provider}
+  - id: B-N20
+    kind: documentation
+    class: b
+    type: naming
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: allowed
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: docstring example
+    prs: [KB-03]
+    anchors:
+      - {path: sandloom/core/contract_cache_shadow.py, literal: tenancy.membership.v1}
+  - id: C1
+    class: c
+    type: package
+    scope: runtime
+    owner: [billing, identity, tenancy]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0013
+    prs: [KB-20, KB-21, KB-22]
+    anchors:
+      - {path: sandloom/shared/contracts/billing_credits_v1.py, literal: billing.credits.v1}
+      - {path: sandloom/shared/contracts/tenancy_membership_v1.py, literal: tenancy.membership.v1}
+      - {path: sandloom/shared/contracts/identity_security_v1.py, literal: identity.security.v1}
+      - {path: "sandloom/shared/contracts/*_v1.py"}
+  - id: C2
+    class: c
+    type: package
+    scope: runtime
+    owner: [identity, tenancy]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0013
+    prs: [KB-20, KB-22]
+    anchors:
+      - {path: sandloom/shared/contracts/tenancy_dto.py, symbol: MemberState}
+      - {path: sandloom/shared/contracts/identity_dto.py, symbol: UserContact}
+      - {path: "sandloom/shared/contracts/*_dto.py"}
+  - id: C3
+    class: c
+    type: package
+    scope: runtime
+    owner: [billing, identity, tenancy]
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0013
+    prs: [KB-22]
+    anchors:
+      - {path: "sandloom/shared/events/*.json", literal: billing.credits.added.v1}
+      - {path: "sandloom/shared/events/*.json"}
+  - id: C4
+    class: c
+    type: package
+    scope: runtime
+    owner: [billing, identity, tenancy]
+    baseline_verdict: disputed
+    current_status: open
+    target: fixed
+    adr: ADR-0013
+    prs: [KB-20, KB-22]
+    anchors:
+      - {path: architecture_rules.yml (repository root), literal: "shared_package: sandloom.shared"}
+      - {path: sandloom/core/cli/generated.py, literal: "\"sandloom.shared\""}
+  - id: C5
+    class: c
+    type: import
+    scope: runtime
+    owner: tenancy
+    baseline_verdict: violation
+    current_status: open
+    target: fixed
+    adr: ADR-0013
+    prs: [KB-22]
+    anchors:
+      - {path: sandloom/shared/membership.py, symbol: refreshed_state_wins}
+
+  # --- rows added after the baseline ---------------------------------------------------------
+  - id: K1
+    class: b
+    type: configuration
+    scope: composition_text
+    owner: standard
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: "the standard composition root the shipped deploy scaffolding names (decision 3)"
+    prs: [KB-08]
+    anchors:
+      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: FRAMEWORK_COMPOSITION_ROOT}
+    note: "Added by KB-08 (#79): `sandloom add deploy` in the framework tree names sandloom_standard.main."
+
+loader_call_sites:
+  - {path: sandloom/core/loader/plugin_loader.py, symbol: _load_list, row: A2, reason: the loader imports each configured or discovered module}
+  - {path: sandloom/core/admin/compiler.py, symbol: compile_app, row: A7, reason: "the admin compiler imports <module>.admin of each loaded module"}
+  - {path: sandloom/core/contract_compat.py, symbol: module_package_dir, row: A9, reason: "contract compatibility locates the owner's package"}
+  - {path: sandloom/core/worker.py, symbol: discover_task_modules, row: A10, reason: "the worker imports <pkg>.tasks of each loaded module"}
+  - {path: sandloom/core/tasks/periodic.py, symbol: has_periodic_tasks, row: A11, reason: "beat locates a module's tasks.py without importing it"}
+  - {path: sandloom/core/migrations/alembic_support.py, symbol: run_migrations, row: A12, reason: "migrations import each chain's model modules"}
+  - {path: sandloom/core/cli/generated.py, symbol: _module_dir, row: A13, reason: sandloom generate locates each module}
+  - {path: sandloom/core/cli/generated.py, symbol: is_l1, row: A13, reason: "sandloom generate reads each module's register"}
+  - {path: sandloom/core/cli/extract.py, symbol: module_tables, row: A14, reason: "sandloom migrate extract-module imports <pkg>.models"}
+  - {path: sandloom/core/testing/migrations.py, symbol: model_tables, row: A15, reason: "the test harness imports <module>.models and the kernel's models"}
+  - {path: sandloom/core/testing/migrations.py, symbol: _migrations_dir, row: A15, reason: "the test harness locates a module's migration chain"}
+  - {path: sandloom/sdk/_decl/module.py, symbol: _optional_module, row: A16, reason: "define_module imports the module's own submodules"}
+  - {path: sandloom/sdk/_decl/module.py, symbol: _walk, row: A16, reason: "define_module walks the module's own package"}
+  - {path: sandloom/core/module_api/_define.py, symbol: _optional_submodule, row: A16, reason: "define_module imports the module's own submodules"}
+  - {path: sandloom/sdk/_decl/web.py, symbol: _tenant_models, row: A16, reason: "a module's router imports its own models"}
+  - {path: sandloom/core/composition.py, symbol: load_composition_core, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
+  - {path: sandloom/core/composition.py, symbol: load_composition_app, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
+  - {path: sandloom/core/rpc/client.py, symbol: _lazy_module, reason: lazy import of the HTTP client stack (cold start)}
+  - {path: sandloom/core/testing/__init__.py, symbol: __getattr__, reason: "lazy exports from the kernel's own table _EXPORTS"}
+  - {path: sandloom/core/testing/deploy_profile.py, symbol: _module_dir, reason: "the deploy-profile check locates a service's modules"}
+  - {path: sandloom/core/cli/add.py, symbol: _contract_bootstrap, reason: sandloom add contract imports the app module it scaffolds}
+  - {path: sandloom/core/cli/scaffold_deploy.py, symbol: _importable, reason: sandloom add deploy checks a configured module is importable}
+  - {path: sandloom/core/cli/project.py, symbol: write_generated_files, row: B-N5, reason: the starter imports the bundled module packages it scaffolds}
+  - {path: sandloom/sdk/_prim/app.py, symbol: app_modules, reason: "an application's own modules package"}
+  - {path: sandloom/sdk/_prim/docs.py, symbol: public_modules, reason: sandloom docs imports the SDK modules it documents}
+  - {path: sandloom/sdk/_prim/docs_wire.py, symbol: _app_shared, reason: "sandloom docs reads the application's generated package"}
+  - {path: sandloom/sdk/_prim/docs_wire.py, symbol: _package_dir, reason: "sandloom docs locates the application's package"}
+  - {path: sandloom/sdk/_prim/docs_wire.py, symbol: describe_contract, reason: sandloom docs imports a contract stub it describes}
+
+not_edges:
+  - {path: sandloom/core/rpc_transport.py, literal: identity, reason: "the HTTP content coding (Accept-Encoding: identity), not the module"}
+  - {path: sandloom/core/testing/ownership.py, literal: sandloom_test.last_used, reason: "a Redis key of the test harness, not a package path"}
