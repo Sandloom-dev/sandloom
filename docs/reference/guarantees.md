@@ -12,7 +12,7 @@ tests, `sandloom check` rules and import contracts that prove it. The ledger
 disappears, an entry deleted without a `removed:` record, or a new ADR section
 without an entry fails the build.
 
-**432 guarantees, 174 capabilities, 37 recorded gaps.**
+**433 guarantees, 174 capabilities, 38 recorded gaps.**
 
 Run exactly the enforcing tests (from the repository root):
 
@@ -557,6 +557,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-RISK-11</span> | sandloom migrate ensure-outbox --force --apply in prod is refused (exit 1) unless unversioned_ddl_repair is accepted. | **gap (S)**: No test exercises the unversioned_ddl_repair gate in sandloom/core/cli/migrate.py (only ensure-outbox dry-run / dev apply are tested). |
 | <span class="sl-id">G-RISK-12</span> | Production startup refuses a command dedupe TTL below the retry horizon (GuaranteeWindowError naming \[command_dedupe_below_retry_horizon\]) unless that risk is accepted; dev only warns. | `sandloom/core/tests/test_guarantee_windows.py::test_production_refuses_and_names_the_risk`<br>`sandloom/core/tests/test_guarantee_windows.py::test_dev_warns` |
 | <span class="sl-id">G-RISK-13</span> | A production process on a database whose renderer serves development and tests only (SQLite) is refused at startup (SANDLOOM-B029) unless development_database_in_prod is accepted, and the multi_tenant_strict profile refuses it even when accepted; dev and test are not refused. | `sandloom/core/tests/test_sqlite_boot.py::test_b029_refuses_sqlite_in_prod_without_the_accepted_risk`<br>`sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile`<br>`sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone` |
+| <span class="sl-id">G-RISK-14</span> | The legacy_tokens compatibility mode of the initial cpv enablement (ADR-0014 decision 4) is an accepted temporary security risk, bounded and never extended by the framework: until is a required absolute UTC time, the end of the actual transition (the last old issuer stopped), with no default, setting or environment variable; a token without cpv is accepted only with iat before until and exp - iat at most ACCESS_TOKEN_EXPIRE_MINUTES, and still only per key from an allowed authority that ran and was kept; from the window end, until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS, the mode accepts nothing even while the argument stays written, so an old token with forged roles or tenant_ids grants no rights; a later until is a separate operator decision, a new acceptance of the risk. The mode is shown with its time left in /diagnostics/core and sandloom doctor, counted per key, and one mode per deploy profile (T014). It is a composition argument, not a SANDLOOM_ACCEPTED_RISKS id. | **gap (M)**: Not built yet. KB-11 (migration-plan W2) adds legacy_tokens with its bounds and the window-end test of ADR-0014 decision 4 (tokens without cpv carrying forged roles / tenant_ids give no rights at or after the window end, nor with iat at or after until, mono and split, the argument still written); the test ids replace this gap in that PR. |
 
 ### G-MIGRATE
 
@@ -981,6 +982,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-UOW-07</span> | S | Non-atomicity itself is a documented non-guarantee; no test pins that a failing second-database UoW leaves the first committed (i.e. that nobody quietly introduces a coupled commit). |
 | <span class="sl-id">G-BLOCK-04</span> | M | No generic check forces a custom (app-defined) issuer to call ensure_user_not_blocked; the rule is documentation-only for third-party issuers. |
 | <span class="sl-id">G-MODULE-17</span> | M | convention only: no sandloom check rule or test rejects a ForeignKey from one module's table to another module's table prefix |
+| <span class="sl-id">G-RISK-14</span> | M | Not built yet. KB-11 (migration-plan W2) adds legacy_tokens with its bounds and the window-end test of ADR-0014 decision 4 (tokens without cpv carrying forged roles / tenant_ids give no rights at or after the window end, nor with iat at or after until, mono and split, the argument still written); the test ids replace this gap in that PR. |
 
 ## Removed
 
@@ -1369,6 +1371,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-RISK-11</span> | docs/reference/cli.md<br>docs/operate/operator-reference.md#Database migrations |
 | <span class="sl-id">G-RISK-12</span> | docs/modules/database/units.md#Effects that wait for the commit, checks that run before it<br>docs/adr/0006-accepted-risks.md#Amendment (2026-10-25) |
 | <span class="sl-id">G-RISK-13</span> | docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)<br>docs/infrastructure/database.md#Not in production |
+| <span class="sl-id">G-RISK-14</span> | docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix<br>design/kernel-boundary/migration-plan.md |
 | <span class="sl-id">G-MIGRATE-01</span> | docs/modules/index.md#What you get by default, and what you declare<br>docs/operate/operator-reference.md#Database migrations |
 | <span class="sl-id">G-MIGRATE-02</span> | docs/modules/index.md#What you get by default, and what you declare |
 | <span class="sl-id">G-MIGRATE-03</span> | docs/modules/index.md#What you get by default, and what you declare |

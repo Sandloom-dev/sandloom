@@ -42,6 +42,12 @@ small fixes as "#A", "#B"; the conditions to continue as "condition n") and the 
 amendments that agree with them (RA1-RA18, [roadmap-review.md](roadmap-review.md) §6.1; the RA
 items not applied are listed in §6.3).
 
+**Synced 2026-11-08** (tm `kb-adrs-accept`, owner after the Codex review of `787ca60`): I-09,
+A-B8, C-B3 and answer #11 carry the refusal semantics of ADR-0014 decision 3 (owner
+confirmation C7): 401 `token_policy_outdated` only where one refresh fixes the token, 503
+`claims_policy_mismatch` where issuer and verifier disagree on a token issued under the
+verifier's current map. This narrows when 401 is used; it changes no requirement's target.
+
 ## Changed by the owner's answers (2026-11-08)
 
 | item | change | answer / amendment |
@@ -474,6 +480,16 @@ really needs such a claim and no other sufficient allowing branch exists, the an
 the machine code `token_policy_outdated`, so the client refreshes. An old token keeps working on
 routes that need no protected claim until it expires.
 
+**401 only where a refresh fixes it** (owner confirmation C7; ADR-0014 decision 3). The 401
+`token_policy_outdated` is the answer only for a token that one refresh makes trusted: it has no
+`cpv` (outside the bounded compatibility mode of the initial enablement), or it names for the key
+a digest the verifier does not accept and was issued before the verifier's authority map took
+effect. A token issued after the map took effect and still untrusted means the issuer and the
+verifier disagree; a refresh would return the same token shape and loop, so the answer is 503
+`claims_policy_mismatch` with an ERROR log naming the key, never 401. A client refreshes at most
+once per 401 `token_policy_outdated`. When several branches of a policy are indeterminate, the
+status order is 401 `token_policy_outdated`, then 503, then 501.
+
 - Guarantees: G-AUTH-12, G-OPCLASS-07, G-SENS-01, G-REVOKE-01, G-TENANT-13.
 - Proof today: forged admin without the identity source is 403 on every platform router:
   `src/sandloom/core/tests/test_admin_operations.py:56` (line `:63`); provenance for facts:
@@ -499,7 +515,9 @@ routes that need no protected claim until it expires.
   answers 403; `require_platform_admin` and `platform_operator` give the same answer over a
   table of tokens; `Subscribed` with billing absent and `subscription_status: "active"` from
   another module does not allow without another sufficient condition; A-F6; C-B3 (a token under
-  an older policy: 401 `token_policy_outdated` only where no other branch allows).
+  an older policy: 401 `token_policy_outdated` only where no other branch allows and one refresh
+  fixes it; a token issued under the verifier's current map and still untrusted: 503
+  `claims_policy_mismatch`).
 
 ### I-10 The tenant is bound only from a trusted grant in the signed token
 
@@ -1076,7 +1094,7 @@ passes a scenario only when the stated outcome is observed. Environments:
 | A-B5 | `SANDLOOM_MODULES` names the bundled modules in a different order | same app, same routes snapshot, same generated files | I-15, I-19 |
 | A-B6 | A contributor writes a reserved key (`tenant_id`, `org_id`, `user_id`, `iat_us`, `claims_sources`), mono and split; the contributor optional, then a critical one | the token carries none of the reserved values. Optional: its whole result dropped, recorded in `claims_sources_failed`, a log line naming the contributor and the key, a metric; the mint goes on. Critical: mint refused 503 with the log line. At `44451e4` every case refuses the mint (research-trust §3.4, R4) | I-08, I-10 |
 | A-B7 | Each of the 16 subsets of identity, tenancy, billing, admin installed on plain `sandloom` with only the declared dependencies (P2), then through the extras (P3), in clean venvs | the outcome in I-19's table: boots and becomes ready, or a predefined refusal with its code; never a refusal for an undeclared dependency, never a `ModuleLoadError` traceback | I-19 |
-| A-B8 | Split: the issuer and a verifier run with different authority policies (a rolling deploy, a forgotten service); then a token minted before the policy existed | the mismatch is diagnosable (startup, `/ready` or the verifier's log names it); the verifier does not trust the token's protected claims; routes that need none answer as before; a route that needs one with no other allowing branch answers 401 `token_policy_outdated` | I-08, I-09 |
+| A-B8 | Split: the issuer and a verifier run with different authority policies (a rolling deploy, a forgotten service); then a token minted before the policy existed | the mismatch is diagnosable (startup, `/ready` or the verifier's log names it); the verifier does not trust the token's protected claims; routes that need none answer as before; a route that needs one with no other allowing branch answers 401 `token_policy_outdated` when one refresh fixes the token (no `cpv`, or a digest the verifier does not accept on a token issued before the verifier's map took effect), and 503 `claims_policy_mismatch` with an ERROR log naming the key when the token was issued after the map took effect (issuer and verifier disagree: a refresh would loop); a client refreshes at most once | I-08, I-09 |
 
 **Failure**
 
@@ -1143,7 +1161,7 @@ passes a scenario only when the stated outcome is observed. Environments:
 |---|---|---|---|
 | C-B1 | A fact gains a parameter: the owner adds an optional parameter in a new release | callers without the parameter get the same decision as before; a caller that passes it to an old owner (split) gets 501 or 503, never allow | I-07, I-12 |
 | C-B2 | The kernel lacks the fact owner: a policy names a fact whose owner is neither loaded nor bound | 501 at the request; inside `Not` or `Or` the route never allows on that branch; the missing owner is also reported at bootstrap or preflight (H-19) | I-07 |
-| C-B3 | A token minted before the upgrade or under another authority policy: without a claim the new version reads, without `claims_sources_failed`, or without the current policy | its protected claims are untrusted; a policy that needs one and has no other sufficient allowing branch answers 401 `token_policy_outdated`; an `Or` whose other branch allows still allows; routes needing no protected claim work until expiry; never allow on a missing or untrusted claim (answer #11) | I-07, I-08, I-09 |
+| C-B3 | A token minted before the upgrade or under another authority policy: without a claim the new version reads, without `claims_sources_failed`, or without the current policy | its protected claims are untrusted; a policy that needs one and has no other sufficient allowing branch answers 401 `token_policy_outdated` when one refresh fixes the token (no `cpv`, or issued before the verifier's map took effect), otherwise 503 `claims_policy_mismatch`; at most one refresh per client; an `Or` whose other branch allows still allows; routes needing no protected claim work until expiry; never allow on a missing or untrusted claim (answer #11) | I-07, I-08, I-09 |
 | C-B4 | `Account.bound_tenant()` with tenancy not deployed | tenant kind unknown, decision indeterminate (501), never the user's account | I-07; G-AUTHZ-11 |
 | C-B5 | Organization `Feature` or `WithinLimit` with no organization fact registered | 501 (G-AUTHZ-12) | I-07 |
 | C-B6 | One atom moved out of the kernel: `require(OrgRole("admin") & SubscriptionActive(of=Account.org(param="org_id")))` before and after the move, mono and split, first atom denying and then allowing | equal decision; RPC and database call counts not above today's (perf-dx §2.1: member 2 calls / 6 DB, outsider 1 / 3); equal atoms evaluated in equal order (short-circuit on the first deny); policy expression text unchanged. The `bound_tenant` shape (3 calls today) is measured too; a decrease ships only as its own change with its own baseline (answer #23) | I-14, I-23 |
@@ -1232,7 +1250,7 @@ research-trust's Q-T1..Q-T8, research-authz-portability §9 (authz 1-8), researc
 | 8 | Q17 | one active application composition per production process; tests build apps sequentially with explicit cleanup | §1, I-24 |
 | 9 | Q-T1 | authorities set in composition root code, not ordinary settings; local owner verified by the module actually registered, remote by the trusted bound provider; a string name is not proof | I-08, H-5, §4.2 |
 | 10 | Q9, Q-T2 | always protect `roles`, `permissions`, `tenant_ids`; every billing claim used to grant access needs an assigned authority; `email`, `email_verified` only from the trusted issuer; billing not hard-coded as owner | I-08, I-22 T3, H-5 |
-| 11 | Q16, Q-T3 | no global 401 on old tokens; on a policy-version mismatch protected claims are untrusted; 401 `token_policy_outdated` only when a policy needs such a claim and no other allowing branch exists | I-08, I-09, A-B8, C-B3 |
+| 11 | Q16, Q-T3 | no global 401 on old tokens; on a policy-version mismatch protected claims are untrusted; 401 `token_policy_outdated` only when a policy needs such a claim and no other allowing branch exists. Refined by owner confirmation C7 (ADR-0014 decision 3): the 401 only where one refresh fixes the token (no `cpv`, or issued before the verifier's map took effect); a token issued after that and still untrusted answers 503 `claims_policy_mismatch`; one refresh per client | I-08, I-09, A-B8, C-B3 |
 | 12 | Q18, Q-T4 | an optional violator loses its whole result (`claims_sources_failed`, log, metric); a required authority's failure blocks minting; no partial result kept | I-08, A-B6, A-F2, A-F7, C-F4 |
 | 13 | Q13, Q-T5 | `create_access_token` takes protected claims and provenance only from the verified `collect_claims` result; system fields formed by the kernel; a limited service/test path that grants no user rights | I-08, I-22 T4, A-F8; goals.md threat model |
 | 14 | Q-T6 | the authority of a protected claim is critical; absent or failing refuses the mint | I-08 |

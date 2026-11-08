@@ -1,6 +1,7 @@
 # Kernel boundary: migration plan
 
-tm `kb-adrs` (parent `kb-assess`), 2026-11-08. Splits ADR-0012..0015 and the ADR-0010
+tm `kb-adrs` (parent `kb-assess`), 2026-11-08; accepted with ADR-0012..0015 on 2026-11-08 (tm
+`kb-adrs-accept`), its PRs tracked in tm under `kb-migrate`, one task per PR, alias `kb-NN-...`. Splits ADR-0012..0015 and the ADR-0010
 amendment into small PRs, each green on its own (`sandloom test --full`, split conformance, the
 CI steps of the areas it touches), in dependency order. Edge ids are rows of
 [edges.yml](edges.yml); invariants are [requirements.md](requirements.md) ids; owner decisions
@@ -139,17 +140,25 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   `current_status: retained`, reason "protocol". The AST scan, dynamic-import origin rule and
   wheel class (c) scan; SANDLOOM-T017 with `sandloom explain`; `--report`; absorbs
   `kernel_module_imports_allowlist.json`; replaces `test_module_names.py`'s literal scope.
-- **T017 rules** (by `current_status`, never by `target`): a finding that no row's anchors match
-  fails, naming the path, the pattern and the class it would have; a row with
-  `current_status: fixed` and a finding fails (regression); a row with `current_status: open` or
-  `retained` and no finding fails ("set `current_status: fixed`"); a `retained` row without an ADR
-  id and a reason fails. `--report` prints counts by class, type, scope, current status and
-  target, and the rows the change opens, fixes or retains.
-- **Edges:** records all 46 at `current_status: open`; B-N20 set to `retained` (ADR-0012) in this
-  PR. **Invariants:** I-02, I-03.
+- **T017 rules** (by `current_status`, never by `target`; ADR-0012 decision 2). Runtime rows
+  (`kind: runtime`, the default) are strict: a finding that no runtime row's anchors match
+  fails, naming the path, the pattern and the class it would have; a runtime row with
+  `current_status: fixed` and a finding fails (regression); a runtime row with
+  `current_status: open` or `retained` and no finding fails ("set `current_status: fixed`").
+  Documentation rows (`kind: documentation`: a name only in a docstring or comment, which the
+  scan excludes) are tracked separately and need no runtime finding: each must be `retained`
+  with an ADR id and a reason, its anchor file must exist and contain the literal (else stale),
+  and it never covers a runtime finding. A `retained` row without an ADR id and a reason fails.
+  `--report` prints counts by kind, class, type, scope, current status and target, and the rows
+  the change opens, fixes or retains.
+- **Edges:** records the 45 runtime rows at `current_status: open`; B-N20, the one
+  documentation row, seeded `retained` (ADR-0012, reason "docstring example").
+  **Invariants:** I-02, I-03.
 - **Tests:** mutation tests: a planted literal, a computed import, a contract literal, a module
-  file in the wheel each fail; a `current_status: fixed` row with a finding fails; an `open` row
-  without one fails; the seeded register passes on the commit it lands on.
+  file in the wheel each fail; a `current_status: fixed` runtime row with a finding fails; an
+  `open` runtime row without one fails; a documentation row passes without a finding, fails when
+  its anchor no longer holds the literal, and does not cover the same literal planted as a
+  runtime string; the seeded register passes on the commit it lands on.
 - **No extra I/O:** static check. **Measure:** check wall time.
 - **Must not touch:** runtime code.
 
@@ -255,8 +264,10 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   reader through the view; one `platform_admission()` for `require_platform_admin` and
   `platform_operator`; per-key `cpv` stamped and checked; the view's one condition (one authority,
   current or `previous=`, matching `cpv` digest and kept source); `previous=` declared with the
-  authority's verified identity; the staged initial enablement with `legacy_tokens` (bounded by
-  `until` and the token lifetime, shown in diagnostics, counted, mode parity in T014); 401
+  authority's verified identity; the staged initial enablement with `legacy_tokens` (an
+  accepted temporary security risk, G-RISK-14: `until` is the transition end, the window ends at
+  `until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS`, no default and no extension
+  without a separate operator decision; shown in diagnostics, counted, mode parity in T014); 401
   `token_policy_outdated` inside the algebra and at `TenantScope` / platform gates only where a
   refresh fixes it, 503 `claims_policy_mismatch` otherwise; status order of indeterminates; B-N16
   comment in kernel terms; the adoption release gate in T014.
@@ -266,8 +277,11 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   verifier matrix (key change with and without `previous=`; rollback) in split conformance; the
   identity → acme_identity key change of ADR-0014 decision 4 (a real previous-release token,
   steps 0-3, rollback a-c, the negative rows), mono and split; the initial enablement stages
-  0-3 and rollback, mono with mixed replicas and split; at most one refresh per client; owner
-  regression set; algebra laws over the 401 status.
+  0-3 and rollback, mono with mixed replicas and split; the window-end test of ADR-0014
+  decision 4 (tokens without `cpv` carrying forged `roles` / `tenant_ids` give no rights at or
+  after the window end, nor with `iat` at or after `until`), which moves G-RISK-14 from gap to
+  enforced; at most one refresh per client; owner regression set; algebra laws over the 401
+  status.
 - **No extra I/O:** T-14: `Role`, `Perm`, `TenantScope` DB 0, Redis 1 `GET`, RPC 0, mono and split.
   **Measure:** M-ir micro and request rungs (PoC whole-map `cpv` +0.57 %; per-key re-measured
   against +1 %), M-lat.
@@ -603,7 +617,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 
 | PR | closes |
 |---|---|
-| KB-03 | B-N20 (retained, recorded) |
+| KB-03 | B-N20 (documentation row, retained) |
 | KB-06 | B-I1 |
 | KB-07 | B-N19 |
 | KB-11 | B-S1, B-S2; B-S3 and B-N16 retained |

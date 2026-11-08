@@ -7,6 +7,13 @@
 # <m>.facts.v1 join there as `retained` rows with reason "protocol"; they are not listed here.
 #
 # Fields
+#   kind             runtime | documentation (absent means runtime; ADR-0012 decision 2).
+#                    runtime: the AST scan finds the literal, import or file, and the T017 rules
+#                    below apply strictly. documentation: the name appears only in a docstring or
+#                    comment, which the scan excludes, so the row never has a runtime finding and
+#                    needs none; it is tracked separately: retained with an ADR id and a reason,
+#                    its anchor file must exist and contain the literal (else stale), and it never
+#                    covers a runtime finding of the same literal
 #   class            a | b | c (baseline.md section 1)
 #   type             import | package | runtime_call | configuration | security_authority | naming
 #   scope            runtime | composition_text
@@ -23,20 +30,23 @@
 #   prs              migration-plan.md PR ids that carry the change (the last one closes the row)
 #   invariants       requirements.md ids the row serves
 #   tests            fitness tests that prove the target (besides the kernel-edge check,
-#                    SANDLOOM-T017, which covers every row by current_status: a finding no row's
-#                    anchors match fails; a row with current_status fixed and a finding fails
-#                    (regression); a row with current_status open or retained and no finding
-#                    fails ("set current_status: fixed"); target never makes the check pass or
-#                    fail, it is the plan)
+#                    SANDLOOM-T017, which covers every runtime row by current_status: a finding
+#                    no runtime row's anchors match fails; a runtime row with current_status fixed
+#                    and a finding fails (regression); a runtime row with current_status open or
+#                    retained and no finding fails ("set current_status: fixed"); a documentation
+#                    row is checked only as described under kind; target never makes the check
+#                    pass or fail, it is the plan)
 #   anchors          path (under src/ unless stated) and a literal or symbol; no line numbers
 #   note             reason, especially for retained and deferred rows
 
 version: 1
 baseline: b8d8506
-written_at: arch/kernel-boundary ccc420e; revised by kb-adrs-revise on the merged baseline c9b9b05
+written_at: arch/kernel-boundary ccc420e; revised by kb-adrs-revise on the merged baseline c9b9b05;
+  B-N20 made a documentation row by kb-adrs-accept
 main_with: [PR-70 e264b09, PR-71 816f587, PR-72 206fa2d, PR-73 dfde67a, PR-74 bf77bf9]
 summary:
   total: 46
+  kind: {runtime: 45, documentation: 1}
   current_status: {open: 46, fixed: 0, retained: 0}
   target: {fixed: 33, retained: 3, deferred: 10}
   by_adr: {ADR-0012: 15, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
@@ -760,6 +770,7 @@ edges:
       - {path: sandloom/core/testing/static_checks.py, literal: "ix_external_identities_provider"}
 
   - id: B-N20
+    kind: documentation
     class: b
     type: naming
     scope: runtime
@@ -770,10 +781,15 @@ edges:
     adr: ADR-0012
     prs: [KB-03]
     invariants: [I-03]
-    tests: [kernel-edge check (docstring excluded from the literal scan; row kept for the record)]
+    tests:
+      - kernel-edge check, documentation rule (retained, ADR id and reason, anchor present); never matched against runtime findings
+      - mutation test (KB-03) - the same literal as a runtime string in kernel code is an unregistered finding
     anchors:
       - {path: sandloom/core/contract_cache_shadow.py, literal: "tenancy.membership.v1"}
-    note: A docstring example of a generic mechanism; no default (baseline verdict allowed).
+    note: >-
+      A docstring example of a generic mechanism; no default (baseline verdict allowed). The
+      AST scan excludes docstrings, so this row has no runtime finding and needs none; KB-03
+      seeds it as retained (ADR-0012, reason "docstring example").
 
   # --- 5 class (c) -------------------------------------------------------------------------
   - id: C1

@@ -1,9 +1,17 @@
 # Kernel boundary: decision gate
 
 tm `kb-adrs` (parent `kb-assess`), 2026-11-08; revised by tm `kb-adrs-revise` after the Codex
-review of `c5efeac`, on the merged baseline `c9b9b05` (`main` with PRs #71-#74). The checklist
-the owner reviews before accepting ADR-0012..0015 and the ADR-0010 amendment. Each item has a
-status and a link to where it is settled. Statuses:
+review of `c5efeac`, on the merged baseline `c9b9b05` (`main` with PRs #71-#74); closed by tm
+`kb-adrs-accept` after the Codex review of `787ca60`. The checklist the owner reviewed before
+accepting ADR-0012..0015 and the ADR-0010 amendment. Each item has a status and a link to where
+it is settled.
+
+**Gate result (2026-11-08): passed.** The owner accepted ADR-0012..0015 and the ADR-0010
+amendment after the Codex reviews of `c5efeac` and `787ca60`, with three conditions applied
+before acceptance (G16) and two kept as gates of the implementation: the staged `cpv` enablement
+is accepted with `legacy_tokens` as the bounded temporary risk G-RISK-14, and KB-49 is a
+mandatory PoC gate before KB-50..KB-56 (if D2a fails a criterion, ADR-0015 is reopened before any
+settings implementation). Statuses:
 
 - **done**: evidence recorded or change merged;
 - **decided**: the ADR states it; the owner accepts it with the ADR;
@@ -15,13 +23,13 @@ status and a link to where it is settled. Statuses:
 
 | ADR | decision | status |
 |---|---|---|
-| [ADR-0012](../../docs/adr/0012-kernel-boundary.md) | A1 smaller form: names rule, edge register, `sandloom-standard`, admin battery, kernel revocation applier, CLI phase later | Proposed |
-| [ADR-0013](../../docs/adr/0013-contract-ownership.md) | B1 delivered as B4: consumer-owned copies, `consumes` as the single source, expectations | Proposed |
-| [ADR-0014](../../docs/adr/0014-claims-trust-and-authorization-portability.md) | TA-1 + PA-2: assigned authorities, trusted view, per-key `cpv`, sealed mint; contract-anchored access checks | Proposed |
-| [ADR-0015](../../docs/adr/0015-module-settings.md) | D2a on PR #71, H1: declared module settings, one read, post-load check, risk namespaces | Proposed |
-| [ADR-0010 amendment](../../docs/adr/0010-public-api-1.0.md) (2026-11-08) | generated consumer API category; new imports of `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`; typing check | Proposed |
-| [edges.yml](edges.yml) | 46 rows, every one `current_status: open`; targets 33 fixed, 3 retained, 10 deferred | Proposed |
-| [migration-plan.md](migration-plan.md) | 35 PRs and one PoC gate (KB-49) in eight waves W0-W7, plus 2 in the later CLI phase | Proposed |
+| [ADR-0012](../../docs/adr/0012-kernel-boundary.md) | A1 smaller form: names rule, edge register, `sandloom-standard`, admin battery, kernel revocation applier, CLI phase later | Accepted (2026-11-08) |
+| [ADR-0013](../../docs/adr/0013-contract-ownership.md) | B1 delivered as B4: consumer-owned copies, `consumes` as the single source, expectations | Accepted (2026-11-08) |
+| [ADR-0014](../../docs/adr/0014-claims-trust-and-authorization-portability.md) | TA-1 + PA-2: assigned authorities, trusted view, per-key `cpv`, sealed mint; contract-anchored access checks | Accepted (2026-11-08) |
+| [ADR-0015](../../docs/adr/0015-module-settings.md) | D2a on PR #71, H1: declared module settings, one read, post-load check, risk namespaces | Accepted (2026-11-08) |
+| [ADR-0010 amendment](../../docs/adr/0010-public-api-1.0.md) (2026-11-08) | generated consumer API category; new imports of `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`; typing check | Accepted (2026-11-08) |
+| [edges.yml](edges.yml) | 46 rows (45 runtime, 1 documentation: B-N20), every one `current_status: open`; targets 33 fixed, 3 retained, 10 deferred | Accepted (2026-11-08) |
+| [migration-plan.md](migration-plan.md) | 35 PRs and one PoC gate (KB-49) in eight waves W0-W7, plus 2 in the later CLI phase | Accepted (2026-11-08); W0 in tm under `kb-migrate` |
 
 ## 2. Gate items from the process
 
@@ -42,6 +50,7 @@ status and a link to where it is settled. Statuses:
 | G13 | latency threshold (I-14 part 4) | decided: the procedure that sets it (dedicated bench, base-vs-base noise band, a threshold never below the band, re-measured on change); until it has run, latency is reported and does not gate. The number itself is set by the owner from the bench | migration-plan "Latency threshold"; requirements §6.2 |
 | G14 | requirements.md wording follow-ups: module-owned env names 22 (24 after owner decision #13), D-B2 "every process that loads billing", A-B2 wording without a kernel-hosted command | done (`kb-adrs-revise`; 22 counted in code at `c9b9b05`) | requirements §4 settings, A-B2, D-B2, answer #30; adversarial D-4, D-5, A-7 |
 | G15 | Codex review of `c5efeac`: three errors | done: (1) P0 `previous=` and the trusted view as one condition, with the identity → acme_identity test; (2) P1 revocation group without a database fallback, missing service id a configuration error; (3) P1 staged initial `cpv` enablement with a bounded compatibility mode | ADR-0014 decisions 3, 4; ADR-0012 decision 5; §7 below |
+| G16 | Codex review of `787ca60`: three fixes before Accepted | done (`kb-adrs-accept`): (1) requirements I-09, A-B8, C-B3 and answer #11 carry ADR-0014's 401 `token_policy_outdated` (only where one refresh fixes the token) versus 503 `claims_policy_mismatch` (a token issued under the verifier's current map and still untrusted); (2) `legacy_tokens` is an explicitly accepted temporary security risk, G-RISK-14 in `guarantees.yml`: `until` is the transition end, the window ends at `until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS`, no extension without a separate operator decision, and KB-11's window-end test with forged `roles` / `tenant_ids`; (3) B-N20 is a `kind: documentation` row: docstrings are excluded from the scan, so documentation rows need no runtime finding and are checked separately, while runtime rows stay strict | requirements I-09, A-B8, C-B3, §6 answer #11; ADR-0014 decision 4; ADR-0012 decision 2; [edges.yml](edges.yml); migration-plan KB-03, KB-11 |
 
 ## 3. Adversarial findings
 
@@ -133,11 +142,13 @@ status and a link to where it is settled. Statuses:
 
 ## 6. What accepting the ADRs starts
 
-1. The ten confirmations are recorded with their conditions (§7); the ADRs move to Accepted when
-   the owner accepts the revised text.
-2. Waves W0..W7 of [migration-plan.md](migration-plan.md) become tm tasks under a new parent, one
-   task per PR (and one for the KB-49 PoC gate), with the PR's scope as the claim area; KB-50..KB-56
-   are each blocked by KB-49.
+1. The ten confirmations are recorded with their conditions (§7); the ADRs are Accepted
+   (2026-11-08) on the revised text with G16 applied.
+2. Waves of [migration-plan.md](migration-plan.md) become tm tasks under the root task
+   `kb-migrate` ("Kernel boundary migration (ADR-0012..0015)"), one task per PR (and one for the
+   KB-49 PoC gate), with the files the PR touches as the claim area. W0 is created now (KB-01,
+   KB-02, KB-03, KB-05, KB-06, KB-07, KB-08, KB-09, KB-49; independent, no links); each later wave
+   is created when its prerequisites are in reach, and KB-50..KB-56 are each blocked by KB-49.
 3. The edge register (KB-03) lands first in W0 with every row `current_status: open`; every later
    PR sets its rows' `current_status`.
 

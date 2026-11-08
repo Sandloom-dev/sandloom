@@ -5,7 +5,10 @@ search:
 
 # ADR-0015: Modules declare their own settings; the kernel validates them from one read
 
-- **Status:** Proposed (2026-11-08). The owner accepts.
+- **Status:** Accepted (2026-11-08, by the owner, after the Codex reviews of `c5efeac` and
+  `787ca60`; tm `kb-adrs-accept`). The settings PoC gate KB-49 (all sixteen
+  scenarios P1-P16) is mandatory before KB-50..KB-56: if D2a fails one of its criteria, this ADR
+  is reopened before any settings implementation starts.
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision D (alternative D2 in the D2a form, on top of PR

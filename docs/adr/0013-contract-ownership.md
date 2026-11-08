@@ -5,7 +5,9 @@ search:
 
 # ADR-0013: Contract artifacts belong to the distribution that consumes them
 
-- **Status:** Proposed (2026-11-08). The owner accepts.
+- **Status:** Accepted (2026-11-08, by the owner, after the Codex reviews of `c5efeac` and
+  `787ca60`; tm `kb-adrs-accept`). Implementation follows the waves of
+  `design/kernel-boundary/migration-plan.md`.
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision B (alternative B1, delivered as B4)

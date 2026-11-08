@@ -5,7 +5,9 @@ search:
 
 # ADR-0012: The kernel boundary — what the kernel may name, the standard composition outside it, one edge register
 
-- **Status:** Proposed (2026-11-08). The owner accepts.
+- **Status:** Accepted (2026-11-08, by the owner, after the Codex reviews of `c5efeac` and
+  `787ca60`; tm `kb-adrs-accept`). Implementation follows the waves of
+  `design/kernel-boundary/migration-plan.md`.
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision A (alternative A1, in the smaller form the
@@ -118,6 +120,15 @@ each finding exists when the check lands; a PR that carries a row to its target 
 status in the same PR. A `retained` row needs an ADR id and a reason; class (a) rows are
 retained with the reason "protocol".
 
+A row has a **kind**: `runtime` (the default) or `documentation`. A runtime row records a literal,
+import or file the scan below finds, and rules 1-3 apply to it strictly. A documentation row
+records a name the kernel mentions only in a docstring or comment (B-N20, a docstring example of
+a generic mechanism): the scan excludes docstrings, so such a row never has a runtime finding and
+does not need one. It is tracked separately: it must be `retained` with an ADR id and a reason,
+its anchor file must exist and still contain the literal (else it fails as stale, "update or
+remove the row"), and it never covers a runtime finding: the same literal in code is a finding no
+row's anchors match (rule 1).
+
 The kernel-edge check (one new T code, SANDLOOM-T017 proposed) scans the AST of shipped kernel
 code: string literals outside docstrings, matched whole against module names discovered from
 the source layout and installed `sandloom.modules` entry points, `sandloom_\w+`, contract and
@@ -127,13 +138,15 @@ descriptor-sourced argument; an argument whose origin the check cannot resolve i
 (I-02). The built wheel is scanned for class (c): a generated file whose owner is not the
 kernel is a finding. Rules:
 
-1. every finding maps to exactly one row's anchors, else it fails with the path, the pattern
-   and the class it would have;
-2. a row with current status `fixed` and a finding fails (regression);
-3. a row with current status `open` or `retained` and no finding fails ("set its current status
-   to `fixed`"); the target never makes the check pass or fail;
-4. `--report` prints the counts by class, type, scope, current status and target, and the rows a
-   change adds, fixes or retains, for the PR description (I-03).
+1. every finding maps to exactly one runtime row's anchors, else it fails with the path, the
+   pattern and the class it would have;
+2. a runtime row with current status `fixed` and a finding fails (regression);
+3. a runtime row with current status `open` or `retained` and no finding fails ("set its current
+   status to `fixed`"); the target never makes the check pass or fail;
+4. a documentation row is checked only as stated above (retained, ADR id and reason, anchor
+   present), never against findings;
+5. `--report` prints the counts by kind, class, type, scope, current status and target, and the
+   rows a change adds, fixes or retains, for the PR description (I-03).
 
 ### 3. The standard composition lives in `sandloom-standard`
 
@@ -273,7 +286,7 @@ Targets:
 | target | rows | count |
 |---|---|---|
 | fixed | B-I1, B-R1, B-R2, B-R3, B-R6, B-S1, B-S2, B-C1..B-C10, B-N1, B-N2, B-N8, B-N12..B-N15, B-N17..B-N19, C1..C5, A19 | 33 |
-| retained | B-S3 (the tenant claim as a protocol key with an assigned authority), B-N16 (rights in the subject), B-N20 (docstring example) | 3 |
+| retained | B-S3 (the tenant claim as a protocol key with an assigned authority), B-N16 (rights in the subject), B-N20 (docstring example; the one documentation row, decision 2) | 3 |
 | deferred | B-R4, B-R5, B-N3, B-N4 (CLI phase); B-N5, B-N6, B-N7, B-N9, B-N10, B-N11 (starter, templates, recipes) | 10 |
 
 ### 8. Mechanisms (one ledger for the four ADRs, adversarial A-8)
@@ -366,7 +379,7 @@ the reference for decisions; each PR re-measures base against candidate on `c9b9
 
 | test | enforces | exists / new |
 |---|---|---|
-| kernel-edge check over `kernel_edges.yml` (rules 1-4), run by `sandloom test` | decisions 1, 2; I-02, I-03 | new (KB-03), absorbs `kernel_module_imports_allowlist.json` |
+| kernel-edge check over `kernel_edges.yml` (rules 1-5, runtime and documentation rows), run by `sandloom test` | decisions 1, 2; I-02, I-03 | new (KB-03), absorbs `kernel_module_imports_allowlist.json` |
 | dynamic-import origin rule | I-02 | extends `tests/architecture/test_shared_purity.py` |
 | import-linter `kernel-imports-no-module`, `test_shared_purity.py` | I-02 | exist |
 | class (c) scan of the built kernel wheel | decision 1; I-11 | extends `tools/packaging/check_package_distributions.py` |

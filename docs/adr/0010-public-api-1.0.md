@@ -21,7 +21,7 @@ search:
   wording; its planned sections become ledger ids).
 - **Overriding rule (owner):** no guarantee weakens and no capability is
   removed; the guarantee ledger is the gate.
-- **Amended:** 2026-11-08, proposed: a generated consumer API category and
+- **Amended:** 2026-11-08, accepted: a generated consumer API category and
   the new imports of four beginner atoms (see the amendment at the end;
   decided with [ADR-0013](0013-contract-ownership.md) and
   [ADR-0014](0014-claims-trust-and-authorization-portability.md)).
@@ -366,11 +366,13 @@ sections, the new entries and the removal records.
 None pending: the owner decided A–C above. Implementation waits for the
 owner's approval of the specification.
 
-## Amendment (2026-11-08, proposed): the generated consumer API
+## Amendment (2026-11-08): the generated consumer API
 
-- **Status:** Proposed with [ADR-0013](0013-contract-ownership.md) and
-  [ADR-0014](0014-claims-trust-and-authorization-portability.md). The owner
-  accepts (owner decision #6 of 2026-11-08, answer #18).
+- **Status:** Accepted (2026-11-08, by the owner, with
+  [ADR-0013](0013-contract-ownership.md) and
+  [ADR-0014](0014-claims-trust-and-authorization-portability.md), after the
+  Codex reviews of `c5efeac` and `787ca60`; owner decision #6 of 2026-11-08,
+  answer #18). The four names move in KB-34, not before.
 - **Evidence:** `design/kernel-boundary/poc/authz/results.md` (commit
   `ccc420e`: Z-1 decisions 20/20 mono and split, Z-2 counts equal, Z-7
   typing, Z-15 DX), `poc/contracts/results.md` (commit `67980bf`).

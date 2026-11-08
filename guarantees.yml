@@ -4438,6 +4438,25 @@ guarantees:
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone
   startup_checks: development_database_config_problem at create_app / enforce_configuration
+- id: G-RISK-14
+  statement: 'The legacy_tokens compatibility mode of the initial cpv enablement (ADR-0014 decision 4)
+    is an accepted temporary security risk, bounded and never extended by the framework: until is a required
+    absolute UTC time, the end of the actual transition (the last old issuer stopped), with no default,
+    setting or environment variable; a token without cpv is accepted only with iat before until and exp
+    - iat at most ACCESS_TOKEN_EXPIRE_MINUTES, and still only per key from an allowed authority that ran
+    and was kept; from the window end, until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS, the mode
+    accepts nothing even while the argument stays written, so an old token with forged roles or tenant_ids
+    grants no rights; a later until is a separate operator decision, a new acceptance of the risk. The
+    mode is shown with its time left in /diagnostics/core and sandloom doctor, counted per key, and one
+    mode per deploy profile (T014). It is a composition argument, not a SANDLOOM_ACCEPTED_RISKS id.'
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix
+  - design/kernel-boundary/migration-plan.md
+  gap: Not built yet. KB-11 (migration-plan W2) adds legacy_tokens with its bounds and the window-end test
+    of ADR-0014 decision 4 (tokens without cpv carrying forged roles / tenant_ids give no rights at or after
+    the window end, nor with iat at or after until, mono and split, the argument still written); the test
+    ids replace this gap in that PR.
+  gap_size: M
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -7370,7 +7389,7 @@ issued:
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 24
-  G-RISK: 13
+  G-RISK: 14
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33
@@ -7935,22 +7954,23 @@ adr_sections:
     Alternatives considered: informational
     Ledger mapping: informational
     Open questions: informational
-    "Amendment (2026-11-08, proposed): the generated consumer API": informational
+    "Amendment (2026-11-08): the generated consumer API": informational
     "Context of the amendment": informational
     "Decisions of the amendment": informational
-  # Proposed (tm kb-adrs, revised by kb-adrs-revise): no guarantee of these decisions is
-  # implemented yet. Each PR of design/kernel-boundary/migration-plan.md maps the headings it
-  # implements to the ledger ids it adds or changes.
+  # Accepted 2026-11-08 (tm kb-adrs-accept), not built yet: the decision headings are
+  # `planned` (planned_adrs names the waves); each PR of design/kernel-boundary/migration-plan.md
+  # maps the headings it implements to the ledger ids it adds or changes. ADR-0014 decision 4
+  # already maps to G-RISK-14, the accepted temporary risk of the legacy_tokens window.
   0012-kernel-boundary.md:
     "Context": informational
     "Decision": informational
-    "1. What the kernel may name": informational
-    "2. One edge register, checked": informational
-    "3. The standard composition lives in `sandloom-standard`": informational
-    "4. The admin battery": informational
-    "5. Revocation: the kernel applies, the issuer ends its sessions": informational
-    "6. The CLI phase comes later": informational
-    "7. Status of the 46 judged rows": informational
+    "1. What the kernel may name": planned
+    "2. One edge register, checked": planned
+    "3. The standard composition lives in `sandloom-standard`": planned
+    "4. The admin battery": planned
+    "5. Revocation: the kernel applies, the issuer ends its sessions": planned
+    "6. The CLI phase comes later": planned
+    "7. Status of the 46 judged rows": planned
     "8. Mechanisms (one ledger for the four ADRs, adversarial A-8)": informational
     "Alternatives considered": informational
     "Consequences": informational
@@ -7959,17 +7979,17 @@ adr_sections:
   0013-contract-ownership.md:
     "Context": informational
     "Decision": informational
-    "1. Home rule": informational
-    "2. `consumes` is the single source of what a consumer requires": informational
-    "3. Expectation files and narrowing": informational
-    "4. No expectation is never a warning": informational
-    "5. Provider absent where `generate` runs": informational
-    "6. Determinism without the project formatter": informational
-    "7. Provenance header": informational
-    "8. Collisions and copies": informational
-    "9. C5 leaves the kernel": informational
-    "10. Migration list": informational
-    "11. When B2 is adopted": informational
+    "1. Home rule": planned
+    "2. `consumes` is the single source of what a consumer requires": planned
+    "3. Expectation files and narrowing": planned
+    "4. No expectation is never a warning": planned
+    "5. Provider absent where `generate` runs": planned
+    "6. Determinism without the project formatter": planned
+    "7. Provenance header": planned
+    "8. Collisions and copies": planned
+    "9. C5 leaves the kernel": planned
+    "10. Migration list": planned
+    "11. When B2 is adopted": planned
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
@@ -7978,23 +7998,24 @@ adr_sections:
   0014-claims-trust-and-authorization-portability.md:
     "Context": informational
     "Decision, part (a): trust": informational
-    "1. The composition root assigns authorities; the kernel has no default": informational
-    "2. Mint: who may write a protected key": informational
-    "3. Read: one trusted view per verified token": informational
-    "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix": informational
-    "5. Sealed mint, service tokens, test tokens": informational
-    "6. Contract-name ownership for access-bearing contracts": informational
-    "7. Billing claims: option (c)": informational
+    "1. The composition root assigns authorities; the kernel has no default": planned
+    "2. Mint: who may write a protected key": planned
+    "3. Read: one trusted view per verified token": planned
+    "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
+    - G-RISK-14
+    "5. Sealed mint, service tokens, test tokens": planned
+    "6. Contract-name ownership for access-bearing contracts": planned
+    "7. Billing claims: option (c)": planned
     "Decision, part (b): portability": informational
-    "8. Contract-anchored access checks": informational
-    "9. The equality invariant": informational
-    "10. The literal is the single metadata source": informational
-    "11. `Subscribed` keeps its parameters": informational
-    "12. Incompatible contract shape is an indeterminate, user input stays 422": informational
-    "13. Tenant kind from the assigned tenant authority": informational
-    "14. The live adapters: an approved exception, after equivalence": informational
-    "15. What else moves, and what stays": informational
-    "16. Separate changes, each with its own baseline": informational
+    "8. Contract-anchored access checks": planned
+    "9. The equality invariant": planned
+    "10. The literal is the single metadata source": planned
+    "11. `Subscribed` keeps its parameters": planned
+    "12. Incompatible contract shape is an indeterminate, user input stays 422": planned
+    "13. Tenant kind from the assigned tenant authority": planned
+    "14. The live adapters: an approved exception, after equivalence": planned
+    "15. What else moves, and what stays": planned
+    "16. Separate changes, each with its own baseline": planned
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
@@ -8003,19 +8024,28 @@ adr_sections:
   0015-module-settings.md:
     "Context": informational
     "Decision": informational
-    "1. Declaration on registration (D2a)": informational
-    "2. One source read per process": informational
-    "3. Validation before `setup`, one check after loading": informational
-    "4. Risk namespaces": informational
-    "5. Ratchets and completeness": informational
-    "6. Env names": informational
-    "7. Static gate in `sandloom check` and `sandloom test`": informational
-    "8. `config dump` and what \"activation\" means": informational
-    "9. Refresh-session settings move to identity": informational
-    "10. Password hashing stays a kernel mechanism (H1)": informational
-    "11. What moves": informational
+    "1. Declaration on registration (D2a)": planned
+    "2. One source read per process": planned
+    "3. Validation before `setup`, one check after loading": planned
+    "4. Risk namespaces": planned
+    "5. Ratchets and completeness": planned
+    "6. Env names": planned
+    "7. Static gate in `sandloom check` and `sandloom test`": planned
+    "8. `config dump` and what \"activation\" means": planned
+    "9. Refresh-session settings move to identity": planned
+    "10. Password hashing stays a kernel mechanism (H1)": planned
+    "11. What moves": planned
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
     "Evidence": informational
     "Fitness tests": informational
+planned_adrs:
+  0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,
+    KB-08 sandloom-standard, KB-09 revocation applier), W1 (KB-40), W2 (KB-41); CLI phase KB-60, KB-61'
+  0013-contract-ownership.md: 'design/kernel-boundary/migration-plan.md: W1 (KB-20), W2 (KB-21), W3 (KB-22),
+    W4 (KB-23)'
+  0014-claims-trust-and-authorization-portability.md: 'design/kernel-boundary/migration-plan.md: W1 (KB-10),
+    W2 (KB-11, KB-13), W3 (KB-12), W4 (KB-30), W5 (KB-31..KB-33, KB-35, KB-36), W6 (KB-34, KB-37), W7 (KB-38)'
+  0015-module-settings.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-49 PoC gate), W1 (KB-50), W2 (KB-51,
+    KB-53, KB-54, KB-56), W3 (KB-52), W4 (KB-55)'

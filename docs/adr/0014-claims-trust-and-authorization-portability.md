@@ -5,7 +5,12 @@ search:
 
 # ADR-0014: Claims trust assigned by the application; domain authorization atoms generated from contracts
 
-- **Status:** Proposed (2026-11-08). The owner accepts.
+- **Status:** Accepted (2026-11-08, by the owner, after the Codex reviews of `c5efeac` and
+  `787ca60`; tm `kb-adrs-accept`). The staged initial `cpv` enablement
+  (decision 4) is accepted on its conditions: the `legacy_tokens` compatibility mode is an
+  explicitly accepted temporary security risk (guarantee ledger G-RISK-14), bounded to the
+  transition, one access-token lifetime and the clock-skew allowance, never extended without a
+  separate operator decision; 503 `claims_policy_mismatch` (decision 3) is accepted.
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision C: part (a) trust, alternative TA-1; part (b)
@@ -178,6 +183,10 @@ The enablement is therefore staged, with a compatibility mode that only the veri
 create_app(claim_authorities=..., legacy_tokens=LegacyClaimsTokens(until="2026-12-01T00:00Z"))
 ```
 
+`until` is the end of the transition: the time by which the last O issuer has stopped. The
+window during which a token without `cpv` can give rights ends at
+`until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS` (the window end), and never later.
+
 | stage | issuers | verifiers | token without `cpv` | token with `cpv` |
 |---|---|---|---|---|
 | 0 | O | O | today | — |
@@ -193,13 +202,23 @@ redeploying the verifiers with `legacy_tokens`; stage 2 → 1 by returning issue
 compatibility-mode verifiers accept both); stage 1 → 0 by returning verifiers to O. An O issuer
 behind a verifier without `legacy_tokens` is never a supported state.
 
-The compatibility mode is an accepted, bounded window of today's trust for tokens without `cpv`,
-with these protections:
+The compatibility mode is an **explicitly accepted temporary security risk** (owner, 2026-11-08,
+after the Codex review of `787ca60`), recorded in the guarantee ledger as G-RISK-14: a bounded
+window of today's trust for tokens without `cpv`, with these protections:
 
-- **bounded:** `until` is required, an absolute UTC time. A token without `cpv` is accepted only
-  if its `iat` is before `until` and its `exp - iat` does not exceed `ACCESS_TOKEN_EXPIRE_MINUTES`;
-  from `until` on the mode is off by itself (fail closed), and startup logs a WARNING asking to
-  remove the argument;
+- **bounded to the actual transition, one token lifetime and the clock-skew allowance:** `until`
+  is required, an absolute UTC time, set to the end of the actual transition (the last O issuer
+  stopped), never to a later date chosen for convenience. A token without `cpv` is accepted only
+  if its `iat` is before `until` and its `exp - iat` does not exceed `ACCESS_TOKEN_EXPIRE_MINUTES`,
+  with expiry checked under `JWT_LEEWAY_SECONDS` as for every token; so no token without `cpv`
+  gives rights after the window end. From the window end on, the mode is off by itself (fail
+  closed) whether or not the argument is still written, and startup logs a WARNING asking to
+  remove it;
+- **no extension without a separate operator decision:** `until` has no default, no setting and
+  no environment variable, and the framework never derives, moves or extends it. A later `until`
+  is a code change in the composition root that an operator decides on its own, as a new
+  acceptance of the risk, with the reason recorded alongside the deployment; the planned
+  migration never includes one;
 - **narrower than today:** parts 1 and 3 of decision 3 still apply, so a token whose `roles`
   authority did not run, or failed, gives no rights. What the window keeps open is what O tokens
   carry today: no per-key policy version (T-10) and, for a token an O issuer minted while a
@@ -262,6 +281,20 @@ three replicas, O and N replicas mixed) and split: no 401 in stages 1 and 2; the
 without its authority in `claims_sources` gives no rights in stage 1; at stage 3 one 401 and one
 refresh per client; a token without `cpv` issued after `until` untrusted; `exp - iat` above the
 lifetime untrusted; T014 refuses mixed `legacy_tokens` in one profile.
+
+**Test of the window end** (KB-11, mono and split, `legacy_tokens` still written in the
+composition, the clock controlled). Tokens without `cpv`, signed with the deployment's key, whose
+`roles` hold `["admin"]` and whose `tenant_ids` name a tenant the user has no grant for, written
+by a non-authority contributor while the authority ran and omitted the key (the gate probe G2-G4
+shape), and the same claims with the authority absent from `claims_sources`: (a) inside the
+window, the first token's values are what the accepted risk keeps open (counted and logged, as
+today), while the source check gives the second token no rights; (b) a token with `iat` at or
+after `until`, and one with `exp - iat` above `ACCESS_TOKEN_EXPIRE_MINUTES`, give no rights at
+any time; (c) at and after the window end no token without `cpv` gives rights:
+`Role("admin")`, `Perm(...)`, `require_platform_admin`, `platform_operator` and `TenantScope` on
+the forged tenant each refuse (401 `token_policy_outdated` only where a refresh fixes it, else
+403), `Role("admin") | AlwaysAllow` still allows, `~Role("admin")` never allows, and
+diagnostics show the mode as off.
 
 **Assigning a previously unassigned key**: issuers first (an O-map verifier treats the key as
 unassigned: 403 as before), then verifiers. **Removing an assignment**: verifiers first.
@@ -527,7 +560,9 @@ names for providers (`access_check`, `From`, `Category`). Request rung +0.57 % i
 **New risks.** A deployment that forgets its map denies every protected claim, or refuses every
 mint with a critical issuer: loud, never silent. The previous-authority window trusts the old
 authority for one rollout. The enablement's compatibility mode keeps today's trust of tokens
-without `cpv` (narrowed by the source check) until `until` at the latest; it ends by itself. The status order of decision 3 differs from the adversarial proposal.
+without `cpv` (narrowed by the source check): an accepted temporary security risk (G-RISK-14),
+bounded to the transition, one access-token lifetime and `JWT_LEEWAY_SECONDS`, ended by itself,
+never extended without a separate operator decision. The status order of decision 3 differs from the adversarial proposal.
 A provider can declare no risk from the start; route classification remains the backstop. A
 consumer that imports an atom before its first generation cannot generate until KB-20's
 pre-composition planner lands (Z-15).
@@ -604,6 +639,7 @@ process):
 | issuer × verifier matrix (key change with and without `previous=`, rollback) in split conformance | decision 4; owner #10 | new (KB-11) |
 | identity → acme_identity key change with a real previous-release token through steps 0-3 and rollback a-c, plus the negative rows (mixed authorities in `cpv` and `claims_sources`, app-local `identity`, failed source), mono and split | decisions 3, 4; owner's confirmation of `previous=` | new (KB-11) |
 | initial enablement stages 0-3 and rollback, mono rolling deploy with mixed replicas and split, `until` and lifetime bounds, T014 mode parity | decision 4 | new (KB-11) |
+| window end: tokens without `cpv` carrying forged `roles` / `tenant_ids` give no rights at or after `until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS`, nor with `iat` at or after `until`, with `legacy_tokens` still written, mono and split | decision 4; G-RISK-14 | new (KB-11) |
 | controlled refresh: 401 only for `token_policy_outdated` before the map took effect, 503 `claims_policy_mismatch` after, at most one refresh per client | decision 3; C7 | new (KB-11) |
 | access provider by real identity: app-local `acme_orgs` and a same-named module from another path refused, pinned `service_id` remotely | decision 6; X3 | new (KB-13) |
 | `Account` neutrality: third-party `has_seat` on `Account.org(param=)` and `bound_tenant()` without billing, decisions and counts equal to the billing check | decision 15; C4 | new (KB-30) |
