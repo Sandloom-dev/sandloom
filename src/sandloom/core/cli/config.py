@@ -34,43 +34,11 @@ from pydantic_settings import (
 )
 
 from sandloom.core.config.settings import effective_secrets_dir, settings
+from sandloom.core.observability.guardrails import is_secret_name
 
 REDACTED = "<redacted>"
 
-#: Name segments that mark a credential (``JWT_SECRET``, ``SMTP_PASSWORD``,
-#: ``INTERNAL_API_TOKEN``, ``JWT_PRIVATE_KEY``, ``SENTRY_DSN``, ``...``).
-_SECRET_SEGMENTS = frozenset(
-    {
-        "SECRET",
-        "SECRETS",
-        "PASSWORD",
-        "PASSWD",
-        "TOKEN",
-        "DSN",
-        "PRIVATE",
-        "CREDENTIALS",
-    }
-)
-#: Segments that make a matching name NOT a credential (public keys, hashing
-#: parameters, key ids).
-_PUBLIC_SEGMENTS = frozenset({"PUBLIC", "HASH", "KID"})
-#: Public verification keys keyed by service (``RPC_SERVICE_KEYS``, ...).
-_PUBLIC_NAMES = frozenset({"RPC_SERVICE_KEYS", "RPC_SERVICE_DH_KEYS"})
 _URL_CREDENTIALS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/@\s]+)@")
-
-
-def is_secret_name(name: str) -> bool:
-    """Whether a setting (or JSON option) called ``name`` holds a credential."""
-    upper = str(name).upper()
-    if upper in _PUBLIC_NAMES:
-        return False
-    segments = set(re.split(r"[^A-Z0-9]+", upper)) - {""}
-    if segments & _PUBLIC_SEGMENTS:
-        return False
-    if segments & _SECRET_SEGMENTS:
-        return True
-    last = re.split(r"[^A-Z0-9]+", upper)[-1]
-    return last in {"KEY", "KEYS"} or upper.endswith("ACCESS_KEY_ID")
 
 
 def mask_url_credentials(text: str) -> str:
