@@ -15,6 +15,22 @@ website renders this same changelog.
 
 ### Security
 
+- **Identity's and billing's production refusals stop every process, not only
+  the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, and billing on the
+  implicit fake PSP in prod, were refused only by critical startup tasks in the
+  ASGI lifespan: the Celery worker, beat, `sandloom migrate` and the operator
+  commands (`outbox`, `streams`, `projection`, `sagas`, `backup`, …) built and
+  ran. The modules now refuse while they register, and the loader turns a
+  module's `SystemExit(reason)` from `register` / `setup` into the kernel's
+  `[core.config] Invalid configuration: module <name>: <reason>` (exit status
+  1), in every entry point that builds the composition; an optional or
+  aggregated module load cannot carry on past it. `sandloom config dump` still
+  builds no composition. **Upgrade:** a deployment that ran its worker, beat or
+  migrate one-shot without these settings must give them the same module
+  environment as the app (the shipped compose profiles already do).
+  `ConfigurationError` now lives in `sandloom.core.config.common` (still
+  importable from `sandloom.core.app_factory`).
+
 - **A token claim has one owner, and no claims contributor writes another's
   claim or a reserved key.** A second module writing a key an earlier module
   wrote (identity's `roles`, say), or any module writing a key the kernel

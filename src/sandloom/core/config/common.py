@@ -104,6 +104,19 @@ def validate_service_binding(contract: str, binding: object) -> dict[str, object
 #: (:func:`sandloom.core.app_factory.enforce_configuration`).
 INVALID_CONFIGURATION = "[core.config] Invalid configuration: "
 
+
+class ConfigurationError(SystemExit):
+    """The configuration fails a check that runs at boot.
+
+    A ``SystemExit`` like a ``Settings`` load failure: the entry point
+    (ASGI import, worker, ``sandloom migrate``, the ``sandloom`` CLI) stops with the
+    message and exit status 1 before serving or touching anything. Raised by
+    :func:`sandloom.core.app_factory.enforce_configuration`, by ``create_app``'s
+    post-load checks, and by the module loader for a module that refuses its
+    configuration during registration.
+    """
+
+
 #: ``PRODUCTION_PROFILE`` values (:mod:`sandloom.core.production_profile` enforces
 #: the strict one).
 STANDARD = "standard"

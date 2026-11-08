@@ -21,18 +21,20 @@ from .sessions import apply_token_revocation
 
 
 def _setup(core: ModuleAPI) -> None:
+    """Register identity's lifecycle, claims, reads and consumers.
+
+    Raises ``SystemExit`` (the loader's configuration refusal) when the
+    TOTP key configuration is unusable in this environment.
+    """
     # Production must encrypt TOTP secrets with a dedicated key: the JWT-derived
     # fallback ties 2FA secrets to the signing key's lifecycle (rotation would
-    # make them undecryptable) and is refused in prod. A CRITICAL startup task
-    # aborts the lifespan instead of serving without one.
+    # make them undecryptable) and is refused in prod. Refused here, at
+    # registration, so every process that builds the composition (the app,
+    # worker, beat, ``sandloom migrate``, the operator CLIs) stops with the
+    # kernel's INVALID_CONFIGURATION refusal, not only the API's lifespan.
     twofa_error = twofa_service.twofa_configuration_error()
     if twofa_error is not None:
-        core.logger.error("identity: %s", twofa_error)
-
-        async def _refuse_missing_twofa_key() -> None:
-            raise RuntimeError(twofa_error)
-
-        core.add_startup_task(_refuse_missing_twofa_key, critical=True)
+        raise SystemExit(twofa_error)
 
     # identity keys its emailed tokens / fingerprints with JWT_SECRET, which
     # is optional in an asymmetric JWT deployment: refuse to serve without it.

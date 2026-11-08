@@ -34,18 +34,22 @@ MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 
 
 def _setup(core: ModuleAPI) -> None:
-    core.add_shutdown_task(psp.close_psp_client)
+    """Register billing's PSP client, claims, access facts and reads.
 
+    Raises ``SystemExit`` (the loader's configuration refusal) when the PSP
+    configuration is refused in this environment (the implicit fake PSP in
+    prod without the accepted risk ``fake_psp_in_prod``).
+    """
     # Production must never run on the fake PSP (fake checkouts; forged-event
-    # risk). A CRITICAL startup task aborts the lifespan instead of serving.
+    # risk). Refused here, at registration, so every process that builds the
+    # composition (the app, worker, beat, ``sandloom migrate``, the operator
+    # CLIs) stops with the kernel's INVALID_CONFIGURATION refusal before the
+    # PSP client is built.
     config_error = psp.psp_configuration_error(settings)
     if config_error is not None:
-        core.logger.error("billing: %s", config_error)
+        raise SystemExit(config_error)
 
-        async def _refuse_fake_psp_in_prod() -> None:
-            raise RuntimeError(config_error)
-
-        core.add_startup_task(_refuse_fake_psp_in_prod, critical=True)
+    core.add_shutdown_task(psp.close_psp_client)
 
     # The PSP client is billing-INTERNAL (it can create checkout sessions and
     # verifies webhooks with billing's secrets): never a public service

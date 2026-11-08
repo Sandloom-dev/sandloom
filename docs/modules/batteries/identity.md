@@ -209,9 +209,10 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
 - **Auth tokens** must carry `token_type: "access"` (guards reject otherwise).
 - `TWOFA_ENCRYPTION_KEY` — key(s) encrypting TOTP secrets at rest
   (comma-separated, newest first, for rotation). **Required with
-  `ENVIRONMENT=prod`**: identity registers a critical startup task that aborts
-  startup without it. Outside production an unset key falls back to one derived
-  from `JWT_SECRET`.
+  `ENVIRONMENT=prod`**: without it identity refuses to register, so the app,
+  the worker, beat, `sandloom migrate` and the operator commands all stop with
+  `[core.config] Invalid configuration: module sandloom_identity: …`. Outside
+  production an unset key falls back to one derived from `JWT_SECRET`.
 - `AUTH_REVOCATION_FAIL_CLOSED` — revocation-store outage → `503` (default: on
   in production).
 - Sensitive endpoints are rate-limited per IP (e.g. login `5/60s`, fail-closed).
