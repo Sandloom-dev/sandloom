@@ -158,7 +158,11 @@ website renders this same changelog.
   framework's `sandloom add deploy` name it, so the API, the Celery worker and
   beat, `sandloom migrate` and the operator commands build one composition.
   `sandloom.main` stays in `sandloom` as the lean kernel root and the default
-  when no root is configured; its behaviour is unchanged. SANDLOOM-T014 now
+  when no root is configured; its behaviour is unchanged. Both roots take
+  their default module set from `sandloom.local_modules.default_modules()`, so
+  a framework checkout's `LOCAL_MODULES` (moved from `src/sandloom/main.py` to
+  `src/sandloom/local_modules.py`, where `sandloom add module` now writes) is
+  composed under either root. SANDLOOM-T014 now
   refuses a microservices profile whose processes name different
   `SANDLOOM_COMPOSITION_ROOT` values. The publishing tools release six
   distributions. **Upgrade:** `pip install "sandloom[standard]"` keeps working
@@ -194,9 +198,12 @@ website renders this same changelog.
   status and a target (ADR-0012). `sandloom test` fails on an unrecorded edge,
   on a `fixed` row whose edge is back, and on an `open` row whose edge is gone;
   `uv run python tests/architecture/kernel_edges.py --report` prints the
-  counts. The register replaces `kernel_module_imports_allowlist.json` and the
-  literal scan of `test_module_names.py`. Framework contributors only: nothing
-  changes for applications.
+  counts. The scan also reads static imports (`from sandloom_billing import
+  x`), and a `fixed` row's anchor literal fails as that row's regression in
+  any kernel file, not only the one it was removed from. The register
+  replaces `kernel_module_imports_allowlist.json` and the literal scan of
+  `test_module_names.py`. Framework contributors only: nothing changes for
+  applications.
 
 ### Fixed
 
@@ -208,7 +215,9 @@ website renders this same changelog.
   installed the decorator is Celery's `shared_task` as before (worker and beat
   unchanged); without it the task still runs inline and `delay` /
   `apply_async` / `s` / `si`, and `cron(...)`, raise `TaskQueueNotInstalled`
-  naming the extra. The package check boots each module wheel on plain
+  naming the extra. `TaskQueueNotInstalled` is public (advanced): `from
+  sandloom.sdk.tasks import TaskQueueNotInstalled` to catch it, recorded in
+  `public_api_baseline.json` with the rest of `sandloom.sdk.tasks`. The package check boots each module wheel on plain
   `sandloom` and probes `/health` and `/ready` (KB-01).
 - **`/ready` is no longer 200 when a module's tasks cannot be enqueued.** A
   loaded module with a `tasks.py` (tasks or periodic tasks) on a process whose

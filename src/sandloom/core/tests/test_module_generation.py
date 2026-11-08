@@ -67,11 +67,11 @@ def test_wiring_registers_the_module_in_framework_and_app_lists(
 ) -> None:
     from sandloom.core.cli.scaffold_wiring import wire_module
 
-    # framework tree: backend/{pyproject.toml, .env.example, src/sandloom/main.py}
+    # framework tree: backend/{pyproject.toml, .env.example, src/sandloom/local_modules.py}
     backend = tmp_path / "repo"
     (backend / "src" / "sandloom").mkdir(parents=True)
     (backend / "pyproject.toml").write_text("[project]\nname = 'x'\n")
-    (backend / "src" / "sandloom" / "main.py").write_text(
+    (backend / "src" / "sandloom" / "local_modules.py").write_text(
         'LOCAL_MODULES: list[str] = ["gadgets"]\n'
     )
     (backend / ".env.example").write_text(
@@ -84,13 +84,13 @@ def test_wiring_registers_the_module_in_framework_and_app_lists(
     )
     edited = wire_module("quotas", backend / "src" / "quotas")
     assert {p.name for p in edited} == {
-        "main.py",
+        "local_modules.py",
         ".env.example",
         "monolith.yml",
     }
     assert (
         'LOCAL_MODULES: list[str] = ["gadgets", "quotas"]'
-        in (backend / "src" / "sandloom" / "main.py").read_text()
+        in (backend / "src" / "sandloom" / "local_modules.py").read_text()
     )
     assert (
         (backend / ".env.example")

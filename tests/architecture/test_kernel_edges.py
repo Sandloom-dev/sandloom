@@ -8,9 +8,11 @@ kernel tree fails it (the mutation tests of KB-03 in
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 import zipfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -79,19 +81,22 @@ def test_the_seeded_register_passes() -> None:
 
 
 def test_the_register_holds_every_judged_row_of_the_design() -> None:
-    """Each of the 46 rows of edges.yml is in the register with its kind,
-    class, target and ADR; seeded open, B-N20 (documentation) retained, and
-    the class (a) rows and family templates retained as protocol."""
-    design = {e["id"]: e for e in yaml.safe_load(_EDGES.read_text())["edges"]}
+    """Each of the 47 rows of edges.yml (the 46 judged edges and K1, added by
+    KB-08) is in the register with its kind, class, target, ADR and current
+    status; B-N20 (documentation) retained, and the class (a) rows and family
+    templates retained as protocol. Nothing else is in the register: 67 rows."""
+    data = yaml.safe_load(_EDGES.read_text())
+    design = {e["id"]: e for e in data["edges"]}
     rows = {r.id: r for r in ke.load_register().rows}
-    assert len(design) == 46
+    assert len(design) == 47
     for rid, edge in design.items():
         row = rows[rid]
         assert row.kind == edge.get("kind", "runtime"), rid
-        assert (row.klass, row.target, row.adr) == (
+        assert (row.klass, row.target, row.adr, row.current_status) == (
             edge["class"],
             edge["target"],
             edge["adr"],
+            edge["current_status"],
         ), rid
         assert {(a.path, a.literal, a.symbol) for a in row.anchors} >= {
             (a["path"], a.get("literal"), a.get("symbol")) for a in edge["anchors"]
@@ -104,9 +109,31 @@ def test_the_register_holds_every_judged_row_of_the_design() -> None:
         (r.klass, r.current_status, r.reason) == ("a", "retained", "protocol")
         for r in protocol
     )
+    assert set(rows) == set(design) | {r.id for r in protocol}
+    assert len(rows) == 67
+    summary = data["summary"]
+    edges = list(design.values())
+    assert summary["total"] == len(edges)
+    for key, field in (
+        ("current_status", "current_status"),
+        ("target", "target"),
+        ("by_adr", "adr"),
+    ):
+        counted = Counter(e[field] for e in edges)
+        assert summary[key] == dict(counted), key
+    assert summary["kind"] == dict(Counter(e.get("kind", "runtime") for e in edges))
 
 
-def test_the_check_is_static_and_fast() -> None:
+def test_the_plan_closes_every_design_row() -> None:
+    """migration-plan.md's "Edge closure by PR" and later-phase tables name
+    every row of edges.yml, and its count of the live register is current."""
+    plan = (_EDGES.parent / "migration-plan.md").read_text()
+    closure = plan[plan.index("### Later phase") :]
+    design = {e["id"] for e in yaml.safe_load(_EDGES.read_text())["edges"]}
+    named = set(re.findall(r"\b(?:[A-C]-?[A-Z]?\d+|K\d+)\b", closure))
+    assert design <= named, sorted(design - named)
+    rows = ke.load_register().rows
+    assert f"has {len(rows)} rows" in closure
     """No extra I/O: the check reads source only; it stays well under the
     architecture suite's budget (measured: about 1 s on the full tree)."""
     started = time.perf_counter()
@@ -305,6 +332,109 @@ def test_a_fixed_row_without_a_finding_passes(tmp_path: Path) -> None:
     """A fixed row with no finding and no anchor left passes."""
     src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})
     assert _problems(src, _register(edges=[_row(current_status="fixed")])) == []
+
+
+def _fixed_index_row() -> dict[str, Any]:
+    """A fixed row whose anchor literal matches no other pattern (B-N19's shape)."""
+    return _row(
+        current_status="fixed",
+        anchors=[{"path": "sandloom/core/x.py", "literal": "ix_crm_orders_provider"}],
+    )
+
+
+def test_a_fixed_rows_literal_planted_in_another_kernel_file_fails(
+    tmp_path: Path,
+) -> None:
+    """Rule 2 everywhere: a fixed row's anchor literal, a name no other
+    pattern matches, fails as that row's regression in any kernel file."""
+    planted = 'KNOWN = {"crm_orders": {"ix_crm_orders_provider"}}\n'
+    src = _tree(tmp_path, {"sandloom/sdk/elsewhere.py": planted})
+    (problem,) = _problems(src, _register(edges=[_fixed_index_row()]))
+    assert "row R1 is fixed but the edge is back (regression, rule 2)" in problem
+    assert "sandloom/sdk/elsewhere.py:1: fixed-edge 'ix_crm_orders_provider'" in problem
+
+
+def test_a_fixed_row_without_a_literal_anchor_fails(tmp_path: Path) -> None:
+    """A fixed row the scan cannot see come back (symbol anchors only) fails."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})
+    row = _row(
+        current_status="fixed",
+        anchors=[{"path": "sandloom/core/x.py", "symbol": "gone"}],
+    )
+    (problem,) = _problems(src, _register(edges=[row]))
+    assert "row R1 is fixed without a literal anchor" in problem
+
+
+def _with_planted(register: ke.Register, rel: str, source: str) -> list[str]:
+    """The check's problems on this tree plus one planted kernel file."""
+    matcher = ke.matcher_for(register)
+    findings = ke.scan(register) + ke.scan_source(rel, source, matcher)
+    return ke.check(register, findings=findings).problems
+
+
+_FIXED = [r for r in ke.load_register().rows if r.current_status == "fixed"]
+
+
+@pytest.mark.parametrize("row", _FIXED, ids=[r.id for r in _FIXED])
+def test_every_fixed_row_of_the_register_is_detectable(row: ke.Row) -> None:
+    """Each fixed row of the live register (B-I1, B-N19, ...) fails as a
+    regression when its anchor literal is planted in a kernel file it is not
+    anchored on: the scan sees every closed edge, wherever it comes back."""
+    assert _FIXED, "no fixed row: the test would pass vacuously"
+    register = ke.load_register()
+    literals = [a for a in row.anchors if a.literal]
+    assert literals, f"{row.id} has no literal anchor"
+    for anchor in literals:
+        value = anchor.exact or anchor.literal
+        planted = f"KNOWN = {{'t': {{{value!r}}}}}\n"
+        problems = _with_planted(register, "sandloom/shared/planted_edge.py", planted)
+        assert any(
+            f"row {row.id} is fixed but the edge is back" in p
+            and "sandloom/shared/planted_edge.py:1" in p
+            for p in problems
+        ), (row.id, problems)
+
+
+# --- static imports ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from sandloom_crm import api\n",
+        "import sandloom_crm.api\n",
+        "from sandloom_crm.api import thing\n",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import sandloom_crm\n",
+    ],
+)
+def test_a_static_import_of_a_module_package_fails(tmp_path: Path, source: str) -> None:
+    """A static import naming a module package is a finding (rule 1)."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    (problem,) = _problems(src, _register())
+    assert "static-import 'sandloom_crm" in problem
+    assert "would be class b, type import" in problem
+
+
+def test_kernel_and_relative_imports_are_not_findings(tmp_path: Path) -> None:
+    """Imports of the kernel, the standard library and relative imports name no module."""
+    source = "import os\nfrom sandloom.core import x\nfrom . import crm\nfrom .crm import y\n"
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    assert _problems(src, _register()) == []
+
+
+def test_a_static_import_of_a_fixed_edge_fails_as_its_regression() -> None:
+    """B-I1 came back as a static import: the row fails, not only rule 1."""
+    register = ke.load_register()
+    problems = _with_planted(
+        register,
+        "sandloom/core/cli/planted_import.py",
+        "from sandloom_identity import password_policy\n",
+    )
+    assert any(
+        "row B-I1 is fixed but the edge is back" in p
+        and "static-import 'sandloom_identity.password_policy'" in p
+        for p in problems
+    ), problems
 
 
 @pytest.mark.parametrize("status", ["open", "retained"])

@@ -28,7 +28,7 @@ description: Create a new Sandloom business module (sandloom add module, migrate
      revision (RLS included) and `tests/`.
    - It also wires the module, and prints every file it edited. In the
      framework tree, the package lands at `src/<name>/` and joins
-     `LOCAL_MODULES` (`src/sandloom/main.py`), `.env.example` and the monolith
+     `LOCAL_MODULES` (`src/sandloom/local_modules.py`), `.env.example` and the monolith
      profile (installed module packages are discovered by their
      `sandloom.modules` entry point). Its `tests/conftest.py` brings
      the kit's fixtures (`client`, `published` recording). An `sandloom new` app

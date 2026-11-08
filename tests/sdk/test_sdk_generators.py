@@ -130,7 +130,7 @@ def test_add_module_in_the_framework_tree_is_wired_and_gets_the_kit(
     backend = tmp_path
     (backend / "src" / "sandloom").mkdir(parents=True)
     (backend / "pyproject.toml").write_text("[project]\nname = 'x'\n")
-    main = backend / "src" / "sandloom" / "main.py"
+    main = backend / "src" / "sandloom" / "local_modules.py"
     main.write_text('LOCAL_MODULES: list[str] = ["gadgets"]\n')
     (backend / ".env.example").write_text('SANDLOOM_MODULES=["sandloom_identity"]\n')
     where = add.Layout(

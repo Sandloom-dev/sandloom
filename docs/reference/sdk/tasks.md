@@ -20,6 +20,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`cron`](#cron) | function | A beat schedule from a five-field cron expression (`"minute hour day-of-month month day-of-week"`, e.g. `"0 3 * * *"`): |
 | [`shared_task`](#shared_task) | function | `@shared_task` / `@shared_task(name=..., acks_late=True, ...)`. |
 | [`Task`](#task) | class | A registered task: call it inline, or enqueue it. |
+| [`TaskQueueNotInstalled`](#taskqueuenotinstalled) | exception | A task was enqueued, or a beat schedule built, in a process without Celery. |
 
 ## Advanced names
 
@@ -101,6 +102,17 @@ def apply_async(
     **options: Any,
 ) -> Any
 ```
+
+### `TaskQueueNotInstalled`
+
+```python
+class TaskQueueNotInstalled(RuntimeError)
+```
+
+A task was enqueued, or a beat schedule built, in a process without Celery.
+
+Calling the task inline still works; `delay` / `apply_async` / `s` /
+`si` and `cron` need the `sandloom[celery]` extra.
 
 ## Examples and related guides
 
