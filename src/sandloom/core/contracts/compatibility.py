@@ -293,7 +293,16 @@ def _model_accepts(
         ):
             ok = False
     # Fields only the value side has are ignored by the acceptor (pydantic's
-    # default ``extra="ignore"``): an added field is additive.
+    # default ``extra="ignore"``): an added field is additive -- unless the
+    # acceptor is closed (``extra="forbid"``, recorded in a consumer's
+    # expectation): an older copy rejects it (ADR-0013 decision 3).
+    if acceptor.get("extra") == "forbid":
+        for name in sorted(set(v_fields) - set(a_fields)):
+            report.errors.append(
+                f"{path}.{name}: field added to a closed model (extra='forbid'): "
+                "an older copy rejects it"
+            )
+            ok = False
     return ok
 
 

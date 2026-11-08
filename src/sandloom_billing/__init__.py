@@ -86,6 +86,10 @@ register = define_module(
             MEMBERSHIP_SERVICE_V1,
             required=False,
             reason="organization billing context / org subscription fact",
+            # Called through core.get_service (services/tenant_resolver,
+            # access): stated, so the generated expectation holds tenancy to
+            # these methods only (ADR-0013 decision 2).
+            methods=("get_member_state", "get_role", "has_role_at_least"),
         ),
     ],
     setup=_setup,
