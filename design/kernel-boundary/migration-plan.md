@@ -11,7 +11,8 @@ Already on `main`, not repeated here: PR #70 (`e264b09`, second writer and reser
 (`816f587`, module production refusals in every entry point, identity's `JWT_SECRET` included),
 PR #72 (`206fa2d`, registration ownership, SANDLOOM-B034), PR #73 (`dfde67a`, identity declares
 `argon2-cffi`), PR #74 (`bf77bf9`, one secret rule for logs and `config dump`). The
-`arch/kernel-boundary` branch merges `main` before KB-01.
+`arch/kernel-boundary` branch merged `main` (PRs #71-#74) at `c9b9b05` (tm `kb-adrs-revise`):
+the baseline every PR below measures against.
 
 ## Rules every PR follows
 
@@ -26,14 +27,37 @@ PR #72 (`206fa2d`, registration ownership, SANDLOOM-B034), PR #73 (`dfde67a`, id
   |---|---|---|
   | M-calls | exact counts per policy or route, mono and split | `poc/authz/stand.py` (promoted to CI by KB-30), `poc/trust/bench/trust_stand.py` |
   | M-ir | cachegrind Ir per operation on the request, mint or decisive rung; budget +1 % where the bench resolves it (answer #5); a security fix is never blocked | `benchmarks/ladder`, `poc/authz/cg_poc.sh`, `poc/trust/bench/cg_micro.sh` |
-  | M-lat | p50 / p95 / p99, base and candidate alternating in one session | `poc/authz/run_perf.sh`, `poc/trust/bench/trust_stand.py run` |
+  | M-lat | p50 / p95 / p99, base and candidate alternating in one session; gating only under the threshold procedure below | `poc/authz/run_perf.sh`, `poc/trust/bench/trust_stand.py run` |
   | M-boot | `create_app` and CLI wall time, 10 alternating runs, median against base-vs-base noise | new in KB-50 |
   | M-wheel | built wheels: file lists and digests, import closure | `tools/packaging/check_package_distributions.py` |
   | M-gen | `sandloom generate` output digest under hash seeds and orders | `poc/contracts/scripts/p5_byte_identical.sh` |
 
-- **Edge register.** From KB-03 on, a PR that fixes a row flips it to `fixed` in
-  `tests/architecture/kernel_edges.yml` (the check fails otherwise) and prints `--report` in its
-  description.
+- **Latency threshold (I-14 part 4, G13).** No latency number is set below the bench's measured
+  noise. The threshold is set by this procedure, and until it has run, M-lat is reported in the PR
+  and never gates (call counts and the +1 % instruction budget gate):
+
+  1. **Bench.** One dedicated machine (no other load, fixed CPU frequency, the stand's process
+     pinned to its cores), the PoC stands as scripts, fixed commits; the bench id, Python and
+     dependency versions are recorded with every result.
+  2. **Noise.** Base against base: at least 10 alternating rounds per rung (request on the claims
+     tier, local fact, remote fact, mint, the decisive authorization shape; mono and split), each
+     round warm-up then a fixed request count. The noise band of a percentile (p50, p95, p99) is
+     the largest paired round-to-round difference of base against itself.
+  3. **Threshold.** The owner sets, per rung and percentile, a threshold at or above its noise band
+     and records it with the band, the bench id and the SHA in `perf-dx-baseline.md`. A threshold
+     below the band is refused: the bench cannot tell it from noise (perf-dx §2.4 measured p50
+     moving up to 40 % on the shared machine, so no threshold is set from that machine).
+  4. **Use.** A candidate fails M-lat when the median of its paired differences against base over
+     the same number of alternating rounds exceeds the threshold on any rung and percentile; the
+     owner may approve it with a reason; a security fix is never blocked (H-10 d).
+  5. **Re-measure** the band when the bench, Python or a dependency on the measured path changes,
+     and before the first PR that the threshold would gate.
+
+- **Edge register.** KB-03 seeds `tests/architecture/kernel_edges.yml` with every row at
+  `current_status: open` and its `target` from [edges.yml](edges.yml). From then on, a PR that
+  carries a row to its target sets its `current_status` (`fixed`, or `retained` with the ADR id)
+  in the same PR (the check fails otherwise) and prints `--report` in its description. `target`
+  is the plan and never makes the check pass or fail.
 - **Public surface.** Any change to `public_api_baseline.json` or the beginner tier is reviewed
   under I-17 with upgrade steps; no alias (H-9).
 - **Ledger.** A changed guarantee statement is a reviewed `guarantees.yml` change; none weakens
@@ -44,18 +68,24 @@ PR #72 (`206fa2d`, registration ownership, SANDLOOM-B034), PR #73 (`dfde67a`, id
 PRs in one wave can run in parallel (separate claim areas). A wave starts when the PRs it
 depends on are merged, not when the whole previous wave is.
 
+Eight waves, W0 to W7: 35 PRs and one PoC gate (KB-49, not merged into `main`), plus the two
+PRs of the later CLI phase.
+
 | wave | PRs (parallel) | depends on |
 |---|---|---|
-| W0 | KB-01, KB-02, KB-03, KB-05, KB-06, KB-07, KB-08, KB-09, KB-50 | `main` merged into the branch |
-| W1 | KB-04, KB-10, KB-20, KB-40, KB-51, KB-53, KB-54 | KB-01 → KB-04; KB-08 → KB-10; KB-03 → KB-20, KB-40; KB-50 → KB-51, KB-53, KB-54 |
-| W2 | KB-11, KB-13, KB-21, KB-41, KB-52, KB-56 | KB-10 → KB-11, KB-13, KB-41; KB-20 → KB-21; KB-51 → KB-52; KB-50 → KB-56 |
-| W3 | KB-12, KB-22, KB-55 | KB-11 → KB-12; KB-21 → KB-22; KB-52, KB-53, KB-54 → KB-55 |
-| W4 | KB-23, KB-30 | KB-22 → KB-23; KB-22, KB-13 → KB-30 |
+| W0 | KB-01, KB-02, KB-03, KB-05, KB-06, KB-07, KB-08, KB-09; KB-49 (settings PoC gate) | `main` merged into the branch |
+| W1 | KB-04, KB-10, KB-20, KB-40, KB-50 | KB-01 → KB-04; KB-08 → KB-10; KB-03 → KB-20, KB-40; KB-49 → KB-50 |
+| W2 | KB-11, KB-13, KB-21, KB-41, KB-51, KB-53, KB-54, KB-56 | KB-10 → KB-11, KB-13, KB-41; KB-20 → KB-21; KB-50 → KB-51, KB-53, KB-54, KB-56 |
+| W3 | KB-12, KB-22, KB-52 | KB-11 → KB-12; KB-21 → KB-22; KB-51 → KB-52 |
+| W4 | KB-23, KB-30, KB-55 | KB-22 → KB-23; KB-22, KB-13 → KB-30; KB-52, KB-53, KB-54 → KB-55 |
 | W5 | KB-31, KB-32, KB-33, KB-35, KB-36 | KB-30 (and KB-11 for KB-31) |
 | W6 | KB-34, KB-37 | KB-31, KB-32, KB-33 → KB-34; KB-31 → KB-37 |
 | W7 | KB-38 (optional); CLI phase KB-60, KB-61 | KB-34; ADR-0012..0015 implemented |
 
-Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
+Every settings PR, KB-50 to KB-56, is blocked by KB-49: none starts until all 16 settings
+scenarios (P1-P16) have a recorded result there, whatever the wave table's direct edges say.
+
+Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delete fields from
 `core/config/modules.py` (rebase, no shared logic); KB-10 and KB-09 both touch issuer handling in
 `claim_trust_setup` (KB-09 lands the obligation check, KB-10 adds the map's issuer cross-check).
 
@@ -103,13 +133,23 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-03 edge register and kernel-edge check
 
-- **Scope:** `tests/architecture/kernel_edges.yml` seeded from [edges.yml](edges.yml) plus the
-  18 class (a) rows and the family templates; the AST scan, dynamic-import origin rule and wheel
-  class (c) scan; SANDLOOM-T017 with `sandloom explain`; `--report`; absorbs
+- **Scope:** `tests/architecture/kernel_edges.yml` seeded from [edges.yml](edges.yml): every one
+  of the 46 rows with `current_status: open` (its finding exists today) and its `target`
+  (`fixed`, `retained` or `deferred`); the 18 class (a) rows and the family templates join with
+  `current_status: retained`, reason "protocol". The AST scan, dynamic-import origin rule and
+  wheel class (c) scan; SANDLOOM-T017 with `sandloom explain`; `--report`; absorbs
   `kernel_module_imports_allowlist.json`; replaces `test_module_names.py`'s literal scope.
-- **Edges:** records all 46; B-N20 `retained`. **Invariants:** I-02, I-03.
+- **T017 rules** (by `current_status`, never by `target`): a finding that no row's anchors match
+  fails, naming the path, the pattern and the class it would have; a row with
+  `current_status: fixed` and a finding fails (regression); a row with `current_status: open` or
+  `retained` and no finding fails ("set `current_status: fixed`"); a `retained` row without an ADR
+  id and a reason fails. `--report` prints counts by class, type, scope, current status and
+  target, and the rows the change opens, fixes or retains.
+- **Edges:** records all 46 at `current_status: open`; B-N20 set to `retained` (ADR-0012) in this
+  PR. **Invariants:** I-02, I-03.
 - **Tests:** mutation tests: a planted literal, a computed import, a contract literal, a module
-  file in the wheel each fail; a fixed row with a finding fails; an open row without one fails.
+  file in the wheel each fail; a `current_status: fixed` row with a finding fails; an `open` row
+  without one fails; the seeded register passes on the commit it lands on.
 - **No extra I/O:** static check. **Measure:** check wall time.
 - **Must not touch:** runtime code.
 
@@ -168,15 +208,25 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 ### KB-09 kernel revocation applier and issuer obligation
 
 - **Scope:** the kernel registers the durable `core.auth.tokens_revoked.v1` consumer, group
-  `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME or database identity>`, in every composition
-  with an event bus that can publish the channel; identity's `sessions@tokens_revoked` is removed;
-  `/ready` fails when the applier is needed and missing; an `issues_tokens=True` module without a
-  durable `core.auth.user_blocked.v1` consumer (or a declared "no refresh sessions") refuses
-  startup (SANDLOOM-B035 family).
+  `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`, in every composition with an event bus
+  that can publish the channel; no database-identity fallback: a composition that needs the
+  applier without `SANDLOOM_SERVICE_NAME` refuses to start in every entry point
+  (`INVALID_CONFIGURATION`), and T014 refuses two services of one profile with the same id;
+  identity's `sessions@tokens_revoked` is removed; `/ready` fails when the applier is needed and
+  missing, when the oldest pending revocation or block event is older than the access-token
+  lifetime, when an event is dead-lettered, or when the consumer is not running (a younger
+  backlog is transient: ready, exported, WARNING above half the bound); an `issues_tokens=True`
+  module without a durable `core.auth.user_blocked.v1` consumer, or without an explicit
+  `refresh_sessions=False` declaration that startup verifies against its refresh routes, session
+  models and consumers, refuses startup (SANDLOOM-B035 family).
 - **Edges:** none of the 46; closes D1, T8. **Invariants:** I-20, I-21, owner #11, answer #16.
 - **Tests:** lean `/ready` 200 without a bus; 3 replicas of one service share the group; two
-  deployments on one bus each receive every event; restart and replay idempotent; channel version
-  change; cache failure during apply → redelivered → applied; split conformance
+  deployments on one bus each receive every event; two services, one database, one bus: both
+  apply every revocation, a missing `SANDLOOM_SERVICE_NAME` refuses startup in every entry point,
+  equal names refused by T014; restart and replay idempotent; channel version change; cache
+  failure during apply → redelivered → applied; `/ready` criteria (transient backlog ready, aged
+  backlog, dead letter and stopped consumer not ready, recovery ready); a stateless issuer's
+  contradicted declaration refused; split conformance
   `test_revocation_across_services_survives_a_failing_mark_write` without identity's applier.
 - **No extra I/O:** no request-path change; one consumer per deployment replaces identity's.
   **Measure:** consumer lag under the split conformance load; Redis commands per revocation equal.
@@ -203,14 +253,21 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 - **Scope:** the view computed once per verified token in `decode_token`, cached with it; every
   reader through the view; one `platform_admission()` for `require_platform_admin` and
-  `platform_operator`; per-key `cpv` stamped and checked, `previous=` window; 401
-  `token_policy_outdated` inside the algebra and at `TenantScope` / platform gates; status order of
-  indeterminates; B-N16 comment in kernel terms; the adoption release gate in T014.
+  `platform_operator`; per-key `cpv` stamped and checked; the view's one condition (one authority,
+  current or `previous=`, matching `cpv` digest and kept source); `previous=` declared with the
+  authority's verified identity; the staged initial enablement with `legacy_tokens` (bounded by
+  `until` and the token lifetime, shown in diagnostics, counted, mode parity in T014); 401
+  `token_policy_outdated` inside the algebra and at `TenantScope` / platform gates only where a
+  refresh fixes it, 503 `claims_policy_mismatch` otherwise; status order of indeterminates; B-N16
+  comment in kernel terms; the adoption release gate in T014.
 - **Edges:** B-S1, B-S2 fixed; B-S3, B-N16 retained. Closes D3, validation B6 read side, gate
   probe G2-G4. **Invariants:** I-09, I-10, H-5, answers #10, #11, owner #10.
 - **Tests:** T-9 (incl. a real token from the previous release), T-10, T-13, T-14; the issuer ×
-  verifier matrix (adoption; key change with and without `previous=`; rollback) in split
-  conformance; owner regression set; algebra laws over the 401 status.
+  verifier matrix (key change with and without `previous=`; rollback) in split conformance; the
+  identity → acme_identity key change of ADR-0014 decision 4 (a real previous-release token,
+  steps 0-3, rollback a-c, the negative rows), mono and split; the initial enablement stages
+  0-3 and rollback, mono with mixed replicas and split; at most one refresh per client; owner
+  regression set; algebra laws over the 401 status.
 - **No extra I/O:** T-14: `Role`, `Perm`, `TenantScope` DB 0, Redis 1 `GET`, RPC 0, mono and split.
   **Measure:** M-ir micro and request rungs (PoC whole-map `cpv` +0.57 %; per-key re-measured
   against +1 %), M-lat.
@@ -232,11 +289,23 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 - **Scope:** B034 widened: a contract that carries an `access_check` is registered in-process only
   by the module of its first segment or the one `create_app(access_providers=...)` assigns;
-  `SERVICE_BINDINGS` is the remote assignment. Lands before `access_check` exists by applying to
-  the contracts the live adapters call today.
-- **Edges:** A19 start. **Invariants:** I-22 (T5), owner #2.
+  `SERVICE_BINDINGS` is the remote assignment.
+- **Classification before KB-30, with no domain constant in the kernel.** KB-13 lands before
+  `access_check` exists. A contract name is access-bearing when, in the composition being built:
+  (a) it is a key of `create_app(access_providers=...)`; or (b) an adapter in the live-adapter
+  table names it as its `service`, read generically from whatever adapters the composition holds
+  (the two default adapters' names are the existing B-R1 row, not a new constant, and leave with
+  KB-34); or, from KB-30 on, (c) a consumer's generated copy carries an `access_check` literal for
+  it. All three are the consumer's side, so a provider cannot declassify its contract by omitting
+  a declaration. KB-13 adds no contract, module or method literal to kernel code: the kernel-edge
+  check (KB-03) fails if it does.
+- **Edges:** A19 start. **Invariants:** I-22 (T5), I-03, owner #2.
 - **Tests:** `acme_orgs` serving `tenancy.membership.v1` refused unassigned, accepted assigned,
-  mono and split.
+  mono and split; the assignment checked by real identity (owner confirmation X3): an app-local
+  module named `acme_orgs`, or one named `tenancy` from another import path, refused; remotely
+  only the pinned `service_id`; a custom adapter for `acme.seats.v1` makes that name access-bearing with no
+  kernel edit; with every adapter reset, an unlisted contract keeps the first-registrant rule;
+  T017 finds no new literal.
 - **No extra I/O:** registration time only. **Measure:** none.
 - **Must not touch:** non-access contract names (first-registrant rule kept).
 
@@ -247,7 +316,9 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
   expectation files narrowed to `consumes`; provenance header with body digest; final-layout DTO
   rendering without the project formatter; stem collisions; provider-absent refusal with its own
   code (SANDLOOM-T018); every writer (`generate`, `add contract`, `add module`, deploy scaffold);
-  apps switch to the union of `consumes`. Bundled artifacts stay in `sandloom.shared` until KB-22.
+  apps switch to the union of `consumes` only where every call is covered by a static or stated
+  method list (an unresolved dynamic call is refused with a fix naming `consumes=`). Bundled
+  artifacts stay in `sandloom.shared` until KB-22.
 - **Edges:** C1, C2, C4 start. **Invariants:** I-12, I-15, owner #9, answer #3.
 - **Tests:** byte-identical generation under seeds, orders, ruff absent, `line-length=60`;
   closed-DTO breaking rule; provider absent (keep / edited / missing); collisions; `--check`
@@ -274,7 +345,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
   `shared/membership.py` (C5); billing and admin import their copies; `architecture_rules.yml`
   drops `shared_package`; kernel-home branch removed; C012, C025, `docs_wire`, `.importlinter`,
   recipes' imports, `docs/reference/testing.md`, `public-source.json`; C-GEN-03 ledger text
-  (owner approval).
+  exactly as quoted in ADR-0013 decision 10 (owner confirmation B5), with its test changes.
 - **Edges:** C1, C2, C3, C4, C5 fixed. **Invariants:** I-05, I-11, H-8.
 - **Tests:** kernel wheel scan; consumer-only install from wheels; rolling-upgrade test 21/21;
   module suites unchanged.
@@ -302,7 +373,9 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 - **Edges:** B-R1, B-R3, B-N12, B-N13 start. **Invariants:** I-07, I-13, I-23, H-16, owners #4,
   #5, #8, answer #24.
 - **Tests:** Z-1 decisions, Z-2 counts, Z-3 laws, Z-4 tier pins, Z-7 typing, Z-9 fail-closed,
-  Z-10 (now 501 inside `Or`/`Not`), Z-11 generation, Z-14 `past_due`.
+  Z-10 (now 501 inside `Or`/`Not`), Z-11 generation, Z-14 `past_due`; `Account` neutrality (a
+  third-party `has_seat` check on `Account.org(param=)` and `bound_tenant()` without billing,
+  decisions and counts equal to the billing check; owner confirmation C4).
 - **No extra I/O:** proven by the stand: decisive 3 calls / 9 DB mono, 3 RPC / 9 provider DB / 0
   consumer DB split; `Credits` 1 / 4; claims tier 0 / 0. **Measure:** M-calls, M-ir (decisive
   rung budget 5,885,658 Ir/req at the PoC base), M-lat split.
@@ -352,7 +425,8 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
   migrated; ledger (`removed:` records, G-AUTHZ-05 restated); upgrade guide; ADR-0014 updated.
 - **Edges:** A19, B-R1, B-R3, B-R6, B-N12, B-N13, B-N14, B-N15 fixed. **Invariants:** I-13, I-16,
   I-17, H-2, H-8, owners #2, #6.
-- **Tests:** G-AUTHZ-05 equivalence; public API baseline and beginner tier diffs; the stand
+- **Tests:** G-AUTHZ-05 equivalence; public API baseline and beginner tier diffs (I-17 review of
+  the `Roles`/`Permissions` move, owner confirmation A6); the stand
   unchanged; docs build; examples' suites.
 - **No extra I/O:** the stand's counts unchanged from KB-30. **Measure:** M-calls, M-ir.
 - **Must not touch:** the algebra, `Role`, `Perm`, `Owner`, `Account`.
@@ -412,13 +486,36 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 ### KB-41 admin console issuer check (X4)
 
 - **Scope:** `sandloom_admin/api.py` tests "an assigned issuer exists" instead of a module named
-  `identity`; the operator-login path per the owner's X4 answer, with no consumer-defined contract.
+  `identity`; the operator-login path per the owner's X4 confirmation: the issuer declares its
+  login entry point in its registration, the console finds the issuer through the map's `issuer`
+  and consumes the declaration optionally; never the `iss` of an unverified token; no
+  consumer-defined contract.
 - **Edges:** none of the 46 (admin naming identity is module code). **Invariants:** I-13, AD-3.
-- **Tests:** console with `test_identity` as issuer; no issuer → configuration error naming it.
+- **Tests:** console with `test_identity` as issuer and its declared entry point; no issuer, or an
+  issuer without a declaration → configuration error naming it; a token with a forged `iss`
+  changes nothing.
 - **No extra I/O / measure:** none. **Must not touch:** platform API.
+
+### KB-49 settings PoC gate: all 16 scenarios (decision D; closes G6)
+
+- **Scope:** a PoC branch, not merged into `main`, that builds ADR-0015's mechanism far enough to
+  run every scenario P1-P16 of alternatives-d §11 with the `inventory` fixture module outside
+  `src/` and the bundled billing and identity ports (P10), mono and split, on the merged baseline.
+  Each scenario's result (pass, or fail with the reason), the commit and the measurements (P13
+  boot cost, P11 `config dump` wall time and socket spy, P12 DX counts) are recorded in
+  `poc/settings/results.md`, in ADR-0015 "Evidence" and in [validation.md](validation.md).
+- **Gate:** KB-50, KB-51, KB-52, KB-53, KB-54, KB-55 and KB-56 are each blocked by KB-49 in tm, and
+  none starts until all 16 scenarios have a recorded result. A failed scenario reopens ADR-0015
+  (or picks its fallback: D2b on P12, D3 for the dump on P11, H2 on P16) before any settings PR
+  starts. Each later PR then turns its rows of the PoC into repository tests (listed under its
+  **Tests**) and may not drop one.
+- **Edges:** none (no change reaches `main`). **Invariants:** I-13, I-18, answers #25-#31, D-B1..D-B6.
+- **No extra I/O / measure:** P11 socket spy, P13 boot medians against base-vs-base noise.
+- **Must not touch:** `main`.
 
 ### KB-50 settings mechanism
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** `define_module(settings=)` / `api.settings`, the source snapshot, validation before
   `setup` with context, `ModuleSettingsError`, the post-load check (collisions B036, removed
   settings, typo check over the union, override logging), `settings_of`, the testing override, a
@@ -430,6 +527,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-51 namespaced accepted risks
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** the risk registry = kernel risks ∪ loaded modules' declared risks; the known-namespace
   rule; flat module ids refused with the replacement named where installed.
 - **Edges:** B-C5 start. **Invariants:** I-18, I-22 (T10), answers #27, #28.
@@ -439,6 +537,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-52 billing settings to billing
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** billing's eight fields, Stripe validator, fake-PSP production check, risk
   `billing.fake_psp_in_prod` (one-time migration, upgrade notes), its removed settings, semantic
   tier and ratchet, console-visible `billing_provider`; kernel ratchet 13 → 12 / 15 → 14.
@@ -449,6 +548,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-53 identity settings to identity
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** `TWOFA_ENCRYPTION_KEY` (presence and strength), SSO and Telegram fields,
   `REFRESH_TOKEN_EXPIRE_DAYS`, `MAX_SESSION_DAYS` (owner #13).
 - **Edges:** B-C3 fixed; B-C1, B-C6 identity part. **Invariants:** I-02, I-18.
@@ -458,6 +558,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-54 tenancy and admin settings
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** `TENANT_CLAIMS_MAX_ORGANIZATIONS` to tenancy; `ADMIN_CONSOLE_*` to admin; the kernel
   CLI's link-target choice reads the composed app's console route instead of
   `admin_console_enabled`.
@@ -469,6 +570,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-55 kernel tools read declarations; `config dump`
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** tiers and `/diagnostics/core`, doctor, backup notes, console list, T014 shared keys
   and dev env, docs generator, deploy scaffold env from declarations; `config dump` collect mode
   (context variable) and `--kernel-only`.
@@ -481,6 +583,7 @@ Conflicts to watch inside a wave: KB-52, KB-53, KB-54 each delete fields from
 
 ### KB-56 `sandloom check` settings gate
 
+- **Blocked by:** KB-49 (all 16 settings scenarios recorded).
 - **Scope:** collisions across all app modules, prefix rule with the snapshot as grandfathering
   baseline, per-module ratchet helper, per-service names and literal values of the chosen
   topology, wrong module names in `SANDLOOM_MODULES`.

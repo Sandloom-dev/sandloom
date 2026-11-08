@@ -7935,3 +7935,87 @@ adr_sections:
     Alternatives considered: informational
     Ledger mapping: informational
     Open questions: informational
+    "Amendment (2026-11-08, proposed): the generated consumer API": informational
+    "Context of the amendment": informational
+    "Decisions of the amendment": informational
+  # Proposed (tm kb-adrs, revised by kb-adrs-revise): no guarantee of these decisions is
+  # implemented yet. Each PR of design/kernel-boundary/migration-plan.md maps the headings it
+  # implements to the ledger ids it adds or changes.
+  0012-kernel-boundary.md:
+    "Context": informational
+    "Decision": informational
+    "1. What the kernel may name": informational
+    "2. One edge register, checked": informational
+    "3. The standard composition lives in `sandloom-standard`": informational
+    "4. The admin battery": informational
+    "5. Revocation: the kernel applies, the issuer ends its sessions": informational
+    "6. The CLI phase comes later": informational
+    "7. Status of the 46 judged rows": informational
+    "8. Mechanisms (one ledger for the four ADRs, adversarial A-8)": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0013-contract-ownership.md:
+    "Context": informational
+    "Decision": informational
+    "1. Home rule": informational
+    "2. `consumes` is the single source of what a consumer requires": informational
+    "3. Expectation files and narrowing": informational
+    "4. No expectation is never a warning": informational
+    "5. Provider absent where `generate` runs": informational
+    "6. Determinism without the project formatter": informational
+    "7. Provenance header": informational
+    "8. Collisions and copies": informational
+    "9. C5 leaves the kernel": informational
+    "10. Migration list": informational
+    "11. When B2 is adopted": informational
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0014-claims-trust-and-authorization-portability.md:
+    "Context": informational
+    "Decision, part (a): trust": informational
+    "1. The composition root assigns authorities; the kernel has no default": informational
+    "2. Mint: who may write a protected key": informational
+    "3. Read: one trusted view per verified token": informational
+    "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix": informational
+    "5. Sealed mint, service tokens, test tokens": informational
+    "6. Contract-name ownership for access-bearing contracts": informational
+    "7. Billing claims: option (c)": informational
+    "Decision, part (b): portability": informational
+    "8. Contract-anchored access checks": informational
+    "9. The equality invariant": informational
+    "10. The literal is the single metadata source": informational
+    "11. `Subscribed` keeps its parameters": informational
+    "12. Incompatible contract shape is an indeterminate, user input stays 422": informational
+    "13. Tenant kind from the assigned tenant authority": informational
+    "14. The live adapters: an approved exception, after equivalence": informational
+    "15. What else moves, and what stays": informational
+    "16. Separate changes, each with its own baseline": informational
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0015-module-settings.md:
+    "Context": informational
+    "Decision": informational
+    "1. Declaration on registration (D2a)": informational
+    "2. One source read per process": informational
+    "3. Validation before `setup`, one check after loading": informational
+    "4. Risk namespaces": informational
+    "5. Ratchets and completeness": informational
+    "6. Env names": informational
+    "7. Static gate in `sandloom check` and `sandloom test`": informational
+    "8. `config dump` and what \"activation\" means": informational
+    "9. Refresh-session settings move to identity": informational
+    "10. Password hashing stays a kernel mechanism (H1)": informational
+    "11. What moves": informational
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational

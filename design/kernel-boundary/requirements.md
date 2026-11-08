@@ -717,7 +717,11 @@ Refined by the owner's answers (2026-11-08):
 - **Optional module** (#29). A configuration error of an explicitly selected module is fatal,
   also when the module is optional; the loader does not treat it like an optional import
   failure.
-- **Env names** (#30). The existing 23 env names stay (research-settings §7.5). Collisions are
+- **Env names** (#30). The existing module-owned env names stay: **22** today, counted in code
+  at `c9b9b05` (the 21 fields of `ModulesConfig` in `core/config/modules.py` plus
+  `TENANT_CLAIMS_MAX_ORGANIZATIONS` in `core/config/auth.py`), **24** once owner decision #13
+  moves `REFRESH_TOKEN_EXPIRE_DAYS` and `MAX_SESSION_DAYS` to identity. The 23 of the answer
+  and of research-settings §7.5 was an off-by-one (adversarial D-5). Collisions are
   forbidden. A new module's names carry its prefix, and `sandloom check` checks them.
 - **Semantic ratchet** (#7, #26). The kernel's ratchet is 15, the current value
   (`SEMANTIC_COUNT_CEILING = 15`, `core/tests/test_config_tiers.py:52-71`; research-settings
@@ -1032,7 +1036,7 @@ fail / at what cost), not by weighted score.
 | Runtime complexity | **count of new mechanisms**, each with the violation it removes or the invariant it provides, and the existing mechanism it was compared against (H-12, H-17). A mechanism is any one of: a new registry or registration call, a new entry-point group, a new kind of generated artifact, a new contract kind or wire format, a new settings source, a new startup check family, a new package or wheel, a new CLI command, a new process-wide default. Also: new startup work and new per-request work. |
 | Developer and agent experience | beginner names (30 today); concepts on the golden path (9-10, ADR-0010:312); files an author edits to add a module; kernel files an agent reads in the DX eval (target 0, `benchmarks/dx/README.md:207`); new error codes, each with `sandloom explain`; typed atoms with autocompletion and errors before run; whether the CLI and generators maintain consumer interfaces for agents; import changes for existing policies (judged, not assumed better). **Comparative DX task**, run on the base and each alternative: create a module with a typed `QuotaAvailable` atom, wire it to a route, test it, split provider and consumer; count files, manual steps, errors, documentation lookups and kernel changes. |
 | Packaging and versioning | wheels released for one contract change; dependency edges between wheels; extras that pull module wheels; install profiles of I-19 that boot |
-| Migration cost | files changed in bundled modules, examples, generated apps, docs; upgrade steps an app owner runs; the existing 23 env names kept in the first step, a rename only as a separate change with upgrade steps (answer #30); the one-time accepted-risk id migration (answer #28) |
+| Migration cost | files changed in bundled modules, examples, generated apps, docs; upgrade steps an app owner runs; the existing 22 module-owned env names (24 after owner decision #13) kept in the first step, a rename only as a separate change with upgrade steps (answer #30); the one-time accepted-risk id migration (answer #28) |
 | Performance | by I-14 part 2: instructions, p50/p95/p99 latency, RPC and database call counts per operation (request, write, authorization per tier, mint), base against candidate, with the noise tolerance |
 | Operations | settings an operator sets for monolith and for split, including trust assignments (I-22); how the default app (`sandloom new`) assigns claim authorities in its composition root without per-key hand wiring (roadmap-review RA15, N9; answer #9); new startup refusals an operator can hit, per entry point |
 
@@ -1066,7 +1070,7 @@ passes a scenario only when the stated outcome is observed. Environments:
 | id | stimulus and environment | expected observable outcome | invariants |
 |---|---|---|---|
 | A-B1 | Split deploy without the owner module: a service loads billing only, with bindings to identity and tenancy; then a service with no binding to identity | every request of the conformance script answers as in mono, or with an explicit 404/501/503; never 500, never a different 2xx; `/api/v1/platform/billing/*` answers 403 to every caller when no identity authority is bound | I-06, I-09, I-19 |
-| A-B2 | `sandloom admin create` and `sandloom security revoke-sessions` with identity not installed (lean) | non-zero exit with a message naming the missing module or contract; no traceback; the output names the password policy it applied | I-01, I-02, I-20 |
+| A-B2 | The identity user commands (`admin create`, `security revoke-sessions`) invoked with identity not installed (lean), wherever they are hosted: in the kernel CLI until the CLI phase (ADR-0012 decision 6), afterwards in identity's or the standard composition's CLI | the command either is absent with a message naming the module that provides it, or exits non-zero naming the missing module or contract (`identity.security.v1`); no traceback; no password policy is applied without the provider (the kernel holds no fallback policy, B-I1) | I-01, I-02, I-20 |
 | A-B3 | An app module named `identity` (not `sandloom_identity`), `sandloom_identity` not installed, contributes `roles: ["admin"]` without being assigned as the authority | the minted token carries no trusted `admin` role from it, or startup refuses it with a code; every platform route answers 403 to that user | I-08, I-09, I-22 |
 | A-B4 | `sandloom` upgraded by one release while module wheels stay (mono and split); then one module wheel upgraded while `sandloom` stays | each combination inside the declared version ranges boots and passes the conformance script | I-11, I-12 |
 | A-B5 | `SANDLOOM_MODULES` names the bundled modules in a different order | same app, same routes snapshot, same generated files | I-15, I-19 |
@@ -1177,7 +1181,7 @@ passes a scenario only when the stated outcome is observed. Environments:
 | id | stimulus and environment | expected observable outcome | invariants |
 |---|---|---|---|
 | D-B1 | A module's environment variable is set in a process that does not load the module (split) | the process starts; the value is neither validated nor shown by that process and does not interfere; no runtime warning; `sandloom check` and `sandloom test` report a wrong value and a wrong active module name for the chosen topology (answer #25) | I-18, I-19 |
-| D-B2 | Split deploy: a security-relevant setting shared across processes (`BILLING_DENY_ON_PAST_DUE`, B-C7) | the deploy-profile check (SANDLOOM-T014) still requires equal values in every process | I-18; G-OPS-14 |
+| D-B2 | Split deploy: a security-relevant setting shared across processes (`BILLING_DENY_ON_PAST_DUE`, B-C7) | the deploy-profile check (SANDLOOM-T014) still requires equal values in every process that loads billing; a process without billing neither validates nor holds the value (answer #25) | I-18; G-OPS-14 |
 | D-B3 | A module's semantic setting (`BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`, `core/config/tiers.py:332-338`) | the kernel's ratchet is 15 (`core/tests/test_config_tiers.py:71`) and still fails a new unreviewed semantic setting; when this field leaves the kernel, the ceiling is recounted down, not kept at 15; a third-party module's semantic settings count in its own ratchet, and the kernel checks only that every setting is classified (answers #7, #26) | I-18; G-CONFIG-02 |
 | D-B4 | A removed module setting (`core/config/tiers.py:659-678`) set to a non-inert value | startup refuses with the same message as today | I-18; G-CONFIG-03 |
 | D-B5 | Kernel output that shows a module setting (platform settings view `billing_provider`, B-C9; set-password link target, B-C10) in mono, then in a process without that module | mono: output unchanged; without the module: the field is absent, no error | I-03, I-18 |
@@ -1247,7 +1251,7 @@ research-trust's Q-T1..Q-T8, research-authz-portability §9 (authz 1-8), researc
 | 27 | Q8 | an absent module's risk id is inert only for a namespace known in the deployment; an unknown prefix is refused; an unknown id of an active module is refused | I-18, D-F4 |
 | 28 | QS1 | namespaced risk ids, one explicit environment migration, documentation, no permanent alias | I-18, H-9, D-H3, D-F4, §4.2 |
 | 29 | QS2 | a settings error of an explicitly selected optional module is fatal | I-18, I-19, D-F5 |
-| 30 | QS4 | keep the 23 env names; forbid collisions; prefixed names for new modules, checked by `sandloom check` | I-18, H-9, D-F2, §4.2 |
+| 30 | QS4 | keep the existing module-owned env names (22 counted in code, 24 after owner decision #13; the answer's 23 was an off-by-one); forbid collisions; prefixed names for new modules, checked by `sandloom check` | I-18, H-9, D-F2, §4.2 |
 | 31 | QS6 | a slower `config dump` is acceptable if measured and it does no activation, lifespan or module I/O; add `--kernel-only`; keep redaction, provenance, diagnostics | I-18, D-H5 |
 | A | — | small fix approved now, separate PR: ownership of `AccessFact.owner_module`, `owner=` and the reserved `<m>.claims.v1` / `<m>.facts.v1` checked against the registering module; negative tests; no hard-coded battery list | I-22 T7 |
 | B | QS3 | small fix approved now, separate PR: identity/billing prod refusals in a common check reached by API, worker, beat, migrations and operational commands; a process matrix asserts the same reason; static CLIs not forced to build the app | I-18, D-H3, §1 |

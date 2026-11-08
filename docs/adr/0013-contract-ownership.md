@@ -87,8 +87,16 @@ contract is never used is reported. Every writer of generated files follows the 
 `sandloom generate`, `sandloom add contract`, `sandloom add module`, the deploy scaffold.
 
 Applications switch to the same rule: `<app>.shared` holds copies for the union of the app's
-modules' `consumes`, not for every composed provider (fewer files; adversarial B-2, open point
-B3). This is a generated-file change reviewed under I-15.
+modules' `consumes`, not for every composed provider (fewer files; adversarial B-2). This is a
+generated-file change reviewed under I-15. The owner confirms it (decision.md, B3) on one
+condition: **every call is covered by a method list that is static or stated**. A call the
+generator cannot resolve statically (a method name from a variable, `getattr` on the client, a
+client passed through a helper the analysis does not follow) must be covered by an explicit
+`define_module(consumes={REF: ["method", ...]})` entry; the generator refuses an unresolved call
+with a fix naming `consumes=`, and a runtime call of a method outside the consumer's planned list
+fails in tests and development with the method and the contract named (in production it is
+logged at ERROR and counted, and the call itself is still checked by the provider). An
+application whose dynamic calls are not covered keeps per-provider copies until they are.
 
 ### 3. Expectation files and narrowing
 
@@ -192,6 +200,23 @@ PoC §3.12, `docs/reference/testing.md` and recipes that name `sandloom.shared.c
 error-code texts, CLI templates, and the ledger entry C-GEN-03 (its kernel-home clause goes;
 owner approval under I-16, it removes a case that no longer exists).
 
+The owner confirms the C-GEN-03 change (decision.md, B5) on the exact normative text, which
+KB-22 writes into `guarantees.yml` unchanged:
+
+> `sandloom add contract` writes the provider in `contracts.py` and its DTO in the module's own
+> `schemas` (the provider authors its DTOs; a second contract of the module joins the same
+> `schemas` import), and writes the stub and the DTO copy at once exactly as `sandloom generate`
+> renders them (so a saga or caller in the same scaffold boots), into the consuming package's
+> generated home: `<module>/_generated/contracts/` for a module, `<app>.shared/contracts/` for an
+> application. A generated stub imports `ContractRef` and a DTO copy imports `dto_copy` from the
+> public `sandloom.sdk.contracts` with the `# sandloom: advanced` marker and no `sandloom.core`
+> import, wherever it is written; the kernel ships no generated stub or DTO copy. The stub names
+> the generated DTO copies, passes its Protocol, and is ruff format clean.
+
+Its tests change with it: `test_the_framework_tree_stubs_keep_the_kernel_home` is replaced by a
+test that the kernel wheel and `sandloom.shared` hold no generated file, and
+`test_an_application_stub_imports_the_public_home` gains the module-local home.
+
 ### 11. When B2 is adopted
 
 B2 (consumer-side generation from a provider-published declaration) is added only when one of
@@ -254,6 +279,14 @@ its methods statically for a whole class of contracts. The copy registry per con
 costs more than the untyped path is worth.
 
 ## Evidence
+
+The PoCs ran on the bases named below. The migration PRs measure against the merged baseline
+`c9b9b05`: `main` with PRs #71-#74 merged into `arch/kernel-boundary` (tm `kb-adrs-revise`);
+the merge changed registration and boot (PRs #71, #72: refusals at registration, owner checks),
+packaging (#73) and log redaction (#74), and added one owner comparison when a remote facts
+descriptor is read (#72); it added no call, query or RPC on a request path. The PoC numbers stay
+the reference for decisions; each PR re-measures base against candidate on `c9b9b05` or later
+(M-boot in particular).
 
 All from `poc/contracts/results.md` (base `ceb3d66`, prototype `b1-candidate.patch`, commit
 `67980bf`), wheels built and installed in clean venvs, a real RPC pair:

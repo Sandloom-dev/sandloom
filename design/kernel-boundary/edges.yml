@@ -12,25 +12,33 @@
 #   scope            runtime | composition_text
 #   owner            the module that owns the named thing (baseline "Owner")
 #   baseline_verdict allowed | violation | disputed
-#   target           fixed | retained | deferred
+#   current_status   open | fixed | retained: the row's state in the code now. `open`: the finding
+#                    exists and is still to be removed or decided; `fixed`: no finding may exist;
+#                    `retained`: the finding stays, with an ADR id and a reason. Every row is
+#                    `open` today (no PR of the plan has landed); KB-03 seeds the register with
+#                    these values, so the check passes on the day it lands
+#   target           fixed | retained | deferred: where the ADRs take the row. A PR that carries
+#                    the row to its target flips current_status in the same PR
 #   adr              the ADR that decides the target
 #   prs              migration-plan.md PR ids that carry the change (the last one closes the row)
 #   invariants       requirements.md ids the row serves
-#   tests            fitness tests that prove the target (besides the kernel-edge check, which
-#                    covers every row: a fixed row with a finding fails, an open/deferred row
-#                    without a finding fails)
+#   tests            fitness tests that prove the target (besides the kernel-edge check,
+#                    SANDLOOM-T017, which covers every row by current_status: a finding no row's
+#                    anchors match fails; a row with current_status fixed and a finding fails
+#                    (regression); a row with current_status open or retained and no finding
+#                    fails ("set current_status: fixed"); target never makes the check pass or
+#                    fail, it is the plan)
 #   anchors          path (under src/ unless stated) and a literal or symbol; no line numbers
 #   note             reason, especially for retained and deferred rows
 
 version: 1
 baseline: b8d8506
-written_at: arch/kernel-boundary ccc420e
+written_at: arch/kernel-boundary ccc420e; revised by kb-adrs-revise on the merged baseline c9b9b05
 main_with: [PR-70 e264b09, PR-71 816f587, PR-72 206fa2d, PR-73 dfde67a, PR-74 bf77bf9]
 summary:
   total: 46
-  fixed: 33
-  retained: 3
-  deferred: 10
+  current_status: {open: 46, fixed: 0, retained: 0}
+  target: {fixed: 33, retained: 3, deferred: 10}
   by_adr: {ADR-0012: 15, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
@@ -41,6 +49,7 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: disputed
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-13, KB-30, KB-34]
@@ -64,6 +73,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0012
     prs: [KB-06]
@@ -83,6 +93,7 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-30, KB-34]
@@ -100,6 +111,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-31]
@@ -118,6 +130,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-30, KB-34]
@@ -133,6 +146,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-60]
@@ -149,6 +163,7 @@ edges:
     scope: runtime
     owner: [identity, tenancy]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-60]
@@ -166,6 +181,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-34]
@@ -183,6 +199,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -199,6 +216,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -215,6 +233,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: disputed
+    current_status: open
     target: retained
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -238,6 +257,7 @@ edges:
     scope: runtime
     owner: [identity, billing, admin]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-50, KB-52, KB-53, KB-54]
@@ -255,6 +275,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
@@ -270,6 +291,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-53]
@@ -287,6 +309,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-52]
@@ -302,6 +325,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-51, KB-52]
@@ -318,6 +342,7 @@ edges:
     scope: runtime
     owner: [billing, identity, admin]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-54]
@@ -333,6 +358,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -350,6 +376,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -366,6 +393,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-52]
@@ -381,6 +409,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
@@ -400,6 +429,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0012
     prs: [KB-40]
@@ -416,6 +446,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0012
     prs: [KB-40]
@@ -431,6 +462,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-60]
@@ -447,6 +479,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-60]
@@ -463,6 +496,7 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -478,6 +512,7 @@ edges:
     scope: composition_text
     owner: [identity, billing]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -494,6 +529,7 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -509,6 +545,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -524,6 +561,7 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: violation
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -541,6 +579,7 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -556,6 +595,7 @@ edges:
     scope: composition_text
     owner: [tenancy, billing]
     baseline_verdict: disputed
+    current_status: open
     target: deferred
     adr: ADR-0012
     prs: [KB-61]
@@ -574,6 +614,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-30, KB-33, KB-34]
@@ -597,6 +638,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-30, KB-34]
@@ -612,6 +654,7 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-34]
@@ -631,6 +674,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-34]
@@ -648,6 +692,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
+    current_status: open
     target: retained
     adr: ADR-0014
     prs: [KB-11]
@@ -667,6 +712,7 @@ edges:
     scope: runtime
     owner: [tenancy, billing]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
@@ -685,6 +731,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
@@ -702,6 +749,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0012
     prs: [KB-07]
@@ -717,6 +765,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: allowed
+    current_status: open
     target: retained
     adr: ADR-0012
     prs: [KB-03]
@@ -733,6 +782,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-21, KB-22]
@@ -751,6 +801,7 @@ edges:
     scope: runtime
     owner: [identity, tenancy]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-22]
@@ -767,6 +818,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0013
     prs: [KB-22]
@@ -783,6 +835,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: disputed
+    current_status: open
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-22]
@@ -800,6 +853,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
+    current_status: open
     target: fixed
     adr: ADR-0013
     prs: [KB-22]

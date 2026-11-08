@@ -248,13 +248,24 @@ breaks the dump's no-activation rule until fixed.
 
 **Migration.** Upgrade steps: the risk id rename; no env name changes; a prod `sandloom migrate`
 one-shot needs the module env (already true after PR #71). The settings PoC (P1-P16 of
-alternatives-d §11) was not run; its rows are the acceptance criteria of KB-50..KB-56.
+alternatives-d §11) was not run. It is the gate KB-49 of the migration plan: all 16 scenarios run
+and get a recorded result before any of KB-50..KB-56 starts, and each of those PRs then turns its
+scenarios into repository tests. A failed scenario reopens this ADR or picks its fallback (D2b on
+P12, D3 for the dump on P11, H2 on P16) first.
 
 **Conditions to revisit.** `config dump` with the composition is too slow (then D3 for the dump
 only). The socket spy finds `setup` I/O that cannot be made lazy. A deployment cannot serve K1's
 known namespaces. The DX task shows D2b clearly cheaper for authors.
 
 ## Evidence
+
+The PoCs ran on the bases named below. The migration PRs measure against the merged baseline
+`c9b9b05`: `main` with PRs #71-#74 merged into `arch/kernel-boundary` (tm `kb-adrs-revise`);
+the merge changed registration and boot (PRs #71, #72: refusals at registration, owner checks),
+packaging (#73) and log redaction (#74), and added one owner comparison when a remote facts
+descriptor is read (#72); it added no call, query or RPC on a request path. The PoC numbers stay
+the reference for decisions; each PR re-measures base against candidate on `c9b9b05` or later
+(M-boot in particular).
 
 | item | where | result |
 |---|---|---|

@@ -110,10 +110,13 @@ register absorbs `tests/architecture/kernel_module_imports_allowlist.json` and k
 (shrink only, a stale entry fails).
 
 A row carries the baseline id, class, type, scope (`runtime` or `composition_text`), the
-owner module, the baseline verdict, a status (`open`, `fixed`, `retained`, `deferred`), the
-decision that carries it, the PR, and anchors (path plus literal or symbol, never a line
-number). A `retained` row needs an ADR id and a reason; class (a) rows are retained with the
-reason "protocol".
+owner module, the baseline verdict, a **current status** (`open`, `fixed`, `retained`: the state
+of the code now), a **target** (`fixed`, `retained`, `deferred`: where the decisions take it),
+the decision that carries it, the PR, and anchors (path plus literal or symbol, never a line
+number). The register is seeded with every one of the 46 rows at `current_status: open`, since
+each finding exists when the check lands; a PR that carries a row to its target sets its current
+status in the same PR. A `retained` row needs an ADR id and a reason; class (a) rows are
+retained with the reason "protocol".
 
 The kernel-edge check (one new T code, SANDLOOM-T017 proposed) scans the AST of shipped kernel
 code: string literals outside docstrings, matched whole against module names discovered from
@@ -126,10 +129,11 @@ kernel is a finding. Rules:
 
 1. every finding maps to exactly one row's anchors, else it fails with the path, the pattern
    and the class it would have;
-2. a `fixed` row with a finding fails (regression);
-3. an `open` or `deferred` row with no finding fails ("mark it fixed");
-4. `--report` prints the counts by class, type, scope and status and the rows a change adds,
-   fixes or retains, for the PR description (I-03).
+2. a row with current status `fixed` and a finding fails (regression);
+3. a row with current status `open` or `retained` and no finding fails ("set its current status
+   to `fixed`"); the target never makes the check pass or fail;
+4. `--report` prints the counts by class, type, scope, current status and target, and the rows a
+   change adds, fixes or retains, for the PR description (I-03).
 
 ### 3. The standard composition lives in `sandloom-standard`
 
@@ -175,9 +179,13 @@ admission whether a console exists or not (AD-1, AD-4).
 - **The console's identity test** (`sandloom_admin/api.py`, a module named `identity` in the
   manifest) becomes "the composition has an assigned issuer", read from the authority map
   (ADR-0014, X2). How the console logs an operator in with an alternative issuer is decided in
-  the admin PR (KB-41) under one rule: no consumer-defined contract (adversarial A-5). Either the
-  issuer declares its own login contract and admin consumes it optionally, or the console
-  discovers the issuer from the token. Open for the owner (decision.md, X4).
+  the admin PR (KB-41) under one rule: no consumer-defined contract (adversarial A-5). The owner
+  confirms (decision.md, X4) with its condition: **the issuer declares its login entry point**
+  (its own login contract, or the route of its login page, in its registration), the console
+  finds the issuer through the authority map's `issuer` entry and consumes that declaration
+  optionally, and a composition whose issuer declares none serves the console with a
+  configuration error naming the issuer. The console never chooses an issuer from the `iss` (or
+  any other claim) of a token it has not verified: an unverified token is the caller's input.
 
 ### 5. Revocation: the kernel applies, the issuer ends its sessions
 
@@ -186,13 +194,29 @@ Owner decision #11, answer #16.
 - **Kernel applier.** The kernel registers the durable consumer of
   `core.auth.tokens_revoked.v1` in every composition that has an event bus and can publish the
   channel, independent of identity. Its consumer group is
-  `sandloom:auth@tokens_revoked@<deployment identity>`, where the deployment identity is
-  `SANDLOOM_SERVICE_NAME`, else the database identity. The group is unique per independent
-  deployment or service that must receive these events and stable across replicas of one
-  service. Every service applies every revocation (idempotent writes of the mark), so one group
-  never swallows events another deployment needs. A fixed group was refused by the consumer
-  runtime in a split (trust PoC §6 finding 4); the per-deployment group passed split
-  conformance and e2e.
+  `sandloom:auth@tokens_revoked@<service id>`. Every service applies every revocation
+  (idempotent writes of the mark into its own cache), so one group must never be shared by two
+  independent receivers: a shared group splits the events between them and each misses the
+  other's share.
+- **Service id, required.** A required durable consumer needs a stable service or deployment id,
+  unique among the independent receivers on one event bus and equal across the replicas of one
+  service: `SANDLOOM_SERVICE_NAME`. There is **no fallback to the database identity**: two
+  services may share one database (a split profile on one Postgres) and one bus, and a group
+  derived from the database would merge them into one group. A composition that needs the
+  applier and has no `SANDLOOM_SERVICE_NAME` refuses to start in every entry point with a
+  configuration error (`INVALID_CONFIGURATION`, naming the setting and the consumer); outside
+  production too, since a silent merge is the failure. The shipped compose profiles and
+  `sandloom add deploy` already set one per service (`deploy/compose/monolith.yml`,
+  `microservices.yml`); the deploy-profile check (T014) refuses two services of one profile with
+  the same id. A fixed group was refused by the consumer runtime in a split (trust PoC §6
+  finding 4); the per-deployment group passed split conformance and e2e, and the PoC's
+  database-identity fallback is withdrawn.
+- **Scenario: two services, one database, one bus** (KB-09). Services `api` and `billing`
+  share one Postgres and one Redis stream, each with its own revocation cache: with
+  `SANDLOOM_SERVICE_NAME` set per service, each runs its own group and a revocation published
+  once is applied in both (both refuse the older token); with the name unset in either, that
+  service refuses to start naming `SANDLOOM_SERVICE_NAME`; with the same name in both, T014
+  refuses the profile. Three replicas of `api` share `api`'s group and apply each event once.
 - **Readiness.** A composition that needs the applier (an event bus is configured and any
   loaded module or the kernel can publish the channel) and has none is never ready: `/ready`
   fails naming it. A lean `create_app()` with `SANDLOOM_MODULES=[]` and no event bus registers
@@ -201,8 +225,27 @@ Owner decision #11, answer #16.
   declares `issues_tokens=True` and is not the map's issuer, or the reverse, refuses startup.
   The issuer must register a durable consumer of `core.auth.user_blocked.v1`, or declare that
   it holds no refresh sessions (a stateless issuer); otherwise startup refuses
-  (adversarial A-6, trust PoC R2). Execution is observed through the consumer's lag and
-  dead-letter state in `/ready` (G-REVOKE-08).
+  (adversarial A-6, trust PoC R2).
+- **A stateless issuer's declaration is explicit and verifiable** (owner's confirmation A8,
+  with its condition). It is a registration field (`define_module(refresh_sessions=False)`),
+  never inferred from an absent consumer, and recorded in `module.snapshot.json`. The startup
+  check verifies it against what the module registers: an issuer that declares no refresh
+  sessions and still registers a refresh route, a refresh-session model or table, or a consumer
+  of `core.auth.user_blocked.v1` refuses startup naming the contradiction; the console and
+  `sandloom doctor` show the declaration. A test asserts that a stateless issuer's refresh
+  attempt is refused (no session exists to end).
+- **What observes "executed"** (owner's confirmation A9, with its condition): the consumer's
+  lag and dead-letter state in `/ready` (G-REVOKE-08), with criteria that tell a critical state
+  from a transient backlog. `/ready` fails, naming the consumer, when (a) the oldest pending
+  revocation or block event is older than the access-token lifetime
+  (`ACCESS_TOKEN_EXPIRE_MINUTES`; past it, a token the event should have stopped may still be
+  accepted), or (b) an event of either channel is in the dead-letter state after its retries
+  (an unrecoverable failure: it is never applied without an operator), or (c) the consumer is not
+  running in a composition that needs it. A backlog younger than that bound, with the consumer
+  running and no dead letter, is transient: `/ready` stays 200, and the lag is exported
+  (`consumer_lag_seconds`) and logged at WARNING above half the bound. KB-09 tests each state:
+  a backlog under load stays ready, an aged backlog and one dead letter fail, recovery returns
+  `/ready` to 200.
 - **Proof required in the PR** (KB-09): scaling to 3 replicas, restart, replay, a version
   change of the channel, a cache failure during apply (redelivered, then applied), and two
   deployments sharing one event bus each receiving every event.
@@ -223,8 +266,9 @@ entry-point group and cannot serve app-local modules without importing the compo
 
 ### 7. Status of the 46 judged rows
 
-`design/kernel-boundary/edges.yml` gives every row its target status, owner, carrying ADR,
-PR, invariants, tests and anchors. Summary:
+`design/kernel-boundary/edges.yml` gives every row its current status (all 46 `open` on the
+merged baseline `c9b9b05`), target, owner, carrying ADR, PR, invariants, tests and anchors.
+Targets:
 
 | target | rows | count |
 |---|---|---|
@@ -238,7 +282,7 @@ PR, invariants, tests and anchors. Summary:
 |---|---|---|---|---|
 | A-M1 | edge register and kernel-edge check | startup check family (static), one T code | I-02, I-03 missing proof; replaces `test_module_names.py`'s literal scan and the import allowlist | 0012 |
 | A-M2 | generation extension for module-declared generated files | new kind of generated artifact | B-N1, B-N2 | 0012 |
-| A-M3 | kernel-registered revocation applier with a per-deployment group | process-wide default | D1, T8 first half | 0012 |
+| A-M3 | kernel-registered revocation applier with a per-service group (`SANDLOOM_SERVICE_NAME` required, no database fallback) | process-wide default | D1, T8 first half | 0012 |
 | A-M4 | issuer-obligation startup check | startup check family | T8 second half | 0012 |
 | A-M5 | `sandloom-standard` distribution | new package or wheel | X1 | 0012 |
 | B-M1..M3, C-M1..M6, D-M1..M6 | see the other ADRs | | | 0013, 0014, 0015 |
@@ -257,6 +301,8 @@ PR, invariants, tests and anchors. Summary:
 | The issuer registering the revocation applier | D1 stays for any composition without identity |
 | A startup refusal without identity instead of a kernel applier | tenancy alone, or a replacement issuer, could not run |
 | One fixed consumer group for the kernel applier | refused by the consumer runtime in a split (one group, two databases' inboxes) |
+| A group derived from the database identity when no service id is set (the PoC's fallback) | two services on one database and one bus would share a group and split the revocations between them; a missing id is a configuration error instead |
+| The console choosing the issuer from a token's `iss` | the token is unverified input at that point (X4) |
 | Building the admin manifest at console start | a split process does not compose every module |
 | Admin's own command writing the manifest | outside `generate --check` (H-11, SANDLOOM-T016) |
 
@@ -278,7 +324,9 @@ consumer per deployment.
 **New risks.** `retained` used as an escape hatch: refused without an ADR id. A deployment
 whose services disagree on `SANDLOOM_COMPOSITION_ROOT`: the deploy profile check (T014) asserts
 one root per profile. A per-deployment group name that changes between releases would replay
-from the start: the name is derived from stable configuration, and replay is idempotent. The
+from the start: the name is the configured service id, and replay is idempotent. A deployment
+that relied on the PoC's database-identity fallback does not exist (it never shipped); a
+deployment without `SANDLOOM_SERVICE_NAME` and an event bus now refuses to start, loudly. The
 literal scan misses a contract name built at run time from a module name; the replaceability
 fixtures catch it where it matters.
 
@@ -296,12 +344,20 @@ contract (X4). The register grows instead of shrinking over two releases.
 
 ## Evidence
 
+The PoCs ran on the bases named below. The migration PRs measure against the merged baseline
+`c9b9b05`: `main` with PRs #71-#74 merged into `arch/kernel-boundary` (tm `kb-adrs-revise`);
+the merge changed registration and boot (PRs #71, #72: refusals at registration, owner checks),
+packaging (#73) and log redaction (#74), and added one owner comparison when a remote facts
+descriptor is read (#72); it added no call, query or RPC on a request path. The PoC numbers stay
+the reference for decisions; each PR re-measures base against candidate on `c9b9b05` or later
+(M-boot in particular).
+
 | item | where | result |
 |---|---|---|
 | baseline of 46 judged rows and 18 protocol rows | `baseline.md` at `b8d8506`; transcripts `_evidence/` | 32 violation, 13 disputed, 1 allowed |
 | replaceability: identity, tenancy, billing replaced outside the kernel | `validation.md` §1, `poc/replace/out/head.txt`, commit `47c31de` | rights, tenant grants and an unrelated fact work with no kernel change, mono and split; every failure is a trust gap (ADR-0014) or a module name in kernel code (this ADR) |
 | default map in `sandloom.main` is a kernel edge | `poc/trust/results.md` T-17, finding 3; commit `627c9c9` | `test_the_kernel_names_no_module` fails by design; 6504 passed otherwise |
-| kernel revocation applier with a per-deployment group | `poc/trust/results.md` T-16, finding 4 | without identity: group `sandloom:auth@tokens_revoked@url:…` running, cache out → redelivered, back → mark written, older token 401; split conformance passes with identity's applier removed; a fixed group raised `ConsumerConfigurationError` in split |
+| kernel revocation applier with a per-deployment group | `poc/trust/results.md` T-16, finding 4 | without identity: group `sandloom:auth@tokens_revoked@url:…` running, cache out → redelivered, back → mark written, older token 401; split conformance passes with identity's applier removed; a fixed group raised `ConsumerConfigurationError` in split. The PoC named the group from the database identity (`url:…`) when no service name was set; decision 5 withdraws that fallback, so KB-09 re-runs the rows with `SANDLOOM_SERVICE_NAME` set and adds the two-services-one-database scenario |
 | issuer obligation | `poc/trust/results.md` T-16 | `issues_tokens` module without a `core.auth.user_blocked.v1` consumer refused (B035 in the PoC) |
 | adversarial verdict | `adversarial.md` §2.1, §9, commit `53701d9` | A1 stands in a smaller form: M3 out, M2 passes data, M4 needs lean `/ready` and group placement, X1 answered |
 | owner decisions | `owner-decisions-adr.md` #1, #11, #14; tm reflection on `kb-alt-boundary` (admin battery) | applied in decisions 3, 4, 5, 6 |
@@ -320,5 +376,9 @@ contract (X4). The register grows instead of shrinking over two releases.
 | process matrix: API, worker, beat, `migrate`, composed CLIs of the shipped image build the same composition from `sandloom_standard.main` | decision 3; owner #1 | new (KB-08), same harness as G-CONFIG-07 |
 | lean `create_app()` answers `/ready` 200 with no event bus; a composition with a bus and no applier fails `/ready` | decision 5; I-01, I-20 | new (KB-09) |
 | applier rows: 3 replicas, restart, replay, version change, cache failure, two deployments on one bus | decision 5; owner #11 | new (KB-09), split conformance |
+| two services, one database, one bus: both apply every revocation; `SANDLOOM_SERVICE_NAME` unset refuses startup in every entry point; equal names refused by T014 | decision 5 | new (KB-09) |
+| `/ready` criteria: transient backlog ready; backlog older than the access-token lifetime, a dead letter, or a stopped consumer not ready | decision 5; A9 | new (KB-09) |
+| stateless issuer declaration contradicted by a refresh route, model or `user_blocked` consumer refused | decision 5; A8 | new (KB-09) |
+| console: issuer from the map and its declared login entry point; no declaration → configuration error; a forged `iss` changes nothing | decision 4; X4 | new (KB-41) |
 | `sandloom check` and `test_module_boundaries.py` see no admin → module import | decision 4; H-3 | new (KB-40) |
 | `inventory` fixture declares admin resources; `generate` adds its section with no kernel or admin change | decision 4; AD-5 | new (KB-40) |

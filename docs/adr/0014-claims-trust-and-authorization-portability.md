@@ -103,19 +103,36 @@ buggy optional module no longer denies every login (problem #14).
 ### 3. Read: one trusted view per verified token
 
 The trusted view is computed once per verified token inside `decode_token` and cached with it,
-the policy marker in the cache key. A protected key is in the view only when its assigned
-authority is in `claims_sources`, not in `claims_sources_failed`, and the token's `cpv` entry
-for that key equals the verifier's. Every reader sees only the view: `UserContext`, `Role`,
+the policy marker in the cache key. A protected key K is in the view only when **one condition**
+holds for a single authority A of K, the same A in all three parts:
+
+1. **allowed:** A is K's current authority in the verifier's map, or the one `previous=`
+   authority the map declares for K (decision 4);
+2. **policy version:** the token's `cpv` entry for K equals the digest of (K, A's verified
+   identity): the loaded import path of a local authority, the pinned `service_id` of a remote
+   authority's `<m>.claims.v1` binding. A `previous=` authority is declared with that identity
+   in full, never by short name, and need not be loaded or bound in the verifying process;
+3. **verified source:** A's short name is in the token's `claims_sources` and not in
+   `claims_sources_failed`: A ran at mint and its result was kept. The issuer's mint check
+   (decision 2) accepted K only from the step of the authority its own map assigned, and part 2
+   proves which authority that map named.
+
+A token whose parts name different authorities does not trust K: the `cpv` digest of the
+previous authority while only the current one is in `claims_sources`, the reverse, or an
+app-local module named like A whose import path gives another digest. A source name alone or a
+digest alone never trusts a key. The one exception is a token without `cpv` while a verifier
+runs the bounded compatibility mode of the initial enablement (decision 4), and it is checked
+against parts 1 and 3. Every reader sees only the view: `UserContext`, `Role`,
 `Perm`, `TenantScope`, the tenant allowlist that validates `Account.org`, claim-mode facts
 (trusted by the authority of their claim key and by the owner check), the idempotency
 fingerprint, and **one platform admission** used by both `require_platform_admin` and
-`platform_operator`, trusting the platform role `admin` only from the assigned authority of
-`roles`. `UserContext.untrusted_claims` lists `{key: reason}`.
+`platform_operator`, trusting the platform role `admin` only when `roles` is in the view. `UserContext.untrusted_claims` lists `{key: reason}`.
 
-- An **unassigned** protected key, or an authority absent from the composition, is a definite
-  deny (403); `TenantScope` answers 400/403 as today.
+- An **unassigned** protected key, or a current authority absent from the composition, is a
+  definite deny (403); a `previous=` authority need not be present; `TenantScope` answers 400/403 as today.
 - A key untrusted because the token predates the policy (no `cpv`, or another digest for that
-  key) raises `PolicyIndeterminate(status=401, code="token_policy_outdated")` inside the
+  key on a token issued before the verifier's map took effect; see "One controlled refresh")
+  raises `PolicyIndeterminate(status=401, code="token_policy_outdated")` inside the
   algebra: `A | B` still allows on `B`, `~` never allows. `TenantScope` and the platform
   admission map it to 401 `token_policy_outdated`. Old tokens keep working on routes that need
   no protected claim until they expire (answer #11). The first foreign `cpv` value per key is
@@ -124,7 +141,15 @@ fingerprint, and **one platform admission** used by both `require_platform_admin
   `token_policy_outdated` (a refresh can make that branch allow), then 503 `owner_unavailable`
   (a retry later can), then 501 (capability absent, `contract_mismatch`: neither fixes it). The
   adversarial review proposed 503 first (C-a4); this ADR orders by what the client can fix
-  without an operator, and the owner confirms (decision.md, C7). Law tests cover the new status.
+  without an operator. Law tests cover the new status.
+- **One controlled refresh** (owner's confirmation C7, with its condition). 401 is used for
+  `token_policy_outdated` only, never for another indeterminate, and only where a refresh can fix
+  it: the token has no `cpv` (outside the compatibility mode), or names for K a digest the
+  verifier does not accept and was issued before the verifier's map took effect. A token issued
+  after that and still refused means issuer and verifier disagree: it answers 503
+  `claims_policy_mismatch` and logs ERROR, because a refresh would loop. A client refreshes once
+  per 401 `token_policy_outdated` and does not retry a second one; the test kit's client and the
+  docs state it, and the key-change and enablement tests count refreshes.
 
 ### 4. `cpv` per key, with an issuer × verifier rollout and rollback matrix
 
@@ -134,22 +159,61 @@ assigned key, stamped by the merge and by `create_service_token`. Changing one k
 changes only that key's digest; trust in the other keys is untouched. A verifier compares per
 key and fails closed on any digest it does not accept.
 
-A key's entry may name a previous authority: `claim_authorities={"roles": Authority("acme",
-previous="identity")}`. A verifier then accepts either digest for that key; an issuer always
-stamps the current one. The previous entry exists only for one rollout and is removed by the
-next deploy. It is a composition argument, not a setting; it is the one new state this decision
-adds (adversarial C-a1).
+A key's entry may name one other authority the verifier accepts during a rollout, declared with
+its verified identity: `claim_authorities={"roles": Authority("acme_identity",
+previous=Authority("identity", module="sandloom_identity"))}` (a remote one by its pinned
+`service_id`). A verifier then trusts the key under decision 3's one condition with either
+authority, the same authority in every part; an issuer always stamps the current one. The entry
+exists only for one rollout and is removed by the next deploy. It is a composition argument, not
+a setting. With the enablement's `legacy_tokens` below, it is one of the two pieces of rollout
+state this decision adds, both temporary (adversarial C-a1).
 
-**Adoption** (old code O stamps and checks nothing; new code N stamps and checks):
+**Initial enablement** (old code O stamps and checks nothing; new code N always stamps `cpv` as
+an issuer and checks it as a verifier). Issuers first cannot be ordered wherever one service is
+both issuer and verifier (a monolith, identity's own service): during the rolling deploy an N
+replica verifies an O replica's tokens, and a refresh can land on an O replica again, a loop.
+The enablement is therefore staged, with a compatibility mode that only the verifier side has:
 
-| issuer \ verifier | O | N |
-|---|---|---|
-| O | today | no `cpv`: protected keys untrusted; 401 `token_policy_outdated` only where a policy needs them and no branch allows; refresh returns to an O issuer: a loop **to avoid** |
-| N | the O verifier ignores `cpv` and trusts as today: no outage, today's weakness for the window | trusted per key |
+```python
+create_app(claim_authorities=..., legacy_tokens=LegacyClaimsTokens(until="2026-12-01T00:00Z"))
+```
 
-Order: issuers first, then verifiers; the adoption completes only when no O verifier remains.
+| stage | issuers | verifiers | token without `cpv` | token with `cpv` |
+|---|---|---|---|---|
+| 0 | O | O | today | — |
+| 1 verifiers learn | O | N, compatibility mode | trusted per key by parts 1 and 3 of decision 3 (an allowed authority ran and was kept), counted | — (none minted yet) |
+| 2 issuers switch | O → N | N, compatibility mode | as stage 1 | the full condition of decision 3 |
+| 3 enforce | N | N, no `legacy_tokens` | not trusted: 401 `token_policy_outdated` only where a policy needs the key and no branch allows; one refresh at an N issuer returns a token with `cpv` | the full condition |
+
+In a monolith stages 1 and 2 are one deploy (the N release learns and stamps); stage 3 is a later
+deploy that removes the argument. Stage 3 starts only when no O issuer remains and at least one
+access-token lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`) has passed since the last O issuer
+stopped, so a refresh after the 401 always reaches an N issuer. Rollback: stage 3 → 2 by
+redeploying the verifiers with `legacy_tokens`; stage 2 → 1 by returning issuers to O (the
+compatibility-mode verifiers accept both); stage 1 → 0 by returning verifiers to O. An O issuer
+behind a verifier without `legacy_tokens` is never a supported state.
+
+The compatibility mode is an accepted, bounded window of today's trust for tokens without `cpv`,
+with these protections:
+
+- **bounded:** `until` is required, an absolute UTC time. A token without `cpv` is accepted only
+  if its `iat` is before `until` and its `exp - iat` does not exceed `ACCESS_TOKEN_EXPIRE_MINUTES`;
+  from `until` on the mode is off by itself (fail closed), and startup logs a WARNING asking to
+  remove the argument;
+- **narrower than today:** parts 1 and 3 of decision 3 still apply, so a token whose `roles`
+  authority did not run, or failed, gives no rights. What the window keeps open is what O tokens
+  carry today: no per-key policy version (T-10) and, for a token an O issuer minted while a
+  foreign writer filled a key its authority omitted, that value (gate probe G2-G4). Hand-minted
+  tokens (T-11) stay within the signing-key line of the threat model;
+- **visible:** `/diagnostics/core` and `sandloom doctor` show the mode and the time left;
+  `claims_policy_legacy_tokens_total{key}` counts every acceptance; the first per key is logged;
+- **one mode per deployment:** the deploy-profile check (T014) and the split conformance suite
+  refuse a profile whose services disagree on `legacy_tokens`;
+- **never by default:** `sandloom new` and `sandloom_standard.main` do not set it; it is a
+  composition argument written for one upgrade, like `previous=`, not a setting.
+
 The deploy-profile check (T014) and the split conformance suite require every service of a
-profile at or above the adoption release. Rollback: verifiers back first, then issuers.
+profile at or above the adoption release before stage 3.
 
 **Changing the authority of key K** (map M1 → M2; other keys equal in both):
 
@@ -163,7 +227,41 @@ profile at or above the adoption release. Rollback: verifiers back first, then i
 Rollback from step 2 or 3: verifiers to M1 with `previous=` M2's authority, then issuers to M1,
 then drop `previous=`. Without step 1 either order loops on K during the window (verifier-first:
 old issuer keeps minting M1; issuer-first: old verifiers reject M2), which is why the
-unconditional "verifiers last" rule is not adopted.
+unconditional "verifiers last" rule is not adopted. Where one service is issuer and verifier,
+step 1 is a deploy of map M1 whose `previous=` names M2's authority (every replica accepts the M2
+digest before any replica stamps it), step 2 a deploy of M2 with `previous=` naming M1's, step 3
+drops it; during each rolling deploy every replica accepts both digests, so no refresh loops.
+
+**Test of the key change: identity → acme_identity** (KB-11, split conformance and mono). Roles:
+`identity` (`sandloom_identity`) is the authority of `roles`, `permissions` and the issuer under
+M1; `acme_identity` (a replacement issuer outside `src/`, from the replaceability fixtures) under
+M2. Tokens: T1, minted by a real M1 issuer built from the previous release's wheels before step 0
+ends and replayed unchanged at every step; T2, minted by the M2 issuer at step 2. At every step and
+rollback step, a verifier process (mono and split) evaluates `Role("admin")`, `Perm(...)`,
+`require_platform_admin`, `platform_operator` and `TenantScope` for both tokens:
+
+| step | maps (issuers / verifiers) | T1 | T2 |
+|---|---|---|---|
+| 0 | M1 / M1 | trusted | — |
+| 1 | M1 / M2 + `previous=` identity | trusted (A = previous) | — |
+| 2 | M2 / M2 + `previous=` identity | trusted (A = previous) | trusted (A = current) |
+| 3 | M2 / M2 | 401 `token_policy_outdated`; one refresh yields a T2-like token | trusted |
+| rollback a | M2 / M1 + `previous=` acme_identity | trusted | trusted (A = previous) |
+| rollback b | M1 / M1 + `previous=` acme_identity | trusted | trusted |
+| rollback c | M1 / M1 | trusted | 401; one refresh yields a T1-like token |
+
+Negative rows at step 2: a token with the identity digest and only `acme_identity` in
+`claims_sources`, and the reverse, are untrusted; an app-local module named `identity` with
+another import path gives another digest and is untrusted; `identity` in
+`claims_sources_failed` is untrusted. Every client refreshes at most once per step change, and
+no step answers 401 to a token that a refresh would not fix.
+
+**Test of the initial enablement** (KB-11): stages 0 → 3 and the rollback 3 → 0 with a real token
+from the previous release (no `cpv`) and tokens minted at each stage, mono (one rolling deploy of
+three replicas, O and N replicas mixed) and split: no 401 in stages 1 and 2; the legacy token
+without its authority in `claims_sources` gives no rights in stage 1; at stage 3 one 401 and one
+refresh per client; a token without `cpv` issued after `until` untrusted; `exp - iat` above the
+lifetime untrusted; T014 refuses mixed `legacy_tokens` in one profile.
 
 **Assigning a previously unassigned key**: issuers first (an O-map verifier treats the key as
 unassigned: 403 as before), then verifiers. **Removing an assignment**: verifiers first.
@@ -201,7 +299,15 @@ first segment names, or by the module the composition root assigns as its provid
 `SERVICE_BINDINGS` is the assignment. Otherwise the load refuses (B034's family, widened). This
 is what keeps a third-party implementation able to serve a live check in-process (owner #2).
 Other contract names keep the first-registrant rule until a failing scenario shows a need (H-17).
-The owner confirms the scope (decision.md, X3).
+
+The owner confirms this scope with one condition (decision.md, X3): **the provider is checked by
+its real identity**, as an authority is in decision 1. In-process, the registering module's short
+name and its loaded import path both match the assignment (an app-local module named
+`acme_orgs`, or one named after the first segment from another path, is refused); remotely, the
+binding's pinned `service_id`, pair-MAC authenticated. A first-segment match counts only for the
+module actually loaded under that name from its own distribution or the app's declared module
+path. Before access checks exist (KB-13), which contracts are access-bearing is read from the
+consumer side without a domain constant in the kernel (migration plan, KB-13).
 
 ### 7. Billing claims: option (c)
 
@@ -337,12 +443,19 @@ They are removed only after:
   generated claim or access atoms with their parameters carried locally and over RPC (K3,
   KB-33); the kernel keeps them until that move passes, and removal is never automatic.
 - `Roles` and `Permissions` constants (no importer, B-N15) move to identity, the owner of the rows
-  they name, under I-17 review.
+  they name. The owner confirms (decision.md, A6) on the condition of an I-17 review in KB-34: the
+  public API baseline and beginner tier diff, the upgrade step naming the new import, no alias
+  left in the kernel (H-9).
 - `fake_access_fact` keeps generic fact-by-name stubbing; its billing branch goes (B-R6).
   Tests of live atoms use `fake_contract(REF, Fake())`.
 - `Account` (`user()`, `org(param=)`, `bound_tenant()`) stays a kernel concept with neutral
-  semantics: the target of an access check, not "the billing account" (adversarial C-6; the
-  owner confirms, decision.md C4).
+  semantics: the target of an access check, not "the billing account" (adversarial C-6). The
+  owner confirms it with a condition (decision.md, C4): neutrality is proven, not stated. A
+  third-party access check (`acme.seats.v1`'s `has_seat`, from the replaceability fixtures)
+  targets `Account.org(param=)` and `Account.bound_tenant()` with billing absent from the
+  composition and from the environment, mono and split, with the same decisions and counts as the
+  billing check on the same targets; `Account`'s code, docstrings and error texts name no billing
+  term (the kernel-edge check covers the literals).
 - `past_due`: the generated `Subscribed` reads today's fact path, so today's staleness holds
   (status at most the token TTL; a rule change at most `REMOTE_FACT_TTL_SECONDS` in a split
   consumer). Moving the descriptor refresh off the request path (K7) is optional; if built,
@@ -364,7 +477,7 @@ They are removed only after:
 | # | mechanism | kind | removes | compared against |
 |---|---|---|---|---|
 | C-M1 | `claim_authorities` (with `issuer`, `previous=`) and `access_providers` in the composition root, with one startup check family | composition argument; startup check family | T1-T3, T5 (access-bearing), T6; B-S1, B-S2 trust by name | TA-2 (a setting: answer #9); trust by name |
-| C-M2 | per-key `cpv` claim | wire-format addition | legacy and skewed tokens (I-08 consistency, I-09) | none cheaper: TA-0 fails T-9, T-10 |
+| C-M2 | per-key `cpv` claim; `previous=` and the bounded `legacy_tokens` compatibility mode as temporary rollout state | wire-format addition; two temporary composition arguments | legacy and skewed tokens (I-08 consistency, I-09); the loop of an issuer-first enablement where one service issues and verifies | none cheaper: TA-0 fails T-9, T-10; issuer-first enablement loops in a monolith's rolling deploy |
 | C-M3 | sealed mint and `create_service_token` | changed public signatures; one runtime code | I-08 minting, T4 for mistakes | trusting `create_access_token` callers (TA-0 fails T-11) |
 | C-M4 | `access_check` declaration, generated atom classes, one generic evaluator | declaration field; new kind of generated content; describe extension | A19, B-R1, B-R3, B-N12, B-N13, B-N14 | PA-0 (changes syntax, loses typing), PA-1 (risk and tier left to the consumer), PA-3 (+20 %/+29 % instructions in split, string parameters) |
 | C-M5 | `handwritten-access-check` rule | static rule | H-20 gap for hand-written requirements | warnings only (answer #22: not enough) |
@@ -413,13 +526,15 @@ names for providers (`access_check`, `From`, `Category`). Request rung +0.57 % i
 
 **New risks.** A deployment that forgets its map denies every protected claim, or refuses every
 mint with a critical issuer: loud, never silent. The previous-authority window trusts the old
-authority for one rollout. The status order of decision 3 differs from the adversarial proposal.
+authority for one rollout. The enablement's compatibility mode keeps today's trust of tokens
+without `cpv` (narrowed by the source check) until `until` at the latest; it ends by itself. The status order of decision 3 differs from the adversarial proposal.
 A provider can declare no risk from the start; route classification remains the backstop. A
 consumer that imports an atom before its first generation cannot generate until KB-20's
 pre-composition planner lands (Z-15).
 
-**Migration.** Upgrade steps: write `claim_authorities` (or use `sandloom_standard.main`); clients
-refresh on 401 `token_policy_outdated`; tests mint through `as_user` / `mint_test_token`;
+**Migration.** Upgrade steps: write `claim_authorities` (or use `sandloom_standard.main`); enable
+in decision 4's stages (`legacy_tokens` for the first deploy, removed one token lifetime after the
+last old issuer stopped); clients refresh once on 401 `token_policy_outdated`; tests mint through `as_user` / `mint_test_token`;
 deployments bind identity and tenancy claims critical (billing may stay non-critical); imports of
 `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed` change to the generated package; custom
 live adapters become an `access_providers` assignment or a binding.
@@ -430,6 +545,14 @@ one boolean method. A real deployment needs a status order other than decision 3
 scenario shows non-access contracts need name ownership (decision 6).
 
 ## Evidence
+
+The PoCs ran on the bases named below. The migration PRs measure against the merged baseline
+`c9b9b05`: `main` with PRs #71-#74 merged into `arch/kernel-boundary` (tm `kb-adrs-revise`);
+the merge changed registration and boot (PRs #71, #72: refusals at registration, owner checks),
+packaging (#73) and log redaction (#74), and added one owner comparison when a remote facts
+descriptor is read (#72); it added no call, query or RPC on a request path. The PoC numbers stay
+the reference for decisions; each PR re-measures base against candidate on `c9b9b05` or later
+(M-boot in particular).
 
 **Trust** (`poc/trust/results.md`, base `ceb3d66` plus PR #72's `a51a59d`, `971f80a`, candidate
 `ta1-kernel.patch`, commit `627c9c9`; real `uvicorn` processes, mono and split over real RPC, EdDSA
@@ -478,7 +601,12 @@ process):
 | test | enforces | exists / new |
 |---|---|---|
 | trust rows T-1..T-14 as integration tests on the replaceability fixtures, mono and split | decisions 1-5; I-08, I-09, I-10, I-22 | new (KB-10, KB-11, KB-12), from `poc/trust/run.py` |
-| issuer × verifier matrix (adoption, key change with and without `previous=`, rollback) in split conformance | decision 4; owner #10 | new (KB-11) |
+| issuer × verifier matrix (key change with and without `previous=`, rollback) in split conformance | decision 4; owner #10 | new (KB-11) |
+| identity → acme_identity key change with a real previous-release token through steps 0-3 and rollback a-c, plus the negative rows (mixed authorities in `cpv` and `claims_sources`, app-local `identity`, failed source), mono and split | decisions 3, 4; owner's confirmation of `previous=` | new (KB-11) |
+| initial enablement stages 0-3 and rollback, mono rolling deploy with mixed replicas and split, `until` and lifetime bounds, T014 mode parity | decision 4 | new (KB-11) |
+| controlled refresh: 401 only for `token_policy_outdated` before the map took effect, 503 `claims_policy_mismatch` after, at most one refresh per client | decision 3; C7 | new (KB-11) |
+| access provider by real identity: app-local `acme_orgs` and a same-named module from another path refused, pinned `service_id` remotely | decision 6; X3 | new (KB-13) |
+| `Account` neutrality: third-party `has_seat` on `Account.org(param=)` and `bound_tenant()` without billing, decisions and counts equal to the billing check | decision 15; C4 | new (KB-30) |
 | owner regression set: forged `Role("admin")` deny; platform admin without trusted authority deny; `Role("admin") \| Entitled("missing.fact")` allow; `~Entitled("missing.fact")` never allow; same decisions mono and split | decisions 2, 3; tm reflection on `kb-alt-authz` | new (KB-11) |
 | algebra laws over generated atoms and over the 401 status | H-4, decision 3 | extends `tests/laws/test_authz_algebra_laws.py` |
 | authorization stand in CI: counts, order, decisions per policy, base vs candidate | decision 9; I-23, H-16 | new (KB-30), from `poc/authz/stand.py` |
