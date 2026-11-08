@@ -1,6 +1,6 @@
 # Kernel boundary: goals
 
-What the kernel-boundary work (tm `kb-assess`) is for, agreed by the owner on 2026-11-08. The problems are in [problems.md](problems.md), the invariants in [requirements.md](requirements.md).
+What the kernel-boundary work (tm `kb-assess`) is for, agreed by the owner on 2026-11-08. The problems are in [problems.md](problems.md), the invariants in [requirements.md](requirements.md). Amended the same day with the owner's answers to the 31 questions ([owner-answers.md](owner-answers.md), cited as "answer #n") and the roadmap-review amendments G1-G4 ([roadmap-review.md](roadmap-review.md) §6.2), which agree with them.
 
 ## The goal
 
@@ -24,7 +24,23 @@ Three things that must stay separate:
 2. **Provider:** who supplies the data or performs the domain operation.
 3. **Trust:** why the kernel may use that provider's result.
 
-A contract that returns data does not make its provider a trusted source of rights. A security authority (who may issue `roles`, `permissions`, `tenant_ids`) is assigned by the application's composition, and the kernel verifies that the claimed owner is the approved module or the remote service bound to it in trusted configuration. A module naming itself `identity` is not proof.
+A contract that returns data does not make its provider a trusted source of rights. A security authority (who may issue `roles`, `permissions`, `tenant_ids`, and every billing claim used to grant access) is assigned in the application's composition root code, not in ordinary settings, and the kernel verifies that the claimed owner is the module actually registered or the remote service bound to it in trusted configuration (answers #9, #10). A module naming itself `identity` is not proof.
+
+Five trust roles, kept apart (roadmap-review G1, N10):
+
+| role | what it is | what it is not |
+|---|---|---|
+| **Issuer** | signs tokens | not, by signing, the authority of every claim in them |
+| **Claim authority** | the writer the application assigned for a security claim; may differ from the issuer | not whoever registered first, or under a matching name |
+| **Binding identity** | the service bound in trusted configuration (`SERVICE_BINDINGS`, pinned `service_id`) | not a contract name or a binding key's text |
+| **Claim source** | a contributor that ran, recorded in provenance | not proof that it wrote a given key |
+| **Verifier** | checks signature, issuer, audience, revocation and the authority policy | not a judge of claims the policy does not cover |
+
+The platform-gate defect found by the gate probe is "claim source taken for claim authority": the gate trusts that `identity` ran, not that it wrote `roles` (roadmap-review §2.2).
+
+## Threat model
+
+Installed module code runs in the process and is not sandboxed. The kernel protects against wrong or unauthorised claims through its supported extension APIs and from remote providers: a module cannot raise a user's rights by writing a claim it is not assigned, by its name, by an `owner=` argument, by serving another module's claims or facts contract, or by registering first. Minting is one of those APIs: `create_access_token` takes protected claims and provenance only from the verified result of `collect_claims`, the kernel forms the system fields, and an allowed service or test token takes a limited path that grants no user rights (answer #13). Out of scope, as in `docs/advanced/security-model.md:548-566`: hostile code inside a process, which can read the signing key and sign anything; the holder of the signing key; a compromised authority, whose own claims are wrong (research-trust.md §2.2-§2.3). These checks make mistakes loud and composition explicit; process isolation is the only answer to hostile code.
 
 ## The platform capability rule
 
@@ -88,6 +104,8 @@ It is **not** an absolute semantic requirement. The kernel must understand these
 
 Having these concepts in the kernel is not an architecture error.
 
+Removing `sandloom.shared` is not a goal. The goal is that the framework owns no module's interface or artifact; where the remaining platform primitives live is secondary (roadmap-review G3, R4).
+
 ## What is an error
 
 The kernel holding a **specific module's model or binding** of such a concept, for example:
@@ -106,3 +124,5 @@ For any concept in the kernel, ask:
 3. Could a third-party module replace the first-party one without a kernel change? If not, the kernel holds a specific implementation.
 
 Both kinds of mistake are possible: leaving a module's model in the kernel, and pushing a general protocol out of it. The second weakens the guarantees the kernel exists to give.
+
+A check judges shipped runtime code. A module's name in a template, a recipe, documentation or a kernel test is classified separately and is not by itself a runtime edge; tests are outside the shipped kernel boundary, and the kernel's unit and architecture tests run without batteries (roadmap-review G4; answer #2).
