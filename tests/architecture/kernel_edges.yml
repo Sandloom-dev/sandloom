@@ -990,6 +990,7 @@ loader_call_sites:
   - {path: sandloom/core/composition.py, symbol: load_composition_core, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
   - {path: sandloom/core/composition.py, symbol: load_composition_app, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
   - {path: sandloom/core/rpc/client.py, symbol: _lazy_module, reason: lazy import of the HTTP client stack (cold start)}
+  - {path: sandloom/core/infra/registry.py, symbol: _is_installed, reason: "the infra preflight finds a driver's declared packages (celery, redis) without importing them (KB-IC-1, SANDLOOM-B037)"}
   - {path: sandloom/core/testing/__init__.py, symbol: __getattr__, reason: "lazy exports from the kernel's own table _EXPORTS"}
   - {path: sandloom/core/testing/deploy_profile.py, symbol: _module_dir, reason: "the deploy-profile check locates a service's modules"}
   - {path: sandloom/core/cli/add.py, symbol: _contract_bootstrap, reason: sandloom add contract imports the app module it scaffolds}

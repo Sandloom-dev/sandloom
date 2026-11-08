@@ -234,7 +234,10 @@ class DriverUnavailableError(CapabilityError):
         self.driver = driver
         self.missing = missing
         self.install = install
-        super().__init__(message, fix=fix)
+        # The text names its code wherever it surfaces (a module's load
+        # failure, a log line); ``reason`` stays untagged for composition.
+        super().__init__(f"{message} [SANDLOOM-B037]", fix=fix)
+        self.reason = message
 
 
 class CapabilityUnavailable(CapabilityError):
@@ -563,15 +566,22 @@ class InfraRegistry:
         An instance ``INFRA`` names is in use (the operator selected it); so
         is a synthesized one the kernel uses (:data:`KERNEL_INSTANCES`) or a
         validated module requirement named. Any other synthesized instance is
-        not opened, probed or listed as failing: nothing would use it.
+        not opened, probed or listed as failing: nothing would use it. An
+        instance that is not configured is not in use.
         """
-        cfg = self._config.get(capability, {}).get(name)
-        if cfg is None:
+        if self._config.get(capability, {}).get(name) is None:
             return False
+        return not self._unused(capability, name)
+
+    def _unused(self, capability: str, name: str) -> bool:
+        """A configured, synthesized instance nothing requires: the one kind
+        :meth:`aopen_all` and :meth:`health_all` skip."""
+        cfg = self._config.get(capability, {}).get(name)
         return (
-            not cfg.implicit
-            or (capability, name) in KERNEL_INSTANCES
-            or (capability, name) in self._requested
+            cfg is not None
+            and cfg.implicit
+            and (capability, name) not in KERNEL_INSTANCES
+            and (capability, name) not in self._requested
         )
 
     def set_config(self, config: InfraConfig) -> None:
@@ -1026,8 +1036,7 @@ class InfraRegistry:
         if unavailable:
             first = unavailable[0]
             raise DriverUnavailableError(
-                "An instance selected in INFRA has a driver that cannot run here "
-                "[SANDLOOM-B037]: "
+                "An instance selected in INFRA has a driver that cannot run here: "
                 + "; ".join(f"{u.reason} (fix: {u.fix})" for u in unavailable),
                 fix="install what the driver needs, or select an installed "
                 "driver in INFRA; `sandloom explain SANDLOOM-B037`",
@@ -1078,7 +1087,7 @@ class InfraRegistry:
                     probe(capability, name)
                     for capability, instances in self._config.items()
                     for name in instances
-                    if self.in_use(capability, name)
+                    if not self._unused(capability, name)
                 )
             )
         )
@@ -1116,7 +1125,7 @@ class InfraRegistry:
             if capability == "eventbus":
                 continue
             for name in instances:
-                if not self.in_use(capability, name):
+                if self._unused(capability, name):
                     logger.debug(
                         "[infra] %s/%s is a synthesized default nothing requires: "
                         "not opened",
@@ -1158,9 +1167,9 @@ class InfraRegistry:
             # An installation fact, not reachability: the message says what
             # to install, a traceback adds nothing.
             if not strict:
-                logger.warning("[infra] %s [SANDLOOM-B037]", exc)
+                logger.warning("[infra] %s", exc)
                 return None
-            logger.error("[infra] %s [SANDLOOM-B037]", exc)
+            logger.error("[infra] %s", exc)
             return f"{exc.reason} [SANDLOOM-B037] ({exc.fix})", True
         except Exception as exc:
             # A security misconfiguration (e.g. an application role that could
