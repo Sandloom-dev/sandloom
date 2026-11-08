@@ -173,6 +173,7 @@ class Anchor:
         return fnmatch.fnmatchcase(path, self.path)
 
     def __str__(self) -> str:
+        """The anchor as the check prints it (path plus literal or symbol)."""
         what = (
             f" literal {self.literal}"
             if self.literal
@@ -259,6 +260,7 @@ class Outcome:
 
 
 def _tuple(value: Any) -> tuple[str, ...]:
+    """A YAML scalar or list as a tuple of strings (absent: empty)."""
     if value is None:
         return ()
     if isinstance(value, str):
@@ -267,6 +269,7 @@ def _tuple(value: Any) -> tuple[str, ...]:
 
 
 def _anchor(raw: Mapping[str, Any], where: str) -> Anchor:
+    """One anchor of a row, refusing a missing path or both a literal and a symbol."""
     if "path" not in raw:
         raise RegisterError(f"{where}: an anchor needs a path")
     literal, symbol = raw.get("literal"), raw.get("symbol")
@@ -392,6 +395,7 @@ def kernel_files(src: Path = SRC) -> list[Path]:
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """The ids of every docstring constant (module, class, function), which the scan skips."""
     ids: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(
@@ -430,6 +434,7 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
 
 
 def _call_name(node: ast.Call) -> str:
+    """The called name of a call (``f`` or ``x.f``), empty for anything else."""
     func = node.func
     if isinstance(func, ast.Name):
         return func.id
@@ -501,6 +506,7 @@ def scan_source(path: str, source: str, matcher: _Matcher) -> list[Finding]:
 
 
 def _wheel_excludes(src: Path) -> tuple[str, ...]:
+    """The paths ``packages/sandloom/pyproject.toml`` leaves out of the wheel."""
     pyproject = src.parent / "packages" / "sandloom" / "pyproject.toml"
     if not pyproject.exists():
         return ()
@@ -583,6 +589,7 @@ def scan(
 
 
 def _defines(node: ast.AST, name: str) -> bool:
+    """Whether a node defines ``name`` (class, function, assignment target)."""
     if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
         return node.name == name
     if isinstance(node, ast.Assign | ast.AnnAssign):
@@ -621,6 +628,7 @@ class _Sources:
     """Reads and parses anchored files once."""
 
     def __init__(self, src: Path) -> None:
+        """Start with nothing read; files are read and parsed on first use."""
         self.src = src
         self._text: dict[Path, str | None] = {}
         self._tree: dict[Path, ast.Module | None] = {}
@@ -634,6 +642,7 @@ class _Sources:
         return [base] if base.is_file() else []
 
     def text(self, path: Path) -> str | None:
+        """A file's text, ``None`` when it cannot be read (cached)."""
         if path not in self._text:
             try:
                 self._text[path] = path.read_text(encoding="utf-8")
@@ -642,6 +651,7 @@ class _Sources:
         return self._text[path]
 
     def tree(self, path: Path) -> ast.Module | None:
+        """A Python file's AST, ``None`` for other files or a syntax error (cached)."""
         if path not in self._tree:
             text = self.text(path)
             try:
@@ -713,6 +723,7 @@ def covers(anchor: Anchor, finding: Finding, sources: _Sources) -> int:
 
 
 def _fix(text: str) -> str:
+    """A problem line: the code, the text and how to read more."""
     return f"{CODE}: {text} (uv run sandloom explain {CODE})"
 
 
@@ -850,11 +861,13 @@ def check(
 
 
 def _counts(rows: Iterable[Row], attr: str) -> str:
+    """``key: count`` pairs of one row attribute, sorted."""
     counter = Counter(getattr(r, attr) for r in rows)
     return ", ".join(f"{k}: {v}" for k, v in sorted(counter.items()))
 
 
 def _base_rows(base: str) -> dict[str, Row]:
+    """The register's rows at a git ref (empty when the ref has none)."""
     try:
         text = subprocess.run(
             ["git", "show", f"{base}:tests/architecture/kernel_edges.yml"],

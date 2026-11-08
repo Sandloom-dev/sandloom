@@ -43,10 +43,12 @@ def _tree(tmp_path: Path, files: dict[str, str]) -> Path:
 
 
 def _register(**data: Any) -> ke.Register:
+    """A register from keyword sections (``edges``, ``vocabulary``, ...)."""
     return ke.parse_register(data)
 
 
 def _row(rid: str = "R1", **fields: Any) -> dict[str, Any]:
+    """A runtime row anchored on the literal ``crm`` in ``sandloom/core/x.py``."""
     row: dict[str, Any] = {
         "id": rid,
         "class": "b",
@@ -62,6 +64,7 @@ def _row(rid: str = "R1", **fields: Any) -> dict[str, Any]:
 
 
 def _problems(src: Path, register: ke.Register) -> list[str]:
+    """The check's problems for one planted tree and register."""
     return ke.check(register, src).problems
 
 
@@ -112,6 +115,7 @@ def test_the_check_is_static_and_fast() -> None:
 
 
 def test_modules_are_discovered_not_listed() -> None:
+    """Module names and packages come from the layout and entry points, so the scan is not vacuous."""
     names, packages = ke.discover_modules()
     assert {"identity", "tenancy", "billing", "admin"} <= names
     assert {"sandloom_identity", "sandloom_billing"} <= packages
@@ -123,6 +127,7 @@ def test_modules_are_discovered_not_listed() -> None:
 def test_a_planted_module_name_fails_naming_path_pattern_and_class(
     tmp_path: Path,
 ) -> None:
+    """Rule 1: a literal module name no row covers fails with its path, pattern and class."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     (problem,) = _problems(src, _register())
     assert problem.startswith("SANDLOOM-T017")
@@ -133,6 +138,7 @@ def test_a_planted_module_name_fails_naming_path_pattern_and_class(
 
 
 def test_a_planted_contract_literal_fails(tmp_path: Path) -> None:
+    """Rule 1: a literal non-``core`` contract channel fails."""
     src = _tree(tmp_path, {"sandloom/shared/x.py": 'REF = "crm.orders.v1"\n'})
     (problem,) = _problems(src, _register())
     assert "channel 'crm.orders.v1'" in problem
@@ -140,6 +146,7 @@ def test_a_planted_contract_literal_fails(tmp_path: Path) -> None:
 
 
 def test_a_core_channel_and_a_docstring_are_not_findings(tmp_path: Path) -> None:
+    """``core.*`` channels and docstrings are outside the scan."""
     src = _tree(
         tmp_path,
         {
@@ -154,6 +161,7 @@ def test_a_core_channel_and_a_docstring_are_not_findings(tmp_path: Path) -> None
 
 
 def test_a_module_package_literal_and_a_constant_import_fail(tmp_path: Path) -> None:
+    """A literal module package, and a dynamic import of a module-level constant naming one, are findings."""
     src = _tree(
         tmp_path,
         {
@@ -175,6 +183,7 @@ def test_a_module_package_literal_and_a_constant_import_fail(tmp_path: Path) -> 
 
 
 def test_a_declared_setting_or_claim_key_fails(tmp_path: Path) -> None:
+    """Declared module settings (globs, any case) and claim keys are findings."""
     src = _tree(
         tmp_path,
         {
@@ -188,22 +197,26 @@ def test_a_declared_setting_or_claim_key_fails(tmp_path: Path) -> None:
 
 
 def test_a_protocol_word_is_not_a_finding(tmp_path: Path) -> None:
+    """A protocol word equal to a module name (the role ``admin``) is not reported."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'ROLE = "crm"\n'})
     assert _problems(src, _register(vocabulary={"protocol": ["crm"]})) == []
 
 
 def test_a_row_anchor_covers_its_finding(tmp_path: Path) -> None:
+    """A runtime row whose anchor matches the finding covers it."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     assert _problems(src, _register(edges=[_row()])) == []
 
 
 def test_two_rows_with_equally_specific_anchors_are_ambiguous(tmp_path: Path) -> None:
+    """Rule 1 says exactly one row: two equal matches fail."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     (problem,) = _problems(src, _register(edges=[_row("R1"), _row("R2")]))
     assert "more than one row (R1, R2)" in problem
 
 
 def test_the_most_specific_anchor_wins(tmp_path: Path) -> None:
+    """An exact literal anchor beats a symbol anchor of another row."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'TABLE = {\n    "k": "crm",\n}\n'})
     by_symbol = _row(
         "WIDE", anchors=[{"path": "sandloom/core/x.py", "symbol": "TABLE"}]
@@ -218,6 +231,7 @@ def test_the_most_specific_anchor_wins(tmp_path: Path) -> None:
 
 
 def test_a_computed_import_outside_the_loader_call_sites_fails(tmp_path: Path) -> None:
+    """I-02: a computed dynamic import passes only at a listed loader call site."""
     source = (
         "import importlib\ndef load(name):\n    return importlib.import_module(name)\n"
     )
@@ -234,6 +248,7 @@ def test_a_computed_import_outside_the_loader_call_sites_fails(tmp_path: Path) -
 
 
 def test_a_listed_call_site_without_an_import_is_stale(tmp_path: Path) -> None:
+    """The loader call sites only shrink."""
     src = _tree(tmp_path, {"sandloom/core/x.py": "def load(name):\n    return name\n"})
     register = _register(
         loader_call_sites=[
@@ -248,6 +263,7 @@ def test_a_listed_call_site_without_an_import_is_stale(tmp_path: Path) -> None:
 
 
 def test_a_module_file_in_the_wheel_fails(tmp_path: Path) -> None:
+    """Class (c): a generated stub or event schema a module owns is a finding; a ``core`` one is not."""
     src = _tree(
         tmp_path,
         {
@@ -265,6 +281,7 @@ def test_a_module_file_in_the_wheel_fails(tmp_path: Path) -> None:
 
 
 def test_a_built_wheel_is_scanned_for_class_c(tmp_path: Path) -> None:
+    """``--wheel`` reads a built wheel's files, skipping its metadata."""
     wheel = tmp_path / "sandloom-0-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("sandloom/shared/contracts/crm_dto.py", _HEADER)
@@ -278,12 +295,14 @@ def test_a_built_wheel_is_scanned_for_class_c(tmp_path: Path) -> None:
 
 
 def test_a_fixed_row_with_a_finding_fails_as_a_regression(tmp_path: Path) -> None:
+    """Rule 2: a fixed row whose edge is back fails."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     (problem,) = _problems(src, _register(edges=[_row(current_status="fixed")]))
     assert "row R1 is fixed but the edge is back (regression, rule 2)" in problem
 
 
 def test_a_fixed_row_without_a_finding_passes(tmp_path: Path) -> None:
+    """A fixed row with no finding and no anchor left passes."""
     src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})
     assert _problems(src, _register(edges=[_row(current_status="fixed")])) == []
 
@@ -292,6 +311,7 @@ def test_a_fixed_row_without_a_finding_passes(tmp_path: Path) -> None:
 def test_an_open_or_retained_row_without_a_finding_fails(
     tmp_path: Path, status: str
 ) -> None:
+    """Rule 3: an open or retained row with nothing left asks to be set fixed."""
     src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})
     row = _row(current_status=status, reason="protocol")
     (problem,) = _problems(src, _register(edges=[row]))
@@ -300,12 +320,14 @@ def test_an_open_or_retained_row_without_a_finding_fails(
 
 
 def test_the_target_never_decides_the_check(tmp_path: Path) -> None:
+    """The target is the plan: any target passes with the same code."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     for target in ke.TARGETS:
         assert _problems(src, _register(edges=[_row(target=target)])) == []
 
 
 def test_a_symbol_anchor_is_evidence_while_the_symbol_lives(tmp_path: Path) -> None:
+    """A symbol anchor resolves while defined; once gone, the row must be set fixed."""
     row = _row(anchors=[{"path": "sandloom/core/x.py", "symbol": "Config.crm_key"}])
     src = _tree(tmp_path, {"sandloom/core/x.py": "class Config:\n    crm_key = 1\n"})
     assert _problems(src, _register(edges=[row])) == []
@@ -315,6 +337,7 @@ def test_a_symbol_anchor_is_evidence_while_the_symbol_lives(tmp_path: Path) -> N
 
 
 def test_a_retained_row_needs_an_adr_and_a_reason(tmp_path: Path) -> None:
+    """Rule 5: retained needs an ADR id and a reason."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'MODULE = "crm"\n'})
     row = _row(current_status="retained", target="retained", adr=None)
     (problem,) = _problems(src, _register(edges=[row]))
@@ -325,6 +348,7 @@ def test_a_retained_row_needs_an_adr_and_a_reason(tmp_path: Path) -> None:
 
 
 def _doc_row(**fields: Any) -> dict[str, Any]:
+    """A documentation row anchored on ``crm.orders.v1`` in ``sandloom/core/x.py``."""
     return _row(
         "D1",
         kind="documentation",
@@ -337,6 +361,7 @@ def _doc_row(**fields: Any) -> dict[str, Any]:
 
 
 def test_a_documentation_row_passes_without_a_finding(tmp_path: Path) -> None:
+    """Rule 4: a documentation row needs no runtime finding."""
     src = _tree(
         tmp_path, {"sandloom/core/x.py": '"""For example ``crm.orders.v1``."""\n'}
     )
@@ -348,6 +373,7 @@ def test_a_documentation_row_passes_without_a_finding(tmp_path: Path) -> None:
 def test_a_documentation_row_whose_anchor_lost_the_literal_is_stale(
     tmp_path: Path,
 ) -> None:
+    """Rule 4: a documentation row whose anchor no longer holds its text fails as stale."""
     src = _tree(tmp_path, {"sandloom/core/x.py": '"""For example a contract."""\n'})
     (problem,) = _problems(src, _register(edges=[_doc_row()]))
     assert "documentation row D1 is stale" in problem
@@ -355,6 +381,7 @@ def test_a_documentation_row_whose_anchor_lost_the_literal_is_stale(
 
 
 def test_a_documentation_row_never_covers_a_runtime_finding(tmp_path: Path) -> None:
+    """Rule 4: the same literal in code is a finding no row covers."""
     src = _tree(
         tmp_path,
         {
@@ -369,6 +396,7 @@ def test_a_documentation_row_never_covers_a_runtime_finding(tmp_path: Path) -> N
 
 
 def test_a_documentation_row_must_be_retained(tmp_path: Path) -> None:
+    """Rule 4: a documentation row is retained, never open or fixed."""
     src = _tree(tmp_path, {"sandloom/core/x.py": '"""``crm.orders.v1``."""\n'})
     row = _doc_row()
     row["current_status"] = "open"
@@ -380,6 +408,7 @@ def test_a_documentation_row_must_be_retained(tmp_path: Path) -> None:
 
 
 def test_a_not_edge_entry_is_reviewed_and_shrink_only(tmp_path: Path) -> None:
+    """A not-edge entry silences its literal and fails once it matches nothing."""
     src = _tree(tmp_path, {"sandloom/core/x.py": 'ENCODING = "crm"\n'})
     entry = {"path": "sandloom/core/x.py", "literal": "crm", "reason": "a word"}
     assert _problems(src, _register(not_edges=[entry])) == []
@@ -393,11 +422,13 @@ def test_a_not_edge_entry_is_reviewed_and_shrink_only(tmp_path: Path) -> None:
     [("current_status", "deferred"), ("target", "open"), ("kind", "comment")],
 )
 def test_a_malformed_row_is_refused(field: str, value: str) -> None:
+    """An unknown current status, target or kind is refused while parsing."""
     with pytest.raises(ke.RegisterError, match=field):
         _register(edges=[_row(**{field: value})])
 
 
 def test_kernel_tests_are_not_scanned(tmp_path: Path) -> None:
+    """Kernel tests and ``conftest.py`` are not shipped and not scanned."""
     src = _tree(
         tmp_path,
         {
@@ -409,6 +440,7 @@ def test_kernel_tests_are_not_scanned(tmp_path: Path) -> None:
 
 
 def test_the_report_counts_and_names_what_a_change_moves() -> None:
+    """Rule 5 of the ADR: counts by every dimension and the rows a change adds, fixes, retains or removes."""
     register = _register(
         edges=[
             _row("R1", current_status="fixed"),
@@ -436,6 +468,7 @@ def test_the_report_counts_and_names_what_a_change_moves() -> None:
 def test_the_script_exits_non_zero_on_a_problem(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The script exits 0 on a clean tree and 1 with the problems listed."""
     assert ke.main([]) == 0
     monkeypatch.setattr(
         ke, "load_register", lambda: _register(edges=[_row(current_status="fixed")])
