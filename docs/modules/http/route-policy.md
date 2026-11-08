@@ -220,6 +220,11 @@ failing critical contributor aborts minting (`ClaimsUnavailable`, `503`).
 Every token carries `claims_sources` and `claims_sources_failed`: trust a
 module's claim only if that module is in `claims_sources`. Identity stamps
 `auth_time`, carried unchanged through refresh.
+Each claim key has one owner. A second module writing a key another module
+wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
+does a contributor writing a key the kernel stamps: `claims_sources`, `claims_sources_failed`,
+`sub`, `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`, `auth_time`,
+`token_type`.
 
 ## The route snapshot
 
