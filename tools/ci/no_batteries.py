@@ -14,12 +14,19 @@ even from the checkout's ``src/`` (which pytest puts on ``sys.path``):
     importing a battery fails, as where no module wheel is installed.
 
 ``pytest -p tools.ci.no_batteries ...``
-    refuses to run unless the hook is active, and deselects the tests listed
-    in ``no_batteries_pending.json`` — tests that still need a battery and are
-    not yet moved to a suite that installs one; each entry names what it waits
-    for. The list only goes down: an entry whose test no longer exists fails
-    the run, and a new kernel test that needs a battery fails the job instead
-    of joining the list.
+    refuses to run unless the hook is active, and runs the tests listed in
+    ``no_batteries_pending.json`` — tests that still need a battery and are
+    not yet moved to a suite that installs one; each entry names what it
+    waits for — as strict xfails. The list only goes down (a ratchet):
+
+    * an entry outside :data:`CEILING` refuses the run: a new kernel test
+      that needs a battery fails the job instead of joining the list;
+    * an entry whose test now passes without batteries fails the run
+      (``XPASS(strict)``) until the entry is removed;
+    * an entry whose file is gone, or whose collected file no longer holds
+      the test, is stale and refuses the run.
+
+    :data:`CEILING` is empty since KB-05c, so the list stays empty.
 """
 
 from __future__ import annotations
@@ -38,6 +45,12 @@ BATTERIES = frozenset(
 )
 HOOK = "_sandloom_no_batteries"
 PENDING = Path(__file__).with_name("no_batteries_pending.json")
+#: The entries the pending list may hold. It only goes down: an id leaves it
+#: with its entry and none is ever added (review holds that). Empty since
+#: KB-05c moved the last battery-dependent kernel tests, so the list stays
+#: empty: a kernel test that needs a battery moves to
+#: tests/integration/with_batteries or the module's own tests.
+CEILING: frozenset[str] = frozenset()
 
 
 class _NoBatteriesFinder(importlib.machinery.PathFinder):
@@ -98,8 +111,34 @@ def _base_id(nodeid: str) -> str:
     return nodeid.split("[", 1)[0]
 
 
+def above_ceiling(
+    pending: dict[str, str], ceiling: frozenset[str] | None = None
+) -> list[str]:
+    """The pending entries ``ceiling`` (:data:`CEILING`) does not allow: new ones."""
+    allowed = CEILING if ceiling is None else ceiling
+    return sorted(test for test in pending if test not in allowed)
+
+
+def stale_entries(pending: dict[str, str], nodeids: list[str], root: Path) -> list[str]:
+    """The pending entries that name no test.
+
+    An entry whose file is gone from ``root`` is stale whatever was
+    collected; one whose file was collected but holds no test of that name
+    is stale too. An entry in an existing file this run did not collect is
+    not judged, so a run of part of the suites does not report the rest.
+    """
+    seen = {_base_id(nodeid) for nodeid in nodeids}
+    files = {nodeid.split("::", 1)[0] for nodeid in nodeids}
+    stale = []
+    for test in pending:
+        path = test.split("::", 1)[0]
+        if not (root / path).is_file() or (path in files and test not in seen):
+            stale.append(test)
+    return sorted(stale)
+
+
 def pytest_configure(config: Any) -> None:
-    """Refuse a run in which a battery is importable."""
+    """Refuse a run in which a battery is importable or the list grew."""
     import pytest
 
     found = importable_batteries()
@@ -108,39 +147,47 @@ def pytest_configure(config: Any) -> None:
             f"tools.ci.no_batteries: {', '.join(found)} importable; run "
             "`python tools/ci/no_batteries.py install` with this interpreter first"
         )
+    grown = above_ceiling(load_pending())
+    if grown:
+        raise pytest.UsageError(
+            "tools/ci/no_batteries_pending.json only goes down; these entries are "
+            "new (not in CEILING, tools/ci/no_batteries.py). Move each test to "
+            "tests/integration/with_batteries or its module's own tests instead:\n  "
+            + "\n  ".join(grown)
+        )
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
-    """Deselect the pending tests; fail on an entry that names no collected test.
+    """Run the pending tests as strict xfails; refuse stale entries.
 
-    Only entries in a collected file are checked, so a run of part of the
-    suites does not report the rest as stale.
+    A pending test that passes without the batteries is ``XPASS(strict)``,
+    a failure that names its entry: remove it from the list and the ceiling.
     """
     import pytest
 
     pending = load_pending()
-    keep: list[Any] = []
-    dropped: list[Any] = []
-    seen: set[str] = set()
-    for item in items:
-        base = _base_id(item.nodeid)
-        if base in pending:
-            seen.add(base)
-            dropped.append(item)
-        else:
-            keep.append(item)
-    files = {item.nodeid.split("::", 1)[0] for item in items}
-    stale = sorted(
-        test for test in pending if test not in seen and test.split("::", 1)[0] in files
+    stale = stale_entries(
+        pending, [item.nodeid for item in items], Path(config.rootpath)
     )
     if stale:
         raise pytest.UsageError(
             "tools/ci/no_batteries_pending.json names tests that no longer exist "
-            "(moved, renamed or fixed): remove them:\n  " + "\n  ".join(stale)
+            "(moved, renamed, deleted or fixed): remove them and their CEILING "
+            "ids:\n  " + "\n  ".join(stale)
         )
-    if dropped:
-        config.hook.pytest_deselected(items=dropped)
-        items[:] = keep
+    for item in items:
+        waits_for = pending.get(_base_id(item.nodeid))
+        if waits_for is not None:
+            item.add_marker(
+                pytest.mark.xfail(
+                    strict=True,
+                    reason=(
+                        "tools/ci/no_batteries_pending.json "
+                        f"({waits_for}): passes without the batteries now, "
+                        "remove its entry and its CEILING id"
+                    ),
+                )
+            )
 
 
 def main(argv: list[str]) -> int:

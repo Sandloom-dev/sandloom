@@ -722,7 +722,7 @@ invitations, subscriptions, credits and in-flight events is extracted
 (status + JSON body, same ids) is identical, tables match by checksum, in-flight events are relayed exactly
 once by the new owner, and a credit-spend workload survives a SIGKILL of the
 billing service (no lost or double-spent credit, one ledger row and one event
-per spend). `src/sandloom/core/tests/test_module_extraction.py` covers the fence,
+per spend). `tests/integration/with_batteries/test_module_extraction.py` covers the fence,
 crash + resume, refusals, drop-source / unfence and the group transfer.
 
 ### Not covered: online (zero-downtime) extraction — future work

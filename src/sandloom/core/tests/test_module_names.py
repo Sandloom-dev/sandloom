@@ -51,14 +51,6 @@ def installed(monkeypatch: pytest.MonkeyPatch):
     module_names.refresh_installed_modules()
 
 
-def test_the_installed_standard_modules_are_discovered() -> None:
-    names = {m.name: m.path for m in module_names.installed_modules()}
-    assert names["identity"] == "sandloom_identity"
-    assert names["tenancy"] == "sandloom_tenancy"
-    assert names["billing"] == "sandloom_billing"
-    assert module_name("sandloom_identity") == "identity"
-
-
 def test_module_name_is_the_entry_point_name_else_the_last_segment(installed) -> None:
     installed(_EP("crm", "acme_crm_module", "acme-crm"))
     assert module_name("acme_crm_module") == "crm"
@@ -152,14 +144,6 @@ def test_the_loader_refuses_an_ambiguous_module_before_loading_anything(
         )
     assert imported == []
     assert ModuleLoadSummary  # the refusal happens before any summary exists
-
-
-def test_configuration_names_installed_modules_by_entry_point_name() -> None:
-    from sandloom.core.testing.boot import load_topology
-
-    _core, summary = load_topology(["identity", "tenancy"], exact=True)
-    assert [d.name for d in summary.loaded] == ["sandloom_identity", "sandloom_tenancy"]
-    assert summary.explicit == ["sandloom_identity", "sandloom_tenancy"]
 
 
 def test_the_kernel_names_no_module() -> None:

@@ -2,8 +2,10 @@
 
 Modules declare tables through the portable forms of ``sandloom.sdk.data``
 (SANDLOOM-C028), so their DDL must build on any database that has a SQL
-dialect renderer. This builds the standard modules' and each example's
-models on SQLite, one process per application (examples share table names).
+dialect renderer. This builds each example's models on SQLite, one process
+per application (examples share table names); the standard modules' schema
+is built the same way in
+``tests/integration/with_batteries/test_schema_on_a_second_database_bundled_modules.py``.
 It catches a column type or index the second database cannot write (an
 ``ARRAY``, an unrestricted partial index); a dialect type that subclasses a
 generic one (``JSONB`` is a ``JSON``) builds anyway, which C028 covers by
@@ -42,14 +44,11 @@ print(len(built))
 
 #: (directory to run in, packages whose models make up the application)
 APPLICATIONS = [
-    (REPO, ["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]),
-    *(
-        (example, [package.name])
-        for example in sorted((REPO / "examples").iterdir())
-        if (example / "pyproject.toml").exists()
-        for package in example.iterdir()
-        if (package / "modules").is_dir()
-    ),
+    (example, [package.name])
+    for example in sorted((REPO / "examples").iterdir())
+    if (example / "pyproject.toml").exists()
+    for package in example.iterdir()
+    if (package / "modules").is_dir()
 ]
 
 
@@ -72,5 +71,5 @@ def test_the_schema_builds_on_sqlite(root: Path, packages: list[str]) -> None:
 
 
 def test_every_example_is_built() -> None:
-    examples = {r.name for r, _ in APPLICATIONS if r != REPO}
+    examples = {r.name for r, _ in APPLICATIONS}
     assert {"academy", "helpdesk", "linkly", "projecthub", "tutorial"} <= examples

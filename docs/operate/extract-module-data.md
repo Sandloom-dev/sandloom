@@ -192,7 +192,7 @@ database.
 
 - One window per module: online (zero-downtime) extraction is not
   implemented.
-- `src/sandloom/core/tests/test_module_extraction.py` covers the fence,
+- `tests/integration/with_batteries/test_module_extraction.py` covers the fence,
   resume, refusals, drop-source, unfence and the group transfer. The full
   scenario, a monolith split into three services with its data, runs with
   `SANDLOOM_EXTRACTION_E2E=1 uv run pytest tests/extraction --no-cov`.

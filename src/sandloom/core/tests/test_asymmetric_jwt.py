@@ -413,14 +413,6 @@ def test_app_factory_registers_a_critical_refusal(
     assert added == []
 
 
-def test_identity_declares_itself_the_token_issuer() -> None:
-    import inspect
-
-    import sandloom_identity as identity_pkg
-
-    assert "issues_tokens=True" in inspect.getsource(identity_pkg)
-
-
 # -- sandloom keys generate ------------------------------------------------------
 
 

@@ -191,7 +191,7 @@ guarantees:
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_tenant_sql_requires_explicit_system_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_deferred_sql_does_not_inherit_creation_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_sql_declaration_defaults_do_not_need_a_runtime_scope
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   rules:
   - unsafe-tenant-sql
   gap: The rule is only tested at the analyzer level (find_unsafe_tenant_sql); no test runs it through
@@ -1700,7 +1700,7 @@ guarantees:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_create_app_refuses_key_material_that_fails_the_boot_check
   - src/sandloom/core/tests/test_production_profile.py::test_startup_role_check_has_no_shared_secret_opt_out_under_the_profile
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_jwt_secret_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   startup_checks: create_app registers a critical refusal for the JWT role check (sandloom.core.app_factory.enforce_configuration)
 - id: G-AUTH-06
   statement: A verify-only process (asymmetric mode, no private key) cannot mint access tokens; in the
@@ -1843,7 +1843,7 @@ guarantees:
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_twofa_key_is_mandatory_in_prod
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_twofa_key_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_twofa_key_must_be_strong
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestSecretCrypto::test_key_rotation
 - id: G-REVOKE-01
@@ -3020,7 +3020,7 @@ guarantees:
   - tests/integration/test_resilience_config.py::test_stripe_provider_requires_keys
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_rejects_explicit_fake_psp_unless_opted_in
   - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom/core/tests/test_deploy_profiles.py::test_billing_provider_must_be_chosen
 - id: G-BILLING-19
   statement: 'The checkout and portal routes are operation_intent routes and take no request unit: each intent step
@@ -3832,8 +3832,8 @@ guarantees:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
-  - tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   - src/sandloom/core/tests/test_architecture.py::test_architecture_checker_runs_without_violations
   rules:
   - framework-imports
@@ -3844,7 +3844,7 @@ guarantees:
   sources:
   - docs/modules/index.md#What a module may import
   tests:
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   rules:
   - framework-imports
   gap: no test proves a module importing sandloom.core.module_api._service_registry or sandloom.core.facade._state
@@ -3966,7 +3966,7 @@ guarantees:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
   tests:
   - tests/architecture/test_archcheck_library.py::test_test_imports_is_a_whitelist
-  - tests/architecture/test_archcheck_library.py::test_test_imports_whitelist_runs_in_sandloom_check
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_test_imports_whitelist_runs_in_sandloom_check
   - tests/architecture/test_archcheck_library.py::test_test_imports_rule_honours_the_allowlist
   - tests/architecture/test_archcheck_library.py::test_legacy_test_import_baseline_has_no_stale_entries
   rules:
@@ -4377,8 +4377,8 @@ guarantees:
   - docs/contributing/repository.md#Repository map
   tests:
   - src/sandloom/core/tests/test_boot_configuration_checks.py::test_moved_validator_refuses_every_entry_point
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_config_dump_is_not_forced_to_build_the_composition
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_config_dump_is_not_forced_to_build_the_composition
   - src/sandloom/core/tests/test_module_configuration_refusal.py::test_module_refusal_is_the_kernel_configuration_refusal
 - id: G-CONFIG-08
   statement: The generated configuration-tiers reference renders every semantic setting (with its reason)
@@ -4467,7 +4467,7 @@ guarantees:
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_prod_refuses_fake_psp
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_register_refuses_fake_psp_in_prod
   - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   startup_checks: 'module loader refuses: ConfigurationError (SystemExit from sandloom_billing setup, via
     sandloom.core.loader.plugin_loader)'
 - id: G-RISK-08
@@ -4611,10 +4611,10 @@ guarantees:
   sources:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
-  - src/sandloom/core/tests/test_module_extraction.py::test_dry_run_writes_nothing
-  - src/sandloom/core/tests/test_module_extraction.py::test_apply_requires_stopped_writes
-  - src/sandloom/core/tests/test_module_extraction.py::test_live_writer_blocks_the_fence
-  - src/sandloom/core/tests/test_module_extraction.py::test_non_empty_target_is_refused
+  - tests/integration/with_batteries/test_module_extraction.py::test_dry_run_writes_nothing
+  - tests/integration/with_batteries/test_module_extraction.py::test_apply_requires_stopped_writes
+  - tests/integration/with_batteries/test_module_extraction.py::test_live_writer_blocks_the_fence
+  - tests/integration/with_batteries/test_module_extraction.py::test_non_empty_target_is_refused
 - id: G-MIGRATE-08
   statement: extract-module is crash-resumable and verifiable (row counts + checksums vs manifest), --unfence
     rolls back only before completion (after it needs --force), --drop-source is a separate explicit cleanup,
@@ -4622,10 +4622,10 @@ guarantees:
   sources:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
-  - src/sandloom/core/tests/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
-  - src/sandloom/core/tests/test_module_extraction.py::test_unfence_rolls_back_before_completion
-  - src/sandloom/core/tests/test_module_extraction.py::test_group_owner_transfer_redis_transport
-  - src/sandloom/core/tests/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
+  - tests/integration/with_batteries/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
+  - tests/integration/with_batteries/test_module_extraction.py::test_unfence_rolls_back_before_completion
+  - tests/integration/with_batteries/test_module_extraction.py::test_group_owner_transfer_redis_transport
+  - tests/integration/with_batteries/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
 - id: G-MIGRATE-09
   statement: sandloom migrate resolves the module set through the composition root (SANDLOOM_COMPOSITION_ROOT) and
     upgrade-all exits non-zero on failure, including a database stamped at a non-head revision.
@@ -4830,7 +4830,7 @@ guarantees:
   - docs/operate/topologies.md
   - deploy/README.md#Migrations (one-shot `migrate` services)
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
   - tests/architecture/test_ledger_static_pins.py::test_monolith_migrate_one_shot_gates_every_process
 - id: G-OPS-17
   statement: Every set of periodic tasks in a deploy profile is scheduled by exactly one beat, and modules
@@ -4898,7 +4898,7 @@ guarantees:
   - src/sandloom/core/tests/test_image_secrets.py::test_the_generated_dockerfile_copies_only_what_it_builds
   - src/sandloom/core/tests/test_image_secrets.py::test_sandloom_add_deploy_patches_an_old_dockerignore
   - src/sandloom/core/tests/test_image_secrets.py::test_docker_agrees_the_context_has_no_secret
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: G-OPS-23
   statement: While a loaded module has a tasks submodule (tasks or periodic tasks), /ready opens the default
@@ -5106,7 +5106,8 @@ guarantees:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.4 Import isolation
   - docs/adr/0010-public-api-1.0.md#1. One public namespace, `sandloom.sdk`, with a beginner tier
   tests:
-  - tests/architecture/test_sdk_import_isolation.py::test_sdk_import_is_side_effect_free
+  - tests/integration/with_batteries/test_sdk_import_isolation_bundled_modules.py::test_sdk_import_is_side_effect_free
+  - tests/architecture/test_sdk_import_isolation.py::test_the_public_sdk_import_is_side_effect_free
   - tests/architecture/test_sdk_import_isolation.py::test_the_audit_sees_an_entry_point_forcing_settings
   - src/sandloom/core/tests/test_lazy_settings.py::test_import_does_not_validate_and_first_use_does
   - src/sandloom/core/tests/test_lazy_settings.py::test_an_invalid_environment_still_fails_at_the_entry_point
@@ -5637,7 +5638,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_prints_a_usable_pair
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_writes_secrets_dir_files
-  - src/sandloom/core/tests/test_asymmetric_jwt.py::test_identity_declares_itself_the_token_issuer
+  - tests/integration/with_batteries/test_asymmetric_jwt_identity_issuer.py::test_identity_declares_itself_the_token_issuer
   - tests/split_conformance/test_split_conformance.py::test_identity_issues_asymmetric_tokens
 - id: C-AUTH-04
   statement: 'Emergency stop: block_user / unblock_user from sandloom.core.di plus identity''s platform-admin
@@ -5776,9 +5777,9 @@ capabilities:
   sources:
   - docs/operate/topologies.md
   tests:
-  - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_module_subset_boots_alone
   - src/sandloom/core/tests/test_module_subset.py::test_each_single_module_subset_is_ready
-  - src/sandloom/core/tests/test_module_subset.py::test_full_monolith_set_loads
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_full_monolith_set_loads
   - src/sandloom_identity/tests/test_module_wiring.py::test_module_boots_alone
   - src/sandloom_tenancy/tests/test_module_wiring.py::test_module_boots_alone
   - src/sandloom_billing/tests/test_module_wiring.py::test_module_boots_alone
@@ -5811,10 +5812,10 @@ capabilities:
   - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_token_issuer_binds_every_remote_claims_contributor
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_bindings_are_exactly_the_consumed_contracts
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_token_issuer_binds_every_remote_claims_contributor
   - src/sandloom/core/tests/test_deploy_profiles.py::test_rpc_allowlist_is_derived_from_bindings
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_keys_its_responses_and_callers_pin_providers
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_every_service_keys_its_responses_and_callers_pin_providers
 - id: C-SPLIT-07
   statement: A token issuer deployed alone collects other modules' claims over RPC through their <module>.claims.v1
     binding; a critical remote contributor failure aborts minting with 503.
@@ -6083,7 +6084,7 @@ capabilities:
   - docs/operate/topologies.md
   - docs/reference/cli.md
   tests:
-  - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_module_subset_boots_alone
   - src/sandloom/core/tests/test_module_subset.py::test_each_single_module_subset_is_ready
   - src/sandloom/core/tests/test_module_subset.py::test_blacklist_excludes_module
   - src/sandloom/core/tests/test_module_subset.py::test_subset_whose_only_module_failed_is_not_ready
@@ -6174,8 +6175,8 @@ capabilities:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
   - tests/extraction/test_extraction_e2e.py::test_monolith_to_microservices_with_data
-  - src/sandloom/core/tests/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
-  - src/sandloom/core/tests/test_module_extraction.py::test_spec_owns_exactly_the_module_tables
+  - tests/integration/with_batteries/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
+  - tests/integration/with_batteries/test_module_extraction.py::test_spec_owns_exactly_the_module_tables
 - id: C-MIGRATE-07
   statement: sandloom migrate ensure-outbox [--all-databases] --apply idempotently creates the shared core-infra
     tables for dev/repair.
@@ -6479,8 +6480,8 @@ capabilities:
   - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_bindings_are_exactly_the_consumed_contracts
   - src/sandloom/core/tests/test_deploy_profiles.py::test_gateway_routes_every_module_path_to_its_service
   - src/sandloom/core/tests/test_deploy_profiles.py::test_rpc_allowlist_is_derived_from_bindings
 - id: C-DEPLOY-03
@@ -7018,8 +7019,8 @@ capabilities:
   - deploy/README.md
   - docs/modules/background/tasks.md
   tests:
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_split_app_passes_the_framework_split_invariants
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
   - src/sandloom/core/tests/test_consumes_preflight.py::test_topology_read_records_a_missing_required_contract
 - id: C-DEPLOY-07
   statement: An sandloom new application splits into microservices with no code change. sandloom add deploy <module>...
@@ -7040,17 +7041,17 @@ capabilities:
   - docs/operate/split-into-services.md
   - deploy/README.md
   tests:
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_first_deploy_creates_the_profile_gateway_and_init_script
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_rerunning_is_idempotent
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_adding_a_module_is_incremental_and_keeps_hand_edits
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_hand_edit_inside_a_generated_block_is_refused_with_a_diff
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_framework_profile_is_the_generators_output
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_dev_env_covers_every_required_variable
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_root_level_module_gets_the_root_and_the_catch_all
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_first_deploy_creates_the_profile_gateway_and_init_script
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_split_app_passes_the_framework_split_invariants
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_rerunning_is_idempotent
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_adding_a_module_is_incremental_and_keeps_hand_edits
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_hand_edit_inside_a_generated_block_is_refused_with_a_diff
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_framework_profile_is_the_generators_output
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_dev_env_covers_every_required_variable
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_root_level_module_gets_the_root_and_the_catch_all
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_two_services_claiming_root_level_paths_conflict
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_hand_written_catch_all_outside_the_block_is_refused
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_route_prefix_matches_only_its_own_segment
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: C-DEPLOY-08
   statement: A microservices profile is checked against the split invariants the framework's own profile is pinned
@@ -7065,12 +7066,13 @@ capabilities:
   - docs/operate/split-into-services.md
   - deploy/AGENTS.md
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
   - src/sandloom/core/tests/test_deploy_profiles.py::test_the_split_invariants_report_what_breaks_them
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_the_split_invariants_report_what_breaks_them
   - src/sandloom/core/tests/test_deploy_profiles.py::test_sandloom_test_checks_the_split_profile_of_a_project
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_boots_alone_with_its_bindings
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_finds_a_root_route_the_gateway_drops
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_samples_paths_that_collide_with_another_prefix
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_every_service_boots_alone_with_its_bindings
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_checker_finds_a_root_route_the_gateway_drops
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_checker_samples_paths_that_collide_with_another_prefix
 - id: C-DEPLOY-09
   statement: A service added to a running microservices stack gets its database although the Postgres
     volume exists (init-databases.sh runs only on an empty volume) - every generated migrate-<service>
@@ -7088,8 +7090,8 @@ capabilities:
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_a_concurrent_caller_never_sees_an_uninitialized_database
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_an_existing_database_and_a_non_postgres_url_are_left_alone
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_upgrade_all_takes_the_create_databases_flag
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_service_added_later_creates_its_own_database
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_service_added_later_creates_its_own_database
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: C-TEST-13
   statement: sandloom test never aborts for want of parallel resources - -n auto is capped to the Redis database
@@ -7305,7 +7307,7 @@ capabilities:
   - src/sandloom/core/tests/test_module_names.py::test_two_packages_providing_one_requested_name_are_refused
   - src/sandloom/core/tests/test_module_names.py::test_a_local_module_named_like_an_installed_one_is_refused
   - src/sandloom/core/tests/test_module_names.py::test_the_loader_refuses_an_ambiguous_module_before_loading_anything
-  - src/sandloom/core/tests/test_module_names.py::test_configuration_names_installed_modules_by_entry_point_name
+  - tests/integration/with_batteries/test_module_names_installed_standard_modules.py::test_configuration_names_installed_modules_by_entry_point_name
   - tests/integration/with_batteries/test_sdk_module_names.py::test_the_sdk_owner_rule_agrees_with_the_kernel
 - id: C-MODULE-13
   statement: 'Distributions are layered and work installed alone: no module a distribution ships imports (module
@@ -7324,7 +7326,7 @@ capabilities:
   - tests/architecture/test_distribution_imports.py::test_an_unshipped_first_party_module_is_caught
   - tests/architecture/test_distribution_imports.py::test_undeclared_third_party_is_caught_unless_optional
   - tests/integration/test_package_distributions.py::test_every_distribution_installs_and_runs_alone
-  - tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
   - tests/architecture/test_archcheck_library.py::test_test_imports_is_a_whitelist
 - id: C-SDK-03
   statement: sandloom.sdk.tasks.shared_task is Celery's decorator typed with the task's signature (call, delay,
