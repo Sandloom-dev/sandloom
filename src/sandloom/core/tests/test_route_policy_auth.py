@@ -164,6 +164,13 @@ def test_create_app_refuses_an_unauthenticated_route(
     monkeypatch.setattr(app_factory, "_validate_and_index_routes", _with_bad_route)
     # set_active_core binds the whole runtime (core, registry, bus) in one call
     monkeypatch.setattr(app_factory, "set_active_core", lambda *_a, **_k: None)
+    # The claim-authorities step runs first and, with the batteries installed
+    # and no map (SANDLOOM-B035), would refuse before the route check.
+    monkeypatch.setattr(
+        app_factory._claim_authorities,
+        "install_claim_authorities",
+        lambda *_a, **_k: None,
+    )
     with pytest.raises(RoutePolicyError, match="POST /bad: no authenticator"):
         app_factory.create_app()
 
@@ -172,7 +179,9 @@ def test_every_platform_route_is_authenticated_or_public() -> None:
     """The composed batteries monolith resolves (create_app ran the check);
     the kernel's probes are the only public kernel routes, every other ops
     route is service-gated, the platform console is a user route."""
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     kernel = {
         (m, r.path): resolve_route_policy(r, m)

@@ -1644,7 +1644,8 @@ class WithinLimit(_AccountClaimAtom)(
 For `Account.user()` the limit comes from the token claim; `used` is
 the current count the caller already knows (e.g. number of seats). Absent
 / non-integer limit ⇒ treated as 0 (i.e. denied), so a missing entitlement
-fails closed.
+fails closed; a `limits` claim absent because its authority failed at
+the mint is indeterminate (503).
 
 #### `WithinLimit.describe`
 

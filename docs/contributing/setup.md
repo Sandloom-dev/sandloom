@@ -52,7 +52,13 @@ cp .env.example .env
 The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
 `JWT_SECRET`. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
 root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
-commands build; keep it. `sandloom test` takes it from `.env.test`. The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
+commands build; keep it. `sandloom test` takes it from `.env.test`. A checkout or worktree
+without a `.env` gets the lean root, and every command that builds the app refuses with
+`SANDLOOM-B035`. Export the variable there:
+
+```bash
+export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main
+``` The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
 `/metrics`) stay closed (`404`) until you set
 `INTERNAL_API_TOKEN` — or, for local development only,
 `INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. Neither opens internal RPC, which takes

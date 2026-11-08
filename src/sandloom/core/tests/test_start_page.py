@@ -85,7 +85,9 @@ async def test_production_leaves_the_root_unrouted(
 
 
 def test_the_composed_app_serves_the_start_page_as_a_public_read() -> None:
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     (route,) = [r for r in app.routes if getattr(r, "path", None) == "/"]
     policy = resolve_route_policy(route, "GET")

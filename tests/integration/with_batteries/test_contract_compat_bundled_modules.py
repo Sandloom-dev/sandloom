@@ -27,7 +27,7 @@ from sandloom.core.facade import CoreFacade
 # Committed snapshots are current (CI diff gate)
 # --------------------------------------------------------------------------- #
 def test_committed_module_snapshots_match_registered_contracts() -> None:
-    from sandloom.main import core
+    from sandloom_standard.main import core
 
     docs = contract_compat.module_snapshots(core)
     assert {"sandloom_identity", "sandloom_tenancy", "sandloom_billing"} <= set(docs)

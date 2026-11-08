@@ -462,7 +462,9 @@ async def test_a_postgresql_provider_leaves_its_schema_to_the_chains() -> None:
 _BOOT = """
 import asyncio, json
 import httpx
-from sandloom.main import app
+from sandloom.core.composition import load_composition_app
+
+app = load_composition_app()
 from sandloom.sdk.testing import as_user
 
 async def main():

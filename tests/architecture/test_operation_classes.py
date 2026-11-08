@@ -87,7 +87,7 @@ def kernel_platform_routes(source: str) -> dict[tuple[str, str], tuple[str, str]
 # The platform
 # --------------------------------------------------------------------------- #
 def test_every_platform_route_has_one_consistent_class() -> None:
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     problems = route_policy_problems(app.routes)
     assert not problems, "model E route policy:\n  " + "\n  ".join(problems)
@@ -99,14 +99,14 @@ def test_every_platform_route_has_one_consistent_class() -> None:
 
 
 def test_module_routes_match_their_snapshots() -> None:
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     problems = route_snapshots.snapshot_problems(app)
     assert not problems, "\n".join(problems)
 
 
 def test_kernel_routes_carry_the_kernel_classes() -> None:
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     expected = dict(KERNEL_OPS)
     for descriptor in app.state.module_summary.loaded:

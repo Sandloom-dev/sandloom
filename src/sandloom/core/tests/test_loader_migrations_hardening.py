@@ -301,15 +301,15 @@ def test_cli_uses_composition_root_module_set(
     monkeypatch.setenv(migrate.COMPOSITION_ROOT_ENV, "fake_root")
     assert migrate._load_core() is core
 
-    # The default root is sandloom.main, i.e. exactly create_app's resolution.
+    # Without the fake root: the suite's composition root (conftest.py: the
+    # standard root when it is installed, else the lean sandloom.main), i.e.
+    # exactly create_app's resolution of the default module set.
     monkeypatch.delenv(migrate.COMPOSITION_ROOT_ENV)
-    # The framework suite composes sandloom_standard.main when it is installed
-    # (conftest.py); the settings snapshot took it too.
-    monkeypatch.setattr(settings, "sandloom_composition_root", None)
-    import sandloom.main
+    from sandloom.core.composition import load_composition_core
 
-    assert migrate._load_core() is sandloom.main.core
-    names = {d.name for d in sandloom.main.core.module_descriptors}
+    root_core = load_composition_core()
+    assert migrate._load_core() is root_core
+    names = {d.name for d in root_core.module_descriptors}
     from sandloom.core.descriptors.module_names import installed_modules
 
     standard = {m.path for m in installed_modules()}

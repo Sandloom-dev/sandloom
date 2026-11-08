@@ -275,11 +275,11 @@ def _no_map_problem(issuers: list[str]) -> str:
         f"no claim_authorities map is set, but {names} is loaded as the token "
         "issuer (issues_tokens): with no map no protected claim (roles, "
         "permissions, tenant_ids, email, ...) has an authority, so every "
-        "token it mints would be refused (503); boot the composition root "
-        "that assigns them (SANDLOOM_COMPOSITION_ROOT: the standard root the "
-        "shipped image names, or your application's own root) or pass "
-        "create_app(claim_authorities={...}) in the root that composes the "
-        "issuer"
+        "token it mints would be refused (503); set "
+        "SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main (the standard root, "
+        "which assigns the batteries' authorities) or your application's own "
+        "root (<app>.asgi), or pass create_app(claim_authorities={...}) in the "
+        "root that composes the issuer"
     )
 
 

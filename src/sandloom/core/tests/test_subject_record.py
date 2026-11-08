@@ -60,7 +60,9 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
     # The composed app registers the core event schemas on its bus
     # (block_user publishes core.auth.*): make it the active runtime.
     from sandloom.core import runtime
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     monkeypatch.setattr(runtime, "_process_core", app.state.core)
     fake = InMemoryCache()

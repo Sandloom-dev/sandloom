@@ -26,8 +26,10 @@ _DOCS_BUILD_ENV = {
 for _key, _value in _DOCS_BUILD_ENV.items():
     os.environ.setdefault(_key, _value)
 
+
 def render_pages() -> dict[str, str]:
+    from sandloom_standard.main import app
+
     from sandloom.core import route_snapshots
-    from sandloom.main import app
 
     return {"reference/routes.md": route_snapshots.render_reference(app)}

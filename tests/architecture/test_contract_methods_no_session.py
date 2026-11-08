@@ -45,7 +45,7 @@ def find_session_parameters(impl: Any) -> list[str]:
 
 
 def test_registered_contracts_take_no_session() -> None:
-    from sandloom.main import core
+    from sandloom_standard.main import core
 
     offences: dict[str, list[str]] = {}
     for service_name in core.service_registry.list():

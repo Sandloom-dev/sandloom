@@ -22,7 +22,7 @@ from sandloom.core.route_policy import (
 def test_bundled_public_routes_are_exactly_the_reviewed_set() -> None:
     """Independent oracle (spec §10.1): the hand-kept list of the platform's
     public module routes; a new public route must be added here on purpose."""
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     expected = {
         ("GET", "/api/v1/identity/setup-state"),

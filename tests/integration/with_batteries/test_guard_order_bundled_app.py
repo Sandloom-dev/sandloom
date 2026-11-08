@@ -15,8 +15,9 @@ from sandloom.core.guard_order import (
 def test_bundled_app_routes_pass() -> None:
     # create_app already refuses a violation; this pins that the bundled
     # routes really carry guards and authentication the check can see.
+    from sandloom_standard.main import app
+
     from sandloom.core.guard_order import is_authenticator, is_idempotency_guard
-    from sandloom.main import app
 
     guarded = 0
     for route in app.routes:

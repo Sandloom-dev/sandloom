@@ -16,6 +16,7 @@ import pytest
 from fastapi import FastAPI
 
 from sandloom.core import composition
+from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import CoreFacade
 
 
@@ -61,9 +62,16 @@ def test_default_root_is_sandloom_main(monkeypatch: pytest.MonkeyPatch) -> None:
     # The framework suite composes sandloom_standard.main when it is installed
     # (conftest.py); the settings snapshot took it too.
     monkeypatch.setattr(composition.settings, "sandloom_composition_root", None)
-    import sandloom.main
-
     assert composition.composition_root_name() == "sandloom.main"
+    try:
+        import sandloom.main
+    except ConfigurationError as exc:
+        # The lean root assigns no claim authorities: with a token issuer
+        # installed (the batteries) it refuses the boot (SANDLOOM-B035) and
+        # says what to set, instead of an app whose every login is refused.
+        assert "SANDLOOM-B035" in str(exc)
+        assert "SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main" in str(exc)
+        return
     assert composition.load_composition_core() is sandloom.main.core
 
 

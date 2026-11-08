@@ -492,6 +492,7 @@ async def collect_claims(
     *,
     issuer: str | None = None,
     precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
+    issuer_claims: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]
 ```
 

@@ -3053,6 +3053,7 @@
       "kind": "class",
       "members": [
         "category",
+        "claim_key",
         "code",
         "contracts",
         "decide",
@@ -3294,6 +3295,7 @@
       "kind": "class",
       "members": [
         "category",
+        "claim_key",
         "code",
         "contracts",
         "decide",
@@ -6348,6 +6350,7 @@
       "kind": "class",
       "members": [
         "category",
+        "claim_key",
         "code",
         "contracts",
         "decide",
@@ -6577,6 +6580,7 @@
       "kind": "class",
       "members": [
         "category",
+        "claim_key",
         "code",
         "contracts",
         "decide",

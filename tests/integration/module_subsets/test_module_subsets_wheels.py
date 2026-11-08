@@ -6,7 +6,10 @@ distributions are built from this tree once, then:
 - **P2** (I-19): one clean venv per subset with plain ``sandloom`` and exactly
   the subset's module wheels, each with only the dependencies its published
   metadata declares (no Celery, no Redis). The composition root
-  ``sandloom.main`` composes what is installed, by entry point.
+  ``sandloom.main`` composes what is installed, by entry point; a subset with
+  identity (a token issuer) adds the ``sandloom-standard`` wheel and boots
+  ``sandloom_standard.main``, since the lean root assigns no claim
+  authorities and refuses an issuer (SANDLOOM-B035).
 - **P3 extras**: one clean venv with ``sandloom[standard,admin]`` (every module
   wheel, Celery and Redis); each subset is chosen with ``SANDLOOM_MODULES``
   through the standard root ``sandloom_standard.main``, what the image and
@@ -106,16 +109,18 @@ def p2_runs(
 
     def run(subset: tuple[str, ...]) -> SubsetRun:
         venv = root / subset_id(subset)
+        issuer = "identity" in subset
         python = _venv(
             venv,
             str(wheels["sandloom"]),
+            *([str(wheels["sandloom-standard"])] if issuer else []),
             *(str(wheels[MODULES[m][1]]) for m in subset),
         )
         return run_subset(
             subset,
             python=python,
             sandloom=_bin(venv, "sandloom"),
-            root="sandloom.main",
+            root="sandloom_standard.main" if issuer else "sandloom.main",
             cwd=cwd,
             env=probe_environment(),
         )

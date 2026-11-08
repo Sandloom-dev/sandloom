@@ -1774,11 +1774,17 @@ guarantees:
   - tests/integration/test_claims_provenance_and_subscribed.py::test_owner_in_both_lists_is_not_trusted
   - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_escalates_to_live_when_billing_failed_at_mint
 - id: G-AUTH-13
-  statement: Claims contributors cannot override the identity claims (sub, email, email_verified, token_type).
+  statement: Claims contributors cannot write the identity claims. sub and token_type are the minting
+    code's (reserved); email and email_verified are the map's issuer's fields, which identity writes through
+    the mint check (collect_claims(issuer_claims=...)), never after it, so another module's value is dropped
+    as a violator and none is overwritten silently; with no core (no check) they are not minted.
   sources:
   - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_unverified_user_and_contributors_cannot_override_identity
+  - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_without_a_core_no_issuer_field_is_minted
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_issuers_fields_pass_the_check_and_win
+  - src/sandloom/core/tests/test_claims_trust.py::test_without_a_map_the_issuers_fields_are_not_minted
 - id: G-AUTH-14
   statement: Identity stamps auth_time (epoch seconds of the primary sign-in) and carries it unchanged
     through refresh; recency (step-up) checks read auth_time, never iat, so a refreshed token with a fresh
@@ -1868,6 +1874,34 @@ guarantees:
   - tests/integration/replaceability/test_trust_rows.py::test_t2_an_optional_violator_loses_its_whole_result
   - tests/integration/replaceability/test_trust_rows.py::test_t5_a_typo_in_an_authority_refuses_the_boot
   - tests/integration/with_batteries/test_billing_down_login.py::test_billing_down_still_logs_in
+- id: G-AUTH-21
+  statement: A composition that loads a token issuer (issues_tokens=True) with no claim_authorities map
+    refuses the boot (SANDLOOM-B035, naming SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main or a map)
+    instead of running an app whose every mint is refused (503); a process with no issuer boots. A map that
+    assigns an issuer field (email, email_verified) to a module other than its issuer, or names one without
+    an issuer, refuses the boot.
+  sources:
+  - docs/advanced/security-model.md#Authorization
+  - docs/contributing/setup.md#Configure the environment
+  tests:
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_refuses_an_issuing_process_only
+  - src/sandloom/core/tests/test_claims_trust.py::test_install_without_a_map_refuses_an_issuing_process
+  - src/sandloom/core/tests/test_claims_trust.py::test_install_refuses_an_issuer_field_given_to_another_module
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_issuer_field_assigned_to_anyone_else_is_refused
+  - src/sandloom/core/tests/test_composition_root.py::test_default_root_is_sandloom_main
+  - tests/integration/replaceability/test_trust_rows.py::test_t6_an_issuer_under_a_root_without_a_map_refuses_the_boot
+- id: G-AUTH-22
+  statement: Feature and WithinLimit on the user's token are indeterminate (503, never an allow, so Not
+    cannot invert them) when the claim is absent because its authority is in claims_sources_failed (or no
+    assignment is readable and a source failed); an authority that ran and wrote no value denies, as does
+    an unassigned key or a token without provenance (ADR-0014 decision 7, billing option (c)).
+  sources:
+  - docs/advanced/security-model.md#Authorization
+  tests:
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_failed_authority_is_indeterminate_503
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_and_gave_nothing_denies
+  - src/sandloom/core/tests/test_claims_trust.py::test_not_and_or_never_allow_on_a_failed_authority
+  - src/sandloom/core/tests/test_claims_trust.py::test_without_a_readable_assignment_a_failure_is_indeterminate
 - id: G-REVOKE-01
   statement: An access token is revoked iff its issue instant iat_us (microseconds) is <= its subject's
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
@@ -7649,7 +7683,7 @@ issued:
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
-  G-AUTH: 20
+  G-AUTH: 22
   G-AUTHZ: 13
   G-BILLING: 22
   G-BLOCK: 8
@@ -8299,6 +8333,7 @@ adr_sections:
     "Decision, part (a): trust": informational
     "1. The composition root assigns authorities; the kernel has no default":
     - G-AUTH-20
+    - G-AUTH-21
     "2. Mint: who may write a protected key":
     - G-AUTH-20
     "3. Read: one trusted view per verified token": planned
@@ -8308,6 +8343,7 @@ adr_sections:
     "6. Contract-name ownership for access-bearing contracts": planned
     "7. Billing claims: option (c)":
     - G-AUTH-20
+    - G-AUTH-22
     "Decision, part (b): portability": informational
     "8. Contract-anchored access checks": planned
     "9. The equality invariant": planned

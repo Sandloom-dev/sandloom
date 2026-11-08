@@ -15,6 +15,31 @@ website renders this same changelog.
 
 ### Security
 
+- **A token issuer without claim authorities refuses the boot; the issuer's
+  fields pass the mint check; plan atoms answer 503 while billing is down**
+  (W1 review of KB-10). A composition that loads an `issues_tokens=True`
+  module with no `claim_authorities` map (the lean `sandloom.main` with
+  identity installed) now refuses at startup (`SANDLOOM-B035`) instead of
+  running an app whose every login is refused (503); a process with no
+  issuer still boots. `email` and `email_verified` are the map's issuer's:
+  a map that assigns them to another module (or names them without an
+  issuer) refuses the boot, a map with an issuer that names neither assigns
+  them to it, and identity writes them through the mint check
+  (`collect_claims(issuer_claims=...)`, new on `CoreFacade` and
+  `CoreRuntime`), never after it. `Feature` and `WithinLimit` on the user's
+  token answer indeterminate 503 when the claim's authority failed at the
+  mint (`claims_sources_failed`), so `Not` cannot invert it; a billing that
+  ran and granted nothing still denies. The resolved
+  `ClaimAuthorities` mappings are read-only.
+  **Upgrade:** run every process from a root with a map. In a framework
+  checkout or worktree without a `.env`, export
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` (`.env.example` and
+  `.env.test` set it), or `sandloom generate`, `sandloom migrate` and the
+  other commands that build the app refuse with `SANDLOOM-B035`; run the API
+  as `uvicorn sandloom_standard.main:app`. An application root composing an
+  issuer passes `create_app(claim_authorities={...})` (`sandloom new` writes
+  it). A map entry giving `email`/`email_verified` to a module other than the
+  issuer is removed or given to the issuer.
 - **Claim authorities: the composition root says who may write each
   protected token claim** (ADR-0014 decisions 1, 2, 7; KB-10). New
   `create_app(claim_authorities={key: module, ..., "issuer": module},

@@ -69,7 +69,9 @@ def _platform_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     """The composed platform is the active runtime: its bus knows the core
     event schemas ``block_user`` publishes (core.auth.*)."""
     from sandloom.core import runtime
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     monkeypatch.setattr(runtime, "_process_core", app.state.core)
 
