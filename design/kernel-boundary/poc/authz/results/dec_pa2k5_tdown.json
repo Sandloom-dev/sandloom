@@ -1,0 +1,66 @@
+{
+ "variant": "authzpa2",
+ "topology": "split-tenancy-down",
+ "cases": {
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is unavailable",
+      "code": "owner_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is unavailable",
+      "code": "owner_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/billing.entitlements.v1 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is unavailable",
+      "code": "owner_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": 3,
+   "access_indeterminate_total": 3,
+   "access_denied_policy_misconfigured_total": 3,
+   "access_indeterminate_branch_total": 4
+  }
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "variant": "authzstand",
+ "topology": "split-tenancy-down",
+ "cases": {
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: ConnectError",
+      "code": "remote_service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: ConnectError",
+      "code": "remote_service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: ConnectError",
+      "code": "remote_service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: ConnectError",
+      "code": "remote_service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": null,
+   "access_indeterminate_total": null,
+   "access_denied_policy_misconfigured_total": null
+  }
+ }
+}

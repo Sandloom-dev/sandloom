@@ -1,0 +1,37 @@
+"""Contracts the quota module provides."""
+
+from uuid import UUID
+
+from sandloom.sdk import command, contract
+from sandloom.sdk.authz import (  # sandloom: advanced a declared access check
+    Category,
+    From,
+    access_check,
+)
+
+from . import services
+from .schemas import LimitsStatus
+
+
+@contract("quota.limits.v1")
+class Limits:
+    """Contract ``quota.limits.v1``: public ``async def`` methods are reads,
+    ``@command`` marks a command (deduplicated by its key, a saga step)."""
+
+    @access_check(
+        "QuotaAvailable",
+        bind={"owner_id": From.subject_id()},
+        category=Category.QUOTA_EXCEEDED,
+        describe="quota for {units} item(s)",
+    )
+    async def available(self, owner_id: UUID, units: int) -> bool:
+        """True when ``owner_id`` may create ``units`` more items in the bound
+        tenant (at most ``services.ITEM_LIMIT``)."""
+        return await services.count_items(owner_id) + units <= services.ITEM_LIMIT
+
+    async def status(self) -> LimitsStatus:
+        return LimitsStatus(ready=True)
+
+    @command(idempotency_key="operation_key")
+    async def record(self, amount: int, operation_key: str) -> int:
+        return amount

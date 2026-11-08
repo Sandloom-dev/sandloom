@@ -1,0 +1,4 @@
+wt authzpa2 - bound.orgrole_and_subactive
+wt authzpa2 - subscribed
+wt authzpa2 KB_POC_WITNESS=1 bound.orgrole_and_subactive
+wt authzpa2 KB_POC_K6=1 bound.orgrole_and_subactive

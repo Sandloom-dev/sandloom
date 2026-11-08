@@ -1,0 +1,73 @@
+{
+ "variant": "authzpa2",
+ "topology": "split",
+ "cases": {
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 422,
+     "body": {
+      "detail": "tenancy.membership.v1.has_role_at_least: missing a required argument: 'scope'",
+      "code": "contract_argument_invalid"
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/tenancy.membership.v1 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 422"
+     ]
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 422,
+     "body": {
+      "detail": "tenancy.membership.v1.has_role_at_least: missing a required argument: 'scope'",
+      "code": "contract_argument_invalid"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 422"
+     ]
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 422,
+     "body": {
+      "detail": "tenancy.membership.v1.has_role_at_least: missing a required argument: 'scope'",
+      "code": "contract_argument_invalid"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 422"
+     ]
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 422,
+     "body": {
+      "detail": "tenancy.membership.v1.has_role_at_least: missing a required argument: 'scope'",
+      "code": "contract_argument_invalid"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 422"
+     ]
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": null,
+   "access_indeterminate_total": null,
+   "access_denied_policy_misconfigured_total": null,
+   "access_indeterminate_branch_total": null
+  }
+ }
+}

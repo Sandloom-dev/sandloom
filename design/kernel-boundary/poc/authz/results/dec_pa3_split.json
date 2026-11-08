@@ -1,0 +1,136 @@
+{
+ "variant": "authzpa3",
+ "topology": "split",
+ "cases": {
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/pa3.facts.v1 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/describe 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+      "GET /_sandloom/rpc/tenancy.membership.v1 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    }
+   ]
+  },
+  "bound.member": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires entitlement 'pa3.org_role'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires entitlement 'pa3.org_role'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    }
+   ]
+  },
+  "bound.admin_inactive": {
+   "expected_today": 402,
+   "runs": [
+    {
+     "status": 402,
+     "body": {
+      "detail": "requires entitlement 'pa3.subscription_active'",
+      "code": "SubscriptionActive"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    },
+    {
+     "status": 402,
+     "body": {
+      "detail": "requires entitlement 'pa3.subscription_active'",
+      "code": "SubscriptionActive"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    }
+   ]
+  },
+  "bound.outsider": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires entitlement 'pa3.org_role'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires entitlement 'pa3.org_role'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+     ]
+    }
+   ]
+  },
+  "bound.no_tenant": {
+   "expected_today": 400,
+   "runs": [
+    {
+     "status": 400,
+     "body": {
+      "detail": "X-Tenant-Id is required when the token grants multiple tenants",
+      "code": null
+     },
+     "rpc": []
+    },
+    {
+     "status": 400,
+     "body": {
+      "detail": "X-Tenant-Id is required when the token grants multiple tenants",
+      "code": null
+     },
+     "rpc": []
+    }
+   ]
+  }
+ }
+}

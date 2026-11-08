@@ -1,0 +1,1441 @@
+{
+ "topology": "split",
+ "m": 20,
+ "windows": {
+  "control first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 4.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN",
+     "SELECT t.oid, typarray",
+     "ROLLBACK",
+     "select pg_catalog.version()"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db0": 3.0,
+    "db3": 2.0
+   },
+   "redis_sample": {
+    "db0": [
+     "PING",
+     "CLIENT",
+     "CLIENT"
+    ],
+    "db3": [
+     "SELECT",
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "control steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.05
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT audit_log.id, audit_log.occurred_at, audit_log.actor_id, audit_log.actor_type, audit_log.action, audit_log.resource_type, audit_log.resource_id, audit_lo"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.05
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.user first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 9.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, created_at, expires_at) VALUES ('8b93467e0c9c4ffe8b7c64bb5bbca0a",
+     "BEGIN;",
+     "COMMIT",
+     "SELECT pg_catalog.pg_class.relname ",
+     "DELETE FROM wsa_admission_probe",
+     "COMMIT;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.user steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 3.3
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE DATABASE \"kbpoc_test2_gw0_gen_da33584b\"",
+     "SELECT pg_catalog.pg_class.relname ",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "perm.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 9.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT",
+     "COMMIT",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "BEGIN;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "SELECT e.amount FROM billing_credit_balances AS e JOIN billing_customers AS j ON e.customer_id = j.id WHERE j.organization_id = $1"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "perm.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.25
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE INDEX ix_saga_instances_due ON saga_instances (next_attempt_at) WHERE status IN ('running', 'compensating')"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 16.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE alembic_version SET version_num='0003_outbox_claim_token' WHERE alembic_version.version_num = '0002_outbox_lease'",
+     "ALTER TABLE outbox_messages ADD COLUMN next_attempt_at TIMESTAMP WITHOUT TIME ZONE",
+     "UPDATE alembic_version SET version_num='0004_outbox_backoff' WHERE alembic_version.version_num = '0003_outbox_claim_token'",
+     "SELECT pg_catalog.pg_class.relname ",
+     "",
+     "",
+     "",
+     "CREATE INDEX ix_outbox_messages_dead ON outbox_messages (dead_at) WHERE dead_at IS NOT NULL",
+     "SELECT pg_catalog.pg_class.relname ",
+     "CREATE INDEX ix_outbox_messages_delivered ON outbox_messages (delivered_at) WHERE delivered_at IS NOT NULL",
+     "",
+     "UPDATE alembic_version SET version_num='0005_outbox_partial_indexes' WHERE alembic_version.version_num = '0004_outbox_backoff'",
+     "",
+     "CREATE INDEX ix_outbox_messages_delivered ON outbox_messages (delivered_at) WHERE delivered_at IS NOT NULL",
+     "CREATE INDEX ix_contract_command_log_expires_at ON contract_command_log (expires_at)",
+     "CREATE INDEX ix_outbox_messages_dead ON outbox_messages (dead_at) WHERE dead_at IS NOT NULL"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "GET /_sandloom/rpc/billing.facts.v1 200",
+    "POST /_sandloom/rpc/billing.facts.v1/describe 200"
+   ]
+  },
+  "subscribed steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 2.5
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN;",
+     "CREATE INDEX ix_billing_credit_grants_customer_id ON billing_credit_grants (customer_id)"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0,
+    "postgres": 27.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE INDEX ix_outbox_messages_relay ON outbox_messages (emitted_at) WHERE delivered_at IS NULL AND dead_at IS NULL",
+     "BEGIN",
+     "SELECT t.oid, typarray",
+     "COMMIT;",
+     "ROLLBACK",
+     "BEGIN",
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "ROLLBACK",
+     "",
+     "BEGIN",
+     "SELECT pg_advisory_xact_lock(1095385421) AS pg_advisory_xact_lock_1",
+     "SELECT pg_catalog.pg_class.relname ",
+     "WITH RECURSIVE typeinfo_tree(",
+     "SELECT pg_catalog.pg_class.relname ",
+     "",
+     "",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "COMMIT;",
+     "BEGIN;",
+     "",
+     "SELECT outbox_messages.id, outbox_messages.channel, outbox_messages.schema_version, outbox_messages.payload, outbox_messages.trace_id, outbox_messages.emitted_a",
+     "ROLLBACK;",
+     "BEGIN;"
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "ROLLBACK;",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "GET /_sandloom/rpc/billing.entitlements.v1 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 3.05
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN",
+     "INSERT INTO billing_customers (id, user_id) VALUES ('bb234041-2760-4bb6-a170-3676f1b47bee', '602670d6-035c-4cff-8c03-a2bedea62658')",
+     "WITH RECURSIVE typeinfo_tree("
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "credits first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 4.0,
+    "postgres": 4.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "BEGIN;",
+     "BEGIN",
+     "CREATE EXTENSION IF NOT EXISTS \"citext\""
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/billing.entitlements.v1/has_credits_at_least 200"
+   ]
+  },
+  "credits steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 4.0,
+    "postgres": 5.45
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ],
+    "postgres": [
+     "CREATE INDEX ix_outbox_messages_relay ON outbox_messages (emitted_at) WHERE delivered_at IS NULL AND dead_at IS NULL",
+     "BEGIN;",
+     "SAVEPOINT sa_savepoint_1",
+     "INSERT INTO alembic_version (version_num) VALUES ('0001_core_infra') RETURNING alembic_version.version_num",
+     "ALTER TABLE outbox_messages ADD COLUMN locked_until TIMESTAMP WITHOUT TIME ZONE"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/billing.entitlements.v1/has_credits_at_least 200"
+   ]
+  },
+  "role_or_credits.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 1.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.15
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE alembic_version SET version_num='0010_saga_state' WHERE alembic_version.version_num = '0009_http_idempotency_log'"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.user first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 4.0,
+    "postgres": 22.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN;",
+     "BEGIN;",
+     "SET IntervalStyle = 'postgres'",
+     "BEGIN;",
+     "SET bytea_output = 'hex'",
+     "COMMIT",
+     "select pg_catalog.version()",
+     "select pg_catalog.version()",
+     "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+     "BEGIN",
+     "CREATE TABLE IF NOT EXISTS sandloom_module_extractions (module varchar(200) NOT NULL, table_name varchar(200) NOT NULL, row_count bigint NOT NULL, checksum text",
+     "select current_schema()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show transaction isolation level",
+     "BEGIN;",
+     "show standard_conforming_strings",
+     "SELECT count(*) FROM pg_locks l JOIN pg_database d ON d.oid = l.database WHERE l.locktype = 'advisory' AND NOT l.granted AND d.datname = current_database()",
+     "show standard_conforming_strings",
+     "ROLLBACK;",
+     "COMMIT",
+     "ROLLBACK;"
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/billing.entitlements.v1/has_credits_at_least 200"
+   ]
+  },
+  "role_or_credits.user steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 4.0,
+    "postgres": 19.7
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT relname FROM pg_class WHERE relname = ANY(ARRAY['billing_credit_balances','billing_credit_grants','billing_credit_ledger','billing_customers','billing_op",
+     "show standard_conforming_strings",
+     "SAVEPOINT sa_savepoint_1",
+     "SELECT tenancy_organizations.id ",
+     "SAVEPOINT sa_savepoint_1",
+     "ROLLBACK;",
+     "SELECT tgrelid::regclass::text FROM pg_trigger WHERE tgname = 'sandloom_extract_fence'",
+     "INSERT INTO users (id, email, username, full_name, first_name, last_name, hashed_password, password_reset_nonce, password_reset_required, is_active, is_superuse",
+     "SAVEPOINT sa_savepoint_1",
+     "INSERT INTO users (id, email, username, full_name, first_name, last_name, hashed_password, password_reset_nonce, password_reset_required, is_active, is_superuse",
+     "BEGIN;",
+     "RELEASE SAVEPOINT sa_savepoint_1",
+     "SELECT to_regclass('\"sandloom_module_extractions\"') IS NOT NULL",
+     "RELEASE SAVEPOINT sa_savepoint_1",
+     "INSERT INTO users (id, email, username, full_name, first_name, last_name, hashed_password, password_reset_nonce, password_reset_required, is_active, is_superuse",
+     "SELECT table_name, row_count, checksum FROM sandloom_module_extractions WHERE module = 'sandloom_billing'",
+     "SAVEPOINT sa_savepoint_1",
+     "SELECT users.id, users.email, users.username, users.full_name, users.first_name, users.last_name, users.hashed_password, users.password_reset_nonce, users.passw",
+     "SELECT users.id, users.email, users.username, users.full_name, users.first_name, users.last_name, users.hashed_password, users.password_reset_nonce, users.passw"
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/billing.entitlements.v1/has_credits_at_least 200"
+   ]
+  },
+  "orgrole first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 21.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "UPDATE tenancy_invitations SET revoked_at=clock_timestamp() WHERE tenancy_invitations.organization_id = $1::UUID AND tenancy_invitations.email = $2 AND tenancy_",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "SAVEPOINT sa_savepoint_1",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "ROLLBACK",
+     "INSERT INTO tenancy_invitations (id, organization_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at) VALUES ($1::UUID, $2::UUID, $3, ",
+     "BEGIN",
+     "SELECT e.id, e.organization_id, e.user_id, e.role, e.created_at FROM tenancy_members AS e WHERE e.organization_id = $1 ORDER BY e.created_at ASC, e.id ASC LIMIT",
+     "SELECT e.id, e.name, e.slug, e.owner_id, e.is_active, e.created_at, e.updated_at FROM tenancy_organizations AS e JOIN tenancy_members AS j ON j.organization_id ",
+     "COMMIT",
+     "SELECT pg_catalog.pg_class.relname ",
+     "RELEASE SAVEPOINT sa_savepoint_1",
+     "",
+     "COMMIT",
+     "SELECT alembic_version.version_num ",
+     "SELECT tenancy_invitations.id, tenancy_invitations.organization_id, tenancy_invitations.email, tenancy_invitations.role, tenancy_invitations.token_hash, tenancy"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "GET /_sandloom/rpc/tenancy.membership.v1 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "orgrole steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 11.9
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT",
+     "BEGIN",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "COPY \"billing_credit_balances\" (\"id\", \"customer_id\", \"amount\") FROM STDIN",
+     "BEGIN",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "COMMIT",
+     "SELECT pg_try_advisory_lock(1095385421) AS pg_try_advisory_lock_1",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"amount\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || coalesce(sum(('x' || s"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 6.0,
+    "postgres": 20.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_products\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attnum",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"stripe_product_id\", \"name\", \"type\", \"is_active\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' ",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_psp_payment_states\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY",
+     "BEGIN;",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"psp_payment_intent_id\", \"psp_customer_id\", \"currency\", \"amount_refunded\", \"dispute_status\", \"dispute_amoun",
+     "SELECT to_regclass('\"billing_psp_payment_states\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_psp_payment_states\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"psp_payment_intent_id\", \"psp_customer_id\", \"currency\", \"amount_refunded\", \"dispute_status\", \"dispute_amoun",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_stripe_events\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attn",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"event_id\", \"received_at\", \"status\", \"note\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || co",
+     "SELECT to_regclass('\"billing_stripe_events\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_stripe_events\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attn",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"event_id\", \"received_at\", \"status\", \"note\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || co",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_balances\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY at",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"amount\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || coalesce(sum(('x' || s",
+     "SELECT to_regclass('\"billing_credit_balances\"') IS NOT NULL",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_balances\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY at"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 6.0,
+    "postgres": 10.25
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT tgrelid::regclass::text FROM pg_trigger WHERE tgname = 'sandloom_extract_fence'",
+     "SELECT to_regclass('\"sandloom_module_extractions\"') IS NOT NULL",
+     "SELECT table_name, row_count, checksum FROM sandloom_module_extractions WHERE module = 'sandloom_billing'",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_customers\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attnum",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"stripe_customer_id\", \"user_id\", \"organization_id\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':",
+     "SELECT to_regclass('\"billing_customers\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_customers\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attnum",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"stripe_customer_id\", \"user_id\", \"organization_id\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_products\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attnum",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"stripe_product_id\", \"name\", \"type\", \"is_active\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' "
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "orgrole_and_subactive.outsider first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "orgrole_and_subactive.outsider steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 4.25
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT",
+     "SELECT pg_catalog.pg_class.relname ",
+     "SELECT pg_catalog.pg_class.relname ",
+     ""
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.control first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 5.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE alembic_version_billing SET version_num='0002_billing' WHERE alembic_version_billing.version_num = '0001_billing'",
+     "COMMIT;",
+     "",
+     "SELECT (SELECT array_agg(roles.code) AS anon_1 ",
+     "UPDATE alembic_version_billing SET version_num='0003_billing' WHERE alembic_version_billing.version_num = '0002_billing'"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.control steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.9
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0,
+    "postgres": 36.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "SELECT to_regclass('\"billing_psp_payment_states\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_stripe_events\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attn",
+     "COMMIT",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "BEGIN;",
+     "ROLLBACK;",
+     "BEGIN;",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"event_id\", \"received_at\", \"status\", \"note\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || co",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "DROP TABLE IF EXISTS idem_demo_effects",
+     "SELECT to_regclass('\"billing_stripe_events\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_balances\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY at",
+     "COMMIT;",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"amount\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || coalesce(sum(('x' || s",
+     "ROLLBACK;",
+     "SELECT to_regclass('\"billing_credit_balances\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_grants\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attn",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"psp_session_id\", \"psp_payment_intent_id\", \"price_id\", \"credits\", \"amount\", \"currency\"",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT to_regclass('\"billing_credit_grants\"') IS NOT NULL",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_ledger\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attn",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "COMMIT",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"delta\", \"reason\", \"operation_key\", \"created_at\", \"balance_after\")::text), 1, 15))::bi",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT to_regclass('\"billing_credit_ledger\"') IS NOT NULL",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_operation_intents\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY ",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"operation\", \"status\", \"customer_id\", \"tenant_type\", \"tenant_id\", \"actor_id\", \"request_key\", \"params_"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0,
+    "postgres": 14.15,
+    "sandloom_rls_app_411b43d2c7": 0.55,
+    "sandloom_rls_app_97c430a9dd": 0.6,
+    "sandloom_rls_app_aa54bebd2f": 0.9
+   },
+   "pg_sample": {
+    "sandloom_rls_app_411b43d2c7": [
+     "show standard_conforming_strings"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ],
+    "postgres": [
+     "CREATE DATABASE \"sandloom_test_extract_734cf0e7_dst\"",
+     "BEGIN;",
+     "DROP TABLE IF EXISTS test_rls_notes_411b43d2c7",
+     "DROP ROLE IF EXISTS sandloom_rls_app_411b43d2c7",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN",
+     "CREATE EXTENSION IF NOT EXISTS \"citext\"",
+     "select pg_catalog.version()",
+     "UPDATE users SET hashed_password=$1::VARCHAR, updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE users.id = $3::UUID",
+     "select current_schema()",
+     "COMMIT",
+     "UPDATE refresh_tokens SET is_revoked=$1::BOOLEAN, revoked_at=$2::TIMESTAMP WITH TIME ZONE WHERE refresh_tokens.user_id = $3::UUID AND refresh_tokens.is_revoked ",
+     "show transaction isolation level"
+    ],
+    "sandloom_rls_app_97c430a9dd": [
+     "BEGIN;"
+    ],
+    "sandloom_rls_app_aa54bebd2f": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.member first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 7.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT name FROM test_rls_notes_8ea147e42f ORDER BY name",
+     "ROLLBACK;",
+     "BEGIN;",
+     "DROP TABLE IF EXISTS test_rls_notes_8ea147e42f",
+     "BEGIN",
+     "INSERT INTO billing_customers (id, user_id) VALUES ('a0d2d51b-4643-4c08-9cf5-a1d909ccaa32', '1612925a-5ca1-4727-9e25-67a36554115b')",
+     "COMMIT"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.member steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 5.15,
+    "sandloom_rls_app_add0f7feac": 0.9
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"event_id\", \"received_at\", \"status\", \"note\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || co",
+     "BEGIN;",
+     "SELECT to_regclass('\"billing_stripe_events\"') IS NOT NULL",
+     "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"billing_credit_balances\"') AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY at",
+     "SELECT count(*), coalesce(sum(('x' || substr(md5(ROW(\"id\", \"customer_id\", \"amount\")::text), 1, 15))::bit(60)::bigint), 0)::text || ':' || coalesce(sum(('x' || s"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ],
+    "sandloom_rls_app_add0f7feac": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.admin_inactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0,
+    "postgres": 12.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE POLICY \"test_rls_notes_94b56b1abc_tenant_isolation\" ON \"test_rls_notes_94b56b1abc\" AS PERMISSIVE FOR ALL USING (\"tenant_id\" = (CASE WHEN current_setting(",
+     "DROP POLICY IF EXISTS \"test_rls_notes_94b56b1abc_system_access\" ON \"test_rls_notes_94b56b1abc\"",
+     "",
+     "CREATE ROLE sandloom_rls_app_94b56b1abc LOGIN PASSWORD '707b209f56734287a2b9e83312ea9a07' NOSUPERUSER NOBYPASSRLS",
+     "SET LOCAL row_security = off",
+     "SET LOCAL lock_timeout = '30s'",
+     "GRANT SELECT, INSERT, UPDATE, DELETE ON test_rls_notes_94b56b1abc TO sandloom_rls_app_94b56b1abc",
+     "SELECT $1::INTEGER AS anon_1, count(*) AS count_1 ",
+     "CREATE INDEX ix_saga_instances_tenant_id ON saga_instances (tenant_id)",
+     "INSERT INTO test_rls_notes_94b56b1abc VALUES (gen_random_uuid(), '00000000-0000-0000-0000-00000000000a', 'a1'), (gen_random_uuid(), '00000000-0000-0000-0000-000",
+     "COMMIT;",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.admin_inactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0,
+    "postgres": 4.9,
+    "sandloom_rls_app_14f69506b8": 6.7
+   },
+   "pg_sample": {
+    "sandloom_rls_app_14f69506b8": [
+     "SELECT name FROM test_rls_notes_14f69506b8 ORDER BY name",
+     "COMMIT;",
+     "BEGIN; SELECT set_config('sandloom.tenant_id', '00000000-0000-0000-0000-00000000000a', true)",
+     "SELECT name FROM test_rls_notes_14f69506b8 ORDER BY name",
+     "COMMIT;",
+     "BEGIN; SELECT set_config('sandloom.tenant_id', '00000000-0000-0000-0000-00000000000a', true)"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ],
+    "postgres": [
+     "SELECT 1",
+     "SET LOCAL row_security = off",
+     "SET LOCAL lock_timeout = '30s'",
+     "SELECT $1::INTEGER AS anon_1, count(*) AS count_1 "
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.outsider first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 3.0,
+    "sandloom_rls_app_14f69506b8": 6.0
+   },
+   "pg_sample": {
+    "sandloom_rls_app_14f69506b8": [
+     "SELECT name FROM test_rls_notes_14f69506b8 ORDER BY name",
+     "COMMIT;",
+     "BEGIN; SELECT set_config('sandloom.tenant_id', '00000000-0000-0000-0000-00000000000a', true)",
+     "SELECT name FROM test_rls_notes_14f69506b8 ORDER BY name",
+     "COMMIT;",
+     "BEGIN; SELECT set_config('sandloom.tenant_id', '00000000-0000-0000-0000-00000000000a', true)"
+    ],
+    "postgres": [
+     "INSERT INTO tenancy_member_versions (organization_id, user_id, version) VALUES ($1::UUID, $2::UUID, $3::BIGINT) ON CONFLICT (organization_id, user_id) DO UPDATE",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "SELECT tenancy_members.role "
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.outsider steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 2.3,
+    "sandloom_rls_app_14f69506b8": 0.75
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT 1 FROM pg_database WHERE datname = 'ux_ext_6672c42b'",
+     "CREATE DATABASE \"ux_ext_6672c42b\""
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ],
+    "sandloom_rls_app_14f69506b8": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.no_tenant first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 1.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "ALTER TABLE \"test_rls_notes_4f90d70024\" FORCE ROW LEVEL SECURITY"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.no_tenant steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.4
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE TABLE test_rls_notes_a12ebd623b (id uuid PRIMARY KEY, tenant_id uuid NOT NULL, name text NOT NULL)"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "or_sub_user.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 9.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "WITH audit AS (INSERT INTO audit_log (id, occurred_at, actor_id, actor_type, action, resource_type, resource_id, data, request_id, trace_id) SELECT * FROM unnes",
+     "SELECT billing_prices.product_id, billing_prices.id, billing_prices.stripe_price_id, billing_prices.amount, billing_prices.currency, billing_prices.recurring_in",
+     "SELECT tenancy_members.role ",
+     "BEGIN;",
+     "COMMIT;",
+     "select pg_catalog.version()",
+     "SELECT tenancy_members.role ",
+     "",
+     "select current_schema()"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "or_sub_user.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 6.05
+   },
+   "pg_sample": {
+    "postgres": [
+     "ROLLBACK;",
+     "",
+     "BEGIN;",
+     "SELECT pg_catalog.pg_class.relname ",
+     "WITH RECURSIVE typeinfo_tree(",
+     "SELECT pg_catalog.pg_class.relname "
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "not_member.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 3.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT pg_catalog.pg_class.relname ",
+     "SELECT pg_catalog.pg_class.relname ",
+     ""
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "not_member.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 0.75,
+    "sandloom_rlsx_app_4c449e03bd": 0.5
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ],
+    "sandloom_rlsx_app_4c449e03bd": [
+     "BEGIN;"
+    ],
+    "postgres": [
+     "COMMIT;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "subscribed.past_due first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "sandloom_rlsx_app_c3aeb6a9fa": 2.0
+   },
+   "pg_sample": {
+    "sandloom_rlsx_app_c3aeb6a9fa": [
+     "SELECT name FROM test_rlsx_c3aeb6a9fa ORDER BY name",
+     "UPDATE test_rlsx_c3aeb6a9fa SET name = name"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed.past_due steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 0.6
+   },
+   "pg_sample": {
+    "postgres": [
+     "GRANT SELECT, INSERT, UPDATE, DELETE ON test_rlsx_plain_c0ab8a55e3 TO sandloom_rlsx_app_c0ab8a55e3"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  }
+ }
+}

@@ -1,0 +1,73 @@
+{
+ "variant": "authzpa2",
+ "topology": "split",
+ "cases": {
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)",
+      "code": "rpc_caller_forbidden"
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/tenancy.membership.v1 403",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 403"
+     ]
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)",
+      "code": "rpc_caller_forbidden"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 403"
+     ]
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)",
+      "code": "rpc_caller_forbidden"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 403"
+     ]
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 503,
+     "body": {
+      "detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)",
+      "code": "rpc_caller_forbidden"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 403"
+     ]
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": null,
+   "access_indeterminate_total": null,
+   "access_denied_policy_misconfigured_total": null,
+   "access_indeterminate_branch_total": null
+  }
+ }
+}

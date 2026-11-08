@@ -1,0 +1,10 @@
+$ (hand edit) sed -i s/"risk": {"admin": ...}/"risk": {}/ src/sandloom/shared/contracts/tenancy_membership_v1.py
+$ sandloom generate --check
+generated files are stale: run `sandloom generate` (1 file(s)):
+  src/sandloom/shared/contracts/tenancy_membership_v1.py [SANDLOOM-T007] (differs)
+
+$ (provider) risk={"admin": {"minimum": ["owner"]}} in src/sandloom_tenancy/contracts.py
+$ sandloom generate
+src/sandloom_tenancy/contracts.snapshot.json: error[SANDLOOM-T004]: incompatible change: tenancy.membership.v1.has_role_at_least: access check risk 'admin' lowered for 'minimum'
+fix: a breaking contract change is a new version (.v2); sandloom explain SANDLOOM-T004
+sandloom generate: nothing was written

@@ -1,0 +1,21 @@
+### pa2 + K5, tenancy down
+2026-11-08 14:05:32,193 [WARNING] sandloom.app: INTERNAL_API_TOKEN is unset: /metrics, /diagnostics, /contracts and /health details are disabled (404). Set the token, or INTERNAL_ENDPOINTS_OPEN_IN_DEV=true for local development.
+2026-11-08 14:05:32,816 [WARNING] sandloom.access: access check indeterminate: owner_unavailable (organization role 'admin', tenancy.membership.v1) [request_id=0d10ba7d-d2fc-49fe-85d1-28cbb958f47a]
+2026-11-08 14:05:32,816 [WARNING] sandloom.access: access denied: owner_unavailable (organization role 'admin') [request_id=0d10ba7d-d2fc-49fe-85d1-28cbb958f47a]
+orgrole {"expected_today": 200, "runs": [{"status": 503, "body": {"detail": "contract 'tenancy.membership.v1' is unavailable", "code": "owner_unavailable"}, "rpc": []}]}
+2026-11-08 14:05:33,080 [WARNING] sandloom.access: access check indeterminate: owner_unavailable (organization role 'admin', tenancy.membership.v1) [request_id=3b6d33ac-922a-4531-a5f1-8ccbce3b3084]
+2026-11-08 14:05:33,081 [WARNING] sandloom.access: access denied: owner_unavailable (organization role 'admin') [request_id=3b6d33ac-922a-4531-a5f1-8ccbce3b3084]
+bound.orgrole_and_subactive {"expected_today": 200, "runs": [{"status": 503, "body": {"detail": "contract 'tenancy.membership.v1' is unavailable", "code": "owner_unavailable"}, "rpc": []}]}
+2026-11-08 14:05:33,337 [WARNING] sandloom.access: access check indeterminate: owner_unavailable (organization role 'admin', tenancy.membership.v1) [request_id=76b5ae5f-7c7e-4467-a871-235a5d5abb14]
+or_sub_user.admin {"expected_today": 200, "runs": [{"status": 200, "body": {"ok": true}, "rpc": ["GET /_sandloom/rpc/billing.entitlements.v1 200", "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"]}]}
+2026-11-08 14:05:33,611 [WARNING] sandloom.access: access check indeterminate: owner_unavailable (organization role 'member', tenancy.membership.v1) [request_id=56ec43e0-5141-4f28-bb75-a3dfb24596eb]
+2026-11-08 14:05:33,611 [WARNING] sandloom.access: access denied: owner_unavailable (organization role 'member') [request_id=56ec43e0-5141-4f28-bb75-a3dfb24596eb]
+not_member.admin {"expected_today": 403, "runs": [{"status": 503, "body": {"detail": "contract 'tenancy.membership.v1' is unavailable", "code": "owner_unavailable"}, "rpc": []}]}
+metrics {"access_denied_total": 3, "access_indeterminate_total": 3, "access_denied_policy_misconfigured_total": 3, "access_indeterminate_branch_total": 4}
+### pa2 + K5, provider refuses tenancy (RPC authorization)
+2026-11-08 14:05:37,220 [WARNING] sandloom.app: INTERNAL_API_TOKEN is unset: /metrics, /diagnostics, /contracts and /health details are disabled (404). Set the token, or INTERNAL_ENDPOINTS_OPEN_IN_DEV=true for local development.
+orgrole {"expected_today": 200, "runs": [{"status": 503, "body": {"detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)", "code": "rpc_caller_forbidden"}, "rpc": ["GE
+bound.orgrole_and_subactive {"expected_today": 200, "runs": [{"status": 503, "body": {"detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)", "code": "rpc_caller_forb
+or_sub_user.admin {"expected_today": 200, "runs": [{"status": 503, "body": {"detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)", "code": "rpc_caller_forbidden"}, "
+not_member.admin {"expected_today": 403, "runs": [{"status": 503, "body": {"detail": "Remote service 'tenancy.membership.v1' is unavailable: the provider does not allow this service to call it (RPC_ALLOWED_CALLS)", "code": "rpc_caller_forbidden"}, "r
+metrics {"access_denied_total": null, "access_indeterminate_total": null, "access_denied_policy_misconfigured_total": null, "access_indeterminate_branch_total": null}

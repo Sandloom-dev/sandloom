@@ -1,0 +1,21 @@
+$ (1) provider body change only: has_role_at_least returns through a local variable
+$ sandloom generate
+generated files current (51 file(s))
+
+$ (2) declaration change: access_check describe= "organization role {minimum}" -> "organisation role {minimum}"
+$ sandloom generate
+wrote src/sandloom_tenancy/contracts.snapshot.json
+wrote src/sandloom/shared/contracts/tenancy_membership_v1.py
+generated files current (51 file(s))
++        "args": ["organization_id", "user_id", "minimum"],
++        "binds": {"organization_id": ["org", "org_id", False], "user_id": ["subject"]},
++        "describe": "organisation role '{minimum}'",
++            "organization_id": "org",
+
+$ (3) PYTHONHASHSEED=1 sandloom generate; PYTHONHASHSEED=4242 sandloom generate --check
+generated files current (51 file(s))
+generated files up to date (51 file(s))
+745e16dc61989a58e7bbd530ea51e486ade03835d473b29b273f954eb71933db  src/sandloom/shared/contracts/tenancy_membership_v1.py
+44d2ecdef65221206428db9d958ea7ec6142cceeb4f180193b44c354e8dcae55  src/sandloom/shared/contracts/billing_entitlements_v1.py
+745e16dc61989a58e7bbd530ea51e486ade03835d473b29b273f954eb71933db  src/sandloom/shared/contracts/tenancy_membership_v1.py
+44d2ecdef65221206428db9d958ea7ec6142cceeb4f180193b44c354e8dcae55  src/sandloom/shared/contracts/billing_entitlements_v1.py

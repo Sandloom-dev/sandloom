@@ -1,0 +1,89 @@
+{
+ "variant": "authzstand",
+ "topology": "split-nobind",
+ "cases": {
+  "subscribed": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "credits": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "Billing is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "Tenancy membership is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "Tenancy membership is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "Tenancy membership is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "Tenancy membership is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": 5,
+   "access_indeterminate_total": 5,
+   "access_denied_policy_misconfigured_total": 5,
+   "access_indeterminate_branch_total": null
+  }
+ }
+}

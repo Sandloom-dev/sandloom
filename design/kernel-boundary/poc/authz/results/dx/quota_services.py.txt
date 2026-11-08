@@ -1,0 +1,44 @@
+"""The quota use cases. ``db()`` is the session of the running unit."""
+
+from uuid import UUID
+
+import sqlalchemy as sa
+
+from sandloom.sdk import db
+
+from .events import ItemCreated
+from .models.item import QuotaItem
+from .schemas import ItemIn, ItemOut
+
+#: Items an owner may hold per tenant.
+ITEM_LIMIT = 2
+
+
+async def create_item(body: ItemIn, *, owner_id: UUID) -> ItemOut:
+    item = QuotaItem(title=body.title, owner_id=owner_id)
+    db().add(item)
+    await db().flush()
+    await ItemCreated(item_id=item.id, tenant_id=item.tenant_id).publish()
+    return ItemOut.model_validate(item)
+
+
+async def get_item(item_id: UUID) -> ItemOut | None:
+    item = await db().get(QuotaItem, item_id)
+    return None if item is None else ItemOut.model_validate(item)
+
+
+async def list_items(*, limit: int) -> list[ItemOut]:
+    """The newest items first: ``created_at`` (the database clock), then the
+    UUIDv7 ``id`` (creation order) for rows stamped in the same microsecond.
+    ``TenantScoped`` keeps them to the bound tenant."""
+    newest = QuotaItem.created_at.desc()
+    tie = QuotaItem.id.desc()
+    query = sa.select(QuotaItem).order_by(newest, tie).limit(limit)
+    rows = await db().scalars(query)
+    return [ItemOut.model_validate(row) for row in rows]
+
+
+async def count_items(owner_id: UUID) -> int:
+    """The owner's items in the bound tenant."""
+    query = sa.select(QuotaItem.id).where(QuotaItem.owner_id == owner_id)
+    return len(list(await db().scalars(query)))
