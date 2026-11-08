@@ -219,6 +219,22 @@ website renders this same changelog.
 
 ### Changed
 
+- **The admin console's manifest is a file the console declares** (ADR-0012
+  decision 4). A module can declare files `sandloom generate` writes into the
+  app's shared package, `define_module(..., generates={"name": render})`:
+  `render(source) -> str` receives the composed app as data
+  (`sandloom.sdk.module.GenerationInput`: OpenAPI, routes, each loaded
+  module's `admin.py` resources), never a module, and `sandloom test` fails on
+  a stale file (SANDLOOM-T016, also for a name two modules declare). The
+  console declares `admin-manifest.json` this way: the kernel no longer gates
+  generation on the name `sandloom_admin` and no longer names the file, and
+  the manifest compiler and the resource schema moved from
+  `sandloom.core.admin` to `sandloom_admin.compiler` / `sandloom_admin.models`
+  (`sandloom.core.admin` keeps the platform operations API). The manifest's
+  bytes are unchanged. `sandloom admin export` renders the file the composed
+  console declares: its build-time composition must include `sandloom_admin`
+  (it fails, saying so, otherwise). New advanced names:
+  `GenerationInput`, `GenerationModule`, `ModuleDescriptor.generated_files`.
 - **A module distribution holds copies of the contracts it consumes**
   (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
   an ecosystem module repository), `sandloom generate` writes

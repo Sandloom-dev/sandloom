@@ -160,8 +160,8 @@ edges:
     reason: protocol
     prs: []
     anchors:
-      - {path: sandloom/core/admin/compiler.py, symbol: compile_app}
-    note: "the admin compiler reads each loaded module's admin resources"
+      - {path: sandloom/core/cli/generation_input.py, symbol: collect}
+    note: "sandloom generate reads each loaded module's admin resources as data for module-declared generated files (KB-40)"
   - id: A8
     class: a
     type: runtime_call
@@ -626,7 +626,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-40]
@@ -638,7 +638,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-40]
@@ -971,7 +971,7 @@ edges:
 
 loader_call_sites:
   - {path: sandloom/core/loader/plugin_loader.py, symbol: _load_list, row: A2, reason: the loader imports each configured or discovered module}
-  - {path: sandloom/core/admin/compiler.py, symbol: compile_app, row: A7, reason: "the admin compiler imports <module>.admin of each loaded module"}
+  - {path: sandloom/core/cli/generation_input.py, symbol: collect, row: A7, reason: "sandloom generate imports <module>.admin of each loaded module (data for declared generated files)"}
   - {path: sandloom/core/contract_compat.py, symbol: module_package_dir, row: A9, reason: "contract compatibility locates the owner's package"}
   - {path: sandloom/core/worker.py, symbol: discover_task_modules, row: A10, reason: "the worker imports <pkg>.tasks of each loaded module"}
   - {path: sandloom/core/tasks/periodic.py, symbol: has_periodic_tasks, row: A11, reason: "beat locates a module's tasks.py without importing it"}

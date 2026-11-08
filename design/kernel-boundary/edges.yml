@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 43, fixed: 2, retained: 2}
+  current_status: {open: 41, fixed: 4, retained: 2}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -455,7 +455,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-40]
@@ -472,7 +472,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-40]

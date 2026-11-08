@@ -30,6 +30,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`CapabilityRequirement`](#capabilityrequirement) | class | An infrastructure capability a module needs to function. |
 | [`ContractRequirement`](#contractrequirement) | class | A sync service contract a module CALLS (`core.get_service(name)`). |
 | [`FailedModule`](#failedmodule) | class | A module that failed to load, with its error and whether it was required. |
+| [`GenerationInput`](#generationinput) | class | What `sandloom generate` hands a module's generated-file renderer. |
+| [`GenerationModule`](#generationmodule) | class | One loaded module as a generated file's renderer sees it: data, not the module. |
 | [`HealthCheck`](#healthcheck) | callable |  |
 | [`HealthResult`](#healthresult) | class | Outcome of a module health check: a status plus optional details. |
 | [`HealthStatus`](#healthstatus) | callable |  |
@@ -67,6 +69,7 @@ def define_module(
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
     settings: type[BaseModel] | None = None,
+    generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]
 ```
 
@@ -99,6 +102,13 @@ against its refresh routes, session tables and consumers (SANDLOOM-B035).
 the process's one read of the environment before anything else
 registers; an invalid value stops the boot (optional module or not).
 Read it with `settings_of(Model)` inside a request, a task or `setup`.
+
+`generates` declares files `sandloom generate` writes into the app's
+shared package: file name -> `render(source) -> str`, where `source` is
+the composed app as data (`sandloom.sdk.module.GenerationInput`:
+OpenAPI, routes, each loaded module's `admin.py` resources). `sandloom
+test` fails when a file is stale (SANDLOOM-T016). The admin console
+declares its manifest this way.
 
 ## Advanced names
 
@@ -160,6 +170,33 @@ class FailedModule(name: str, error: str, required: bool) -> None
 ```
 
 A module that failed to load, with its error and whether it was required.
+
+### `GenerationInput`
+
+```python
+class GenerationInput(
+    openapi: Mapping[str, Any],
+    routes: Mapping[tuple[str, str], str],
+    modules: tuple[GenerationModule, ...],
+) -> None
+```
+
+What `sandloom generate` hands a module's generated-file renderer.
+
+Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
+routes as `(path, METHOD) -> the endpoint's Python module` and every
+loaded module in load order. A renderer imports no other module.
+
+### `GenerationModule`
+
+```python
+class GenerationModule(package: str, name: str, admin_resources: Any = None) -> None
+```
+
+One loaded module as a generated file's renderer sees it: data, not the module.
+
+`package` is its import name, `name` its module name, `admin_resources`
+the `RESOURCES` its `admin.py` declares (`None` without one).
 
 ### `HealthCheck`
 
@@ -455,6 +492,7 @@ class ModuleDescriptor(
     consumes: list[ContractRequirement] = <factory>,
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    generated_files: dict[str, GeneratedFileRenderer] = <factory>,
 ) -> None
 ```
 

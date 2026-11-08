@@ -1,0 +1,27 @@
+{
+  "contract": "identity.security.v1",
+  "describe": {
+    "hash": "ed0385dfb659939804f7a8cfba941399",
+    "methods": {
+      "platform_admin_exists": {
+        "idempotency_key": null,
+        "kind": "read",
+        "params": [],
+        "returns": {
+          "k": "scalar",
+          "t": "bool"
+        }
+      }
+    }
+  },
+  "fingerprint": "ed0385dfb659939804f7a8cfba941399",
+  "format": 1,
+  "generator_format": 2,
+  "methods": [
+    "platform_admin_exists"
+  ],
+  "provider": {
+    "class": "sandloom_identity.contracts.SecurityOperationsContract",
+    "distribution": "sandloom-identity"
+  }
+}

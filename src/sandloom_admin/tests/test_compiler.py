@@ -1,4 +1,4 @@
-"""Admission tests for generated admin: API contracts, not ORM inference."""
+"""Admission tests for the console's manifest: API contracts, not ORM inference."""
 
 from __future__ import annotations
 
@@ -9,9 +9,26 @@ from typing import Literal
 
 import pytest
 from fastapi import FastAPI, Query
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from sandloom.core.admin import compile_app, compile_resources
+from sandloom_admin.compiler import compile_manifest, compile_resources
+
+
+def _routes(app: FastAPI) -> dict[tuple[str, str], str]:
+    """The routes as the kernel hands them: ``(path, METHOD) -> endpoint module``."""
+    return {
+        (route.path, method): route.endpoint.__module__
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods
+    }
+
+
+def _compile(app: FastAPI, owner: str, resources: list) -> dict:
+    return compile_resources(
+        app.openapi(), _routes(app), [(owner, owner.rsplit(".", 1)[-1], resources)]
+    )
 
 
 class ItemOut(BaseModel):
@@ -114,7 +131,7 @@ def catalog() -> tuple[FastAPI, dict]:
 
 def test_compiles_new_module_without_frontend_switches() -> None:
     app, declaration = catalog()
-    result = compile_resources(app, [("demo.catalog", [declaration])])
+    result = _compile(app, "demo.catalog", [declaration])
     resource = result["resources"][0]
     assert resource["module"] == "catalog"
     assert resource["columns"][0]["name"] == "name"
@@ -129,7 +146,7 @@ def test_compiles_new_module_without_frontend_switches() -> None:
     from pathlib import Path
 
     target = (
-        Path(__file__).resolve().parents[4]
+        Path(__file__).resolve().parents[3]
         / "admin/tests/fixtures/catalog-manifest.json"
     )
     assert json.loads(target.read_text()) == result
@@ -187,7 +204,7 @@ def test_compiles_new_module_without_frontend_switches() -> None:
 def test_rejects_unsafe_or_incomplete_declarations(change: dict, message: str) -> None:
     app, declaration = catalog()
     with pytest.raises(ValueError, match=message):
-        compile_resources(app, [("demo.catalog", [{**declaration, **change}])])
+        _compile(app, "demo.catalog", [{**declaration, **change}])
 
 
 def test_a_generated_single_file_api_is_the_module_s_own() -> None:
@@ -196,7 +213,7 @@ def test_a_generated_single_file_api_is_the_module_s_own() -> None:
         endpoint = getattr(route, "endpoint", None)
         if endpoint and endpoint.__module__.startswith("demo.catalog.api"):
             endpoint.__module__ = "demo.catalog.api"
-    assert compile_resources(app, [("demo.catalog", [declaration])])["resources"]
+    assert _compile(app, "demo.catalog", [declaration])["resources"]
 
 
 def test_a_module_with_a_similar_name_is_not_the_owner() -> None:
@@ -206,21 +223,19 @@ def test_a_module_with_a_similar_name_is_not_the_owner() -> None:
         if endpoint and endpoint.__module__.startswith("demo.catalog.api"):
             endpoint.__module__ = "demo.catalog.api_extra"
     with pytest.raises(ValueError, match="not owned"):
-        compile_resources(app, [("demo.catalog", [declaration])])
+        _compile(app, "demo.catalog", [declaration])
 
 
 def test_foreign_module_cannot_admit_owners_routes() -> None:
     app, declaration = catalog()
     with pytest.raises(ValueError, match="not owned"):
-        compile_resources(app, [("demo.foreign", [declaration])])
+        _compile(app, "demo.foreign", [declaration])
 
 
 def test_duplicate_resources_fail_not_shadow() -> None:
     app, declaration = catalog()
     with pytest.raises(ValueError, match="duplicate/unsafe"):
-        compile_resources(
-            app, [("demo.catalog", [declaration, copy.deepcopy(declaration)])]
-        )
+        _compile(app, "demo.catalog", [declaration, copy.deepcopy(declaration)])
 
 
 @pytest.mark.parametrize(
@@ -239,80 +254,79 @@ def test_unsupported_form_schemas_fail_before_rendering(schema: dict) -> None:
     app, declaration = catalog()
     app.openapi()["components"]["schemas"]["ItemIn"]["properties"]["name"] = schema
     with pytest.raises(ValueError):
-        compile_resources(app, [("demo.catalog", [declaration])])
+        _compile(app, "demo.catalog", [declaration])
 
 
-def test_discovery_only_loaded_modules_and_never_swallows_broken_import(
+def test_the_manifest_comes_from_data_never_from_modules() -> None:
+    app, declaration = catalog()
+    source = SimpleNamespace(
+        openapi=app.openapi(),
+        routes=_routes(app),
+        modules=(
+            SimpleNamespace(
+                package="demo.catalog", name="catalog", admin_resources=[declaration]
+            ),
+            SimpleNamespace(package="demo.plain", name="plain", admin_resources=None),
+        ),
+    )
+    manifest = compile_manifest(source)
+    assert manifest["modules"] == ["catalog"]
+    assert (
+        manifest["resources"]
+        == _compile(app, "demo.catalog", [declaration])["resources"]
+    )
+
+
+def test_a_platform_audit_route_adds_the_kernel_s_operations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from sandloom.core.admin import compiler
+    from sandloom_admin import compiler
 
-    app, declaration = catalog()
-    app.state.module_summary = SimpleNamespace(
-        loaded=[SimpleNamespace(name="demo.catalog")], failed=[]
-    )
+    seen: list = []
     monkeypatch.setattr(
-        compiler.importlib,
-        "import_module",
-        lambda name: SimpleNamespace(RESOURCES=[declaration]),
+        compiler,
+        "compile_resources",
+        lambda document, routes, declarations: seen.extend(declarations) or {},
     )
-    assert compile_app(app)["modules"] == ["catalog"]
-
-    def absent(name: str) -> None:
-        raise ModuleNotFoundError(name=name)
-
-    monkeypatch.setattr(compiler.importlib, "import_module", absent)
-    assert compile_app(app)["resources"] == []
-
-    def broken(name: str) -> None:
-        raise ModuleNotFoundError(name="missing_dependency_inside_declaration")
-
-    monkeypatch.setattr(compiler.importlib, "import_module", broken)
-    with pytest.raises(ModuleNotFoundError):
-        compile_app(app)
-
-
-def test_cli_honors_composition_and_checks_drift(tmp_path, monkeypatch) -> None:
-    from sandloom.core import composition
-    from sandloom.core.admin import compiler
-    from sandloom.core.cli.admin import main
-
-    app, declaration = catalog()
-    app.state.module_summary = SimpleNamespace(
-        loaded=[SimpleNamespace(name="demo.catalog")], failed=[]
+    source = SimpleNamespace(
+        openapi={},
+        routes={
+            ("/api/v1/platform/catalog/audit", "GET"): "sandloom.core.admin.api.x",
+            ("/api/v1/platform/catalog/services", "GET"): "sandloom.core.admin.api.x",
+        },
+        modules=(
+            SimpleNamespace(
+                package="demo.catalog", name="catalog", admin_resources=None
+            ),
+            SimpleNamespace(package="demo.plain", name="plain", admin_resources=None),
+        ),
     )
-    monkeypatch.setattr(composition, "load_composition_app", lambda: app)
-    monkeypatch.setattr(
-        compiler.importlib,
-        "import_module",
-        lambda name: SimpleNamespace(RESOURCES=[declaration]),
-    )
-    output = tmp_path / "admin.json"
-    assert main(["export", "--output", str(output)]) == 0
-    assert main(["export", "--output", str(output), "--check"]) == 0
-    output.write_text("{}")
-    assert main(["export", "--output", str(output), "--check"]) == 1
+    compile_manifest(source)
+    [(owner, module, operations)] = seen
+    assert (owner, module) == ("sandloom.core", "core")
+    assert [o["name"] for o in operations] == ["audit_catalog", "services_catalog"]
+    assert operations[0]["list"]["path"] == "/api/v1/platform/catalog/audit"
 
 
 def test_header_only_tenant_scope_and_no_fake_unpaged_api() -> None:
     app, declaration = catalog()
     declaration["scope"] = {"parameter": None}
     assert (
-        compile_resources(app, [("demo.catalog", [declaration])])["resources"][0][
-            "scope"
-        ]["parameter"]
+        _compile(app, "demo.catalog", [declaration])["resources"][0]["scope"][
+            "parameter"
+        ]
         is None
     )
     declaration["pagination"] = {"mode": "all"}
     with pytest.raises(ValueError, match="genuinely unpaged"):
-        compile_resources(app, [("demo.catalog", [declaration])])
+        _compile(app, "demo.catalog", [declaration])
 
 
 def test_audit_binding_is_explicit_and_uses_a_real_detail_field() -> None:
     app, declaration = catalog()
     declaration["audit"] = {"resource_type": "catalog_item", "id_field": "id"}
-    resource = compile_resources(app, [("demo.catalog", [declaration])])["resources"][0]
+    resource = _compile(app, "demo.catalog", [declaration])["resources"][0]
     assert resource["audit"] == declaration["audit"]
     declaration["audit"]["id_field"] = "missing_psp_id"
     with pytest.raises(ValueError, match="audit"):
-        compile_resources(app, [("demo.catalog", [declaration])])
+        _compile(app, "demo.catalog", [declaration])

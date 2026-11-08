@@ -2,7 +2,9 @@
   "consumers": [],
   "consumes": [
     {
-      "methods": [],
+      "methods": [
+        "platform_admin_exists"
+      ],
       "name": "identity.security.v1",
       "required": false
     }

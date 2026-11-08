@@ -25,8 +25,8 @@ For every module declared with L1 discovery (``define_module`` of
   expectations of the contracts the module ``consumes``, planned before
   composition (:mod:`sandloom.core.cli.consumer_copies`, ADR-0013;
   SANDLOOM-T018 when a copy cannot be generated or verified);
-- ``<shared>/admin-manifest.json``: the admin console's screens, when the
-  composition loads the console (SANDLOOM-T016).
+- ``<shared>/<file>``: each file a loaded module declares, rendered from the
+  composed app's data (:mod:`sandloom.core.cli.generation_input`, SANDLOOM-T016).
 
 Consumer files (stubs, DTO copies) carry a provenance header whose digest
 covers the body, and are laid out by the generator itself, never by the
@@ -64,11 +64,11 @@ from typing import Any
 
 import sandloom.core.cli.consumer_copies as _consumer_copies
 import sandloom.core.cli.dto_copies as _dto_copies
+import sandloom.core.cli.generation_input as _generation_input
 import sandloom.core.cli.inspection.generation as _inspection_generation
 import sandloom.core.cli.route_weakening as _route_weakening
 import sandloom.core.contract_compat as _contract_compat
 import sandloom.core.route_snapshots as _route_snapshots
-from sandloom.core.admin import compile_app
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.composition import load_composition_app
 from sandloom.core.contracts.schema_compatibility import (
@@ -79,7 +79,6 @@ from sandloom.core.module_api import contract_schema
 
 #: File name of a module's generated surface snapshot.
 MODULE_SNAPSHOT = "module.snapshot.json"
-ADMIN_MANIFEST = "admin-manifest.json"
 HEADER = _dto_copies.HEADER
 
 
@@ -580,21 +579,15 @@ def _contract_files(
     return out
 
 
-def _admin_manifest(app: Any, shared_dir: Path) -> list[Generated]:
-    """The console reads this file, so every process serves the same screens
-    whichever modules it hosts. Only a process that composes them all can write it."""
-    names = {entry.name for entry in app.state.app_manifest.modules}
-    if "sandloom_admin" not in names:
-        return []
-    item = Generated(shared_dir / ADMIN_MANIFEST, "", "SANDLOOM-T016")
-    try:
-        item.content = (
-            json.dumps(compile_app(app), ensure_ascii=False, indent=2, sort_keys=True)
-            + "\n"
-        )
-    except (ValueError, KeyError, AttributeError, ImportError) as exc:
-        item.problems.append(f"admin declarations: {exc}")
-    return [item]
+def _declared_files(app: Any, shared_dir: Path) -> list[Generated]:
+    """The files the loaded modules declare (the console's manifest among them).
+    Only a process that composes every module can write them."""
+    out = []
+    for path, content, problems in _generation_input.planned(app, shared_dir):
+        item = Generated(path, content, "SANDLOOM-T016")
+        item.problems += problems
+        out.append(item)
+    return out
 
 
 def _selected(entry: Any, modules: Iterable[str] | None) -> bool:
@@ -684,7 +677,7 @@ def plan(
             wanted=wanted,
         )
     if modules is None:
-        out += _admin_manifest(app, shared_dir)
+        out += _declared_files(app, shared_dir)
     return out
 
 
@@ -758,7 +751,7 @@ def _ensure_package(directory: Path, shared_dir: Path) -> None:
 
 #: The fix printed per incompatible-change code.
 _FIXES = {
-    "SANDLOOM-T016": "fix the admin.py declaration named above",
+    "SANDLOOM-T016": "fix the declaration of the module named above",
     "SANDLOOM-T001": "a weaker route policy is written only once approved: review "
     "it, then run `sandloom routes snapshot --write` (the snapshot diff records the "
     "approval)",

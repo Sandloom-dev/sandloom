@@ -11,7 +11,7 @@ This is part of the stable public API (``sandloom.core.descriptors``).
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -31,6 +31,7 @@ __all__ = [
     "ModuleLoadSummary",
     "MigrationTargetError",
 ]
+# GenerationInput, GenerationModule: public through sandloom.sdk.module only.
 
 HealthStatus = Literal["ok", "degraded", "fail"]
 
@@ -50,6 +51,38 @@ class HealthResult:
 
 
 HealthCheck = Callable[[], Awaitable[HealthResult]]
+
+
+@dataclass(frozen=True)
+class GenerationModule:
+    """One loaded module as a generated file's renderer sees it: data, not the module.
+
+    ``package`` is its import name, ``name`` its module name, ``admin_resources``
+    the ``RESOURCES`` its ``admin.py`` declares (``None`` without one).
+    """
+
+    package: str
+    name: str
+    admin_resources: Any = None
+
+
+@dataclass(frozen=True)
+class GenerationInput:
+    """What ``sandloom generate`` hands a module's generated-file renderer.
+
+    Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
+    routes as ``(path, METHOD) -> the endpoint's Python module`` and every
+    loaded module in load order. A renderer imports no other module.
+    """
+
+    openapi: Mapping[str, Any]
+    routes: Mapping[tuple[str, str], str]
+    modules: tuple[GenerationModule, ...]
+
+
+#: Renders one module-declared generated file (its full text) from the
+#: composed app's data; a ``ValueError`` names the declaration to fix.
+GeneratedFileRenderer = Callable[[GenerationInput], str]
 
 
 @dataclass(frozen=True)
@@ -151,6 +184,12 @@ class ModuleDescriptor:
     # a stateless issuer, verified at startup against its refresh routes,
     # session tables and consumers (ADR-0012 decision 5, SANDLOOM-B035).
     refresh_sessions: bool = True
+    # Files ``sandloom generate`` writes into the app's shared package for this
+    # module: file name -> renderer, checked by ``generate --check`` and
+    # ``sandloom test`` like every generated file (SANDLOOM-T016).
+    generated_files: dict[str, GeneratedFileRenderer] = field(
+        default_factory=lambda: cast(dict[str, GeneratedFileRenderer], {})
+    )
 
     def effective_capabilities(self) -> list[CapabilityRequirement]:
         """Capabilities to preflight at load (the declared list)."""

@@ -1,7 +1,8 @@
 """``sandloom admin`` — the console's operator commands.
 
     sandloom admin export --output FILE [--check]
-        compile the static admin manifest (module declarations + public OpenAPI)
+        render the static admin manifest the composed console module declares
+        (module declarations + public OpenAPI), as ``sandloom generate`` does
     sandloom admin create --email ADDRESS [--name NAME]
                           [--invite | --password-stdin] [--if-missing] [--take-over]
                           [--quiet]
@@ -36,7 +37,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import json
 import sys
 import uuid
 from collections.abc import Callable
@@ -46,8 +46,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import sandloom.core.cli.generation_input as _generation_input
 import sandloom.core.cli.ui as _ui
-from sandloom.core.admin import compile_app
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
 from sandloom.core.cli.dev import errors as _dev_errors
@@ -522,19 +522,28 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
     return 0
 
 
+def _exported(app: Any, name: str) -> str:
+    """The text of the generated file the composition declares under ``name``,
+    or of the only one it declares (the console's manifest)."""
+    files = _generation_input.declared(app)
+    chosen = [f for f in files if f.name == name] or (files if len(files) == 1 else [])
+    if not chosen:
+        declared = ", ".join(sorted(f.name for f in files)) or "none"
+        raise ValueError(
+            f"no composed module declares a generated file {name!r} (declared: "
+            f"{declared}); compose the console module in the build-time composition"
+        )
+    [item] = chosen[:1]
+    if item.problems:
+        raise ValueError("; ".join(item.problems))
+    return item.content
+
+
 def _export(args: argparse.Namespace) -> int:
     from sandloom.core.composition import load_composition_app  # noqa: PLC0415 - cold: static command - only the export builds the app and settings; --help works unconfigured
 
     try:
-        payload = (
-            json.dumps(
-                compile_app(load_composition_app()),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        )
+        payload = _exported(load_composition_app(), args.output.name)
         if args.check:
             if not args.output.exists() or args.output.read_text() != payload:
                 raise ValueError("admin manifest is stale; run sandloom admin export")

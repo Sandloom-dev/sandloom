@@ -516,6 +516,7 @@ def define_module(
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
     settings: type[BaseModel] | None = None,
+    generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from its declarations (spec §5.7).
 
@@ -544,8 +545,16 @@ def define_module(
     the process's one read of the environment before anything else
     registers; an invalid value stops the boot (optional module or not).
     Read it with ``settings_of(Model)`` inside a request, a task or ``setup``.
+
+    ``generates`` declares files ``sandloom generate`` writes into the app's
+    shared package: file name -> ``render(source) -> str``, where ``source`` is
+    the composed app as data (:class:`~sandloom.sdk.module.GenerationInput`:
+    OpenAPI, routes, each loaded module's ``admin.py`` resources). ``sandloom
+    test`` fails when a file is stale (SANDLOOM-T016). The admin console
+    declares its manifest this way.
     """
     pkg = package or caller_module(1)
+    generated_files = dict(generates or {})
     if pkg == "__main__":
         raise TypeError(
             "define_module() could not infer the module package; call it as "
@@ -593,6 +602,7 @@ def define_module(
             ],
             issues_tokens=issues_tokens,
             refresh_sessions=refresh_sessions,
+            generated_files=dict(generated_files),
         )
 
     register.__qualname__ = register.__name__ = "register"

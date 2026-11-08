@@ -1,18 +1,23 @@
-"""Compile only explicitly admitted module HTTP operations into static UI data."""
+"""Compile only explicitly admitted module HTTP operations into static UI data.
+
+The input is data the kernel collects from the composed app (``sandloom generate``
+hands it to :func:`sandloom_admin.manifest.render`): the OpenAPI document, the
+routes as ``(path, METHOD) -> endpoint module`` and each loaded module's
+``admin.RESOURCES``. The console imports no other module (ADR-0012 decision 4).
+"""
 
 from __future__ import annotations
 
-import importlib
 import re
-from collections.abc import Iterable
-from typing import cast
-
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
-
-from sandloom.core.descriptors.module_names import module_name as _module_name
+from collections.abc import Iterable, Mapping
+from typing import Any, cast
 
 from .models import FormOperation, Json, Operation, Resource
+
+#: ``(path, METHOD) -> the endpoint's Python module``, as the kernel collects it.
+Routes = Mapping[tuple[str, str], str]
+#: The owner (import name) of the platform operations the kernel serves.
+_PLATFORM = "sandloom.core"
 
 _PUBLIC = re.compile(r"^/api/v1/[A-Za-z0-9_/{\}.-]+$")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -147,23 +152,19 @@ def _response(op: Json, document: Json) -> Json:
 
 
 def compile_resources(
-    app: FastAPI, declarations: Iterable[tuple[str, list[Json]]]
+    document: Json,
+    routes: Routes,
+    declarations: Iterable[tuple[str, str, list[Json]]],
 ) -> Json:
-    """Validate ownership, API bindings, pagination and form safety; fail closed."""
-    document = app.openapi()
-    routes = {
-        (r.path, method): r
-        for r in app.routes
-        if isinstance(r, APIRoute)
-        for method in r.methods
-    }
+    """Validate ownership, API bindings, pagination and form safety; fail closed.
+
+    ``declarations`` are ``(owner import name, module name, RESOURCES)``."""
     resources: list[Json] = []
     names: set[str] = set()
     modules: list[str] = []
-    for owner, raw_resources in declarations:
+    for owner, module, raw_resources in declarations:
         if not isinstance(raw_resources, list):
             raise ValueError("admin.RESOURCES must be a list of declarations")
-        module = _module_name(owner)
         if module in modules:
             raise ValueError(f"duplicate admin module key: {module}")
         modules.append(module)
@@ -172,7 +173,7 @@ def compile_resources(
             if resource.name in names or resource.name in _FORBIDDEN:
                 raise ValueError(f"duplicate/unsafe admin resource: {resource.name}")
             names.add(resource.name)
-            compiler = _ResourceCompiler(resource, owner, document, routes)
+            compiler = _ResourceCompiler(resource, owner, module, document, routes)
             resources.append(compiler.compile())
     return {"version": 1, "modules": modules, "resources": resources}
 
@@ -182,11 +183,13 @@ class _ResourceCompiler:
         self,
         resource: Resource,
         owner: str,
+        module: str,
         document: Json,
-        routes: dict[tuple[str, str], APIRoute],
+        routes: Routes,
     ) -> None:
         self.r = resource
         self.owner = owner
+        self.module = module
         self.document = document
         self.routes = routes
 
@@ -199,12 +202,13 @@ class _ResourceCompiler:
             x in binding.path.split("/") for x in (".", "..")
         ):
             raise ValueError("unsafe operation path")
-        route = self.routes.get((binding.path, binding.method))
-        endpoint_owner = getattr(getattr(route, "endpoint", None), "__module__", "")
-        api = self.owner + (".admin.api" if self.owner == "sandloom.core" else ".api")
+        endpoint_owner = self.routes.get((binding.path, binding.method))
+        api = self.owner + (".admin.api" if self.owner == _PLATFORM else ".api")
         # A module's API is one api.py, as generated, or an api/ package.
-        owned = endpoint_owner == api or endpoint_owner.startswith(api + ".")
-        if route is None or not owned:
+        owned = endpoint_owner is not None and (
+            endpoint_owner == api or endpoint_owner.startswith(api + ".")
+        )
+        if not owned:
             raise ValueError(
                 f"{binding.path}: operation is not owned by {self.owner}.api"
             )
@@ -286,7 +290,7 @@ class _ResourceCompiler:
         row = self._list_row(listing)
         result = {
             **r.model_dump(by_alias=True),
-            "module": _module_name(self.owner),
+            "module": self.module,
             "columns": self.fields(row, r.columns, writable=False),
         }
         query = self._list_query(listing)
@@ -452,31 +456,25 @@ class _ResourceCompiler:
             result["actions"].append(compiled)
 
 
-def compile_app(app: FastAPI) -> Json:
-    """Discover admin.RESOURCES only on successfully loaded composition modules.
+def compile_manifest(source: Any) -> Json:
+    """The console's manifest from the composed app's data.
 
-    No lifespan is entered. Export the full desired module set at build time;
-    the static artifact is identical when those APIs are split behind a gateway.
+    ``source`` is the :class:`~sandloom.core.descriptors.GenerationInput` the
+    kernel collects: only successfully loaded modules, their ``admin.RESOURCES``,
+    the OpenAPI document and the routes. Export the full desired module set at
+    build time; the static artifact is identical when those APIs are split
+    behind a gateway.
     """
-    declarations = []
-    for descriptor in app.state.module_summary.loaded:
-        name = descriptor.name + ".admin"
-        try:
-            module = importlib.import_module(name)
-        except ModuleNotFoundError as exc:
-            if exc.name == name:
-                continue
-            raise  # An error INSIDE a declaration must never be silently ignored.
-        declarations.append((descriptor.name, module.RESOURCES))
-    if app.state.module_summary.failed:
-        raise ValueError("cannot export admin for a partially failed composition")
+    declarations: list[tuple[str, str, Any]] = [
+        (module.package, module.name, module.admin_resources)
+        for module in source.modules
+        if module.admin_resources is not None
+    ]
+    paths = {path for path, _method in source.routes}
     operations: list[Json] = []
-    for descriptor in app.state.module_summary.loaded:
-        source = _module_name(descriptor.name)
-        if not any(
-            getattr(route, "path", "") == f"/api/v1/platform/{source}/audit"
-            for route in app.routes
-        ):
+    for module in source.modules:
+        name = module.name
+        if f"/api/v1/platform/{name}/audit" not in paths:
             continue
         for suffix, label, columns in (
             (
@@ -495,13 +493,13 @@ def compile_app(app: FastAPI) -> Json:
         ):
             operations.append(
                 {
-                    "name": f"{suffix}_{source}",
-                    "label": f"{label} · {source}",
+                    "name": f"{suffix}_{name}",
+                    "label": f"{label} · {name}",
                     "access": {"roles": ["admin"]},
                     "group": "Platform",
                     "icon": "audit" if suffix == "audit" else "health",
                     "list": {
-                        "path": f"/api/v1/platform/{source}/{suffix}",
+                        "path": f"/api/v1/platform/{name}/{suffix}",
                         "method": "GET",
                     },
                     # Audit is keyset-paged (X-Next-Cursor, no totals).
@@ -525,5 +523,5 @@ def compile_app(app: FastAPI) -> Json:
                 }
             )
     if operations:
-        declarations.append(("sandloom.core", operations))
-    return compile_resources(app, declarations)
+        declarations.append((_PLATFORM, "core", operations))
+    return compile_resources(dict(source.openapi), source.routes, declarations)
