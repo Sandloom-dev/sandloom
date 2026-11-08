@@ -77,6 +77,12 @@ website renders this same changelog.
   over `identity.security.v1`, already asked at every attempt, is the only
   check. The prompt no longer states a minimum length; a refused password
   still gets identity's one-line reason. Command names are unchanged.
+- **The redundant-index check (SANDLOOM-T012) names no module's index.** The
+  kernel's list of known redundant indexes is gone (with
+  `sandloom.core.testing.static_checks.KNOWN_REDUNDANT`): a module keeps such an
+  index on purpose with `info={"sandloom_known_redundant": "<reason>"}` on the
+  `Index`, and holds the remove-only ratchet over it in its own tests. Identity
+  marks `ix_external_identities_provider` this way. The schema is unchanged.
 - **`unscoped()` takes an optional `reason=` and is never silent.** Every
   scope that disables tenant enforcement is counted in
   `sandloom_tenant_unscoped_total{caller}` by the module that entered it; the
