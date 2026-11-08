@@ -16,8 +16,9 @@ website renders this same changelog.
 ### Security
 
 - **Identity's and billing's production refusals stop every process, not only
-  the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, and billing on the
-  implicit fake PSP in prod, were refused only by critical startup tasks in the
+  the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, identity without
+  `JWT_SECRET` (any environment; issuer-only with an asymmetric `JWT_ALGORITHM`),
+  and billing on the implicit fake PSP in prod were refused only by critical startup tasks in the
   ASGI lifespan: the Celery worker, beat, `sandloom migrate` and the operator
   commands (`outbox`, `streams`, `projection`, `sagas`, `backup`, …) built and
   ran. The modules now refuse while they register, and the loader turns a
