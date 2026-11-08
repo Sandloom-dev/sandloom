@@ -23,6 +23,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 
 | Code | Slug | Kind | What happened | Status |
 | --- | --- | --- | --- | --- |
+| [`SANDLOOM-T018`](#sandloom-t018) | `consumer-copy` | test | a module's copy of a contract it consumes cannot be generated or verified | active |
 | [`SANDLOOM-T017`](#sandloom-t017) | `kernel-edge` | test | the kernel names a module its edge register does not record, or the register is out of date | active |
 | [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | the admin console's manifest is stale or cannot be compiled | active |
 | [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
@@ -1638,6 +1639,34 @@ in-memory test database.
 **More:** `docs/infrastructure/database.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
+
+### SANDLOOM-T018
+
+**a module's copy of a contract it consumes cannot be generated or verified**
+
+Slug: `consumer-copy` · kind: test · status: active
+
+**What happened and why it matters**
+
+A module distribution (a top-level module package) holds the stub, the DTO copies
+and the expectation (`<stem>.describe.json`) of every contract it consumes in
+`<module>/_generated/contracts/` (ADR-0013). `sandloom generate` plans the set from
+the module's declarations before composing the app, then checks it against the
+composed `consumes`. It refuses, writing nothing:
+- the provider is not importable where `generate` runs and no copy is committed,
+  or the committed copy was edited by hand (its provenance header's digest no
+  longer matches its body);
+- a `consumes` entry has no method list: a call the generator cannot follow
+  (`getattr`, a client passed to a helper, `core.get_service`) must be stated in
+  `define_module(consumes=[ContractRequirement(name, methods=(...))])`;
+- the planned set and the composed `consumes` differ (a contract named only by a
+  route policy or a computed name: state it in `consumes=`);
+- the module imports `<module>._generated.contracts.<stem>` that no `consumes`
+  entry stands for, or the consumed contract cannot be read from the declaration.
+
+**Fix:** install the provider as a development dependency (or commit the copy generated where it is installed), and state the methods of a consumed contract in define_module(consumes=[ContractRequirement(name, methods=(...))]) where a call cannot be resolved
+
+**More:** `docs/adr/0013-contract-ownership.md`
 
 ### SANDLOOM-T017
 

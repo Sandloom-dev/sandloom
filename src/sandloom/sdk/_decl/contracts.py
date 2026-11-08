@@ -19,7 +19,7 @@ import inspect
 import textwrap
 import typing
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, ParamSpec, Protocol, TypeVar, cast, overload
 
 from sandloom.sdk._decl import _event_wire
@@ -219,23 +219,19 @@ def contract_reference_name(value: Any) -> tuple[str, bool] | None:
 def called_methods(source: str, names: set[str]) -> tuple[str, ...]:
     """The methods called directly on the module-level ``names`` (§5.3).
 
-    Only ``<name>.<method>(`` on the name or a direct alias counts; any other
-    use (passed on, stored, ``getattr``, ``.client()``) gives ``()``, which
-    checks compatibility against every method: stricter, never weaker.
+    Only ``<name>.<method>(`` on the name or a direct alias counts, and, for
+    an optional contract, ``<local>.<method>(`` on a local bound in the same
+    function by ``<local> = <name>.client()`` (tested only against ``None``);
+    any other use (passed on, stored, ``getattr``, another ``.client()``)
+    gives ``()``, which checks compatibility against every method: stricter,
+    never weaker (ADR-0013: such an entry states its methods in ``consumes=``).
     """
     tree = ast.parse(source)
-    aliases = set(names)
-    alias_values: set[int] = set()
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in aliases
-            and all(isinstance(t, ast.Name) for t in node.targets)
-        ):
-            aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
-            alias_values.add(id(node.value))
-    methods: set[str] = set()
+    aliases, alias_values = _module_aliases(tree, names)
+    clients = _client_locals(tree, aliases)
+    if clients is None:
+        return ()
+    methods: set[str] = set(clients.methods)
     direct_calls: set[int] = set(alias_values)
     for call in ast.walk(tree):
         if (
@@ -244,6 +240,9 @@ def called_methods(source: str, names: set[str]) -> tuple[str, ...]:
             and isinstance(call.func.value, ast.Name)
             and call.func.value.id in aliases
         ):
+            if id(call) in clients.bound:
+                direct_calls.add(id(call.func.value))
+                continue
             if call.func.attr == "client" or call.func.attr.startswith("_"):
                 return ()
             methods.add(call.func.attr)
@@ -255,6 +254,93 @@ def called_methods(source: str, names: set[str]) -> tuple[str, ...]:
             continue
         return ()  # any other use: every method
     return tuple(sorted(methods))
+
+
+def _module_aliases(tree: ast.Module, names: set[str]) -> tuple[set[str], set[int]]:
+    """``names`` plus their module-level direct aliases (``q = quota``), and
+    the ids of the aliased name nodes."""
+    aliases = set(names)
+    alias_values: set[int] = set()
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in aliases
+            and all(isinstance(t, ast.Name) for t in node.targets)
+        ):
+            aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            alias_values.add(id(node.value))
+    return aliases, alias_values
+
+
+@dataclass
+class _Clients:
+    #: ids of the ``<name>.client()`` calls bound to a local
+    bound: set[int] = field(default_factory=set)
+    #: methods called on those locals
+    methods: set[str] = field(default_factory=set)
+
+
+def _client_locals(tree: ast.Module, names: set[str]) -> _Clients | None:
+    """``<local> = <name>.client()`` in a function, and the methods called on
+    ``<local>`` there; ``None`` when ``<local>`` has another use than a
+    method call, an assignment or a test against ``None``."""
+    found = _Clients()
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        local: set[str] = set()
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and node.value.func.attr == "client"
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.value.id in names
+                and not node.value.args
+            ):
+                local.add(node.targets[0].id)
+                found.bound.add(id(node.value))
+        if local and not _client_uses(function, local, found.methods):
+            return None
+    return found
+
+
+def _client_uses(function: ast.AST, local: set[str], methods: set[str]) -> bool:
+    """Collect the methods called on ``local`` in ``function``; ``False`` on
+    any other use."""
+    allowed: set[int] = set()
+    for node in ast.walk(function):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in local
+        ):
+            if node.func.attr.startswith("_"):
+                return False
+            methods.add(node.func.attr)
+            allowed.add(id(node.func.value))
+        elif (
+            isinstance(node, ast.Compare)
+            and isinstance(node.left, ast.Name)
+            and node.left.id in local
+            and all(isinstance(op, ast.Is | ast.IsNot) for op in node.ops)
+            and all(
+                isinstance(c, ast.Constant) and c.value is None
+                for c in node.comparators
+            )
+        ):
+            allowed.add(id(node.left))
+    for node in ast.walk(function):
+        if isinstance(node, ast.Name) and node.id in local:
+            if isinstance(node.ctx, ast.Store) or id(node) in allowed:
+                continue
+            return False
+    return True
 
 
 # --------------------------------------------------------------------------- #

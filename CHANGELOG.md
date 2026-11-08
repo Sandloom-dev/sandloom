@@ -177,6 +177,32 @@ website renders this same changelog.
 
 ### Changed
 
+- **A module distribution holds copies of the contracts it consumes**
+  (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
+  an ecosystem module repository), `sandloom generate` writes
+  `<module>/_generated/contracts/`: the stub, the DTO copies and
+  `<stem>.describe.json`, the provider's describe restricted to the methods
+  the module's `consumes` lists. The set is planned from the declarations
+  (module-level `Contract(REF)`, `define_module(consumes=[...])`) before the
+  app is composed, so a module may import a copy it has not generated yet;
+  `generate --check` fails when it differs from the composed `consumes`, and
+  an entry with no method list (a call through `core.get_service`,
+  `getattr` or a helper) is refused with SANDLOOM-T018 until
+  `ContractRequirement(name, methods=(...))` states it. `c = ref.client()`
+  in a function, tested against `None` and called, now resolves its methods.
+  Every generated stub and DTO copy starts with a provenance header
+  (`contract`, `fingerprint`, `provider`, `generator: format 2  digest …`);
+  DTO copies are laid out by the generator at 88 columns and never piped
+  through the project's ruff, so ruff's presence or `line-length` no longer
+  changes them. A provider not importable where `generate` runs keeps a
+  committed copy whose digest verifies and refuses an edited or missing one
+  (SANDLOOM-T018). Two contracts with one stub stem are refused in every
+  path. An application's shared package keeps copies only for the union of
+  its modules' `consumes` when every entry lists its methods (no example
+  changes). A field added to a closed (`extra="forbid"`) result DTO is
+  breaking against an expectation. Bundled stubs stay in `sandloom.shared`
+  until KB-22. Upgrade: run `uv run sandloom generate` (headers change; no
+  body changes).
 - **`sandloom admin create` leaves the password rules to the provider.** The
   kernel CLI no longer imports `sandloom_identity.password_policy` and has no
   fallback 8–100 length rule of its own: identity's `password_problem` answer

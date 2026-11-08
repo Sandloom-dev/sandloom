@@ -100,6 +100,34 @@ def _landed(
 
 CATALOGUE: tuple[ErrorCode, ...] = (
     _entry(
+        "SANDLOOM-T018",
+        "consumer-copy",
+        "test",
+        "a module's copy of a contract it consumes cannot be generated or verified",
+        "install the provider as a development dependency (or commit the copy "
+        "generated where it is installed), and state the methods of a consumed "
+        "contract in define_module(consumes=[ContractRequirement(name, "
+        "methods=(...))]) where a call cannot be resolved",
+        """
+A module distribution (a top-level module package) holds the stub, the DTO copies
+and the expectation (`<stem>.describe.json`) of every contract it consumes in
+`<module>/_generated/contracts/` (ADR-0013). `sandloom generate` plans the set from
+the module's declarations before composing the app, then checks it against the
+composed `consumes`. It refuses, writing nothing:
+- the provider is not importable where `generate` runs and no copy is committed,
+  or the committed copy was edited by hand (its provenance header's digest no
+  longer matches its body);
+- a `consumes` entry has no method list: a call the generator cannot follow
+  (`getattr`, a client passed to a helper, `core.get_service`) must be stated in
+  `define_module(consumes=[ContractRequirement(name, methods=(...))])`;
+- the planned set and the composed `consumes` differ (a contract named only by a
+  route policy or a computed name: state it in `consumes=`);
+- the module imports `<module>._generated.contracts.<stem>` that no `consumes`
+  entry stands for, or the consumed contract cannot be read from the declaration.
+""",
+        docs="docs/adr/0013-contract-ownership.md",
+    ),
+    _entry(
         "SANDLOOM-T017",
         "kernel-edge",
         "test",
