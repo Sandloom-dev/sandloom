@@ -6,7 +6,12 @@ the named modules plus the default modules that provide what they REQUIRE
 (``with_required_providers``), so a module that gains a required contract
 needs no edit here. The subsets of the bundled modules (each boots alone,
 the full set loads, their tasks load without Celery) are in
-``tests/integration/with_batteries/test_module_subset_bundled_modules.py``.
+``tests/integration/with_batteries/test_module_subset_bundled_modules.py``;
+the sixteen subsets of identity, tenancy, billing and admin, each booted in a
+fresh interpreter (``create_app``, ``/health``, ``/ready``, ``sandloom
+--help``) in the repository, from wheels on plain sandloom (P2) and through
+the extras (P3) in clean venvs (I-19, A-B7, KB-04), are in
+``tests/integration/module_subsets/``.
 """
 
 from __future__ import annotations
