@@ -43,6 +43,12 @@ website renders this same changelog.
 
 ### Fixed
 
+- **`sandloom-identity` declares `argon2-cffi`, which its login service
+  imports.** It installed only because the `sandloom` kernel requires it for
+  its own password hashing. The packaging import check now refuses a module
+  wheel importing a kernel requirement that is not part of the stack the
+  kernel provides modules (FastAPI, Starlette, SQLAlchemy, Alembic, Pydantic,
+  HTTPX): such a requirement is declared by the module itself.
 - **A failure to list the installed module entry points stops startup.** The
   loader logged it and started without those modules; it is now a required
   module failure (`ModuleLoadError`).
