@@ -67,15 +67,15 @@ every lane ([the skip ledger](../reference/testing.md#the-skip-ledger)). Only
 validation collects every suite; there an allowlist entry that matches no
 test fails too (`--strict-allowlist`).
 
-`kernel-without-batteries` runs the kernel's unit, SDK and architecture
-suites in a venv with the `sandloom` package alone, plus the replaceability
-fixtures (`tests/integration/replaceability`: identity, tenancy and billing
-replaced by test modules, one process and split). `tools/ci/no_batteries.py`
-hides the bundled modules from every import, the checkout's `src/` included.
-A kernel test that needs a bundled module belongs in
-`tests/integration/with_batteries` or in the module's own tests; until it moves
-it is listed in `tools/ci/no_batteries_pending.json`, which only goes down
-(ADR-0012). Locally:
+`kernel-without-batteries` runs the kernel's own test suites in a venv with
+the `sandloom` package alone (ADR-0012). It also runs
+the replaceability fixtures in `tests/integration/replaceability`. There,
+test modules replace the bundled modules, in one process and split.
+`tools/ci/no_batteries.py` hides the bundled modules from every import, the
+checkout's `src/` included. A kernel test that needs a bundled module belongs
+in `tests/integration/with_batteries` or in the module's own tests. Until it
+moves, `tools/ci/no_batteries_pending.json` lists it; that list only goes
+down. Locally:
 
 ```bash
 uv venv .venv-kernel
