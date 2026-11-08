@@ -388,6 +388,14 @@ as orphans in the contract inventory.
 This replaces snapshotting private kernel state (`service_registry._map`,
 `app.router.routes` slicing): the kernel is never mutated until commit.
 
+#### `CoreFacade.module_settings`
+
+```python
+module_settings  (property)
+```
+
+The validated settings of the modules registered here (ADR-0015).
+
 #### `CoreFacade.ensure_tracer`
 
 ```python
