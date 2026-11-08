@@ -64,7 +64,7 @@ may already hold writes the source lacks.
 
 ## Checks
 
-- `uv run pytest src/sandloom/core/tests/test_module_extraction.py -q`
+- `uv run pytest tests/integration/with_batteries/test_module_extraction.py -q`
   covers the fence, resume, refusals, drop-source, unfence and the group
   transfer.
 - The full scenario is opt-in:

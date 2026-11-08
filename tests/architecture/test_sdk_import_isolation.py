@@ -4,8 +4,10 @@ In a subprocess with ``python -I``, an empty environment and an empty
 working directory (no ``.env``), ``tools/checks/import_audit.py`` installs spies
 on environment reads, sockets, logging handlers, threads, ``atexit`` /
 signal handlers, file opens, engine / client construction and ``Settings``
-construction, then imports every public ``sandloom.sdk`` module and the bundled
-modules and runs ``help(sandloom.sdk.events)``. Nothing may be recorded.
+construction, then imports every public ``sandloom.sdk`` module and runs
+``help(sandloom.sdk.events)``. Nothing may be recorded. The same audit over
+the bundled modules too is in
+``tests/integration/with_batteries/test_sdk_import_isolation_bundled_modules.py``.
 
 Settings are lazy (``sandloom.core.config.settings``): entry points force them,
 so a bad environment still fails at startup (the second test).
@@ -17,6 +19,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+from tools.checks.import_audit import DEFAULT_MODULES
 
 BACKEND = Path(__file__).resolve().parents[2]
 AUDIT = BACKEND / "tools" / "checks" / "import_audit.py"
@@ -34,8 +38,12 @@ def _audit(tmp_path: Path, *modules: str, help_target: str = "") -> dict[str, li
     return report
 
 
-def test_sdk_import_is_side_effect_free(tmp_path: Path) -> None:
-    report = _audit(tmp_path, help_target="sandloom.sdk.events")
+def test_the_public_sdk_import_is_side_effect_free(tmp_path: Path) -> None:
+    """The audit's public ``sandloom.*`` modules alone, so the kernel suite
+    runs it where no bundled module is installed (ADR-0012)."""
+    kernel = [m for m in DEFAULT_MODULES if m.startswith("sandloom.")]
+    assert "sandloom.sdk" in kernel
+    report = _audit(tmp_path, *kernel, help_target="sandloom.sdk.events")
     assert report["errors"] == []
     assert [
         f"[{v['kind']}] {v['detail']} at {v['where']} ({v['importing']})"

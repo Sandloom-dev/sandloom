@@ -73,9 +73,12 @@ the replaceability fixtures in `tests/integration/replaceability`. There,
 test modules replace the bundled modules, in one process and split.
 `tools/ci/no_batteries.py` hides the bundled modules from every import, the
 checkout's `src/` included. A kernel test that needs a bundled module belongs
-in `tests/integration/with_batteries` or in the module's own tests. Until it
-moves, `tools/ci/no_batteries_pending.json` lists it; that list only goes
-down. Locally:
+in `tests/integration/with_batteries` or in the module's own tests.
+`tools/ci/no_batteries_pending.json` lists the tests still waiting to move.
+It is empty and stays empty: an entry outside the ceiling in
+`tools/ci/no_batteries.py` fails the job. A listed test that passes without
+the bundled modules fails it too, as does an entry whose test is gone.
+Locally:
 
 ```bash
 uv venv .venv-kernel

@@ -3,7 +3,7 @@
 AGENTS.md promises fail-closed tenant scoping for tenant-owned models; a model
 that declares its own ``tenant_id`` silently opts out of the ORM guard. The
 fixture proves the analyzer catches every spelling; the framework tree passing
-is pinned by ``test_archcheck_library.test_framework_manifest_passes_every_rule``.
+is pinned by ``test_archcheck_library_installed_modules.test_framework_manifest_passes_every_rule``.
 """
 
 from __future__ import annotations

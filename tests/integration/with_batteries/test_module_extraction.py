@@ -38,7 +38,7 @@ from sandloom.core.testing import worker_env_values
 # Slow (copies a module between real databases): skipped by the fast dev loop `pytest -m "not slow"`.
 pytestmark = pytest.mark.slow
 
-BACKEND = Path(__file__).resolve().parents[4]
+BACKEND = Path(__file__).resolve().parents[3]
 SRC = BACKEND / "src"
 
 psycopg2 = pytest.importorskip("psycopg2")

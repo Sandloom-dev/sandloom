@@ -530,10 +530,10 @@ jobs:
     # suites in a venv with the sandloom package alone, and the
     # replaceability fixtures (identity, tenancy and billing replaced by
     # test modules, mono and split). tools/ci/no_batteries.py hides the
-    # bundled modules from every import, also from the checkout's src/;
-    # tests that still need one are deselected from its pending list, which
-    # only goes down. A new kernel test that needs a battery fails here:
-    # put it in tests/integration/with_batteries or the module's own tests.
+    # bundled modules from every import, also from the checkout's src/.
+    # Its pending list is empty and only goes down (a ceiling in the tool):
+    # a new kernel test that needs a battery fails here; put it in
+    # tests/integration/with_batteries or the module's own tests.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
