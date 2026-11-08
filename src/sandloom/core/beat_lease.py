@@ -40,6 +40,7 @@ import socket
 import time
 import uuid
 from collections.abc import Callable, Coroutine, Iterable
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 import sandloom.core.async_runner as _async_runner
@@ -319,6 +320,14 @@ class LeasedScheduler:
         return getattr(self._inner, name)
 
 
+def beat_scope(broker_url: str | None, instance: str, core: Any) -> str:
+    """The lease scope of a beat of ``core``'s composition on ``instance``:
+    ``BEAT_LEASE_NAME`` when set, else :func:`lease_scope`."""
+    return settings.beat_lease_name.strip() or lease_scope(
+        broker_url, instance, list(getattr(core, "loaded_modules", []) or [])
+    )
+
+
 def build_lease(app: Any, core: Any, *, instance: str) -> BeatLease:
     """The lease for this beat (resolves the cache provider; raises if unfit)."""
 
@@ -331,14 +340,79 @@ def build_lease(app: Any, core: Any, *, instance: str) -> BeatLease:
             "beat lease cannot be renewed safely; point "
             "BEAT_LEASE_CACHE_INSTANCE at a Redis cache"
         )
-    scope = settings.beat_lease_name.strip() or lease_scope(
-        getattr(app.conf, "broker_url", None),
-        instance,
-        list(getattr(core, "loaded_modules", []) or []),
-    )
+    scope = beat_scope(getattr(app.conf, "broker_url", None), instance, core)
     return BeatLease(
         cache, LEASE_KEY_PREFIX + scope, ttl_seconds=settings.beat_lease_ttl_seconds
     )
+
+
+# --------------------------------------------------- periodic diagnostics ----
+
+
+@dataclass(frozen=True)
+class PeriodicNeed:
+    """A loaded module whose taskqueue requirement asks for ``periodic``."""
+
+    module: str
+    instance: str
+    required: bool
+
+
+def periodic_needs(
+    descriptors: Iterable[Any], loaded: Iterable[str]
+) -> list[PeriodicNeed]:
+    """The loaded modules that need periodic jobs, from each descriptor's
+    effective requirements (declared, plus what the kernel derives)."""
+    names = set(loaded)
+    needs: list[PeriodicNeed] = []
+    for descriptor in descriptors:
+        if getattr(descriptor, "name", None) not in names:
+            continue
+        effective = getattr(descriptor, "effective_capabilities", None)
+        requirements = (
+            effective()
+            if callable(effective)
+            else getattr(descriptor, "capabilities", [])
+        )
+        needs.extend(
+            PeriodicNeed(
+                module=descriptor.name,
+                instance=requirement.instance or "default",
+                required=bool(requirement.required),
+            )
+            for requirement in requirements
+            if requirement.capability == "taskqueue"
+            and "periodic" in requirement.features
+        )
+    return needs
+
+
+def _broker_url_of(core: Any, instance: str) -> str:
+    """The broker URL a beat on taskqueue ``instance`` scopes its lease with
+    (the ``celery`` driver: the instance's ``broker`` option, else
+    ``BROKER_URL``)."""
+    infra = getattr(core, "infra", None)
+    cfg = infra.instance_config("taskqueue", instance) if infra is not None else None
+    options = dict(getattr(cfg, "options", None) or {})
+    return str(options.get("broker") or settings.broker_url)
+
+
+async def beat_lease_holder(core: Any, *, instance: str = "default") -> str | None:
+    """The token (``<fence>:<host>:<pid>:<nonce>``) of the beat that holds
+    the lease of ``core``'s composition on ``instance``, or ``None`` when no
+    beat schedules its periodic jobs. One cache read; raises when the cache
+    cannot be read.
+
+    A beat started with another module set (or another broker) holds another
+    scope: the answer is for THIS composition, the one ``sandloom doctor``
+    loaded or the one this process serves.
+    """
+    cache = core.cache(settings.beat_lease_cache_instance)
+    scope = beat_scope(_broker_url_of(core, instance), instance, core)
+    holder = await cache.get(LEASE_KEY_PREFIX + scope)
+    if holder is None:
+        return None
+    return holder.decode() if isinstance(holder, bytes) else str(holder)
 
 
 def install_beat_lease(app: Any, core: Any, *, instance: str = "default") -> None:
@@ -381,7 +455,11 @@ __all__ = [
     "BeatLeaseUnavailableError",
     "FencedLease",
     "LeasedScheduler",
+    "PeriodicNeed",
+    "beat_lease_holder",
+    "beat_scope",
     "build_lease",
     "install_beat_lease",
     "lease_scope",
+    "periodic_needs",
 ]
