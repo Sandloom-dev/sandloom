@@ -31,8 +31,9 @@ This module is the configuration half, a leaf like the rest of
   :class:`~sandloom.core.config.common.ConfigurationError` (decision 3).
 - :func:`post_load_check`: the one check after the load pass: one env name
   declared twice (SANDLOOM-B036), the loaded modules' removed settings, the
-  production typo check over the union of kernel and module names, and the
-  modules' semantic overrides to log.
+  production typo check over the union of kernel and module names (never
+  over a variable under the prefix of a module absent from the process),
+  and the modules' semantic overrides to log.
 
 Where the instances live and how a module reads its own
 (``settings_of``) is :mod:`sandloom.core.module_api._settings`.
@@ -46,9 +47,10 @@ import os
 import types
 import typing
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from difflib import get_close_matches
+from importlib import metadata
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -468,21 +470,66 @@ def _removed(
     return problems, warnings
 
 
+def _under_absent_module(
+    key: str, loaded: Iterable[str], absent: Iterable[str]
+) -> bool:
+    """Whether ``key`` lies under the prefix (``<NAME>_``) of a module absent
+    from the process, the longest matching prefix deciding: ``SHOP_EU_X``
+    belongs to an absent ``shop_eu`` even where ``shop`` is loaded, and
+    ``SHOP_X`` to a loaded ``shop`` even where a ``sho`` is absent."""
+    owner_len, owner_absent = 0, False
+    for names, is_absent in ((loaded, False), (absent, True)):
+        for name in names:
+            prefix = f"{name.upper()}_"
+            if key.startswith(prefix) and len(prefix) > owner_len:
+                owner_len, owner_absent = len(prefix), is_absent
+    return owner_absent
+
+
+#: The entry-point group of installed modules; equal to
+#: ``sandloom.core.descriptors.module_names.ENTRY_POINT_GROUP``, which this
+#: leaf may not import (ADR-0007).
+MODULES_ENTRY_POINT_GROUP = "sandloom.modules"
+
+
+def known_module_names(kernel: Any) -> set[str]:
+    """The modules known in the deployment without importing one: the
+    installed ``sandloom.modules`` entry points (metadata only) and the
+    modules ``SANDLOOM_MODULES`` names (by name, or the last segment of the
+    import path). The known-namespace rule of answer #27 (K1 and the
+    composition's modules)."""
+    names = {
+        str(ep.name)
+        for ep in metadata.entry_points().select(group=MODULES_ENTRY_POINT_GROUP)
+        if ep.name
+    }
+    for entry in getattr(kernel, "sandloom_modules", None) or ():
+        names.add(str(entry).split(":", 1)[0].rsplit(".", 1)[-1])
+    return names
+
+
 def _typos(
     owners: Mapping[str, str],
     records: Sequence[ModuleSettingsRecord],
     snapshot: SourceSnapshot,
+    known_modules: Callable[[], Iterable[str]],
 ) -> list[str]:
     """Near-misses of a declared name (kernel or loaded module), in prod.
 
     The kernel's own check covers its names before any module loads; this
     one runs over the union, so a near-miss of a module's name refuses too.
+    A variable under the prefix of a module known in the deployment
+    (``known_modules``, asked only once a near-miss is found) but not loaded
+    here is that module's, never a typo: an absent module's variables do not
+    interfere (ADR-0015 decision 3, answer #25).
     """
     known = set(owners) | {
         r.name for record in records for r in declared_removed(record.model)
     }
     prefixes = {name.split("_", 1)[0] for name in known if "_" in name}
     names = sorted(known)
+    loaded = {record.module for record in records}
+    absent: set[str] | None = None
     problems = []
     for key in sorted(snapshot.names()):
         if key in known or len(key) < 8 or "_" not in key:
@@ -490,11 +537,16 @@ def _typos(
         if key.split("_", 1)[0] not in prefixes:
             continue
         matches = get_close_matches(key, names, n=1, cutoff=0.95)
-        if matches:
-            problems.append(
-                f"Unknown setting {key}; did you mean {matches[0]} "
-                f"(declared by {owners.get(matches[0], 'a removed setting')})?"
-            )
+        if not matches:
+            continue
+        if absent is None:
+            absent = set(known_modules()) - loaded
+        if _under_absent_module(key, loaded, absent):
+            continue
+        problems.append(
+            f"Unknown setting {key}; did you mean {matches[0]} "
+            f"(declared by {owners.get(matches[0], 'a removed setting')})?"
+        )
     return problems
 
 
@@ -542,11 +594,16 @@ def post_load_check(
     records: Sequence[ModuleSettingsRecord],
     kernel: Any,
     snapshot: SourceSnapshot | None = None,
+    *,
+    known_modules: Iterable[str] | None = None,
 ) -> PostLoadOutcome:
     """ADR-0015 decision 3: the one check after the load pass.
 
-    Returns what it found; the caller raises :class:`ModuleSettingsError`
-    with every problem (:func:`refusal`) and logs the rest.
+    ``known_modules``: the modules known in the deployment (default
+    :func:`known_module_names`); the prod typo check leaves alone a variable
+    under the prefix of one this process does not load. Returns what it
+    found; the caller raises :class:`ModuleSettingsError` with every problem
+    (:func:`refusal`) and logs the rest.
     """
     snap = snapshot if snapshot is not None else process_snapshot()
     ordered = sorted(records, key=lambda r: r.package)
@@ -554,7 +611,13 @@ def post_load_check(
     removed_problems, warnings = _removed(ordered, snap)
     problems += removed_problems
     if environment_of(kernel) == "prod":
-        problems += _typos(owners, ordered, snap)
+
+        def known() -> Iterable[str]:
+            if known_modules is not None:
+                return known_modules
+            return known_module_names(kernel)
+
+        problems += _typos(owners, ordered, snap, known)
     return PostLoadOutcome(problems, warnings, module_overrides(ordered, kernel))
 
 
@@ -565,6 +628,7 @@ def refusal(problems: Sequence[str]) -> ModuleSettingsError:
 
 __all__ = [
     "COLLISION_CODE",
+    "MODULES_ENTRY_POINT_GROUP",
     "ORIGINS",
     "REGISTERING",
     "KernelView",
@@ -583,6 +647,7 @@ __all__ = [
     "env_names",
     "environment_of",
     "kernel_env_names",
+    "known_module_names",
     "module_overrides",
     "post_load_check",
     "process_snapshot",
