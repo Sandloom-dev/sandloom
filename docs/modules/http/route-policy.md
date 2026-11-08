@@ -229,6 +229,16 @@ binding reads `tenant_id` and `org_id`. It stamps the
 token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
 `auth_time`, `token_type`.
 
+A module registers claims and facts only under its own name. The owner the
+kernel stamps into `claims_sources` is the short name of the module being
+registered. These registrations refuse the boot (`SANDLOOM-B034`):
+
+- a claims contributor with `owner=` naming another module;
+- another module's `<m>.claims.v1` or `<m>.facts.v1` contract;
+- an access fact whose `owner_module` is another module;
+- any of these made outside a module's registration, such as a direct call on
+  the core from a startup task.
+
 Upgrading: a contributor that returns a reserved key now gets `503` at minting.
 Drop the key. Return each value as a top-level claim your module owns, not
 under `claims`. Top-level keys already land in `UserContext.claims`.

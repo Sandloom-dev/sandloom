@@ -512,14 +512,30 @@ def remote_fact(descriptor: Any, contract: str) -> AccessFact | None:
 
 
 async def _describe_owner(core: Any, owner: str) -> dict[str, AccessFact]:
+    """The facts ``<owner>.facts.v1`` describes, by name.
+
+    A descriptor whose ``owner_module`` is not ``owner`` is dropped and
+    logged (SANDLOOM-B034): the binding names the owner, and a provider bound
+    as one module's facts contract never answers for another module.
+    """
     contract = facts_contract_name(owner)
     service = core.get_service(contract)
     raw = await service.describe()
     found: dict[str, AccessFact] = {}
     for descriptor in raw if isinstance(raw, list) else []:
         fact = remote_fact(descriptor, contract)
-        if fact is not None:
-            found[fact.name] = fact
+        if fact is None:
+            continue
+        if fact.owner_module != owner:
+            logger.warning(
+                "SANDLOOM-B034: %s describes access fact %r under module %r; "
+                "ignored, a facts contract answers only for its own module",
+                contract,
+                fact.name,
+                fact.owner_module,
+            )
+            continue
+        found[fact.name] = fact
     return found
 
 
