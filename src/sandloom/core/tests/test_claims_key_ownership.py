@@ -33,32 +33,40 @@ from sandloom.shared.subject import UserContext
 
 class _FakeSession:
     def __init__(self) -> None:
+        """Session stand-in with an empty ``info`` mapping."""
         self.info: dict[str, Any] = {}
 
 
 class _FakeUoW:
     def __init__(self) -> None:
+        """Unit-of-work stand-in holding a fake session."""
         self.session = _FakeSession()
 
     async def __aenter__(self) -> _FakeUoW:
+        """Enter the unit; nothing to open."""
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
+        """Leave the unit; nothing to commit or roll back."""
         return None
 
 
 class _FakeDatabase:
     def uow_factory(self) -> Any:
+        """The fake unit-of-work class."""
         return _FakeUoW
 
     def outbox(self) -> None:
+        """No outbox in these tests."""
         return None
 
     def audit(self) -> None:
+        """No audit sink in these tests."""
         return None
 
 
 def _core() -> CoreFacade:
+    """A kernel facade whose databases are fakes (claims need no I/O here)."""
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     return core
@@ -68,22 +76,27 @@ class _Proxy:
     """A remote ``<owner>.claims.v1`` client (what RPC would return)."""
 
     def __init__(self, result: dict[str, Any]) -> None:
+        """Remember the claims the remote owner answers with."""
         self._result = result
 
     async def contribute(self, user_id: Any) -> dict[str, Any]:
+        """Answer like ``<owner>.claims.v1.contribute`` over RPC."""
         return self._result
 
 
 async def _identity(user_id: Any) -> dict[str, Any]:
+    """Identity's claims: it always writes ``roles`` and ``permissions``."""
     return {"roles": ["member"], "permissions": []}
 
 
 def _with_identity(core: CoreFacade) -> None:
+    """Register identity's critical claims contributor on ``core``."""
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(_identity, critical=True)
 
 
 async def _is_platform_admin(claims: dict[str, Any]) -> bool:
+    """Whether ``require_platform_admin`` lets a subject with these claims through."""
     subject = UserContext.model_validate({**claims, "sub": str(uuid4())})
     try:
         await require_platform_admin(subject=subject)
@@ -99,6 +112,7 @@ async def test_identity_alone_keeps_its_roles_and_gate() -> None:
     core = _core()
 
     async def admin(user_id: Any) -> dict[str, Any]:
+        """Identity answering with an admin role."""
         return {"roles": ["admin"], "permissions": ["platform.read"]}
 
     with core.module_registration("sandloom_identity") as api:
@@ -115,9 +129,11 @@ async def test_one_owners_contributors_still_merge() -> None:
     core = _core()
 
     async def first(user_id: Any) -> dict[str, Any]:
+        """First contributor of the owner."""
         return {"roles": ["member"]}
 
     async def second(user_id: Any) -> dict[str, Any]:
+        """Second contributor of the same owner."""
         return {"roles": ["member", "editor"], "permissions": []}
 
     with core.module_registration("sandloom_identity") as api:
@@ -139,6 +155,7 @@ async def test_monolith_module_cannot_write_identitys_claims(key: str) -> None:
     _with_identity(core)
 
     async def rogue(user_id: Any) -> dict[str, Any]:
+        """A non-identity module writing a key identity owns."""
         return {key: ["admin"]}
 
     with core.module_registration("acme.rogue") as api:
@@ -155,6 +172,7 @@ async def test_monolith_order_does_not_matter() -> None:
     core = _core()
 
     async def rogue(user_id: Any) -> dict[str, Any]:
+        """A non-identity module writing a key identity owns."""
         return {"roles": ["admin"]}
 
     with core.module_registration("acme.rogue") as api:
@@ -194,6 +212,7 @@ async def test_split_remote_owner_cannot_write_identitys_roles(
 async def test_split_remote_owner_with_its_own_keys_still_contributes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A remote owner writing only its own keys (tenancy's ``tenant_ids``) still contributes and grants nothing."""
     core = _core()
     _with_identity(core)
     monkeypatch.setattr(
@@ -216,6 +235,7 @@ async def test_no_owner_writes_a_reserved_key(key: str) -> None:
     core = _core()
 
     async def sneaky(user_id: Any) -> dict[str, Any]:
+        """An owner trying to write a reserved key."""
         return {key: 9_999_999_999_000_000}
 
     with core.module_registration("sandloom_identity") as api:
@@ -226,6 +246,7 @@ async def test_no_owner_writes_a_reserved_key(key: str) -> None:
 
 
 def test_reserved_keys_cover_the_envelope_and_provenance() -> None:
+    """The reserved set covers the token envelope and the provenance keys."""
     assert {
         "claims_sources",
         "claims_sources_failed",
