@@ -248,33 +248,34 @@ treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
 Contributors cannot override the identity claims (`sub`, `email`,
-`email_verified`, `token_type`). The composition root assigns each protected
-claim to the module that is its authority, in code:
-`create_app(claim_authorities={...})`, with an `issuer` entry naming the
-module that mints tokens. The kernel holds no default map; the standard
-composition (`sandloom_standard.main`) assigns `roles`, `permissions`,
-`email`, `email_verified` and the issuer to identity, `tenant_ids` to tenancy
-and the billing claims to billing, each only when that module is composed.
-The mint keeps a protected claim only from its authority: the module loaded
-from the assigned import path, or its pinned `<m>.claims.v1` binding. A name
-is not proof: a module merely named `identity` is not the authority. A
-contributor writing a protected claim it is not assigned, or the token
-envelope or the provenance (`iat_us`, `auth_time`, `jti`, `claims_sources`,
-…), is a violator. An optional violator loses its whole result
-(`claims_sources_failed`, an ERROR log, the
-`claims_contributor_violations_total` counter) and the login still
-succeeds; a critical violator refuses the mint (`503`) naming itself. Without
-this rule, a module could put `roles: ["admin"]` in a token stamped with
-identity and pass the platform administrator gate.
+`email_verified`, `token_type`).
+
+Each protected claim has one authority, a module the composition root names
+in code: `create_app(claim_authorities={...})`. An `issuer` entry names the
+module that mints tokens. The kernel holds no default map. The standard
+composition (`sandloom_standard.main`) assigns identity's, tenancy's and
+billing's claims to them, each only when that module is composed.
+
+A protected claim is kept at the mint only from its authority. That is the
+module loaded from the assigned import path, or its pinned `<m>.claims.v1`
+binding. A name is not proof: a module merely named `identity` is not the
+authority. A contributor is a violator when it writes a protected claim it is
+not assigned. Writing the token envelope or the provenance (`iat_us`,
+say) makes it a violator too. An optional violator
+loses its whole result, and the login still succeeds. It is listed in
+`claims_sources_failed`. The violation is logged at ERROR and counted in
+`claims_contributor_violations_total`. A critical violator refuses the mint
+(`503`) naming itself. Without this rule, a module could put
+`roles: ["admin"]` in a token stamped with identity and pass the platform
+administrator gate.
 
 Startup refuses an assignment the composition cannot honour
-(`SANDLOOM-B035`): an assigned path that names no module, an authority the
-issuing process neither loads nor binds, an issuer mismatch, and a
-non-critical authority of a claim whose readers have no fallback. Only the
-billing claims may come from a non-critical authority, because every reader
-treats their absence as "not granted" (the subscription check escalates to
-the live fact): a billing outage still lets users log in. A lean root with no
-map assigns nothing, so an issuer whose critical contributor writes `roles`
+(`SANDLOOM-B035`). Examples: an authority the issuing process neither loads
+nor binds, or an issuer mismatch. A claim whose readers have no fallback
+needs a critical authority. Only the billing claims may come from a
+non-critical one: every reader treats their absence as "not granted". So a
+billing outage still lets users log in. A lean root with no map assigns
+nothing. With it, an issuer whose critical contributor writes `roles`
 refuses every mint rather than minting untrusted claims.
 
 The names in provenance are tied to the module that registers. Claims
