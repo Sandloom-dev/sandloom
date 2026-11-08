@@ -26,4 +26,13 @@ def _setup(api: object) -> None:
     api.add_claims_contributor(contribute, critical=critical)  # type: ignore[attr-defined]
 
 
-register = define_module(__name__, version="0.1.0", issues_tokens=True, setup=_setup)
+# A stateless issuer: it mints access tokens only and holds no refresh
+# sessions an emergency block would have to end (ADR-0012 decision 5,
+# SANDLOOM-B035).
+register = define_module(
+    __name__,
+    version="0.1.0",
+    issues_tokens=True,
+    refresh_sessions=False,
+    setup=_setup,
+)
