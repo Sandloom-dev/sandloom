@@ -241,6 +241,19 @@ the modules that ran. Without this rule, a module could put
 `roles: ["admin"]` in a token stamped with identity and pass the platform
 administrator gate.
 
+The names in provenance are tied to the module that registers. Claims
+contributors and access facts are accepted only under the short name of the
+module being registered. So are the contracts named after a module
+(`<m>.claims.v1`, `<m>.facts.v1`). Another module's name refuses the boot
+(`SANDLOOM-B034`), and so does a registration made outside a module's
+registration. Without this rule, a module could answer another module's facts
+or write claims in its name.
+
+Over RPC, the binding names the owner. A consumer drops a fact that
+`<m>.facts.v1` describes under another `owner_module`, and logs
+`SANDLOOM-B034`. The check compares names with the registering module; which
+module may write a given claim key is the first-writer rule above.
+
 ### Authority at commit (admin and money effects)
 
 A live read is fresh at read time only. Every authenticated write therefore

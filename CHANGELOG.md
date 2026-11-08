@@ -15,6 +15,23 @@ website renders this same changelog.
 
 ### Security
 
+- **A module registers claims, facts and their contracts only under its own
+  name** (`SANDLOOM-B034`). An access fact whose `owner_module` is another
+  module, a claims contributor given `owner=` naming another module, and
+  another module's `<m>.claims.v1` or `<m>.facts.v1` contract now refuse the
+  module's load and the boot. So does any of them registered outside a
+  module's registration (a direct call on the core from a startup task or the
+  composition root). Before, the kernel took the name as given: a module could
+  answer another module's facts, become the owner of `identity.claims.v1`, or
+  be stamped `identity` in `claims_sources`. Over RPC, a consumer drops a fact
+  that `<m>.facts.v1` describes under another `owner_module` and logs
+  `SANDLOOM-B034`. **Upgrade:** give each `AccessFact` the registering
+  module's short name as `owner_module`; drop `owner=` from
+  `add_claims_contributor`; register facts, contributors and these contracts
+  from the module's `register()` or `setup=`, never on the core directly.
+  Tests that register on a bare `CoreFacade` wrap the calls in
+  `with core.module_registration("<module>") as api:` and call `api`.
+
 - **A token claim has one owner, and no claims contributor writes another's
   claim or a reserved key.** A second module writing a key an earlier module
   wrote (identity's `roles`, say), or any module writing a key the kernel
