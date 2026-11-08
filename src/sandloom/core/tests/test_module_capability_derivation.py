@@ -22,6 +22,8 @@ from __future__ import annotations
 import sys
 import textwrap
 import types
+from collections.abc import Iterator
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import Any
 
@@ -66,10 +68,14 @@ def purge():
 """
 
 
+_MONKEYPATCH: list[pytest.MonkeyPatch] = []
+
+
 def _package(
     root: Path, name: str, *, tasks: str | None = None, package_tasks: bool = False
 ) -> Path:
-    """A throwaway importable package ``name`` under ``root``."""
+    """A throwaway package ``name`` under ``root``, imported (in
+    ``sys.modules``, as a loaded module's package is) and importable."""
     directory = root / name
     directory.mkdir()
     (directory / "__init__.py").write_text("")
@@ -79,13 +85,20 @@ def _package(
             (directory / "tasks" / "__init__.py").write_text(tasks)
         else:
             (directory / "tasks.py").write_text(tasks)
+    package = types.ModuleType(name)
+    package.__path__ = [str(directory)]
+    package.__spec__ = ModuleSpec(name, None, is_package=True)
+    package.__spec__.submodule_search_locations = [str(directory)]
+    _MONKEYPATCH[-1].setitem(sys.modules, name, package)
     return directory
 
 
 @pytest.fixture
-def importable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def importable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.syspath_prepend(str(tmp_path))
-    return tmp_path
+    _MONKEYPATCH.append(monkeypatch)
+    yield tmp_path
+    _MONKEYPATCH.pop()
 
 
 # -- derivation ----------------------------------------------------------------
@@ -112,6 +125,10 @@ def test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic(
     assert derived_needs("capmod_pkg")[0].features == frozenset({"periodic"})
     assert derived_needs("capmod_none") == ()
     assert derived_needs("no_such_package.child") == ()
+    # Only an imported package is read (a descriptor's module always is).
+    _package(importable, "capmod_not_imported", tasks=_TASK)
+    del sys.modules["capmod_not_imported"]
+    assert derived_needs("capmod_not_imported") == ()
     # Read, not imported: the tasks module never ran.
     assert "capmod_beat.tasks" not in sys.modules
     assert has_periodic_tasks("capmod_beat") and not has_periodic_tasks("capmod_plain")

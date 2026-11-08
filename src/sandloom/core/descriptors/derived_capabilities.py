@@ -1,6 +1,7 @@
 """The infrastructure capabilities a module's code shows it needs.
 
-Read without importing the module's submodules (``find_spec`` and the AST):
+Read from the imported package's directories and the AST, without importing
+any submodule:
 
 * a ``<module>.tasks`` submodule (``tasks.py`` or a ``tasks/`` package) needs
   the ``taskqueue`` capability: the framework worker imports it and runs its
@@ -21,7 +22,8 @@ capability another way declares it.
 from __future__ import annotations
 
 import ast
-import importlib.util
+import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +34,7 @@ __all__ = [
     "DerivedNeed",
     "defines_periodic_hook",
     "derived_needs",
+    "loaded_package_locations",
     "tasks_source",
 ]
 
@@ -57,17 +60,19 @@ class DerivedNeed:
     source: str
 
 
-def tasks_source(module: str) -> Path | None:
-    """The file of ``<module>.tasks`` (``tasks.py``, or ``tasks/__init__.py``),
-    found without importing it; ``None`` when the module has none or is not
-    an importable package."""
-    try:
-        spec = importlib.util.find_spec(module)
-    except (ImportError, ValueError):
-        return None
-    if spec is None:
-        return None
-    for location in list(spec.submodule_search_locations or []):
+def loaded_package_locations(module: str) -> list[str]:
+    """The directories of an already imported package ``module`` (its
+    ``__path__``); empty when it is not imported or is a plain module. Imports
+    nothing: a descriptor's module is imported before it exists."""
+    package = sys.modules.get(module)
+    return [str(p) for p in getattr(package, "__path__", None) or []]
+
+
+def tasks_source(locations: Iterable[str]) -> Path | None:
+    """The file of a package's ``tasks`` submodule (``tasks.py``, or
+    ``tasks/__init__.py``) in its directories ``locations``, found without
+    importing it; ``None`` when it has none."""
+    for location in locations:
         for candidate in (
             Path(location) / "tasks.py",
             Path(location) / "tasks" / "__init__.py",
@@ -100,10 +105,11 @@ def _shown(path: Path, module: str) -> str:
 
 
 def derived_needs(module: str) -> tuple[DerivedNeed, ...]:
-    """What ``module``'s code needs from the infrastructure: ``taskqueue``
-    when it has tasks, with ``periodic`` when it has a beat hook. Imports
-    nothing of the module beyond what ``find_spec`` needs (its parents)."""
-    path = tasks_source(module)
+    """What the imported package ``module``'s code needs from the
+    infrastructure: ``taskqueue`` when it has tasks, with ``periodic`` when
+    it has a beat hook. Imports nothing; a package that is not imported (or
+    a plain module) needs nothing derivable."""
+    path = tasks_source(loaded_package_locations(module))
     if path is None:
         return ()
     shown = _shown(path, module)
