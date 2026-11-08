@@ -220,6 +220,21 @@ failing critical contributor aborts minting (`ClaimsUnavailable`, `503`).
 Every token carries `claims_sources` and `claims_sources_failed`: trust a
 module's claim only if that module is in `claims_sources`. Identity stamps
 `auth_time`, carried unchanged through refresh.
+Each claim key has one owner. A second module writing a key another module
+wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
+does a contributor writing a reserved key. The kernel stamps the provenance:
+`claims_sources`, `claims_sources_failed`. It reads the subject's structure
+from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. Tenant
+binding reads `tenant_id` and `org_id`. It stamps the
+token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
+`auth_time`, `token_type`.
+
+Upgrading: a contributor that returns a reserved key now gets `503` at minting.
+Drop the key. Return each value as a top-level claim your module owns, not
+under `claims`. Top-level keys already land in `UserContext.claims`.
+Some nested keys cannot move up unchanged. `sub` is reserved. `roles` and
+`permissions` belong to identity and are `UserContext` fields. Rename such a
+key under your module's own name and update its readers.
 
 ## The route snapshot
 
