@@ -924,7 +924,13 @@ def test_plan_generates_the_l1_module_files(tmp_path: Path) -> None:
         "contracts/sdkfix_stats_quota_v1.py",
     }
     stub = targets["contracts/sdkfix_stats_quota_v1.py"]
-    assert stub.content == FIXTURE_STUB.read_text()
+    # The rendered stub under its provenance header (ADR-0013 decision 7).
+    from sandloom.core.cli import consumer_copies
+
+    meta, body = consumer_copies.read_header(stub.content)
+    assert generated.HEADER + body == FIXTURE_STUB.read_text()
+    assert meta["contract"] == "sdkfix_stats.quota.v1"
+    assert consumer_copies.verify(stub.content) is None
     snapshot = targets["sdkfix_stats/module.snapshot.json"]
     assert '"sdkfix_notes.note.created.v1"' in snapshot.content  # the consumer
     assert all(not f.problems for f in files)

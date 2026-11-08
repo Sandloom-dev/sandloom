@@ -21,6 +21,8 @@ FILE_NAME = "admin-manifest.json"
 def render(source: Any) -> str:
     """The manifest's text from the kernel's data (``GenerationInput``)."""
     return (
-        json.dumps(compile_manifest(source), ensure_ascii=False, indent=2, sort_keys=True)
+        json.dumps(
+            compile_manifest(source), ensure_ascii=False, indent=2, sort_keys=True
+        )
         + "\n"
     )

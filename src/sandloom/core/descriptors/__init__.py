@@ -30,10 +30,8 @@ __all__ = [
     "FailedModule",
     "ModuleLoadSummary",
     "MigrationTargetError",
-    "GenerationModule",
-    "GenerationInput",
-    "GeneratedFileRenderer",
 ]
+# GenerationInput, GenerationModule: public through sandloom.sdk.module only.
 
 HealthStatus = Literal["ok", "degraded", "fail"]
 

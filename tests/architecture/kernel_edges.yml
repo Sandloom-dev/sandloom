@@ -975,6 +975,7 @@ loader_call_sites:
   - {path: sandloom/core/migrations/alembic_support.py, symbol: run_migrations, row: A12, reason: "migrations import each chain's model modules"}
   - {path: sandloom/core/cli/generated.py, symbol: _module_dir, row: A13, reason: sandloom generate locates each module}
   - {path: sandloom/core/cli/generated.py, symbol: is_l1, row: A13, reason: "sandloom generate reads each module's register"}
+  - {path: sandloom/core/cli/consumer_copies.py, symbol: _contracts_of, row: A13, reason: "sandloom generate imports each provider's contracts module, never composed, to render a consumer's copies (ADR-0013, KB-20)"}
   - {path: sandloom/core/cli/extract.py, symbol: module_tables, row: A14, reason: "sandloom migrate extract-module imports <pkg>.models"}
   - {path: sandloom/core/testing/migrations.py, symbol: model_tables, row: A15, reason: "the test harness imports <module>.models and the kernel's models"}
   - {path: sandloom/core/testing/migrations.py, symbol: _migrations_dir, row: A15, reason: "the test harness locates a module's migration chain"}

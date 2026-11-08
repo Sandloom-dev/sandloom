@@ -8,7 +8,9 @@ description: "Reference of sandloom.sdk.module: every public name with its signa
 # `sandloom.sdk.module`
 
 Modules: `define_module`, the L2 `register` form (`ModuleAPI`,
-`ModuleDescriptor`), requirements, health and loader results.
+`ModuleDescriptor`), requirements, health, loader results and a module's
+declared settings (`settings_of`, `SemanticSetting`, `RemovedSetting`,
+`Risk`).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -28,6 +30,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`CapabilityRequirement`](#capabilityrequirement) | class | An infrastructure capability a module needs to function. |
 | [`ContractRequirement`](#contractrequirement) | class | A sync service contract a module CALLS (`core.get_service(name)`). |
 | [`FailedModule`](#failedmodule) | class | A module that failed to load, with its error and whether it was required. |
+| [`GenerationInput`](#generationinput) | class | What `sandloom generate` hands a module's generated-file renderer. |
+| [`GenerationModule`](#generationmodule) | class | One loaded module as a generated file's renderer sees it: data, not the module. |
 | [`HealthCheck`](#healthcheck) | callable |  |
 | [`HealthResult`](#healthresult) | class | Outcome of a module health check: a status plus optional details. |
 | [`HealthStatus`](#healthstatus) | callable |  |
@@ -35,6 +39,10 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ModuleAPI`](#moduleapi) | class | Stable, minimal registration surface for business modules. |
 | [`ModuleDescriptor`](#moduledescriptor) | class | What a module returns from `register(core)` to describe itself. |
 | [`ModuleLoadSummary`](#moduleloadsummary) | class | Aggregate result of a load pass: loaded, skipped, failed, and duplicates. |
+| [`RemovedSetting`](#removedsetting) | class | A setting that no longer exists; still configuring it is reported. |
+| [`Risk`](#risk) | class | One stable, documented weakening a deployment may accept. |
+| [`SemanticSetting`](#semanticsetting) | class | A setting whose value changes a guarantee, defined per profile. |
+| [`settings_of`](#settings_of) | function | The validated settings `model` of the running application. |
 | [`SkippedModule`](#skippedmodule) | class | A module the loader skipped, with the reason why. |
 
 ## Beginner names
@@ -60,6 +68,8 @@ def define_module(
     events: Any = 'auto',
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    settings: type[BaseModel] | None = None,
+    generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]
 ```
 
@@ -85,6 +95,20 @@ refresh sessions on an emergency block with a durable consumer of
 `core.auth.user_blocked.v1`; one that holds no refresh sessions
 declares `refresh_sessions=False` instead, which startup verifies
 against its refresh routes, session tables and consumers (SANDLOOM-B035).
+
+`settings=` declares the module's settings: a plain pydantic
+`BaseModel` whose fields are aliased to their environment names
+(`Field(alias="INVENTORY_RESERVE_TTL_SECONDS")`). It is validated from
+the process's one read of the environment before anything else
+registers; an invalid value stops the boot (optional module or not).
+Read it with `settings_of(Model)` inside a request, a task or `setup`.
+
+`generates` declares files `sandloom generate` writes into the app's
+shared package: file name -> `render(source) -> str`, where `source` is
+the composed app as data (`sandloom.sdk.module.GenerationInput`:
+OpenAPI, routes, each loaded module's `admin.py` resources). `sandloom
+test` fails when a file is stale (SANDLOOM-T016). The admin console
+declares its manifest this way.
 
 ## Advanced names
 
@@ -147,6 +171,33 @@ class FailedModule(name: str, error: str, required: bool) -> None
 
 A module that failed to load, with its error and whether it was required.
 
+### `GenerationInput`
+
+```python
+class GenerationInput(
+    openapi: Mapping[str, Any],
+    routes: Mapping[tuple[str, str], str],
+    modules: tuple[GenerationModule, ...],
+) -> None
+```
+
+What `sandloom generate` hands a module's generated-file renderer.
+
+Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
+routes as `(path, METHOD) -> the endpoint's Python module` and every
+loaded module in load order. A renderer imports no other module.
+
+### `GenerationModule`
+
+```python
+class GenerationModule(package: str, name: str, admin_resources: Any = None) -> None
+```
+
+One loaded module as a generated file's renderer sees it: data, not the module.
+
+`package` is its import name, `name` its module name, `admin_resources`
+the `RESOURCES` its `admin.py` declares (`None` without one).
+
 ### `HealthCheck`
 
 ```python
@@ -198,6 +249,22 @@ When constructed with a `draft` (the loader's transactional path) write
 methods buffer into it and are applied only on a successful commit; read
 methods always reflect the live facade. Without a draft (direct use in
 tests) writes apply to the facade immediately, preserving the simple API.
+
+#### `ModuleAPI.declare_settings`
+
+```python
+def declare_settings(self, model: type[M], *, package: str | None = None) -> M
+```
+
+Declare this module's settings model and return its instance.
+
+The model (a plain pydantic `BaseModel`, fields aliased to their
+environment names) is validated now, from the process's one read of
+the environment, before `setup` runs; `settings_of(model)` reads
+it afterwards. An invalid value raises `ModuleSettingsError` (a
+`ConfigurationError`: the boot stops, optional module or not).
+`define_module(settings=...)` calls this for you; `package`
+(default: the registering module) names the module in messages.
 
 #### `ModuleAPI.include_router`
 
@@ -503,6 +570,82 @@ def success(self) -> bool
 ```python
 def to_dict(self) -> dict[str, Any]
 ```
+
+### `RemovedSetting`
+
+```python
+class RemovedSetting(
+    name: str,
+    removed_in: str,
+    hint: str,
+    inert: object = False,
+) -> None
+```
+
+A setting that no longer exists; still configuring it is reported.
+
+Set to its `inert` value (today's only behaviour) it logs a warning;
+any other value fails startup — that behaviour is gone.
+
+### `Risk`
+
+```python
+class Risk(
+    id: str,
+    weakens: str,
+    consulted_by: str,
+    refused: frozenset[str] = frozenset(),
+    outside_prod: bool = False,
+) -> None
+```
+
+One stable, documented weakening a deployment may accept.
+
+### `SemanticSetting`
+
+```python
+class SemanticSetting(
+    name: str,
+    why: str,
+    profile: Mapping[str, object],
+    strength: tuple[object, ...] = (),
+    refused: frozenset[str] = frozenset(),
+    effective: Callable[[Any], object] | None = None,
+    applies: Callable[[Any], bool] | None = None,
+    adr: str | None = None,
+    selector: bool = False,
+    infra_option: bool = False,
+    risk: str | None = None,
+    risk_list: bool = False,
+) -> None
+```
+
+A setting whose value changes a guarantee, defined per profile.
+
+#### `SemanticSetting.value`
+
+```python
+def value(self, cfg: Any) -> object
+```
+
+#### `SemanticSetting.weaker`
+
+```python
+def weaker(self, value: object, than: object) -> bool
+```
+
+### `settings_of`
+
+```python
+def settings_of(model: type[M]) -> M
+```
+
+The validated settings `model` of the running application.
+
+Call it where the application is bound (a request, a task, a consumer,
+the module's `setup`), never at import: with no application bound it
+raises `SettingsNotBoundError`, which is how the import audit
+catches a module-level read.
 
 ### `SkippedModule`
 

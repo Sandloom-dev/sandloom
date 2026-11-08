@@ -60,7 +60,9 @@ def test_the_renderer_gets_data_of_the_composed_app(
         seen.append(source)
         return "rendered\n"
 
-    app = _app(_module("demo.console", **{"console.json": render}), _module("demo.catalog"))
+    app = _app(
+        _module("demo.console", **{"console.json": render}), _module("demo.catalog")
+    )
     [item] = generation_input.planned(app, Path("/shared"))
     assert item == (Path("/shared/console.json"), "rendered\n", [])
     [source] = seen
@@ -124,7 +126,9 @@ def test_a_renderer_that_refuses_names_its_module(
     def refuse(source: GenerationInput) -> str:
         raise ValueError("/api/v1/notes: operation is not owned")
 
-    [item] = generation_input.declared(_app(_module("demo.console", **{"c.json": refuse})))
+    [item] = generation_input.declared(
+        _app(_module("demo.console", **{"c.json": refuse}))
+    )
     assert item.problems == ["demo.console: /api/v1/notes: operation is not owned"]
 
 
@@ -137,7 +141,9 @@ def test_two_modules_declaring_one_file_both_fail(
         _module("demo.two", **{"c.json": lambda s: "2"}),
     )
     files = generation_input.declared(app)
-    assert [f.problems for f in files] == [["c.json is declared by demo.one and demo.two"]] * 2
+    assert [f.problems for f in files] == [
+        ["c.json is declared by demo.one and demo.two"]
+    ] * 2
 
 
 def test_admin_export_renders_the_declared_file_and_checks_drift(

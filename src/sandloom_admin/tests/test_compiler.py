@@ -235,9 +235,7 @@ def test_foreign_module_cannot_admit_owners_routes() -> None:
 def test_duplicate_resources_fail_not_shadow() -> None:
     app, declaration = catalog()
     with pytest.raises(ValueError, match="duplicate/unsafe"):
-        _compile(
-            app, "demo.catalog", [declaration, copy.deepcopy(declaration)]
-        )
+        _compile(app, "demo.catalog", [declaration, copy.deepcopy(declaration)])
 
 
 @pytest.mark.parametrize(
@@ -273,9 +271,10 @@ def test_the_manifest_comes_from_data_never_from_modules() -> None:
     )
     manifest = compile_manifest(source)
     assert manifest["modules"] == ["catalog"]
-    assert manifest["resources"] == _compile(app, "demo.catalog", [declaration])[
-        "resources"
-    ]
+    assert (
+        manifest["resources"]
+        == _compile(app, "demo.catalog", [declaration])["resources"]
+    )
 
 
 def test_a_platform_audit_route_adds_the_kernel_s_operations(
@@ -296,7 +295,9 @@ def test_a_platform_audit_route_adds_the_kernel_s_operations(
             ("/api/v1/platform/catalog/services", "GET"): "sandloom.core.admin.api.x",
         },
         modules=(
-            SimpleNamespace(package="demo.catalog", name="catalog", admin_resources=None),
+            SimpleNamespace(
+                package="demo.catalog", name="catalog", admin_resources=None
+            ),
             SimpleNamespace(package="demo.plain", name="plain", admin_resources=None),
         ),
     )
@@ -311,9 +312,9 @@ def test_header_only_tenant_scope_and_no_fake_unpaged_api() -> None:
     app, declaration = catalog()
     declaration["scope"] = {"parameter": None}
     assert (
-        _compile(app, "demo.catalog", [declaration])["resources"][0][
-            "scope"
-        ]["parameter"]
+        _compile(app, "demo.catalog", [declaration])["resources"][0]["scope"][
+            "parameter"
+        ]
         is None
     )
     declaration["pagination"] = {"mode": "all"}

@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
+import sandloom.core.config.module_settings as _module_settings
 import sandloom.core.consumers.callbacks as _callbacks
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.descriptors as _descriptors
+import sandloom.core.module_api._settings as _settings
 import sandloom.core.planner as _planner
 import sandloom.core.route_markers as _route_markers
 from sandloom.core import contract_wire
@@ -20,6 +22,8 @@ from sandloom.core.module_api._service_registry import (
     _validate_service_name,
 )
 
+M = TypeVar("M", bound="BaseModel")
+
 
 class _RegistrationControlFlow(Exception):
     """An expected loader deferral/duplicate, not a failed registration."""
@@ -27,6 +31,7 @@ class _RegistrationControlFlow(Exception):
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from fastapi import APIRouter
+    from pydantic import BaseModel
 
     from sandloom.core.config.settings import Settings
     from sandloom.core.descriptors import HealthCheck
@@ -71,6 +76,10 @@ class ModuleRegistrationDraft:
         self.event_consumers: list[Any] = []
         self.access_facts: list[Any] = []
         self.sagas: list[Any] = []
+        #: the module's validated settings (ADR-0015), applied last.
+        self.module_settings: list[_module_settings.ModuleSettingsRecord] = []
+        #: the name the loader registers the module under (set by the facade).
+        self.module_name: str | None = None
 
     def commit(self, facade: CoreFacade) -> None:
         """Validate the whole draft, then apply it (atomic: all or nothing)."""
@@ -137,6 +146,12 @@ class ModuleRegistrationDraft:
                     _route_markers.stamp_routes(
                         facade.app.router.routes[before:], module
                     )
+            # Last: nothing after it can fail, so the restore above never
+            # has to take settings back.
+            if self.module_settings:
+                registry = _settings.registry_of(facade)
+                for record in self.module_settings:
+                    registry.add(record)
         except Exception:
             facade.restore_registrations(checkpoint)
             raise
@@ -331,6 +346,23 @@ class ModuleAPI:
     ) -> None:
         self._facade = facade
         self._draft = draft
+
+    # -- Settings (ADR-0015) ----------------------------------------------
+    def declare_settings(self, model: type[M], *, package: str | None = None) -> M:
+        """Declare this module's settings model and return its instance.
+
+        The model (a plain pydantic ``BaseModel``, fields aliased to their
+        environment names) is validated now, from the process's one read of
+        the environment, before ``setup`` runs; ``settings_of(model)`` reads
+        it afterwards. An invalid value raises ``ModuleSettingsError`` (a
+        ``ConfigurationError``: the boot stops, optional module or not).
+        ``define_module(settings=...)`` calls this for you; ``package``
+        (default: the registering module) names the module in messages.
+        """
+        pkg = package or (self._draft.module_name if self._draft else None)
+        if not pkg:
+            pkg = str(model.__module__).rsplit(".", 1)[0]
+        return _settings.declare(self._facade, self._draft, model, pkg)
 
     # -- HTTP -------------------------------------------------------------
     def include_router(self, router: APIRouter, **kwargs: Any) -> None:

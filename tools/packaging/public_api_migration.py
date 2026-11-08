@@ -108,6 +108,14 @@ H1_KERNEL_NAMES: dict[str, str] = {
     # The kernel home of ContractRef (WS-A dbd87f6f): generated contract
     # stubs import it from there, sandloom.sdk.contracts re-exports it.
     "core.descriptors.contract_refs.ContractRef": "sandloom.sdk.contracts",
+    # Module-declared settings (ADR-0015, KB-50).
+    "core.module_api.settings_of": "sandloom.sdk.module",
+    "core.module_api.SemanticSetting": "sandloom.sdk.module",
+    "core.module_api.RemovedSetting": "sandloom.sdk.module",
+    "core.module_api.Risk": "sandloom.sdk.module",
+    "core.module_api.ModuleSettingsError": "sandloom.sdk.testing",
+    "core.module_api.override_settings": "sandloom.sdk.testing",
+    "core.module_api.validate_settings": "sandloom.sdk.testing",
 }
 #: Kernel names that moved out of ``sandloom.shared.schemas`` (gone) on
 #: 2026-10-28, and the generated DTO copies' marker: kept where they are, no

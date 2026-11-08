@@ -16,6 +16,8 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Mapping
+from contextvars import ContextVar
 from difflib import get_close_matches
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,12 +26,15 @@ from pydantic import ValidationError
 from pydantic.functional_validators import field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
     PydanticBaseSettingsSource,
     SecretsSettingsSource,
     SettingsConfigDict,
 )
 
 from sandloom.core.config import accepted_risks as _risks
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config.auth import AuthConfig
 from sandloom.core.config.cache import CacheConfig
 from sandloom.core.config.common import (
@@ -56,6 +61,63 @@ from sandloom.core.config.sagas import SagasConfig
 from sandloom.core.config.services import ServicesConfig
 from sandloom.core.config.tiers import REMOVED, removed_setting_problem
 from sandloom.core.config.trust import TrustConfig
+
+
+class _SnapshotEnv(EnvSettingsSource):
+    """pydantic-settings' environment source over the snapshot's copy."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return self._snapshot.env
+
+
+class _SnapshotDotEnv(DotEnvSettingsSource):
+    """pydantic-settings' ``.env`` source over the snapshot's one parse
+    (extras included, as the removed-setting and typo checks read them)."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, env_file=None, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return self._snapshot.dotenv
+
+
+class _SnapshotSecrets(EnvSettingsSource):
+    """``SECRETS_DIR`` through the snapshot: one lookup per declared alias,
+    the directory never listed; decoding stays pydantic-settings'."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return dict(
+            self._snapshot.secrets_for(_module_settings.env_names(self.settings_cls))
+        )
+
+
+#: The snapshot the process load validates from (set by ``_load_into`` for
+#: the one ``Settings()`` it builds; any other ``Settings()`` reads its own
+#: sources as before).
+_LOAD_SNAPSHOT: ContextVar[_module_settings.SourceSnapshot | None] = ContextVar(
+    "sandloom_settings_load_snapshot", default=None
+)
 
 
 def effective_secrets_dir(settings_cls: type[BaseSettings]) -> str | None:
@@ -135,6 +197,18 @@ class Settings(
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        snapshot = _LOAD_SNAPSHOT.get()
+        if snapshot is not None:
+            # The process load: the same three sources and precedence, over
+            # the one read every module validates from (ADR-0015 decision 2).
+            sources: tuple[PydanticBaseSettingsSource, ...] = (
+                init_settings,
+                _SnapshotEnv(settings_cls, snapshot),
+                _SnapshotDotEnv(settings_cls, snapshot),
+            )
+            if snapshot.secrets_dir is not None:
+                sources += (_SnapshotSecrets(settings_cls, snapshot),)
+            return sources
         if (
             isinstance(file_secret_settings, SecretsSettingsSource)
             and file_secret_settings.secrets_dir is None
@@ -772,11 +846,27 @@ def _load_into(target: Settings) -> None:
     with _LOAD_LOCK:
         if type(target) is not _UnloadedSettings:
             return  # another thread loaded it
+        # One read of env > .env > SECRETS_DIR per process: the kernel
+        # validates from it here, every module's declared settings when it
+        # registers (ADR-0015 decision 2).
+        env_file = Settings.model_config.get("env_file")
+        snapshot = _module_settings.SourceSnapshot(
+            env_file=env_file if isinstance(env_file, str | os.PathLike) else None,
+            env_file_encoding=Settings.model_config.get("env_file_encoding"),
+            secrets_dir=effective_secrets_dir(Settings),
+        )
+        _module_settings.set_process_snapshot(snapshot)
+        token = _LOAD_SNAPSHOT.set(snapshot)
         try:
-            fresh = Settings()
+            # _env_file=None: pydantic-settings builds its default .env source
+            # before settings_customise_sources replaces it, and that source
+            # parses the file in its constructor (a second read).
+            fresh = Settings(_env_file=None)
         except ValidationError as e:
             # fail loudly and immediately: an invalid config is unacceptable
             raise SystemExit(f"{INVALID_CONFIGURATION}{_hint(e)}{e}") from e
+        finally:
+            _LOAD_SNAPSHOT.reset(token)
         for slot in _STATE_SLOTS:
             object.__setattr__(target, slot, object.__getattribute__(fresh, slot))
         object.__setattr__(target, "__class__", Settings)

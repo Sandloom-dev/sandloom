@@ -134,6 +134,47 @@ website renders this same changelog.
   substring markers on top. Lookup keys such as `operation_key`,
   `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
 
+### Added
+
+- **Modules declare their own settings** (ADR-0015, KB-50).
+  `define_module(..., settings=InventorySettings)` (or
+  `api.declare_settings(InventorySettings)` in a hand-written `register`)
+  takes a plain pydantic `BaseModel` whose fields are aliased to their
+  environment names (`Field(alias="INVENTORY_RESERVE_TTL_SECONDS")`, secrets
+  as `SecretStr`); metadata are `ClassVar` class attributes holding
+  `SemanticSetting`, `Risk` and `RemovedSetting`, and production checks are
+  `model_validator`s reading `info.context` (`environment`, `accepts_risk`,
+  a read-only `kernel`, `module`). The model is validated from the process's
+  one read of the environment before anything else of the module registers
+  and before `setup`; an invalid value stops every entry point that builds
+  the composition with `INVALID_CONFIGURATION` and exit 1, an optional
+  module included (`ModuleSettingsError`, a `ConfigurationError`). After the
+  load pass one check refuses an environment name declared twice by the
+  kernel and a loaded module or by two loaded modules (`SANDLOOM-B036`), a
+  loaded module's removed setting at a live value, and in prod a near-miss of
+  any declared name; it logs a module's semantic setting weaker than its
+  profile value (`CONFIG OVERRIDE`, `sandloom_config_override_active`). Read
+  the values with `settings_of(InventorySettings)` inside a request, a task
+  or `setup`: a read at import raises, and the import audit fails it. New
+  advanced names: `settings_of`, `SemanticSetting`, `RemovedSetting`, `Risk`
+  (`sandloom.sdk.module`); `override_settings`, `validate_settings`,
+  `ModuleSettingsError` (`sandloom.sdk.testing`). The bundled modules keep
+  their settings in the kernel until their own ports (KB-52..KB-54), and a
+  module's risk id `<module>.<name>` is accepted by `SANDLOOM_ACCEPTED_RISKS`
+  once namespaced risks land (KB-51). **Upgrade:** nothing to change for an
+  existing module. A module that read the environment itself
+  (`os.environ`, its own `BaseSettings`) moves the fields onto a declared
+  model and reads them with `settings_of`; tests replace `setattr` on the
+  kernel settings with `with override_settings(Model, field=value):`.
+- **One source read per process.** The kernel `Settings` load now reads the
+  environment, `.env` (parsed once) and `SECRETS_DIR` through the same
+  snapshot the modules validate from, with the same precedence (environment >
+  `.env` > `SECRETS_DIR`) and decoding. `SECRETS_DIR` is no longer listed: a
+  file is looked up by the declared name in lower or upper case (`jwt_secret`
+  or `JWT_SECRET`), once per name. **Upgrade:** on a case-sensitive file
+  system, rename a secret file whose name mixes cases (`Jwt_Secret`) to the
+  lower- or upper-case name; nothing else changes.
+
 ### Changed
 
 - **The admin console's manifest is a file the console declares** (ADR-0012
@@ -152,6 +193,32 @@ website renders this same changelog.
   console declares: its build-time composition must include `sandloom_admin`
   (it fails, saying so, otherwise). New advanced names:
   `GenerationInput`, `GenerationModule`, `ModuleDescriptor.generated_files`.
+- **A module distribution holds copies of the contracts it consumes**
+  (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
+  an ecosystem module repository), `sandloom generate` writes
+  `<module>/_generated/contracts/`: the stub, the DTO copies and
+  `<stem>.describe.json`, the provider's describe restricted to the methods
+  the module's `consumes` lists. The set is planned from the declarations
+  (module-level `Contract(REF)`, `define_module(consumes=[...])`) before the
+  app is composed, so a module may import a copy it has not generated yet;
+  `generate --check` fails when it differs from the composed `consumes`, and
+  an entry with no method list (a call through `core.get_service`,
+  `getattr` or a helper) is refused with SANDLOOM-T018 until
+  `ContractRequirement(name, methods=(...))` states it. `c = ref.client()`
+  in a function, tested against `None` and called, now resolves its methods.
+  Every generated stub and DTO copy starts with a provenance header
+  (`contract`, `fingerprint`, `provider`, `generator: format 2  digest …`);
+  DTO copies are laid out by the generator at 88 columns and never piped
+  through the project's ruff, so ruff's presence or `line-length` no longer
+  changes them. A provider not importable where `generate` runs keeps a
+  committed copy whose digest verifies and refuses an edited or missing one
+  (SANDLOOM-T018). Two contracts with one stub stem are refused in every
+  path. An application's shared package keeps copies only for the union of
+  its modules' `consumes` when every entry lists its methods (no example
+  changes). A field added to a closed (`extra="forbid"`) result DTO is
+  breaking against an expectation. Bundled stubs stay in `sandloom.shared`
+  until KB-22. Upgrade: run `uv run sandloom generate` (headers change; no
+  body changes).
 - **`sandloom admin create` leaves the password rules to the provider.** The
   kernel CLI no longer imports `sandloom_identity.password_policy` and has no
   fallback 8–100 length rule of its own: identity's `password_problem` answer

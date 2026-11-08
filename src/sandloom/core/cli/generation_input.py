@@ -51,7 +51,9 @@ def collect(app: Any) -> GenerationInput:
     """
     summary = app.state.module_summary
     if summary.failed:
-        raise ValueError("cannot render generated files for a partially failed composition")
+        raise ValueError(
+            "cannot render generated files for a partially failed composition"
+        )
     modules = []
     for descriptor in summary.loaded:
         declaring = descriptor.name + ".admin"
@@ -72,9 +74,7 @@ def collect(app: Any) -> GenerationInput:
         if isinstance(route, APIRoute)
         for method in sorted(route.methods)
     }
-    return GenerationInput(
-        openapi=app.openapi(), routes=routes, modules=tuple(modules)
-    )
+    return GenerationInput(openapi=app.openapi(), routes=routes, modules=tuple(modules))
 
 
 def _problem(name: str) -> str | None:
@@ -97,6 +97,21 @@ def declared(app: Any) -> list[DeclaredFile]:
     ]
     if not files:
         return []
+    _check_names(files)
+    try:
+        source = collect(app)
+    except DECLARATION_ERRORS as exc:
+        for item in files:
+            item.problems.append(f"module declarations: {exc}")
+        return files
+    for item in files:
+        if not item.problems:
+            _render(item, source)
+    return files
+
+
+def _check_names(files: list[DeclaredFile]) -> None:
+    """A name that is no plain file name, or that two modules declare."""
     owners: dict[str, list[str]] = {}
     for item in files:
         owners.setdefault(item.name, []).append(item.package)
@@ -108,25 +123,18 @@ def declared(app: Any) -> list[DeclaredFile]:
             item.problems.append(
                 f"{item.name} is declared by " + " and ".join(owners[item.name])
             )
+
+
+def _render(item: DeclaredFile, source: GenerationInput) -> None:
     try:
-        source = collect(app)
+        content = item.render(source)
     except DECLARATION_ERRORS as exc:
-        for item in files:
-            item.problems.append(f"module declarations: {exc}")
-        return files
-    for item in files:
-        if item.problems:
-            continue
-        try:
-            content = item.render(source)
-        except DECLARATION_ERRORS as exc:
-            item.problems.append(f"{item.package}: {exc}")
-            continue
-        if not isinstance(content, str):
-            item.problems.append(f"{item.package}: the renderer returned no text")
-            continue
-        item.content = content
-    return files
+        item.problems.append(f"{item.package}: {exc}")
+        return
+    if not isinstance(content, str):
+        item.problems.append(f"{item.package}: the renderer returned no text")
+        return
+    item.content = content
 
 
 def planned(app: Any, shared_dir: Path) -> list[tuple[Path, str, list[str]]]:
