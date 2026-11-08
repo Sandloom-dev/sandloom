@@ -90,6 +90,16 @@ register = define_module(
         ),
         "cache",
         "eventbus",
+        # Verification, password-reset and security mail (integrations): a
+        # notifier that cannot deliver email (the log driver in production)
+        # is refused at startup instead of logging mail nobody receives.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+        # The token cleanup (tasks.py) is storage hygiene: validity is checked
+        # on every use, so identity runs without a periodic driver (the
+        # refresh_tokens table then only grows).
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic"}), required=False
+        ),
     ],
     # identity mints the access tokens: with an asymmetric JWT_ALGORITHM its
     # process holds JWT_PRIVATE_KEY, every other service only public keys.

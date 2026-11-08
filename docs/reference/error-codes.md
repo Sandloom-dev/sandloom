@@ -58,6 +58,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
 | [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
 | [`SANDLOOM-C031`](#sandloom-c031) | `portable-sql` | check | a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them | active |
+| [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -668,6 +669,36 @@ a function also needs unscoped() (SANDLOOM-C015).
 **Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) (a race test: skip_unless_db_feature("concurrent_writers")) or ask has_optimized_reads()
 
 **More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C033
+
+**a module's code needs an infrastructure capability its define_module does not declare**
+
+Slug: `undeclared-capability` · kind: check · status: active
+
+**What happened and why it matters**
+
+A module states the infrastructure it needs in define_module(capabilities=[...])
+and the deployment chooses the driver; startup checks that they match. Some
+needs are visible in the module's code, and the kernel derives them at load
+whether they are declared or not: a tasks.py (or tasks/ package), which the
+framework worker imports and runs, needs the taskqueue capability; a beat hook
+(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
+that runs the module's periodic jobs at their interval in at least one process
+while the deployment runs (a driver never has it for supporting enqueue alone;
+only celery advertises it today). This check asks for the declaration, so a
+reader, an agent and the module snapshot see the need where every other need
+is stated. A declaration decides required or optional: the derived need only
+adds its feature to it, and a capability nobody declared is derived as
+required. The check reads tasks.py and the capabilities= of define_module (or
+ModuleDescriptor); an entry it cannot read statically decides nothing (that is
+a SANDLOOM-C030 finding). It does not claim to find every capability a module
+uses: a module that reaches one another way declares it itself, and the
+startup check stays the last line of defence.
+
+**Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a beat hook (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
+
+**More:** `docs/modules/background/tasks.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

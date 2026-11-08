@@ -29,6 +29,7 @@ with an enqueue key, the durable inbox or a unique operation key.
 | At-most-once acknowledgement (the message is acked when the task starts) | `acks_late=True, reject_on_worker_lost=True` for an idempotent task |
 | Deduplicated enqueue retries when a key is given | `taskqueue().enqueue(task, payload, idempotency_key=...)` |
 | A beat scheduler that runs only while it holds a fenced lease | `setup_periodic_tasks(sender, **kwargs)` in `tasks.py` for schedules |
+| Startup checks that the task queue's driver can serve the module | `capabilities=["taskqueue"]` in `define_module`, with the feature `periodic` for schedules (`sandloom add task` writes it) |
 
 ## How to use it
 
@@ -161,6 +162,31 @@ def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
     sender.add_periodic_task(cron("0 3 * * *"), purge.s(), name="notes.purge")
 ```
 
+**A module with tasks declares the task queue.** The module states what it
+needs and the deployment picks the driver: `tasks.py` needs the `taskqueue`
+capability, and a schedule needs its feature `periodic`, a driver that runs
+the module's periodic jobs at their interval while the deployment runs. A
+driver that can only enqueue does not have it; today only `celery` does.
+
+```python
+# <module>/__init__.py
+from sandloom.sdk import define_module
+from sandloom.sdk.module import CapabilityRequirement  # sandloom: advanced periodic
+
+register = define_module(
+    __name__,
+    capabilities=[CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))],
+)
+```
+
+The kernel derives the same need from `tasks.py` at load, so startup checks
+it either way; `sandloom check` asks for the declaration
+([SANDLOOM-C033](../../reference/error-codes.md#sandloom-c033)). A
+declaration decides whether the need is required: pass `required=False` when
+the module works without its schedule (identity's token cleanup does). A
+selected module whose required capability is not met refuses startup, also
+when the module is optional.
+
 The worker, `sandloom migrate` and the operational commands (`sandloom outbox`,
 `sandloom streams`, `sandloom projection`) resolve the application through the same
 composition root, so with `SANDLOOM_COMPOSITION_ROOT=<app>.asgi` each acts on the
@@ -181,6 +207,7 @@ failure then aborts startup instead of degrading silently).
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | a `TenantScoped` query with no tenant bound |
 | [SANDLOOM-C004](../../reference/error-codes.md#sandloom-c004) | a Celery app or another backend client constructed in a module |
 | [SANDLOOM-C021](../../reference/error-codes.md#sandloom-c021) | a function-local import in `tasks.py` |
+| [SANDLOOM-C033](../../reference/error-codes.md#sandloom-c033) | `tasks.py` without `taskqueue` in `capabilities=`, or a schedule without `periodic` |
 | `TaskEnqueueConflict` / `TaskEnqueueUncertain` / `TaskEnqueueUnavailable` | the enqueue cases above |
 
 ??? note "Guarantees, precisely"

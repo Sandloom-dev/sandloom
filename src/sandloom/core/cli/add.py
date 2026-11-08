@@ -56,6 +56,7 @@ from sandloom.core.cli.scaffold_wiring import (
     project_root,
     wire_module,
 )
+from sandloom.core.descriptors.derived_capabilities import defines_periodic_hook
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 #: ruff format's line length (generated files pass the project's format gate).
@@ -1345,11 +1346,162 @@ def add_task(
     )
     block = _task_block(module, where.dotted(module), name)
     edited = [_append(path, block, header=header)]
+    if periodic is not None:
+        _add_periodic(path, module, name, periodic)
+    declared, declare_note = _declare_taskqueue(
+        directory / "__init__.py", periodic=defines_periodic_hook(path)
+    )
+    edited += declared
     if periodic is None:
-        return edited, None
-    _add_periodic(path, module, name, periodic)
+        return edited, declare_note
     wired, note = _wire_beat(where, module)
-    return edited + wired, note
+    notes = [n for n in (note, declare_note) if n]
+    return edited + wired, "; ".join(notes) or None
+
+
+#: The declaration ``sandloom add task`` writes (SANDLOOM-C033).
+_TASKQUEUE = '"taskqueue"'
+_TASKQUEUE_PERIODIC = (
+    'CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))'
+)
+_CAPABILITY_IMPORT = (
+    "from sandloom.sdk.module import CapabilityRequirement  "
+    "# sandloom: advanced periodic"
+)
+
+
+def _taskqueue_entries(source: str, call: ast.Call, periodic: bool) -> list[str] | None:
+    """The ``capabilities=`` entries after declaring the task queue, or
+    ``None`` when the existing list is not a plain literal (or already
+    declares it as it should be)."""
+    keyword = next((k for k in call.keywords if k.arg == "capabilities"), None)
+    if keyword is None:
+        return [_TASKQUEUE_PERIODIC if periodic else _TASKQUEUE]
+    if not isinstance(keyword.value, ast.List | ast.Tuple):
+        return None
+    entries: list[str] = []
+    found = False
+    for item in keyword.value.elts:
+        segment = ast.get_source_segment(source, item)
+        if segment is None:
+            return None
+        is_string = isinstance(item, ast.Constant) and item.value == "taskqueue"
+        is_requirement = (
+            isinstance(item, ast.Call)
+            and item.args
+            and isinstance(item.args[0], ast.Constant)
+            and item.args[0].value == "taskqueue"
+        )
+        if is_requirement:
+            return None  # a hand-written requirement: the author's to extend
+        if is_string:
+            found = True
+            if periodic:
+                segment = _TASKQUEUE_PERIODIC
+            else:
+                return None  # already declared
+        entries.append(segment)
+    if not found:
+        entries.append(_TASKQUEUE_PERIODIC if periodic else _TASKQUEUE)
+    return entries
+
+
+def _declare_taskqueue(init: Path, *, periodic: bool) -> tuple[list[Path], str | None]:
+    """Declare ``taskqueue`` (with ``periodic`` for a beat hook) in the
+    module's ``define_module(capabilities=[...])``, which ``sandloom check``
+    asks for (SANDLOOM-C033). A call it cannot rewrite safely (comments
+    inside it, a computed list, a hand-written requirement) is left alone and
+    the note says what to declare."""
+    wanted = _TASKQUEUE_PERIODIC if periodic else f"[{_TASKQUEUE}]"
+    manual = (
+        f"declare the task queue in {init.parent.name}/__init__.py: "
+        f"define_module(..., capabilities=[{wanted.strip('[]')}]) (SANDLOOM-C033)"
+    )
+    if not init.is_file():
+        return [], manual
+    source = init.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise GeneratorError(f"{init} does not parse ({exc}); fix it first") from exc
+    found = [
+        (node, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "define_module"
+    ]
+    if len(found) != 1:
+        return [], manual
+    statement, call = found[0]
+    text = ast.get_source_segment(source, statement)
+    if text is None or "#" in text or call.end_lineno is None:
+        return [], manual
+    entries = _taskqueue_entries(source, call, periodic)
+    if entries is None:
+        has_periodic = "periodic" in text
+        return [], (None if has_periodic or not periodic else manual)
+    args = [ast.get_source_segment(source, a) or "" for a in call.args]
+    args += [
+        f"{k.arg}={ast.get_source_segment(source, k.value)}"
+        if k.arg
+        else f"**{ast.get_source_segment(source, k.value)}"
+        for k in call.keywords
+        if k.arg != "capabilities"
+    ]
+    args.append(f"capabilities=[{', '.join(entries)}]")
+    targets = " = ".join(
+        ast.get_source_segment(source, t) or "" for t in statement.targets
+    )
+    rewritten = _call(f"{targets} = define_module", ", ".join(args))
+    lines = source.split("\n")
+    start, end = statement.lineno - 1, statement.end_lineno or statement.lineno
+    lines[start:end] = rewritten.split("\n")
+    source = "\n".join(lines)
+    if periodic:
+        source = _import_capability_requirement(source, tree)
+    init.write_text(source, encoding="utf-8")
+    return [init], None
+
+
+def _import_capability_requirement(source: str, tree: ast.Module) -> str:
+    """``source`` importing ``CapabilityRequirement`` from ``sandloom.sdk.module``
+    (lines before the rewritten ``define_module`` are those of ``tree``), in
+    the place isort keeps it: merged into an existing one-line import of that
+    module, else among the ``sandloom`` imports in order."""
+    imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.level == 0]
+    if any(
+        (alias.asname or alias.name) == "CapabilityRequirement"
+        for node in imports
+        for alias in node.names
+    ):
+        return source
+    lines = source.split("\n")
+    module = "sandloom.sdk.module"
+    for node in imports:
+        if node.module == module and node.lineno == node.end_lineno:
+            if any(a.asname for a in node.names):
+                break  # an aliased import: a separate line keeps it readable
+            comment = lines[node.lineno - 1].partition("#")[2]
+            names = sorted({*(a.name for a in node.names), "CapabilityRequirement"})
+            new = f"from {module} import {', '.join(names)}"
+            new += f"  #{comment}" if comment else ""
+            lines[node.lineno - 1] = new
+            return "\n".join(lines)
+    ours = [n for n in imports if (n.module or "").split(".")[0] == "sandloom"]
+    after = [n for n in ours if (n.module or "") > module]
+    if after:
+        at = after[0].lineno - 1
+    elif ours:
+        at = ours[-1].end_lineno or ours[-1].lineno
+    else:
+        everything = [
+            n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)
+        ]
+        at = (everything[-1].end_lineno or 0) if everything else 0
+    lines[at:at] = [_CAPABILITY_IMPORT]
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #
