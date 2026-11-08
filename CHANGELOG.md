@@ -28,6 +28,13 @@ website renders this same changelog.
   must drop it; return values as top-level claims your module owns instead of a
   nested `claims` mapping. A nested `sub`, `roles` or `permissions` cannot move
   up unchanged (reserved, or identity's): rename it and update its readers.
+- **The log redactor masks every setting `sandloom config dump` masks.**
+  `TWOFA_ENCRYPTION_KEY`, `SENTRY_DSN` and `S3_ACCESS_KEY_ID` passed the log
+  redactor (a log extra or a logged mapping key) in clear while `config dump`
+  redacted them. Both now judge a name by one rule
+  (`guardrails.is_secret_name`), and the log redactor keeps its broader
+  substring markers on top. Lookup keys such as `operation_key`,
+  `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
 
 ### Changed
 
