@@ -392,8 +392,13 @@ def is_l1(module: str) -> bool:
 
 
 def module_surface(entry: Any) -> dict[str, Any]:
-    """The ``module.snapshot.json`` document of one module manifest entry."""
-    return {
+    """The ``module.snapshot.json`` document of one module manifest entry.
+
+    A token issuer's document also records its ``issuer`` declaration
+    (``refresh_sessions``: whether it holds refresh sessions an emergency
+    block must end; ADR-0012 decision 5). Other modules carry no such key.
+    """
+    surface: dict[str, Any] = {
         "format": 1,
         "module": entry.name,
         "events": {
@@ -429,6 +434,11 @@ def module_surface(entry: Any) -> dict[str, Any]:
             for p in entry.projections
         ],
     }
+    if getattr(entry, "issues_tokens", False):
+        surface["issuer"] = {
+            "refresh_sessions": bool(getattr(entry, "refresh_sessions", True))
+        }
+    return surface
 
 
 def _contract_snapshot(module: str, contracts: Mapping[str, Any]) -> Generated | None:

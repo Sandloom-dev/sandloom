@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
+import sandloom.core.app_factory.revocation_applier as _applier
 import sandloom.core.auth.revocation as _revocation
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.route_policy as _route_policy
@@ -246,6 +247,13 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
     taskqueue_readiness = _TaskqueueReadiness(
         core_facade, ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0))
     )
+    # The revocation / block consumers' backlog, dead letters and state
+    # (ADR-0012 decision 5, A9); its dead-letter read shares the probes' TTL.
+    revocation_probe = _applier.RevocationReadinessProbe(
+        core_facade,
+        settings,
+        ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0)),
+    )
 
     probe = _route_policy.public(reason="liveness / readiness probe (no caller)")
 
@@ -302,6 +310,7 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         await _revocation.reconcile_pending_revocations()
         revocations = _revocation.pending_revocations()
         revocations_pending = revocations["count"] > 0
+        revocation_consumers = await revocation_probe(consumer_runtime)
         relay: dict[str, Any] = {"enabled": False}
         local_relay = getattr(application.state, "relay_task", None)
         if local_relay is not None:
@@ -320,6 +329,7 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
             and not no_modules_loaded
             and not required_consumers_unavailable
             and not revocations_pending
+            and revocation_consumers.ready
             and not relay_unavailable
             and not taskqueue_unavailable
         )
@@ -330,6 +340,7 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
             "revocations_pending": revocations_pending,
             # ``ok`` | ``fail`` | ``unused`` (no loaded module registers tasks).
             "taskqueue_status": taskqueue_status,
+            "revocation_consumers_ready": revocation_consumers.ready,
         }
         # The deployment topology (module and consumer names) is internal:
         # only callers holding the internal token see it.
@@ -350,6 +361,14 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
                     "revocations_pending_oldest_seconds": round(
                         revocations["oldest_seconds"], 3
                     ),
+                    "revocation_consumers": {
+                        "reasons": list(revocation_consumers.reasons),
+                        "lag_seconds": {
+                            name: round(age, 3)
+                            for name, age in revocation_consumers.lag_seconds.items()
+                        },
+                        "dead_letters": dict(revocation_consumers.dead_letters),
+                    },
                     "required_services": asdict(peers["services"])
                     if "services" in peers
                     else None,

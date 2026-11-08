@@ -8,6 +8,9 @@ from typing import Any
 
 import sandloom.core.sql_alchemy.dbapi as _dbapi
 from sandloom.core import rpc_binding, rpc_identity, rpc_pair_mac
+from sandloom.core.app_factory.revocation_applier import (
+    revocation_applier_config_problem,
+)
 from sandloom.core.auth.tokens import jwt_key_material_problem
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.config import tiers
@@ -330,6 +333,9 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (:func:`development_database_config_problem`, SANDLOOM-B029), and a
       guard for ``DB_READ_ONLY_SESSIONS``
       (:func:`read_only_sessions_config_problem`, SANDLOOM-B031);
+    * ``SANDLOOM_SERVICE_NAME`` on a cross-process event bus, the group of the
+      kernel's revocation applier
+      (:func:`~sandloom.core.app_factory.revocation_applier.revocation_applier_config_problem`);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
       ``include_profile=False`` (``sandloom doctor`` reports the profile itself).
@@ -345,6 +351,7 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
         dbapi_config_problem,
         development_database_config_problem,
         read_only_sessions_config_problem,
+        revocation_applier_config_problem,
     ):
         problem = check(cfg)
         if problem:

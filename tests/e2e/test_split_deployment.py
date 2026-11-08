@@ -262,6 +262,7 @@ def split(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     env_a = _process_env(
         base,
         DATABASE_URL=_db_url(db_url, db_a),
+        SANDLOOM_SERVICE_NAME="e2e-a",
         SANDLOOM_MODULES=json.dumps([*modules_a, "e2e_probe"]),
         SERVICE_BINDINGS=json.dumps(bindings_a),
         **rpc_env("e2e-a", peers=["e2e-b"], allowed_calls=allowed),
@@ -269,6 +270,7 @@ def split(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     env_b = _process_env(
         base,
         DATABASE_URL=_db_url(db_url, db_b),
+        SANDLOOM_SERVICE_NAME="e2e-b",
         SANDLOOM_MODULES=json.dumps(["sandloom_billing", "e2e_probe"]),
         E2E_PROBE_CONSUME="1",
         SERVICE_BINDINGS=json.dumps(bindings_b),

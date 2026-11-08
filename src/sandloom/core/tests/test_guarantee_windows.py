@@ -122,6 +122,8 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(settings, "contract_command_dedupe_ttl_seconds", 5)
     monkeypatch.setattr(settings, "environment", "prod")
+    # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
+    monkeypatch.setattr(settings, "sandloom_service_name", "api")
     # The bundled modules refuse prod without these while they register,
     # before the window check runs: satisfy them so this test sees its own.
     monkeypatch.setattr(settings, "twofa_encryption_key", "9f1c4e7a" * 8)

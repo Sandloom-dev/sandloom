@@ -145,6 +145,12 @@ class ModuleDescriptor:
     # process that loads an issuer and refuses it (and JWT_SECRET) in every
     # other process: a verify-only service must not be able to mint.
     issues_tokens: bool = False
+    # Only read on an issuer: whether it holds refresh sessions that an
+    # emergency block (``core.auth.user_blocked.v1``) must end. ``True`` (the
+    # default) obliges a durable consumer of that channel; ``False`` declares
+    # a stateless issuer, verified at startup against its refresh routes,
+    # session tables and consumers (ADR-0012 decision 5, SANDLOOM-B035).
+    refresh_sessions: bool = True
 
     def effective_capabilities(self) -> list[CapabilityRequirement]:
         """Capabilities to preflight at load (the declared list)."""
@@ -249,6 +255,13 @@ class ModuleLoadSummary:
             "duplicates": list(self.duplicates),
             "explicit": list(self.explicit),
             "consumes": {k: [dict(e) for e in v] for k, v in self.consumes.items()},
+            # The token issuer's declaration (ADR-0012 decision 5), shown by
+            # /diagnostics/core (the console) and `sandloom doctor`.
+            "issuers": {
+                d.name: {"refresh_sessions": bool(getattr(d, "refresh_sessions", True))}
+                for d in self.loaded
+                if getattr(d, "issues_tokens", False)
+            },
             "success": self.success(),
         }
 

@@ -90,6 +90,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
 | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
 | [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
+| [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | a token issuer cannot end its sessions on an emergency block: an issues_tokens module registers no durable consumer of core.auth.user_blocked.v1, or declares refresh_sessions=False and still registers a refresh route, a session table or such a consumer | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1298,6 +1299,29 @@ drops, with a logged SANDLOOM-B034 warning, any fact described under
 another owner_module.
 
 **Fix:** register the fact, contributor or contract from the module whose short name it carries (its register() or setup=); give an access fact the registering module as owner_module and drop owner= that names another module
+
+**More:** `docs/advanced/security-model.md`
+
+### SANDLOOM-B035
+
+**a token issuer cannot end its sessions on an emergency block: an issues_tokens module registers no durable consumer of core.auth.user_blocked.v1, or declares refresh_sessions=False and still registers a refresh route, a session table or such a consumer**
+
+Slug: `token-issuer-obligation` · kind: boot · status: active
+
+**What happened and why it matters**
+
+block_user (any service) revokes the user's access tokens and publishes
+core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
+the module that mints tokens (issues_tokens=True) must end them when the
+event arrives, in a durable consumer, or lifting the block would revive
+them. An issuer that holds no refresh sessions says so explicitly with
+refresh_sessions=False (recorded in module.snapshot.json, never inferred from
+an absent consumer); startup verifies the declaration against what the module
+registers: a route whose path names "refresh", a table whose name contains
+"refresh" or "session", or its own consumer of core.auth.user_blocked.v1
+contradicts it and refuses the boot (ADR-0012 decision 5).
+
+**Fix:** give the issuer a durable consumer of core.auth.user_blocked.v1 that ends the user's refresh sessions; or, if it holds none, declare define_module(..., refresh_sessions=False) and remove what the refusal names
 
 **More:** `docs/advanced/security-model.md`
 
