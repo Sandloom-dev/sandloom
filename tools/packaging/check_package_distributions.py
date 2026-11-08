@@ -493,11 +493,18 @@ async def probe():
             m.core.register_health_check(name, ok)
         transport = httpx.ASGITransport(app=m.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
-            return {p: (await c.get(p)).status_code for p in ("/health", "/ready")}
-codes = asyncio.run(probe())
-assert codes == {"/health": 200, "/ready": 200}, codes
+            return {p: await c.get(p) for p in ("/health", "/ready")}
+responses = asyncio.run(probe())
+has_tasks = importlib.util.find_spec(module + ".tasks") is not None
+# A module with tasks cannot enqueue them here: the default taskqueue (celery)
+# cannot open, so /ready fails naming it; /health never fails on it.
+expected = {"/health": 200, "/ready": 503 if has_tasks else 200}
+codes = {p: r.status_code for p, r in responses.items()}
+assert codes == expected, (codes, responses["/ready"].json())
+taskqueue = responses["/ready"].json()["taskqueue_status"]
+assert taskqueue == ("fail" if has_tasks else "unused"), taskqueue
 refused = []
-if importlib.util.find_spec(module + ".tasks") is not None:
+if has_tasks:
     tasks = importlib.import_module(module + ".tasks")
     for task in vars(tasks).values():
         if isinstance(task, _UnqueuedTask):
@@ -508,8 +515,8 @@ if importlib.util.find_spec(module + ".tasks") is not None:
             else:
                 raise AssertionError(f"{task.name}.delay() did not refuse")
     assert refused, f"{module}.tasks registers no task"
-print(f"plain sandloom + {module} OK: /health, /ready 200; enqueue refused:",
-      len(refused))
+print(f"plain sandloom + {module} OK: {codes}, taskqueue {taskqueue}; "
+      f"enqueue refused: {len(refused)}")
 """
 
 
@@ -517,6 +524,10 @@ def check_plain_module_install(
     temp: Path, wheels: dict[str, Path], package: str
 ) -> None:
     """One module wheel on plain ``sandloom``: boots, probes answer, enqueue refuses.
+
+    ``/health`` is 200; ``/ready`` is 503 (``taskqueue_status: fail``) for a
+    module with a ``tasks.py``, since its tasks cannot be enqueued without
+    Celery, and 200 (``unused``) otherwise.
 
     The module's own dependencies only (no ``sandloom`` extra): a module whose
     ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without
