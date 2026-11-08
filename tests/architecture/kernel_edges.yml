@@ -961,6 +961,7 @@ loader_call_sites:
   - {path: sandloom/core/contract_compat.py, symbol: module_package_dir, row: A9, reason: "contract compatibility locates the owner's package"}
   - {path: sandloom/core/worker.py, symbol: discover_task_modules, row: A10, reason: "the worker imports <pkg>.tasks of each loaded module"}
   - {path: sandloom/core/tasks/periodic.py, symbol: has_periodic_tasks, row: A11, reason: "beat locates a module's tasks.py without importing it"}
+  - {path: sandloom/core/app_factory/ops.py, symbol: _task_modules, row: A11, reason: "/ready locates each loaded module's tasks submodule without importing it (KB-02)"}
   - {path: sandloom/core/migrations/alembic_support.py, symbol: run_migrations, row: A12, reason: "migrations import each chain's model modules"}
   - {path: sandloom/core/cli/generated.py, symbol: _module_dir, row: A13, reason: sandloom generate locates each module}
   - {path: sandloom/core/cli/generated.py, symbol: is_l1, row: A13, reason: "sandloom generate reads each module's register"}
