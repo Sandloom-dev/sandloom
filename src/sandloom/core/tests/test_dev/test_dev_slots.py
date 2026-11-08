@@ -12,13 +12,14 @@ import subprocess
 import sys
 import textwrap
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
+from dotenv import dotenv_values
 
 from sandloom.core.cli import run_tests
 from sandloom.core.testing import env as test_env
@@ -37,26 +38,84 @@ def _plain(url: str, name: str) -> str:
     return urlunsplit(parts._replace(scheme="postgresql", path=f"/{name}", query=""))
 
 
+def _configured_redis() -> dict[str, str]:
+    """This run's configured Redis URLs (``CACHE_URL`` / ``BROKER_URL``):
+    ``.env.test`` with the ``SANDLOOM_TEST_*`` overrides, before any xdist
+    worker rewrite — the base indexes the run's own processes use."""
+    values = {
+        k: v for k, v in dotenv_values(BACKEND / ".env.test").items() if v is not None
+    }
+    values.update(workers.explicit_test_overrides())
+    return {
+        var: values[var]
+        for var in ("CACHE_URL", "BROKER_URL")
+        if (values.get(var) or "").startswith(("redis://", "rediss://"))
+    }
+
+
+def _redis_owners(urls: Iterable[str]) -> dict[str, str | None]:
+    """The owner marker (``None``: unmarked) of each Redis index in ``urls``."""
+    redis = pytest.importorskip("redis")
+    owners: dict[str, str | None] = {}
+    for url in urls:
+        client = redis.Redis.from_url(url, socket_connect_timeout=5)
+        try:
+            raw = client.get(ownership.REDIS_OWNER_KEY)
+        finally:
+            client.close()
+        owners[url] = raw.decode() if isinstance(raw, bytes) else raw
+    return owners
+
+
+def _release_slot_redis(server: str, root: Path) -> list[str]:
+    """Hand back every index of the Redis ``server`` a slot of the checkout
+    ``root`` still holds (a holder subprocess killed mid-test, a slot that lost
+    its lock), so no test leaves an index marked by a run that no longer
+    exists. Returns the indexes released."""
+    from sandloom.core.testing import resources
+
+    released: list[str] = []
+    for found in resources.scan_redis(server):
+        owner = found.owner or ""
+        if f":{root}#" not in owner:
+            continue
+        index = urlsplit(found.name).path
+        url = urlunsplit(urlsplit(server)._replace(path=index))
+        if resources.release_redis(url, owner):
+            released.append(url)
+    return released
+
+
 @pytest.fixture
 def checkout(tmp_path: Path) -> Iterator[tuple[Path, str]]:
     """A checkout whose ``.env.test.local`` names this server's test database
-    ``sandloom_test_slots_<random>`` (its slot copies dropped afterwards)."""
+    ``sandloom_test_slots_<random>`` (its slot copies dropped afterwards).
+
+    Its Redis URLs are this run's configured ones, so a slot taken in the
+    checkout allocates its own indexes and never the run's base indexes (an
+    unclaimed base, under ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``, looks free).
+    Afterwards every index a slot of the checkout still marks is handed back,
+    and the owner of each configured index must be the one it had before (or
+    this run's): a slot test never leaves another owner on the run's Redis.
+    """
     psycopg2 = pytest.importorskip("psycopg2")
     base = _test_url("DATABASE_URL")
-    cache = _test_url("CACHE_URL")
-    if not base.startswith("postgresql") or not cache.startswith("redis"):
+    configured = _configured_redis()
+    if not base.startswith("postgresql") or "CACHE_URL" not in configured:
         pytest.skip("PostgreSQL / Redis test URLs not configured")
+    cache = configured["CACHE_URL"]
+    broker = configured.get("BROKER_URL", cache)
+    before = _redis_owners({cache, broker})
     name = f"sandloom_test_slots_{uuid.uuid4().hex[:8]}"
     root = tmp_path / "app"
     root.mkdir()
     (root / ".git").mkdir()
     (root / ".env.test").write_text("ENVIRONMENT=test\n")
-    redis_server = urlunsplit(urlsplit(cache)._replace(path=""))
     database = urlunsplit(urlsplit(base)._replace(path="/" + name))
     (root / ".env.test.local").write_text(
         f"SANDLOOM_TEST_DATABASE_URL={database}\n"
-        f"SANDLOOM_TEST_CACHE_URL={redis_server}/15\n"
-        f"SANDLOOM_TEST_BROKER_URL={redis_server}/14\n"
+        f"SANDLOOM_TEST_CACHE_URL={cache}\n"
+        f"SANDLOOM_TEST_BROKER_URL={broker}\n"
     )
     yield root, name
     admin = psycopg2.connect(_plain(base, "postgres"), connect_timeout=5)
@@ -65,6 +124,13 @@ def checkout(tmp_path: Path) -> Iterator[tuple[Path, str]]:
         for suffix in ("", "_2", "_3"):
             cur.execute(f'DROP DATABASE IF EXISTS "{name}{suffix}" WITH (FORCE)')
     admin.close()
+    _release_slot_redis(cache, root)
+    mine = ownership.current_owner()
+    for url, owner in _redis_owners(before).items():
+        assert owner in {before[url], mine}, (
+            f"a slot test left owner {owner!r} on the run's Redis index {url} "
+            f"(was {before[url]!r})"
+        )
 
 
 def _clean_env(home: Path) -> dict[str, str]:
