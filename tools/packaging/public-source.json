@@ -1572,6 +1572,7 @@
         "src/sandloom/core/tests/test_capabilities.py",
         "src/sandloom/core/tests/test_capability_review_fixes.py",
         "src/sandloom/core/tests/test_check_boot.py",
+        "src/sandloom/core/tests/test_claims_key_ownership.py",
         "src/sandloom/core/tests/test_claims_read_unit.py",
         "src/sandloom/core/tests/test_cli_checkbox.py",
         "src/sandloom/core/tests/test_cli_mark.py",
