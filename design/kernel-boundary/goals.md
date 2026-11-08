@@ -6,6 +6,16 @@ What the kernel-boundary work (tm `kb-assess`) is for, agreed by the owner on 20
 
 The kernel (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`, `sandloom.main`) is independent of the **implementations** of identity, tenancy, billing and admin. It owns the **general protocol of security and isolation** that every module and every service relies on.
 
+## Who owns what
+
+| Party | Owns |
+|---|---|
+| **Kernel** | The universal guarantees and protocols every Sandloom application needs. |
+| **Batteries** (identity, tenancy, billing, admin, and any third-party module) | Implementations of those protocols, and their own domain models. |
+| **Application** | The choice of implementations, and the assignment of trusted authorities (which module is trusted to issue which right or claim). |
+
+**No platform guarantee may silently disappear because an optional module is absent.** Without the module that implements a protocol, the guarantee still holds (fail closed) or the application refuses to start and says what is missing; it never degrades quietly.
+
 ## What the rule "the kernel knows no business module" means
 
 It is a rule about **source dependencies and shipped code**: the kernel does not import a business module, does not name one (its contracts, events, settings, claim keys, commands), and does not ship a module's code or artifacts.
