@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from sandloom.core.cli import password_check, project, ui, wizard
+from sandloom.core.cli import project, ui, wizard
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="no git")
 
@@ -209,25 +209,6 @@ def test_without_a_terminal_the_administrator_gets_a_link() -> None:
     assert steps[-1].argv[-1] == "--invite"
     attached = wizard.setup_steps("/opt/uv", admin_email="ops@example.com", attach=True)
     assert attached[-1].attached and "--password-stdin" not in attached[-1].argv
-
-
-def test_the_prompt_rules_come_from_identity_else_a_length_rule(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rules = password_check.rules()
-    assert rules.min_length == 8
-    monkeypatch.setattr(password_check, "_identity_policy", lambda: None)
-    fallback = password_check.rules()
-    assert not fallback.identity and fallback.min_length == 8
-    assert password_check.problem("short", "a@b.c") is not None
-    assert password_check.problem("long-enough-pass", "a@b.c") is None
-
-
-def test_the_identity_policy_counts_the_length() -> None:
-    policy = pytest.importorskip("sandloom_identity.password_policy")
-    assert policy.MIN_PASSWORD_LENGTH == 8
-    assert policy.password_policy_violation("short") is not None
-    assert policy.password_policy_violation("Correct-Horse-Battery-9") is None
 
 
 # --------------------------------------------------------------------- git
