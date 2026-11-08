@@ -1,0 +1,3 @@
+import app_factory: 461 ms; load_settings: 3 ms; create_app (settings already loaded): 444 ms
+import app_factory: 460 ms; load_settings: 3 ms; create_app (settings already loaded): 432 ms
+import app_factory: 456 ms; load_settings: 3 ms; create_app (settings already loaded): 450 ms

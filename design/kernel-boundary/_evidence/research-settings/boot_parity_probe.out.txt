@@ -1,0 +1,13 @@
+# probe 1 output (uv run python -I boot_parity_probe.py; JSON log lines cut to 300 chars; tracebacks dropped)
+# commit: 38f33cb
+{"ts": "2026-11-08 11:56:11,674", "level": "WARNING", "logger": "sandloom.app", "message": "INTERNAL_API_TOKEN is unset: /metrics, /diagnostics, /contracts and /health details are disabled (404). Set the token, or INTERNAL_ENDPOINTS_OPEN_IN_DEV=true for local development."}
+{"ts": "2026-11-08 11:56:11,913", "level": "ERROR", "logger": "sandloom.core.facade", "message": "identity: TWOFA_ENCRYPTION_KEY is required with ENVIRONMENT=prod (no JWT_SECRET fallback in production); generate one with openssl rand -hex 32"}
+{"ts": "2026-11-08 11:56:12,065", "level": "ERROR", "logger": "sandloom.core.facade", "message": "billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stack, SANDLOOM_ACCEPTED_RISKS=[\"fake_p
+{"ts": "2026-11-08 11:56:12,135", "level": "INFO", "logger": "sandloom.core.worker", "message": "[worker] registered tasks from sandloom_identity.tasks"}
+{"ts": "2026-11-08 11:56:12,135", "level": "INFO", "logger": "sandloom.core.worker", "message": "[worker] registered tasks from sandloom_billing.tasks"}
+{"ts": "2026-11-08 11:56:12,136", "level": "ERROR", "logger": "sandloom.core.infra", "message": "[infra] failed to open objectstore/default", "exc_info": "<trimmed>"}
+{"ts": "2026-11-08 11:56:12,136", "level": "ERROR", "logger": "sandloom.core.lifecycle", "message": "Startup task failed (infra:infra_warm_instances)", "exc_info": "<trimmed>"}
+create_app() (worker / migrate / CLI path) -> built; modules: ['sandloom_identity', 'sandloom_tenancy', 'sandloom_billing']
+critical startup tasks registered (run only in the ASGI lifespan): ['_refuse_missing_twofa_key', '_refuse_fake_psp_in_prod']
+build_worker_app(core) (celery worker / beat path) -> built: Celery
+lifespan (API path) refused: CriticalStartupError Critical startup task failed: infra:infra_warm_instances
