@@ -12,8 +12,10 @@ kernel's (``sandloom.driverkit``) count too.
 The business modules are discovered, never listed: every ``sandloom_*``
 package of the source layout and every ``sandloom_*`` package an installed
 distribution registers in the ``sandloom.modules`` entry-point group. Today's
-violations sit in ``kernel_module_imports_allowlist.json`` (shared with
-``tools/packaging/distribution_imports.py``), which only shrinks.
+violations are the ``open`` import rows of the edge register
+``kernel_edges.yml`` (ADR-0012 decision 2; it absorbed
+``kernel_module_imports_allowlist.json``): an import stays allowed while its
+row is not ``fixed``, and a row whose import is gone fails SANDLOOM-T017.
 
 Scope (I-02): kernel tests (``*/tests/*``, ``conftest.py``) are not shipped
 and are not scanned. ``if TYPE_CHECKING:`` imports count. The module loader
@@ -33,6 +35,10 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "packaging"))
 
 import distribution_imports as di  # noqa: E402
+
+sys.path.insert(0, str(REPO / "tests" / "architecture"))
+
+import kernel_edges as ke  # noqa: E402
 
 _SRC = REPO / "src"
 _SANDLOOM = _SRC / "sandloom"
@@ -182,13 +188,14 @@ def test_shared_does_not_import_business_modules() -> None:
 
 
 def test_the_kernel_imports_no_business_module_beyond_the_allowlist() -> None:
-    """I-02 for the whole shipped kernel, with the shrink-only allowlist
-    (B-I1 is its one entry today)."""
-    problems = kernel_violations(_SANDLOOM, business_modules(), di.load_allowlist())
+    """I-02 for the whole shipped kernel, allowing only the imports of the
+    register's open import rows (B-I1 is the one today)."""
+    allowlist = ke.import_allowlist(ke.load_register())
+    problems = kernel_violations(_SANDLOOM, business_modules(), allowlist)
     assert not problems, (
         "the kernel (sandloom.core, sdk, shared, main) must not import a business "
-        f"module; a listed debt that is gone leaves {di.ALLOWLIST.name}:\n"
-        + "\n".join(problems)
+        "module beyond an open import row of kernel_edges.yml; a debt that is gone "
+        "sets its row's current_status: fixed:\n" + "\n".join(problems)
     )
 
 

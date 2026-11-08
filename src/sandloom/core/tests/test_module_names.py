@@ -163,30 +163,16 @@ def test_configuration_names_installed_modules_by_entry_point_name() -> None:
 
 
 def test_the_kernel_names_no_module() -> None:
-    """G-KERNEL-13: no default module list in the kernel's settings, app
-    factory, loader or standard root: installed modules are discovered."""
-    import ast
-    from pathlib import Path
+    """G-KERNEL-13: no default module list in the kernel's settings; the
+    standard root composes whatever is installed.
 
+    Which names the shipped kernel may hold is the kernel-edge check's
+    (SANDLOOM-T017, ``tests/architecture/kernel_edges.py`` over
+    ``kernel_edges.yml``): it scans every kernel directory, not only the
+    settings, app factory, loader and ``main``, and replaced the literal scan
+    this test carried (ADR-0012 decision 2)."""
     from sandloom.core.config.settings import Settings
 
-    root = Path(__file__).resolve().parents[2]  # src/sandloom
-    names = {"identity", "tenancy", "billing"}
-    paths = {f"sandloom_{n}" for n in names} | {f"sandloom.{n}" for n in names}
-    sources = [
-        *sorted((root / "core" / "config").glob("*.py")),
-        *sorted((root / "core" / "app_factory").glob("*.py")),
-        root / "core" / "loader" / "plugin_loader.py",
-        root / "main.py",
-    ]
-    for source in sources:
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-        literals = {
-            node.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
-        assert not (literals & (names | paths)), (source, literals & (names | paths))
     for field in ("sandloom_modules", "module_required"):
         factory = Settings.model_fields[field].default_factory
         assert factory is not None and factory() == []  # type: ignore[call-arg]
