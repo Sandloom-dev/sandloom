@@ -12,7 +12,11 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
    ``sandloom new`` and the kernel app factory work; the RPC transport
    smoke runs from the installed wheel;
 4. ``sandloom[standard]`` (every wheel): ``sandloom.main:app`` composes the
-   installed ``sandloom.modules`` entry points.
+   installed ``sandloom.modules`` entry points;
+5. each module wheel on plain ``sandloom`` (no Celery, no Redis client): the
+   app boots with the module loaded, ``/health`` and ``/ready`` answer 200
+   over stubbed infrastructure probes, and enqueueing one of its tasks
+   refuses with ``TaskQueueNotInstalled`` (KB-01).
 
 ``--skip-install`` runs steps 1-2 only (no network).
 """
@@ -444,6 +448,80 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     )
 
 
+#: Run by the venv's interpreter in :func:`check_plain_module_install`; argv[1]
+#: is the module's import path. The infrastructure probes are replaced by
+#: passing ones (no database or cache runs here): what is checked is that the
+#: module boots and the probes answer, not the services behind them.
+PLAIN_MODULE_SMOKE = """
+import asyncio, importlib, importlib.util, sys
+import httpx
+from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
+module = sys.argv[1]
+import sandloom.main as m
+assert m.core.loaded_modules == [module], m.core.loaded_modules
+assert "celery" not in sys.modules, "celery imported on plain sandloom"
+async def ok():
+    from sandloom.core.descriptors import HealthResult
+    return HealthResult(status="ok")
+async def probe():
+    async with m.app.router.lifespan_context(m.app):
+        for name in list(m.core.health_checks):
+            m.core.register_health_check(name, ok)
+        transport = httpx.ASGITransport(app=m.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            return {p: (await c.get(p)).status_code for p in ("/health", "/ready")}
+codes = asyncio.run(probe())
+assert codes == {"/health": 200, "/ready": 200}, codes
+refused = []
+if importlib.util.find_spec(module + ".tasks") is not None:
+    tasks = importlib.import_module(module + ".tasks")
+    for task in vars(tasks).values():
+        if isinstance(task, _UnqueuedTask):
+            try:
+                task.delay()
+            except TaskQueueNotInstalled:
+                refused.append(task.name)
+            else:
+                raise AssertionError(f"{task.name}.delay() did not refuse")
+    assert refused, f"{module}.tasks registers no task"
+print(f"plain sandloom + {module} OK: /health, /ready 200; enqueue refused:",
+      len(refused))
+"""
+
+
+def check_plain_module_install(
+    temp: Path, wheels: dict[str, Path], package: str
+) -> None:
+    """One module wheel on plain ``sandloom``: boots, probes answer, enqueue refuses.
+
+    The module's own dependencies only (no ``sandloom`` extra): a module whose
+    ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without
+    Celery, and its tasks refuse to enqueue with ``TaskQueueNotInstalled``.
+    """
+    venv = temp / f"plain-{package}"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
+        str(wheels["sandloom"]), str(wheels[package]),
+    )  # fmt: skip
+    installed = json.loads(
+        _run(
+            "uv", "pip", "list", "--python", str(_python(venv)), "--format", "json",
+            capture_output=True,
+        ).stdout
+    )  # fmt: skip
+    leaked = {str(item["name"]).lower() for item in installed} & {"celery", "redis"}
+    if leaked:
+        raise RuntimeError(f"{package} on plain sandloom installs {sorted(leaked)}")
+    work = temp / f"plain-{package}-work"
+    work.mkdir()
+    _run(
+        str(_python(venv)), "-c", PLAIN_MODULE_SMOKE, MODULES[package][1],
+        cwd=work,
+        env={**_smoke_environment(), "HEALTH_CACHE_TTL_SECONDS": "0"},
+    )  # fmt: skip
+
+
 def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
     """The console's wheel serves it with no build step, and only when installed."""
     venv = temp / "admin"
@@ -500,13 +578,17 @@ def main(argv: list[str] | None = None) -> int:
         }
         check_layering(wheels)
         if not args.skip_install:
-            # Three independent clean environments: checked side by side; the
-            # first failure (in this order) is raised once all three finished.
-            with ThreadPoolExecutor(max_workers=3) as pool:
+            # Independent clean environments: checked side by side; the first
+            # failure (in this order) is raised once all of them finished.
+            with ThreadPoolExecutor(max_workers=3 + len(MODULES)) as pool:
                 checks = [
                     pool.submit(check_lean_install, temp, wheels["sandloom"]),
                     pool.submit(check_standard_install, temp, wheels),
                     pool.submit(check_admin_install, temp, wheels),
+                    *(
+                        pool.submit(check_plain_module_install, temp, wheels, p)
+                        for p in MODULES
+                    ),
                 ]
             for check in checks:
                 check.result()

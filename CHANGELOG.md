@@ -71,6 +71,12 @@ website renders this same changelog.
 
 ### Changed
 
+- **`sandloom admin create` leaves the password rules to the provider.** The
+  kernel CLI no longer imports `sandloom_identity.password_policy` and has no
+  fallback 8–100 length rule of its own: identity's `password_problem` answer
+  over `identity.security.v1`, already asked at every attempt, is the only
+  check. The prompt no longer states a minimum length; a refused password
+  still gets identity's one-line reason. Command names are unchanged.
 - **The redundant-index check (SANDLOOM-T012) names no module's index.** The
   kernel's list of known redundant indexes is gone (with
   `sandloom.core.testing.static_checks.KNOWN_REDUNDANT`): a module keeps such an
@@ -95,6 +101,17 @@ website renders this same changelog.
   test` also boots the app and runs the tests.
 
 ### Fixed
+
+- **`sandloom-billing` and `sandloom-identity` boot on plain `sandloom`, without
+  Celery.** `sandloom.sdk.tasks` imported Celery at import, so a module whose
+  `tasks.py` uses the typed `shared_task` failed to load (`ModuleLoadError ...
+  No module named 'celery'`) unless the optional `sandloom[celery]` extra was
+  installed. Celery is now imported only where it is used: with Celery
+  installed the decorator is Celery's `shared_task` as before (worker and beat
+  unchanged); without it the task still runs inline and `delay` /
+  `apply_async` / `s` / `si`, and `cron(...)`, raise `TaskQueueNotInstalled`
+  naming the extra. The package check boots each module wheel on plain
+  `sandloom` and probes `/health` and `/ready` (KB-01).
 
 - **`sandloom-identity` declares `argon2-cffi`, which its login service
   imports.** It installed only because the `sandloom` kernel requires it for
