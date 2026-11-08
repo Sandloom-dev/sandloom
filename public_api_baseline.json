@@ -144,22 +144,6 @@
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, error:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool) -> None"
     },
-    "GeneratedFileRenderer": {
-      "kind": "callable",
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
-    },
-    "GenerationInput": {
-      "kind": "class",
-      "members": [],
-      "signature": "(openapi:POSITIONAL_OR_KEYWORD|Mapping[str, Any], routes:POSITIONAL_OR_KEYWORD|Mapping[tuple[str, str], str], modules:POSITIONAL_OR_KEYWORD|tuple[GenerationModule, ...]) -> None"
-    },
-    "GenerationModule": {
-      "kind": "class",
-      "members": [
-        "admin_resources"
-      ],
-      "signature": "(package:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, admin_resources:POSITIONAL_OR_KEYWORD|Any=None) -> None"
-    },
     "HealthCheck": {
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"

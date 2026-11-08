@@ -90,9 +90,10 @@ def declared(app: Any) -> list[DeclaredFile]:
 
     A bad name, a name two modules declare and a renderer that refuses become
     the file's problems, never a crash."""
+    summary = getattr(app.state, "module_summary", None)
     files = [
         DeclaredFile(descriptor.name, name, render)
-        for descriptor in app.state.module_summary.loaded
+        for descriptor in (summary.loaded if summary is not None else ())
         for name, render in sorted(getattr(descriptor, "generated_files", {}).items())
     ]
     if not files:
@@ -127,7 +128,7 @@ def _check_names(files: list[DeclaredFile]) -> None:
 
 def _render(item: DeclaredFile, source: GenerationInput) -> None:
     try:
-        content = item.render(source)
+        content: object = item.render(source)
     except DECLARATION_ERRORS as exc:
         item.problems.append(f"{item.package}: {exc}")
         return
