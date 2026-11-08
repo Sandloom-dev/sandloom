@@ -260,4 +260,7 @@ def test_reserved_keys_cover_the_envelope_and_provenance() -> None:
         "iss",
         "aud",
         "token_type",
+        "user_id",
+        "provenance_authoritative",
+        "claims",
     } <= RESERVED_CLAIM_KEYS

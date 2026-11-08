@@ -63,6 +63,13 @@ RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
     {
         "claims_sources",
         "claims_sources_failed",
+        # UserContext's structural fields: ``user_id`` wins over ``sub``,
+        # ``provenance_authoritative`` decides whether claim-mode atoms trust
+        # absent provenance, and ``claims`` is merged into every owner's
+        # namespaced claims (shared/subject.py _FIELD_KEYS).
+        "user_id",
+        "provenance_authoritative",
+        "claims",
         "sub",
         "iss",
         "aud",
