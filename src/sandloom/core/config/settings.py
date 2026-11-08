@@ -201,12 +201,14 @@ class Settings(
         if snapshot is not None:
             # The process load: the same three sources and precedence, over
             # the one read every module validates from (ADR-0015 decision 2).
-            return (
+            sources: tuple[PydanticBaseSettingsSource, ...] = (
                 init_settings,
                 _SnapshotEnv(settings_cls, snapshot),
                 _SnapshotDotEnv(settings_cls, snapshot),
-                _SnapshotSecrets(settings_cls, snapshot),
             )
+            if snapshot.secrets_dir is not None:
+                sources += (_SnapshotSecrets(settings_cls, snapshot),)
+            return sources
         if (
             isinstance(file_secret_settings, SecretsSettingsSource)
             and file_secret_settings.secrets_dir is None
