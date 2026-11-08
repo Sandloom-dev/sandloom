@@ -71,6 +71,12 @@ website renders this same changelog.
 
 ### Changed
 
+- **`sandloom admin create` leaves the password rules to the provider.** The
+  kernel CLI no longer imports `sandloom_identity.password_policy` and has no
+  fallback 8–100 length rule of its own: identity's `password_problem` answer
+  over `identity.security.v1`, already asked at every attempt, is the only
+  check. The prompt no longer states a minimum length; a refused password
+  still gets identity's one-line reason. Command names are unchanged.
 - **`unscoped()` takes an optional `reason=` and is never silent.** Every
   scope that disables tenant enforcement is counted in
   `sandloom_tenant_unscoped_total{caller}` by the module that entered it; the
