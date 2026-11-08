@@ -8,9 +8,13 @@ function, only:
   provides) shipped by the same wheel or by a wheel it depends on,
   transitively, extras included;
 * a third-party distribution the wheel declares (any extra) or that one of
-  its dependencies brings, transitively. A third-party import inside a
-  ``try`` that catches ``ImportError`` (an optional dependency) is exempt;
-  a first-party import never is.
+  those brings, transitively. Through a first-party dependency only what it
+  names in ``provides`` (the stack its dependents build on, such as the
+  kernel's FastAPI and SQLAlchemy): the rest of its requirements are its own
+  implementation, which it may drop in any release, so a module wheel
+  importing one declares it itself. A third-party import inside a ``try``
+  that catches ``ImportError`` (an optional dependency) is exempt; a
+  first-party import never is.
 
 ``if TYPE_CHECKING:`` blocks are skipped. Constant-string dynamic imports
 (``importlib.import_module("x")``, ``__import__("x")`` and any call of a
@@ -207,6 +211,47 @@ def _closure(
     return {dist for dist, _extras in seen}
 
 
+def _third_party_closure(
+    start: str,
+    wheels: Mapping[str, Wheel],
+    requires_of: Callable[[str, frozenset[str]], Iterable[tuple[str, frozenset[str]]]],
+    provides: Mapping[str, Iterable[str]],
+) -> set[str]:
+    """Third-party distributions ``start`` may import: its own requirements,
+    then for every first-party wheel it reaches only what that one
+    ``provides``, each followed through its third-party requirements."""
+    seen: set[tuple[str, frozenset[str]]] = set()
+    todo: list[tuple[str, frozenset[str]]] = []
+    first_party_seen: set[str] = set()
+    first_party_todo = [start]
+    while first_party_todo:
+        dist = first_party_todo.pop()
+        if dist in first_party_seen:
+            continue
+        first_party_seen.add(dist)
+        wheel = wheels[dist]
+        named = [
+            *((name, frozenset()) for name in wheel.requires),
+            *wheel.requires_extras,
+        ]
+        for name, extras in named:
+            if name in wheels:
+                first_party_todo.append(name)
+            elif dist == start:
+                todo.append((name, extras))
+        if dist != start:
+            todo.extend(
+                (normalize(name), frozenset()) for name in provides.get(dist, ())
+            )
+    while todo:
+        node = todo.pop()
+        if node in seen or node[0] in wheels:
+            continue
+        seen.add(node)
+        todo.extend(requires_of(*node))
+    return {dist for dist, _extras in seen}
+
+
 def _installed_requires(
     dist: str, extras: frozenset[str]
 ) -> Iterator[tuple[str, frozenset[str]]]:
@@ -244,6 +289,7 @@ def check(
         [str, frozenset[str]], Iterable[tuple[str, frozenset[str]]]
     ] = _installed_requires,
     stdlib: Iterable[str] = sys.stdlib_module_names,
+    provides: Mapping[str, Iterable[str]] | None = None,
 ) -> list[str]:
     """Every import of a module that its distribution may not import.
 
@@ -251,7 +297,10 @@ def check(
     wheel ships the imported module (``sandloom`` and the source tree's
     module packages); an import of an unshipped first-party module is a
     violation. ``top_levels``: ``{import name: distributions}`` of third-party
-    packages (default: the running environment).
+    packages (default: the running environment). ``provides``: ``{first-party
+    distribution: third-party distributions its dependents may import through
+    it}`` (default: none, so every third-party import is declared directly or
+    brought by a declared third-party distribution).
     """
     by_name = {w.name: w for w in wheels}
     owners: dict[str, str] = {}
@@ -264,6 +313,9 @@ def check(
     problems: list[str] = []
     for wheel in by_name.values():
         allowed = _closure(wheel.name, by_name, requires_of)
+        third_party = _third_party_closure(
+            wheel.name, by_name, requires_of, provides or {}
+        )
         for module, source in sorted(wheel.modules.items()):
             is_package = module in wheel.packages
             for imp in module_imports(source, module, is_package=is_package):
@@ -286,10 +338,16 @@ def check(
                 dists = tops.get(top)
                 if not dists:
                     problems.append(f"{where}: no installed distribution provides it")
-                elif not dists & allowed:
+                elif not dists & third_party:
+                    reason = (
+                        " (a Sandloom dependency brings it for its own use, "
+                        "not for its dependents)"
+                        if dists & allowed
+                        else ""
+                    )
                     problems.append(
                         f"{where} from {', '.join(sorted(dists))}, which "
-                        f"{wheel.name} does not declare"
+                        f"{wheel.name} does not declare{reason}"
                     )
     return problems
 

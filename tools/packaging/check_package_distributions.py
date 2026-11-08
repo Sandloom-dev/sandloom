@@ -55,6 +55,12 @@ MODULES = {
     "sandloom-billing": ("billing", "sandloom_billing"),
     "sandloom-admin": ("admin", "sandloom_admin"),
 }
+#: Third-party distributions a module wheel may import through ``sandloom``
+#: without declaring them: the stack the kernel promises modules (routes,
+#: models, migrations, schemas, outbound HTTP), kept within the kernel's
+#: ranges. Every other kernel requirement (argon2-cffi, cryptography, redis,
+#: …) is the kernel's implementation: a module importing it declares it.
+KERNEL_PROVIDES = ("fastapi", "starlette", "sqlalchemy", "alembic", "pydantic", "httpx")
 SMOKE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
     "CACHE_URL": "redis://localhost:6379/0",
@@ -253,6 +259,7 @@ def check_layering(wheels: dict[str, Path]) -> None:
     problems = distribution_imports.check(
         [distribution_imports.read_wheel(w) for w in wheels.values()],
         first_party=["sandloom", *(path for _n, path in MODULES.values())],
+        provides={"sandloom": KERNEL_PROVIDES},
     )
     if problems:
         raise RuntimeError(

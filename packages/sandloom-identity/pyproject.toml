@@ -13,6 +13,8 @@ requires-python = ">=3.11"
 # and use the consumer's own generated stubs: no module depends on another.
 dependencies = [
     "sandloom>=0.7.0a11,<0.8",
+    # password verification in the login service (the kernel range).
+    "argon2-cffi>=25.1.0,<26",
     "pyotp>=2.10.0,<3",
     "authlib>=1.9.1,<2",
     "qrcode>=8.2,<9",
