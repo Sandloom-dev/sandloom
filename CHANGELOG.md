@@ -15,6 +15,48 @@ website renders this same changelog.
 
 ### Security
 
+- **Claim authorities: the composition root says who may write each
+  protected token claim** (ADR-0014 decisions 1, 2, 7; KB-10). New
+  `create_app(claim_authorities={key: module, ..., "issuer": module},
+  default_claim_authorities=...)`: each protected claim (`roles`,
+  `permissions`, `tenant_ids`, `email`, `email_verified`,
+  `subscription_status`, `plan_code`, `features`, `limits` and every key the
+  map names) is kept at the mint only from its authority, the module loaded
+  from the assigned import path or its `<m>.claims.v1` binding; a module
+  merely named like it is not it. A contributor writing a protected claim it
+  is not assigned, or a reserved key (now also `cpv`), is a violator: an
+  optional one loses its whole result (`claims_sources_failed`, an ERROR log,
+  the counter `claims_contributor_violations_total`) and the login succeeds
+  with the authorities' values; a critical one refuses the mint (503) naming
+  itself. This replaces the "any foreign key refuses every mint with 503"
+  rule, so one buggy optional module no longer denies every login. Startup
+  refuses an assignment the composition cannot honour (`SANDLOOM-B035`, which
+  now covers both of the issuer's startup checks): in the issuing process an
+  authority neither loaded nor bound (a typo is named as one), loaded from
+  another path, loaded without a contributor, or non-critical for a claim
+  other than the four billing claims; an `issues_tokens=True` module that is
+  not the map's `issuer`, or the reverse. Billing stays non-critical, so a
+  billing outage still mints a login (its claims absent, the subscription
+  check escalating to the live fact). The kernel holds no default map:
+  `sandloom_standard.main` passes the standard one as
+  `default_claim_authorities`, kept only for the batteries in the
+  composition (loaded, or bound through `<m>.claims.v1`); `sandloom new`
+  writes the app's map (`CLAIM_AUTHORITIES`) into `<app>/asgi.py`.
+  `CoreFacade.claim_authorities` (new, read-only) is the resolved assignment;
+  it is made once, by `create_app`.
+  **Upgrade:** a root that composes identity (or any issuer whose critical
+  contributor writes `roles`) must assign the claims, or every mint refuses
+  with 503 and startup logs that no map is set: run `sandloom_standard.main`
+  (`SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the shipped profiles
+  already do), or add to your own `asgi.py`
+  `create_app(..., claim_authorities={"issuer": "sandloom_identity", "roles":
+  "sandloom_identity", "permissions": "sandloom_identity", "email":
+  "sandloom_identity", "email_verified": "sandloom_identity", "tenant_ids":
+  "sandloom_tenancy", "subscription_status": "sandloom_billing", "plan_code":
+  "sandloom_billing", "features": "sandloom_billing", "limits":
+  "sandloom_billing"})`, keeping only the modules you compose. A custom
+  module that writes one of these claims is assigned it, or stops writing it;
+  a binding of a rights authority must not set `"critical": false`.
 - **The kernel applies durable token revocations in every service; the token
   issuer must end its sessions on a block** (ADR-0012 decision 5). The durable
   consumer of `core.auth.tokens_revoked.v1` moved from identity into the

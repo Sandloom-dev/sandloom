@@ -17,7 +17,14 @@ what the kernel guarantees must still hold — mono and split. The fixtures
   ``TenantScope``, ``Entitled``;
 - ``identity`` — the ``test_identity`` issuer under the short name ``identity``.
 
-Each test boots real ``sandloom.main:app`` processes (one for the monolith; P1 =
+Each topology boots a fixture composition root (``pocapp/roots``): the claim
+authorities are the root's code (ADR-0014). The standard one, ``trust``,
+assigns ``roles``/``permissions`` and the issuer to ``test_identity`` and
+``tenant_ids`` to ``grants``; a contributor writing a protected claim it is
+not assigned is a violator and loses its whole result (KB-10). The trust rows
+T-1..T-8 themselves are in ``test_trust_rows.py``.
+
+Each test boots real ``pocapp.roots.<map>:app`` processes (one for the monolith; P1 =
 issuer and consumers, P2 = providers for the split, over the signed internal
 RPC with EdDSA tokens only P1 can mint). Fixture state (forged answers, grants,
 fault switches) lives in process memory, so every topology starts clean; each
@@ -81,6 +88,10 @@ T_B = "0b000000-0000-4000-8000-00000000000b"
 T_FOREIGN = "0f000000-0000-4000-8000-00000000000f"
 
 M = "pocapp.modules."
+#: The fixture composition roots (one claim-authority map each).
+TRUST_ROOT = "pocapp.roots.trust:app"
+NO_GRANTS_ROOT = "pocapp.roots.no_grants:app"
+IDENTITY_ROOT = "pocapp.roots.identity:app"
 ALL = [
     f"{M}test_identity",
     f"{M}forged",
@@ -101,6 +112,9 @@ SPLIT_BINDINGS: dict[str, dict[str, Any]] = {
 IDENTITY_BATTERY = importlib.util.find_spec("sandloom_identity") is not None
 
 UNAVAILABLE_FORGED = "Token claims from 'forged' are unavailable; try again later"
+UNAVAILABLE_ISSUER = (
+    "Token claims from 'test_identity' are unavailable; try again later"
+)
 UNAVAILABLE_GRANTS = "Token claims from 'grants' are unavailable; try again later"
 NOT_AUTHORIZED = "tenant is not authorized by the access token"
 PLATFORM_REQUIRED = "Platform administrator role required"
@@ -323,7 +337,7 @@ class Users:
 
 @dataclass
 class Proc:
-    """One ``sandloom.main:app`` process of a topology."""
+    """One process of a topology, serving the composition root ``root``."""
 
     label: str
     modules: list[str]
@@ -331,6 +345,7 @@ class Proc:
     port: ReservedPort = field(default_factory=ReservedPort)
     server: SpawnedServer | None = None
     log: Path | None = None
+    root: str = TRUST_ROOT
 
     @property
     def url(self) -> str:
@@ -344,7 +359,7 @@ class Proc:
         with self.log.open("wb") as fh:
             self.server = spawn_served(
                 self.port,
-                "sandloom.main:app",
+                self.root,
                 env=env,
                 label=self.label,
                 cwd=str(HERE),
@@ -403,16 +418,26 @@ def _base_env(infra: Infra, users: Users) -> dict[str, str]:
     }
 
 
-def mono(infra: Infra, users: Users, modules: list[str], **extra: str) -> list[Proc]:
-    """One process with ``modules``, HS256 tokens."""
+def mono(
+    infra: Infra,
+    users: Users,
+    modules: list[str],
+    *,
+    root: str = TRUST_ROOT,
+    **extra: str,
+) -> list[Proc]:
+    """One process with ``modules`` on the composition root ``root``, HS256."""
     env = _base_env(infra, users)
     env["JWT_SECRET"] = f"replace-jwt-{uuid.uuid4().hex}"
     env.update(extra)
-    return [Proc("mono", modules, env)]
+    return [Proc("mono", modules, env, root=root)]
 
 
 def split(
-    infra: Infra, users: Users, bindings: dict[str, dict[str, Any]]
+    infra: Infra,
+    users: Users,
+    bindings: dict[str, dict[str, Any]],
+    **extra: str,
 ) -> list[Proc]:
     """P1 (issuer + consumers) and P2 (providers) over the real internal RPC.
 
@@ -445,6 +470,7 @@ def split(
             {s: {"d1": x25519_public_pem(k)} for s, k in dh.items()}
         ),
         "SERVICE_RPC_TIMEOUT_SECONDS": "5",
+        **extra,
     }
     p1.env = {
         **common,
@@ -620,6 +646,18 @@ FORGED_PAYLOADS = (
 )
 
 
+def _assert_forged_dropped(issuer: Proc, users: Users, payload: dict[str, Any]) -> None:
+    """The login succeeds with the authorities' values; ``forged`` is dropped."""
+    answer = mint(issuer, users.user)
+    assert answer.status == 200, (payload, answer)
+    claims = answer.body["claims"]
+    assert claims["roles"] == [], payload
+    assert claims["permissions"] == [], payload
+    assert claims["claims_sources_failed"] == ["forged"], payload
+    assert "forged" not in claims["claims_sources"], payload
+    assert set(gate_statuses(issuer, token_of(answer)).values()) == {403}, payload
+
+
 def _forged_payload(payload: dict[str, Any], users: Users) -> dict[str, Any]:
     """``payload`` with the placeholder ``"ADMIN"`` replaced by the admin's id."""
     return {k: users.admin if v == "ADMIN" else v for k, v in payload.items()}
@@ -632,7 +670,8 @@ def test_rights_come_from_a_replacement_issuer_and_a_forged_contributor_cannot_r
     """A1, A2 (validation §1.3): ``Role``/``Perm`` work on a replacement issuer.
 
     A non-critical contributor (local, or remote over ``forged.claims.v1``)
-    writing rights, provenance or the subject never mints a token.
+    writing rights, provenance or the subject loses its whole result: the
+    login still succeeds, with the authorities' values only (KB-10).
     """
     users = Users()
     with running(infra, topology_of(topology, infra, users)) as procs:
@@ -641,14 +680,14 @@ def test_rights_come_from_a_replacement_issuer_and_a_forged_contributor_cannot_r
         _assert_rights_from_the_issuer(issuer, users)
         for payload in FORGED_PAYLOADS:
             forge(provider, _forged_payload(payload, users))
-            answer = mint(issuer, users.user)
-            assert (answer.status, answer.detail) == (503, UNAVAILABLE_FORGED), payload
+            _assert_forged_dropped(issuer, users, payload)
 
 
 def test_a_forged_contributor_registered_before_the_issuer_cannot_raise_rights(
     infra: Infra,
 ) -> None:
-    """A2 with ``forged`` loaded first: still no token with forged rights."""
+    """A2 with ``forged`` loaded first: still no token with forged rights, and
+    the violator is ``forged`` whatever the order (never the issuer)."""
     users = Users()
     order = [f"{M}forged", f"{M}test_identity", *ALL[2:]]
     with running(infra, mono(infra, users, order)) as (proc,):
@@ -656,12 +695,7 @@ def test_a_forged_contributor_registered_before_the_issuer_cannot_raise_rights(
         _assert_rights_from_the_issuer(proc, users)
         for payload in FORGED_PAYLOADS:
             forge(proc, _forged_payload(payload, users))
-            answer = mint(proc, users.user)
-            assert answer.status == 503, (payload, answer)
-            assert answer.detail in {
-                UNAVAILABLE_FORGED,
-                "Token claims from 'test_identity' are unavailable; try again later",
-            }, (payload, answer)
+            _assert_forged_dropped(proc, users, payload)
 
 
 def test_a_critical_issuer_that_fails_refuses_the_login(infra: Infra) -> None:
@@ -671,31 +705,21 @@ def test_a_critical_issuer_that_fails_refuses_the_login(infra: Infra) -> None:
         assert post(proc, "/api/v1/test_identity/down", {"on": True}).status == 200
         answer = mint(proc, users.admin)
         assert answer.status == 503
-        assert answer.detail == (
-            "Token claims from 'test_identity' are unavailable; try again later"
-        )
+        assert answer.detail == UNAVAILABLE_ISSUER
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="gap A3 (validation §1.2): a non-critical rights authority that fails "
-    "lets another contributor's roles/permissions through; closed by KB-10 "
-    "(claim authorities, the violator rule)",
-)
-def test_a_failed_noncritical_authority_lets_no_other_contributor_grant_rights(
-    infra: Infra,
-) -> None:
-    """A3: ``test_identity`` non-critical and down; ``forged`` writes rights."""
+def test_a_noncritical_rights_authority_refuses_the_boot(infra: Infra) -> None:
+    """A3 (validation §1.2), closed by KB-10: a non-critical authority of
+    ``roles`` / ``permissions`` is refused at startup (ADR-0014 decision 7), so
+    its outage can never let another contributor's rights through; and a
+    ``forged`` contributor writing rights is a violator anyway."""
     users = Users()
-    procs = mono(infra, users, ALL, POC_TEST_IDENTITY_CRITICAL="0")
-    with running(infra, procs) as (proc,):
-        forge(proc, {"roles": ["admin"], "permissions": ["perm.poc.write"]})
-        assert post(proc, "/api/v1/test_identity/down", {"on": True}).status == 200
-        answer = mint(proc, users.user)
-        token = token_of(answer) if answer.status == 200 else None
-        statuses = gate_statuses(proc, token)
-        assert statuses["/api/v1/shop/role-admin"] != 200
-        assert statuses["/api/v1/shop/perm-write"] != 200
+    log = boot_refusal(infra, mono(infra, users, ALL, POC_TEST_IDENTITY_CRITICAL="0"))
+    assert "SANDLOOM-B035" in log
+    assert (
+        "claim 'roles' is assigned to 'pocapp.modules.test_identity', whose claims "
+        "contributor is registered critical=False" in log
+    )
 
 
 @pytest.mark.xfail(
@@ -713,7 +737,7 @@ def test_a_module_named_identity_is_not_trusted_as_the_platform_authority(
     (SANDLOOM-B020); without it, the name must not open the platform gates.
     """
     users = Users()
-    procs = mono(infra, users, [f"{M}identity", f"{M}shop"])
+    procs = mono(infra, users, [f"{M}identity", f"{M}shop"], root=IDENTITY_ROOT)
     if IDENTITY_BATTERY:
         assert "SANDLOOM-B020" in boot_refusal(infra, procs)
         return
@@ -791,7 +815,8 @@ def test_tenant_grants_from_an_independent_provider_drive_scope_and_row_security
         for key in ("T_A", "T_B", "T_FOREIGN", "notes T_A", "notes T_B"):
             assert (seen[key].status, seen[key].detail) == (403, NOT_AUTHORIZED), key
 
-        # B3: a forged contributor writing tenants never mints a token
+        # B3: a forged contributor writing tenants is dropped whole (KB-10):
+        # the token carries the grant provider's tenants only
         for payload in (
             {"tenant_id": T_FOREIGN},
             {"org_id": T_FOREIGN},
@@ -799,8 +824,15 @@ def test_tenant_grants_from_an_independent_provider_drive_scope_and_row_security
         ):
             forge(provider, payload)
             answer = mint(issuer, users.user)
-            assert answer.status == 503, (payload, answer)
-            assert answer.detail in {UNAVAILABLE_FORGED, UNAVAILABLE_GRANTS}, answer
+            assert answer.status == 200, (payload, answer)
+            assert answer.body["claims"]["tenant_ids"] == [T_A], payload
+            assert answer.body["claims"]["claims_sources_failed"] == ["forged"]
+            assert "tenant_id" not in answer.body["claims"], payload
+            assert "org_id" not in answer.body["claims"], payload
+            seen = get(
+                issuer, "/api/v1/shop/tenant", token_of(answer), tenant=T_FOREIGN
+            )
+            assert (seen.status, seen.detail) == (403, NOT_AUTHORIZED), payload
         forge(provider, {})
 
         # B5: revoking the grant revokes the user's tokens in every process
@@ -844,7 +876,7 @@ NO_GRANTS = [f"{M}test_identity", f"{M}forged", f"{M}notes", f"{M}shop"]
 def test_without_a_grant_provider_no_tenant_is_bound(infra: Infra) -> None:
     """B6, first half: no tenant-grant provider deployed → no tenant at all."""
     users = Users()
-    with running(infra, mono(infra, users, NO_GRANTS)) as (proc,):
+    with running(infra, mono(infra, users, NO_GRANTS, root=NO_GRANTS_ROOT)) as (proc,):
         forge(proc, {})
         answer = mint(proc, users.user)
         assert "tenant_ids" not in answer.body["claims"]
@@ -857,22 +889,23 @@ def test_without_a_grant_provider_no_tenant_is_bound(infra: Infra) -> None:
             assert (seen[key].status, seen[key].detail) == (403, NOT_AUTHORIZED), key
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="gap B6 (validation §1.2): with no tenant-grant provider, any "
-    "contributor writing tenant_ids gets those tenants bound and RLS opened; "
-    "closed by KB-10 (mint) and KB-11 (read side)",
-)
 def test_without_a_grant_provider_a_forged_contributor_binds_no_tenant(
     infra: Infra,
 ) -> None:
-    """B6, second half: ``forged`` writes ``tenant_ids`` with no grant provider."""
+    """B6, second half: ``forged`` writes ``tenant_ids`` with no grant provider.
+
+    Closed at the mint by KB-10: ``tenant_ids`` has no authority in this
+    composition, so ``forged`` is a violator and its tenants never reach a
+    token (the read side of B6, a token minted elsewhere, is KB-11).
+    """
     users = Users()
-    with running(infra, mono(infra, users, NO_GRANTS)) as (proc,):
+    with running(infra, mono(infra, users, NO_GRANTS, root=NO_GRANTS_ROOT)) as (proc,):
         forge(proc, {"tenant_ids": [T_FOREIGN, T_B]})
         answer = mint(proc, users.user)
-        token = token_of(answer) if answer.status == 200 else None
-        seen = _tenant_statuses(proc, token)
+        assert answer.status == 200, answer
+        assert "tenant_ids" not in answer.body["claims"]
+        assert answer.body["claims"]["claims_sources_failed"] == ["forged"]
+        seen = _tenant_statuses(proc, token_of(answer))
         assert seen["T_B"].status != 200
         assert seen["T_FOREIGN"].status != 200
         assert seen["notes T_B"].status != 200
@@ -925,7 +958,7 @@ def test_an_unrelated_fact_gates_a_route_locally_and_over_rpc(
 def test_a_fact_with_no_owner_loaded_or_bound_is_501(infra: Infra) -> None:
     """C1 with ``inventory`` neither loaded nor bound: 501, never an allow."""
     users = Users()
-    procs = mono(infra, users, [f"{M}test_identity", f"{M}shop"])
+    procs = mono(infra, users, [f"{M}test_identity", f"{M}shop"], root=NO_GRANTS_ROOT)
     with running(infra, procs) as (proc,):
         tok = token_of(mint(proc, users.user))
         for path in BUY:
@@ -944,7 +977,9 @@ def test_a_fact_registered_under_another_module_name_refuses_the_boot(
     users = Users()
     owner = [f"{M}inventory"] if with_owner else []
     modules = [f"{M}test_identity", *owner, f"{M}forged", f"{M}shop"]
-    log = boot_refusal(infra, mono(infra, users, modules, POC_FORGED_FACT="1"))
+    log = boot_refusal(
+        infra, mono(infra, users, modules, root=NO_GRANTS_ROOT, POC_FORGED_FACT="1")
+    )
     assert "SANDLOOM-B034" in log
     assert (
         "registers access fact 'inventory.stock.available' under module 'inventory'"

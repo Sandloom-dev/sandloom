@@ -46,6 +46,8 @@ def create_app(
     default_modules: collections.abc.Sequence[str] = (),
     default_optional_modules: collections.abc.Sequence[str] = (),
     title: str = 'Sandloom Framework',
+    claim_authorities: collections.abc.Mapping[str, str] | None = None,
+    default_claim_authorities: collections.abc.Mapping[str, str] | None = None,
 ) -> fastapi.applications.FastAPI
 ```
 
@@ -57,6 +59,15 @@ the kernel defaults (empty) the module set comes from configuration
 alone. Every module is required unless named in
 `default_optional_modules` (defaulted lists only) or declared
 `optional=True`.
+
+`claim_authorities` assigns each protected claim key to the module that
+is its authority, plus the token `issuer` (`{key: import path or
+entry-point name}`; ADR-0014): the mint keeps a protected claim only from
+its authority, and startup refuses an assignment the composition cannot
+honour (SANDLOOM-B035). `default_claim_authorities` applies when
+`claim_authorities` is not given and keeps only the entries whose module
+is part of the composition (loaded, or bound through its
+`<m>.claims.v1`). With neither, no claim is assigned.
 
 ## Examples and related guides
 

@@ -221,9 +221,16 @@ failing critical contributor aborts minting (`ClaimsUnavailable`, `503`).
 Every token carries `claims_sources` and `claims_sources_failed`: trust a
 module's claim only if that module is in `claims_sources`. Identity stamps
 `auth_time`, carried unchanged through refresh.
-Each claim key has one owner. A second module writing a key another module
-wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
-does a contributor writing a reserved key. The kernel stamps the provenance:
+A protected claim comes only from the module the composition root assigns
+it: `create_app(claim_authorities={"roles": "sandloom_identity", ...})`.
+The rights, tenant and billing claims are always protected; so is every key
+the map names. A contributor that writes a protected claim it is not
+assigned, or a reserved key, is a violator. An optional violator loses its
+whole result and the login still succeeds; it is listed in
+`claims_sources_failed`. A critical violator refuses the mint (`503`) naming
+itself. Any other key keeps one writer per token. Startup refuses a map the
+composition cannot honour (`SANDLOOM-B035`). The kernel stamps the
+provenance:
 `claims_sources`, `claims_sources_failed`. It reads the subject's structure
 from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. Tenant
 binding reads `tenant_id` and `org_id`. It stamps the

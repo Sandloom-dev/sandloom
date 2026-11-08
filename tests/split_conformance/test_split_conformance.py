@@ -376,7 +376,7 @@ class Proc:
         with self.log_path.open("wb") as log:
             self.served = spawn_served(
                 self.listener,
-                "sandloom.main:app",
+                "sandloom_standard.main:app",
                 env=env,
                 label=f"{self.deployment}/{self.label}",
                 cwd=BACKEND,
