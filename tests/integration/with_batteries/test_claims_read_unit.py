@@ -21,7 +21,26 @@ from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.module_api import contract_read_scope, contract_session
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine
-from sandloom.core.tests.test_contract_runtime import _core
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
+from sandloom.core.tests.test_contract_runtime import _core as _kernel_core
+
+
+#: The standard batteries' claim authorities (``sandloom_standard.main``'s map,
+#: ADR-0014): identity's and tenancy's keys come only from them.
+STANDARD = build_claim_authorities(
+    {
+        "issuer": "sandloom_identity",
+        "roles": "sandloom_identity",
+        "permissions": "sandloom_identity",
+        "tenant_ids": "sandloom_tenancy",
+    }
+)
+
+
+def _core() -> tuple[CoreFacade, Any]:
+    core, log = _kernel_core()
+    core.assign_claim_authorities(STANDARD)
+    return core, log
 
 
 def _register(

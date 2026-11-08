@@ -65,8 +65,13 @@ class ClaimAuthorityError(ValueError):
 
 
 def _resolve(entry: str) -> str:
-    """The import path ``entry`` names (an entry-point name or a path)."""
-    return resolve_module_names([entry])[0]
+    """The import path ``entry`` names: an entry-point name's path, else
+    ``entry`` itself. A path is taken as written; whether a module of the
+    same name is also installed is the loader's refusal (SANDLOOM-B020), and
+    an authority is verified against what actually loaded."""
+    if any(m.name == entry for m in installed_modules()):
+        return resolve_module_names([entry])[0]
+    return entry
 
 
 def build_claim_authorities(

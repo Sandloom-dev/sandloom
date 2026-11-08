@@ -190,7 +190,7 @@ class _Proc:
             # by a per-spawn nonce on readiness.
             self.served = spawn_served(
                 port,
-                "sandloom.main:app",
+                "sandloom_standard.main:app",
                 env=env,
                 label=name,
                 cwd=BACKEND,

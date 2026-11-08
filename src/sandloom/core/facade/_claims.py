@@ -102,6 +102,9 @@ RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
         "iat_us",
         "auth_time",
         "token_type",
+        # The claim policy version the kernel stamps (ADR-0014 decision 4):
+        # never a contributor's.
+        "cpv",
     }
 )
 
