@@ -8,18 +8,21 @@
   ``sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>``: every service
   applies every revocation into its own cache, so two independent receivers
   must never share one group, and the replicas of one service must.
-* **Service name, required.** On a cross-process event bus the group needs
-  ``SANDLOOM_SERVICE_NAME``; there is no fallback to the database identity
-  (two services may share one database and one bus). A process without it
-  refuses to start in every entry point (:func:`revocation_applier_config_problem`
-  runs in ``configuration_problems``). The in-process memory bus has no other
+* **Service name, required.** On a cross-process event bus (the resolved
+  driver of the ``default`` eventbus instance, ``INFRA`` applied: see
+  :func:`cross_process_bus`) the group needs ``SANDLOOM_SERVICE_NAME``;
+  there is no fallback to the database identity (two services may share one
+  database and one bus). A process without it refuses to start in every
+  entry point (:func:`revocation_applier_config_problem` runs in
+  ``configuration_problems``). The in-process memory bus has no other
   receiver, so the applier runs there under the ``local`` group without one.
-* **Readiness** (:func:`revocation_readiness`): ``/ready`` fails when the
-  applier is needed and missing, when the oldest unacknowledged revocation or
-  block event is older than the access-token lifetime, when such an event is
-  dead-lettered, or when the consumer is not running. A younger backlog is
-  transient: ready, exported as ``sandloom_consumer_lag_seconds`` and logged
-  at WARNING above half the bound.
+* **Readiness** (:class:`RevocationReadinessProbe`): ``/ready`` fails when
+  the applier is needed and missing, when the oldest unacknowledged
+  revocation or block event is older than the access-token lifetime, when
+  such an event is dead-lettered or its dead letters cannot be counted, or
+  when the consumer is not running. A younger backlog is transient: ready,
+  exported as ``sandloom_consumer_lag_seconds`` and logged at WARNING above
+  half the bound.
 * **Issuer obligation** (:func:`issuer_obligation_problems`, SANDLOOM-B035):
   an ``issues_tokens=True`` module registers a durable consumer of
   ``core.auth.user_blocked.v1`` (it ends its refresh sessions on a block) or
@@ -30,14 +33,14 @@
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from prometheus_client import Gauge
 
 import sandloom.core.auth.revocation as _revocation
+import sandloom.core.infra.config as _infra_config
 from sandloom.core.auth.blocks import USER_BLOCKED_CHANNEL
 from sandloom.core.auth.marks import TOKENS_REVOKED_CHANNEL
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
@@ -54,6 +57,8 @@ APPLIER_NAME = "auth@tokens_revoked"
 APPLIER_GROUP_PREFIX = "sandloom:auth@tokens_revoked@"
 #: The group suffix on the in-process memory bus (no other receiver exists).
 LOCAL_DEPLOYMENT = "local"
+#: The one eventbus driver no other process receives from.
+IN_PROCESS_DRIVER = "memory"
 #: The channels whose backlog and dead letters ``/ready`` judges (A9).
 REVOCATION_CHANNELS = (TOKENS_REVOKED_CHANNEL, USER_BLOCKED_CHANNEL)
 #: The issuer obligation and its verification (ADR-0012 decision 5).
@@ -74,16 +79,23 @@ _GAUGE_CONSUMER_LAG = Gauge(
 
 
 def cross_process_bus(cfg: Any) -> bool:
-    """Whether ``cfg`` selects an event bus other processes share.
+    """Whether the event bus ``cfg`` resolves to is one other processes share.
 
-    ``EVENT_BUS_BACKEND=redis|streams``, or ``auto`` in production (which
-    selects Streams). ``memory`` (and ``auto`` outside production) is the
-    in-process bus: nothing else receives its events.
+    Decided from the driver of the ``default`` eventbus instance, the one the
+    composition binds (``create_app``), after the same merge the registry
+    makes: ``EVENT_BUS_BACKEND`` (``auto`` is Streams in production, memory
+    elsewhere) with the ``INFRA`` overlay applied, so
+    ``INFRA={"eventbus": {"default": {"driver": "streams"}}}`` is a shared
+    bus whatever ``EVENT_BUS_BACKEND`` says. Only the in-process ``memory``
+    driver has no other receiver; every other driver, a plugin's included,
+    counts as shared, and so does an ``INFRA`` that cannot be read (fail
+    closed: the name is then required).
     """
-    backend = str(getattr(cfg, "event_bus_backend", "auto") or "auto")
-    if backend == "auto":
-        return bool(getattr(cfg, "is_prod", False))
-    return backend != "memory"
+    try:
+        driver = _infra_config.eventbus_driver(cfg)
+    except _infra_config.InfraConfigError:
+        return True
+    return driver != IN_PROCESS_DRIVER
 
 
 def applier_service_name(cfg: Any) -> str | None:
@@ -313,6 +325,19 @@ class RevocationReadiness:
     dead_letters: Mapping[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class DeadLetterReading:
+    """Dead-lettered events per ``(channel, group)``, as far as known.
+
+    ``unknown`` holds the groups whose count could not be established (the
+    read failed, or the dead-letter queue is longer than one probe scans):
+    readiness treats them as not ready, never as zero.
+    """
+
+    counts: Mapping[tuple[str, str], int] = field(default_factory=dict)
+    unknown: frozenset[tuple[str, str]] = frozenset()
+
+
 def evaluate_revocation_readiness(
     statuses: Iterable[Any],
     dead_letters: Mapping[tuple[str, str], int],
@@ -320,19 +345,22 @@ def evaluate_revocation_readiness(
     bound_seconds: float,
     needed: bool,
     expected_group: str | None,
+    unknown_dead_letters: Iterable[tuple[str, str]] = (),
 ) -> RevocationReadiness:
     """Judge the revocation / block consumers (pure; see the module doc).
 
     ``statuses`` are the consumer runtime's ``ConsumerStatus`` items;
     ``dead_letters`` counts dead-lettered events per ``(channel, group)``;
+    ``unknown_dead_letters`` names the groups whose count is unknown;
     ``bound_seconds`` is the access-token lifetime. Not ready when the
     applier is ``needed`` and absent, when one of these consumers is not
     running, when its oldest unacknowledged event is older than the bound,
-    or when one of its events is dead-lettered.
+    when one of its events is dead-lettered, or when that is unknown.
     """
     relevant = [
         s for s in statuses if getattr(s, "channel", None) in REVOCATION_CHANNELS
     ]
+    unknown = set(unknown_dead_letters)
     reasons: list[str] = []
     lags: dict[str, float] = {}
     letters: dict[str, int] = {}
@@ -358,12 +386,19 @@ def evaluate_revocation_readiness(
                     f"{age:.0f}s old, past the access-token lifetime "
                     f"({bound_seconds:.0f}s)"
                 )
-        count = int(dead_letters.get((status.channel, str(status.group)), 0))
+        key = (status.channel, str(status.group))
+        count = int(dead_letters.get(key, 0))
         if count:
             letters[name] = count
             reasons.append(
                 f"{name}: {count} {status.channel} event(s) dead-lettered "
                 f"(`sandloom streams dlq-list {status.channel}`)"
+            )
+        elif key in unknown:
+            reasons.append(
+                f"{name}: the dead letters of {status.channel} could not be "
+                "counted (read failed or too many to scan); not ready until "
+                f"they can be (`sandloom streams dlq-list {status.channel}`)"
             )
     return RevocationReadiness(
         ready=not reasons,
@@ -373,98 +408,187 @@ def evaluate_revocation_readiness(
     )
 
 
+#: Dead-letter entries read per ``list_dlq`` page, and the pages one probe
+#: reads per channel at most. The DLQ is per stream (every group's entries,
+#: oldest first), so this service's groups are counted over all of it; a
+#: queue longer than the scan leaves an uncounted group unknown (not ready).
+DLQ_PAGE_SIZE = 500
+DLQ_MAX_PAGES = 20
+
+
+async def _channel_dead_letters(
+    list_dlq: Any, channel: str, groups: set[str]
+) -> tuple[dict[str, int], bool]:
+    """``({group: count}, complete)`` over ``channel``'s whole DLQ.
+
+    Pages through it with ``after``; ``complete`` is False when the scan
+    stopped at :data:`DLQ_MAX_PAGES`. Raises what ``list_dlq`` raises.
+    """
+    counts: dict[str, int] = {}
+    after: str | None = None
+    for _page in range(DLQ_MAX_PAGES):
+        rows = list(await list_dlq(channel, count=DLQ_PAGE_SIZE, after=after) or ())
+        for row in rows:
+            group = str(row.get("group"))
+            if group in groups:
+                counts[group] = counts.get(group, 0) + 1
+        if len(rows) < DLQ_PAGE_SIZE:
+            return counts, True
+        after = str(rows[-1].get("id"))
+    return counts, False
+
+
 async def _dead_letters(
     bus: Any, groups: Iterable[tuple[str, str]]
-) -> dict[tuple[str, str], int]:
+) -> DeadLetterReading:
     """Dead-lettered events per ``(channel, group)`` the bus can report.
 
-    One ``list_dlq`` read per channel (Streams: an ``XRANGE`` of its DLQ);
-    the in-process memory bus keeps its own list. Best-effort: a read that
-    fails reports nothing (the consumer's state and lag still judge it).
+    A transport's DLQ is read page by page per channel (Streams: ``XRANGE``
+    of ``<channel>.dlq``), counting only the wanted groups over the whole
+    queue. A read that fails, or a queue longer than the scan, leaves the
+    groups it could not count ``unknown`` (fail closed). A transport that
+    keeps no inspectable DLQ (``NotImplementedError``) has none to count.
+    The in-process memory bus keeps its own list.
     """
     wanted = set(groups)
     counts: dict[tuple[str, str], int] = {}
+    unknown: set[tuple[str, str]] = set()
     transport = getattr(bus, "transport", None)
     list_dlq = getattr(transport, "list_dlq", None)
     if callable(list_dlq):
         for channel in sorted({channel for channel, _ in wanted}):
+            mine = {group for ch, group in wanted if ch == channel}
             try:
-                rows = await list_dlq(channel, count=100)
-            except Exception:
-                logger.debug("dead-letter read failed for %s", channel, exc_info=True)
+                found, complete = await _channel_dead_letters(list_dlq, channel, mine)
+            except NotImplementedError:
                 continue
-            for row in rows or ():
-                key = (channel, str(row.get("group")))
-                if key in wanted:
-                    counts[key] = counts.get(key, 0) + 1
-        return counts
+            except Exception:  # any failure is an unknown count
+                logger.warning(
+                    "dead-letter read failed for %s: /ready fails until it "
+                    "can count them",
+                    channel,
+                    exc_info=True,
+                )
+                unknown.update((channel, group) for group in mine)
+                continue
+            for group, count in found.items():
+                counts[(channel, group)] = count
+            if not complete:
+                unknown.update((channel, group) for group in mine if group not in found)
+        return DeadLetterReading(counts=counts, unknown=frozenset(unknown))
     for channel, _message, _attempt in getattr(bus, "dead_letters", ()) or ():
         for key in wanted:
             if key[0] == channel:
                 counts[key] = counts.get(key, 0) + 1
-    return counts
+    return DeadLetterReading(counts=counts)
 
 
 class RevocationReadinessProbe:
-    """``/ready``'s revocation check, its dead-letter read cached for ``ttl``."""
+    """``/ready``'s revocation check.
 
-    def __init__(self, core: Any, cfg: Any, *, ttl: float) -> None:
+    The consumer state and lag come from the runtime's snapshot (no I/O);
+    the dead letters from :meth:`read_dead_letters`, which ``/ready`` runs
+    through the probes' TTL / single-flight cache (``ops._HealthCache``) and
+    passes in as ``dead_letters``: one read per TTL, however many concurrent
+    calls. Called without it, the probe reads them itself.
+    """
+
+    def __init__(self, core: Any, cfg: Any) -> None:
         self._core = core
         self._cfg = cfg
-        self._ttl = max(0.0, ttl)
-        self._cached_at = 0.0
-        self._cached: dict[tuple[str, str], int] = {}
         self._needed = cross_process_bus(cfg)
         name = applier_service_name(cfg)
         # Unnamed on a shared bus never boots (configuration_problems); judge
         # "missing" by channel alone then rather than refuse here.
         self._group = APPLIER_GROUP_PREFIX + name if self._needed and name else None
+        self._groups: tuple[tuple[str, str], ...] = ()
+        #: gauge label pairs this probe has set (reset to 0 once unmeasured).
+        self._exported: set[tuple[str, str]] = set()
 
-    async def __call__(self, consumer_runtime: Any) -> RevocationReadiness:
+    @property
+    def needed(self) -> bool:
+        """Whether this process must run the applier (a shared bus)."""
+        return self._needed
+
+    @property
+    def expected_group(self) -> str | None:
+        """The applier group this process must run (``None``: not needed)."""
+        return self._group
+
+    async def read_dead_letters(self) -> DeadLetterReading:
+        """Count the dead letters of the groups the last call saw."""
+        if not self._groups:
+            return DeadLetterReading()
+        return await _dead_letters(self._core.event_bus, self._groups)
+
+    async def __call__(
+        self,
+        consumer_runtime: Any,
+        *,
+        dead_letters: Callable[[], Awaitable[DeadLetterReading]] | None = None,
+    ) -> RevocationReadiness:
         """Judge the runtime's revocation and block consumers now."""
         snapshot = consumer_runtime.snapshot() if consumer_runtime is not None else None
         statuses = list(getattr(snapshot, "consumers", ()) or ())
-        groups = [
-            (s.channel, str(s.group))
-            for s in statuses
-            if s.channel in REVOCATION_CHANNELS
-        ]
-        now = time.monotonic()
-        if groups and now - self._cached_at >= self._ttl:
-            self._cached = await _dead_letters(self._core.event_bus, groups)
-            self._cached_at = now
+        relevant = [s for s in statuses if s.channel in REVOCATION_CHANNELS]
+        self._groups = tuple(sorted({(s.channel, str(s.group)) for s in relevant}))
+        reading = (
+            await (dead_letters or self.read_dead_letters)()
+            if self._groups
+            else DeadLetterReading()
+        )
         bound = float(self._cfg.access_token_expire_minutes) * 60.0
         result = evaluate_revocation_readiness(
             statuses,
-            self._cached,
+            reading.counts,
             bound_seconds=bound,
             needed=self._needed,
             expected_group=self._group,
+            unknown_dead_letters=reading.unknown,
         )
-        for name, age in result.lag_seconds.items():
-            channel = next(
-                (s.channel for s in statuses if str(s.group or s.name) == name), ""
-            )
-            _GAUGE_CONSUMER_LAG.labels(name, channel).set(age)
+        self._export_lag(relevant, bound)
+        return result
+
+    def _export_lag(self, relevant: Sequence[Any], bound: float) -> None:
+        """Set ``sandloom_consumer_lag_seconds`` per consumer and channel.
+
+        A measured age is exported as is (``0`` once the backlog cleared);
+        a pair exported before that is no longer measured, or whose consumer
+        is gone, is reset to ``0`` so no stale lag stays behind.
+        """
+        seen: set[tuple[str, str]] = set()
+        for status in relevant:
+            key = (str(status.group or status.name), str(status.channel))
+            age = getattr(status, "oldest_unacked_age_seconds", None)
+            if age is None:
+                continue
+            seen.add(key)
+            _GAUGE_CONSUMER_LAG.labels(*key).set(float(age))
             if bound / 2 < age <= bound:
                 logger.warning(
                     "%s: the oldest pending %s event is %.0fs old, over half "
                     "the access-token lifetime (%.0fs); /ready fails past it",
-                    name,
-                    channel,
+                    key[0],
+                    key[1],
                     age,
                     bound,
                 )
-        return result
+        for key in self._exported - seen:
+            _GAUGE_CONSUMER_LAG.labels(*key).set(0.0)
+        self._exported = seen
 
 
 __all__ = [
     "APPLIER_GROUP_PREFIX",
     "APPLIER_NAME",
+    "DLQ_MAX_PAGES",
+    "DLQ_PAGE_SIZE",
+    "IN_PROCESS_DRIVER",
     "ISSUER_CODE",
     "LOCAL_DEPLOYMENT",
     "REVOCATION_CHANNELS",
     "SERVICE_NAME_SETTING",
+    "DeadLetterReading",
     "RevocationReadiness",
     "RevocationReadinessProbe",
     "applier_descriptor",

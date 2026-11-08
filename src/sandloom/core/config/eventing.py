@@ -25,17 +25,26 @@ class EventingConfig(BaseModel):
             "require accepted risk."
         ),
     )
-    # Logical service name of this process (e.g. "billing-api"). Informational:
-    # it is stamped into Streams consumer ids, the group-ownership fingerprint
-    # and the subscription inventory so operators can tell which deployment a
-    # consumer belongs to. It never changes a consumer-group name (a module
-    # keeps its group when it moves between services).
+    # Logical service name of this process (e.g. "billing-api"). It names the
+    # consumer group of the kernel's revocation applier,
+    # sandloom:auth@tokens_revoked@<name> (ADR-0012 decision 5): every
+    # replica of one service shares that group, and two services with one
+    # name share it too and split revocations between them, so the name is
+    # distinct per service and required on a shared event bus (the process
+    # refuses to start without it). It is also stamped into Streams consumer
+    # ids, the group-ownership fingerprint and the subscription inventory. It
+    # never renames a module's consumer group (a module keeps its group when
+    # it moves between services).
     sandloom_service_name: str | None = Field(
         default=None,
         alias="SANDLOOM_SERVICE_NAME",
         description=(
-            "Logical service label attached to Streams consumer inventory and "
-            "ownership diagnostics; does not rename a module consumer group."
+            "This service's name: required on a shared event bus and distinct "
+            "per service, the same for all its replicas. Names the kernel "
+            "revocation applier's consumer group "
+            "(sandloom:auth@tokens_revoked@<name>) and labels the Streams "
+            "consumer inventory and ownership diagnostics; never renames a "
+            "module consumer group."
         ),
     )
     # Streams retention. Every XADD trims the channel stream so it cannot grow

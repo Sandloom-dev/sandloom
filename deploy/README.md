@@ -90,7 +90,7 @@ startup.
 
 | `GC_FREEZE_AFTER_STARTUP`, `GC_THRESHOLDS`, `GC_METRICS_ENABLED` | framework defaults `true` / `2000,10,10` / `true` | same | gunicorn workers and the Celery worker freeze the startup heap after startup and raise 3.12's GC threshold0 (docs/operate/operator-reference.md → *Garbage collector tuning*); `false` / empty restores the interpreter default |
 | `OUTBOX_RETENTION_HOURS` | framework default 168 | same | the relay purges delivered outbox rows older than this (`0` = keep) |
-| `SANDLOOM_SERVICE_NAME` | `sandloom` / `sandloom-worker` / `sandloom-beat` | the service name (`identity`, …, `identity-worker`, `identity-beat`) | labels consumer ids, the subscription inventory and diagnostics |
+| `SANDLOOM_SERVICE_NAME` | `sandloom` / `sandloom-worker` / `sandloom-beat` | the service name (`identity`, …, `identity-worker`, `identity-beat`) | names the kernel's revocation applier group (`sandloom:auth@tokens_revoked@<name>`): required on a shared bus, distinct per service; also labels consumer ids, the subscription inventory and diagnostics |
 | `WORKER_CONCURRENCY` | default: CPU quota, max 2 | same | prefork children (see *Background work*) |
 | `WORKER_MAX_MEMORY_PER_CHILD` | default 200000 KiB | same | recycle a child above this RSS after its task |
 | `SANDLOOM_IMAGE` | default `sandloom:local` | same | the one image every process runs (built once) |

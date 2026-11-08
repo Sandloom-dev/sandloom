@@ -167,7 +167,7 @@ async def test_the_probe_counts_this_deployments_dead_letters(
     transport = MemoryTransport()
     core = CoreFacade(app=FastAPI())
     core.set_event_bus(StreamsEventBus(InMemorySchemaRegistry(), transport))
-    probe = applier.RevocationReadinessProbe(core, settings, ttl=0.0)
+    probe = applier.RevocationReadinessProbe(core, settings)
     runtime = _Runtime(_status())
     assert (await probe(runtime)).ready
     transport._dlq[REVOKED] = [
@@ -187,7 +187,7 @@ async def test_the_probe_warns_above_half_the_bound_and_exports_the_lag(
     _shared_bus_cfg(monkeypatch)
     core = CoreFacade(app=FastAPI())
     core.set_event_bus(StreamsEventBus(InMemorySchemaRegistry(), MemoryTransport()))
-    probe = applier.RevocationReadinessProbe(core, settings, ttl=0.0)
+    probe = applier.RevocationReadinessProbe(core, settings)
     result = await probe(_Runtime(_status(age=BOUND * 0.6)))
     assert result.ready
     assert any(
@@ -256,3 +256,237 @@ def test_the_runtime_status_carries_the_oldest_unacked_age() -> None:
         ).oldest_unacked_age_seconds
         is None
     )
+
+
+# --------------------------------------------------------------------------- #
+# KB-W0 review fixes: the INFRA-selected bus, fail-closed dead-letter counts,
+# the whole DLQ counted, one read per TTL, the lag gauge reset
+# --------------------------------------------------------------------------- #
+def _infra_bus_cfg(monkeypatch: pytest.MonkeyPatch, name: str | None = "api") -> None:
+    """Streams chosen through INFRA, EVENT_BUS_BACKEND=auto, not production."""
+    assert not settings.is_prod
+    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(
+        settings, "infra", {"eventbus": {"default": {"driver": "streams"}}}
+    )
+    monkeypatch.setattr(settings, "sandloom_service_name", name)
+    monkeypatch.setattr(settings, "access_token_expire_minutes", 15)
+
+
+def _ready_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "internal_api_token", _TOKEN)
+    monkeypatch.setattr(settings, "health_cache_ttl_seconds", 0.0)
+    monkeypatch.setattr(settings, "sandloom_modules", [])
+    monkeypatch.setattr(settings, "module_required", [])
+
+    import sandloom.core.app_factory.ops as ops
+    from sandloom.core.descriptors import HealthResult
+
+    async def _healthy(_core: Any) -> dict[str, HealthResult]:
+        return {"core": HealthResult(status="ok")}
+
+    monkeypatch.setattr(ops, "aggregate_health", _healthy)
+
+
+def test_an_infra_selected_shared_bus_needs_this_services_applier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _infra_bus_cfg(monkeypatch)
+    probe = applier.RevocationReadinessProbe(CoreFacade(app=FastAPI()), settings)
+    assert probe.needed
+    assert probe.expected_group == GROUP
+
+
+@pytest.mark.parametrize(
+    "statuses,ready",
+    [
+        ((), False),  # needed and missing
+        ((_status(group="sandloom:auth@tokens_revoked@local"),), False),
+        ((_status(),), True),
+    ],
+)
+async def test_ready_judges_the_applier_on_an_infra_selected_bus(
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: tuple[ConsumerStatus, ...],
+    ready: bool,
+) -> None:
+    """``/ready`` with ``INFRA`` selecting Streams: a process without this
+    service's applier group (or under the shared ``…@local``) is not ready."""
+    _infra_bus_cfg(monkeypatch)
+    _ready_settings(monkeypatch)
+    response = await _ready(_Runtime(*statuses))
+    body = response.json()
+    assert body["revocation_consumers_ready"] is ready, body
+    assert response.status_code == (200 if ready else 503), body
+
+
+def test_an_unknown_dead_letter_count_is_not_ready() -> None:
+    """Fail closed: a count that could not be read is never zero."""
+    result = applier.evaluate_revocation_readiness(
+        [_status()],
+        {},
+        bound_seconds=BOUND,
+        needed=True,
+        expected_group=GROUP,
+        unknown_dead_letters=[(REVOKED, GROUP)],
+    )
+    assert not result.ready
+    assert any("could not be counted" in r for r in result.reasons)
+    other = applier.evaluate_revocation_readiness(
+        [_status()],
+        {},
+        bound_seconds=BOUND,
+        needed=True,
+        expected_group=GROUP,
+        unknown_dead_letters=[(REVOKED, "sandloom:auth@tokens_revoked@billing")],
+    )
+    assert other.ready  # another group's unknown count does not judge this one
+
+
+class _CountingDlq(MemoryTransport):
+    """A memory transport whose DLQ read can fail, counting the reads."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail = False
+        self.delay = 0.0
+        self.calls = 0
+
+    async def list_dlq(
+        self, stream: str, *, count: int = 100, after: str | None = None
+    ) -> list[dict[str, Any]]:
+        import asyncio
+
+        self.calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)  # in flight while others arrive
+        if self.fail:
+            raise ConnectionError("redis down")
+        return await super().list_dlq(stream, count=count, after=after)
+
+
+def _probe_on(
+    monkeypatch: pytest.MonkeyPatch, transport: Any
+) -> applier.RevocationReadinessProbe:
+    _shared_bus_cfg(monkeypatch)
+    core = CoreFacade(app=FastAPI())
+    core.set_event_bus(StreamsEventBus(InMemorySchemaRegistry(), transport))
+    return applier.RevocationReadinessProbe(core, settings)
+
+
+async def test_a_failed_dead_letter_read_is_not_ready_until_it_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _CountingDlq()
+    transport.fail = True
+    probe = _probe_on(monkeypatch, transport)
+    runtime = _Runtime(_status())
+    result = await probe(runtime)
+    assert not result.ready
+    assert any("could not be counted" in r for r in result.reasons)
+    transport.fail = False
+    assert (await probe(runtime)).ready
+
+
+async def test_the_whole_dead_letter_queue_is_counted_not_the_oldest_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Other groups' entries ahead of this service's one (more than a page
+    of them) do not hide it."""
+    transport = MemoryTransport()
+    probe = _probe_on(monkeypatch, transport)
+    other = "sandloom:auth@tokens_revoked@billing"
+    rows = [
+        (f"{i}-0", _envelope(), 1, other) for i in range(1, applier.DLQ_PAGE_SIZE + 150)
+    ]
+    rows.append((f"{len(rows) + 1}-0", _envelope(), 1, GROUP))
+    transport._dlq[REVOKED] = rows
+    result = await probe(_Runtime(_status()))
+    assert not result.ready
+    assert result.dead_letters == {GROUP: 1}
+
+
+async def test_a_dead_letter_queue_longer_than_the_scan_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(applier, "DLQ_PAGE_SIZE", 2)
+    monkeypatch.setattr(applier, "DLQ_MAX_PAGES", 3)
+    transport = MemoryTransport()
+    probe = _probe_on(monkeypatch, transport)
+    other = "sandloom:auth@tokens_revoked@billing"
+    transport._dlq[REVOKED] = [(f"{i}-0", _envelope(), 1, other) for i in range(1, 8)]
+    result = await probe(_Runtime(_status()))
+    assert not result.ready
+    assert any("could not be counted" in r for r in result.reasons)
+    transport._dlq[REVOKED] = transport._dlq[REVOKED][:5]  # fits in the scan
+    assert (await probe(_Runtime(_status()))).ready
+
+
+async def test_a_transport_without_dlq_inspection_has_none_to_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _NoDlq(MemoryTransport):
+        async def list_dlq(
+            self, stream: str, *, count: int = 100, after: str | None = None
+        ) -> list[dict[str, Any]]:
+            raise NotImplementedError
+
+    probe = _probe_on(monkeypatch, _NoDlq())
+    assert (await probe(_Runtime(_status()))).ready
+
+
+async def test_concurrent_ready_calls_share_one_dead_letter_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No I/O per request: 25 concurrent ``/ready`` calls, and 25 sequential
+    ones, read the DLQ once (one ``list_dlq`` per channel) within the TTL;
+    with TTL 0 every call reads it."""
+    import asyncio
+
+    _shared_bus_cfg(monkeypatch)
+    _ready_settings(monkeypatch)
+    transport = _CountingDlq()
+    transport.delay = 0.01
+
+    async def _reads(ttl: float, n: int, *, concurrent: bool) -> int:
+        monkeypatch.setattr(settings, "health_cache_ttl_seconds", ttl)
+        transport.calls = 0
+        application = FastAPI()
+        core = CoreFacade(app=application)
+        core.set_event_bus(StreamsEventBus(InMemorySchemaRegistry(), transport))
+        application.state.consumer_runtime = _Runtime(
+            _status(), _status(BLOCKED, BLOCK_GROUP)
+        )
+        _install_ops_endpoints(application, core)
+        async with AsyncClient(
+            transport=ASGITransport(app=application), base_url="http://test"
+        ) as client:
+            if concurrent:
+                responses = list(
+                    await asyncio.gather(*(client.get("/ready") for _ in range(n)))
+                )
+            else:
+                responses = [await client.get("/ready") for _ in range(n)]
+        assert all(r.status_code == 200 for r in responses), responses[0].json()
+        return transport.calls
+
+    assert await _reads(60.0, 25, concurrent=True) == 2  # one per channel
+    assert await _reads(60.0, 25, concurrent=False) == 2
+    assert await _reads(0.0, 3, concurrent=False) == 6
+
+
+async def test_the_lag_gauge_resets_when_the_backlog_clears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _probe_on(monkeypatch, MemoryTransport())
+    gauge = applier._GAUGE_CONSUMER_LAG.labels(GROUP, REVOKED)
+    await probe(_Runtime(_status(age=120.0)))
+    assert gauge._value.get() == pytest.approx(120.0)
+    await probe(_Runtime(_status(age=0.0)))  # drained
+    assert gauge._value.get() == 0.0
+    await probe(_Runtime(_status(age=90.0)))
+    await probe(_Runtime(_status(age=None)))  # no longer measured
+    assert gauge._value.get() == 0.0
+    await probe(_Runtime(_status(age=90.0)))
+    await probe(_Runtime())  # the consumer is gone
+    assert gauge._value.get() == 0.0

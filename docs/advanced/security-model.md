@@ -112,8 +112,10 @@ the concept page with the full detail.
   service, each in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
   — idempotent, monotonic, whether identity is loaded there or not) and
   writes the mark after commit (retried). On a shared event bus a service
-  without `SANDLOOM_SERVICE_NAME` refuses to start. Two unnamed services
-  would share one group, and each would miss the other's revocations. On that **default** path the mark
+  without `SANDLOOM_SERVICE_NAME` refuses to start. The bus counts as shared
+  for every driver but `memory`, whether `EVENT_BUS_BACKEND` or `INFRA`
+  selects it. Two unnamed services would share one group, and each would
+  miss the other's revocations. On that **default** path the mark
   can trail the commit: while the cache is down tokens are refused (`503`,
   fail-closed) or accepted (fail-open, dev), and once it is back an old token
   is ACCEPTED until the applier runs. Worst case after recovery, with the
