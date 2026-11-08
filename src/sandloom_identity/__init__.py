@@ -24,7 +24,8 @@ def _setup(core: ModuleAPI) -> None:
     """Register identity's lifecycle, claims, reads and consumers.
 
     Raises ``SystemExit`` (the loader's configuration refusal) when the
-    TOTP key configuration is unusable in this environment.
+    TOTP key configuration is unusable in this environment, or when
+    ``JWT_SECRET`` is unset (it keys identity's emailed tokens).
     """
     # Production must encrypt TOTP secrets with a dedicated key: the JWT-derived
     # fallback ties 2FA secrets to the signing key's lifecycle (rotation would
@@ -37,16 +38,14 @@ def _setup(core: ModuleAPI) -> None:
         raise SystemExit(twofa_error)
 
     # identity keys its emailed tokens / fingerprints with JWT_SECRET, which
-    # is optional in an asymmetric JWT deployment: refuse to serve without it.
+    # is optional in an asymmetric JWT deployment (issuer-only there). Refused
+    # at registration like the TOTP key, so no process that builds the
+    # composition starts without it.
     if not settings.jwt_secret:
-
-        async def _refuse_missing_identity_secret() -> None:
-            raise RuntimeError(
-                "identity requires JWT_SECRET (issuer-only with an asymmetric "
-                "JWT_ALGORITHM): it keys emailed verification/reset tokens"
-            )
-
-        core.add_startup_task(_refuse_missing_identity_secret, critical=True)
+        raise SystemExit(
+            "identity requires JWT_SECRET (issuer-only with an asymmetric "
+            "JWT_ALGORITHM): it keys emailed verification/reset tokens"
+        )
 
     # Timing equalizer for unknown-email logins: make the dummy argon2 hash
     # before serving, so the first unknown email costs one verify, not a

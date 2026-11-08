@@ -38,8 +38,8 @@ def identity_secret() -> str:
 
     Keys the emailed (itsdangerous) tokens and the secret fingerprints. In an
     asymmetric JWT deployment it is issuer-only — identity is the issuer — and
-    never signs or verifies an access token; identity's critical startup
-    check refuses to serve without it.
+    never signs or verifies an access token; identity refuses to register
+    without it, in every entry point that builds the composition.
     """
     secret = settings.jwt_secret
     if not secret:

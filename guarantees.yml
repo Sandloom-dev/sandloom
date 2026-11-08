@@ -1687,7 +1687,9 @@ guarantees:
   statement: 'Startup role check (critical, the process refuses to serve): an issuer (a process loading
     a module with issues_tokens=True) without JWT_PRIVATE_KEY, or a verify-only process holding JWT_PRIVATE_KEY
     or JWT_SECRET, is refused; in prod a split process on a shared HS secret is refused unless the accepted
-    risk shared_hs_secret_split is set, and never under multi_tenant_strict.'
+    risk shared_hs_secret_split is set, and never under multi_tenant_strict. A process loading identity
+    without JWT_SECRET (it keys identity''s emailed tokens; issuer-only in asymmetric mode) is refused
+    when identity registers, in every entry point that builds the composition.'
   sources:
   - docs/advanced/security-model.md#Authentication
   - docs/reference/cli.md
@@ -1697,6 +1699,8 @@ guarantees:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_prod_split_deployment_refuses_a_shared_hs_secret
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_create_app_refuses_key_material_that_fails_the_boot_check
   - src/sandloom/core/tests/test_production_profile.py::test_startup_role_check_has_no_shared_secret_opt_out_under_the_profile
+  - src/sandloom_identity/tests/test_module_registration.py::test_missing_jwt_secret_refuses_registration
+  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
   startup_checks: create_app registers a critical refusal for the JWT role check (sandloom.core.app_factory.enforce_configuration)
 - id: G-AUTH-06
   statement: A verify-only process (asymmetric mode, no private key) cannot mint access tokens; in the
@@ -4263,8 +4267,8 @@ guarantees:
 - id: G-CONFIG-07
   statement: 'The boot-time configuration checks (enforce_configuration) refuse an invalid configuration
     identically in every entry point: the app, the Celery worker, sandloom migrate and the sandloom CLI.
-    A module''s registration refusal (identity''s TWOFA_ENCRYPTION_KEY, billing''s implicit fake PSP in
-    prod) does the same in every entry point that builds the composition: the app, the worker, beat,
+    A module''s registration refusal (identity''s TWOFA_ENCRYPTION_KEY in prod and JWT_SECRET, billing''s
+    implicit fake PSP in prod) does the same in every entry point that builds the composition: the app, the worker, beat,
     sandloom migrate and the composed operator CLIs; sandloom config dump builds none.'
   sources:
   - docs/contributing/repository.md#Repository map

@@ -12,6 +12,10 @@
 - G-CONFIG-07: the parity statement gains the module refusals and the composed
   entry points (worker, beat, migrate, `outbox`, `streams`, `projection`,
   `sagas`, `backup`); `sandloom config dump` still builds no composition.
+- G-AUTH-05 (follow-up, kernel-boundary alternatives D finding O-9): identity's
+  missing `JWT_SECRET` (issuer-only with an asymmetric JWT) is refused while
+  identity registers, not by a critical lifespan task. The kernel's own role
+  check is unchanged; the registration test and the process matrix cite it.
 
 No new SDK name, risk id, setting or dedupe mechanism. The deploy profiles and
 scaffolds already give the migrate one-shots the module environment.

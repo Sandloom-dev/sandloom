@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from sandloom.sdk.infra import settings
 from sandloom.sdk.module import CapabilityRequirement, ModuleAPI, ModuleDescriptor
 from sandloom.sdk.testing import ModuleRegistrationDraft
 from sandloom_identity import register
@@ -121,6 +122,20 @@ def test_missing_twofa_key_refuses_registration(
     )
     draft = ModuleRegistrationDraft()
     with pytest.raises(SystemExit, match="TWOFA key missing"):
+        register(ModuleAPI(sandloom_app.state.core, draft=draft))
+    assert draft.startup == []
+    assert draft.claims_contributors == []
+
+
+def test_missing_jwt_secret_refuses_registration(
+    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """identity keys its emailed tokens with ``JWT_SECRET``: without it (an
+    asymmetric deployment's verify-only processes) registration itself
+    refuses, so no entry point builds past it; nothing is registered."""
+    monkeypatch.setattr(settings, "jwt_secret", "")
+    draft = ModuleRegistrationDraft()
+    with pytest.raises(SystemExit, match="identity requires JWT_SECRET"):
         register(ModuleAPI(sandloom_app.state.core, draft=draft))
     assert draft.startup == []
     assert draft.claims_contributors == []

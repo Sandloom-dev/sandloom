@@ -213,6 +213,9 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
   the worker, beat, `sandloom migrate` and the operator commands all stop with
   `[core.config] Invalid configuration: module sandloom_identity: …`. Outside
   production an unset key falls back to one derived from `JWT_SECRET`.
+  Identity also needs `JWT_SECRET` itself, in any environment: it keys the
+  emailed tokens. With an asymmetric `JWT_ALGORITHM` only the issuer holds it.
+  Without it identity refuses to register in the same way.
 - `AUTH_REVOCATION_FAIL_CLOSED` — revocation-store outage → `503` (default: on
   in production).
 - Sensitive endpoints are rate-limited per IP (e.g. login `5/60s`, fail-closed).

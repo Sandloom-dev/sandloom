@@ -9,8 +9,8 @@ they serve or touch anything, with the reason in the message — exactly as a
 ``Settings`` load failure does. Real processes, an empty working directory
 (no ``.env``) and an explicit environment.
 
-Module refusals (identity without ``TWOFA_ENCRYPTION_KEY`` in prod, billing
-on the implicit fake PSP in prod) are raised while the module registers, so
+Module refusals (identity without ``TWOFA_ENCRYPTION_KEY`` in prod or
+without ``JWT_SECRET``, billing on the implicit fake PSP in prod) are raised while the module registers, so
 they reach every process that builds the composition — the app, the Celery
 worker and beat, ``sandloom migrate`` and the composed operator CLIs — with
 the same prefix and reason. ``sandloom config dump`` builds no composition
@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.config.common import INVALID_CONFIGURATION
-from sandloom.core.signing_keys import generate_private_key, public_pem
+from sandloom.core.signing_keys import generate_private_key, private_pem, public_pem
 from sandloom.core.tests.test_production_profile import _BASE as _STRICT_BASE
 
 pytestmark = pytest.mark.slow
@@ -120,6 +120,17 @@ def test_moved_validator_refuses_every_entry_point(
 
 _MODULE_BASE: dict[str, Any] = dict(_STRICT_BASE)
 
+_ISSUER_KEY = generate_private_key("EdDSA")
+#: An asymmetric-JWT issuer (identity mints): JWT_SECRET is optional for the
+#: kernel there, but identity keys its emailed tokens with it.
+_ASYMMETRIC_ISSUER: dict[str, Any] = {
+    **_DEV_BASE,
+    "JWT_ALGORITHM": "EdDSA",
+    "JWT_PRIVATE_KEY": private_pem(_ISSUER_KEY),
+    "JWT_KID": "k1",
+    "JWT_PUBLIC_KEYS": {"k1": public_pem(_ISSUER_KEY)},
+}
+
 #: module refusal -> (environment, reason that must be reported). Each names
 #: its module set, so the case holds whatever else is installed.
 MODULE_CASES: dict[str, tuple[dict[str, Any], str]] = {
@@ -129,6 +140,14 @@ MODULE_CASES: dict[str, tuple[dict[str, Any], str]] = {
             "SANDLOOM_MODULES": ["sandloom_identity"],
         },
         "module sandloom_identity: TWOFA_ENCRYPTION_KEY is required with ENVIRONMENT=prod",
+    ),
+    "identity-jwt-secret": (
+        {
+            **_ASYMMETRIC_ISSUER,
+            "JWT_SECRET": "",
+            "SANDLOOM_MODULES": ["sandloom_identity"],
+        },
+        "module sandloom_identity: identity requires JWT_SECRET",
     ),
     "billing-implicit-fake-psp": (
         {
@@ -215,6 +234,18 @@ def test_module_cases_build_once_the_configuration_is_fixed(tmp_path: Path) -> N
         "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
         "SANDLOOM_ACCEPTED_RISKS": ["fake_psp_in_prod"],
     }
+    proc = _run(
+        [sys.executable, "-c", "import sandloom.main; print('built')"], values, tmp_path
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert proc.stdout.strip().endswith("built")
+
+
+@pytest.mark.subprocess_probe
+def test_asymmetric_issuer_with_jwt_secret_builds(tmp_path: Path) -> None:
+    """Control for ``identity-jwt-secret``: the same asymmetric issuer builds
+    once ``JWT_SECRET`` is set, so that case fails on its own reason only."""
+    values = {**_ASYMMETRIC_ISSUER, "SANDLOOM_MODULES": ["sandloom_identity"]}
     proc = _run(
         [sys.executable, "-c", "import sandloom.main; print('built')"], values, tmp_path
     )
