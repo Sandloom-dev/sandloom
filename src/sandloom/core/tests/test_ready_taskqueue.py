@@ -184,8 +184,7 @@ async def test_ready_fails_naming_the_taskqueue_when_its_broker_is_down(
     default = block["instances"]["default"]
     assert default["status"] == "fail"
     assert default["task_modules"] == [_ENQUEUES]
-    assert "broker unreachable" in default["details"]["error"]
-    assert default["details"]["broker"] == "redis://127.0.0.1:1"
+    assert "broker redis://127.0.0.1:1 unreachable" in default["details"]["error"]
 
 
 async def test_ready_stays_green_with_a_reachable_broker(

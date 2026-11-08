@@ -415,6 +415,23 @@ async def beat_lease_holder(core: Any, *, instance: str = "default") -> str | No
     return holder.decode() if isinstance(holder, bytes) else str(holder)
 
 
+async def read_beat_lease(
+    core: Any, *, instance: str = "default", limit_seconds: float
+) -> tuple[str, str | None]:
+    """:func:`beat_lease_holder` for a diagnostic, bounded and never raising:
+    ``("held", token)``, ``("absent", None)`` or ``("unknown", why)``."""
+    try:
+        holder = await asyncio.wait_for(
+            beat_lease_holder(core, instance=instance), limit_seconds
+        )
+    except TimeoutError:
+        return "unknown", f"the beat lease was not read within {limit_seconds:g}s"
+    except Exception as exc:
+        logger.debug("beat lease unreadable", exc_info=True)
+        return "unknown", f"the beat lease cannot be read: {type(exc).__name__}: {exc}"
+    return ("held", holder) if holder is not None else ("absent", None)
+
+
 def install_beat_lease(app: Any, core: Any, *, instance: str = "default") -> None:
     """Wrap every beat scheduler of ``app`` in :class:`LeasedScheduler`.
 
@@ -462,4 +479,5 @@ __all__ = [
     "install_beat_lease",
     "lease_scope",
     "periodic_needs",
+    "read_beat_lease",
 ]

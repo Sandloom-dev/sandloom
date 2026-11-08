@@ -30,20 +30,21 @@ def _app(broker: str) -> Any:
 
 
 async def test_a_reachable_broker_is_ok() -> None:
-    result = await probe.probe_broker(_app(settings.broker_url), timeout=2.0)
+    result = await probe.probe_broker(_app(settings.broker_url), limit_seconds=2.0)
 
     assert result.status == "ok", result.details
     assert result.details["broker"].startswith("redis://")
 
 
 async def test_an_unreachable_broker_fails_naming_it_without_credentials() -> None:
+    """A refused connection raises; every health reader turns it into a
+    failed probe carrying this message."""
     started = time.monotonic()
-    result = await probe.probe_broker(_app(_REFUSED), timeout=2.0)
+    with pytest.raises(probe.BrokerUnreachableError) as caught:
+        await probe.probe_broker(_app(_REFUSED), limit_seconds=2.0)
 
-    assert result.status == "fail"
-    assert result.details["broker"] == "redis://127.0.0.1:1"
-    assert "broker unreachable" in result.details["error"]
-    assert "s3cret" not in repr(result.details)
+    assert str(caught.value).startswith("broker redis://127.0.0.1:1 unreachable: ")
+    assert "s3cret" not in str(caught.value)
     assert time.monotonic() - started < 2.0  # refused: no retry, no backoff
 
 
@@ -58,10 +59,10 @@ async def test_a_hanging_broker_is_bounded_by_the_timeout(
 
     monkeypatch.setattr(probe, "_connect_once", hang)
     started = time.monotonic()
-    result = await probe.probe_broker(_app(_REFUSED), timeout=0.2)
+    result = await probe.probe_broker(_app(_REFUSED), limit_seconds=0.2)
 
     assert result.status == "fail"
-    assert result.details["error"] == "broker timeout > 0.2s"
+    assert result.details["error"] == "broker redis://127.0.0.1:1 timeout > 0.2s"
     assert time.monotonic() - started < 1.0
 
 
@@ -121,5 +122,6 @@ async def test_the_provider_health_probes_its_broker(
         )
     )
 
-    assert (await down.health()).status == "fail"
+    with pytest.raises(probe.BrokerUnreachableError):
+        await down.health()
     assert (await up.health()).status == "ok"

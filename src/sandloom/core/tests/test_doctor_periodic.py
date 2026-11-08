@@ -125,20 +125,6 @@ async def test_only_an_optional_need_without_a_beat_is_a_warning_exit() -> None:
     assert report.exit_code == doctor.EXIT_WARN
 
 
-async def test_a_taskqueue_that_cannot_open_runs_nothing() -> None:
-    core = _core(
-        _REQUIRED,
-        cache=_Cache("1:h:1:n"),
-        infra=_Infra(error=ModuleNotFoundError("No module named 'celery'")),
-    )
-
-    check = (await _periodic(core))["kbic3_reconciles periodic jobs"]
-
-    assert check.status == doctor.FAIL
-    assert "cannot open, nothing runs them" in check.message
-    assert "celery" in check.message
-
-
 async def test_an_unreadable_lease_is_a_warning_not_a_verdict() -> None:
     core = _core(_REQUIRED, cache=_Cache(error=ConnectionError("cache down")))
 

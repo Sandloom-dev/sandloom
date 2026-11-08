@@ -454,18 +454,15 @@ async def _periodic_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]
     )
     beats: dict[str, dict[str, Any]] = {}
     for instance in sorted({need.instance for need in needs}):
-        try:
-            holder = await asyncio.wait_for(
-                _beat_lease.beat_lease_holder(core_facade, instance=instance),
-                timeout=settings.health_check_timeout_seconds,
-            )
-        except Exception as exc:  # noqa: BLE001 - an unreadable lease is reported
-            beats[instance] = {
-                "beat": "unknown",
-                "error": str(exc) or type(exc).__name__,
-            }
-            continue
-        beats[instance] = {"beat": "scheduling" if holder else "absent"}
+        state, value = await _beat_lease.read_beat_lease(
+            core_facade,
+            instance=instance,
+            limit_seconds=settings.health_check_timeout_seconds,
+        )
+        if state == "unknown":
+            beats[instance] = {"beat": "unknown", "error": value}
+        else:
+            beats[instance] = {"beat": "scheduling" if state == "held" else "absent"}
     return [
         {
             "module": need.module,

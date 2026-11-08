@@ -68,33 +68,44 @@ def _connect_once(app: Any, timeout: float) -> None:
         connection.release()
 
 
-async def probe_broker(app: Any, *, timeout: float | None = None) -> HealthResult:  # noqa: ASYNC109 - the bound is also the worker thread's connect and socket timeout
-    """``ok`` when ``app``'s broker accepts a connection within ``timeout``
-    (default ``HEALTH_CHECK_TIMEOUT_SECONDS``), else ``fail`` naming the
-    broker (scheme, host, port) and the error.
+class BrokerUnreachableError(RuntimeError):
+    """The broker refused or dropped the probe's connection (any transport
+    error); the message names the broker by scheme, host and port."""
+
+
+async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> HealthResult:
+    """``ok`` when ``app``'s broker accepts a connection within
+    ``limit_seconds`` (default ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` when
+    it does not answer in time. A refused or dropped connection raises
+    :class:`BrokerUnreachableError`, which every health reader turns into a
+    failed probe carrying its message (``_capability_health``,
+    ``InfraRegistry.health_all``).
 
     The blocking connect runs in a worker thread, so the event loop never
     waits on the broker; the connect and socket timeouts end that thread
     too, so an unreachable broker never leaves one behind.
     """
-    bound = float(settings.health_check_timeout_seconds if timeout is None else timeout)
+    bound = float(
+        settings.health_check_timeout_seconds
+        if limit_seconds is None
+        else limit_seconds
+    )
     broker = _where(str(getattr(app.conf, "broker_url", None) or ""))
     try:
         await asyncio.wait_for(asyncio.to_thread(_connect_once, app, bound), bound)
     except TimeoutError:
         return HealthResult(
             status="fail",
-            details={"broker": broker, "error": f"broker timeout > {bound:g}s"},
-        )
-    except Exception as exc:  # noqa: BLE001 - any broker failure is a failed probe
-        return HealthResult(
-            status="fail",
             details={
                 "broker": broker,
-                "error": f"broker unreachable: {type(exc).__name__}: {exc}",
+                "error": f"broker {broker} timeout > {bound:g}s",
             },
         )
+    except Exception as exc:
+        raise BrokerUnreachableError(
+            f"broker {broker} unreachable: {type(exc).__name__}: {exc}"
+        ) from exc
     return HealthResult(status="ok", details={"broker": broker})
 
 
-__all__ = ["probe_broker"]
+__all__ = ["BrokerUnreachableError", "probe_broker"]

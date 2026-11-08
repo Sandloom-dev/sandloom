@@ -27,6 +27,7 @@ from sandloom_billing.services import intent_reconciler
 from sandloom_billing.services.intent_reconciler import (
     RECONCILE_INTERVAL_SECONDS,
     RECONCILE_MAX_SILENCE_SECONDS,
+    RECONCILER_HEALTH_CHECK,
     ReconcilerHealthCheck,
     last_reconciler_run,
 )
@@ -162,3 +163,11 @@ async def test_the_health_check_reads_the_recorded_run(
     assert result.status == "ok", result.details
     assert result.details["state"] == "running"
     assert result.details["runs"] == 1
+
+
+def test_billing_registers_the_reconciler_check(sandloom_core: Any) -> None:
+    """Every process that loads billing carries the check in ``/health`` and
+    ``/ready`` (the kernel names no module: billing registers it)."""
+    check = sandloom_core.health_checks.get(RECONCILER_HEALTH_CHECK)
+
+    assert isinstance(check, ReconcilerHealthCheck)
