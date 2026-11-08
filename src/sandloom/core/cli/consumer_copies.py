@@ -18,11 +18,16 @@ The module's ``consumes`` is the single source of the set (ADR-0013 decision
 - **after composition**, from the composed ``consumes``: the expectations
   narrowed to the methods each entry lists. The two sets must be equal, and
   an entry with no method list is refused with a fix naming ``consumes=``.
+  A module-level client the module never names again is refused (a
+  ``consumes`` entry for nothing); the copies of a contract no longer
+  consumed are removed (``--check`` reports them).
 
 Every consumer file carries a provenance header whose digest covers the body
-(decision 7), so a hand edit is found without the provider. With the
-provider not importable (decision 5), a committed copy whose digest verifies
-is kept; an edited or missing one is refused (SANDLOOM-T018). DTO copies are
+(decision 7), and every expectation the digest of its content, so a hand edit
+is found without the provider. With the provider not importable (decision 5),
+a committed copy whose digest verifies is kept; an edited or missing one is
+refused (SANDLOOM-T018). ``sandloom check`` refuses any other file in
+``_generated/`` (SANDLOOM-C032). DTO copies are
 rendered in their final layout by the generator, never by the project's
 formatter (decision 6). Kernel contract families (``<m>.claims.v1``,
 ``<m>.facts.v1``) have kernel-defined shapes and get no copy.
