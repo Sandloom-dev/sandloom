@@ -595,8 +595,30 @@ def test_the_prompt_names_whose_password_it_is(
     assert prompts[0].startswith(
         "Password for owner@example.com (console administrator of "
     )
-    assert "at least" in prompts[0]
+    assert "at least" not in prompts[0]  # the provider's rules, not the kernel's
     assert prompts[1] == "Repeat the password: "
+
+
+def test_only_the_providers_answer_decides_the_password(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-I1 / I-20: no kernel fallback policy. A 10-character password that
+    an 8-character length rule would pass is refused when the provider says
+    so; a 3-character one is accepted when the provider has no objection."""
+    weak = "ten-chars!"
+    security = _Security()
+    argv = ("create", "--email", "owner@example.com", "--password-stdin")
+    code, _, err = run(security, *argv, stdin=weak + "\n")
+    assert code == 2 and "too short" in err and security.calls == []
+
+    class _Lenient(_Security):
+        async def password_problem(self, email: str, password: str) -> str | None:
+            return None
+
+    lenient = _Lenient()
+    code, out, _ = run(lenient, *argv, stdin="abc\n")
+    assert code == 0, out
+    assert lenient.calls[-1][2] == "abc"
 
 
 def test_if_missing_needs_no_mode_for_an_existing_administrator(run: Any) -> None:
