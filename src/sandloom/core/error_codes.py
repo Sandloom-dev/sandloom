@@ -1287,6 +1287,26 @@ contradicts it and refuses the boot (ADR-0012 decision 5).
         "docs/advanced/security-model.md",
     ),
     _entry(
+        "SANDLOOM-B036",
+        "settings-collision",
+        "boot",
+        "one environment name is declared twice: by the kernel and a loaded "
+        "module's settings, or by two loaded modules",
+        "rename the module's setting: a module's environment names start with "
+        "its prefix (INVENTORY_ for inventory); two modules that need one "
+        "value each declare their own name",
+        """
+A module declares its settings with define_module(..., settings=Model): each
+field's alias is the environment name it reads. Every name has one owner, so
+a value never configures two things at once and `sandloom config dump`,
+redaction and the typo check know whose it is. After the modules load, the
+kernel compares the names the kernel Settings and every loaded module declare;
+a name declared twice refuses the boot in every entry point that builds the
+composition (the app, the worker and beat, `sandloom migrate`, the composed
+operator CLIs), naming both owners (ADR-0015 decision 3).
+""",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",

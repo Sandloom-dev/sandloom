@@ -91,6 +91,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
 | [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
 | [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | a token issuer cannot end its sessions on an emergency block: an issues_tokens module registers no durable consumer of core.auth.user_blocked.v1, or declares refresh_sessions=False and still registers a refresh route, a session table or such a consumer | active |
+| [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1324,6 +1325,25 @@ contradicts it and refuses the boot (ADR-0012 decision 5).
 **Fix:** give the issuer a durable consumer of core.auth.user_blocked.v1 that ends the user's refresh sessions; or, if it holds none, declare define_module(..., refresh_sessions=False) and remove what the refusal names
 
 **More:** `docs/advanced/security-model.md`
+
+### SANDLOOM-B036
+
+**one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules**
+
+Slug: `settings-collision` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A module declares its settings with define_module(..., settings=Model): each
+field's alias is the environment name it reads. Every name has one owner, so
+a value never configures two things at once and `sandloom config dump`,
+redaction and the typo check know whose it is. After the modules load, the
+kernel compares the names the kernel Settings and every loaded module declare;
+a name declared twice refuses the boot in every entry point that builds the
+composition (the app, the worker and beat, `sandloom migrate`, the composed
+operator CLIs), naming both owners (ADR-0015 decision 3).
+
+**Fix:** rename the module's setting: a module's environment names start with its prefix (INVENTORY_ for inventory); two modules that need one value each declare their own name
 
 ### SANDLOOM-B020
 

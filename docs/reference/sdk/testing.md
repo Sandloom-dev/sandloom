@@ -59,9 +59,11 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`model_tables`](#model_tables) | function | `{table: owning chain}` for every ORM table of the core and the loaded modules — the owner is the package that DECLARES the model. |
 | [`ModuleBootError`](#modulebooterror) | exception | The module started alone, but logged errors while doing so. |
 | [`ModuleRegistrationDraft`](#moduleregistrationdraft) | class | A buffer of one module's registrations, applied atomically on commit. |
+| [`ModuleSettingsError`](#modulesettingserror) | exception | A module's settings are invalid, or the loaded set is inconsistent. |
 | [`open_saga_harness`](#open_saga_harness) | function | The fixture body: point `default` at the test database, yield a harness. |
 | [`Outcome`](#outcome) | class | A normalized call outcome (comparable across the two paths). |
 | [`override_instance`](#override_instance) | function | Configure `capability`/`name` with `driver` + `options` in the block. |
+| [`override_settings`](#override_settings) | function | Testing: `settings_of(model)` returns a copy with `values` (field names) inside the block; the application's instance is untouched. |
 | [`probe`](#probe) | function | One readiness check: `True` once THIS spawn answers with its nonce. |
 | [`record_revocation_checks`](#record_revocation_checks) | function | Record the `sub` of every access-token revocation check. |
 | [`recording_uow`](#recording_uow) | function | Bind an in-memory UoW that records audits/events (unit tests). |
@@ -100,6 +102,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`UNIQUE`](#unique) | constant |  |
 | [`upgrade_core_chain`](#upgrade_core_chain) | function | Apply the core chain (outbox / audit / inbox / command log) to `url`. |
 | [`use_security_cache`](#use_security_cache) | function | Resolve the kernel's revocation / block state to `provider`. |
+| [`validate_settings`](#validate_settings) | function | Testing: validate `model` exactly as the loader does before `setup`. |
 | [`wait_revocation_listener_subscribed`](#wait_revocation_listener_subscribed) | async function | Return once no per-process copy of a subject's state can be stale. |
 | [`worker_env_values`](#worker_env_values) | function | `dotenv_values(path)` (`None` dropped), the `SANDLOOM_TEST_<VAR>` overrides applied, rewritten for this worker. Missing file -> `{}` base. |
 
@@ -832,6 +835,19 @@ conflict preflight cannot foresee), the kernel is rewound to exactly its
 pre-apply state so a half-registered module leaves no orphan service,
 route or schema behind.
 
+### `ModuleSettingsError`
+
+```python
+class ModuleSettingsError(ConfigurationError)
+```
+
+A module's settings are invalid, or the loaded set is inconsistent.
+
+A `sandloom.core.config.common.ConfigurationError` (a
+`SystemExit`): the loader's per-module handler catches `Exception`
+only, so an optional module refuses the boot like a required one
+(ADR-0015 answer #29), with the kernel's message prefix and exit 1.
+
 ### `open_saga_harness`
 
 ```python
@@ -873,6 +889,19 @@ async with override_instance(core, "cache", driver="redis",
                              url=os.environ["CACHE_URL"]):
     ...
 ```
+
+### `override_settings`
+
+```python
+def override_settings(model: type[M], **values: Any) -> Iterator[M]
+```
+
+Testing: `settings_of(model)` returns a copy with `values` (field
+names) inside the block; the application's instance is untouched.
+
+Starts from the bound application's instance, else from the model's
+defaults. Usable in a fixture (`with override_settings(...): yield`)
+and nestable; process-wide, so threads and tasks see it too.
 
 ### `probe`
 
@@ -1685,6 +1714,27 @@ Resolve the kernel's revocation / block state to `provider`.
 The revocation marks and the emergency block marks are read and written
 through `sandloom.core.infra.access.cache` at call time; for the rest of the
 test every such lookup (any instance name) returns `provider`.
+
+### `validate_settings`
+
+```python
+def validate_settings(
+    model: type[M],
+    env: Mapping[str, str] | None = None,
+    *,
+    environment: str | None = None,
+    accepted_risks: Iterable[str] | None = None,
+    package: str | None = None,
+) -> M
+```
+
+Testing: validate `model` exactly as the loader does before `setup`.
+
+`env` is the whole environment to read (no `.env`, no secrets);
+omitted, the process snapshot is read. `environment` (`"prod"`...) and
+`accepted_risks` (`<module>.<name>` ids) replace the kernel's in the
+validation context. Raises `ModuleSettingsError` with the message
+a boot would print.
 
 ### `wait_revocation_listener_subscribed`
 
