@@ -2780,6 +2780,8 @@
     ".agents/.tm-skills.pi.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
     ".agents/hooks.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
     ".claude/.tm-skills.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    ".claude/agents/sandloom-implementer.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
+    ".claude/agents/sandloom-waiter.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
     ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source."
   },
   "exclude_trees": {

@@ -161,9 +161,12 @@ run). `--mode framework --dry-run` only lists the waves, as before.
 
 ## When to run it
 
-The owner's rule: run the eval on **every change to AGENTS.md (or any nested
-contract, rule or `sandloom-*` skill), the generators / `sandloom new` output, or the
-public API**. To check whether a diff needs a run:
+The owner's rule: run the eval on **every change to what a new project gets**:
+the agent context and skills `sandloom new` ships
+(`src/sandloom/core/cli/templates/`), the generators / `sandloom new` output, or
+the public API. The framework repository's own agent context (root `AGENTS.md`,
+`.claude/` rules, skills and agents) is not shipped and does not need a run. To
+check whether a diff needs a run:
 
 ```bash
 uv run python benchmarks/dx/run_eval.py triggers --base origin/main   # exit 1 = run the eval
