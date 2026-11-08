@@ -1,0 +1,19 @@
+class Limits:
+    """quota.limits.v1, faked: only the method the access check calls."""
+
+    def __init__(self, left: int) -> None:
+        self.left = left
+
+    async def available(self, owner_id: UUID, units: int) -> bool:
+        return units <= self.left
+
+
+async def test_an_export_needs_quota(client: Any) -> None:
+    _, headers = as_user(tenant_id=uuid4())
+    with fake_contract(QUOTA_LIMITS_V1, Limits(left=1)):
+        allowed = await client.post("/api/v1/reports/exports", headers=headers)
+    assert allowed.status_code == 201, allowed.text
+    with fake_contract(QUOTA_LIMITS_V1, Limits(left=0)):
+        refused = await client.post("/api/v1/reports/exports", headers=headers)
+    assert refused.status_code == 402, refused.text
+    assert refused.json()["code"] == "QuotaAvailable"

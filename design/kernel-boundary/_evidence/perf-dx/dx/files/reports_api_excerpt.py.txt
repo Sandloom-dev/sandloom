@@ -1,0 +1,10 @@
+
+
+@router.post(
+    "/exports",
+    status_code=201,
+    dependencies=[Depends(require(QuotaAvailable(units=1)))],
+)
+async def create_export(user: CurrentUser) -> dict[str, str]:
+    """An export, allowed while the caller has quota left."""
+    return {"owner_id": str(user.user_id)}
