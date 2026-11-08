@@ -270,41 +270,6 @@ async def test_idempotency_branches_on_hung_redis(
     assert time.monotonic() - start < _BOUND_SECONDS * 2  # reserve + release
 
 
-@pytest.mark.parametrize("prod", [False, True])
-async def test_lockout_branches_on_hung_redis(
-    hung_redis_url: str, monkeypatch: pytest.MonkeyPatch, prod: bool
-) -> None:
-    from sandloom_identity import lockout
-
-    provider = _provider(hung_redis_url)
-    monkeypatch.setattr(lockout, "cache", lambda name="default": provider)
-    start = time.monotonic()
-    try:
-        with patch.object(type(settings), "is_prod", new=property(lambda _s: prod)):
-            if prod:
-                with pytest.raises(HTTPException) as exc:
-                    await asyncio.wait_for(
-                        lockout.ensure_not_locked("email:x", client_ip="1.2.3.4"),
-                        _HANG_GUARD_SECONDS,
-                    )
-                assert exc.value.status_code == 503
-            else:
-                await asyncio.wait_for(
-                    lockout.ensure_not_locked("email:x", client_ip="1.2.3.4"),
-                    _HANG_GUARD_SECONDS,
-                )
-                assert (
-                    await asyncio.wait_for(
-                        lockout.register_failure("email:x", client_ip="1.2.3.4"),
-                        _HANG_GUARD_SECONDS,
-                    )
-                    is False
-                )
-    finally:
-        await provider.aclose()
-    assert time.monotonic() - start < _BOUND_SECONDS * 2
-
-
 # --------------------------------------------------------------------------- #
 # Fused single-round-trip operations against the real test Redis
 # --------------------------------------------------------------------------- #

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -339,39 +338,6 @@ async def test_module_task_named_infra_does_not_jump_ahead() -> None:
     assert order == ["infra", "module", "post"]
     with pytest.raises(ValueError, match="phase"):
         core.add_startup_task(kernel_task, phase="bogus")
-
-
-@pytest.mark.asyncio
-async def test_claims_provenance_from_registering_module() -> None:
-    core = CoreFacade(app=FastAPI())
-
-    async def billing_claims(user_id: Any) -> dict[str, Any]:
-        return {"subscription_status": "active"}
-
-    async def broken(user_id: Any) -> dict[str, Any]:
-        raise RuntimeError("down")
-
-    async def empty(user_id: Any) -> dict[str, Any]:
-        return {}
-
-    # A downstream app module (not under sandloom.*) gets provenance too.
-    with core.module_registration("myapp.modules.billing") as api:
-        api.add_claims_contributor(billing_claims)
-    with core.module_registration("myapp.modules.reports") as api:
-        api.add_claims_contributor(broken)
-    with core.module_registration("sandloom_identity") as api:
-        api.add_claims_contributor(empty)
-
-    # Contributors run through the contract runtime; a bare facade has no
-    # database, so bind a stand-in session for them (the test seam).
-    from sandloom.core.module_api import bind_contract_session
-
-    with bind_contract_session(SimpleNamespace()):
-        claims = await core.collect_claims("u")
-    assert claims["subscription_status"] == "active"
-    # identity ran (even with no claims) -> authoritative; reports failed.
-    assert claims["claims_sources"] == ["billing", "identity"]
-    assert claims["claims_sources_failed"] == ["reports"]
 
 
 @pytest.mark.asyncio

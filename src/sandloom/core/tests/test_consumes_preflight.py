@@ -120,30 +120,3 @@ def test_missing_optional_consumed_contract_only_warns(
         summary = load_modules_with_summary(_core(), ["cx_shop"])
     assert summary.consumes["cx_shop"][0]["resolution"] == "missing"
     assert any("cx_wallet.balance.v1" in r.getMessage() for r in caplog.records)
-
-
-def test_shipped_modules_declare_what_they_consume(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Billing alone (personal-only) boots; it consumes membership optionally.
-    The default module set resolves it locally. (The sets are derived: a
-    module that gains a required contract needs no edit here.)"""
-    from sandloom.core.descriptors.module_names import installed_modules
-    from sandloom.core.testing.boot import with_required_providers
-
-    DEFAULT_MODULES = [m.path for m in installed_modules()]
-
-    alone = with_required_providers(["sandloom_billing"], DEFAULT_MODULES)
-    with caplog.at_level("WARNING"):
-        summary = load_modules_with_summary(_core(), alone)
-    membership = {
-        "contract": "tenancy.membership.v1",
-        "required": False,
-        "resolution": "local" if "sandloom_tenancy" in alone else "missing",
-    }
-    assert membership in summary.consumes["sandloom_billing"]
-    full = load_modules_with_summary(_core(), list(DEFAULT_MODULES))
-    resolutions = {
-        e["contract"]: e["resolution"] for e in full.consumes["sandloom_billing"]
-    }
-    assert resolutions["tenancy.membership.v1"] == "local"

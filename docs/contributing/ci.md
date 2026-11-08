@@ -32,7 +32,7 @@ commit, and the owner reviews compatibility with the current `main`.
 | Changed area | Checks |
 | --- | --- |
 | Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; change classification |
-| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
+| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
 | Admin or backend source/dependencies | Admin contract drift and the admin workflow |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |
@@ -66,6 +66,24 @@ every lane ([the skip ledger](../reference/testing.md#the-skip-ledger)). Only
 `tools/ci/skip_ledger_allowlist.json` excuses one, with a reason. Full
 validation collects every suite; there an allowlist entry that matches no
 test fails too (`--strict-allowlist`).
+
+`kernel-without-batteries` runs the kernel's unit, SDK and architecture
+suites in a venv with the `sandloom` package alone, plus the replaceability
+fixtures (`tests/integration/replaceability`: identity, tenancy and billing
+replaced by test modules, one process and split). `tools/ci/no_batteries.py`
+hides the bundled modules from every import, the checkout's `src/` included.
+A kernel test that needs a bundled module belongs in
+`tests/integration/with_batteries` or in the module's own tests; until it moves
+it is listed in `tools/ci/no_batteries_pending.json`, which only goes down
+(ADR-0012). Locally:
+
+```bash
+uv venv .venv-kernel
+uv export --frozen --only-group dev --no-hashes --no-emit-project > /tmp/dev-req.txt
+uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" -r /tmp/dev-req.txt
+.venv-kernel/bin/python tools/ci/no_batteries.py install
+.venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+```
 
 Checks run on PRs rather than repeating the same work after a merge to `main`.
 New commits cancel older runs of the same PR. Closing or merging a PR also
