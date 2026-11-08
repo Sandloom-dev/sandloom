@@ -46,7 +46,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-import sandloom.core.cli.password_check as _password_check
 import sandloom.core.cli.ui as _ui
 from sandloom.core.admin import compile_app
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
@@ -243,7 +242,12 @@ def _mode(args: argparse.Namespace) -> str:
 async def _read_password(
     service: Any, email: str, mode: str, ask: Callable[[str], str]
 ) -> str | None:
-    """The password to set, checked against identity's policy (no invite)."""
+    """The password to set, or ``None`` for an invite.
+
+    The provider's ``password_problem`` answer over ``identity.security.v1`` is
+    the only check: the kernel holds no password policy of its own (ADR-0012
+    decision 6), so the prompt states no length either.
+    """
     if mode == "invite":
         return None
     if mode == "stdin":
@@ -252,12 +256,8 @@ async def _read_password(
         if problem:
             raise SystemExit(f"error: {problem}")
         return password
-    minimum = _password_check.rules().min_length
     app = app_name(_checkout_root())
-    prompt = (
-        f"Password for {email} (console administrator of {app}; at least "
-        f"{minimum} characters): "
-    )
+    prompt = f"Password for {email} (console administrator of {app}): "
     for _ in range(PROMPT_ATTEMPTS):
         password = ask(prompt)
         problem = await _call(service, "password_problem", email, password)
