@@ -112,9 +112,8 @@ the concept page with the full detail.
   service, each in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
   — idempotent, monotonic, whether identity is loaded there or not) and
   writes the mark after commit (retried). On a shared event bus a service
-  without `SANDLOOM_SERVICE_NAME` refuses to start (two unnamed services
-  would share one group and each miss the other's revocations; there is no
-  fallback to the database identity). On that **default** path the mark
+  without `SANDLOOM_SERVICE_NAME` refuses to start. Two unnamed services
+  would share one group, and each would miss the other's revocations. On that **default** path the mark
   can trail the commit: while the cache is down tokens are refused (`503`,
   fail-closed) or accepted (fail-open, dev), and once it is back an old token
   is ACCEPTED until the applier runs. Worst case after recovery, with the
@@ -132,13 +131,11 @@ the concept page with the full detail.
   `/ready` answers `503 degraded` (`revocations_pending: true`; per process —
   under gunicorn the worker whose applier is retrying reports it, and the
   `livemax` gauge aggregates the workers); `/health`
-  (liveness) is unaffected. `/ready` also fails, naming the consumer, when
-  the applier is needed and not registered or not running, when the oldest
-  pending `core.auth.tokens_revoked.v1` or `core.auth.user_blocked.v1` event
-  is older than `ACCESS_TOKEN_EXPIRE_MINUTES`, or when one of them is
-  dead-lettered; a younger backlog stays ready, exported as
-  `sandloom_consumer_lag_seconds` and logged at WARNING above half that
-  bound. Only a payload that can NEVER apply (malformed)
+  (liveness) is unaffected. `/ready` also fails when the applier is needed
+  and absent or stopped. It fails when the oldest pending revocation or
+  block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`. It fails when such
+  an event is dead-lettered. A younger backlog stays ready: it is exported as
+  `sandloom_consumer_lag_seconds`, with a WARNING above half that bound. Only a payload that can NEVER apply (malformed)
   is dead-lettered — at once, CRITICAL, `auth_revocation_malformed_total`.
   **`require_immediate=True` closes the window**: the mark is written
   synchronously BEFORE commit, and if that write fails the change is refused
@@ -214,12 +211,12 @@ the concept page with the full detail.
   published through the outbox; identity's durable consumer
   (`identity:sessions@user_blocked`, local or in its own service) revokes
   every refresh token. Lifting the block therefore requires a fresh login.
-  This is every token issuer's obligation (SANDLOOM-B035): a module declared
+  Every token issuer owes this (SANDLOOM-B035). A module declared
   `issues_tokens=True` registers a durable consumer of
-  `core.auth.user_blocked.v1`, or declares
-  `define_module(..., refresh_sessions=False)` when it holds no refresh
-  sessions; startup refuses an issuer with neither, and a declaration
-  contradicted by a refresh route, a session table or such a consumer.
+  `core.auth.user_blocked.v1`. One that holds no refresh sessions declares
+  `define_module(..., refresh_sessions=False)` instead. Startup refuses an
+  issuer with neither. It also refuses a declaration that a refresh route,
+  a session table or such a consumer contradicts.
 - **Cost per request.** One Redis round trip (a `GET` of the subject
   record). Several guards on one request share one check.
 - **Cache outage.** `AUTH_REVOCATION_FAIL_CLOSED` governs the check (unset =

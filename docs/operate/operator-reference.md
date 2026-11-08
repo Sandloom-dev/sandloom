@@ -64,11 +64,11 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `increase(auth_revocation_applier_failures_total[10m]) > 0` sustained, or a
   growing `auth@tokens_revoked` pending count / DLQ entry on
   `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted).
-  `/ready` answers 503 (`revocation_consumers_ready: false`, the reasons
-  under `revocation_consumers`) when the applier is not running, when the
-  oldest pending revocation or block event is older than
-  `ACCESS_TOKEN_EXPIRE_MINUTES`, or when one is dead-lettered;
-  `sandloom_consumer_lag_seconds` exports the lag. Revocations made with `require_immediate=True` (every bundled
+  `/ready` answers 503 when the applier is not running, or when its oldest
+  pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
+  It also answers 503 when such an event is dead-lettered. The reasons are
+  listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
+  exports the lag. Revocations made with `require_immediate=True` (every bundled
   security event) never depend on it: their mark is written before commit,
   or the change is refused with `503` —
   `increase(auth_revocation_immediate_refused_total[5m]) > 0` means changes
