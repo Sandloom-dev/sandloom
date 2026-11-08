@@ -42,6 +42,7 @@ from typing import Any
 
 import sandloom.core.cli.dto_copies as _dto_copies
 import sandloom.core.contract_compat as _contract_compat
+import sandloom.core.contract_wire as _contract_wire
 from sandloom.core.descriptors.module_names import installed_modules, module_name
 from sandloom.core.module_api import contract_schema
 
@@ -143,7 +144,8 @@ def read_header(text: str) -> tuple[dict[str, str], str]:
                 key, _, value = value.partition(" ")
             elif not sep:
                 key, _, value = part.partition(" ")
-            meta[key.strip()] = value.strip()
+            key, value = key.strip(), value.strip()
+            meta[key] = f"{meta[key]}, {value}" if key in meta else value
         index += 1
     return meta, "".join(lines[index:])
 
@@ -178,11 +180,11 @@ def explain_diff(old: str | None, new: str) -> str:
         if not meta_a or not meta_b:
             return ""
         before = (
-            meta_a.get("fingerprint") or meta_a.get("contracts"),
+            meta_a.get("fingerprint"),
             meta_a.get("format"),
         )
         after = (
-            meta_b.get("fingerprint") or meta_b.get("contracts"),
+            meta_b.get("fingerprint"),
             meta_b.get("format"),
         )
     if before[0] and before[0] == after[0] and before[1] != after[1]:
@@ -266,8 +268,8 @@ def _contracts_of(package: str) -> dict[str, type]:
         return {}
     try:
         module = importlib.import_module(target)
-    except Exception:  # noqa: BLE001 - an unimportable provider is "absent"
-        return {}
+    except (ImportError, RuntimeError, ValueError, TypeError, AttributeError):
+        return {}  # an unimportable provider package is "absent" here
     out: dict[str, type] = {}
     for value in vars(module).values():
         name = _spec_name(value)
@@ -372,9 +374,9 @@ class _Planner:
                     and value.args
                 ):
                     self._reference(file, value.args[0], node)
-            for node in ast.walk(file.tree):
-                if isinstance(node, ast.Call) and _called(node) == "define_module":
-                    for keyword in node.keywords:
+            for call in ast.walk(file.tree):
+                if isinstance(call, ast.Call) and _called(call) == "define_module":
+                    for keyword in call.keywords:
                         if keyword.arg == "consumes":
                             self._consumes(file, keyword.value)
         return self.plan
@@ -496,10 +498,27 @@ def stub_file(
     return with_provenance(
         body,
         [
-            f"contract: {contract}  fingerprint: {contract_schema(impl).hash}",
-            f"provider: {provider.label} ({impl.__module__}.{impl.__qualname__})",
+            *_contract_lines(contract, contract_schema(impl).hash),
+            *_provider_lines(provider.label, f"{impl.__module__}.{impl.__qualname__}"),
         ],
     )
+
+
+def _contract_lines(contract: str, fingerprint: str) -> list[str]:
+    """``contract: <name>  fingerprint: <hash>``, two lines past 88 columns."""
+    line = f"contract: {contract}  fingerprint: {fingerprint}"
+    if len(line) + 2 <= _dto_copies.LINE:
+        return [line]
+    return [f"contract: {contract}", f"fingerprint: {fingerprint}"]
+
+
+def _provider_lines(label: str, where: str) -> list[str]:
+    """``provider: <label> (<where>)``; two lines (``provider``, ``class``)
+    when one would pass the 88 columns a generated file keeps to."""
+    line = f"provider: {label} ({where})"
+    if len(line) + 2 <= _dto_copies.LINE:
+        return [line]
+    return [f"provider: {label}", f"class: {where}"]
 
 
 def dto_file(
@@ -508,12 +527,18 @@ def dto_file(
     """The DTO copies module of provider module ``short`` (provenance header,
     final layout: never the project's formatter)."""
     group = sorted(providers, key=lambda p: p.contract)
-    contracts = ", ".join(f"{p.contract} {contract_schema(p.impl).hash}" for p in group)
     label = group[0].label if group else "?"
     package = resolver.provider_package
     return with_provenance(
         _dto_copies.render_module(short, resolver),
-        [f"contracts: {contracts}", f"provider: {label} ({package})"],
+        [
+            *(
+                line
+                for p in group
+                for line in _contract_lines(p.contract, contract_schema(p.impl).hash)
+            ),
+            *_provider_lines(label, package),
+        ],
     )
 
 
@@ -527,33 +552,32 @@ def _narrowed(describe: Mapping[str, Any], methods: Iterable[str]) -> dict[str, 
     return out
 
 
-def _with_extra(node: Any) -> Any:
-    """``node`` (a describe fragment) with each model's ``extra`` recorded
-    when its class closes it (``extra="forbid"``: a field added to it breaks
-    an older copy, ADR-0013 decision 3)."""
-    if isinstance(node, list):
-        return [_with_extra(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-    out = {k: _with_extra(v) for k, v in node.items()}
-    if out.get("k") == "model" and isinstance(out.get("ref"), str):
-        extra = _model_extra(out["ref"])
-        if extra is not None:
-            out["extra"] = extra
+def _classes(impl: Any) -> dict[str, type]:
+    """``{"<module>:<qualname>": class}`` of every model and Enum the
+    provider's signatures name, nested ones included."""
+    out: dict[str, type] = {}
+    for runtime in contract_schema(impl).methods.values():
+        for annotation in (*runtime.annotations.values(), runtime.returns):
+            for cls in _contract_wire.nominal_types(annotation):
+                out.setdefault(_dto_copies.origin_of(cls), cls)
     return out
 
 
-def _model_extra(ref: str) -> str | None:
-    module, _, qualname = ref.partition(":")
-    try:
-        cls: Any = importlib.import_module(module)
-    except ImportError:
-        return None
-    for part in qualname.split("."):
-        cls = getattr(cls, part, None)
-    config = getattr(cls, "model_config", None)
-    extra = config.get("extra") if isinstance(config, Mapping) else None
-    return str(extra) if extra in ("forbid", "allow") else None
+def _with_extra(node: Any, classes: Mapping[str, type]) -> Any:
+    """``node`` (a describe fragment) with each model's ``extra`` recorded
+    when its class closes or opens it (``extra="forbid"``: a field added to
+    it breaks an older copy, ADR-0013 decision 3)."""
+    if isinstance(node, list):
+        return [_with_extra(item, classes) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: _with_extra(v, classes) for k, v in node.items()}
+    if out.get("k") == "model" and isinstance(out.get("ref"), str):
+        config = getattr(classes.get(out["ref"]), "model_config", None)
+        extra = config.get("extra") if isinstance(config, Mapping) else None
+        if extra in ("forbid", "allow"):
+            out["extra"] = str(extra)
+    return out
 
 
 def expectation(provider: Provider, methods: Iterable[str]) -> dict[str, Any]:
@@ -573,7 +597,7 @@ def expectation(provider: Provider, methods: Iterable[str]) -> dict[str, Any]:
         },
         "generator_format": GENERATOR_FORMAT,
         "methods": sorted(set(methods)),
-        "describe": _with_extra(_narrowed(describe, methods)),
+        "describe": _with_extra(_narrowed(describe, methods), _classes(impl)),
     }
 
 
@@ -617,9 +641,9 @@ def module_files(spec: ModuleCopies) -> list[Planned]:
         Planned(spec.directory / GENERATED / "__init__.py", INIT, CODE),
         Planned(out_dir / "__init__.py", INIT, CODE),
     ]
-    for stem, group in stem_collisions(names).items():
+    for stem, same in stem_collisions(names).items():
         out.append(
-            Planned(out_dir / f"{stem}.py", "", CODE, [collision_problem(stem, group)])
+            Planned(out_dir / f"{stem}.py", "", CODE, [collision_problem(stem, same)])
         )
     collided = {n for g in stem_collisions(names).values() for n in g}
     by_short: dict[str, list[Provider]] = {}
