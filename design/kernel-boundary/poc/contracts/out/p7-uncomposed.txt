@@ -1,0 +1,13 @@
+$ env -i venv-p7/bin/python -I p7_uncomposed.py <billing committed stub>   (venv: candidate sandloom + sandloom-tenancy wheels; no app, no composition, empty environment)
+composed app exists: False
+provider found: sandloom-tenancy sandloom_tenancy.contracts.MembershipReadContract
+env reads during the provider import: ['MSGPACK_PUREPYTHON', 'PYDANTIC_DISABLE_PLUGINS']
+files opened outside the interpreter/venv: none
+network connects: none
+  ORM tables (Base.metadata): 8 -> 12
+  dto copies registered: 0 -> 0
+  sandloom_tenancy modules imported: 0 -> 18
+  settings loaded: 0 -> 0
+rendered stub: 2903 bytes; copied DTOs: ['MemberState']
+expectation fingerprint: fbf42e7650aa13c0878c442f6080d419
+equal to the committed stub body: True (committed fingerprint fbf42e7650aa13c0878c442f6080d419)
