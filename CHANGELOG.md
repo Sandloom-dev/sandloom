@@ -332,6 +332,27 @@ website renders this same changelog.
 
 ### Fixed
 
+- **A registered driver whose package is missing no longer passes the
+  preflight; SANDLOOM-B037 names what is missing** (KB-IC-1). The built-in
+  `celery` taskqueue and `redis` cache drivers are registered whether or not
+  Celery or redis-py is installed, and `validate_requirement` read only their
+  metadata, so a module requiring `taskqueue` or `cache` loaded on plain
+  `sandloom` and failed later. A driver registration now lists the packages it
+  needs (`register_driver(..., requires=("celery",), install="pip install
+  'sandloom[celery]'")`; `redis` and `streams` event buses need `redis`), and
+  the preflight checks them with `importlib.util.find_spec`: nothing imported,
+  no connection. A module whose required capabilities cannot be met is refused
+  with one new boot code, SANDLOOM-B037 (`capability-unavailable`), listing
+  every unmet requirement with the module, capability, instance, driver,
+  features, the missing feature or package, and the fix (the install hint, or
+  another driver in `INFRA`). An instance `INFRA` selects on an uninstalled
+  driver refuses startup with the same code, and so does a dependency that
+  fails to import while a driver is built (strict, production startup).
+  A synthesized `default` instance nothing requires is no longer built,
+  opened or probed: an app without task modules starts in production without
+  Celery, `/diagnostics/infra` lists it with `status: "unused"`, and `/health`
+  skips an unused object store. The instances the kernel itself uses
+  (database, the revocation/security cache, the event bus) stay required.
 - **`sandloom-billing` and `sandloom-identity` boot on plain `sandloom`, without
   Celery.** `sandloom.sdk.tasks` imported Celery at import, so a module whose
   `tasks.py` uses the typed `shared_task` failed to load (`ModuleLoadError ...

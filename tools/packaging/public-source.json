@@ -1652,6 +1652,7 @@
         "src/sandloom/core/tests/test_idempotency_record_format.py",
         "src/sandloom/core/tests/test_image_secrets.py",
         "src/sandloom/core/tests/test_infra_config.py",
+        "src/sandloom/core/tests/test_infra_driver_availability.py",
         "src/sandloom/core/tests/test_infra_facade.py",
         "src/sandloom/core/tests/test_infra_hardening.py",
         "src/sandloom/core/tests/test_infra_multi_database.py",

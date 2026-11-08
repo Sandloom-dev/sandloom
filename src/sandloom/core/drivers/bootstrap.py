@@ -62,6 +62,12 @@ from sandloom.core.infra.registry import (
     load_selected_plugins,
 )
 
+#: The import name and the extra of the redis-py client (cache, redis and
+#: streams event buses).
+_REDIS_REQUIRES: tuple[str, ...] = ("redis",)
+_REDIS_INSTALL = "pip install 'sandloom[redis]'"
+_REDIS_EVENTBUS_DRIVERS = frozenset({"redis", "streams"})
+
 
 def register_builtin_drivers(
     registry: InfraRegistry, schema_registry: SchemaRegistryContract
@@ -88,12 +94,17 @@ def register_builtin_drivers(
         instance_features=sqlalchemy_db_features,
         sql_dialects=SQLALCHEMY_SQL_DIALECTS,
     )
+    # Drivers whose client is an extra declare it (requires=, install=): the
+    # preflight then tells a registered driver from a usable one, build-free
+    # (SANDLOOM-B037). The rest use the standard library or base dependencies.
     registry.register_driver(
         "cache",
         "redis",
         create_redis_cache,
         features=REDIS_CACHE_FEATURES,
         config_schema=RedisCacheOptions,
+        requires=_REDIS_REQUIRES,
+        install=_REDIS_INSTALL,
     )
     registry.register_driver(
         "objectstore",
@@ -108,14 +119,20 @@ def register_builtin_drivers(
         create_celery_taskqueue,
         features=CELERY_TASKQUEUE_FEATURES,
         config_schema=CeleryTaskQueueOptions,
+        requires=("celery",),
+        install="pip install 'sandloom[celery]'",
     )
     for driver_name, factory in make_event_bus_drivers(schema_registry).items():
+        # The redis and streams buses are redis-py clients; memory needs none.
+        client = driver_name in _REDIS_EVENTBUS_DRIVERS
         registry.register_driver(
             "eventbus",
             driver_name,
             factory,
             features=EVENTBUS_DRIVER_FEATURES.get(driver_name),
             config_schema=EventBusOptions,
+            requires=_REDIS_REQUIRES if client else (),
+            install=_REDIS_INSTALL if client else "",
         )
     # The only non-relational driver of 1.0: in-memory, a projection target.
     registry.register_driver(
