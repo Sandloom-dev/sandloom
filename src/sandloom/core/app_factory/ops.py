@@ -6,7 +6,7 @@ import importlib.util
 import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict
-from typing import Any, cast
+from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import HTTPException
@@ -18,6 +18,7 @@ import sandloom.core.auth.revocation as _revocation
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.route_policy as _route_policy
 from sandloom.core import planner as _planner
+from sandloom.core.app_factory.lifecycle import _capability_health
 from sandloom.core.config import tiers
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaEntry
@@ -141,18 +142,14 @@ async def _taskqueue_health(core_facade: CoreFacade) -> HealthResult:
     ``celery``: Celery not installed); building sends nothing to the broker.
     Bounded by ``HEALTH_CHECK_TIMEOUT_SECONDS`` like every other probe.
     """
+    timeout = settings.health_check_timeout_seconds
     try:
-        provider = core_facade.capability("taskqueue", _TASKQUEUE_INSTANCE)
-        return cast(
-            HealthResult,
-            await asyncio.wait_for(
-                provider.health(), timeout=settings.health_check_timeout_seconds
-            ),
+        return await asyncio.wait_for(
+            _capability_health(core_facade, "taskqueue", name=_TASKQUEUE_INSTANCE),
+            timeout=timeout,
         )
-    except Exception as exc:  # noqa: BLE001 - any failure to open or probe is a failed probe
-        return HealthResult(
-            status="fail", details={"error": str(exc) or type(exc).__name__}
-        )
+    except TimeoutError:
+        return HealthResult(status="fail", details={"error": f"timeout > {timeout}s"})
 
 
 class _TaskqueueReadiness:
