@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 import sandloom.core.descriptors as _descriptors
 from sandloom.core.descriptors.module_names import module_name as _module_name
@@ -102,6 +103,7 @@ def define_module(
     events: Any = AUTO,
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    settings: type[BaseModel] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from declarations + conventions.
 
@@ -134,6 +136,8 @@ def define_module(
     are imported lazily, inside ``register``, exactly like a hand-written one.
     Modules are REQUIRED by default (a failed load aborts startup, SANDLOOM-B001);
     ``optional=True`` declares one the process may run without.
+    ``settings=`` declares the module's settings model, validated before
+    anything else registers (``ModuleAPI.declare_settings``, ADR-0015).
     An explicit ``def register(core)`` keeps working unchanged.
     """
     pkg = package or _caller_package(1)
@@ -141,6 +145,10 @@ def define_module(
     short = _module_name(descriptor_name)
 
     def register(core: ModuleAPI) -> Any:
+        if settings is not None:
+            # Validated before anything else registers and before setup
+            # (ADR-0015): an invalid value refuses the boot.
+            core.declare_settings(settings, package=pkg)
         if router == AUTO:
             routers = _discover_routers(pkg)
         elif router is None:
@@ -186,5 +194,7 @@ def define_module(
 
     register.__qualname__ = register.__name__ = "register"
     register.__module__ = pkg
+    # Read by static tools (the settings gate): the declaration, no register run.
+    register.__dict__["sandloom_settings"] = settings
     register.__doc__ = f"Register the {short} module (declared via define_module)."
     return register

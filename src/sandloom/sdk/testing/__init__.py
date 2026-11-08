@@ -6,24 +6,26 @@ Public API 1.0 (spec §2.2, Appendix C).
 beginner: as_user, deliver, fake_access_fact, fake_contract, published
 advanced: BootOutcome, Captured, ContractCase, ContractConformanceError,
     FakeClock, Headers, InMemoryCache, MigrationChain, ModuleBootError,
-    ModuleRegistrationDraft, Outcome, RecordingSession, RegistrationSurface,
-    ReservedPort, RoutePolicy, RpcKeys, SagaHarness, SagaRun, SimulatedCrash,
-    SpawnedServer, SpawnedServerError, TestResourceOwnershipError, UNIQUE,
-    apply_worker_env, assert_contract_conformance,
-    assert_migrations_match_models, assert_route_snapshot,
-    bind_contract_session, bind_test_uow, block_mark_key, boot_module_alone,
-    capture_effects, chain_coverage_problems, check_contract_conformance,
-    committing_uow, email_of, flush_owned_redis, get_db, has_optimized_reads,
+    ModuleRegistrationDraft, ModuleSettingsError, Outcome, RecordingSession,
+    RegistrationSurface, ReservedPort, RoutePolicy, RpcKeys, SagaHarness,
+    SagaRun, SimulatedCrash, SpawnedServer, SpawnedServerError,
+    TestResourceOwnershipError, UNIQUE, apply_worker_env,
+    assert_contract_conformance, assert_migrations_match_models,
+    assert_route_snapshot, bind_contract_session, bind_test_uow,
+    block_mark_key, boot_module_alone, capture_effects,
+    chain_coverage_problems, check_contract_conformance, committing_uow,
+    email_of, flush_owned_redis, get_db, has_optimized_reads,
     in_process_rpc_client, keyed_rpc_settings, migrate_module,
     migration_chains, migration_drift, model_tables, open_saga_harness,
-    override_instance, probe, record_revocation_checks, recording_uow,
-    register_event_schemas, registration_surface, reload_test_env,
-    revocation_mark_key, route_policy, rpc_client_for, rpc_env, rpc_keys,
-    rpc_proxy_for, rpc_request_headers, rpc_response_headers, rpc_settings,
-    run_on_commit, run_sql, served_rpc, set_environment,
-    skip_unless_db_feature, spawn_served, stop_revocation_listener,
-    tables_created_by, temporary_database, upgrade_core_chain,
-    use_security_cache, wait_revocation_listener_subscribed, worker_env_values
+    override_instance, override_settings, probe, record_revocation_checks,
+    recording_uow, register_event_schemas, registration_surface,
+    reload_test_env, revocation_mark_key, route_policy, rpc_client_for,
+    rpc_env, rpc_keys, rpc_proxy_for, rpc_request_headers,
+    rpc_response_headers, rpc_settings, run_on_commit, run_sql, served_rpc,
+    set_environment, skip_unless_db_feature, spawn_served,
+    stop_revocation_listener, tables_created_by, temporary_database,
+    upgrade_core_chain, use_security_cache, validate_settings,
+    wait_revocation_listener_subscribed, worker_env_values
 docs: docs/reference/sdk/testing.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -53,6 +55,9 @@ from sandloom.core.di import (
 )
 from sandloom.core.module_api import (
     ModuleRegistrationDraft,
+    ModuleSettingsError,
+    override_settings,
+    validate_settings,
 )
 from sandloom.core.testing import (
     BootOutcome,
@@ -204,6 +209,9 @@ __all__ = [
     "use_security_cache",
     "wait_revocation_listener_subscribed",
     "worker_env_values",
+    "ModuleSettingsError",
+    "override_settings",
+    "validate_settings",
 ]
 #: The beginner tier of this module (spec §2.2).
 __beginner__ = (
