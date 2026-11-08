@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from sandloom.core.app_factory import ConfigurationError, enforce_configuration
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.facade import CoreFacade
 from sandloom.core.loader import plugin_loader
 from sandloom.core.loader.plugin_loader import (
@@ -74,6 +75,9 @@ def _ops_app(
 
     app = FastAPI()
     core = CoreFacade(app=app)
+    # The registry create_app binds: identity registers tasks, so /ready also
+    # opens the default taskqueue (KB-02).
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
 
     async def ok() -> HealthResult:
         return HealthResult(status="ok")

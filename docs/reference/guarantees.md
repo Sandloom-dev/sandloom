@@ -12,7 +12,7 @@ tests, `sandloom check` rules and import contracts that prove it. The ledger
 disappears, an entry deleted without a `removed:` record, or a new ADR section
 without an entry fails the build.
 
-**433 guarantees, 174 capabilities, 38 recorded gaps.**
+**434 guarantees, 174 capabilities, 38 recorded gaps.**
 
 Run exactly the enforcing tests (from the repository root):
 
@@ -602,6 +602,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-OPS-20</span> | The production image (deploy/docker/Dockerfile) builds from the locked uv.lock and runs as a non-root user. | `tests/architecture/test_ledger_static_pins.py::test_backend_image_is_locked_and_non_root` |
 | <span class="sl-id">G-OPS-21</span> | Every module listed explicitly in SANDLOOM_MODULES is required (load failure aborts startup) unless MODULE_REQUIRED names a subset, and every deploy process lists its modules as required. | `sandloom/core/tests/test_split_readiness.py::test_explicitly_listed_modules_are_required_by_default`<br>`sandloom/core/tests/test_split_readiness.py::test_explicit_module_required_wins`<br>`sandloom/core/tests/test_deploy_profiles.py::test_listed_modules_are_required_in_every_process` |
 | <span class="sl-id">G-OPS-22</span> | No secret file the generators write enters an sandloom new application's image. Its .dockerignore excludes env files (all but .env.example) and the key files of sandloom keys generate --out-dir (jwt_private_key, rpc_private_key, rpc_dh_private_key, *.pem) at any depth, so the split's deploy/.env.microservices (every service's private keys) stays out of the build context; its Dockerfile copies only pyproject.toml, uv.lock and the package into the build stage and nothing of the context into the runtime stage; sandloom add deploy patches an existing app's .dockerignore that lacks the exclusions; the app-split job exports the app's own build context with Docker and finds no secret file, and the smoke builds the service image from that context and finds none in it. | `sandloom/core/tests/test_image_secrets.py::test_dockerignore_rules_follow_docker`<br>`sandloom/core/tests/test_image_secrets.py::test_the_generated_context_ships_no_secret_file`<br>`sandloom/core/tests/test_image_secrets.py::test_the_generated_dockerfile_copies_only_what_it_builds`<br>`sandloom/core/tests/test_image_secrets.py::test_sandloom_add_deploy_patches_an_old_dockerignore`<br>`sandloom/core/tests/test_image_secrets.py::test_docker_agrees_the_context_has_no_secret`<br>`sandloom/core/tests/test_scaffold_deploy.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file`<br>`tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices` |
+| <span class="sl-id">G-OPS-23</span> | While a loaded module has a tasks submodule (tasks or periodic tasks), /ready opens the default taskqueue through the cached readiness probes and answers 503 with taskqueue_status fail, naming the capability, when it cannot open; with no such module the taskqueue is never probed and readiness is unchanged, and /health never fails on it. | `sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_a_task_module_cannot_use_it`<br>`sandloom/core/tests/test_ready_taskqueue.py::test_ready_unchanged_and_taskqueue_not_probed_without_task_modules`<br>`sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_an_unusable_taskqueue`<br>`sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes` |
 
 ### G-SAGA
 
@@ -1405,6 +1406,7 @@ uv run pytest -m guarantees src
 | <span class="sl-id">G-OPS-20</span> | docs/operate/topologies.md |
 | <span class="sl-id">G-OPS-21</span> | docs/reference/cli.md<br>deploy/README.md#Required modules |
 | <span class="sl-id">G-OPS-22</span> | docs/operate/split-into-services.md<br>docs/advanced/security-model.md |
+| <span class="sl-id">G-OPS-23</span> | docs/operate/operator-reference.md#Observability<br>design/kernel-boundary/migration-plan.md |
 | <span class="sl-id">G-SAGA-01</span> | docs/adr/0008-sagas.md#1. Definition (registration-time checks) |
 | <span class="sl-id">G-SAGA-02</span> | docs/adr/0008-sagas.md#1. Definition (registration-time checks) |
 | <span class="sl-id">G-SAGA-03</span> | docs/adr/0008-sagas.md#2. State: two core-chain tables in the owning module's database |

@@ -4822,6 +4822,19 @@ guarantees:
   - src/sandloom/core/tests/test_image_secrets.py::test_docker_agrees_the_context_has_no_secret
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
+- id: G-OPS-23
+  statement: While a loaded module has a tasks submodule (tasks or periodic tasks), /ready opens the default
+    taskqueue through the cached readiness probes and answers 503 with taskqueue_status fail, naming the
+    capability, when it cannot open; with no such module the taskqueue is never probed and readiness is
+    unchanged, and /health never fails on it.
+  sources:
+  - docs/operate/operator-reference.md#Observability
+  - design/kernel-boundary/migration-plan.md
+  tests:
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_a_task_module_cannot_use_it
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_unchanged_and_taskqueue_not_probed_without_task_modules
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_an_unusable_taskqueue
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
 
 - id: G-SAGA-01
   statement: register_saga refuses a malformed definition deterministically at registration (duplicate
@@ -7396,7 +7409,7 @@ issued:
   G-MODULE: 19
   G-MSTORE: 10
   G-OPCLASS: 7
-  G-OPS: 22
+  G-OPS: 23
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 24

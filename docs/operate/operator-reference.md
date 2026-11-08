@@ -797,7 +797,8 @@ restore the interpreter's own behaviour exactly.
 - **Errors**: set `SENTRY_DSN` to enable Sentry reporting.
 - **Health**: `/health` (operational health, 503 when degraded),
   `/health/simple` (process liveness), `/ready` (health + required modules +
-  required consumer subscriptions; topology shown only with the internal token),
+  required consumer subscriptions + a taskqueue that opens while a loaded module
+  has a `tasks.py`, `taskqueue_status`; topology shown only with the internal token),
   `/diagnostics/infra` (capabilities, stability, drivers, per-instance health),
   `/diagnostics/consumers` and `/diagnostics/services` (token-gated). Results are cached for
   `HEALTH_CACHE_TTL_SECONDS` (default 3s) so anonymous probes cannot fan out

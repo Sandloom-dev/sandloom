@@ -22,7 +22,9 @@ from sandloom.core.testing.workers import worker_env_values
 def queue(monkeypatch: pytest.MonkeyPatch):
     store = InMemoryCache()
     monkeypatch.setattr(enqueue, "idempotency_cache", lambda: store)
-    app = Celery("dedupe", broker="memory://")
+    # Not the process's current app: closing it deregisters it, and a closed
+    # current app would swallow every later shared_task (NotRegistered).
+    app = Celery("dedupe", broker="memory://", set_as_current=False)
     app.conf.task_default_queue = f"dedupe-{uuid4().hex}"
     provider = CeleryTaskQueueProvider(
         name="probe", driver="celery", options={}, app=app
