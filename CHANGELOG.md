@@ -47,6 +47,39 @@ website renders this same changelog.
   consumer adds one or declares `refresh_sessions=False`. Drop any operator
   pin of the old `identity:sessions@tokens_revoked` group; its pending
   entries are re-applied by the new group from the stream (idempotent).
+  Once every service runs this version, delete that group, which nothing
+  reads any more:
+  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`,
+  then `sandloom streams release-group core.auth.tokens_revoked.v1
+  identity:sessions@tokens_revoked` (operator reference, *The retired
+  identity group*).
+- **`SANDLOOM_SERVICE_NAME` now names a consumer group.** It used to be a
+  label only (consumer ids, the subscription inventory, diagnostics). It now
+  also names the kernel's revocation applier group,
+  `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`. **Upgrade:** two
+  services that shared one label now share one applier group, and each
+  misses part of the other's revocations. Give every service its own name,
+  the same for all its replicas. Within one profile SANDLOOM-T014 refuses a
+  shared name; across profiles nothing detects it at runtime (a recorded
+  gap of G-REVOKE-26).
+- **A shared event bus selected through `INFRA` now needs
+  `SANDLOOM_SERVICE_NAME` too.** The applier decided "shared bus" from
+  `EVENT_BUS_BACKEND` alone. With `INFRA={"eventbus": {"default": {"driver":
+  "streams"}}}` and `EVENT_BUS_BACKEND=auto` outside production, unnamed
+  services shared the group `…@local`, split revocations, and `/ready` stayed
+  green. The decision now follows the resolved driver of the `default`
+  eventbus instance (`INFRA` applied); every driver but `memory` is shared,
+  and an `INFRA` eventbus that cannot be merged counts as shared.
+  **Upgrade:** a process that selects Streams or Pub/Sub through `INFRA`
+  sets `SANDLOOM_SERVICE_NAME`, or it refuses to start.
+- **`/ready` counts revocation dead letters fail-closed.** A failed
+  dead-letter read made `/ready` report zero, and only the oldest 100 DLQ
+  entries of all groups were counted. Now the whole DLQ is counted for this
+  service's groups, paged, up to 10,000 entries. A failed read, or a longer
+  queue, is an unknown count, and an unknown count is not ready. The read
+  runs at most once per `HEALTH_CACHE_TTL_SECONDS` however many probes
+  arrive, and `sandloom_consumer_lag_seconds` returns to 0 once the backlog
+  clears.
 - **Identity's and billing's production refusals stop every process, not only
   the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, identity without
   `JWT_SECRET` (any environment; issuer-only with an asymmetric `JWT_ALGORITHM`),
