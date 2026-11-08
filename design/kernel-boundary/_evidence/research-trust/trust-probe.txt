@@ -1,0 +1,26 @@
+# kb-research-trust probe, arch/kernel-boundary HEAD 38f33cb, repository env (uv run), Darwin arm64, Python 3.12.10
+# $ uv run python design/kernel-boundary/_evidence/research-trust/trust_probe.py
+
+claims contributor 'analytics' wrote the reserved claim 'jti'; refusing to mint the token
+claims contributor 'analytics' wrote the claim 'roles' owned by 'identity'; refusing to mint the token (one owner per claim key)
+== R1 remote owner name comes from the binding key text
+   SERVICE_BINDINGS keys: identity.claims.v1 -> service_id p2; inventory.claims.v1 -> p2 (critical false)
+   remote_claims_contributors(): {'identity': True, 'inventory': False}
+   (p2 is whatever service the operator pinned; the provenance name is 'identity' for anything it answers)
+== R2 a module registers a contract named after another module's claims contract
+   register_service('identity.claims.v1') from shop.modules.forged: accepted; local owner of the contract: shop.modules.forged
+== R3 owner= on the facade is stamped as given
+   contributor registered by shop.modules.inventory with owner='identity' -> ['identity']
+== R4 one non-critical contributor writing a foreign or reserved key blocks every mint
+   analytics (non-critical) writes reserved key 'jti': 503 "Token claims from 'analytics' are unavailable; try again later"
+   analytics (non-critical) writes identity's key 'roles': 503 "Token claims from 'analytics' are unavailable; try again later"
+   analytics (non-critical) writes its own key only: minted, sources=['analytics', 'identity']
+== R5 legacy tokens (no claims_sources_failed) and tokens from code that skips collect_claims
+   legacy: roles admin, claims_sources ['identity'], no failed key: provenance_authoritative=False | platform gate allowed | Role('admin') allow | Perm('perm.x') deny
+   no provenance at all: roles admin: provenance_authoritative=False | platform gate 403 | Role('admin') allow | Perm('perm.x') allow
+   minted by any code holding the key: roles admin, claims_sources ['identity'], failed []: provenance_authoritative=True | platform gate allowed | Role('admin') allow | Perm('perm.x') deny
+== R6 hot-path cost of a provenance check in Role (pure Python, no I/O)
+   today: role in roles: 35.6 ns per check
+   + authority in sources and not in failed: 66.5 ns per check
+   trusted set computed once per token: 30.9 ns per check
+   for scale, await Role('admin').decide(ctx): 966 ns
