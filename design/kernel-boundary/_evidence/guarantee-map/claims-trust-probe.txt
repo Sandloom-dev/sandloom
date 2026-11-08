@@ -1,0 +1,320 @@
+# Claims / authorization / tenant trust probe (kb-guarantee-map)
+# Kernel A: the lean venv (sandloom wheel built at b8d8506 == src/sandloom at HEAD f5fa478; no module installed)
+#   $ $S/kb-close/venv-lean/bin/python -I claims_trust_probe.py
+# Kernel B: the same wheel with core/facade/_claims.py replaced by PR #70's (4bc45ba), nothing else
+#   $ PYTHONPATH=$S/kb-gmap/overlay-pr70 $S/kb-close/venv-lean/bin/python claims_trust_probe.py
+# $S = the session scratchpad. No database, no login flow: the merge, mint and gates are the real code.
+
+----- claims_trust_probe.py -----
+"""Claims / authorization / tenant trust probe (kb-guarantee-map).
+
+Runs against whichever kernel is first on sys.path: the lean wheel (HEAD
+kernel, no module installed) or the PR #70 overlay (same kernel, PR #70's
+core/facade/_claims.py). Real code paths: CoreFacade.add_claims_contributor
+(owner stamping), CoreFacade._merge_claim_outcomes (the merge), the identity
+mint composition (token_service.py:144-153 copied), create_access_token,
+decode_token, UserContext, require_platform_admin, the Role/Perm/Subscribed/
+Feature atoms, TenantScope's _resolve_tenant. No database, no login flow.
+"""
+import asyncio
+import os
+import uuid
+from types import SimpleNamespace
+
+os.environ.update({
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "CACHE_URL": "redis://localhost:6379/9", "BROKER_URL": "redis://localhost:6379/9",
+    "JWT_SECRET": "gmap-probe-not-a-real-secret-0123456789abcdef",
+    "EVENT_BUS_BACKEND": "memory", "SANDLOOM_MODULES": "[]",
+})
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from starlette.requests import Request  # noqa: E402
+
+import sandloom  # noqa: E402
+from sandloom.core.auth.tokens import create_access_token, decode_token  # noqa: E402
+from sandloom.core.facade import CoreFacade  # noqa: E402
+from sandloom.core.facade._claims import ClaimsUnavailable  # noqa: E402
+from sandloom.core.http.tenant_scope import _resolve_tenant  # noqa: E402
+from sandloom.shared.authz import Account, Feature, Perm, Role, Subscribed  # noqa: E402
+from sandloom.shared.authz.context import AuthzContext  # noqa: E402
+from sandloom.shared.authz.facts import AccessFact, ClaimRule  # noqa: E402
+from sandloom.shared.guards.platform import require_platform_admin  # noqa: E402
+from sandloom.shared.subject import UserContext  # noqa: E402
+
+import sandloom.core.facade._claims as _c  # noqa: E402
+
+print("kernel:", os.path.dirname(sandloom.__file__))
+print("RESERVED_CLAIM_KEYS present (PR #70):", hasattr(_c, "RESERVED_CLAIM_KEYS"))
+facade = CoreFacade(app=FastAPI())
+UID = uuid.uuid4()
+T_FOREIGN = uuid.uuid4()   # a tenant the user is no member of
+T_OWN = uuid.uuid4()       # the tenant tenancy grants
+
+
+def mint(plan, outcomes):
+    """Merge, then identity's mint composition (token_service.py:144-153)."""
+    try:
+        merged = facade._merge_claim_outcomes(plan, outcomes)
+    except ClaimsUnavailable as exc:
+        return None, f"ClaimsUnavailable {exc.status_code}: {exc.detail}"
+    claims = {**merged, "sub": str(UID), "email": "u@example.test",
+              "email_verified": True, "token_type": "access"}
+    token = create_access_token(data=claims)
+    return token, decode_token(token)
+
+
+async def gate(subject):
+    try:
+        await require_platform_admin(subject)
+        return "allowed"
+    except HTTPException as exc:
+        return f"{exc.status_code}"
+
+
+class NoFactsCore:  # a deployment with no subscription.active owner
+    def get_access_fact(self, name):
+        return None
+
+    def remote_fact_owners(self):
+        return []
+
+
+BILLING_FACT = AccessFact(
+    name="subscription.active", owner_module="billing",
+    claim_key="subscription_status",
+    claim_rule=ClaimRule.one_of(("active", "trialing")) if hasattr(ClaimRule, "one_of") else None,
+)
+
+
+class BillingFactCore(NoFactsCore):  # billing's fact registered locally
+    def get_access_fact(self, name):
+        return BILLING_FACT if name == "subscription.active" else None
+
+
+async def decide(req, subject, core):
+    d = await req.decide(AuthzContext(subject=subject, core=core))
+    return "allow" if d.allowed else f"deny({getattr(d, 'http_status', '?')} {getattr(d, 'code', '')})"
+
+
+def tenant(claims, header=None):
+    headers = [(b"x-tenant-id", str(header).encode())] if header else []
+    scope = {"type": "http", "headers": headers, "app": SimpleNamespace(state=SimpleNamespace(core=None))}
+    try:
+        return str(_resolve_tenant(Request(scope), "X-Tenant-Id", ("tenant_id", "org_id"), claims, None))
+    except HTTPException as exc:
+        return f"{exc.status_code} {exc.detail}"
+
+
+async def report(label, token_or_none, claims):
+    print(f"\n== {label}")
+    if token_or_none is None:
+        print("   mint:", claims)
+        return
+    subj = UserContext(**claims)
+    print("   token roles:", claims.get("roles"), "| claims_sources:", claims.get("claims_sources"),
+          "| tenant_id:", "T_FOREIGN" if claims.get("tenant_id") == str(T_FOREIGN) else claims.get("tenant_id"),
+          "| subscription_status:", claims.get("subscription_status"))
+    print("   require_platform_admin:", await gate(subj))
+    print("   Role('admin'):", await decide(Role("admin"), subj, NoFactsCore()),
+          "| Perm('perm.users.write'):", await decide(Perm("perm.users.write"), subj, NoFactsCore()))
+    print("   Subscribed(of=user), no subscription owner deployed:",
+          await decide(Subscribed(of=Account.user()), subj, NoFactsCore()))
+    print("   Subscribed(of=user), billing's fact registered:",
+          await decide(Subscribed(of=Account.user()), subj, BillingFactCore()))
+    print("   Feature('beta', of=user):", await decide(Feature("beta", of=Account.user()), subj, NoFactsCore()))
+    print("   TenantScope, no header:", tenant(claims).replace(str(T_FOREIGN), "T_FOREIGN").replace(str(T_OWN), "T_OWN"),
+          "| header T_FOREIGN:", tenant(claims, T_FOREIGN).replace(str(T_FOREIGN), "T_FOREIGN"))
+
+
+FORGED = {"roles": ["admin"], "permissions": ["perm.users.write"],
+          "subscription_status": "active", "features": {"beta": True},
+          "tenant_id": str(T_FOREIGN)}
+
+
+async def main():
+    # S0: who is stamped as owner (facade API; ModuleAPI has no owner=).
+    async def noop(user_id):
+        return {}
+    facade._registering_module = "shop.modules.inventory"
+    facade.add_claims_contributor(noop, owner="identity")
+    facade._registering_module = "shop.modules.identity"
+    facade.add_claims_contributor(noop)
+    facade._registering_module = None
+    print("S0 owners stamped [inventory with owner='identity', app-local shop.modules.identity]:",
+          [o for _f, _cr, o in facade._claims_contributors])
+
+    # S1: no identity, no billing, no tenancy: one third-party contributor.
+    tok, cl = mint([("inventory", False, None, None)], {0: (True, dict(FORGED))})
+    await report("S1 identity/billing/tenancy absent; 'inventory' writes roles, permissions, "
+                 "subscription_status, features, tenant_id", tok, cl)
+
+    # S2: identity present and first (writes roles []), inventory writes roles=[admin].
+    tok, cl = mint([("identity", True, None, None), ("inventory", False, None, None)],
+                   {0: (True, {"roles": [], "permissions": []}),
+                    1: (True, {"roles": ["admin"]})})
+    await report("S2 identity writes roles=[], later 'inventory' writes roles=['admin']", tok, cl)
+
+    # S3: identity + tenancy present; inventory writes only the unowned tenant_id key.
+    tok, cl = mint([("identity", True, None, None), ("tenancy", True, None, None),
+                    ("inventory", False, None, None)],
+                   {0: (True, {"roles": [], "permissions": []}),
+                    1: (True, {"tenant_ids": [str(T_OWN)]}),
+                    2: (True, {"tenant_id": str(T_FOREIGN)})})
+    await report("S3 identity + tenancy (tenant_ids=[T_OWN]); 'inventory' writes tenant_id=T_FOREIGN",
+                 tok, cl)
+
+    # S4: a module that is stamped 'identity' by name (owner= or app-local name), identity absent.
+    tok, cl = mint([("identity", False, None, None)], {0: (True, {"roles": ["admin"]})})
+    await report("S4 owner stamped 'identity' (owner='identity' or app-local module named identity) "
+                 "writes roles=['admin']", tok, cl)
+
+    # S5: bypass the claims protocol: any in-process code mints directly.
+    raw = create_access_token(data={"sub": str(UID), "token_type": "access", "roles": ["admin"],
+                                    "claims_sources": ["identity"], "claims_sources_failed": []})
+    await report("S5 create_access_token called directly (no collect_claims, no issuer declared)",
+                 raw, decode_token(raw))
+
+    # S6: billing present but FAILED at mint; subscription_status from another writer.
+    tok, cl = mint([("billing", False, None, None), ("inventory", False, None, None)],
+                   {0: (False, RuntimeError("billing down")), 1: (True, {"subscription_status": "active"})})
+    await report("S6 billing failed at mint; 'inventory' writes subscription_status=active", tok, cl)
+
+
+    # S7: a contributor writes a UserContext structural key (user_id) next to identity's sub.
+    victim = uuid.uuid4()
+    tok, cl = mint([("identity", True, None, None), ("inventory", False, None, None)],
+                   {0: (True, {"roles": [], "permissions": []}), 1: (True, {"user_id": str(victim)})})
+    print("\n== S7 'inventory' writes user_id=<victim> (identity stamps sub=<user>)")
+    if tok is None:
+        print("   mint:", cl)
+    else:
+        subj = UserContext(**cl)
+        print("   token sub is the user:", cl["sub"] == str(UID),
+              "| UserContext.user_id is the victim:", subj.user_id == victim)
+
+
+asyncio.run(main())
+
+----- output, kernel A (HEAD) -----
+claims contributor 'billing' failed; skipping
+RuntimeError: billing down
+kernel: $S/kb-close/venv-lean/lib/python3.13/site-packages/sandloom
+RESERVED_CLAIM_KEYS present (PR #70): False
+S0 owners stamped [inventory with owner='identity', app-local shop.modules.identity]: ['identity', 'identity']
+
+== S1 identity/billing/tenancy absent; 'inventory' writes roles, permissions, subscription_status, features, tenant_id
+   token roles: ['admin'] | claims_sources: ['inventory'] | tenant_id: T_FOREIGN | subscription_status: active
+   require_platform_admin: 403
+   Role('admin'): allow | Perm('perm.users.write'): allow
+   Subscribed(of=user), no subscription owner deployed: allow
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): allow
+   TenantScope, no header: T_FOREIGN | header T_FOREIGN: T_FOREIGN
+
+== S2 identity writes roles=[], later 'inventory' writes roles=['admin']
+   token roles: ['admin'] | claims_sources: ['identity', 'inventory'] | tenant_id: None | subscription_status: None
+   require_platform_admin: allowed
+   Role('admin'): allow | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S3 identity + tenancy (tenant_ids=[T_OWN]); 'inventory' writes tenant_id=T_FOREIGN
+   token roles: [] | claims_sources: ['identity', 'inventory', 'tenancy'] | tenant_id: T_FOREIGN | subscription_status: None
+   require_platform_admin: 403
+   Role('admin'): deny(403 Role) | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: T_FOREIGN | header T_FOREIGN: T_FOREIGN
+
+== S4 owner stamped 'identity' (owner='identity' or app-local module named identity) writes roles=['admin']
+   token roles: ['admin'] | claims_sources: ['identity'] | tenant_id: None | subscription_status: None
+   require_platform_admin: allowed
+   Role('admin'): allow | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S5 create_access_token called directly (no collect_claims, no issuer declared)
+   token roles: ['admin'] | claims_sources: ['identity'] | tenant_id: None | subscription_status: None
+   require_platform_admin: allowed
+   Role('admin'): allow | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S6 billing failed at mint; 'inventory' writes subscription_status=active
+   token roles: None | claims_sources: ['inventory'] | tenant_id: None | subscription_status: active
+   require_platform_admin: 403
+   Role('admin'): deny(403 Role) | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: allow
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S7 'inventory' writes user_id=<victim> (identity stamps sub=<user>)
+   token sub is the user: True | UserContext.user_id is the victim: True
+
+----- output, kernel B (HEAD + PR #70 _claims.py) -----
+claims contributor 'inventory' wrote the claim 'roles' owned by 'identity'; refusing to mint the token (one owner per claim key)
+claims contributor 'billing' failed; skipping
+RuntimeError: billing down
+claims contributor 'inventory' wrote the reserved claim 'user_id'; refusing to mint the token
+kernel: $S/kb-gmap/overlay-pr70/sandloom
+RESERVED_CLAIM_KEYS present (PR #70): True
+S0 owners stamped [inventory with owner='identity', app-local shop.modules.identity]: ['identity', 'identity']
+
+== S1 identity/billing/tenancy absent; 'inventory' writes roles, permissions, subscription_status, features, tenant_id
+   token roles: ['admin'] | claims_sources: ['inventory'] | tenant_id: T_FOREIGN | subscription_status: active
+   require_platform_admin: 403
+   Role('admin'): allow | Perm('perm.users.write'): allow
+   Subscribed(of=user), no subscription owner deployed: allow
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): allow
+   TenantScope, no header: T_FOREIGN | header T_FOREIGN: T_FOREIGN
+
+== S2 identity writes roles=[], later 'inventory' writes roles=['admin']
+   mint: ClaimsUnavailable 503: Token claims from 'inventory' are unavailable; try again later
+
+== S3 identity + tenancy (tenant_ids=[T_OWN]); 'inventory' writes tenant_id=T_FOREIGN
+   token roles: [] | claims_sources: ['identity', 'inventory', 'tenancy'] | tenant_id: T_FOREIGN | subscription_status: None
+   require_platform_admin: 403
+   Role('admin'): deny(403 Role) | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: T_FOREIGN | header T_FOREIGN: T_FOREIGN
+
+== S4 owner stamped 'identity' (owner='identity' or app-local module named identity) writes roles=['admin']
+   token roles: ['admin'] | claims_sources: ['identity'] | tenant_id: None | subscription_status: None
+   require_platform_admin: allowed
+   Role('admin'): allow | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S5 create_access_token called directly (no collect_claims, no issuer declared)
+   token roles: ['admin'] | claims_sources: ['identity'] | tenant_id: None | subscription_status: None
+   require_platform_admin: allowed
+   Role('admin'): allow | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: deny(402 Subscribed)
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S6 billing failed at mint; 'inventory' writes subscription_status=active
+   token roles: None | claims_sources: ['inventory'] | tenant_id: None | subscription_status: active
+   require_platform_admin: 403
+   Role('admin'): deny(403 Role) | Perm('perm.users.write'): deny(403 Perm)
+   Subscribed(of=user), no subscription owner deployed: allow
+   Subscribed(of=user), billing's fact registered: deny(503 subscription_unverifiable)
+   Feature('beta', of=user): deny(403 Feature)
+   TenantScope, no header: None | header T_FOREIGN: 403 tenant is not authorized by the access token
+
+== S7 'inventory' writes user_id=<victim> (identity stamps sub=<user>)
+   mint: ClaimsUnavailable 503: Token claims from 'inventory' are unavailable; try again later

@@ -1,0 +1,79 @@
+# Settings probe (kb-guarantee-map), sandloom wheel + redis only. Script, then output (two prod warnings dropped).
+
+----- settings_probe.py -----
+"""Settings probe (kb-guarantee-map), sandloom wheel only: can a third-party
+module use the kernel's accepted-risk, tier and settings protocol?"""
+import os
+
+base = {"DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:9/db", "CACHE_URL": "redis://127.0.0.1:9/9",
+        "BROKER_URL": "redis://127.0.0.1:9/9", "JWT_SECRET": "gmap-probe-not-a-real-secret-0123456789abcdef"}
+os.environ.update(base)
+from sandloom.core.config import accepted_risks, tiers  # noqa: E402
+from sandloom.core.config.settings import Settings  # noqa: E402
+
+print("1. registered risk ids:", sorted(r.id if hasattr(r, "id") else r for r in accepted_risks.RISKS))
+os.environ["SANDLOOM_ACCEPTED_RISKS"] = '["inventory_unsigned_webhooks_in_prod"]'
+try:
+    Settings()
+    print("2. unknown (third-party) risk id: accepted")
+except Exception as exc:  # noqa: BLE001
+    print("2. unknown (third-party) risk id ->", type(exc).__name__, str(exc).splitlines()[1:3])
+del os.environ["SANDLOOM_ACCEPTED_RISKS"]
+os.environ["INVENTORY_API_KEY"] = "sk-third-party-secret"
+s = Settings()
+print("3. INVENTORY_API_KEY in env -> Settings field:", "inventory_api_key" in type(s).model_fields,
+      "| hasattr:", hasattr(s, "inventory_api_key"))
+names = {f.upper() for f in type(s).model_fields}
+module_fields = [n for n in ("BILLING_PROVIDER", "STRIPE_SECRET_KEY", "TWOFA_ENCRYPTION_KEY", "ADMIN_CONSOLE_ENABLED",
+                             "TENANT_CLAIMS_MAX_ORGANIZATIONS") if n in names]
+print("4. bundled-module settings present in a kernel-only install:", module_fields)
+os.environ.update({"ENVIRONMENT": "prod", "JWT_SECRET": "c1b4f0e97a2d4e6b8f3a5c7d9e1f2a3b4c5d6e7f8a9b0c1d"})
+try:
+    p = Settings()
+    print("5. prod, no billing loaded, BILLING_PROVIDER unset (default):", p.billing_provider, "-> starts")
+except Exception as exc:  # noqa: BLE001
+    print("5. prod settings ->", type(exc).__name__, str(exc)[:200])
+
+----- output -----
+1. registered risk ids: ['command_dedupe_below_retry_horizon', 'development_database_in_prod', 'experimental_capability', 'fake_psp_in_prod', 'local_storage_in_prod', 'log_links_in_prod', 'log_notifier_in_prod', 'relay_disabled', 'saga_horizon_beyond_command_dedupe', 'shared_hs_secret_split', 'unversioned_ddl_repair', 'volatile_event_bus', 'weak_password_hash']
+2. unknown (third-party) risk id -> ValidationError ["  Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id(s) ['inventory_unsigned_webhooks_in_prod']; known: ['command_dedupe_below_retry_horizon', 'development_database_in_prod', 'experimental_capability', 'fake_psp_in_prod', 'local_storage_in_prod', 'log_links_in_prod', 'log_notifier_in_prod', 'relay_disabled', 'saga_horizon_beyond_command
+3. INVENTORY_API_KEY in env -> Settings field: False | hasattr: False
+4. bundled-module settings present in a kernel-only install: ['BILLING_PROVIDER', 'STRIPE_SECRET_KEY', 'TWOFA_ENCRYPTION_KEY', 'ADMIN_CONSOLE_ENABLED', 'TENANT_CLAIMS_MAX_ORGANIZATIONS']
+5. prod, no billing loaded, BILLING_PROVIDER unset (default): fake -> starts
+
+
+# Tasks probe, same venv, throwaway containers. Script, then output (tracebacks trimmed).
+
+----- taskqueue_probe.py -----
+"""Tasks probe (kb-guarantee-map): sandloom wheel + redis, no celery, no module."""
+import os
+os.environ.update({"DATABASE_URL": os.environ["SANDLOOM_GMAP_PG"], "CACHE_URL": os.environ["SANDLOOM_GMAP_REDIS"] + "/5",
+                   "BROKER_URL": os.environ["SANDLOOM_GMAP_REDIS"] + "/6", "EVENT_BUS_BACKEND": "memory",
+                   "JWT_SECRET": "gmap-probe-not-a-real-secret-0123456789abcdef", "SANDLOOM_MODULES": "[]",
+                   "OUTBOX_RELAY_ENABLED": "off"})
+from fastapi.testclient import TestClient  # noqa: E402
+from sandloom.core.app_factory import create_app  # noqa: E402
+from sandloom.core.infra.access import taskqueue  # noqa: E402
+
+app = create_app()
+with TestClient(app) as client:
+    r = client.get("/ready")
+    print("/ready ->", r.status_code, r.json().get("status"))
+    try:
+        tq = taskqueue()
+        print("taskqueue() ->", type(tq).__name__)
+    except Exception as exc:  # noqa: BLE001
+        print("taskqueue() raised", type(exc).__name__, str(exc)[:160])
+try:
+    import sandloom.sdk.tasks  # noqa: F401
+    print("import sandloom.sdk.tasks -> ok")
+except Exception as exc:  # noqa: BLE001
+    print("import sandloom.sdk.tasks raised", type(exc).__name__, exc)
+
+----- output -----
+2026-11-08 09:56:52,797 [WARNING] sandloom.app: ENVIRONMENT is not set; defaulting to 'dev' (docs exposed, rate limiting off, volatile event bus allowed). Set ENVIRONMENT=prod explicitly for any real deployment.
+2026-11-08 09:56:52,976 [WARNING] sandloom.core.infra: [infra] error opening taskqueue/default
+ModuleNotFoundError: No module named 'celery'
+/ready -> 200 ok
+taskqueue() raised ModuleNotFoundError No module named 'celery'
+import sandloom.sdk.tasks raised ModuleNotFoundError No module named 'celery'
