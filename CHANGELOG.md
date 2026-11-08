@@ -145,7 +145,18 @@ website renders this same changelog.
   `apply_async` / `s` / `si`, and `cron(...)`, raise `TaskQueueNotInstalled`
   naming the extra. The package check boots each module wheel on plain
   `sandloom` and probes `/health` and `/ready` (KB-01).
-
+- **`/ready` is no longer 200 when a module's tasks cannot be enqueued.** A
+  loaded module with a `tasks.py` (tasks or periodic tasks) on a process whose
+  default taskqueue cannot open (for the `celery` driver: Celery not
+  installed) used to look ready. `/ready` now opens the taskqueue while such a
+  module is loaded and answers 503 with `taskqueue_status: fail`; the internal
+  token also shows a `taskqueue` block naming the capability, the instance and
+  the modules with tasks. The probe shares the health cache
+  (`HEALTH_CACHE_TTL_SECONDS`). With no such module the taskqueue is not
+  probed (`taskqueue_status: unused`), and `/health` is unchanged.
+  **Upgrade:** a deployment that loads billing or identity without the
+  `celery` extra now reports not ready: install the extra, or leave the
+  module out of `SANDLOOM_MODULES`.
 - **`sandloom-identity` declares `argon2-cffi`, which its login service
   imports.** It installed only because the `sandloom` kernel requires it for
   its own password hashing. The packaging import check now refuses a module
