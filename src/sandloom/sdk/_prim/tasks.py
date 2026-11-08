@@ -200,4 +200,4 @@ def cron(expression: str) -> Any:
     )
 
 
-__all__ = ["Task", "TaskQueueNotInstalled", "cron", "shared_task"]
+__all__ = ["Task", "cron", "shared_task"]
