@@ -3601,6 +3601,7 @@ name = "sandloom-identity"
 version = "0.7.0a11"
 source = { editable = "packages/sandloom-identity" }
 dependencies = [
+    { name = "argon2-cffi" },
     { name = "authlib" },
     { name = "email-validator" },
     { name = "itsdangerous" },
@@ -3612,6 +3613,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argon2-cffi", specifier = ">=25.1.0,<26" },
     { name = "authlib", specifier = ">=1.9.1,<2" },
     { name = "email-validator", specifier = ">=2.3.0,<3" },
     { name = "itsdangerous", specifier = ">=2.2.0,<3" },

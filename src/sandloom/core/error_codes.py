@@ -1205,6 +1205,33 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
         docs="docs/infrastructure/database.md",
     ),
     _entry(
+        "SANDLOOM-B034",
+        "foreign-owner-registration",
+        "boot",
+        "a module registers an access fact, a claims contributor or a "
+        "<m>.claims.v1 / <m>.facts.v1 contract under another module's name, "
+        "or one of them is registered outside a module's registration",
+        "register the fact, contributor or contract from the module whose "
+        "short name it carries (its register() or setup=); give an access "
+        "fact the registering module as owner_module and drop owner= that "
+        "names another module",
+        """
+The kernel stamps a fact's owner_module and a claims contributor's owner
+into provenance (claims_sources), resolves claim-mode facts by them, and
+serves <owner>.facts.v1 and <owner>.claims.v1 under them. A module that could
+register under another module's name would answer that module's facts and
+write claims in its name. So the owner of each of these registrations must
+be the short name of the module being registered (the entry-point name,
+else the last segment of its import path): a different name, and a
+registration made when no module is registering (a direct call on the core
+from a startup task or the composition root), refuse the module's load and
+the boot. Over RPC a consumer reads facts from the <m>.facts.v1 binding and
+drops, with a logged SANDLOOM-B034 warning, any fact described under
+another owner_module.
+""",
+        "docs/advanced/security-model.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -1722,6 +1749,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "ReadOnlySessionsUnavailable": "SANDLOOM-B031",
     "SqliteUnavailable": "SANDLOOM-B032",
     "DatabaseFeatureMissing": "SANDLOOM-B033",
+    "ForeignOwnerRegistration": "SANDLOOM-B034",
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",

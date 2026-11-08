@@ -40,14 +40,77 @@ SENSITIVE_KEYS = {
 }
 
 
+#: Name segments that mark a credential setting (``JWT_SECRET``,
+#: ``SMTP_PASSWORD``, ``INTERNAL_API_TOKEN``, ``JWT_PRIVATE_KEY``,
+#: ``SENTRY_DSN``, ...). Shared by ``sandloom config dump`` and the log
+#: redactor so the two agree on what a secret setting is.
+_SECRET_SEGMENTS = frozenset(
+    {
+        "SECRET",
+        "SECRETS",
+        "PASSWORD",
+        "PASSWD",
+        "TOKEN",
+        "DSN",
+        "PRIVATE",
+        "CREDENTIALS",
+    }
+)
+#: Segments that make a matching name NOT a credential (public keys, hashing
+#: parameters, key ids).
+_PUBLIC_SEGMENTS = frozenset({"PUBLIC", "HASH", "KID"})
+#: Public verification keys keyed by service (``RPC_SERVICE_KEYS``, ...).
+_PUBLIC_NAMES = frozenset({"RPC_SERVICE_KEYS", "RPC_SERVICE_DH_KEYS"})
+#: Qualifiers that make a trailing ``KEY`` a lookup key, not a credential
+#: (``operation_key``, ``idempotency_key``, ``dedupe_key`` in audit data and
+#: log extras).
+_LOOKUP_KEY_QUALIFIERS = frozenset(
+    {"OPERATION", "IDEMPOTENCY", "DEDUPE", "CLAIM", "MARK", "CACHE"}
+)
+
+
+def is_secret_name(name: str) -> bool:
+    """Whether a setting (or JSON option) called ``name`` holds a credential.
+
+    Judged by ``_``/``-``-separated name segments: a credential segment
+    (``SECRET``, ``TOKEN``, ``DSN``, ...) or a trailing ``KEY``/``KEYS``
+    (``TWOFA_ENCRYPTION_KEY``) marks a secret, unless a public segment
+    (``PUBLIC``, ``HASH``, ``KID``), a known public name or a lookup-key
+    qualifier (``OPERATION_KEY``, ``IDEMPOTENCY_KEY``) says otherwise.
+    This is the rule ``sandloom config dump`` redacts by.
+    """
+    upper = str(name).upper()
+    if upper in _PUBLIC_NAMES:
+        return False
+    segments = set(re.split(r"[^A-Z0-9]+", upper)) - {""}
+    if segments & _PUBLIC_SEGMENTS:
+        return False
+    if segments & _SECRET_SEGMENTS:
+        return True
+    parts = [p for p in re.split(r"[^A-Z0-9]+", upper) if p]
+    if parts and parts[-1] in {"KEY", "KEYS"}:
+        return len(parts) < 2 or parts[-2] not in _LOOKUP_KEY_QUALIFIERS
+    return upper.endswith("ACCESS_KEY_ID")
+
+
 def _is_sensitive(key: str) -> bool:
+    """Whether the log redactor masks the value of ``key``.
+
+    Either rule suffices: a :data:`SENSITIVE_KEYS` substring (broad, catches
+    ``x-api-key`` or ``set-cookie``) or :func:`is_secret_name`, so every key
+    ``sandloom config dump`` masks is masked in logs too.
+    """
     # Normalize separators so ``x-api-key`` matches the ``api_key`` marker.
     low = key.lower().replace("-", "_")
-    return any(marker in low for marker in SENSITIVE_KEYS)
+    return any(marker in low for marker in SENSITIVE_KEYS) or is_secret_name(key)
 
 
 def is_sensitive_key(key: str) -> bool:
-    """Public: True if a field/attribute name looks like it holds a secret."""
+    """Public: True if a field/attribute name looks like it holds a secret.
+
+    A superset of :func:`is_secret_name`: the log redactor masks at least
+    every setting ``sandloom config dump`` redacts.
+    """
     return _is_sensitive(key)
 
 
@@ -213,6 +276,7 @@ def enforce_max_size(name: str, value: Any, max_bytes: int) -> Any:
 __all__ = [
     "redact",
     "scrub_text",
+    "is_secret_name",
     "is_sensitive_key",
     "safe_task",
     "enforce_max_size",

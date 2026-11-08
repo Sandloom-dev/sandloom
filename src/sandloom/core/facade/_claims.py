@@ -253,23 +253,19 @@ class _ClaimsMixin(_ServicesMixin):
         claims like roles/permissions/tenant allowlists, where a fail-open
         reduced-claims token is worse than a failed login.
 
-        ``owner`` (the module's short name, e.g. ``"billing"``) is stamped into
-        ``claims_sources``. When omitted it is taken from the module whose
-        registration is in progress (last dotted segment of its name — works for
-        ``sandloom_billing`` and ``myapp.modules.billing`` alike), else from the
-        contributor's ``sandloom.<module>`` package.
+        The owner stamped into ``claims_sources`` is the short name of the
+        module whose registration is in progress (``sandloom_billing`` and
+        ``myapp.modules.billing`` alike give ``"billing"``). ``owner``, when
+        given, must equal it; another module's name, or a contributor
+        registered outside a module's registration, is refused
+        (SANDLOOM-B034).
         """
-        resolved = owner or _short_module_name(self._registering_module)
-        if resolved is None:
-            module = getattr(fn, "__module__", "") or ""
-            parts = module.split(".")
-            if len(parts) >= 2 and parts[0] == "sandloom":
-                resolved = parts[1]
+        module = self._registering_module
+        resolved = self._require_own_name(
+            owner or _short_module_name(module) or "?", "a claims contributor"
+        )
         self._claims_contributors.append((fn, critical, resolved))
-        if resolved is None:
-            return
-        if self._registering_module is not None:
-            self._claims_owner_modules.setdefault(resolved, self._registering_module)
+        self._claims_owner_modules.setdefault(resolved, str(module))
         contract_name = claims_contract_name(resolved)
         if self.service_registry.contains(contract_name):
             return
