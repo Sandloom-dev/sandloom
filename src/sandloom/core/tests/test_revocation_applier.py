@@ -170,6 +170,64 @@ def test_a_shared_bus_without_a_name_is_refused(backend: str) -> None:
     assert applier.revocation_applier_config_problem(named) is None
 
 
+@pytest.mark.parametrize("driver", ["streams", "redis", "kafka"])
+def test_a_shared_bus_chosen_through_infra_is_refused_without_a_name(
+    driver: str,
+) -> None:
+    """The bus is the ``default`` eventbus instance's resolved driver, not
+    ``EVENT_BUS_BACKEND``: ``INFRA`` selecting Streams (or Pub/Sub, or a
+    plugin's driver) while ``EVENT_BUS_BACKEND=auto`` outside production is
+    still a shared bus. Unnamed it is refused; separate services would
+    otherwise share ``…@local`` and split revocations."""
+
+    from sandloom.core.app_factory import configuration_problems
+    from sandloom.core.app_factory import revocation_applier as applier
+    from sandloom.core.config.common import ConfigurationError
+    from sandloom.core.infra.config import eventbus_driver
+
+    infra = {"eventbus": {"default": {"driver": driver}}}
+    cfg = _cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev", INFRA=infra)
+    assert eventbus_driver(cfg) == driver
+    assert applier.cross_process_bus(cfg)
+    problem = applier.revocation_applier_config_problem(cfg)
+    assert problem is not None and "SANDLOOM_SERVICE_NAME" in problem
+    assert problem in configuration_problems(cfg)
+    with pytest.raises(ConfigurationError, match="SANDLOOM_SERVICE_NAME"):
+        applier.applier_group(cfg)
+    named = _cfg(
+        EVENT_BUS_BACKEND="auto",
+        ENVIRONMENT="dev",
+        INFRA=infra,
+        SANDLOOM_SERVICE_NAME="api",
+    )
+    assert applier.revocation_applier_config_problem(named) is None
+    assert applier.applier_group(named) == "sandloom:auth@tokens_revoked@api"
+
+
+def test_infra_selecting_the_memory_bus_is_in_process() -> None:
+    """The reverse: ``INFRA`` binding the in-process bus as ``default`` wins
+    over ``EVENT_BUS_BACKEND=streams`` (that bus has no other receiver)."""
+
+    from sandloom.core.app_factory import revocation_applier as applier
+
+    infra = {"eventbus": {"default": {"driver": "memory"}}}
+    cfg = _cfg(EVENT_BUS_BACKEND="streams", INFRA=infra)
+    assert not applier.cross_process_bus(cfg)
+    assert applier.applier_group(cfg) == "sandloom:auth@tokens_revoked@local"
+
+
+def test_an_unreadable_infra_eventbus_counts_as_shared() -> None:
+    """Fail closed: an ``INFRA`` eventbus the merge refuses (an instance
+    without a driver) cannot prove the bus is in-process."""
+
+    from sandloom.core.app_factory import revocation_applier as applier
+
+    infra = {"eventbus": {"extra": {"url": "redis://x:6379/0"}}}
+    cfg = _cfg(EVENT_BUS_BACKEND="memory", INFRA=infra)
+    assert applier.cross_process_bus(cfg)
+    assert applier.revocation_applier_config_problem(cfg) is not None
+
+
 def test_every_entry_point_refuses_a_shared_bus_without_a_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +253,26 @@ def test_every_entry_point_refuses_a_shared_bus_without_a_name(
         enforce_configuration()
     with pytest.raises(ConfigurationError, match="SANDLOOM_SERVICE_NAME"):
         migrate.main(["databases"])
+
+
+def test_create_app_refuses_an_infra_selected_shared_bus_without_a_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The INFRA scenario through the real entry point."""
+    from sandloom.core.app_factory import create_app
+    from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
+    from sandloom.core.config.settings import settings
+
+    assert not settings.is_prod
+    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(
+        settings, "infra", {"eventbus": {"default": {"driver": "streams"}}}
+    )
+    monkeypatch.setattr(settings, "sandloom_service_name", None)
+    with pytest.raises(ConfigurationError) as refusal:
+        create_app()
+    assert str(refusal.value).startswith(INVALID_CONFIGURATION)
+    assert "SANDLOOM_SERVICE_NAME" in str(refusal.value)
 
 
 @pytest.mark.usefixtures("restore_process_runtime")

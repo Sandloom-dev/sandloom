@@ -67,15 +67,25 @@ class InstanceConfig:
 InfraConfig = dict[str, dict[str, InstanceConfig]]
 
 
-def _synthesize_defaults(settings: Settings) -> InfraConfig:
-    """Build the implicit ``default`` instance for each capability."""
-    eventbus_driver = settings.event_bus_backend
-    if eventbus_driver == "auto":
+def _default_eventbus_driver(settings: Any) -> str:
+    """The ``default`` eventbus instance's driver from ``EVENT_BUS_BACKEND``."""
+    driver = str(getattr(settings, "event_bus_backend", "auto") or "auto")
+    if driver == "auto":
         # Production defaults to the DURABLE streams transport (at-least-once);
         # dev/test use the in-memory bus. Explicit EVENT_BUS_BACKEND wins.
-        eventbus_driver = (
-            "streams" if settings.environment == Environment.prod else "memory"
+        environment = getattr(settings, "environment", None)
+        prod = (
+            environment == Environment.prod
+            if environment is not None
+            else bool(getattr(settings, "is_prod", False))
         )
+        driver = "streams" if prod else "memory"
+    return driver
+
+
+def _synthesize_defaults(settings: Settings) -> InfraConfig:
+    """Build the implicit ``default`` instance for each capability."""
+    eventbus_driver = _default_eventbus_driver(settings)
 
     objectstore_options: dict[str, Any] = {
         "path": settings.storage_path,
@@ -209,6 +219,34 @@ def database_instance_url(options: Any, settings: Any) -> str | None:
     return str(url) if url else None
 
 
+def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | None:
+    """The driver the eventbus ``instance`` resolves to, ``INFRA`` applied.
+
+    The same merge :func:`load_infra_config` makes (``EVENT_BUS_BACKEND``
+    with ``auto`` resolved, then the ``INFRA`` overlay), limited to the
+    eventbus so it reads nothing else and runs before the registry exists.
+    ``None`` when ``instance`` is not configured. A malformed ``INFRA``
+    raises :class:`InfraConfigError`, as loading the whole config would.
+    """
+    config: InfraConfig = {
+        "eventbus": {
+            DEFAULT_INSTANCE: InstanceConfig(
+                capability="eventbus",
+                name=DEFAULT_INSTANCE,
+                driver=_default_eventbus_driver(settings),
+            )
+        }
+    }
+    raw = getattr(settings, "infra", None)
+    if raw:
+        if not isinstance(raw, Mapping):
+            raise InfraConfigError("INFRA must be a JSON object")
+        if "eventbus" in raw:
+            _overlay(config, {"eventbus": raw["eventbus"]})
+    found = config["eventbus"].get(instance)
+    return found.driver if found is not None else None
+
+
 def load_infra_config(settings: Settings) -> InfraConfig:
     """Return the fully merged infrastructure configuration."""
     config = _synthesize_defaults(settings)
@@ -223,6 +261,7 @@ def load_infra_config(settings: Settings) -> InfraConfig:
 __all__ = [
     "DEFAULT_INSTANCE",
     "database_instance_url",
+    "eventbus_driver",
     "InstanceConfig",
     "InfraConfig",
     "InfraConfigError",
