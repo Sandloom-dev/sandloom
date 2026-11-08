@@ -233,7 +233,13 @@ treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
 Contributors cannot override the identity claims (`sub`, `email`,
-`email_verified`, `token_type`).
+`email_verified`, `token_type`). A claim key has one owner. A second module
+writing it (another module's `roles` or `permissions`, say) aborts minting
+(`503`). So does any module writing the token envelope or the provenance
+(`iat_us`, `auth_time`, `jti`, `claims_sources`, …). Provenance names only
+the modules that ran. Without this rule, a module could put
+`roles: ["admin"]` in a token stamped with identity and pass the platform
+administrator gate.
 
 ### Authority at commit (admin and money effects)
 

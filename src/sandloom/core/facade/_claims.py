@@ -54,6 +54,43 @@ def _in_failed_transaction(exc: BaseException) -> bool:
     return is_error_kind(exc, "transaction_aborted")
 
 
+#: Keys no claims contributor may write: the provenance the merge stamps and
+#: the token envelope the minting code and ``create_access_token`` stamp (the
+#: latter only ``setdefault``\ s ``iat`` / ``nbf`` / ``jti`` / ``iss`` / ``aud``
+#: and keeps a supplied ``iat_us``, so a contributed one would survive: a
+#: token past every revocation mark, or past step-up via ``auth_time``).
+RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
+    {
+        "claims_sources",
+        "claims_sources_failed",
+        # UserContext's structural fields: ``user_id`` wins over ``sub``,
+        # ``provenance_authoritative`` decides whether claim-mode atoms trust
+        # absent provenance, and ``claims`` is merged into every owner's
+        # namespaced claims (shared/subject.py _FIELD_KEYS).
+        "user_id",
+        "provenance_authoritative",
+        "claims",
+        # The tenant the request binds: TenantScope and the authz tenant
+        # resolver read these BEFORE the ``tenant_ids`` grant
+        # (core/http/tenant_scope.py, shared/authz/_resolve.py), so a
+        # contributed value would bind a foreign tenant. Only trusted minting
+        # code (a service or test token) may set them.
+        "tenant_id",
+        "org_id",
+        "sub",
+        "iss",
+        "aud",
+        "exp",
+        "nbf",
+        "iat",
+        "jti",
+        "iat_us",
+        "auth_time",
+        "token_type",
+    }
+)
+
+
 #: One planned claims owner: ``(owner, critical, call, database)`` — the
 #: database names the read unit a local owner shares; ``None`` runs alone.
 _ClaimsStep = tuple[str | None, bool, Callable[[], Awaitable[Any]], str | None]
@@ -417,11 +454,14 @@ class _ClaimsMixin(_ServicesMixin):
         """Apply outcomes in plan order; the first critical failure aborts.
 
         A non-critical failure is logged and recorded in
-        ``claims_sources_failed``.
+        ``claims_sources_failed``. Every key has ONE owner: a second owner
+        writing it, or any owner writing a :data:`RESERVED_CLAIM_KEYS` key,
+        aborts minting (see :meth:`_refuse_foreign_claim_keys`).
         """
         claims: dict[str, Any] = {}
         sources: set[str] = set()
         failed: set[str] = set()
+        key_owner: dict[str, str | None] = {}
         for index, (owner, critical, _call, _db) in enumerate(plan):
             ok, value = outcomes[index]
             if not ok:
@@ -439,6 +479,7 @@ class _ClaimsMixin(_ServicesMixin):
                     failed.add(owner)
                 continue
             if value:
+                self._refuse_foreign_claim_keys(owner, value, key_owner)
                 claims.update(value)
             # Provenance: the owner RAN successfully (even if it contributed
             # nothing — an empty result is an authoritative "no").
@@ -452,3 +493,42 @@ class _ClaimsMixin(_ServicesMixin):
         claims["claims_sources"] = sorted(sources - failed)
         claims["claims_sources_failed"] = sorted(failed)
         return claims
+
+    def _refuse_foreign_claim_keys(
+        self,
+        owner: str | None,
+        value: Mapping[str, Any],
+        key_owner: dict[str, str | None],
+    ) -> None:
+        """Refuse minting (503) when ``owner`` writes a key it does not own.
+
+        Provenance (``claims_sources``) names the owners that RAN, not the
+        owner of each key, and a guard trusts a key by its owner's name there
+        (the platform gates read ``roles`` when ``"identity"`` ran). A plain
+        merge let a later owner, local or remote, replace another owner's
+        key in a token still stamped with that owner: a module answering
+        ``roles: ["admin"]`` got platform administrator. So the first owner
+        to write a key owns it for this token, a second one is refused
+        whatever the registration order, and the reserved keys are nobody's.
+        Fail closed, like a critical owner's failure: never a token whose
+        keys another owner wrote. ``key_owner`` is filled as keys are taken.
+        """
+        for key in value:
+            if key in RESERVED_CLAIM_KEYS:
+                self.logger.error(
+                    "claims contributor %r wrote the reserved claim %r; "
+                    "refusing to mint the token",
+                    owner,
+                    key,
+                )
+                raise ClaimsUnavailable(owner or "?")
+            if key in key_owner and key_owner[key] != owner:
+                self.logger.error(
+                    "claims contributor %r wrote the claim %r owned by %r; "
+                    "refusing to mint the token (one owner per claim key)",
+                    owner,
+                    key,
+                    key_owner[key],
+                )
+                raise ClaimsUnavailable(owner or "?")
+            key_owner.setdefault(key, owner)
