@@ -382,6 +382,63 @@ def test_production_typo_check_runs_over_module_names() -> None:
     )
 
 
+class ShopEuNeighbour(BaseModel):
+    """A loaded ``shop`` whose name sits one letter from a variable of the
+    ``shop_eu`` module another service loads."""
+
+    region: str = Field("eu", alias="SHOP_EU_REGION")
+
+
+def test_production_typo_check_ignores_an_absent_modules_variables() -> None:
+    """Answer #25: a variable of a module known in the deployment but not
+    loaded here (``shop_eu``) never refuses the boot as a near-miss of a
+    loaded module's name; a near-miss under the loaded module's own prefix
+    still does, as does one of a module nobody knows."""
+    records = _records(("shop", ShopEuNeighbour))
+    prod = _kernel("prod")
+    foreign = _snapshot(SHOP_EU_REGIONS="eu-west")  # shop_eu's own setting
+    (problem,) = ms.post_load_check(records, prod, foreign, known_modules=()).problems
+    assert problem.startswith("Unknown setting SHOP_EU_REGIONS; did you mean")
+    assert (
+        ms.post_load_check(
+            records, prod, foreign, known_modules=("shop", "shop_eu")
+        ).problems
+        == []
+    )
+    # the longest known prefix decides: a loaded shop_eu owns SHOP_EU_*
+    # even where a module named shop is absent
+    records_eu = _records(("shop_eu", ShopEuNeighbour))
+    (problem,) = ms.post_load_check(
+        records_eu, prod, foreign, known_modules=("shop", "shop_eu")
+    ).problems
+    assert "did you mean SHOP_EU_REGION (declared by module shop_eu)" in problem
+    # a typo of the loaded module's own name is still refused
+    typo = _snapshot(SHOP_ALLOW_DEBTS="true")
+    (problem,) = ms.post_load_check(
+        _records(("shop", ShopSettings)), prod, typo, known_modules=("shop_eu",)
+    ).problems
+    assert "did you mean SHOP_ALLOW_DEBT" in problem
+
+
+def test_known_modules_are_the_installed_entry_points_and_the_composition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.descriptors import module_names
+
+    assert ms.MODULES_ENTRY_POINT_GROUP == module_names.ENTRY_POINT_GROUP
+    installed = {m.name for m in module_names.installed_modules()}
+    kernel = Settings.model_construct(
+        environment=Environment.prod,
+        sandloom_modules=["app.modules.shop_eu", "sandloom_identity"],
+        sandloom_accepted_risks=[],
+    )
+    assert ms.known_module_names(kernel) == installed | {"shop_eu", "sandloom_identity"}
+    # the default reads them: shop_eu, named by the composition, is absent here
+    records = _records(("shop", ShopEuNeighbour))
+    foreign = _snapshot(SHOP_EU_REGIONS="eu-west")
+    assert ms.post_load_check(records, kernel, foreign).problems == []
+
+
 def test_semantic_override_is_reported_unless_its_risk_is_accepted() -> None:
     records = _records(("shop", ShopSettings), SHOP_ALLOW_DEBT="true")
     (item,) = ms.post_load_check(records, _kernel(), _snapshot()).overrides
