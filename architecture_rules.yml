@@ -47,6 +47,7 @@ public_api:
   - sandloom.sdk.projections
   - sandloom.sdk.sagas
   - sandloom.sdk.security
+  - sandloom.sdk.tasks
   - sandloom.sdk.tenant
   - sandloom.sdk.testing
   - sandloom.sdk.testing.fixtures

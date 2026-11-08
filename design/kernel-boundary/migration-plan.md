@@ -106,7 +106,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 | D4 (consumer-only install skips the compatibility check) | KB-21 |
 | `/ready` 200 with an unusable taskqueue | KB-02 |
 | the `sandloom-standard` package | KB-08 |
-| the register of 46 edges | [edges.yml](edges.yml); enforced from KB-03 |
+| the register of 46 judged edges, plus row K1 (KB-08) | [edges.yml](edges.yml); enforced from KB-03 |
 
 ## The PRs
 
@@ -149,6 +149,9 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   scan excludes) are tracked separately and need no runtime finding: each must be `retained`
   with an ADR id and a reason, its anchor file must exist and contain the literal (else stale),
   and it never covers a runtime finding. A `retained` row without an ADR id and a reason fails.
+  Since the W0 review fixes (tm `kb-w0-fix-checks`) the scan also reads static imports, and a
+  `fixed` row's anchor literal is its regression in any kernel file; a `fixed` row needs a literal
+  anchor.
   `--report` prints counts by kind, class, type, scope, current status and target, and the rows
   the change opens, fixes or retains.
 - **Edges:** records the 45 runtime rows at `current_status: open`; B-N20, the one
@@ -207,7 +210,9 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   profiles, deploy templates, worker, beat, `sandloom-migrate` and composed CLIs set
   `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`; T014 asserts one root per profile;
   `sandloom.main` stays the lean kernel root; `public-source.json`, publishing docs, upgrade step.
-- **Edges:** none directly (prepares X1). **Invariants:** I-01, I-19, answer #B, owner #1.
+- **Edges:** adds register row K1, `retained` (ADR-0012 decision 3): the framework's `sandloom add
+  deploy` names `sandloom_standard.main` (prepares X1). **Invariants:** I-01, I-19, answer #B,
+  owner #1.
 - **Tests:** process matrix (G-CONFIG-07 harness): API, worker, beat, `migrate`, composed CLIs of
   the shipped image build the same composition; lean `sandloom.main` boots with
   `SANDLOOM_MODULES=[]`.
@@ -395,7 +400,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   rung budget 5,885,658 Ir/req at the PoC base), M-lat split.
 - **Must not touch:** the algebra, the kernel atoms' behaviour, K5/K6/witness (own PRs).
 
-### KB-31 tenant kind from the assigned tenant authority (K1)
+### KB-31 tenant kind from the assigned tenant authority (K1, the change of alternatives-c; not register row K1)
 
 - **Scope:** `tenant_kind` asks the witness declared by the authority of `tenant_ids` (or its
   assigned provider), found from the consumer's generated copy; `bound_tenant()` in a policy adds
@@ -615,11 +620,18 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 
 ## Edge closure by PR
 
+The live register `tests/architecture/kernel_edges.yml` has 67 rows: the 46 judged rows of
+[edges.yml](edges.yml), row K1 that KB-08 added (also in edges.yml), the 18 class (a) protocol rows
+A1-A18 and the two family templates (`retained`, reason "protocol"). After W0: B-I1 and B-N19
+`fixed`; B-N20, K1 and the 20 protocol rows `retained`; the other 43 `open`. Register row K1 is not
+the tenant-kind change K1 of KB-31.
+
 | PR | closes |
 |---|---|
 | KB-03 | B-N20 (documentation row, retained) |
 | KB-06 | B-I1 |
 | KB-07 | B-N19 |
+| KB-08 | K1 (added and retained, ADR-0012 decision 3) |
 | KB-11 | B-S1, B-S2; B-S3 and B-N16 retained |
 | KB-22 | C1, C2, C3, C4, C5 |
 | KB-31 | B-R2 |

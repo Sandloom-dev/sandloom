@@ -4,7 +4,7 @@
 LOCAL_MODULES, .env.example and the deploy profile". :func:`wire_module`
 does them:
 
-* **framework tree** (``src/sandloom/main.py`` defines ``LOCAL_MODULES``: the
+* **framework tree** (``src/sandloom/local_modules.py`` defines ``LOCAL_MODULES``: the
   checkout's modules no installed distribution registers): the module joins
   ``LOCAL_MODULES``, ``SANDLOOM_MODULES`` in ``.env.example`` and the monolith
   deploy profile;
@@ -147,7 +147,7 @@ def wire_module(dotted: str, module_dir: Path) -> list[Path]:
     if root is None:
         return []
     edited: list[Path] = []
-    main = root / "src" / "sandloom" / "main.py"
+    main = root / "src" / "sandloom" / "local_modules.py"
     if _python_list_append(main, dotted):
         edited.append(main)
     edited += [

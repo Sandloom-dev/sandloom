@@ -114,13 +114,17 @@ Shipped kernel code (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`,
 where they still do is one row of `tests/architecture/kernel_edges.yml`, with a
 current status (`open`, `fixed`, `retained`) and a target. The check scans string
 literals outside docstrings for module names, module packages, non-`core` channels
-and the declared module settings and claim keys; dynamic imports with a computed
-argument outside the listed loader call sites; and generated module files in the
-wheel. It fails when a finding matches no runtime row, when a `fixed` row has a
-finding again, when an `open` or `retained` row has none left, when a `retained`
-row has no ADR id and reason, and when a documentation row's anchor no longer
-holds its text. `uv run python tests/architecture/kernel_edges.py --report`
-prints the counts and the rows a change moves, for the PR description.
+and the declared module settings and claim keys; static imports of a module
+package (`from sandloom_billing import x`); dynamic imports with a computed
+argument outside the listed loader call sites; the anchor literal of every
+`fixed` row, in any kernel file; and generated module files in the wheel. It
+fails when a finding matches no runtime row, when a `fixed` row has a finding
+again (its literal anywhere in the kernel included), when a `fixed` row has no
+literal anchor the scan could find, when an `open` or `retained` row has none
+left, when a `retained` row has no ADR id and reason, and when a documentation
+row's anchor no longer holds its text.
+`uv run python tests/architecture/kernel_edges.py --report` prints the counts
+and the rows a change moves, for the PR description.
 """,
         docs="docs/adr/0012-kernel-boundary.md",
     ),

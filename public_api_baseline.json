@@ -5225,6 +5225,35 @@
       "signature": "(key:POSITIONAL_OR_KEYWORD|x25519.X25519PrivateKey | x25519.X25519PublicKey) -> str"
     }
   },
+  "sandloom.sdk.tasks": {
+    "Task": {
+      "kind": "class",
+      "members": [
+        "apply_async",
+        "delay",
+        "s",
+        "si"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TaskQueueNotInstalled": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "cron": {
+      "kind": "function",
+      "signature": "(expression:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "shared_task": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_ONLY|Callable[..., Any] | None=None, name:KEYWORD_ONLY|str | None=None, acks_late:KEYWORD_ONLY|bool | None=None, reject_on_worker_lost:KEYWORD_ONLY|bool | None=None, options:VAR_KEYWORD|Any) -> Any"
+    }
+  },
   "sandloom.sdk.tenant": {
     "TenantKind": {
       "kind": "callable",

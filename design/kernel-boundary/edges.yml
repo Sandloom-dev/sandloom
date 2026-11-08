@@ -1,10 +1,15 @@
-# Kernel boundary: register of the 46 judged baseline edges (kb-adrs, 2026-11-08).
+# Kernel boundary: register of the 46 judged baseline edges (kb-adrs, 2026-11-08), plus K1,
+# the row KB-08 added after the baseline (47 rows).
 #
 # Source of the ids, classes, types, owners and verdicts: baseline.md at b8d8506.
 # Target status, carrying ADR and PR: docs/adr/0012..0015 and migration-plan.md.
 # KB-03 seeds tests/architecture/kernel_edges.yml from this file (ADR-0012 decision 2); the
 # 18 class (a) protocol rows (A1-A18) and the runtime-built family templates <m>.claims.v1 /
 # <m>.facts.v1 join there as `retained` rows with reason "protocol"; they are not listed here.
+# The live register therefore has 47 + 18 + 2 = 67 rows. A row added to the live register after
+# the baseline (K1, KB-08) is added here too, in the last section; ids, kinds, classes, targets,
+# ADRs, anchors and current statuses are compared with the live register by
+# tests/architecture/test_kernel_edges.py, so the two files cannot drift.
 #
 # Fields
 #   kind             runtime | documentation (absent means runtime; ADR-0012 decision 2).
@@ -21,9 +26,10 @@
 #   baseline_verdict allowed | violation | disputed
 #   current_status   open | fixed | retained: the row's state in the code now. `open`: the finding
 #                    exists and is still to be removed or decided; `fixed`: no finding may exist;
-#                    `retained`: the finding stays, with an ADR id and a reason. Every row is
-#                    `open` today (no PR of the plan has landed); KB-03 seeds the register with
-#                    these values, so the check passes on the day it lands
+#                    `retained`: the finding stays, with an ADR id and a reason. KB-03 seeded the
+#                    live register with every row `open` except B-N20 (`retained`); a PR that
+#                    flips a row in tests/architecture/kernel_edges.yml flips it here too (after
+#                    W0: B-I1 and B-N19 fixed, B-N20 and K1 retained, the rest open)
 #   target           fixed | retained | deferred: where the ADRs take the row. A PR that carries
 #                    the row to its target flips current_status in the same PR
 #   adr              the ADR that decides the target
@@ -48,12 +54,14 @@ baseline: b8d8506
 written_at: arch/kernel-boundary ccc420e; revised by kb-adrs-revise on the merged baseline c9b9b05;
   B-N20 made a documentation row by kb-adrs-accept
 main_with: [PR-70 e264b09, PR-71 816f587, PR-72 206fa2d, PR-73 dfde67a, PR-74 bf77bf9]
+reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added, current statuses
+  copied from the live register"
 summary:
-  total: 46
-  kind: {runtime: 45, documentation: 1}
-  current_status: {open: 46, fixed: 0, retained: 0}
-  target: {fixed: 33, retained: 3, deferred: 10}
-  by_adr: {ADR-0012: 15, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
+  total: 47  # the 46 judged baseline edges and K1
+  kind: {runtime: 46, documentation: 1}
+  current_status: {open: 43, fixed: 2, retained: 2}
+  target: {fixed: 33, retained: 4, deferred: 10}
+  by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
   # --- A19, reclassified disputed (baseline 3.1) -----------------------------------------
@@ -87,7 +95,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-06]
@@ -771,7 +779,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0012
     prs: [KB-07]
@@ -788,7 +796,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: allowed
-    current_status: open
+    current_status: retained
     target: retained
     adr: ADR-0012
     prs: [KB-03]
@@ -893,3 +901,24 @@ edges:
       - tests/integration/test_revocation_pipeline.py unchanged expectations (21 passed)
     anchors:
       - {path: sandloom/shared/membership.py, symbol: refreshed_state_wins}
+
+  # --- rows added after the baseline --------------------------------------------------------
+  # Register row K1: not the authorization change "K1" (tenant kind) of KB-31 and
+  # alternatives-c-authz.md, nor the known-namespaces option K1 of alternatives-d-settings.md.
+  - id: K1
+    class: b
+    type: configuration
+    scope: composition_text
+    owner: standard
+    current_status: retained
+    target: retained
+    adr: ADR-0012
+    reason: "the standard composition root the shipped deploy scaffolding names (decision 3)"
+    prs: [KB-08]
+    invariants: [I-01, I-19]
+    tests:
+      - src/sandloom/core/tests/test_deploy_profiles.py (one composition root per profile, T014)
+      - tests/integration/test_standard_composition_root.py (every entry point builds the standard composition)
+    anchors:
+      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: FRAMEWORK_COMPOSITION_ROOT}
+    note: "Added by KB-08 (#79): `sandloom add deploy` in the framework tree names sandloom_standard.main."

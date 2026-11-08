@@ -1842,6 +1842,7 @@
         "src/sandloom/core/worker.py",
         "src/sandloom/driverkit/__init__.py",
         "src/sandloom/driverkit/testing.py",
+        "src/sandloom/local_modules.py",
         "src/sandloom/main.py",
         "src/sandloom/py.typed",
         "src/sandloom/sdk/__init__.py",

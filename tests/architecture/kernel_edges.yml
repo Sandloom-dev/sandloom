@@ -5,7 +5,10 @@
 # check is tests/architecture/kernel_edges.py; `uv run sandloom explain SANDLOOM-T017` says
 # what each failure means. Seeded by KB-03 from design/kernel-boundary/edges.yml (the 46 judged
 # rows, all `open` except B-N20, the documentation row, `retained`) plus the 18 class (a)
-# protocol rows and the two family templates, `retained` with the reason "protocol".
+# protocol rows and the two family templates, `retained` with the reason "protocol". KB-08 added
+# K1 (in design/kernel-boundary/edges.yml too): 46 + 1 + 18 + 2 = 67 rows. A row added here is
+# added to the design register in the same PR, and a flipped current_status is flipped there too
+# (test_kernel_edges.py compares them).
 #
 # A PR that carries a row to its target sets its current_status in the same PR (the check
 # fails otherwise) and pastes the report into its description:
@@ -22,6 +25,10 @@
 # An anchor literal written quoted ('"x"') is the exact string; unquoted, a substring. A
 # symbol anchor covers the findings inside its definition and resolves while the file still
 # defines or uses it; a path-only anchor covers the whole file.
+#
+# The scan reads string literals and static imports (`from sandloom_x import y`). A row with
+# current_status: fixed needs a literal anchor: its literal is matched in every kernel file, and a
+# finding holding it anywhere is that row's regression (rule 2).
 #
 # loader_call_sites: the only places where a dynamic import with a computed argument is
 # allowed (I-02), each with its reason; not_edges: literals that match a pattern but name no
@@ -97,7 +104,8 @@ edges:
     prs: []
     anchors:
       - {path: sandloom/main.py, symbol: default_modules}
-    note: sandloom.main composes the installed modules
+      - {path: sandloom/local_modules.py, symbol: default_modules}
+    note: "sandloom.main composes the installed modules (and LOCAL_MODULES, sandloom.local_modules); sandloom_standard.main the same set"
   - id: A4
     class: a
     type: configuration
@@ -369,6 +377,7 @@ edges:
     prs: [KB-06]
     anchors:
       - {path: sandloom/core/cli/password_check.py, literal: sandloom_identity.password_policy}
+    note: "Fixed by KB-06. T017 finds the literal, an import_module of it and a static import (`from sandloom_identity import password_policy`) in any kernel file; test_shared_purity.py (G-KERNEL-12) also refuses a static kernel import of a module package."
   - id: B-R1
     class: b
     type: runtime_call
@@ -858,6 +867,7 @@ edges:
     prs: [KB-07]
     anchors:
       - {path: sandloom/core/testing/static_checks.py, literal: ix_external_identities_provider}
+    note: "Fixed by KB-07. The index name matches no other pattern: T017 matches the anchor literal of a fixed row in every kernel file (test_every_fixed_row_of_the_register_is_detectable)."
   - id: B-N20
     kind: documentation
     class: b
