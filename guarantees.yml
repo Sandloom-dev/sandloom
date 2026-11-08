@@ -5063,18 +5063,49 @@ guarantees:
   - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: G-OPS-23
-  statement: While a loaded module has a tasks submodule (tasks or periodic tasks), /ready opens the default
-    taskqueue through the cached readiness probes and answers 503 with taskqueue_status fail, naming the
-    capability, when it cannot open; with no such module the taskqueue is never probed and readiness is
-    unchanged, and /health never fails on it.
+  statement: /ready's taskqueue term follows the loaded modules' required taskqueue requirements (declared
+    or derived), never the presence of a tasks module. While one uses the queue on the request path (no
+    feature, or one beyond periodic), /ready probes that instance's broker through the cached readiness
+    probes (one probe per instance per TTL, however many hits) and answers 503 with taskqueue_status fail,
+    naming the capability and the instance, when the broker is unreachable or the driver cannot open. A
+    periodic-only requirement keeps the process ready on a broker outage (owner decision on
+    infrastructure dependencies, answer 3); an optional or absent one is never probed; /health never
+    fails on the taskqueue. The celery driver's health() opens one broker connection bounded by
+    HEALTH_CHECK_TIMEOUT_SECONDS, without retry, and names the broker without its credentials.
   sources:
   - docs/operate/operator-reference.md#Observability
-  - design/kernel-boundary/migration-plan.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
   tests:
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_a_task_module_cannot_use_it
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_unchanged_and_taskqueue_not_probed_without_task_modules
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_an_unusable_taskqueue
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_its_broker_is_down
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_when_the_driver_cannot_open
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_periodic_only_module_keeps_the_web_process_ready_on_a_broker_outage
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_request_path_module_beside_a_periodic_one_still_gates
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_is_not_probed_without_a_required_requirement
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_naming_it_without_credentials
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
+- id: G-OPS-24
+  statement: Billing's intent reconciler is watched by its own run record, not by the broker. Every
+    completed run of reconcile_operation_intents records its end (a run that raises records nothing), and
+    the billing_reconciler health check, in /health and /ready of every process that loads billing,
+    fails as never_ran (no worker or no beat) or overdue when no run completed within
+    RECONCILE_MAX_SILENCE_SECONDS (three 300 s periods); during the first such interval after the process
+    starts it answers ok and reads nothing.
+  sources:
+  - docs/modules/batteries/billing.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_each_completed_run_records_itself
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_that_raises_records_nothing
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_no_run_ever_recorded_fails_as_never_ran
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_older_than_the_allowed_interval_fails_as_overdue
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_process_waits_one_interval_before_judging_and_reads_nothing
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_the_health_check_reads_the_recorded_run
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_billing_registers_the_reconciler_check
 
 - id: G-SAGA-01
   statement: register_saga refuses a malformed definition deterministically at registration (duplicate
@@ -6616,6 +6647,18 @@ capabilities:
   - docs/operate/operator-reference.md#Secrets management
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_secrets_dir_reads_file
+- id: C-OPS-15
+  statement: sandloom doctor's periodic section and /diagnostics/core's periodic block report, for each
+    loaded module whose taskqueue requirement asks for periodic, whether a beat holds the lease of this
+    composition; without one a required need fails and an optional one warns.
+  sources:
+  - docs/operate/operator-reference.md#Preflight and effective configuration
+  - docs/modules/batteries/identity.md
+  tests:
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_no_beat_fails_a_required_need_and_warns_an_optional_one
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_a_held_lease_is_ok_and_names_the_beat
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_the_key_read_is_the_one_a_beat_of_this_composition_holds
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_diagnostics_core_reports_the_periodic_needs
 - id: C-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS (JSON list or comma list) names accepted risk ids and checks consult settings.accepts_risk(id).
   sources:
@@ -7636,7 +7679,7 @@ issued:
   C-MODULE: 13
   C-MSTORE: 4
   C-OBS: 8
-  C-OPS: 14
+  C-OPS: 15
   C-PROJ: 9
   C-RISK: 1
   C-ROUTE: 3
@@ -7670,7 +7713,7 @@ issued:
   G-MODULE: 19
   G-MSTORE: 10
   G-OPCLASS: 7
-  G-OPS: 23
+  G-OPS: 24
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 27
