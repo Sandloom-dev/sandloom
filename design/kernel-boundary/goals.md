@@ -16,6 +16,63 @@ The kernel (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`, `sandloom.main`)
 
 **No platform guarantee may silently disappear because an optional module is absent.** Without the module that implements a protocol, the guarantee still holds (fail closed) or the application refuses to start and says what is missing; it never degrades quietly.
 
+## Guarantee, provider, trust
+
+Three things that must stay separate:
+
+1. **Guarantee:** what Sandloom must ensure whichever battery is chosen.
+2. **Provider:** who supplies the data or performs the domain operation.
+3. **Trust:** why the kernel may use that provider's result.
+
+A contract that returns data does not make its provider a trusted source of rights. A security authority (who may issue `roles`, `permissions`, `tenant_ids`) is assigned by the application's composition, and the kernel verifies that the claimed owner is the approved module or the remote service bound to it in trusted configuration. A module naming itself `identity` is not proof.
+
+## The platform capability rule
+
+The kernel defines a port only when it must keep a guarantee of its own and does not have the data. All of these must hold:
+
+- the capability serves a platform guarantee, not one business function;
+- its contract can be stated without identity, billing or tenancy specifics;
+- the kernel defines a testable semantics of execution and failure;
+- an implementation can be replaced without a kernel change;
+- the absence of an implementation has explicitly defined behaviour;
+- it works locally and, where the guarantee requires it, over RPC.
+
+Otherwise it is a module's domain contract, or a wrongly drawn abstraction. Applied today: claims ownership and module settings need the existing mechanisms strengthened; authorization uses access facts; contracts, tenant isolation and JWT need no new port. Billing is not a platform port at all: it publishes its contracts and facts, and convenient names like `Subscribed` belong to billing or to generated consumer wrappers (developer experience, not platform architecture).
+
+Limits:
+
+- **No second driver system for business modules.** No mandatory `IdentityDriver`, `TenancyDriver`, `BillingDriver`, `AdminDriver`: that would make four standard batteries part of the kernel. Infrastructure drivers replace a technical implementation; batteries register only the capabilities they implement.
+- **No universal capability registry** until an existing mechanism (module registration, contracts, claims contributors, access facts, drivers) shows a proven limit. Otherwise Sandloom gets three competing systems.
+
+## Optional package, optional capability, security guarantee
+
+- **Optional package:** a module may be absent from a deployment.
+- **Optional capability:** an application may do without the function.
+- **Security guarantee:** never optional, and never weakened silently.
+
+Identity may be an optional package, but an application with authenticated routes must have a working authentication scheme. Tenancy may be absent, but declared tenant isolation keeps holding: no tenant is accepted from a header without a trusted grant. Billing may be absent, but a policy that needs its fact denies instead of allowing. Without a battery, either the capability is not used, another provider supplies it, or the configuration does not start.
+
+## Replaceability decides the scope
+
+Before moving code, replace each standard battery with a test implementation outside the kernel (identity: trusted roles through the claims mechanism; tenancy: an independent provider of tenant grants; billing: an unrelated fact such as `inventory.stock.available`). Where a replacement works without a kernel change, no new mechanism is needed; where it does not, the failure names the real abstraction gap.
+
+## Authorization: the mechanism stays in the kernel
+
+Moving batteries out does not move the mechanism that makes the final access decision. The algebra is not rewritten; only the source of the atoms changes.
+
+| Component | Where |
+|---|---|
+| `Requirement`, `&` `\|` `~`, allow / deny / indeterminate, evaluation order and short-circuit, fail-closed and denial categories | kernel |
+| `require`, `authorize`, `AccessFact`, `Entitled`, `TenantScope`, `Owner` (if generic) | kernel / SDK |
+| `Role`, `Perm` | kernel / SDK, once claim provenance is enforced |
+| `require_platform_admin` | kernel / SDK; one platform admission shared with `platform_operator`, trusting `admin` only from the assigned authority |
+| `Credits`, `Subscribed`, `SubscriptionActive` | billing |
+| `OrgRole`, `require_org_role`, the role vocabularies (`member/admin/owner`, `admin/support/ops`, `perm.users.*`) | tenancy / identity |
+
+Three problems are solved together, never one alone: **claim provenance** (who may issue a claim, and how it is checked); **policy portability** (a typed domain atom works in a consumer process without the provider's implementation installed); **policy metadata** (architecture checks read verifiable metadata — needs a tenant, needs an authority, live check, administrative action, money — not class names, and a module cannot lower its own risk class).
+
+**Moving a domain atom out of the kernel must not by itself change the number of network calls, the number of database queries, the evaluation order or the policy syntax.** The three execution tiers stay: claims in memory, a local fact in the same process, a remote fact only when its owner is in another process.
+
 ## What the rule "the kernel knows no business module" means
 
 It is a rule about **source dependencies and shipped code**: the kernel does not import a business module, does not name one (its contracts, events, settings, claim keys, commands), and does not ship a module's code or artifacts.
