@@ -2397,6 +2397,7 @@
         "tests/extraction/extract_probe/__init__.py",
         "tests/extraction/test_extraction_e2e.py",
         "tests/fixtures/specs/api10-ledger-delta-H0.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb02.md",
         "tests/fixtures/specs/api10-ledger-delta-H1.md",
         "tests/fixtures/specs/api10-ledger-delta-H2.md",
         "tests/fixtures/specs/api10-ledger-delta-H2b.md",
