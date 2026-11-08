@@ -937,6 +937,7 @@
         "add_startup_task",
         "cache",
         "capability",
+        "claim_authorities",
         "claims_contributors",
         "collect_claims",
         "contract_database",
@@ -2792,7 +2793,7 @@
     },
     "create_app": {
       "kind": "function",
-      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework') -> fastapi.applications.FastAPI"
+      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None) -> fastapi.applications.FastAPI"
     }
   },
   "sandloom.sdk.authz": {
@@ -4447,6 +4448,7 @@
         "add_startup_task",
         "cache",
         "capability",
+        "claim_authorities",
         "claims_contributors",
         "collect_claims",
         "contract_database",

@@ -348,7 +348,7 @@ def install_claim_authorities(
             authorities.issuer,
             dict(sorted(authorities.authorities.items())),
         )
-    core_facade.assign_claim_authorities(authorities)
+    core_facade._assign_claim_authorities(authorities)
     return authorities
 
 

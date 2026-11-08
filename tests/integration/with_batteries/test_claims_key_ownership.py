@@ -84,7 +84,7 @@ def _core() -> CoreFacade:
     """A kernel facade whose databases are fakes (claims need no I/O here)."""
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
-    core.assign_claim_authorities(STANDARD)
+    core._assign_claim_authorities(STANDARD)
     return core
 
 

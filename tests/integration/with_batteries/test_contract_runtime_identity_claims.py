@@ -89,7 +89,7 @@ STANDARD = build_claim_authorities(
 
 def _core() -> tuple[CoreFacade, list[tuple[str, str]]]:
     core = CoreFacade(app=FastAPI())
-    core.assign_claim_authorities(STANDARD)
+    core._assign_claim_authorities(STANDARD)
     log: list[tuple[str, str]] = []
     core.database = lambda name="default": _FakeDatabase(name, log)  # type: ignore[method-assign]
     return core, log

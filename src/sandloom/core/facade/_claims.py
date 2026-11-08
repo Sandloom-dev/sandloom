@@ -253,6 +253,7 @@ class _ClaimsMixin(_ServicesMixin):
 
     #: The composition's claim authorities (``create_app`` assigns them).
     _claim_authorities: ClaimAuthorities = NO_AUTHORITIES
+    _claim_authorities_assigned: bool = False
 
     # -----------------
     # Token claims contributors
@@ -585,14 +586,21 @@ class _ClaimsMixin(_ServicesMixin):
             raise ClaimsUnavailable(owner or "?")
         cast("CoreFacade", self).increment_metric(CLAIMS_VIOLATIONS_METRIC, 1)
 
-    def assign_claim_authorities(self, authorities: ClaimAuthorities) -> None:
+    def _assign_claim_authorities(self, authorities: ClaimAuthorities) -> None:
         """Make ``authorities`` the assignment the mint check applies.
 
         Called once by ``create_app`` after the startup checks
         (:mod:`sandloom.core.app_factory.claim_authorities`); a facade built
-        without it assigns nothing (:data:`NO_AUTHORITIES`).
+        without it assigns nothing (:data:`NO_AUTHORITIES`). Once only: code
+        running in the composition never re-assigns the trust map.
         """
+        if self._claim_authorities_assigned:
+            raise RuntimeError(
+                "claim authorities are assigned once, by create_app; they "
+                "cannot be re-assigned at run time"
+            )
         self._claim_authorities = authorities
+        self._claim_authorities_assigned = True
 
     @property
     def claim_authorities(self) -> ClaimAuthorities:

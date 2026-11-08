@@ -108,7 +108,8 @@ class _Counted:
 def _core(mapping: dict[str, str] | None = MAP) -> CoreFacade:
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
-    core.assign_claim_authorities(build_claim_authorities(mapping))
+    if mapping is not None:  # else: as create_app would leave it, nothing
+        core._assign_claim_authorities(build_claim_authorities(mapping))
     return core
 
 
@@ -565,6 +566,14 @@ def test_install_refuses_with_b035_naming_every_problem() -> None:
     assert "'nowhere', which is neither loaded" in message
     assert "critical=False" in message
     assert not core.claim_authorities.assigned
+
+
+def test_the_assignment_is_made_once() -> None:
+    """Code running in the composition cannot re-assign the trust map."""
+    core = _core()
+    with pytest.raises(RuntimeError, match="assigned once"):
+        core._assign_claim_authorities(build_claim_authorities({"roles": ROGUE}))
+    assert core.claim_authorities.owner_of("roles") == "idp"
 
 
 def test_install_without_a_map_warns_in_an_issuing_process(

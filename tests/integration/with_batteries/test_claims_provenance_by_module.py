@@ -20,7 +20,7 @@ from sandloom.core.facade import CoreFacade
 async def test_claims_provenance_from_registering_module() -> None:
     core = CoreFacade(app=FastAPI())
     # A protected claim needs its assigned authority (ADR-0014).
-    core.assign_claim_authorities(
+    core._assign_claim_authorities(
         build_claim_authorities({"subscription_status": "myapp.modules.billing"})
     )
 

@@ -38,7 +38,7 @@ STANDARD = build_claim_authorities(
 
 def _core() -> tuple[CoreFacade, Any]:
     core, log = _kernel_core()
-    core.assign_claim_authorities(STANDARD)
+    core._assign_claim_authorities(STANDARD)
     return core, log
 
 
