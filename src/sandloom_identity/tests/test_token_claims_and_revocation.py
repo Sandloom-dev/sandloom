@@ -35,7 +35,7 @@ async def test_access_token_carries_email_verified(
     assert claims["email_verified"] is True
 
 
-async def test_the_issuer_fields_go_through_the_mint_check() -> None:
+async def test_unverified_user_and_contributors_cannot_override_identity() -> None:
     """``email``/``email_verified`` are handed to the kernel's mint check as
     the issuer's own claims (which refuses a contributor writing them), and
     the token carries what the check returned: nothing is written after it
