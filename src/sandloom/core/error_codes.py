@@ -100,6 +100,31 @@ def _landed(
 
 CATALOGUE: tuple[ErrorCode, ...] = (
     _entry(
+        "SANDLOOM-T017",
+        "kernel-edge",
+        "test",
+        "the kernel names a module its edge register does not record, "
+        "or the register is out of date",
+        "remove the name from kernel code, or record it in "
+        "tests/architecture/kernel_edges.yml; a row whose edge is gone sets "
+        "current_status: fixed",
+        """
+Shipped kernel code (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`,
+`sandloom.main`) and the `sandloom` wheel name no module (ADR-0012). Every place
+where they still do is one row of `tests/architecture/kernel_edges.yml`, with a
+current status (`open`, `fixed`, `retained`) and a target. The check scans string
+literals outside docstrings for module names, module packages, non-`core` channels
+and the declared module settings and claim keys; dynamic imports with a computed
+argument outside the listed loader call sites; and generated module files in the
+wheel. It fails when a finding matches no runtime row, when a `fixed` row has a
+finding again, when an `open` or `retained` row has none left, when a `retained`
+row has no ADR id and reason, and when a documentation row's anchor no longer
+holds its text. `uv run python tests/architecture/kernel_edges.py --report`
+prints the counts and the rows a change moves, for the PR description.
+""",
+        docs="docs/adr/0012-kernel-boundary.md",
+    ),
+    _entry(
         "SANDLOOM-T016",
         "admin-manifest",
         "test",

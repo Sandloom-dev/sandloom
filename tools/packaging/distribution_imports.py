@@ -27,9 +27,12 @@ argument is a string literal or a module-level string constant
 ``NAME = "x"`` bound once at module level, ``__import__("x")`` and any call
 of a function whose name ends in ``import`` / ``import_module``).
 
-First-party violations that exist today are listed, each with its reason, in
-``tests/architecture/kernel_module_imports_allowlist.json``; the list only
-shrinks: an entry that matches no violation is itself a problem.
+First-party violations that exist today are the ``open`` (or
+``retained``) import rows of the kernel's edge register,
+``tests/architecture/kernel_edges.yml`` (ADR-0012 decision 2), each with its
+ADR; an import stays tolerated while its row is not ``fixed``, and an entry
+that matches no violation is itself a problem (the register replaced
+``kernel_module_imports_allowlist.json``).
 
 The dependency closure of third-party distributions is read from the
 metadata of the running environment (the contributor environment has every
@@ -39,7 +42,6 @@ dependency installed).
 from __future__ import annotations
 
 import ast
-import json
 import re
 import sys
 import zipfile
@@ -49,15 +51,15 @@ from email.parser import BytesParser
 from importlib import metadata
 from pathlib import Path, PurePosixPath
 
+import yaml
+
 _NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 _EXTRA_MARKER = re.compile(r"""extra\s*==\s*['"]([^'"]+)['"]""")
 
-#: The shrink-only list of first-party imports that break the rule today.
+#: The kernel's edge register: its open import rows are the first-party
+#: imports that break the rule today.
 ALLOWLIST = (
-    Path(__file__).resolve().parents[2]
-    / "tests"
-    / "architecture"
-    / "kernel_module_imports_allowlist.json"
+    Path(__file__).resolve().parents[2] / "tests" / "architecture" / "kernel_edges.yml"
 )
 
 Requirement = tuple[str, frozenset[str]]
@@ -264,15 +266,32 @@ def module_imports(source: str, module: str, *, is_package: bool) -> list[Import
 
 
 def load_allowlist(path: Path = ALLOWLIST) -> dict[str, tuple[str, ...]]:
-    """``{importing module: imported modules}`` of the shrink-only list.
-    Every entry states its ``reason``."""
-    entries = json.loads(path.read_text(encoding="utf-8"))
-    allowed: dict[str, tuple[str, ...]] = {}
-    for module, entry in entries.items():
-        if not str(entry.get("reason", "")).strip() or not entry.get("imports"):
-            raise ValueError(f"{path.name}: {module} needs `imports` and a `reason`")
-        allowed[module] = tuple(entry["imports"])
-    return allowed
+    """``{importing module: imported modules}`` the edge register still
+    tolerates: every runtime row of type ``import`` whose ``current_status``
+    is not ``fixed``, by its literal anchors in Python files. Each such row
+    names its ADR (the register's check, SANDLOOM-T017, refuses one
+    without)."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    allowed: dict[str, list[str]] = {}
+    for row in data.get("edges") or ():
+        if (
+            row.get("kind", "runtime") != "runtime"
+            or row.get("type") != "import"
+            or row.get("current_status") == "fixed"
+        ):
+            continue
+        if not row.get("adr"):
+            raise ValueError(f"{path.name}: row {row.get('id')} needs an `adr`")
+        for anchor in row.get("anchors") or ():
+            literal, where = anchor.get("literal"), str(anchor.get("path", ""))
+            if not literal or not where.endswith(".py"):
+                continue
+            literal = str(literal).strip("\"'")
+            module = (
+                where.removesuffix(".py").replace("/", ".").removesuffix(".__init__")
+            )
+            allowed.setdefault(module, []).append(literal)
+    return {module: tuple(targets) for module, targets in allowed.items()}
 
 
 def _provider(target: str, owners: Mapping[str, str]) -> tuple[str, str] | None:
@@ -485,8 +504,8 @@ def check(
                         f"{wheel.name} does not declare{reason}"
                     )
     problems.extend(
-        f"allowlist entry {module} -> {target} matches no violation: remove it "
-        f"from {ALLOWLIST.name} (the list only shrinks)"
+        f"allowlist entry {module} -> {target} matches no violation: set its row "
+        f"of {ALLOWLIST.name} to current_status: fixed (the list only shrinks)"
         for module, target in sorted(tolerated - used)
     )
     return problems

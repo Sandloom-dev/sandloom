@@ -347,25 +347,6 @@ def load_register(path: Path = REGISTER) -> Register:
     return parse_register(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
-def import_allowlist(register: Register) -> dict[str, tuple[str, ...]]:
-    """The kernel imports of a module the register still holds (an ``open``
-    or ``retained`` runtime import row with a literal anchor in a Python
-    file), as ``{importing module: (imported module, ...)}``. The register
-    absorbed ``kernel_module_imports_allowlist.json``: an import stays
-    allowed exactly as long as its row is not ``fixed``."""
-    allowed: dict[str, list[str]] = {}
-    for row in register.rows:
-        if not row.runtime or row.type != "import" or row.current_status == "fixed":
-            continue
-        for anchor in row.anchors:
-            if not anchor.literal or not anchor.path.endswith(".py"):
-                continue
-            module = anchor.path.removesuffix(".py").replace("/", ".")
-            module = module.removesuffix(".__init__")
-            allowed.setdefault(module, []).append(anchor.exact or anchor.literal)
-    return {k: tuple(v) for k, v in allowed.items()}
-
-
 # --- module names --------------------------------------------------------------------
 
 
