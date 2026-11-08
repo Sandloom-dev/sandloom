@@ -90,6 +90,17 @@ website renders this same changelog.
 
 ### Fixed
 
+- **`sandloom-billing` and `sandloom-identity` boot on plain `sandloom`, without
+  Celery.** `sandloom.sdk.tasks` imported Celery at import, so a module whose
+  `tasks.py` uses the typed `shared_task` failed to load (`ModuleLoadError ...
+  No module named 'celery'`) unless the optional `sandloom[celery]` extra was
+  installed. Celery is now imported only where it is used: with Celery
+  installed the decorator is Celery's `shared_task` as before (worker and beat
+  unchanged); without it the task still runs inline and `delay` /
+  `apply_async` / `s` / `si`, and `cron(...)`, raise `TaskQueueNotInstalled`
+  naming the extra. The package check boots each module wheel on plain
+  `sandloom` and probes `/health` and `/ready` (KB-01).
+
 - **`sandloom-identity` declares `argon2-cffi`, which its login service
   imports.** It installed only because the `sandloom` kernel requires it for
   its own password hashing. The packaging import check now refuses a module
