@@ -1,0 +1,174 @@
+===== P2
+PASS P2 fixture-invalid-value|app: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|worker: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|beat: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|migrate: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|cli-outbox: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|cli-streams: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|cli-projection: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|cli-sagas: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|cli-backup: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-invalid-value|doctor: rc=2 FAIL modules/composition_root: ModuleSettingsError: [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+PASS P2 fixture-oversell-in-prod|app: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|worker: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|beat: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|migrate: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|cli-outbox: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|cli-streams: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|cli-projection: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|cli-sagas: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|cli-backup: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk: SANDLOOM_ACCEPTED_RISKS=["inventory.oversell_in_prod"]
+PASS P2 fixture-oversell-in-prod|doctor: rc=2 FAIL modules/composition_root: ModuleSettingsError: [core.config] Invalid configuration: module inventory: INVENTORY_ALLOW_OVERSELL=true is not allowed with ENVIRONMENT=prod; accept the risk…
+PASS P2 billing-provider-unset-in-prod|app: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|worker: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|beat: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|migrate: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|cli-outbox: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|cli-streams: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|cli-projection: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|cli-sagas: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|cli-backup: rc=1 [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stac…
+PASS P2 billing-provider-unset-in-prod|doctor: rc=2 FAIL modules/composition_root: ModuleSettingsError: [core.config] Invalid configuration: module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROV…
+PASS P2 identity-weak-totp-key|app: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|worker: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|beat: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|migrate: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|cli-outbox: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|cli-streams: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|cli-projection: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|cli-sagas: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|cli-backup: rc=1 [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); generate a random one (e.g. openssl rand -hex 32)
+PASS P2 identity-weak-totp-key|doctor: rc=2 FAIL modules/composition_root: ModuleSettingsError: [core.config] Invalid configuration: module sandloom_identity: TWOFA_ENCRYPTION_KEY[0] is too short for production (>= 32 characters); gen…
+PASS P2 duplicate-env-name|app: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|worker: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|beat: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|migrate: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|cli-outbox: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|cli-streams: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|cli-projection: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|cli-sagas: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|cli-backup: rc=1 [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 duplicate-env-name|doctor: rc=2 FAIL modules/composition_root: ModuleSettingsError: [core.config] Invalid configuration: SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P2 control fixture-invalid-value: rc=0 built
+PASS P2 control fixture-oversell-in-prod: rc=0 built
+PASS P2 control billing-provider-unset-in-prod: rc=0 built
+PASS P2 control identity-weak-totp-key: rc=0 built
+PASS P2 control duplicate-env-name: rc=0 built
+===== P3
+PASS P3 app: rc=0 config-refusal=no warning=yes
+PASS P3 worker: rc=2 config-refusal=no warning=yes
+PASS P3 beat: rc=2 config-refusal=no warning=yes
+PASS P3 migrate: rc=0 config-refusal=no warning=yes
+PASS P3 cli-outbox: rc=1 config-refusal=no warning=yes
+PASS P3 cli-streams: rc=1 config-refusal=no warning=yes
+PASS P3 cli-projection: rc=0 config-refusal=no warning=yes
+PASS P3 cli-sagas: rc=0 config-refusal=no warning=yes
+PASS P3 cli-backup: rc=0 config-refusal=no warning=yes
+PASS P3 /diagnostics/core lists it, metric set: accepted_risks=['inventory.oversell_in_prod'] metric=[[{'risk': 'inventory.oversell_in_prod'}, 1.0]]
+PASS P3 doctor lists it: warn config/override:SANDLOOM_ACCEPTED_RISKS[inventory.oversell_in_prod]
+===== P4
+PASS P4 a-applies billing-svc app: rc=0 built
+PASS P4 a-applies billing-svc worker: rc=1 socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+PASS P4 a-applies billing-svc migrate: rc=0 default: postgresql+psycopg2://***@h:5432/d
+PASS P4 a-applies tenancy-svc app: rc=0 built
+PASS P4 a-applies tenancy-svc worker: rc=1 socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+PASS P4 a-applies tenancy-svc migrate: rc=0 default: postgresql+psycopg2://***@h:5432/d
+PASS P4 b-unknown-namespace billing-svc app: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'inventory', 'sandloom_billing', 'tenancy'])
+PASS P4 b-unknown-namespace billing-svc worker: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'inventory', 'sandloom_billing', 'tenancy'])
+PASS P4 b-unknown-namespace billing-svc migrate: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'inventory', 'sandloom_billing', 'tenancy'])
+PASS P4 b-unknown-namespace tenancy-svc app: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'sandloom_tenancy', 'tenancy'])
+PASS P4 b-unknown-namespace tenancy-svc worker: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'sandloom_tenancy', 'tenancy'])
+PASS P4 b-unknown-namespace tenancy-svc migrate: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'bilingg.fake_psp_in_prod': no module 'bilingg' is known in this deployment (installed or loaded: ['billing', 'identity', 'sandloom_tenancy', 'tenancy'])
+PASS P4 c-undeclared-id billing-svc app: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'billing.free_money', which module billing does not declare (declared: ['billing.fake_psp_in_prod'])
+PASS P4 c-undeclared-id billing-svc worker: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'billing.free_money', which module billing does not declare (declared: ['billing.fake_psp_in_prod'])
+PASS P4 c-undeclared-id billing-svc migrate: rc=1 [core.config] Invalid configuration: SANDLOOM_ACCEPTED_RISKS names 'billing.free_money', which module billing does not declare (declared: ['billing.fake_psp_in_prod'])
+PASS P4 c-undeclared-id tenancy-svc app: rc=0 built
+PASS P4 c-undeclared-id tenancy-svc worker: rc=1 socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+PASS P4 c-undeclared-id tenancy-svc migrate: rc=0 default: postgresql+psycopg2://***@h:5432/d
+PASS P4 d-flat-old-id billing-svc app: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 d-flat-old-id billing-svc worker: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 d-flat-old-id billing-svc migrate: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 d-flat-old-id tenancy-svc app: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 d-flat-old-id tenancy-svc worker: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 d-flat-old-id tenancy-svc migrate: rc=1 [core.config] Invalid configuration: 1 validation error for Settings Value error, SANDLOOM_ACCEPTED_RISKS names unknown risk id 'fake_psp_in_prod'; module risk ids are namespaced: use 'billing.fake_psp_in_prod' (docs/upgrade notes: accepted
+PASS P4 b-unknown-namespace billing-svc identical across entry points: 1 distinct message(s)
+PASS P4 b-unknown-namespace tenancy-svc identical across entry points: 1 distinct message(s)
+PASS P4 c-undeclared-id billing-svc identical across entry points: 1 distinct message(s)
+PASS P4 d-flat-old-id billing-svc identical across entry points: 1 distinct message(s)
+PASS P4 d-flat-old-id tenancy-svc identical across entry points: 1 distinct message(s)
+PASS P4 a tenancy-svc /diagnostics/core: not applicable: rows=[{'risk': 'billing.fake_psp_in_prod', 'weakens': 'not applicable here: its module is not loaded in this process', 'consulted_by': '-', 'in_effect': False, 'not_applicable': True}]
+PASS P4 a tenancy-svc doctor: not applicable: accepted risk billing.fake_psp_in_prod is not applicable here: its module is not loaded in this process
+===== P5
+PASS P5 optional (MODULE_REQUIRED=[]) invalid value: rc=1 [core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be less than or equal to 3600
+PASS P5 control: optional fixture loads when valid: rc=0 ['inventory']
+===== P6
+PASS P6 runtime: unloaded module's variables are inert: rc=0 built
+PASS P6 config dump omits them: rc=0 INVENTORY_* listed=[]
+PASS P6 sandloom check settings: wrong value for the topology that loads it: rc=1
+PASS P6 sandloom check settings: wrong module name in SANDLOOM_MODULES: rc=1
+PASS P6 sandloom check settings: variable set where the module is not loaded: rc=1
+FAIL pay: SANDLOOM_MODULES names unknown module 'invntory'
+FAIL pay: module billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or, for a demo stack, SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"])
+FAIL pay: sets ['INVENTORY_API_TOKEN'] for module inventory, which this service does not load
+FAIL shop: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1
+settings gate: 4 problem(s) over 4 module(s)
+===== P7
+{
+ "reserve_ttl": 9,
+ "reserve_origin": "env",
+ "warehouse": "dotenv-wh",
+ "warehouse_origin": "dotenv",
+ "token": "from-secrets",
+ "token_origin": "secrets_dir",
+ "allow_oversell": true,
+ "oversell_origin": "dotenv",
+ "stripe_webhook": "whsec_from_secrets",
+ "log_level": "DEBUG",
+ "dotenv_parses": 1,
+ "dotenv_values_calls": 1,
+ "secrets_lookups_max_per_alias": 1,
+ "secrets_lookups": 208,
+ "secrets_dir_listed": {
+  "listdir": 0,
+  "scandir": 0
+ }
+}
+PASS P7 env > .env > secrets (ttl: env 9 over .env 8 over secrets 7): 9 [env]
+PASS P7 .env over secrets (warehouse): dotenv-wh [dotenv]
+PASS P7 secrets supply a value (token): [secrets_dir]
+PASS P7 .env supplies a module value and a kernel value: oversell=True LOG_LEVEL=DEBUG
+PASS P7 billing secret from SECRETS_DIR: 
+PASS P7 spy: one .env parse, one secrets lookup per declared alias, no listing: dotenv parses=1 dotenv_values calls=1 lookups=208 aliases, max per alias=1 listed={'listdir': 0, 'scandir': 0}
+===== P8
+PASS P8 standard-install semantic total unchanged: base kernel=15; candidate kernel=14 + billing=1 + identity=0 = 15; unclassified kernel names=[]
+PASS P8 fixture semantic override logged at INFO in dev: 2026-11-08 19:03:13,363 [INFO] sandloom.settings: CONFIG OVERRIDE: INVENTORY_ALLOW_OVERSELL=true weakens the dev profile value false
+PASS P8 removed fixture setting refused with today's message shape: [core.config] Invalid configuration: module inventory: INVENTORY_LEGACY_SYNC was removed in 0.2 and INVENTORY_LEGACY_SYNC=true is no longer supported: stock sync is always event-driven now; drop it from the environment
+PASS P8 removed fixture setting at its inert value warns: rc=0
+===== P9
+PASS P9 T014 shared inventory value differs between services: INVENTORY_WAREHOUSE differs between processes (['north', 'south']): it must be identical everywhere (keep it in x-common-env only)
+PASS P9 control: equal shared values pass: ["SHUTDOWN_BUDGET_SECONDS is missing in ['shop', 'stock']: shared settings live in the shared env anchor (x-common-env), merged by every process", "EVENT_PAYLOAD_MAX_BYTES is missing in ['shop', 'stock']: shared setting…
+PASS P9 check settings: collision across modules not loaded together: FAIL SANDLOOM-B036: INVENTORY_RESERVE_TTL_SECONDS is declared by module inventory and module inventory_dup
+PASS P9 check settings: unprefixed new name: 
+PASS P9 control: bundled + fixture clean (STRIPE_*/TWOFA_* grandfathered by snapshot): settings gate: 0 problem(s) over 4 module(s)
+settings gate: 0 problem(s) over 4 module(s)
+===== P10
+PASS P10 console list mono (identity, tenancy, billing): {"module_rows": ["billing_provider"], "billing_provider_in_kernel_list": false}
+PASS P10 console list without billing: {"module_rows": [], "billing_provider_in_kernel_list": false}
+===== P11
+PASS P11 module values with provenance: INVENTORY_API_TOKEN={'name': 'INVENTORY_API_TOKEN', 'value': '<redacted>', 'source': 'env module=inventory', 'secret': True} BILLING_PROVIDER={'name': 'BILLING_PROVIDER', 'value': 'stripe', 'source': 'env module=billing', 'secret': False}
+PASS P11 redaction (declared SecretStr + name rule): 
+PASS P11 socket spy: no connection during the dump (billing builds its Stripe client in setup): connects=[] rc=0
+PASS P11 no lifespan entered: lifespans=[]
+PASS P11 invalid module value diagnosed without exiting 1: rc=0 problems=['[core.config] Invalid configuration: module inventory: INVENTORY_RESERVE_TTL_SECONDS: Input should be greater than or equal to 1']
+FAIL P11 --kernel-only = today's dump minus the moved names: base lines=205 (moved 9), candidate=196 (equal after whitespace normalisation)
+PASS P11 --kernel-only --json byte-identical to today's minus moved entries: 196 entries
+PASS P11 wall time (process, median of 10): today=0.752s candidate --kernel-only=0.763s candidate full=1.486s (+0.734s)
+===== P14
+PASS P14 dev env values come from declarations: {"TWOFA_ENCRYPTION_KEY": 64, "BILLING_PROVIDER": "fake", "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod"}
+PASS P14 deploy_profile.py names no module setting: left=[]
+PASS P14 shipped profile: every service boots with the dev env (no prod check fires): services=['billing', 'identity', 'tenancy'] problems={}
+PASS P14 T014 profile_problems on the shipped profile: []
+===== P15
+PASS P15 import audit (python -I): fixture + ported modules: rc=0 0 violation(s), 0 import error(s)
+PASS P15 import audit (python -I): module-level settings_of: rc=1 0 violation(s), 1 import error(s)
+===== 134/135 rows pass
