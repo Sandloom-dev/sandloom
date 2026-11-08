@@ -37,6 +37,9 @@ def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
     sender.add_periodic_task(cron("0 3 * * *"), purge.s(), name="m.purge")
 ```
 
+Raises `TaskQueueNotInstalled` when Celery is not installed (a beat
+schedule only exists where Celery runs).
+
 ### `shared_task`
 
 ```python
@@ -56,6 +59,9 @@ def shared_task(
 An idempotent, at-least-once task (redelivered when a worker dies) is
 `@shared_task(acks_late=True, reject_on_worker_lost=True)`; its body
 runs async work through `run_async(...)` with `open_uow()` blocks.
+
+Without Celery installed the function becomes a task that runs inline
+and refuses every enqueue with `TaskQueueNotInstalled`.
 
 ### `Task`
 
