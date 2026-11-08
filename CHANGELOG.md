@@ -42,6 +42,8 @@ website renders this same changelog.
   `default_claim_authorities`, kept only for the batteries in the
   composition (loaded, or bound through `<m>.claims.v1`); `sandloom new`
   writes the app's map (`CLAIM_AUTHORITIES`) into `<app>/asgi.py`.
+  `CoreFacade.claim_authorities` (new, read-only) is the resolved assignment;
+  it is made once, by `create_app`.
   **Upgrade:** a root that composes identity (or any issuer whose critical
   contributor writes `roles`) must assign the claims, or every mint refuses
   with 503 and startup logs that no map is set: run `sandloom_standard.main`
