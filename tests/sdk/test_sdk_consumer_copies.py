@@ -6,7 +6,8 @@ The planner reads ``kbshop``'s declarations (AST, nothing composed), the
 copies land in ``kbshop/_generated/contracts``; the fitness tests of the ADR:
 byte-identical generation (hash seeds, orders, ruff absent, a foreign
 ``line-length``), the closed-DTO rule, provider absent (keep / edited /
-missing), stem collisions, the planned set against the composed one.
+missing), stem collisions, the planned set against the composed one; an
+unused client, orphan copies and the expectation's own digest (KB-W1).
 """
 
 from __future__ import annotations
@@ -72,6 +73,10 @@ SHOP = """
 
     quota = Contract({P}_QUOTA_V1)
     register = define_module(__name__, consumes=[ContractRequirement("{p}.quota.v1")])
+
+
+    async def limit(org: str) -> int:
+        return (await quota.get(org)).limit
 """
 
 
@@ -378,3 +383,85 @@ def test_the_final_layout_is_what_ruff_format_writes_at_88(
         dto_copies.ruff_formatted(dto.content, root / "src" / "x_dto.py", cwd=root)
         == dto.content
     )
+
+
+def test_a_client_never_used_is_reported(tree: dict[str, Any]) -> None:
+    """``x = Contract(REF)`` no file of the module names again consumes the
+    contract for nothing (ADR-0013 decision 2); a use in another file of the
+    module counts."""
+    init = tree["src"] / tree["shop"] / "__init__.py"
+    init.write_text(init.read_text().split("\n\nasync def limit")[0] + "\n")
+    files, _ = cc.plan_static(tree["modules"], tree["src"], generated.STUBS)
+    problems = [p for f in files for p in f.problems]
+    assert len(problems) == 1
+    assert "quota = Contract(...) is never used" in problems[0]
+    assert f"consumes {tree['contract']} for nothing" in problems[0]
+    (init.parent / "services.py").write_text(
+        "from . import quota\n\n\nasync def f() -> None:\n    await quota.get('o')\n"
+    )
+    files, _ = cc.plan_static(tree["modules"], tree["src"], generated.STUBS)
+    assert not [p for f in files for p in f.problems]
+
+
+def test_orphan_copies_are_removed_once_no_longer_consumed(
+    tree: dict[str, Any],
+) -> None:
+    """A contract dropped from ``consumes`` leaves copies no planned file
+    stands for: ``generate`` removes them (``--check`` reports them), an
+    edited one is refused, a file the generator never wrote is left to
+    ``sandloom check`` (SANDLOOM-C032)."""
+    _write(_composed(tree, ("get",)))
+    assert not [f for f in _composed(tree, ("get",)) if f.remove]
+    (tree["out"] / "notes.txt").write_text("mine\n")
+    gone = cc.plan_composed(
+        tree["modules"], {tree["shop"]: {}}, {}, tree["src"], generated.STUBS
+    )
+    assert not [p for f in gone for p in f.problems]
+    assert all(f.remove and f.content == "" for f in gone)
+    removed = sorted(f.path.relative_to(tree["out"].parent).as_posix() for f in gone)
+    assert removed == [
+        "__init__.py",
+        "contracts/__init__.py",
+        f"contracts/{tree['prov']}_dto.py",
+        f"contracts/{tree['prov']}_quota_v1.describe.json",
+        f"contracts/{tree['prov']}_quota_v1.py",
+    ]
+    stub = tree["out"] / f"{tree['prov']}_quota_v1.py"
+    stub.write_text(stub.read_text() + "# mine\n")
+    edited = cc.plan_composed(
+        tree["modules"], {tree["shop"]: {}}, {}, tree["src"], generated.STUBS
+    )
+    refused = [f for f in edited if f.problems]
+    assert [f.path for f in refused] == [stub] and not refused[0].remove
+    assert "no longer consumes" in refused[0].problems[0]
+
+
+def _kept_problems(tree: dict[str, Any]) -> list[str]:
+    kept = cc.keep_committed(tree["shop"], tree["contract"], tree["out"])
+    assert kept
+    return [p for f in kept for p in f.problems]
+
+
+def test_the_expectation_carries_its_own_digest(tree: dict[str, Any]) -> None:
+    """With the provider absent, a hand-edited ``.describe.json`` is refused
+    like an edited stub (SANDLOOM-T018): every copy is verified."""
+    _write(_composed(tree, ("get",)))
+    path = tree["out"] / f"{tree['prov']}_quota_v1{cc.EXPECTATION_SUFFIX}"
+    doc = json.loads(path.read_text())
+    assert doc["format"] == cc.EXPECTATION_FORMAT and len(doc["digest"]) == 16
+    assert _kept_problems(tree) == []
+    doc["methods"] = ["get", "unused"]
+    path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    problems = _kept_problems(tree)
+    assert len(problems) == 1 and "hand-edited" in problems[0]
+    del doc["digest"]
+    path.write_text(json.dumps(doc))
+    problems = _kept_problems(tree)
+    assert len(problems) == 1 and "no digest" in problems[0]
+
+
+def test_explain_diff_names_an_expectation_format_change() -> None:
+    old = json.dumps({"fingerprint": "f", "generator_format": 2, "format": 1})
+    new = json.dumps({"fingerprint": "f", "generator_format": 2, "format": 2})
+    assert "generator change" in cc.explain_diff(old, new)
+    assert cc.explain_diff("[]", "[]") == ""
