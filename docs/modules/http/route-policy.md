@@ -222,9 +222,15 @@ module's claim only if that module is in `claims_sources`. Identity stamps
 `auth_time`, carried unchanged through refresh.
 Each claim key has one owner. A second module writing a key another module
 wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
-does a contributor writing a key the kernel stamps: `claims_sources`, `claims_sources_failed`,
-`sub`, `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`, `auth_time`,
-`token_type`.
+does a contributor writing a reserved key. The kernel stamps the provenance:
+`claims_sources`, `claims_sources_failed`. It reads the subject's structure
+from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. It stamps the
+token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
+`auth_time`, `token_type`.
+
+Upgrading: a contributor that returns a reserved key now gets `503` at minting.
+Drop the key. Return each value as a top-level claim your module owns, not
+under `claims`. Top-level keys already land in `UserContext.claims`.
 
 ## The route snapshot
 
