@@ -727,21 +727,26 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
         dto_package=f"{where.shared_package}.contracts.{dto_stem}",
         shared_packages=("sandloom.shared", where.shared_package),
     )
-    contracts_dir = where.shared_dir / "contracts"
-    (contracts_dir / f"{stem}.py").write_text(
-        stubs.render_stub(contract, provider, resolver), encoding="utf-8"
-    )
+    # Exactly as `sandloom generate` writes them: provenance header, final
+    # layout, never the project's formatter (ADR-0013 decisions 6, 7).
+    consumer = importlib.import_module("sandloom.core.cli.consumer_copies")
+    label = consumer.distribution_label(package)
+    group = [consumer.Provider(contract, provider, package, label)]
     for other in vars(module_contracts).values():
-        spec = getattr(other, "__dict__", {}).get("__sandloom_contract__")
+        if not issubclass(type(other), type):  # never touch a lazy proxy
+            continue
+        spec = other.__dict__.get("__sandloom_contract__")
         if spec is not None and other is not provider:
             stubs.render_stub(spec.name, other, resolver)  # its DTOs too
+            group.append(consumer.Provider(spec.name, other, package, label))
+    contracts_dir = where.shared_dir / "contracts"
+    (contracts_dir / f"{stem}.py").write_text(
+        consumer.stub_file(contract, group[0], resolver, stubs.STUBS),
+        encoding="utf-8",
+    )
     target = contracts_dir / f"{dto_stem}.py"
     if resolver.copied:
-        text = copies.render_module(module, resolver)
-        target.write_text(
-            copies.ruff_formatted(text, target, cwd=where.source_root),
-            encoding="utf-8",
-        )
+        target.write_text(consumer.dto_file(module, resolver, group), encoding="utf-8")
 
 
 def _contract_dto(directory: Path, contract: str, dto: str) -> Path:

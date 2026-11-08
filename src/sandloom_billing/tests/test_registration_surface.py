@@ -156,6 +156,7 @@ def test_registration_surface_is_pinned() -> None:
             "tenancy.membership.v1",
             required=False,
             reason="organization billing context / org subscription fact",
+            methods=("get_member_state", "get_role", "has_role_at_least"),
         )
     ]
 

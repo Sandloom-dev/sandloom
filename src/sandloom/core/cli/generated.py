@@ -20,8 +20,19 @@ For every module declared with L1 discovery (``define_module`` of
   (a route that lost its authentication is incompatible, SANDLOOM-T001);
 - ``<module>/contracts.snapshot.json``: the describe documents of the
   contracts it provides (a breaking change is incompatible, SANDLOOM-T004);
+- in a tree of module distributions (top-level module packages),
+  ``<module>/_generated/contracts/``: the stubs, DTO copies and narrowed
+  expectations of the contracts the module ``consumes``, planned before
+  composition (:mod:`sandloom.core.cli.consumer_copies`, ADR-0013;
+  SANDLOOM-T018 when a copy cannot be generated or verified);
 - ``<shared>/admin-manifest.json``: the admin console's screens, when the
   composition loads the console (SANDLOOM-T016).
+
+Consumer files (stubs, DTO copies) carry a provenance header whose digest
+covers the body, and are laid out by the generator itself, never by the
+project's formatter (ADR-0013 decisions 6, 7). An application's shared
+package holds copies for the union of its own modules' ``consumes`` when every
+entry has a method list, else for every composed provider.
 
 Every generated file is compared with the committed version **before
 anything is written**: an incompatible change fails and nothing is written
@@ -51,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import sandloom.core.cli.consumer_copies as _consumer_copies
 import sandloom.core.cli.dto_copies as _dto_copies
 import sandloom.core.cli.inspection.generation as _inspection_generation
 import sandloom.core.cli.route_weakening as _route_weakening
@@ -358,9 +370,8 @@ def stub_problems(old: str | None, new: str) -> list[str]:
     return problems
 
 
-# --------------------------------------------------------------------------- #
-# Event schemas
-# --------------------------------------------------------------------------- #
+#: The stub renderer as :mod:`sandloom.core.cli.consumer_copies` uses it.
+STUBS = _consumer_copies.Stubs(render_stub, stub_problems)
 
 
 # --------------------------------------------------------------------------- #
@@ -504,12 +515,17 @@ def _contract_files(
     shared_dir: Path,
     shared_package: str,
     shared_packages: tuple[str, ...],
-    format_dto: Callable[[str, Path], str],
+    format_dto: Callable[[str, Path], str] | None = None,
+    *,
+    wanted: set[str] | None = None,
 ) -> list[Generated]:
-    """The stubs of the contracts ``entry`` provides and, when their
-    signatures name the provider's own DTOs, the module's generated DTO
-    copies (one ``<module>_dto.py``, so two contracts share one class)."""
+    """The stubs of the contracts ``entry`` provides (only those in
+    ``wanted`` when given) and, when their signatures name the provider's
+    own DTOs, the module's generated DTO copies (one ``<module>_dto.py``,
+    so two contracts share one class), each under its provenance header."""
     short = module_name(entry.name)
+    label = _consumer_copies.distribution_label(entry.name)
+    providers: list[_consumer_copies.Provider] = []
     stem_dto = _dto_copies.dto_module_stem(short)
     dto_path = shared_dir / "contracts" / f"{stem_dto}.py"
     resolver = _dto_copies.Resolver(
@@ -525,20 +541,28 @@ def _contract_files(
         impl = getattr(impl, "contract_impl", impl)
         if impl is None or not hasattr(impl, "__sandloom_contract__"):
             continue
+        if wanted is not None and provided.name not in wanted:
+            continue
         stem, _protocol, _ref = stub_names(provided.name)
         path = shared_dir / "contracts" / f"{stem}.py"
+        provider = _consumer_copies.Provider(provided.name, impl, entry.name, label)
+        providers.append(provider)
         try:
-            content = render_stub(provided.name, impl, resolver)
+            content = _consumer_copies.stub_file(
+                provided.name, provider, resolver, STUBS
+            )
         except _dto_copies.CopyError as exc:
             refused.append(f"{provided.name}: {exc}")
             continue
         stub = Generated(path, content, "SANDLOOM-T007")
         stub.problems = stub_problems(stub.current, stub.content)
         out.append(stub)
-        pending_stubs.append((stub, provided.name, impl))
+        pending_stubs.append((stub, provided.name, provider))
     if resolver.copied or refused:
         try:
-            text = format_dto(_dto_copies.render_module(short, resolver), dto_path)
+            text = _consumer_copies.dto_file(short, resolver, providers)
+            if format_dto is not None:
+                text = format_dto(text, dto_path)
         except _dto_copies.CopyError as exc:
             refused.append(str(exc))
             text = ""
@@ -548,8 +572,10 @@ def _contract_files(
         # All contracts and nested/default DTOs are now known, so every stub
         # uses the same final names as the shared DTO module.
         if not refused:
-            for stub, name, impl in pending_stubs:
-                stub.content = render_stub(name, impl, resolver)
+            for stub, name, provider in pending_stubs:
+                stub.content = _consumer_copies.stub_file(
+                    name, provider, resolver, STUBS
+                )
                 stub.problems = stub_problems(stub.current, stub.content)
     return out
 
@@ -586,6 +612,7 @@ def plan(
     shared_package: str = "sandloom.shared",
     modules: Iterable[str] | None = None,
     format_dto: Callable[[str, Path], str] | None = None,
+    consumed_only: bool = False,
 ) -> list[Generated]:
     """Every generated file of the app's L1 modules, with its verdict.
 
@@ -594,19 +621,27 @@ def plan(
     ``shared_package``); the module side (``module.snapshot.json``, route
     and contract snapshots) only for modules under ``source_root``: an
     installed module package ships its own. ``modules`` (names or import
-    paths) keeps those modules' files only. ``format_dto`` formats a DTO
-    module (default: the project's ruff)."""
+    paths) keeps those modules' files only. DTO modules are rendered in
+    their final layout (``format_dto``, a test seam, post-processes one).
+    ``consumed_only`` (an application): the shared package holds copies for
+    the union of the owned modules' ``consumes`` when every entry lists its
+    methods (ADR-0013 decision 2), else for every composed provider."""
     manifest = app.state.app_manifest
     facade = app.state.core
     contracts = _contract_compat.module_snapshots(facade)
     shared_packages = _shared_packages(facade, shared_package)
-    if format_dto is None:
-        cwd = source_root
-
-        def format_dto(text: str, path: Path) -> str:
-            return _dto_copies.ruff_formatted(text, path, cwd=cwd)
-
-    out: list[Generated] = []
+    out: list[Generated] = [
+        Generated(
+            shared_dir / "contracts" / f"{stem}.py",
+            "",
+            "SANDLOOM-T007",
+            [_consumer_copies.collision_problem(stem, names)],
+        )
+        for stem, names in sorted(
+            _consumer_copies.stem_collisions(facade.service_registry.list()).items()
+        )
+    ]
+    wanted = _consumed_union(manifest, source_root) if consumed_only else None
     for entry in manifest.modules:
         if not is_l1(entry.name) or not _selected(entry, modules):
             continue
@@ -640,11 +675,74 @@ def plan(
             out.append(snapshot)
             out += _module_snapshots(app, entry.name, contracts)
         out += _contract_files(
-            entry, facade, shared_dir, shared_package, shared_packages, format_dto
+            entry,
+            facade,
+            shared_dir,
+            shared_package,
+            shared_packages,
+            format_dto,
+            wanted=wanted,
         )
     if modules is None:
         out += _admin_manifest(app, shared_dir)
     return out
+
+
+def _consumed_union(manifest: Any, source_root: Path | None) -> set[str] | None:
+    """The contracts the application's own modules consume, or ``None``
+    when one entry has no method list (a call the generator could not
+    resolve: the per-provider copies stay until ``consumes=`` states it)."""
+    union: set[str] = set()
+    for entry in manifest.modules:
+        directory = _module_dir(entry.name) if is_l1(entry.name) else None
+        if directory is None or not _owned(directory, source_root):
+            continue
+        for use in entry.contracts_consumed:
+            if _consumer_copies.is_kernel_family(use.name):
+                continue
+            if not use.methods:
+                return None
+            union.add(use.name)
+    return union
+
+
+def _distribution_modules(rules: Any) -> dict[str, Path]:
+    """``{package: directory}`` of the module distributions of a tree of
+    top-level module packages (none in an application)."""
+    if not rules.top_level_modules:
+        return {}
+    return {
+        rules.module_package(name): rules.modules_path / name
+        for name in rules.business_modules()
+    }
+
+
+def _consumer_plan(
+    app: Any, rules: Any, planned: dict[str, set[str]], modules: Iterable[str] | None
+) -> list[Generated]:
+    """The module distributions' copies after composition: expectations
+    narrowed to the composed ``consumes``, which must equal the planned set."""
+    tree = _distribution_modules(rules)
+    consumes: dict[str, dict[str, tuple[str, ...]]] = {}
+    for entry in app.state.app_manifest.modules:
+        if entry.name in tree and _selected(entry, modules):
+            consumes[entry.name] = {
+                u.name: tuple(u.methods) for u in entry.contracts_consumed
+            }
+    selected = {p: d for p, d in tree.items() if p in consumes}
+    registry = {}
+    facade = app.state.core
+    for name in facade.service_registry.list():
+        impl = facade.service_registry.try_get(name)
+        impl = getattr(impl, "contract_impl", impl)
+        owner = facade.contract_owner(name)
+        if impl is not None and owner and hasattr(impl, "__sandloom_contract__"):
+            label = _consumer_copies.distribution_label(owner)
+            registry[name] = _consumer_copies.Provider(name, impl, owner, label)
+    files = _consumer_copies.plan_composed(
+        selected, consumes, planned, rules.source_root, STUBS, registry
+    )
+    return [Generated(f.path, f.content, f.code, f.problems) for f in files]
 
 
 def _ensure_package(directory: Path, shared_dir: Path) -> None:
@@ -667,6 +765,9 @@ _FIXES = {
     "SANDLOOM-T004": "a breaking contract change is a new version (.v2)",
     "SANDLOOM-T005": "a breaking change is a new version (.v2)",
     "SANDLOOM-T007": "a breaking contract change is a new version (.v2)",
+    "SANDLOOM-T018": "install the provider as a development dependency or commit "
+    "its generated copy, and state each consumed contract's methods in "
+    "define_module(consumes=[...]) where a call cannot be resolved",
     "SANDLOOM-C012": "keep every contract DTO in the closed set of wire shapes, "
     "defined at module level in the provider's own package",
 }
@@ -719,7 +820,8 @@ def apply(
             print(f"{STALE} ({len(stale)} file(s)):")
         for item in stale:
             state = "missing" if item.current is None else "differs"
-            print(f"  {_shown(item.path, root)} [{item.code}] ({state})")
+            why = _consumer_copies.explain_diff(item.current, item.content)
+            print(f"  {_shown(item.path, root)} [{item.code}] ({state}){why}")
         return 1 if stale else 0
     for item in stale:
         item.path.parent.mkdir(parents=True, exist_ok=True)
@@ -752,6 +854,24 @@ def main(argv: list[str] | None = None) -> int:
     if str(rules.source_root) not in sys.path:
         sys.path.insert(0, str(rules.source_root))
     before = _inspection_generation.capture(rules)
+    tree = _distribution_modules(rules)
+    if args.modules:
+        tree = {
+            p: d
+            for p, d in tree.items()
+            if p in args.modules or module_name(p) in args.modules
+        }
+    early, planned = _consumer_copies.plan_static(tree, rules.source_root, STUBS)
+    pre = [Generated(f.path, f.content, f.code, f.problems) for f in early]
+    if any(f.problems for f in pre) or (args.check and any(f.stale for f in pre)):
+        return apply(
+            pre, write=not args.check, shared_dir=rules.shared_dir, root=rules.root
+        )
+    if not args.check and any(f.stale for f in pre):
+        # Written before composition: a module may import a copy it has
+        # not generated yet (ADR-0013 decision 2).
+        apply(pre, write=True, shared_dir=rules.shared_dir, root=rules.root)
+        before = _inspection_generation.capture(rules)
     app = load_composition_app()
     if args.modules:
         known = {
@@ -763,13 +883,15 @@ def main(argv: list[str] | None = None) -> int:
         if unknown:
             print(f"sandloom generate: no composed module named {', '.join(unknown)}")
             return 2
+    consumed_only = not rules.top_level_modules
     files = plan(
         app,
         rules.shared_dir,
         rules.source_root,
         shared_package=rules.shared_dto_package,
         modules=args.modules or None,
-    )
+        consumed_only=consumed_only,
+    ) + _consumer_plan(app, rules, planned, args.modules or None)
     return _inspection_generation.finish(
         rules=rules,
         app=app,
@@ -777,11 +899,15 @@ def main(argv: list[str] | None = None) -> int:
         modules=args.modules,
         check=args.check,
         before=before,
-        plan_all=lambda: plan(
-            app,
-            rules.shared_dir,
-            rules.source_root,
-            shared_package=rules.shared_dto_package,
+        plan_all=lambda: (
+            plan(
+                app,
+                rules.shared_dir,
+                rules.source_root,
+                shared_package=rules.shared_dto_package,
+                consumed_only=consumed_only,
+            )
+            + _consumer_plan(app, rules, planned, None)
         ),
         make_file=Generated,
         apply_files=apply,
@@ -792,6 +918,7 @@ __all__ = [
     "HEADER",
     "MODULE_SNAPSHOT",
     "STALE",
+    "STUBS",
     "Generated",
     "apply",
     "is_l1",

@@ -182,6 +182,28 @@ def test_methods_are_derived_from_direct_calls_only() -> None:
     )
 
 
+def test_an_optional_client_local_resolves_its_methods() -> None:
+    """``c = ref.client()`` in a function, tested against ``None`` and
+    called: its methods are the entry's (ADR-0013: a static method list);
+    any other use of the local is unresolved."""
+    source = (
+        "sec = Contract(REF, optional=True)\n"
+        "async def f():\n"
+        "    client = sec.client()\n"
+        "    if client is None:\n"
+        "        return\n"
+        "    await client.platform_admin_exists()\n"
+        "async def g():\n"
+        "    client = object()\n"
+        "    client.unrelated()\n"
+    )
+    assert called_methods(source, {"sec"}) == ("platform_admin_exists",)
+    passed_on = source.replace(
+        "    await client.platform_admin_exists()\n", "    await helper(client)\n"
+    )
+    assert called_methods(passed_on, {"sec"}) == ()
+
+
 def test_typed_saga_step_names_the_command() -> None:
     quota = Contract(REF)
     typed = step(
