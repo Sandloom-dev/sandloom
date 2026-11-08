@@ -263,4 +263,6 @@ def test_reserved_keys_cover_the_envelope_and_provenance() -> None:
         "user_id",
         "provenance_authoritative",
         "claims",
+        "tenant_id",
+        "org_id",
     } <= RESERVED_CLAIM_KEYS

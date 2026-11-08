@@ -70,6 +70,13 @@ RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
         "user_id",
         "provenance_authoritative",
         "claims",
+        # The tenant the request binds: TenantScope and the authz tenant
+        # resolver read these BEFORE the ``tenant_ids`` grant
+        # (core/http/tenant_scope.py, shared/authz/_resolve.py), so a
+        # contributed value would bind a foreign tenant. Only trusted minting
+        # code (a service or test token) may set them.
+        "tenant_id",
+        "org_id",
         "sub",
         "iss",
         "aud",

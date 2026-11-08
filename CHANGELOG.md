@@ -20,11 +20,11 @@ website renders this same changelog.
   wrote (identity's `roles`, say), or any module writing a key the kernel
   stamps or reads as the subject's structure (`claims_sources`,
   `claims_sources_failed`, `sub`, `user_id`, `provenance_authoritative`,
-  `claims`, `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`, `auth_time`,
-  `token_type`), aborts minting with `503`, local or remote. Before, the last
+  `claims`, `tenant_id`, `org_id`, `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`,
+  `iat_us`, `auth_time`, `token_type`), aborts minting with `503`, local or remote. Before, the last
   writer won: a module could put `roles: ["admin"]` in a token stamped with
-  identity and pass the platform administrator gate, or override `user_id` and
-  revocation fields. **Upgrade:** a contributor that returned one of these keys
+  identity and pass the platform administrator gate, override `user_id` and
+  revocation fields, or write `tenant_id` and bind a foreign tenant. **Upgrade:** a contributor that returned one of these keys
   must drop it; return values as top-level claims your module owns instead of a
   nested `claims` mapping. A nested `sub`, `roles` or `permissions` cannot move
   up unchanged (reserved, or identity's): rename it and update its readers.

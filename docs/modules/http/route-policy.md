@@ -224,7 +224,8 @@ Each claim key has one owner. A second module writing a key another module
 wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
 does a contributor writing a reserved key. The kernel stamps the provenance:
 `claims_sources`, `claims_sources_failed`. It reads the subject's structure
-from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. It stamps the
+from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. Tenant
+binding reads `tenant_id` and `org_id`. It stamps the
 token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
 `auth_time`, `token_type`.
 
