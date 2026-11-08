@@ -775,6 +775,10 @@ edges:
       - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"subscription_status\""}
       - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"features\""}
       - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"limits\""}
+      # KB-10: the claims those atoms read are protected and may have a
+      # non-critical authority (ADR-0014 decisions 1, 7); read from the
+      # declarations once the atoms leave the kernel.
+      - {path: sandloom/core/claims.py, symbol: FAIL_SAFE_KEYS}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}
   - id: B-N13

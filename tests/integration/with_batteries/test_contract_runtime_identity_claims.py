@@ -25,6 +25,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import (
     contract_session,
@@ -74,8 +75,21 @@ class _FakeDatabase:
         return None
 
 
+#: The standard batteries' claim authorities (``sandloom_standard.main``'s map,
+#: ADR-0014): identity's and tenancy's keys come only from them.
+STANDARD = build_claim_authorities(
+    {
+        "issuer": "sandloom_identity",
+        "roles": "sandloom_identity",
+        "permissions": "sandloom_identity",
+        "tenant_ids": "sandloom_tenancy",
+    }
+)
+
+
 def _core() -> tuple[CoreFacade, list[tuple[str, str]]]:
     core = CoreFacade(app=FastAPI())
+    core._assign_claim_authorities(STANDARD)
     log: list[tuple[str, str]] = []
     core.database = lambda name="default": _FakeDatabase(name, log)  # type: ignore[method-assign]
     return core, log

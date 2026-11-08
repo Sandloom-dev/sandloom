@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,50 @@ def test_with_batteries_orders_modules(tmp_path: Path) -> None:
     asgi = _read(root, "shop/asgi.py")
     assert 'BUNDLED: list[str] = ["identity", "billing"]' in asgi
     assert 'app_modules("shop.modules")' in asgi
+
+
+@pytest.mark.parametrize("app", ["shop", "a_rather_long_application_name_x"])
+def test_the_app_writes_its_claim_authorities(tmp_path: Path, app: str) -> None:
+    """ADR-0014: the generated root assigns the chosen batteries' claims, and
+    ``ruff format`` leaves the root as written (the app's own format gate)."""
+    generate_project(app, tmp_path, with_batteries=["billing", "identity"])
+    asgi = _read(tmp_path / app, f"{app}/asgi.py")
+    (assigned,) = [
+        node.value
+        for node in ast.parse(asgi).body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "CLAIM_AUTHORITIES"
+        and node.value is not None
+    ]
+    assert ast.literal_eval(assigned) == {
+        "issuer": "sandloom_identity",
+        "roles": "sandloom_identity",
+        "permissions": "sandloom_identity",
+        "email": "sandloom_identity",
+        "email_verified": "sandloom_identity",
+        "subscription_status": "sandloom_billing",
+        "plan_code": "sandloom_billing",
+        "features": "sandloom_billing",
+        "limits": "sandloom_billing",
+    }
+    assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
+    formatted = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--diff", "-"],
+        input=asgi,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert formatted.returncode == 0, formatted.stdout + formatted.stderr
+
+
+def test_an_app_without_batteries_assigns_no_claim(tmp_path: Path) -> None:
+    """No issuer, no authority: the map is empty, and still passed."""
+    generate_project("probe", tmp_path)
+    asgi = _read(tmp_path / "probe", "probe/asgi.py")
+    assert "CLAIM_AUTHORITIES: dict[str, str] = {}" in asgi
+    assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
 
 
 def test_the_console_brings_identity_and_stays_off_in_production(

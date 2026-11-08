@@ -12,12 +12,17 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.facade import CoreFacade
 
 
 @pytest.mark.asyncio
 async def test_claims_provenance_from_registering_module() -> None:
     core = CoreFacade(app=FastAPI())
+    # A protected claim needs its assigned authority (ADR-0014).
+    core._assign_claim_authorities(
+        build_claim_authorities({"subscription_status": "myapp.modules.billing"})
+    )
 
     async def billing_claims(user_id: Any) -> dict[str, Any]:
         return {"subscription_status": "active"}

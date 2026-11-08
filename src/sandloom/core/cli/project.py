@@ -600,8 +600,23 @@ from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
 
 BUNDLED: list[str] = $bundled_json
 
+#: Who may write each protected token claim, and the module that issues
+#: tokens (ADR-0014): code, never a setting. A contributor writing a protected
+#: claim it is not assigned loses its whole result; startup refuses a map the
+#: composition cannot honour (`sandloom explain SANDLOOM-B035`).
+CLAIM_AUTHORITIES: dict[str, str] = $claim_authorities
+
 $create_app'''
 )
+
+
+def _dict_literal(mapping: dict[str, str]) -> str:
+    """``mapping`` as ``ruff format`` keeps it: ``{}``, else one entry per
+    line with the magic trailing comma."""
+    if not mapping:
+        return "{}"
+    lines = "".join(f'    "{key}": "{value}",\n' for key, value in mapping.items())
+    return "{\n" + lines + "}"
 
 
 def _create_app_call(app: str, width: int = 88) -> str:
@@ -610,14 +625,15 @@ def _create_app_call(app: str, width: int = 88) -> str:
     wrapped, then one argument per line, then the list exploded too."""
     title = f'title="{app}"'
     modules = f'default_modules=[*BUNDLED, *app_modules("{app}.modules")]'
+    authorities = "claim_authorities=CLAIM_AUTHORITIES"
     forms = [
-        f"app = create_app({title}, {modules})\n",
-        f"app = create_app(\n    {title}, {modules}\n)\n",
-        f"app = create_app(\n    {title},\n    {modules},\n)\n",
+        f"app = create_app({title}, {modules}, {authorities})\n",
+        f"app = create_app(\n    {title}, {modules}, {authorities}\n)\n",
+        f"app = create_app(\n    {title},\n    {modules},\n    {authorities},\n)\n",
     ]
     exploded = (
         f"app = create_app(\n    {title},\n    default_modules=[\n        *BUNDLED,\n"
-        f'        *app_modules("{app}.modules"),\n    ],\n)\n'
+        f'        *app_modules("{app}.modules"),\n    ],\n    {authorities},\n)\n'
     )
     forms.append(exploded)
     for form in forms:
@@ -1292,6 +1308,19 @@ def generate_project(
     sandloom_modules = [*bundled, app_module]
     modules_json = json.dumps(sandloom_modules)
     bundled_json = json.dumps(bundled)
+    # The app's claim authorities (ADR-0014): who may write each protected
+    # token claim, for the bundled modules chosen; the app's own issuer or
+    # claims are added there by hand.
+    authority_keys = {
+        "identity": ("issuer", "roles", "permissions", "email", "email_verified"),
+        "tenancy": ("tenant_ids",),
+        "billing": ("subscription_status", "plan_code", "features", "limits"),
+    }
+    claim_authorities = {
+        key: f"sandloom_{name}"
+        for name in bundled
+        for key in authority_keys.get(name, ())
+    }
 
     root = parent_dir / app
     if root.exists():
@@ -1305,6 +1334,7 @@ def generate_project(
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,
+        "claim_authorities": _dict_literal(claim_authorities),
         "create_app": _create_app_call(app),
         "framework_deps": "\n".join(f'    "{dep}",' for dep in framework_deps),
         "framework_distribution": ", ".join(

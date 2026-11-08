@@ -58,6 +58,9 @@ def test_all_entrypoints_agree(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_default_root_is_sandloom_main(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(composition.COMPOSITION_ROOT_ENV, raising=False)
+    # The framework suite composes sandloom_standard.main when it is installed
+    # (conftest.py); the settings snapshot took it too.
+    monkeypatch.setattr(composition.settings, "sandloom_composition_root", None)
     import sandloom.main
 
     assert composition.composition_root_name() == "sandloom.main"
