@@ -16,8 +16,8 @@ from sandloom.core.testing.workers import seed_test_environ
 
 #: Settings ``.env.test`` must not leak into the framework suite's snapshot:
 #: the suite runs as ``ENVIRONMENT=dev`` (it gates on ``is_prod``, never
-#: ``is_test``).
-_SEED_SKIP = frozenset({"ENVIRONMENT"})
+#: ``is_test``); the composition root is chosen below, by what is installed.
+_SEED_SKIP = frozenset({"ENVIRONMENT", "SANDLOOM_COMPOSITION_ROOT"})
 
 
 def _seed_test_env() -> None:
@@ -55,8 +55,9 @@ def _standard_root_when_installed() -> None:
     """Compose the suite with the standard root when it is installed.
 
     The lean ``sandloom.main`` assigns no claim authorities (ADR-0012
-    decision 3, ADR-0014), so with the batteries installed every identity
-    mint would refuse (503). A checkout with ``sandloom-standard`` tests the
+    decision 3, ADR-0014), so with the batteries installed it refuses the
+    boot (identity issues tokens, SANDLOOM-B035). A checkout with
+    ``sandloom-standard`` tests the
     standard composition, ``sandloom_standard.main`` with its trust map; the
     ``kernel-without-batteries`` venv has no ``sandloom-standard`` and keeps
     the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins.

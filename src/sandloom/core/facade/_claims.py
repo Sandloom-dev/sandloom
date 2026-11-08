@@ -13,7 +13,9 @@ claim only from the authority the composition assigned it
 (:class:`~sandloom.core.claims.ClaimAuthorities`), the reserved keys from
 nobody, any other key from one owner per token. A step that breaks it is a
 violator: an optional one loses its whole result, a critical one refuses the
-mint naming itself.
+mint naming itself. The issuer's own fields (``email``, ``email_verified``)
+pass the same check as a last, critical step of the issuer
+(``collect_claims(issuer_claims=...)``): never written after it, unchecked.
 """
 
 from __future__ import annotations
@@ -336,6 +338,7 @@ class _ClaimsMixin(_ServicesMixin):
         *,
         issuer: str | None = None,
         precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
+        issuer_claims: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Merge every contributor's claims for ``user_id`` (mint cold path).
 
@@ -370,6 +373,13 @@ class _ClaimsMixin(_ServicesMixin):
         (:attr:`claim_authorities`); a contributor writing one it is not
         assigned, or a reserved key, is a violator (see
         :meth:`_merge_claim_outcomes`).
+
+        ``issuer_claims``: the claims the issuer writes itself from the row
+        it mints for (``email``, ``email_verified``), merged as a last,
+        critical step of ``issuer`` through the same check: a key the
+        composition does not assign to the issuer refuses the mint
+        (:class:`ClaimsUnavailable`), so an issuer field is never minted
+        unchecked (no map: nothing is assigned). No call is added.
         """
         if issuer_session is not None and issuer is None:
             raise ValueError(
@@ -377,9 +387,16 @@ class _ClaimsMixin(_ServicesMixin):
                 "the issuer's own contributors run in its session; every other "
                 "one runs in its own module's Unit of Work"
             )
+        if issuer_claims and issuer is None:
+            raise ValueError(
+                "collect_claims(issuer_claims=...) needs issuer=<module>: they "
+                "are checked as the issuer's own claims"
+            )
         plan = self._claims_plan(user_id, issuer, issuer_session, precomputed)
         outcomes = await _run_claims_plan(plan)
-        return self._merge_claim_outcomes(plan, outcomes)
+        return self._merge_claim_outcomes(
+            plan, outcomes, issuer=issuer, issuer_claims=issuer_claims
+        )
 
     def _claims_plan(
         self,
@@ -471,7 +488,12 @@ class _ClaimsMixin(_ServicesMixin):
         return _remote_call
 
     def _merge_claim_outcomes(
-        self, plan: list[_ClaimsStep], outcomes: dict[int, _ClaimsOutcome]
+        self,
+        plan: list[_ClaimsStep],
+        outcomes: dict[int, _ClaimsOutcome],
+        *,
+        issuer: str | None = None,
+        issuer_claims: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Apply outcomes in plan order; the first critical failure aborts.
 
@@ -483,6 +505,10 @@ class _ClaimsMixin(_ServicesMixin):
         an optional one loses its WHOLE result (never a partial one), is
         recorded in ``claims_sources_failed``, logged at ERROR naming it and
         the key, and counted in ``claims_contributor_violations_total``.
+
+        ``issuer_claims`` are the last step, the issuer's and critical: a key
+        it may not write refuses the mint; its values win over the issuer's
+        contributors' (it reads the row it mints for).
         """
         claims: dict[str, Any] = {}
         sources: set[str] = set()
@@ -519,6 +545,7 @@ class _ClaimsMixin(_ServicesMixin):
             # nothing — an empty result is an authoritative "no").
             if owner:
                 sources.add(owner)
+        self._merge_issuer_claims(claims, key_owner, issuer, issuer_claims)
 
         # Always stamped (JSON lists for the JWT; UserContext coerces to sets).
         # ``claims_sources_failed`` doubles as the marker that provenance is
@@ -527,6 +554,24 @@ class _ClaimsMixin(_ServicesMixin):
         claims["claims_sources"] = sorted(sources - failed)
         claims["claims_sources_failed"] = sorted(failed)
         return claims
+
+    def _merge_issuer_claims(
+        self,
+        claims: dict[str, Any],
+        key_owner: Mapping[str, str | None],
+        issuer: str | None,
+        issuer_claims: Mapping[str, Any] | None,
+    ) -> None:
+        """The issuer's own claims, the last and critical step: a key it may
+        not write (:meth:`_claim_violation`) refuses the mint."""
+        if not issuer_claims:
+            return
+        violation = self._claim_violation(
+            issuer, issuer_claims, key_owner, self._claim_authorities
+        )
+        if violation is not None:
+            self._violator(issuer, True, *violation)
+        claims.update(issuer_claims)
 
     def _claim_violation(
         self,

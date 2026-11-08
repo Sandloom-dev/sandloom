@@ -35,24 +35,47 @@ async def test_access_token_carries_email_verified(
     assert claims["email_verified"] is True
 
 
-async def test_unverified_user_and_contributors_cannot_override_identity() -> None:
+async def test_the_issuer_fields_go_through_the_mint_check() -> None:
+    """``email``/``email_verified`` are handed to the kernel's mint check as
+    the issuer's own claims (which refuses a contributor writing them), and
+    the token carries what the check returned: nothing is written after it
+    except ``sub`` and ``token_type``."""
     user = Mock(spec=User)
     user.id = "00000000-0000-0000-0000-000000000001"
     user.email = "u@example.com"
     user.is_verified = False
+    checked = {"email": "u@example.com", "email_verified": False, "roles": ["r"]}
     core = SimpleNamespace(
-        collect_claims=AsyncMock(
-            return_value={"sub": "attacker", "email_verified": True, "roles": ["r"]}
-        )
+        collect_claims=AsyncMock(return_value={**checked, "sub": "x"})
     )
     db = AsyncMock()
     db.add = Mock()
     pair = await TokenService.create_tokens(user, db, core)  # type: ignore[arg-type]
+    kwargs = core.collect_claims.await_args.kwargs
+    assert kwargs["issuer"] == "identity"
+    assert kwargs["issuer_claims"] == {
+        "email": "u@example.com",
+        "email_verified": False,
+    }
     claims = decode_token(pair.access_token)
     assert claims is not None
     assert claims["sub"] == str(user.id)
-    assert claims["email_verified"] is False
-    assert claims["roles"] == ["r"]
+    assert {k: claims[k] for k in checked} == checked
+
+
+async def test_without_a_core_no_issuer_field_is_minted() -> None:
+    """No core, no check: the issuer's fields are never minted unchecked."""
+    user = Mock(spec=User)
+    user.id = "00000000-0000-0000-0000-000000000001"
+    user.email = "u@example.com"
+    user.is_verified = True
+    db = AsyncMock()
+    db.add = Mock()
+    pair = await TokenService.create_tokens(user, db)
+    claims = decode_token(pair.access_token)
+    assert claims is not None
+    assert "email" not in claims
+    assert "email_verified" not in claims
 
 
 async def test_revoke_sessions_uses_the_framework_mark(

@@ -247,8 +247,10 @@ Every minted token records claim provenance in `claims_sources` /
 treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
-Contributors cannot override the identity claims (`sub`, `email`,
-`email_verified`, `token_type`).
+Contributors cannot write the identity claims: `sub` and `token_type` are
+the minting code's, and `email` and `email_verified` are the issuer's fields.
+The issuer writes them at the mint through the same check as every protected
+claim, so no other module's value is kept, and none is overwritten silently.
 
 Each protected claim has one authority, a module the composition root names
 in code: `create_app(claim_authorities={...})`. An `issuer` entry names the
@@ -274,9 +276,13 @@ Startup refuses an assignment the composition cannot honour
 nor binds, or an issuer mismatch. A claim whose readers have no fallback
 needs a critical authority. Only the billing claims may come from a
 non-critical one: every reader treats their absence as "not granted". So a
-billing outage still lets users log in. A lean root with no map assigns
-nothing. With it, an issuer whose critical contributor writes `roles`
-refuses every mint rather than minting untrusted claims.
+billing outage still lets users log in. While the billing authority is
+down, `Feature` and `WithinLimit` on the user's token answer `503`
+(indeterminate, never an allow), and a billing that ran and granted nothing
+denies. `email` and `email_verified` belong to the map's issuer: a map that
+assigns them to another module refuses the boot. A lean root with no map
+assigns nothing, so a process that loads a token issuer under it refuses the
+boot rather than refusing every login.
 
 The names in provenance are tied to the module that registers. Claims
 contributors and access facts are accepted only under the short name of the

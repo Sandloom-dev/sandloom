@@ -27,6 +27,7 @@ from sandloom.core.app_factory.claim_authorities import (
 )
 from sandloom.core.claims import (
     FAIL_SAFE_KEYS,
+    ISSUER_FIELDS,
     NO_AUTHORITIES,
     PROTECTED_BASE,
     ClaimAuthorities,
@@ -34,6 +35,9 @@ from sandloom.core.claims import (
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.facade._claims import CLAIMS_VIOLATIONS_METRIC, RESERVED_CLAIM_KEYS
+from sandloom.shared.authz import Account, Feature, Not, Or, Role, WithinLimit
+from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.subject import UserContext
 
 IDP = "acme.idp"
 GRANTS = "acme.grants"
@@ -138,9 +142,47 @@ def test_the_map_resolves_paths_short_names_and_the_issuer() -> None:
     assert "issuer" not in policy.authorities
     assert policy.owner_of("roles") == "idp"
     assert policy.owner_of("tenant_ids") == "grants"
-    assert policy.owner_of("email") is None
     assert policy.assigned
     assert policy.protected == PROTECTED_BASE | (set(MAP) - {"issuer"})
+
+
+def test_the_issuer_fields_are_the_issuers() -> None:
+    """A map with an issuer that names none assigns them to the issuer."""
+    policy = build_claim_authorities(MAP)
+    for key in ISSUER_FIELDS:
+        assert policy.owner_of(key) == "idp"
+        assert policy.authorities[key] == IDP
+    explicit = build_claim_authorities({**MAP, "email": IDP})
+    assert explicit.authorities == policy.authorities
+
+
+@pytest.mark.parametrize("key", sorted(ISSUER_FIELDS))
+@pytest.mark.parametrize(
+    "mapping",
+    [{**MAP, "{key}": PLANS}, {"roles": IDP, "{key}": IDP}],
+    ids=["another-module", "no-issuer"],
+)
+def test_an_issuer_field_assigned_to_anyone_else_is_refused(
+    key: str, mapping: dict[str, str]
+) -> None:
+    """Never silently overwritten by the issuer: the map is refused."""
+    entry = {k.format(key=key): v for k, v in mapping.items()}
+    with pytest.raises(ClaimAuthorityError, match=f"{key!r} is an issuer field"):
+        build_claim_authorities(entry)
+
+
+def test_the_map_is_read_only() -> None:
+    """One-shot is enforced: the checked map cannot be edited in place."""
+    source = dict(MAP)
+    policy = build_claim_authorities(source)
+    with pytest.raises(TypeError):
+        policy.authorities["roles"] = ROGUE  # type: ignore[index]
+    with pytest.raises(TypeError):
+        policy.owners["roles"] = "rogue"  # type: ignore[index]
+    owners = {"roles": "idp"}
+    built = ClaimAuthorities(authorities={"roles": IDP}, owners=owners, assigned=True)
+    owners["roles"] = "rogue"
+    assert built.owner_of("roles") == "idp"
 
 
 def test_no_map_assigns_nothing_and_protects_the_base_keys() -> None:
@@ -502,14 +544,29 @@ def test_a_non_issuing_process_checks_only_the_issuer() -> None:
     assert _problems(MAP, loaded={"plans": PLANS}, issuers=()) == []
 
 
-def test_no_map_has_no_refusal() -> None:
-    """A lean root refuses nothing at startup (the mint refuses instead)."""
+def test_no_map_refuses_an_issuing_process_only() -> None:
+    """A lean root with an issuer refuses the boot rather than 503 every
+    login; a process minting nothing boots."""
+    (problem,) = claim_authority_problems(
+        NO_AUTHORITIES, loaded=LOADED, contributors={}, bindings={}, issuers=[IDP]
+    )
+    assert "no claim_authorities map is set, but 'acme.idp' is loaded as" in problem
+    assert "create_app(claim_authorities={...})" in problem
+    assert "SANDLOOM_COMPOSITION_ROOT" in problem
     assert (
         claim_authority_problems(
-            NO_AUTHORITIES, loaded=LOADED, contributors={}, bindings={}, issuers=[IDP]
+            NO_AUTHORITIES, loaded=LOADED, contributors={}, bindings={}, issuers=[]
         )
         == []
     )
+
+
+def test_the_issuers_fields_need_no_contributor_of_their_own() -> None:
+    """The issuer writes them in its own critical mint step: an issuer whose
+    contributor is optional (or absent) is not refused for them."""
+    assert _problems({"issuer": IDP}, contributors={"idp": False}) == []
+    assert _problems({"issuer": IDP}, contributors={}) == []
+    assert _problems({"issuer": IDP, "email": IDP}, contributors={}) == []
 
 
 def test_the_default_map_keeps_only_the_composed_authorities() -> None:
@@ -576,13 +633,12 @@ def test_the_assignment_is_made_once() -> None:
     assert core.claim_authorities.owner_of("roles") == "idp"
 
 
-def test_install_without_a_map_warns_in_an_issuing_process(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """ADR-0012 decision 3: startup logs that no authority map is set."""
+def test_install_without_a_map_refuses_an_issuing_process() -> None:
+    """The lean root with the batteries: B035 at boot, not a 503 per login."""
     core = _core(None)
-    with caplog.at_level(logging.WARNING, logger="test"):
-        policy = install_claim_authorities(
+    _register(core, IDP, {"roles": []}, critical=True)
+    with pytest.raises(ConfigurationError) as refused:
+        install_claim_authorities(
             core,
             [_descriptor(IDP, issues_tokens=True)],
             claim_authorities=None,
@@ -590,7 +646,185 @@ def test_install_without_a_map_warns_in_an_issuing_process(
             bindings={},
             log=logging.getLogger("test"),
         )
-    assert policy is NO_AUTHORITIES
-    assert any(
-        "no claim_authorities map is set" in r.getMessage() for r in caplog.records
+    message = str(refused.value)
+    assert "SANDLOOM-B035" in message
+    assert "no claim_authorities map is set" in message
+    assert "sandloom explain SANDLOOM-B035" in message
+
+
+def test_install_without_a_map_boots_a_process_minting_nothing() -> None:
+    """No issuer loaded: nothing to assign, the boot goes on."""
+    core = _core(None)
+    policy = install_claim_authorities(
+        core,
+        [_descriptor(PLANS)],
+        claim_authorities=None,
+        default_claim_authorities=None,
+        bindings={},
+        log=logging.getLogger("test"),
     )
+    assert policy is NO_AUTHORITIES
+
+
+def test_install_refuses_an_issuer_field_given_to_another_module() -> None:
+    """The finding: ``email`` assigned to billing no longer boots."""
+    core = _core(None)
+    _register(core, IDP, {"roles": []}, critical=True)
+    with pytest.raises(ConfigurationError) as refused:
+        install_claim_authorities(
+            core,
+            [_descriptor(IDP, issues_tokens=True)],
+            claim_authorities={**MAP, "email": PLANS},
+            default_claim_authorities=None,
+            bindings={},
+            log=logging.getLogger("test"),
+        )
+    assert "SANDLOOM-B035" in str(refused.value)
+    assert "'email' is an issuer field" in str(refused.value)
+
+
+# --------------------------------------------------------------------------- #
+# the issuer's own fields at the mint
+# --------------------------------------------------------------------------- #
+
+FIELDS = {"email": "u@example.com", "email_verified": False}
+
+
+async def _issue(core: CoreFacade, fields: dict[str, Any] = FIELDS) -> dict[str, Any]:
+    return await core.collect_claims(uuid4(), issuer="idp", issuer_claims=fields)
+
+
+@pytest.mark.asyncio
+async def test_the_issuers_fields_pass_the_check_and_win() -> None:
+    """Kept from the issuer; a contributor writing one is a violator."""
+    core = _core()
+    _register(core, IDP, {"roles": ["member"]}, critical=True)
+    _register(core, ROGUE, {"email_verified": True, "loyalty": 1})
+    claims = await _issue(core)
+    assert claims["email"] == "u@example.com"
+    assert claims["email_verified"] is False
+    assert "loyalty" not in claims
+    assert claims["claims_sources_failed"] == ["rogue"]
+
+
+@pytest.mark.asyncio
+async def test_without_a_map_the_issuers_fields_are_not_minted() -> None:
+    """No map: nothing is assigned, so the issuer's fields refuse the mint."""
+    core = _core(None)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await _issue(core)
+    assert refused.value.owner == "idp"
+
+
+@pytest.mark.asyncio
+async def test_another_module_cannot_mint_the_issuer_fields() -> None:
+    """Only the map's issuer's: a step named otherwise refuses the mint."""
+    core = _core()
+    _register(core, IDP, {"roles": []}, critical=True)
+    with pytest.raises(ClaimsUnavailable):
+        await core.collect_claims(uuid4(), issuer="rogue", issuer_claims=FIELDS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["sub", "claims_sources", "cpv"])
+async def test_the_issuer_writes_no_reserved_key(key: str) -> None:
+    """The kernel's own fields are nobody's, the issuer's included."""
+    core = _core()
+    with pytest.raises(ClaimsUnavailable):
+        await _issue(core, {**FIELDS, key: "x"})
+
+
+@pytest.mark.asyncio
+async def test_issuer_claims_need_the_issuer() -> None:
+    """They are checked as the issuer's: no issuer, no check, a ValueError."""
+    with pytest.raises(ValueError, match="needs issuer"):
+        await _core().collect_claims(uuid4(), issuer_claims=FIELDS)
+
+
+# --------------------------------------------------------------------------- #
+# Feature / WithinLimit: a failed authority is indeterminate (decision 7)
+# --------------------------------------------------------------------------- #
+
+PLAN_MAP = {**MAP, "features": PLANS, "limits": PLANS}
+
+
+def _subject(*, failed: set[str] | None, **claims: Any) -> UserContext:
+    data: dict[str, Any] = {"user_id": uuid4(), "roles": {"member"}, **claims}
+    if failed is not None:
+        data["claims_sources"] = {"idp"}
+        data["claims_sources_failed"] = failed
+    return UserContext(**data)
+
+
+def _authz(subject: UserContext, mapping: dict[str, str] | None = PLAN_MAP) -> Any:
+    core = _core(mapping) if mapping is not None else None
+    return AuthzContext(subject, core=core)
+
+
+FEATURE = Feature("export", of=Account.user())
+LIMIT = WithinLimit("seats", 2, of=Account.user())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
+async def test_a_failed_authority_is_indeterminate_503(atom: Any) -> None:
+    """The plans authority failed at the mint: the token proves nothing."""
+    decision = await atom.decide(_authz(_subject(failed={"plans"})))
+    assert not decision.allowed
+    assert decision.indeterminate
+    assert decision.http_status == 503
+    assert decision.code == "claim_authority_failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
+async def test_an_authority_that_ran_and_gave_nothing_denies(atom: Any) -> None:
+    """Billing ran: no feature, no limit is its definite "no"."""
+    for subject in (
+        _subject(failed=set()),
+        _subject(failed=set(), features={}, limits={}),
+        _subject(failed={"rogue"}),
+    ):
+        decision = await atom.decide(_authz(subject))
+        assert not decision.allowed
+        assert not decision.indeterminate
+
+
+@pytest.mark.asyncio
+async def test_a_present_claim_is_read_whatever_failed() -> None:
+    """Only an absent value escalates."""
+    subject = _subject(failed={"rogue"}, features={"export": True}, limits={"seats": 3})
+    assert (await FEATURE.decide(_authz(subject))).allowed
+    assert (await LIMIT.decide(_authz(subject))).allowed
+
+
+@pytest.mark.asyncio
+async def test_an_unassigned_key_and_a_legacy_token_deny() -> None:
+    """Unassigned in the composition: a definite deny; no provenance: as before."""
+    unassigned = await FEATURE.decide(_authz(_subject(failed={"plans"}), MAP))
+    assert not unassigned.allowed and not unassigned.indeterminate
+    legacy = await FEATURE.decide(_authz(_subject(failed=None)))
+    assert not legacy.allowed and not legacy.indeterminate
+
+
+@pytest.mark.asyncio
+async def test_without_a_readable_assignment_a_failure_is_indeterminate() -> None:
+    """No core (or a root without a map): any failed source may have been the
+    authority, so never a deny ``Not`` could invert."""
+    for ctx in (
+        _authz(_subject(failed={"plans"}), None),
+        AuthzContext(_subject(failed={"plans"}), core=_core(None)),
+    ):
+        decision = await FEATURE.decide(ctx)
+        assert decision.indeterminate and decision.http_status == 503
+
+
+@pytest.mark.asyncio
+async def test_not_and_or_never_allow_on_a_failed_authority() -> None:
+    """ADR-0014: an indeterminate operand never allows; a satisfied one does."""
+    ctx = _authz(_subject(failed={"plans"}))
+    negated = await Not(FEATURE).decide(ctx)
+    assert not negated.allowed and negated.indeterminate
+    either = await Or(Role("ops"), FEATURE).decide(ctx)
+    assert not either.allowed and either.http_status == 503
+    assert (await Or(Role("member"), FEATURE).decide(ctx)).allowed

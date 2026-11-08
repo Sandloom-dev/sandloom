@@ -7,7 +7,11 @@ alongside a sibling's router. The deploy model promises any module subset
 boots (``SANDLOOM_MODULES``); :func:`boot_module_alone` proves it for one module:
 ``create_app`` with ONLY that module in ``SANDLOOM_MODULES`` (required, no
 ``SERVICE_BINDINGS``, no entry-point plugins), then the full lifespan
-(startup + shutdown) against the test infrastructure.
+(startup + shutdown) against the test infrastructure. A token issuer
+(``issues_tokens=True``) booted alone is that composition's issuer, so it is
+named as the ``claim_authorities`` issuer and nothing else is assigned: no
+root names it there, and with no map an issuer refuses the boot
+(SANDLOOM-B035).
 
 A startup task that fails without being ``critical`` only logs; here every
 ERROR logged under ``sandloom`` while the lifespan runs fails the boot
@@ -97,8 +101,9 @@ async def boot_module_alone(module: str, *, lifespan: bool = True) -> BootOutcom
     fixture builds the schema).
     """
     with _only_module(module):
+        issuer = _issuer_alone(module)
         try:
-            app = create_app()
+            app = create_app(claim_authorities={"issuer": issuer} if issuer else None)
         except ContractBindingError as exc:
             missing = frozenset(contract for _m, contract, _r in exc.missing)
             return BootOutcome(module=module, started=False, missing_contracts=missing)
@@ -117,6 +122,16 @@ async def boot_module_alone(module: str, *, lifespan: bool = True) -> BootOutcom
                     + "; ".join(errors.messages)
                 )
     return BootOutcome(module=module, started=True)
+
+
+def _issuer_alone(module: str) -> str | None:
+    """``module``'s import path when it declares ``issues_tokens=True``
+    (registration only, no I/O), else ``None``."""
+    _core, summary = load_topology([module], exact=True)
+    return next(
+        (str(d.name) for d in summary.loaded if getattr(d, "issues_tokens", False)),
+        None,
+    )
 
 
 @dataclass(frozen=True)

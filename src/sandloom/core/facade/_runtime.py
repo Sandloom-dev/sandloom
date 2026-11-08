@@ -45,9 +45,14 @@ class CoreRuntime:
         *,
         issuer: str | None = None,
         precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
+        issuer_claims: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await self._facade.collect_claims(
-            user_id, issuer_session, issuer=issuer, precomputed=precomputed
+            user_id,
+            issuer_session,
+            issuer=issuer,
+            precomputed=precomputed,
+            issuer_claims=issuer_claims,
         )
 
     def get_access_fact(self, name: str) -> Any:

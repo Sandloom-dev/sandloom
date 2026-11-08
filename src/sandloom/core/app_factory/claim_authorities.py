@@ -23,16 +23,25 @@ the result, which the mint check applies in the merge pass
   no fallback (decision 7: only :data:`~sandloom.core.claims.FAIL_SAFE_KEYS`
   may have a non-critical authority, billing option (c)); an issuer mismatch
   (an ``issues_tokens=True`` module that is not the map's ``issuer``, or the
-  map's issuer loaded without ``issues_tokens=True``).
+  map's issuer loaded without ``issues_tokens=True``); an
+  ``issues_tokens=True`` module loaded with no map at all.
+* **Issuer fields** (:data:`~sandloom.core.claims.ISSUER_FIELDS`: ``email``,
+  ``email_verified``) are the map's issuer's: an entry naming another module
+  (or naming one in a map without an issuer) is refused wherever the map is
+  read; a map with an issuer that names none assigns them to the issuer. The
+  issuer writes them at the mint through the same check
+  (``collect_claims(issuer_claims=...)``, a critical step), so they need no
+  claims contributor of their own.
 * **The default map** (``default_claim_authorities``, a composition root's
   standard map, e.g. ``sandloom_standard.main``) keeps only the entries whose
   authority is part of this composition: loaded here, or bound through its
   ``<m>.claims.v1``; what it keeps is then checked like an explicit map. An
   explicit ``claim_authorities`` wins over it.
 * **No map** (a lean root): nothing is assigned, so every protected claim is
-  refused at the mint; an issuing process logs that at startup, and an issuer
-  whose critical contributor writes a protected claim refuses every mint (503)
-  rather than minting untrusted claims silently.
+  refused at the mint. A process that loads no ``issues_tokens=True`` module
+  boots (it mints nothing); an issuing one refuses the boot (SANDLOOM-B035)
+  instead of running an app whose every login is refused (503): the root
+  that composes the issuer must assign its authorities.
 """
 
 from __future__ import annotations
@@ -45,6 +54,7 @@ from typing import Any
 from sandloom.core.app_factory.revocation_applier import ISSUER_CODE
 from sandloom.core.claims import (
     ISSUER_ENTRY,
+    ISSUER_FIELDS,
     NO_AUTHORITIES,
     ClaimAuthorities,
 )
@@ -83,7 +93,10 @@ def build_claim_authorities(
 
     Entry-point names become import paths, as in ``SANDLOOM_MODULES``; the
     ``issuer`` entry is kept apart from the claim keys. ``None`` is "no map"
-    (:data:`~sandloom.core.claims.NO_AUTHORITIES`).
+    (:data:`~sandloom.core.claims.NO_AUTHORITIES`). The issuer fields are the
+    issuer's: an entry naming another module for one is a
+    :class:`ClaimAuthorityError`, and a map with an issuer that names none
+    assigns them to it.
     """
     if mapping is None:
         return NO_AUTHORITIES
@@ -110,6 +123,17 @@ def build_claim_authorities(
             issuer = path
         else:
             authorities[key] = path
+    for key in sorted(ISSUER_FIELDS):
+        if issuer is not None:
+            authorities.setdefault(key, issuer)
+        assigned_to = authorities.get(key)
+        if assigned_to is not None and assigned_to != issuer:
+            whose = f"({issuer!r})" if issuer else "(the map names none)"
+            raise ClaimAuthorityError(
+                f"claim_authorities[{key!r}] = {mapping[key]!r}: {key!r} is an "
+                f"issuer field, written only by the map's {ISSUER_ENTRY!r} "
+                f"{whose}; drop the entry or assign it to the issuer"
+            )
     return ClaimAuthorities(
         authorities=authorities,
         owners={key: module_name(path) for key, path in authorities.items()},
@@ -244,6 +268,21 @@ def _issuer_problems(
     return problems
 
 
+def _no_map_problem(issuers: list[str]) -> str:
+    """The refusal of an issuing process booted by a root with no map."""
+    names = ", ".join(repr(path) for path in sorted(set(issuers)))
+    return (
+        f"no claim_authorities map is set, but {names} is loaded as the token "
+        "issuer (issues_tokens): with no map no protected claim (roles, "
+        "permissions, tenant_ids, email, ...) has an authority, so every "
+        "token it mints would be refused (503); boot the composition root "
+        "that assigns them (SANDLOOM_COMPOSITION_ROOT: the standard root the "
+        "shipped image names, or your application's own root) or pass "
+        "create_app(claim_authorities={...}) in the root that composes the "
+        "issuer"
+    )
+
+
 def claim_authority_problems(
     authorities: ClaimAuthorities,
     *,
@@ -260,15 +299,19 @@ def claim_authority_problems(
     loaded ``issues_tokens=True`` modules (only an issuing process needs the
     authorities themselves).
     """
-    if not authorities.assigned:
-        return []
     issuer_list = list(issuers)
+    if not authorities.assigned:
+        return [_no_map_problem(issuer_list)] if issuer_list else []
     problems: list[str] = []
     if issuer_list:
         # Only the issuing process mints, so only it needs every authority
         # loaded or bound; another process may not even have the module
         # installed (a split's own images).
         for key, path in sorted(authorities.authorities.items()):
+            if key in ISSUER_FIELDS and path == authorities.issuer:
+                # The issuer writes them in its own critical mint step; the
+                # issuer itself is checked below.
+                continue
             problem = _authority_problem(
                 key,
                 path,
@@ -334,13 +377,10 @@ def install_claim_authorities(
             + "; ".join(problems)
             + f" (`sandloom explain {CODE}`)"
         )
-    if not authorities.assigned and issuers:
-        log.warning(
-            "claim authorities: no claim_authorities map is set, so no protected "
-            "claim (roles, permissions, tenant_ids, ...) has an authority and "
-            "every contributor writing one is refused at the mint; pass "
-            "create_app(claim_authorities=...) in the composition root (%s)",
-            CODE,
+    if not authorities.assigned:
+        log.info(
+            "claim authorities: no claim_authorities map is set (no issuer is "
+            "loaded here, so this process mints no token)"
         )
     else:
         log.info(

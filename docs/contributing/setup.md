@@ -20,7 +20,12 @@ cd sandloom
 ```
 
 The checkout runs with its standard modules (identity, tenancy, billing), which
-`sandloom.main:app` composes from their installed `sandloom.modules` entry points.
+the standard composition root `sandloom_standard.main` composes from their installed
+`sandloom.modules` entry points, with the claim authorities they need: identity issues
+the tokens and writes `roles` and `permissions`, tenancy writes `tenant_ids`, billing
+writes the subscription claims. The kernel's lean root `sandloom.main` assigns no
+authorities, so with identity installed it refuses to start (`SANDLOOM-B035`): run
+every process from the standard root.
 
 ## Install dependencies
 
@@ -45,7 +50,9 @@ cp .env.example .env
 ```
 
 The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
-`JWT_SECRET`. The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
+`JWT_SECRET`. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
+root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
+commands build; keep it. `sandloom test` takes it from `.env.test`. The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
 `/metrics`) stay closed (`404`) until you set
 `INTERNAL_API_TOKEN` — or, for local development only,
 `INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. Neither opens internal RPC, which takes
@@ -86,7 +93,7 @@ model.
 ## Run the API
 
 ```bash
-uv run uvicorn sandloom.main:app --reload   # API on :8000
+uv run uvicorn sandloom_standard.main:app --reload   # API on :8000
 ```
 
 Interactive API docs are served at `/docs` outside production (see

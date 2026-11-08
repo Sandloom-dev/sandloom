@@ -217,12 +217,46 @@ class Subscribed(Requirement):
         return "active subscription"
 
 
+def _claim_authority_failed(ctx: AuthzContext, key: str) -> bool:
+    """Whether the token's claim ``key`` is absent because its authority
+    failed at the mint (ADR-0014 decision 7, billing option (c)).
+
+    Read from the token's authoritative provenance and the composition's
+    claim authorities (``core.claim_authorities``), zero I/O:
+
+    * no authoritative provenance, or nothing failed: ``False`` (the
+      authority ran, so an absent value is its "no");
+    * the composition assigns ``key``: whether that authority is in
+      ``claims_sources_failed``; an unassigned key is a definite deny
+      (``False``);
+    * no assignment readable here (no core, or a root without a map): any
+      failed source might have been the authority, so ``True`` (the caller
+      answers indeterminate, which never allows; a deny could be inverted
+      by ``Not``).
+    """
+    subject = ctx.subject
+    failed = getattr(subject, "claims_sources_failed", None)
+    if not getattr(subject, "provenance_authoritative", False) or not failed:
+        return False
+    authorities = getattr(ctx.core(), "claim_authorities", None)
+    if authorities is None or not getattr(authorities, "assigned", False):
+        return True
+    owner = authorities.owner_of(key)
+    return owner is not None and owner in failed
+
+
 class _AccountClaimAtom(Requirement):
     """A plan atom read from the caller's claims for ``Account.user()`` and
     from the owner's organization fact for an organization account (spec
     §7.2): ``organization.features`` / ``organization.limits``, evaluated
     with the resource ``{"organization_id", "key", ...}``; without a
-    registered fact the decision is indeterminate (501)."""
+    registered fact the decision is indeterminate (501).
+
+    From the claims, an absent claim whose authority failed at the mint
+    (:func:`_claim_authority_failed`) is indeterminate (503): the token
+    proves nothing, and while its provider is down an absent plan value is
+    neither an allow nor a definite deny. An authority that ran and wrote no
+    value for the key denies."""
 
     tier = TIER_CLAIM
     org_fact: str = ""
@@ -235,8 +269,25 @@ class _AccountClaimAtom(Requirement):
     def org_params(self) -> frozenset[str]:
         return account_org_params(self.account)
 
+    claim_key: str = ""
+
     def _from_claims(self, ctx: AuthzContext) -> bool:
         raise NotImplementedError
+
+    def _claim(self, ctx: AuthzContext) -> Any:
+        """The token's ``claim_key`` value; indeterminate (503) when it is
+        absent because its authority failed at the mint."""
+        value = ctx.subject.claim(self.claim_key)
+        if value is None and _claim_authority_failed(ctx, self.claim_key):
+            raise _indeterminate(
+                self,
+                "claim_authority_failed",
+                f"claim {self.claim_key!r} is not in the token: its authority "
+                "failed when the token was minted; try again later or sign in "
+                "again",
+                503,
+            )
+        return value
 
     def _resource(self, org_id: UUID) -> dict[str, Any]:
         raise NotImplementedError
@@ -314,7 +365,7 @@ class Feature(_AccountClaimAtom):
         self.claim_key = claim_key
 
     def _from_claims(self, ctx: AuthzContext) -> bool:
-        flags = ctx.subject.claim(self.claim_key)
+        flags = self._claim(ctx)
         return isinstance(flags, dict) and flags.get(self.key) is True
 
     def _resource(self, org_id: UUID) -> dict[str, Any]:
@@ -330,7 +381,8 @@ class WithinLimit(_AccountClaimAtom):
     For ``Account.user()`` the limit comes from the token claim; ``used`` is
     the current count the caller already knows (e.g. number of seats). Absent
     / non-integer limit ⇒ treated as 0 (i.e. denied), so a missing entitlement
-    fails closed.
+    fails closed; a ``limits`` claim absent because its authority failed at
+    the mint is indeterminate (503).
     """
 
     category = Category.QUOTA_EXCEEDED
@@ -350,7 +402,7 @@ class WithinLimit(_AccountClaimAtom):
         self.claim_key = claim_key
 
     def _from_claims(self, ctx: AuthzContext) -> bool:
-        limits = ctx.subject.claim(self.claim_key)
+        limits = self._claim(ctx)
         raw = limits.get(self.key) if isinstance(limits, dict) else None
         if isinstance(raw, bool) or not isinstance(raw, int):
             return False

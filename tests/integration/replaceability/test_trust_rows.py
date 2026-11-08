@@ -282,20 +282,28 @@ def test_t6_without_an_assignment_no_writer_is_trusted(infra: Infra) -> None:
             assert (seen.status, seen.detail) == (403, NOT_AUTHORIZED), path
 
 
-@pytest.mark.parametrize(
-    "root", [ISSUER_ONLY_ROOT, LEAN_ROOT], ids=["issuer-only", "no-map"]
-)
 def test_t6_a_critical_issuer_without_an_assignment_refuses_every_mint(
-    infra: Infra, root: str
+    infra: Infra,
 ) -> None:
     """T-6: fail closed, never a token with untrusted rights (ADR-0012 d. 3)."""
     users = Users()
     modules = [f"{M}test_identity", f"{M}shop"]
-    with running(infra, mono(infra, users, modules, root=root)) as (proc,):
+    procs = mono(infra, users, modules, root=ISSUER_ONLY_ROOT)
+    with running(infra, procs) as (proc,):
         answer = mint(proc, users.admin)
         assert (answer.status, answer.detail) == (503, UNAVAILABLE_ISSUER)
-        if root == LEAN_ROOT:
-            assert "no claim_authorities map is set" in proc.log_text()
+
+
+def test_t6_an_issuer_under_a_root_without_a_map_refuses_the_boot(
+    infra: Infra,
+) -> None:
+    """T-6, no map at all (the lean root with an issuer): the boot is refused
+    (SANDLOOM-B035) rather than an app whose every login is refused (503)."""
+    modules = [f"{M}test_identity", f"{M}shop"]
+    log = boot_refusal(infra, mono(infra, Users(), modules, root=LEAN_ROOT))
+    assert "SANDLOOM-B035" in log
+    assert "no claim_authorities map is set" in log
+    assert "'pocapp.modules.test_identity'" in log
 
 
 # --------------------------------------------------------------------------- #

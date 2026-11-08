@@ -1301,14 +1301,17 @@ another owner_module.
         "module cannot end its sessions on an emergency block (no durable "
         "consumer of core.auth.user_blocked.v1, or refresh_sessions=False "
         "contradicted), or the composition cannot honour its "
-        "claim_authorities (a path naming no module, an authority neither "
+        "claim_authorities (no map with an issuer loaded, an authority neither "
         "loaded nor bound, a non-critical authority of a claim with no "
-        "fallback, an issuer mismatch)",
+        "fallback, an issuer field given to another module, an issuer "
+        "mismatch)",
         "give the issuer a durable consumer of core.auth.user_blocked.v1 that "
         "ends the user's refresh sessions, or declare "
         "define_module(..., refresh_sessions=False) and remove what the "
-        "refusal names; fix the claim_authorities entry the refusal names "
-        "(the path, the composition, critical=True, or the issuer entry)",
+        "refusal names; boot a composition root with a claim_authorities map "
+        "(sandloom_standard.main, or the app's own <app>.asgi); fix the entry "
+        "the refusal names (the path, the composition, critical=True, or the "
+        "issuer entry)",
         """
 block_user (any service) revokes the user's access tokens and publishes
 core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
@@ -1326,15 +1329,31 @@ The issuer mints only the claims the composition root assigned
 ADR-0014): a protected claim (roles, permissions, tenant_ids, email,
 email_verified, the billing claims and every key the map names) is kept only
 from its authority, the module loaded from the assigned import path or its
-<m>.claims.v1 binding. Startup refuses, naming the key and the module: an
-assigned path that names no module (a typo); in the issuing process, an
-authority neither loaded nor bound, loaded under its name from another path,
-or loaded without a claims contributor; a non-critical authority (contributor
-critical=False, or binding "critical": false) of a claim whose readers have
-no fallback (only subscription_status, plan_code, features and limits may
-have one, decision 7); an issues_tokens module that is not the map's issuer,
-or the map's issuer loaded without issues_tokens=True. A root's default map
-(sandloom_standard.main) keeps only the entries whose module is composed.
+<m>.claims.v1 binding. Startup refuses, naming the key and the module:
+
+- a composition that loads a token issuer (issues_tokens=True) with no map at
+  all: the lean root sandloom.main assigns nothing, so every login would be
+  refused (503). Boot the root that assigns the authorities: the standard
+  root sandloom_standard.main (SANDLOOM_COMPOSITION_ROOT, as the shipped
+  image and profiles set it), the app's own <app>.asgi, or a root passing
+  create_app(claim_authorities={...});
+- in the issuing process, an authority neither loaded nor bound (an assigned
+  path that names no module, a typo, is reported this way, with "a typo of
+  '<loaded path>'?" when it is close to a loaded one), loaded under its name
+  from another path, or loaded without a claims contributor;
+- a non-critical authority (contributor critical=False, or binding
+  "critical": false) of a claim whose readers have no fallback (only
+  subscription_status, plan_code, features and limits may have one,
+  decision 7);
+- an issuer field (email, email_verified) assigned to a module other than the
+  map's issuer, or in a map without an issuer: the issuer writes them itself,
+  through the same mint check (a map with an issuer that names none assigns
+  them to it);
+- an issues_tokens module that is not the map's issuer, or the map's issuer
+  loaded without issues_tokens=True.
+
+A root's default map (sandloom_standard.main) keeps only the entries whose
+module is composed.
 """,
         "docs/advanced/security-model.md",
     ),
