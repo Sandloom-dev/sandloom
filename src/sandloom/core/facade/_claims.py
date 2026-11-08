@@ -7,6 +7,13 @@ database run sequentially in one lane), remote owners over their
 ``<owner>.claims.v1`` contract — and stamps ``claims_sources`` /
 ``claims_sources_failed``. A critical owner's failure aborts minting
 (:class:`ClaimsUnavailable`).
+
+The mint check runs in the same merge pass (ADR-0014 decision 2): a protected
+claim only from the authority the composition assigned it
+(:class:`~sandloom.core.claims.ClaimAuthorities`), the reserved keys from
+nobody, any other key from one owner per token. A step that breaks it is a
+violator: an optional one loses its whole result, a critical one refuses the
+mint naming itself.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException, status
 
+from sandloom.core.claims import NO_AUTHORITIES, ClaimAuthorities
 from sandloom.core.facade._services import (
     CLAIMS_CONTRACT_SUFFIX,
     _ServicesMixin,
@@ -32,11 +40,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 import sandloom.core.module_api as _module_api
 
 
-class ClaimsUnavailable(HTTPException):
-    """A CRITICAL claims contributor failed: the token must not be minted.
+#: Optional contributions dropped by the violator rule (ADR-0014 decision 2),
+#: exported as ``sandloom_facade_counter_total{name=...}``.
+CLAIMS_VIOLATIONS_METRIC = "claims_contributor_violations_total"
 
-    Surfaces as ``503`` (retry later) — never a token silently missing
-    security claims such as tenancy's ``tenant_ids`` allowlist.
+
+class ClaimsUnavailable(HTTPException):
+    """A CRITICAL claims contributor failed, or wrote a claim it may not
+    write: the token must not be minted.
+
+    Surfaces as ``503`` (retry later) naming that contributor — never a token
+    silently missing security claims such as tenancy's ``tenant_ids``
+    allowlist, nor one carrying another module's.
     """
 
     def __init__(self, owner: str) -> None:
@@ -234,6 +249,9 @@ class ClaimsContributorContract:
 class _ClaimsMixin(_ServicesMixin):
     """CoreFacade methods: see :mod:`sandloom.core.facade._claims`."""
 
+    #: The composition's claim authorities (``create_app`` assigns them).
+    _claim_authorities: ClaimAuthorities = NO_AUTHORITIES
+
     # -----------------
     # Token claims contributors
     # -----------------
@@ -344,6 +362,11 @@ class _ClaimsMixin(_ServicesMixin):
         projection/live). A *critical* one aborts minting with
         :class:`ClaimsUnavailable` (503): a token silently missing security
         claims would strip privileges for its whole lifetime.
+
+        A protected claim is kept only from its assigned authority
+        (:attr:`claim_authorities`); a contributor writing one it is not
+        assigned, or a reserved key, is a violator (see
+        :meth:`_merge_claim_outcomes`).
         """
         if issuer_session is not None and issuer is None:
             raise ValueError(
@@ -450,14 +473,19 @@ class _ClaimsMixin(_ServicesMixin):
         """Apply outcomes in plan order; the first critical failure aborts.
 
         A non-critical failure is logged and recorded in
-        ``claims_sources_failed``. Every key has ONE owner: a second owner
-        writing it, or any owner writing a :data:`RESERVED_CLAIM_KEYS` key,
-        aborts minting (see :meth:`_refuse_foreign_claim_keys`).
+        ``claims_sources_failed``. The mint check runs here, in the same pass
+        (ADR-0014 decision 2, no extra call): a step that writes a key it may
+        not write (:meth:`_claim_violation`) is a violator. A critical
+        violator refuses the mint naming itself (:class:`ClaimsUnavailable`);
+        an optional one loses its WHOLE result (never a partial one), is
+        recorded in ``claims_sources_failed``, logged at ERROR naming it and
+        the key, and counted in ``claims_contributor_violations_total``.
         """
         claims: dict[str, Any] = {}
         sources: set[str] = set()
         failed: set[str] = set()
         key_owner: dict[str, str | None] = {}
+        authorities = self._claim_authorities
         for index, (owner, critical, _call, _db) in enumerate(plan):
             ok, value = outcomes[index]
             if not ok:
@@ -475,7 +503,14 @@ class _ClaimsMixin(_ServicesMixin):
                     failed.add(owner)
                 continue
             if value:
-                self._refuse_foreign_claim_keys(owner, value, key_owner)
+                violation = self._claim_violation(owner, value, key_owner, authorities)
+                if violation is not None:
+                    self._violator(owner, critical, *violation)
+                    if owner:
+                        failed.add(owner)
+                    continue
+                for key in value:
+                    key_owner.setdefault(key, owner)
                 claims.update(value)
             # Provenance: the owner RAN successfully (even if it contributed
             # nothing — an empty result is an authoritative "no").
@@ -490,41 +525,74 @@ class _ClaimsMixin(_ServicesMixin):
         claims["claims_sources_failed"] = sorted(failed)
         return claims
 
-    def _refuse_foreign_claim_keys(
+    def _claim_violation(
         self,
         owner: str | None,
         value: Mapping[str, Any],
-        key_owner: dict[str, str | None],
-    ) -> None:
-        """Refuse minting (503) when ``owner`` writes a key it does not own.
+        key_owner: Mapping[str, str | None],
+        authorities: ClaimAuthorities,
+    ) -> tuple[str, str] | None:
+        """The first key ``owner`` may not write, with why; else ``None``.
 
-        Provenance (``claims_sources``) names the owners that RAN, not the
-        owner of each key, and a guard trusts a key by its owner's name there
-        (the platform gates read ``roles`` when ``"identity"`` ran). A plain
-        merge let a later owner, local or remote, replace another owner's
-        key in a token still stamped with that owner: a module answering
-        ``roles: ["admin"]`` got platform administrator. So the first owner
-        to write a key owns it for this token, a second one is refused
-        whatever the registration order, and the reserved keys are nobody's.
-        Fail closed, like a critical owner's failure: never a token whose
-        keys another owner wrote. ``key_owner`` is filled as keys are taken.
+        - a :data:`RESERVED_CLAIM_KEYS` key is nobody's;
+        - a protected key (:attr:`ClaimAuthorities.protected`) is its assigned
+          authority's only: the step's owner is the authority's short name
+          and, for a local owner, the module registered from the assigned
+          import path (a module merely NAMED like the authority is not it);
+          a remote owner is the authority's ``<m>.claims.v1`` binding, pinned
+          and pair-MAC authenticated by the configuration checks. An
+          unassigned protected key is nobody's;
+        - any other key keeps one owner per token (PR #70): a second owner
+          writing a key an earlier step wrote is a violator.
         """
+        protected = authorities.protected
         for key in value:
             if key in RESERVED_CLAIM_KEYS:
-                self.logger.error(
-                    "claims contributor %r wrote the reserved claim %r; "
-                    "refusing to mint the token",
-                    owner,
-                    key,
-                )
-                raise ClaimsUnavailable(owner or "?")
-            if key in key_owner and key_owner[key] != owner:
-                self.logger.error(
-                    "claims contributor %r wrote the claim %r owned by %r; "
-                    "refusing to mint the token (one owner per claim key)",
-                    owner,
-                    key,
-                    key_owner[key],
-                )
-                raise ClaimsUnavailable(owner or "?")
-            key_owner.setdefault(key, owner)
+                return key, "a reserved claim"
+            if key in protected:
+                authority = authorities.owners.get(key)
+                if authority is None:
+                    return key, "a protected claim no authority is assigned"
+                if owner != authority:
+                    return key, f"a protected claim assigned to {authority!r}"
+                local = self._claims_owner_modules.get(authority)
+                path = authorities.authorities.get(key)
+                if local is not None and local != path:
+                    return key, (
+                        f"a protected claim assigned to {path!r}, not to the "
+                        f"module {local!r} registered under that name"
+                    )
+                continue
+            first = key_owner.get(key, owner)
+            if first != owner:
+                return key, f"a claim {first!r} wrote first in this token"
+        return None
+
+    def _violator(self, owner: str | None, critical: bool, key: str, why: str) -> None:
+        """Log ``owner``'s violation; refuse the mint when it is critical."""
+        self.logger.error(
+            "claims contributor %r wrote the claim %r (%s); %s",
+            owner,
+            key,
+            why,
+            "refusing to mint the token"
+            if critical
+            else "its whole contribution is dropped",
+        )
+        if critical:
+            raise ClaimsUnavailable(owner or "?")
+        cast("CoreFacade", self).increment_metric(CLAIMS_VIOLATIONS_METRIC, 1)
+
+    def assign_claim_authorities(self, authorities: ClaimAuthorities) -> None:
+        """Make ``authorities`` the assignment the mint check applies.
+
+        Called once by ``create_app`` after the startup checks
+        (:mod:`sandloom.core.app_factory.claim_authorities`); a facade built
+        without it assigns nothing (:data:`NO_AUTHORITIES`).
+        """
+        self._claim_authorities = authorities
+
+    @property
+    def claim_authorities(self) -> ClaimAuthorities:
+        """The composition's claim-authority assignment."""
+        return self._claim_authorities
