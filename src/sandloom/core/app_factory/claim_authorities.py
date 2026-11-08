@@ -90,7 +90,12 @@ def build_claim_authorities(
     authorities: dict[str, str] = {}
     issuer: str | None = None
     for key, value in mapping.items():
-        if not isinstance(key, str) or not key or not isinstance(value, str) or not value:
+        if (
+            not isinstance(key, str)
+            or not key
+            or not isinstance(value, str)
+            or not value
+        ):
             raise ClaimAuthorityError(
                 f"claim_authorities[{key!r}] = {value!r}: each claim key (and "
                 f"{ISSUER_ENTRY!r}) maps to a module import path or entry-point name"

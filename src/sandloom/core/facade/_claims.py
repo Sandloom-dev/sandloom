@@ -39,7 +39,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
 import sandloom.core.module_api as _module_api
 
-
 #: Optional contributions dropped by the violator rule (ADR-0014 decision 2),
 #: exported as ``sandloom_facade_counter_total{name=...}``.
 CLAIMS_VIOLATIONS_METRIC = "claims_contributor_violations_total"

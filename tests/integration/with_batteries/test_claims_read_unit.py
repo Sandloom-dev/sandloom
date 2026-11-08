@@ -17,13 +17,12 @@ from uuid import uuid4
 
 import pytest
 
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.module_api import contract_read_scope, contract_session
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine
-from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.tests.test_contract_runtime import _core as _kernel_core
-
 
 #: The standard batteries' claim authorities (``sandloom_standard.main``'s map,
 #: ADR-0014): identity's and tenancy's keys come only from them.

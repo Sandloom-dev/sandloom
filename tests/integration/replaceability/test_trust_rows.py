@@ -21,7 +21,7 @@ import re
 
 import httpx
 import pytest
-from test_replaceability import (  # noqa: F401 - infra is a fixture
+from test_replaceability import (
     ALL,
     IDENTITY_BATTERY,
     NO_GRANTS_ROOT,
@@ -41,7 +41,6 @@ from test_replaceability import (  # noqa: F401 - infra is a fixture
     gate_statuses,
     get,
     grant,
-    infra,
     mint,
     mono,
     running,
@@ -283,7 +282,9 @@ def test_t6_without_an_assignment_no_writer_is_trusted(infra: Infra) -> None:
             assert (seen.status, seen.detail) == (403, NOT_AUTHORIZED), path
 
 
-@pytest.mark.parametrize("root", [ISSUER_ONLY_ROOT, LEAN_ROOT], ids=["issuer-only", "no-map"])
+@pytest.mark.parametrize(
+    "root", [ISSUER_ONLY_ROOT, LEAN_ROOT], ids=["issuer-only", "no-map"]
+)
 def test_t6_a_critical_issuer_without_an_assignment_refuses_every_mint(
     infra: Infra, root: str
 ) -> None:
@@ -337,7 +338,9 @@ def test_t8_another_modules_claims_contract_refuses_the_boot(infra: Infra) -> No
     is not loaded, to answer for it (B034; with ``grants`` loaded the
     registration is a duplicate and refused anyway)."""
     modules = [f"{M}test_identity", f"{M}forged", f"{M}shop"]
-    procs = mono(infra, Users(), modules, root=NO_GRANTS_ROOT, POC_FORGED_SQUAT="grants")
+    procs = mono(
+        infra, Users(), modules, root=NO_GRANTS_ROOT, POC_FORGED_SQUAT="grants"
+    )
     log = boot_refusal(infra, procs)
     assert "SANDLOOM-B034" in log
     assert "registers contract 'grants.claims.v1' under module 'grants'" in log

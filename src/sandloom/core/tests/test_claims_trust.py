@@ -184,7 +184,9 @@ async def test_authorities_keep_their_claims() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("first", [True, False], ids=["violator-first", "violator-last"])
+@pytest.mark.parametrize(
+    "first", [True, False], ids=["violator-first", "violator-last"]
+)
 @pytest.mark.parametrize(
     "payload",
     [
@@ -238,7 +240,9 @@ async def test_a_hundred_violations_mint_a_hundred_tokens() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("first", [True, False], ids=["violator-first", "violator-last"])
+@pytest.mark.parametrize(
+    "first", [True, False], ids=["violator-first", "violator-last"]
+)
 async def test_a_critical_violator_refuses_the_mint_naming_itself(first: bool) -> None:
     """T-3: 503 naming the violator, never the authority, in either order."""
     core = _core()
@@ -418,7 +422,9 @@ def test_the_typo_hint_imports_nothing() -> None:
 def test_startup_refuses_an_authority_neither_loaded_nor_bound() -> None:
     """T-5: the issuing process cannot reach the authority."""
     (problem,) = _problems(MAP, loaded={"idp": IDP, "plans": PLANS})
-    assert "claim 'tenant_ids' is assigned to 'acme.grants', which is neither" in problem
+    assert (
+        "claim 'tenant_ids' is assigned to 'acme.grants', which is neither" in problem
+    )
     assert "grants.claims.v1 is not in SERVICE_BINDINGS" in problem
 
 

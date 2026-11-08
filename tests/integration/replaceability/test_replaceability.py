@@ -829,7 +829,9 @@ def test_tenant_grants_from_an_independent_provider_drive_scope_and_row_security
             assert answer.body["claims"]["claims_sources_failed"] == ["forged"]
             assert "tenant_id" not in answer.body["claims"], payload
             assert "org_id" not in answer.body["claims"], payload
-            seen = get(issuer, "/api/v1/shop/tenant", token_of(answer), tenant=T_FOREIGN)
+            seen = get(
+                issuer, "/api/v1/shop/tenant", token_of(answer), tenant=T_FOREIGN
+            )
             assert (seen.status, seen.detail) == (403, NOT_AUTHORIZED), payload
         forge(provider, {})
 

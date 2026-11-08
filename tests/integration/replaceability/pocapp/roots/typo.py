@@ -2,7 +2,7 @@
 
 from sandloom.sdk.app import create_app
 
-from . import M, TRUST
+from . import TRUST, M
 
 app = create_app(claim_authorities={**TRUST, "roles": f"{M}test_identty"})
 core = app.state.core
