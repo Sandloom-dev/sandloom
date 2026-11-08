@@ -1,0 +1,56 @@
+"""Mint endpoint: the issuer's half of a login, without the credential check."""
+
+from typing import Any
+from uuid import UUID
+
+from fastapi import Depends
+from pydantic import BaseModel
+
+from sandloom.sdk import module_router, public
+from sandloom.sdk.infra import CoreRuntime, get_core
+from sandloom.sdk.security import create_access_token
+from sandloom.sdk.web import no_idempotency
+
+from . import state
+
+router = module_router()
+
+
+class MintIn(BaseModel):
+    user_id: UUID
+
+
+class MintOut(BaseModel):
+    access_token: str
+    claims: dict[str, Any]
+
+
+class DownIn(BaseModel):
+    on: bool
+
+
+@router.post(
+    "/mint",
+    dependencies=[
+        public(reason="PoC stand-in for a login"),
+        no_idempotency(reason="PoC fixture; no client retries"),
+    ],
+)
+async def mint(body: MintIn, core: CoreRuntime = Depends(get_core)) -> MintOut:
+    claims = await core.collect_claims(body.user_id)
+    token = create_access_token(
+        data={**claims, "sub": str(body.user_id), "token_type": "access"}
+    )
+    return MintOut(access_token=token, claims=claims)
+
+
+@router.post(
+    "/down",
+    dependencies=[
+        public(reason="PoC fault switch"),
+        no_idempotency(reason="PoC fixture; no client retries"),
+    ],
+)
+async def down(body: DownIn) -> dict[str, bool]:
+    state.DOWN["on"] = body.on
+    return state.DOWN

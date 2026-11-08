@@ -1,0 +1,62 @@
+# server-log excerpts (ERROR/WARNING lines naming claims, facts, tenants, revocation) from the HEAD run; request ids stripped
+## A-forged-first.log
+   1 [ERROR] sandloom.core.facade: claims contributor 'test_identity' wrote the claim 'roles' owned by 'forged'; refusing to mint the token (one owner per claim key)
+   1 [ERROR] sandloom.core.facade: claims contributor 'test_identity' wrote the claim 'permissions' owned by 'forged'; refusing to mint the token (one owner per claim key)
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'user_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'sub'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'provenance_authoritative'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'claims_sources'; refusing to mint the token
+## A-mono.log
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'user_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'sub'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'provenance_authoritative'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'claims_sources'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' owned by 'test_identity'; refusing to mint the token (one owner per claim key)
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' owned by 'test_identity'; refusing to mint the token (one owner per claim key)
+## A-noncritical.log
+   1 [WARNING] sandloom.core.facade: claims contributor 'test_identity' failed; skipping
+## A-split-p1.log
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract inventory.facts.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract grants.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract forged.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'user_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'sub'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'provenance_authoritative'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'claims_sources'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' owned by 'test_identity'; refusing to mint the token (one owner per claim key)
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' owned by 'test_identity'; refusing to mint the token (one owner per claim key)
+## A-split-p2.log
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+## A-squat.log
+   1 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] pocapp.modules.shop consumes optional contract 'inventory.facts.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (route policy: entitlement 'inventory.stock.available')
+## B-mono.log
+   1 [ERROR] sandloom.core.facade: claims contributor 'grants' wrote the claim 'tenant_ids' owned by 'forged'; refusing to mint the token (one owner per claim key)
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'tenant_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'org_id'; refusing to mint the token
+## B-no-grants.log
+   1 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] pocapp.modules.shop consumes optional contract 'inventory.facts.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (route policy: entitlement 'inventory.stock.available')
+## B-split-p1.log
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract inventory.facts.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract grants.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract forged.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'tenant_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the reserved claim 'org_id'; refusing to mint the token
+   1 [ERROR] sandloom.core.facade: claims contributor 'forged' wrote the claim 'tenant_ids' owned by 'grants'; refusing to mint the token (one owner per claim key)
+## B-split-p2.log
+   2 [ERROR] sandloom.core.rpc: Unhandled RPC provider error for grants.claims.v1.contribute: RuntimeError: tenant-grant provider is down
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+## C-duplicate.log
+   1 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module pocapp.modules.forged: Access fact 'inventory.stock.available' is already registered
+## C-edge-alone.log
+   5 [WARNING] sandloom.access: access denied: fact_unregistered (entitlement 'inventory.stock.available')
+   1 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] pocapp.modules.shop consumes optional contract 'inventory.facts.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (route policy: entitlement 'inventory.stock.available')
+## C-mono.log
+## C-split-p1.log
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract inventory.facts.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract grants.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+## C-split-p2.log
+   1 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts a replay on another worker or replica (prod fails closed).
+## C-squat.log
