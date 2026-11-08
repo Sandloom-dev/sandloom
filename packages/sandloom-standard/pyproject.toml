@@ -1,0 +1,53 @@
+[project]
+name = "sandloom-standard"
+version = "0.7.0a11"
+classifiers = ["Development Status :: 3 - Alpha"]
+description = "The standard Sandloom composition: the composition root that every process of a standard deployment boots."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Vasyl Cherniavskyi" }]
+requires-python = ">=3.11"
+# The composition root only: it imports the kernel and composes the module
+# distributions installed beside it (entry points), never a module's code.
+# `sandloom[standard]` installs it with the standard modules.
+dependencies = [
+    "sandloom>=0.7.0a11,<0.8",
+]
+
+[project.urls]
+Homepage = "https://sandloom.dev/"
+Documentation = "https://sandloom.dev/docs/"
+Repository = "https://github.com/Sandloom-dev/sandloom"
+Issues = "https://github.com/Sandloom-dev/sandloom/issues"
+Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom-standard/CHANGELOG.md"
+
+[build-system]
+requires = [
+    "hatchling>=1.27",
+]
+build-backend = "hatchling.build"
+
+# The source lives in this package (src/sandloom_standard), outside the
+# repository's src/ tree: it is no business module and no kernel package.
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [
+    "src",
+]
+bypass-selection = true
+
+[tool.hatch.build.hooks.custom]
+path = "../../tools/packaging/package_build.py"
+
+[tool.sandloom.sources]
+"src/sandloom_standard" = "sandloom_standard"
+
+# Local builds (`uvx --from packages/sandloom-standard`) rebuild when the sources
+# change, not only when this file does.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/sandloom_standard/**/*" }]
+
+# The sdist ships the package at its wheel path (the build hook's sources), not
+# a second copy under src/.
+[tool.hatch.build.targets.sdist]
+exclude = ["/src"]

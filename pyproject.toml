@@ -11,6 +11,7 @@ dependencies = [
     "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
     "sandloom-identity",
+    "sandloom-standard",
     "sandloom-tenancy",
 ]
 
@@ -68,6 +69,10 @@ editable = true
 
 [tool.uv.sources.sandloom-identity]
 path = "packages/sandloom-identity"
+editable = true
+
+[tool.uv.sources.sandloom-standard]
+path = "packages/sandloom-standard"
 editable = true
 
 [tool.uv.sources.sandloom-tenancy]
@@ -151,6 +156,7 @@ quote-style = "double"
 mypy_path = "src"
 files = [
     "src/",
+    "packages/sandloom-standard/src/",
 ]
 exclude = [
     ".venv/",

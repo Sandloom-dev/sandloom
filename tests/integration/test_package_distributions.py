@@ -1,11 +1,13 @@
 """Every distribution builds, layers and works installed alone (slow).
 
 Runs ``tools/packaging/check_package_distributions.py`` (the CI ``packages``
-job): sdists and wheels of ``sandloom``, ``sandloom-identity``,
-``sandloom-tenancy`` and ``sandloom-billing``; the import layering across them
-(lazy imports included); ``pip install sandloom`` alone in a clean venv runs
-every ``sandloom`` subcommand's ``--help``, ``sandloom docs <name>`` and
-``sandloom new``; ``sandloom[standard]`` composes the modules by entry point.
+job): sdists and wheels of ``sandloom``, ``sandloom-standard``,
+``sandloom-identity``, ``sandloom-tenancy``, ``sandloom-billing`` and
+``sandloom-admin``; the import layering across them (lazy imports included);
+``pip install sandloom`` alone in a clean venv runs every ``sandloom``
+subcommand's ``--help``, ``sandloom docs <name>`` and ``sandloom new``;
+``sandloom[standard]`` composes the modules by entry point from the standard
+root ``sandloom_standard.main``.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def test_every_distribution_installs_and_runs_alone() -> None:
     )
     output = done.stdout + done.stderr
     assert done.returncode == 0, output[-6000:]
-    assert "Import layering OK across 5 distributions" in output
+    assert "Import layering OK across 6 distributions" in output
     assert "lean sandloom OK" in output
     assert "standard set OK" in output
     assert "All package distribution checks passed." in output

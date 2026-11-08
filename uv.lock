@@ -3454,6 +3454,7 @@ standard = [
     { name = "redis" },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
 
@@ -3492,6 +3493,7 @@ requires-dist = [
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
+    { name = "sandloom-standard", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.4,<2.2" },
@@ -3520,6 +3522,7 @@ dependencies = [
     { name = "sandloom", extra = ["check", "fast", "sentry", "sqlite", "standard"] },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
 
@@ -3564,6 +3567,7 @@ requires-dist = [
     { name = "sandloom", extras = ["standard", "check", "fast", "sentry", "sqlite"], editable = "packages/sandloom" },
     { name = "sandloom-billing", editable = "packages/sandloom-billing" },
     { name = "sandloom-identity", editable = "packages/sandloom-identity" },
+    { name = "sandloom-standard", editable = "packages/sandloom-standard" },
     { name = "sandloom-tenancy", editable = "packages/sandloom-tenancy" },
     { name = "tomli-w", marker = "extra == 'docs'", specifier = ">=1.2" },
     { name = "zensical", marker = "extra == 'docs'", specifier = "==0.0.73" },
@@ -3622,6 +3626,17 @@ requires-dist = [
     { name = "qrcode", specifier = ">=8.2,<9" },
     { name = "sandloom", specifier = ">=0.7.0a11,<0.8" },
 ]
+
+[[package]]
+name = "sandloom-standard"
+version = "0.7.0a11"
+source = { editable = "packages/sandloom-standard" }
+dependencies = [
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a11,<0.8" }]
 
 [[package]]
 name = "sandloom-tenancy"

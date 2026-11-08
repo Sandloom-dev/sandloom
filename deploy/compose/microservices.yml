@@ -78,6 +78,7 @@ x-app-runtime: &app-runtime
 # settings must be identical everywhere (`sandloom test` checks it).
 x-common-env: &common-env
   ENVIRONMENT: prod
+  SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
   SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
   EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
   EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}

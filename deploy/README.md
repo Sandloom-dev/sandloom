@@ -117,6 +117,19 @@ would accept a revoked token everywhere but on the service that revoked it.
 `test_deploy_profiles.py` pins all of this (same raw value in every process,
 same defaults in both profiles).
 
+### One composition root
+
+The image and both profiles boot the standard composition root,
+`sandloom_standard.main` (the `sandloom-standard` distribution, ADR-0012):
+the Dockerfile sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` and serves
+`sandloom_standard.main:app`, and every process of a profile (migrate, app or
+service, worker, beat) names the same root in its shared env anchor, so the
+operator commands, the worker and the migrations act on the composition the API
+serves. The kernel's `sandloom.main` is the lean root (installed modules, no
+authorities) and the default when the variable is unset. SANDLOOM-T014 refuses a
+microservices profile whose processes name different roots;
+`test_deploy_profiles.py` pins both profiles and the image.
+
 ### Required modules
 
 Every requested module is **required** (when `MODULE_REQUIRED` is empty) —
@@ -188,7 +201,8 @@ celery -A sandloom.core.worker beat   --loglevel=INFO --schedule=/tmp/celerybeat
 ```
 
 `sandloom.core.worker` boots the same composition root as the API
-(`SANDLOOM_COMPOSITION_ROOT`, default `sandloom.main`) with the process's `SANDLOOM_MODULES`,
+(`SANDLOOM_COMPOSITION_ROOT`: `sandloom_standard.main` in the image and both
+profiles; the kernel's default is the lean `sandloom.main`) with the process's `SANDLOOM_MODULES`,
 resolves the Celery app through the `taskqueue` capability
 (`SANDLOOM_WORKER_TASKQUEUE`, default `default`), imports `<module>.tasks` for every
 loaded module and connects each module's `setup_periodic_tasks(sender)` beat

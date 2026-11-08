@@ -9,11 +9,12 @@ One model behind three users:
 * ``sandloom test`` (``schema & deploy``) and the framework's own
   ``test_deploy_profiles`` check a profile against the split invariants
   (:func:`profile_problems`, SANDLOOM-T014): shared settings identical in every
-  process (one ``CACHE_URL``), signing material on the token issuer only, a
-  database and a migrate one-shot per service, the durable Streams bus,
-  bindings exactly the contracts consumed from another service (+ the
-  issuer's remote claims), ``RPC_ALLOWED_CALLS`` derived from them, per-service
-  RPC keys, liveness never fed by peers, and a gateway that routes every
+  process (one ``CACHE_URL``), one composition root for every process,
+  signing material on the token issuer only, a database and a migrate
+  one-shot per service, the durable Streams bus, bindings exactly the
+  contracts consumed from another service (+ the issuer's remote claims),
+  ``RPC_ALLOWED_CALLS`` derived from them, per-service RPC keys, liveness
+  never fed by peers, and a gateway that routes every
   module prefix to its service and never ``/_sandloom``, ``/diagnostics`` or
   ``/metrics``;
 * the boot check (:func:`boot_problems`): each HTTP service's
@@ -59,6 +60,8 @@ from sandloom.core.tasks.periodic import has_periodic_tasks
 PROFILE = "compose/microservices.yml"
 GATEWAY = Path("gateway") / "nginx.conf"
 CODE = "SANDLOOM-T014"
+#: The variable naming the composition root every process of a profile boots.
+COMPOSITION_ROOT = "SANDLOOM_COMPOSITION_ROOT"
 
 #: Settings identical in EVERY process of the profile (and so in the shared
 #: env anchor): a token minted by one service is verified by all, revocation
@@ -596,6 +599,7 @@ def profile_problems(
         problem("no HTTP service lists SANDLOOM_MODULES")
         return report
     _shared_settings(procs, problem)
+    _composition_root(procs, problem)
     for name, modules in http.items():
         report.topologies[name] = topo = service_topology(modules)
         if topo.error:
@@ -643,6 +647,29 @@ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
             problem(f"{name}: events cross services: EVENT_BUS_BACKEND=streams")
         if ":?" not in str(env.get("INTERNAL_API_TOKEN", "")):
             problem(f"{name}: INTERNAL_API_TOKEN must be required (${{...:?...}})")
+
+
+def _composition_root(procs: dict[str, dict[str, Any]], problem: Any) -> None:
+    """One composition root for the whole profile (ADR-0012 decision 3).
+
+    Every process (HTTP service, migrate one-shot, worker, beat) names the
+    same ``SANDLOOM_COMPOSITION_ROOT``, or none does (each then boots the
+    kernel's default): a migrate or worker on another root would migrate or
+    run a composition the API does not serve."""
+    roots = {
+        name: interpolate(_env(svc).get(COMPOSITION_ROOT, "")) or None
+        for name, svc in procs.items()
+    }
+    if len(set(roots.values())) > 1:
+        seen = {
+            root or "<unset>": sorted(n for n, r in roots.items() if r == root)
+            for root in set(roots.values())
+        }
+        problem(
+            f"{COMPOSITION_ROOT} differs between processes "
+            f"({dict(sorted(seen.items()))}): every process boots one "
+            "composition root (set it once in x-common-env)"
+        )
 
 
 def _issuer_only(

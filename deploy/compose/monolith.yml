@@ -41,6 +41,9 @@ x-app-runtime: &app-runtime
 # the module list and the databases must agree everywhere.
 x-app-env: &app-env
   ENVIRONMENT: prod
+  # The standard composition root (the sandloom-standard distribution): the
+  # app, worker, beat and migrate one-shot build the same composition.
+  SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
   SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
   EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
   EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}

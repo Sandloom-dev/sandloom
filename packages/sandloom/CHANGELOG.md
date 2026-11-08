@@ -10,6 +10,14 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ### Changed
 
+- The `standard` extra also installs `sandloom-standard`, the distribution that
+  now holds the standard composition root `sandloom_standard.main`.
+  `sandloom.main` is the lean kernel root (installed modules, nothing else) and
+  stays the default when `SANDLOOM_COMPOSITION_ROOT` is unset. **Upgrade:** a
+  deployment that serves the standard set from its own manifests sets
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` on every process and
+  serves `sandloom_standard.main:app`.
+
 - `sandloom new` applications enable ruff `C901` with a complexity limit of 10, outside tests.
 
 ## [0.7.0a6] — 2026-11-01
