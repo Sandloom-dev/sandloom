@@ -1,0 +1,38 @@
+   Building sandloom @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom
+   Building sandloom-billing @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom-billing
+   Building sandloom-identity @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom-identity
+      Built sandloom-identity @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom-identity
+      Built sandloom-billing @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom-billing
+      Built sandloom @ file:///private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/packages/sandloom
+Uninstalled 3 packages in 4ms
+Installed 3 packages in 4ms
+============================= test session starts ==============================
+platform darwin -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4, hypothesis-6.168.5, cov-7.1.0, xdist-3.8.0, Faker-40.41.0, asyncio-1.4.0, metadata-3.1.1, html-4.2.0, mock-3.17.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+collected 14 items
+
+tests/integration/test_resilience_config.py .                            [  7%]
+src/sandloom/core/tests/test_auth_rotation_revocation.py .               [ 14%]
+src/sandloom_billing/tests/test_registration_surface.py .                [ 21%]
+src/sandloom/core/tests/test_deploy_profiles.py ..                       [ 35%]
+src/sandloom_billing/tests/test_webhook_hardening.py ..                  [ 50%]
+src/sandloom_identity/tests/test_token_claims_and_revocation.py .        [ 57%]
+src/sandloom_identity/tests/test_module_registration.py .                [ 64%]
+src/sandloom/core/tests/test_auth_rotation_revocation.py .               [ 71%]
+src/sandloom_identity/tests/services/test_twofa_service.py .             [ 78%]
+src/sandloom/core/tests/test_module_configuration_refusal.py ...         [100%]
+
+=============================== warnings summary ===============================
+src/sandloom/core/tests/test_auth_rotation_revocation.py:19
+  /private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/src/sandloom/core/tests/test_auth_rotation_revocation.py:19: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 14 passed, 2 warnings in 1.20s ========================

@@ -1,0 +1,24 @@
+  /private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel/tests/sdk/test_sdk_portable_sql.py:76: SAWarning: Column 'people.id' is marked as a member of the primary key for table 'people', but has no Python-side or server-side default generator indicated, nor does it indicate 'autoincrement=True' or 'nullable=True', and no explicit value is passed.  Primary key columns typically may not store NULL.
+===== 6555 passed, 10 skipped, 1 xfailed, 16 warnings in 236.23s (0:03:56) =====
+FAILED tests/architecture/test_ci_local_runner.py::test_workflow_jobs_unchanged_since_review
+FAILED tests/architecture/test_public_api_sdk.py::test_scanner_reports_no_unmapped_name
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_noqa_counts_only_go_down
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_blind_except_and_bandit_suppressions_carry_a_reason
+FAILED tests/architecture/test_source_export.py::test_repository_selection_is_complete_and_safe
+FAILED tests/architecture/test_sdk_reference.py::test_every_public_module_carries_a_current_reference_block
+================== 6 failed, 1655 passed, 1 skipped in 30.11s ==================
+============================== 3 passed in 8.80s ===============================
+  FAIL (exit 1)    ruff check               0.1s
+  PASS             generated files          1.5s
+  PASS             schema & deploy          0.2s
+  PASS             full suite             238.4s
+  PASS             ruff format              0.1s
+  PASS             mypy                     2.5s
+  PASS             sandloom check          14.2s
+  FAIL (exit 1)    architecture tests      31.9s
+  PASS             lint-imports             0.2s
+  PASS             contract snapshots       0.0s
+  PASS             route snapshots          0.0s
+  PASS             migration drift          2.6s
+  FAIL (exit 1)    public API baseline      1.1s  -> sandloom explain SANDLOOM-T008
+  PASS             typing tests            10.5s

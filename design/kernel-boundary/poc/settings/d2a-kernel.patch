@@ -1,0 +1,3927 @@
+diff --git a/.env.example b/.env.example
+index 242860a..b358635 100644
+--- a/.env.example
++++ b/.env.example
+@@ -11,8 +11,8 @@
+ # strict event schemas, billing/2FA requirements, fail-closed defaults).
+ # ENVIRONMENT=dev
+ # The ONE list of weaker guarantees this deployment accepts in prod (ADR-0006):
+-# JSON list or comma-separated ids, e.g. local_storage_in_prod,fake_psp_in_prod.
+-# Ids: fake_psp_in_prod, log_notifier_in_prod, local_storage_in_prod,
++# JSON list or comma-separated ids, e.g. local_storage_in_prod,billing.fake_psp_in_prod.
++# Ids: billing.fake_psp_in_prod, log_notifier_in_prod, local_storage_in_prod,
+ # volatile_event_bus, unversioned_ddl_repair, weak_password_hash,
+ # shared_hs_secret_split, relay_disabled. An unknown id fails startup; each
+ # accepted risk is logged at every start and exported as
+@@ -277,7 +277,7 @@ TENANCY_MODE=multi
+ 
+ # ==== Billing ====
+ # fake (default, dev/test) | stripe. Prod rejects the fake PSP unless
+-# SANDLOOM_ACCEPTED_RISKS has fake_psp_in_prod (demo stacks only).
++# SANDLOOM_ACCEPTED_RISKS has billing.fake_psp_in_prod (demo stacks only).
+ # BILLING_PROVIDER=fake
+ # STRIPE_SECRET_KEY=
+ # STRIPE_WEBHOOK_SECRET=
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1b1b6c5..94beec0 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1094,7 +1094,7 @@ jobs:
+     env:
+       COMPOSE_FILE: deploy/compose/microservices.yml
+       BILLING_PROVIDER: fake
+-      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,fake_psp_in_prod
++      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,billing.fake_psp_in_prod
+     steps:
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+       - name: Dummy secrets (never real; fresh per run)
+diff --git a/deploy/README.md b/deploy/README.md
+index db655af..a56bd66 100644
+--- a/deploy/README.md
++++ b/deploy/README.md
+@@ -43,7 +43,7 @@ docker compose --env-file deploy/.env.microservices \
+   -f deploy/compose/microservices.yml up --build
+ 
+ # Demo stack without Stripe (either profile)
+-BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod ...
++BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod ...
+ ```
+ 
+ The microservices profile and `gateway/nginx.conf` are **generated** by `sandloom
+@@ -78,7 +78,7 @@ startup.
+ | `RPC_SERVICE_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<PEM>"}}` the callers' Ed25519 public keys |
+ | `RPC_ALLOWED_CALLS` | — | fixed in the common env | the allowlist = each caller's `SERVICE_BINDINGS` (`sandloom keys allowlist`; pinned by `test_rpc_allowlist_is_derived_from_bindings`) |
+ | `METRICS_TOKEN` | optional | optional | scrape-only credential for `/metrics` (must differ from `INTERNAL_API_TOKEN`); give it to Prometheus instead of the internal token |
+-| `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`, and compose refuses to start without a choice |
++| `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`, and compose refuses to start without a choice |
+ | `SANDLOOM_ACCEPTED_RISKS` | default `local_storage_in_prod` | default `local_storage_in_prod` | the ONE list of weaker guarantees a prod deployment accepts (JSON or comma list of risk ids; an unknown id fails startup). Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and `sandloom doctor`. The former booleans (`BILLING_ALLOW_FAKE_PSP_IN_PROD`, …) are removed settings: startup refuses them unless set to their inert value ([ADR-0006](../docs/adr/0006-accepted-risks.md)) |
+ | `WEB_CONCURRENCY`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | defaults 3 / 10 / 10 | defaults 2 / 5 / 5 | see *Sizing* |
+ | `GUNICORN_KEEPALIVE` | default 75 | default 75 | idle keep-alive (s) of the HTTP workers; keep it ABOVE the idle timeout of any load balancer in front (see *Sizing*) |
+@@ -444,7 +444,7 @@ be reachable through the same gateway. CI runs it on every PR touching
+ `backend/` or `deploy/` (`COMPOSE_PROJECT_NAME` selects another stack):
+ 
+ ```bash
+-BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod \
++BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod \
+ JWT_SECRET=... INTERNAL_API_TOKEN=... TWOFA_ENCRYPTION_KEY=... \
+ JWT_PRIVATE_KEY=... JWT_PUBLIC_KEYS=... JWT_KID=... \
+ IDENTITY_RPC_PRIVATE_KEY=... BILLING_RPC_PRIVATE_KEY=... RPC_SERVICE_KEYS=... \
+diff --git a/deploy/compose/microservices.yml b/deploy/compose/microservices.yml
+index ddf1c43..9607ee7 100644
+--- a/deploy/compose/microservices.yml
++++ b/deploy/compose/microservices.yml
+@@ -85,7 +85,7 @@ x-common-env: &common-env
+   EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
+   # The weaker guarantees this stack accepts (logged at every start): demo
+   # single-host local storage, shared by every process (not multi-host HA). A
+-  # demo without Stripe adds fake_psp_in_prod.
++  # demo without Stripe adds billing.fake_psp_in_prod.
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   # Shared Redis: cache + the Streams event bus every service publishes to and
+   # consumes from. Celery brokers are per service (BROKER_URL per service).
+@@ -149,7 +149,7 @@ x-common-env: &common-env
+ 
+ # Per-service configuration: its modules, database, broker, RPC identity and
+ # exactly the contracts it consumes from other services.
+-# >>> generated by sandloom add deploy: service-env sha:e93b28ba03f7
++# >>> generated by sandloom add deploy: service-env sha:10a062657197
+ x-identity-env: &identity-env
+   <<: *common-env
+   SANDLOOM_MODULES: '["sandloom_identity"]'
+@@ -200,7 +200,7 @@ x-billing-env: &billing-env
+   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/sandloom_billing
+   BROKER_URL: redis://redis:6379/4
+   # billing refuses the fake PSP in prod: the operator must choose.
+-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
++  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
+   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+   # Its RPC identity (shared by its worker/beat): an X25519 key that
+diff --git a/deploy/compose/monolith.yml b/deploy/compose/monolith.yml
+index cea17d3..6ae0254 100644
+--- a/deploy/compose/monolith.yml
++++ b/deploy/compose/monolith.yml
+@@ -8,7 +8,7 @@
+ #     docker compose -f deploy/compose/monolith.yml up --build
+ #
+ # (demo stack without Stripe: BILLING_PROVIDER=fake
+-# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod)
++# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod)
+ #
+ # Same code, same image as the microservices profile — only configuration differs.
+ 
+@@ -48,8 +48,8 @@ x-app-env: &app-env
+   EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
+   # The weaker guarantees this stack accepts (sandloom.core.config.accepted_risks; logged
+   # at every start): demo single-host local storage, shared by every process
+-  # (not multi-host HA). A demo without Stripe adds fake_psp_in_prod:
+-  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod
++  # (not multi-host HA). A demo without Stripe adds billing.fake_psp_in_prod:
++  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
+   # Labels consumer ids, the subscription inventory and diagnostics.
+@@ -96,7 +96,7 @@ x-app-env: &app-env
+   # in prod); comma-separated, newest first, for rotation.
+   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32) - required when identity is loaded}
+   # Billing refuses the fake PSP in prod — the operator must choose.
+-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
++  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
+   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+   # Internal endpoints (/_sandloom/rpc, /diagnostics, /metrics, /health details)
+diff --git a/examples/academy/deploy/docker-compose.yml b/examples/academy/deploy/docker-compose.yml
+index 600b3d5..4cfd95f 100644
+--- a/examples/academy/deploy/docker-compose.yml
++++ b/examples/academy/deploy/docker-compose.yml
+@@ -19,7 +19,7 @@ x-app-env: &app-env
+   # The weaker guarantees this stack accepts (logged at every start):
+   # single-host local storage, persisted below — use a driver plugin for
+   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
+-  # fake_psp_in_prod (comma-separated).
++  # billing.fake_psp_in_prod (comma-separated).
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
+diff --git a/examples/helpdesk/deploy/docker-compose.yml b/examples/helpdesk/deploy/docker-compose.yml
+index d281ad7..260e99b 100644
+--- a/examples/helpdesk/deploy/docker-compose.yml
++++ b/examples/helpdesk/deploy/docker-compose.yml
+@@ -21,7 +21,7 @@ x-app-env: &app-env
+   # newest first, for rotation) — required in prod.
+   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32)}
+   # billing refuses the fake PSP in prod: choose explicitly.
+-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=fake_psp_in_prod for demos)}
++  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=billing.fake_psp_in_prod for demos)}
+   # The weaker guarantees this stack accepts (logged at every start).
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-}
+   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+diff --git a/examples/tutorial/deploy/docker-compose.yml b/examples/tutorial/deploy/docker-compose.yml
+index 1f18e65..06efcac 100644
+--- a/examples/tutorial/deploy/docker-compose.yml
++++ b/examples/tutorial/deploy/docker-compose.yml
+@@ -19,7 +19,7 @@ x-app-env: &app-env
+   # The weaker guarantees this stack accepts (logged at every start):
+   # single-host local storage, persisted below — use a driver plugin for
+   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
+-  # fake_psp_in_prod (comma-separated).
++  # billing.fake_psp_in_prod (comma-separated).
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
+diff --git a/src/sandloom/core/admin/api/platform.py b/src/sandloom/core/admin/api/platform.py
+index 9ce08d4..446d9ac 100644
+--- a/src/sandloom/core/admin/api/platform.py
++++ b/src/sandloom/core/admin/api/platform.py
+@@ -605,7 +605,6 @@ _SAFE_SETTINGS = (
+     "password_hash_profile",
+     "rate_limit_enabled",
+     "trust_proxy_headers",
+-    "billing_provider",
+     "notifier_backend",
+     "docs_enabled",
+     "log_format",
+@@ -613,6 +612,26 @@ _SAFE_SETTINGS = (
+ )
+ 
+ 
++def _module_console_settings(core: Any) -> list[Any]:
++    """KB-49 PoC: the console-visible settings the LOADED modules declare."""
++    from sandloom.core.config import module_settings as _ms
++
++    rows = []
++    for _module, record in sorted(_ms.records(core).items()):
++        if record.instance is None:
++            continue
++        names = _ms.env_names(record.model)
++        for env_name in getattr(record.model, "console", ()) or ():
++            field_name = names[env_name]
++            rows.append(
++                SettingView(
++                    key=field_name,
++                    value=_setting_text(getattr(record.instance, field_name)),
++                )
++            )
++    return rows
++
++
+ def _setting_text(value: Any) -> str:
+     value = getattr(value, "value", value)
+     return "unset" if value is None else str(value)
+@@ -746,7 +765,8 @@ def _runtime_routes(router: APIRouter, core: Any) -> None:
+                 SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
+                 for key in _SAFE_SETTINGS
+                 if hasattr(cfg, key)
+-            ],
++            ]
++            + _module_console_settings(core),
+             infrastructure=instances,
+         )
+ 
+diff --git a/src/sandloom/core/app_factory/config.py b/src/sandloom/core/app_factory/config.py
+index 0737acc..c549581 100644
+--- a/src/sandloom/core/app_factory/config.py
++++ b/src/sandloom/core/app_factory/config.py
+@@ -408,7 +408,14 @@ def warn_configuration_overrides(cfg: Any, log: logging.Logger) -> list[tiers.Ov
+     (:mod:`sandloom.core.config.tiers`): an operator-facing log line plus
+     ``sandloom_config_override_active{setting,kind}``.
+     """
+-    found = tiers.log_overrides(cfg, log)
++    from sandloom.core.config import module_settings as _ms
++
++    # KB-49: module-owned items were logged by the loader's post-load report.
++    found = tiers.log_overrides(
++        cfg,
++        log,
++        [o for o in tiers.active_overrides(cfg) if not _ms.is_module_override(o)],
++    )
+     for item in found:
+         metrics.config_override_active.labels(item.setting, item.kind).set(1)
+         if item.kind == "accepted_risk":
+diff --git a/src/sandloom/core/cli/check.py b/src/sandloom/core/cli/check.py
+index d0d3bbe..ad8c4ae 100644
+--- a/src/sandloom/core/cli/check.py
++++ b/src/sandloom/core/cli/check.py
+@@ -108,6 +108,11 @@ def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
+     """``sandloom check``. ``record``: also write every violation of a run of
+     all rules to that file (:func:`recorded_violations` reads it back), so a
+     later step of the same ``sandloom test`` run need not run them again."""
++    args_in = list(sys.argv[1:] if argv is None else argv)
++    if args_in[:1] == ["settings"]:  # KB-49 PoC: the static settings gate
++        from sandloom.core.cli.settings_gate import main as settings_gate
++
++        return settings_gate(args_in[1:])
+     parser = argparse.ArgumentParser(
+         prog="sandloom check",
+         description="Run Sandloom architecture (module isolation) checks",
+diff --git a/src/sandloom/core/cli/config.py b/src/sandloom/core/cli/config.py
+index 661d15f..ae408c0 100644
+--- a/src/sandloom/core/cli/config.py
++++ b/src/sandloom/core/cli/config.py
+@@ -159,6 +159,65 @@ def effective_config(cfg: Any = None, *, redact: bool = True) -> list[ConfigEntr
+     return sorted(entries, key=lambda e: e.name)
+ 
+ 
++def module_config(redact: bool = True) -> tuple[list[ConfigEntry], list[str]]:
++    """KB-49 PoC (ADR-0015 decision 8): build the composition in collect mode
++    and list every loaded module's declared values with provenance.
++
++    No lifespan is entered and nothing is started: the composition root is
++    imported (registration + setup only). Settings errors and load failures
++    are returned as diagnosed problems instead of exiting."""
++    from sandloom.core.composition import load_composition_core
++    from sandloom.core.config import module_settings as ms
++
++    problems: list[str]
++    core = None
++    with ms.collect_mode() as problems:
++        try:
++            core = load_composition_core()
++        except BaseException as exc:  # noqa: BLE001 - diagnosed, not fatal
++            text = str(exc) or type(exc).__name__
++            if not any(text in p or p in text for p in problems):
++                problems.append(text)
++    regs = ms.records(core) if core is not None else dict(ms.STATE.records)
++    if not regs:
++        # the root failed before exposing its core: the records stay on the
++        # facade the loader was given; fall back to the last checked state.
++        regs = dict(ms.STATE.records)
++    entries: list[ConfigEntry] = []
++    for module, record in sorted(regs.items()):
++        names = ms.env_names(record.model)
++        for env_name, field_name in sorted(names.items()):
++            secret_field = ms.is_secret_field(record.model, field_name)
++            if record.instance is not None:
++                raw = getattr(record.instance, field_name)
++            else:
++                raw = ms.process_snapshot().get(env_name)[0]
++            secret = secret_field or (
++                is_secret_name(env_name) and not isinstance(raw, (bool, int, float))
++            )
++            value = (
++                redact_value(env_name, raw, secret=secret)
++                if redact
++                else _plain_secret(raw)
++            )
++            if record.instance is None:
++                value = f"{value} (invalid: see problems)"
++            entries.append(
++                ConfigEntry(
++                    name=env_name,
++                    value=value,
++                    source=f"{record.origins.get(env_name) or 'default'} module={module}",
++                    secret=secret,
++                )
++            )
++    return entries, problems
++
++
++def _plain_secret(value: Any) -> Any:
++    secret = getattr(value, "get_secret_value", None)
++    return secret() if callable(secret) else _plain(value)
++
++
+ def _render_text(entries: list[ConfigEntry]) -> str:
+     width = max((len(e.name) for e in entries), default=0)
+     lines = []
+@@ -193,6 +252,11 @@ def dump_main(argv: list[str]) -> int:
+         default="",
+         help="comma-separated name prefixes to include (e.g. JWT_,RPC_)",
+     )
++    parser.add_argument(
++        "--kernel-only",
++        action="store_true",
++        help="kernel settings only, without building the composition",
++    )
+     parser.add_argument(
+         "--non-default",
+         action="store_true",
+@@ -208,6 +272,10 @@ def dump_main(argv: list[str]) -> int:
+         )
+         return 2
+     entries = effective_config(settings, redact=not args.show_secrets)
++    problems: list[str] = []
++    if not args.kernel_only:
++        module_entries, problems = module_config(redact=not args.show_secrets)
++        entries = sorted(entries + module_entries, key=lambda e: e.name)
+     prefixes = [p.strip().upper() for p in args.only.split(",") if p.strip()]
+     if prefixes:
+         entries = [e for e in entries if e.name.startswith(tuple(prefixes))]
+@@ -217,6 +285,9 @@ def dump_main(argv: list[str]) -> int:
+         print(json.dumps([asdict(e) for e in entries], indent=2, default=str))
+     else:
+         print(_render_text(entries))
++    # Diagnosed, never fatal (ADR-0015 decision 8); stderr keeps --json a list.
++    for problem in problems:
++        print(f"PROBLEM: {problem}", file=sys.stderr)
+     return 0
+ 
+ 
+diff --git a/src/sandloom/core/cli/doctor.py b/src/sandloom/core/cli/doctor.py
+index c7c9a0c..5f0a550 100644
+--- a/src/sandloom/core/cli/doctor.py
++++ b/src/sandloom/core/cli/doctor.py
+@@ -236,6 +236,31 @@ def check_overrides(report: Report, cfg: Any) -> None:
+ # --------------------------------------------------------------- modules ----
+ 
+ 
++def check_module_settings(report: Report, cfg: Any) -> None:
++    """KB-49 PoC: the loaded modules' overrides, accepted risks and the
++    namespaced risk ids that are not applicable in this process."""
++    from sandloom.core.config import accepted_risks as _risks
++    from sandloom.core.config import module_settings as _ms
++
++    for item in _ms.module_override_items(cfg):
++        loud = cfg.is_prod or item.kind != "weaker"
++        report.add(
++            "config",  # same section as the kernel's overrides (boot checks count only modules warnings)
++            f"override:{item.setting}",
++            WARN if loud else OK,
++            item.message(),
++            kind=item.kind,
++        )
++    for risk_id in _risks.not_applicable():
++        report.add(
++            "config",
++            f"risk:{risk_id}",
++            OK,
++            f"accepted risk {risk_id} is not applicable here: its module is not "
++            "loaded in this process",
++        )
++
++
+ def check_modules(report: Report, core: Any) -> None:
+     modules = sorted(getattr(core, "loaded_modules", []) or [])
+     report.add(
+@@ -552,6 +577,7 @@ async def run_doctor(  # noqa: C901
+     try:
+         if "modules" not in skip:
+             check_modules(report, core)
++            check_module_settings(report, settings)
+         if "infra" not in skip:
+             await _guarded(report, "infra", lambda: check_infra(report, core, timeout))
+         if "migrations" not in skip:
+diff --git a/src/sandloom/core/cli/generated.py b/src/sandloom/core/cli/generated.py
+index 32166b5..bb563c8 100644
+--- a/src/sandloom/core/cli/generated.py
++++ b/src/sandloom/core/cli/generated.py
+@@ -428,9 +428,22 @@ def module_surface(entry: Any) -> dict[str, Any]:
+             {"name": p.name, "source_channels": list(p.source_channels)}
+             for p in entry.projections
+         ],
++        **_settings_section(entry.name),
+     }
+ 
+ 
++def _settings_section(module: str) -> dict[str, Any]:
++    """KB-49 PoC: each declared setting's tier (ADR-0015 decision 5)."""
++    from sandloom.core.config import module_settings as ms
++
++    try:
++        register = getattr(importlib.import_module(module), "register", None)
++    except Exception:  # noqa: BLE001
++        return {}
++    model = getattr(register, "__sandloom_settings__", None)
++    return {"settings": ms.module_tiers(model)} if model is not None else {}
++
++
+ def _contract_snapshot(module: str, contracts: Mapping[str, Any]) -> Generated | None:
+     """``contracts.snapshot.json`` of an L1 module; a breaking change of a
+     provided contract (``contract_compat``) is incompatible (SANDLOOM-T004)."""
+diff --git a/src/sandloom/core/cli/project.py b/src/sandloom/core/cli/project.py
+index 385f2ad..8053062 100644
+--- a/src/sandloom/core/cli/project.py
++++ b/src/sandloom/core/cli/project.py
+@@ -820,7 +820,7 @@ x-app-env: &app-env
+   # The weaker guarantees this stack accepts (logged at every start):
+   # single-host local storage, persisted below — use a driver plugin for
+   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
+-  # fake_psp_in_prod (comma-separated).
++  # billing.fake_psp_in_prod (comma-separated).
+   SANDLOOM_ACCEPTED_RISKS: $${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   # The optional admin console (sandloom-admin) is off in production by default.
+   ADMIN_CONSOLE_ENABLED: $${ADMIN_CONSOLE_ENABLED:-false}
+@@ -977,7 +977,7 @@ _IDENTITY_ENV = """\
+ _BILLING_ENV = """\
+   # billing refuses the fake PSP in prod: choose explicitly.
+   BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake \
+-with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
++with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
+   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+ """
+diff --git a/src/sandloom/core/cli/scaffold_deploy.py b/src/sandloom/core/cli/scaffold_deploy.py
+index 4c235b1..6e7a34b 100644
+--- a/src/sandloom/core/cli/scaffold_deploy.py
++++ b/src/sandloom/core/cli/scaffold_deploy.py
+@@ -95,7 +95,7 @@ MODULE_ENV: dict[str, tuple[str, ...]] = {
+     "sandloom_billing": (
+         "# billing refuses the fake PSP in prod: the operator must choose.",
+         "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
+-        "fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod "
++        "fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod "
+         "for demos)}",
+         "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
+         "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+diff --git a/src/sandloom/core/cli/settings_gate.py b/src/sandloom/core/cli/settings_gate.py
+new file mode 100644
+index 0000000..40f1402
+--- /dev/null
++++ b/src/sandloom/core/cli/settings_gate.py
+@@ -0,0 +1,196 @@
++"""KB-49 PoC: the static settings gate (ADR-0015 decisions 6, 7; D-M5).
++
++``sandloom check settings [--modules a,b] [--profile compose.yml] [--env K=V]``
++
++Imports every module of the app (side-effect free), then:
++
++* one env name declared twice across the kernel and ANY two modules, loaded
++  together or not (SANDLOOM-B036);
++* a new name without the module's prefix (``INVENTORY_``) unless the
++  committed ``module.snapshot.json`` already records it (grandfathered);
++* each module's tiers against its snapshot (a semantic setting cannot slip
++  in as ops unreviewed) — the per-module ratchet;
++* for each service of a topology: wrong names in ``SANDLOOM_MODULES``,
++  variables set for a module the service does not load, and literal values
++  (``${VAR:?…}`` placeholders skipped) validated against the declarations.
++"""
++
++from __future__ import annotations
++
++import argparse
++import importlib
++import json
++import sys
++from pathlib import Path
++from typing import Any
++
++from pydantic import ValidationError
++
++from sandloom.core.config import module_settings as ms
++
++CODE = "SANDLOOM-B036"
++
++
++def declaration(module: str) -> tuple[str, Any] | None:
++    path = ms.installed_module_names().get(module, module)
++    package = importlib.import_module(path)
++    model = getattr(getattr(package, "register", None), "__sandloom_settings__", None)
++    if model is None:
++        return None
++    return ms.module_short_name(path), model
++
++
++def _snapshot_settings(module_path: str) -> dict[str, str] | None:
++    package = importlib.import_module(module_path)
++    file = Path(str(package.__file__)).parent / "module.snapshot.json"
++    if not file.is_file():
++        return None
++    data = json.loads(file.read_text())
++    settings = data.get("settings")
++    return dict(settings) if isinstance(settings, dict) else None
++
++
++def static_problems(modules: list[str]) -> list[str]:
++    from sandloom.core.config.settings import Settings
++
++    problems: list[str] = []
++    owners: dict[str, str] = {
++        str(f.alias or n).upper(): "kernel" for n, f in Settings.model_fields.items()
++    }
++    for module in modules:
++        try:
++            found = declaration(module)
++        except Exception as exc:  # noqa: BLE001
++            problems.append(f"{module}: cannot import ({exc})")
++            continue
++        if found is None:
++            continue
++        short, model = found
++        path = ms.installed_module_names().get(module, module)
++        recorded = _snapshot_settings(path) or {}
++        tiers = ms.module_tiers(model)
++        for name in sorted(ms.env_names(model)):
++            if name in owners:
++                problems.append(
++                    f"{CODE}: {name} is declared by {owners[name]} and module {short}"
++                )
++            else:
++                owners[name] = f"module {short}"
++            prefix = f"{short.upper()}_"
++            if not name.startswith(prefix) and name not in recorded:
++                problems.append(
++                    f"{short}: new setting {name} must start with {prefix} "
++                    "(existing unprefixed names are grandfathered by "
++                    "module.snapshot.json)"
++                )
++        if recorded and recorded != tiers:
++            changed = sorted(
++                n for n in set(recorded) | set(tiers) if recorded.get(n) != tiers.get(n)
++            )
++            problems.append(
++                f"{short}: settings tiers differ from module.snapshot.json for "
++                f"{changed}: review, then `sandloom generate`"
++            )
++    return problems
++
++
++def topology_problems(
++    services: dict[str, dict[str, str]], app_modules: list[str]
++) -> list[str]:
++    """Each service's env against the declarations of what it loads."""
++    problems: list[str] = []
++    declared: dict[str, tuple[str, Any]] = {}
++    known = set(app_modules) | set(ms.installed_module_names())
++    for module in app_modules:
++        found = declaration(module)
++        if found:
++            declared[module] = found
++    installed = ms.installed_module_names()
++    known |= set(installed.values())
++    for service, env in sorted(services.items()):
++        raw = env.get("SANDLOOM_MODULES", "[]")
++        try:
++            listed = [str(m) for m in json.loads(raw)]
++        except ValueError:
++            listed = [m.strip() for m in raw.split(",") if m.strip()]
++        loads = []
++        for name in listed:
++            if name not in known:
++                problems.append(
++                    f"{service}: SANDLOOM_MODULES names unknown module {name!r}"
++                )
++            loads.append(ms.module_short_name(name))
++        environment = env.get("ENVIRONMENT", "dev")
++        for _module, (short, model) in sorted(declared.items()):
++            names = set(ms.env_names(model))
++            set_here = sorted(n for n in names if n in env)
++            if short not in loads:
++                if set_here:
++                    problems.append(
++                        f"{service}: sets {set_here} for module {short}, which "
++                        "this service does not load"
++                    )
++                continue
++            data = {n: env[n] for n in set_here if "${" not in env[n]}
++            accepted = env.get("SANDLOOM_ACCEPTED_RISKS", "")
++            ids = (
++                set(json.loads(accepted))
++                if accepted.startswith("[")
++                else {a.strip() for a in accepted.split(",") if a.strip()}
++            )
++
++            def accepts(risk_id: str, _short: str = short) -> bool:
++                return f"{_short}.{risk_id}" in ids or risk_id in ids
++
++            try:
++                model.model_validate(
++                    data, context={"environment": environment, "accepts_risk": accepts}
++                )
++            except ValidationError as exc:
++                problems.append(
++                    f"{service}: module {short}: {ms._format(exc, ms.env_names(model))}"
++                )
++    return problems
++
++
++def _profile_services(path: Path) -> dict[str, dict[str, str]]:
++    from sandloom.core.testing.deploy_profile import _env, app_processes, load_profile
++
++    compose = load_profile(path)
++    return {
++        name: {
++            k: (v if isinstance(v, str) else json.dumps(v))
++            for k, v in _env(svc).items()
++        }
++        for name, svc in app_processes(compose).items()
++    }
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(prog="sandloom check settings")
++    parser.add_argument("--modules", default="", help="every module of the app")
++    parser.add_argument("--profile", default=None, help="compose profile of a topology")
++    parser.add_argument(
++        "--service", action="append", default=[], help="NAME:JSON env of one service"
++    )
++    args = parser.parse_args(argv)
++    modules = [m.strip() for m in args.modules.split(",") if m.strip()] or sorted(
++        ms.installed_module_names()
++    )
++    problems = static_problems(modules)
++    services: dict[str, dict[str, str]] = {}
++    if args.profile:
++        services.update(_profile_services(Path(args.profile)))
++    for item in args.service:
++        name, _, env = item.partition(":")
++        services[name] = json.loads(env)
++    if services:
++        problems += topology_problems(services, modules)
++    for problem in problems:
++        print(f"FAIL {problem}")
++    print(f"settings gate: {len(problems)} problem(s) over {len(modules)} module(s)")
++    return 1 if problems else 0
++
++
++if __name__ == "__main__":  # pragma: no cover
++    sys.exit(main())
+diff --git a/src/sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl b/src/sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl
+index 3a975ec..74bea0f 100644
+--- a/src/sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl
++++ b/src/sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl
+@@ -85,7 +85,7 @@ x-common-env: &common-env
+   EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
+   # The weaker guarantees this stack accepts (logged at every start): demo
+   # single-host local storage, shared by every process (not multi-host HA). A
+-  # demo without Stripe adds fake_psp_in_prod.
++  # demo without Stripe adds billing.fake_psp_in_prod.
+   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
+   ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}
+   # Shared Redis: cache + the Streams event bus every service publishes to and
+diff --git a/src/sandloom/core/config/accepted_risks.py b/src/sandloom/core/config/accepted_risks.py
+index 590622b..dd76c4e 100644
+--- a/src/sandloom/core/config/accepted_risks.py
++++ b/src/sandloom/core/config/accepted_risks.py
+@@ -53,13 +53,6 @@ RISKS: tuple[Risk, ...] = (
+         "An experimental capability in prod: its contract may change in any release.",
+         "build_infra_registry (sandloom.core.drivers.bootstrap)",
+     ),
+-    Risk(
+-        "fake_psp_in_prod",
+-        "BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout sessions, "
+-        "no real payment (demo stacks).",
+-        "Settings validator (BILLING_PROVIDER) and billing's critical startup "
+-        "check (sandloom_billing.psp.psp_configuration_error)",
+-    ),
+     Risk(
+         "log_notifier_in_prod",
+         "The log notifier advertises delivery channels in prod: mail and SMS "
+@@ -146,13 +139,45 @@ RISK_IDS: frozenset[str] = frozenset(r.id for r in RISKS)
+ _BY_ID: dict[str, Risk] = {r.id: r for r in RISKS}
+ 
+ 
++#: KB-49 PoC: the loaded modules' declared risks (``<module>.<id>`` -> Risk)
++#: and the namespaced ids that are inert here, set by the post-load check.
++_MODULE_RISKS: dict[str, Risk] = {}
++_NOT_APPLICABLE: list[str] = []
++
++
++def set_module_risks(risks: dict[str, Risk], not_applicable: list[str]) -> None:
++    _MODULE_RISKS.clear()
++    _MODULE_RISKS.update(risks)
++    _NOT_APPLICABLE[:] = list(not_applicable)
++
++
++def not_applicable() -> list[str]:
++    return list(_NOT_APPLICABLE)
++
++
++def _lookup(risk_id: str) -> Risk:
++    if risk_id in _BY_ID:
++        return _BY_ID[risk_id]
++    return _MODULE_RISKS[risk_id]
++
++
+ def risk(risk_id: str) -> Risk:
+     """The registered :class:`Risk` (``KeyError`` for an unregistered id)."""
+-    return _BY_ID[risk_id]
++    found = _lookup(risk_id)
++    if risk_id in _MODULE_RISKS:
++        return Risk(
++            risk_id,
++            found.weakens,
++            found.consulted_by,
++            found.refused,
++            found.outside_prod,
++        )
++    return found
+ 
+ 
+ def unknown_ids(ids: Iterable[str]) -> list[str]:
+-    return sorted({str(i) for i in ids} - RISK_IDS)
++    # Namespaced ids are judged after the modules load (post-load check).
++    return sorted({str(i) for i in ids if "." not in str(i)} - RISK_IDS)
+ 
+ 
+ def unknown_ids_message(ids: Iterable[str]) -> str:
+@@ -168,18 +193,20 @@ def _is_prod(cfg: Any) -> bool:
+ 
+ def effective(cfg: Any) -> frozenset[str]:
+     """Every risk id ``cfg`` accepts (``SANDLOOM_ACCEPTED_RISKS``)."""
+-    return frozenset(getattr(cfg, "sandloom_accepted_risks", None) or ()) & RISK_IDS
++    return frozenset(getattr(cfg, "sandloom_accepted_risks", None) or ()) & (
++        RISK_IDS | set(_MODULE_RISKS)
++    )
+ 
+ 
+ def accepts(cfg: Any, risk_id: str) -> bool:
+     """``cfg`` accepts ``risk_id`` (``KeyError`` for an unregistered id)."""
+-    item = _BY_ID[risk_id]
+-    return item.id in (getattr(cfg, "sandloom_accepted_risks", None) or ())
++    _lookup(risk_id)
++    return risk_id in (getattr(cfg, "sandloom_accepted_risks", None) or ())
+ 
+ 
+ def in_effect(cfg: Any, risk_id: str) -> bool:
+     """Accepting ``risk_id`` changes behaviour in ``cfg``'s environment."""
+-    return _is_prod(cfg) or _BY_ID[risk_id].outside_prod
++    return _is_prod(cfg) or _lookup(risk_id).outside_prod
+ 
+ 
+ def diagnostics(cfg: Any) -> list[dict[str, object]]:
+@@ -187,11 +214,20 @@ def diagnostics(cfg: Any) -> list[dict[str, object]]:
+     return [
+         {
+             "risk": risk_id,
+-            "weakens": _BY_ID[risk_id].weakens,
+-            "consulted_by": _BY_ID[risk_id].consulted_by,
++            "weakens": _lookup(risk_id).weakens,
++            "consulted_by": _lookup(risk_id).consulted_by,
+             "in_effect": in_effect(cfg, risk_id),
+         }
+         for risk_id in sorted(effective(cfg))
++    ] + [
++        {
++            "risk": risk_id,
++            "weakens": "not applicable here: its module is not loaded in this process",
++            "consulted_by": "-",
++            "in_effect": False,
++            "not_applicable": True,
++        }
++        for risk_id in _NOT_APPLICABLE
+     ]
+ 
+ 
+diff --git a/src/sandloom/core/config/module_settings.py b/src/sandloom/core/config/module_settings.py
+new file mode 100644
+index 0000000..40f988b
+--- /dev/null
++++ b/src/sandloom/core/config/module_settings.py
+@@ -0,0 +1,743 @@
++"""Module-declared settings (ADR-0015, D2a) — KB-49 PoC prototype.
++
++A module hands a plain pydantic model to its registration
++(``define_module(..., settings=Model)`` or ``api.settings(Model)``). The
++loader validates it from the process source snapshot before ``setup`` runs,
++stores the instance on the core, and ``settings_of(Model)`` reads it. One
++post-load check runs after the load pass (collisions, risk namespaces,
++removed settings, the typo check over the union, override reporting).
++
++Metadata are class attributes holding the kernel's existing dataclasses::
++
++    semantic = (SemanticSetting(...),)
++    risks = (Risk(...),)            # ids are local names; full id <module>.<name>
++    removed = (RemovedSetting(...),)
++    shared = frozenset({"INVENTORY_..."})
++    console = ("INVENTORY_...",)
++    backup = {"INVENTORY_SECRET": "why it must be backed up"}
++
++Production checks are ``model_validator``s reading ``info.context``:
++``environment`` (str), ``accepts_risk`` (callable, local or full id),
++``kernel`` (the kernel ``Settings``, read only by convention).
++
++Pure configuration layer: imports nothing above ``sandloom.core.config``.
++"""
++
++from __future__ import annotations
++
++import contextvars
++import json
++import logging
++import os
++from collections import Counter
++from collections.abc import Callable, Iterable, Iterator, Mapping
++from contextlib import contextmanager
++from dataclasses import dataclass, field
++from difflib import get_close_matches
++from importlib import metadata
++from pathlib import Path
++from typing import Any, TypeVar
++
++from pydantic import BaseModel, ValidationError
++
++from sandloom.core.config import accepted_risks as _risks
++from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
++from sandloom.core.config.tiers import (
++    NO_OPINION,
++    RemovedSetting,
++    SemanticSetting,
++    removed_setting_problem,
++)
++
++logger = logging.getLogger("sandloom.settings")
++
++M = TypeVar("M", bound=BaseModel)
++
++#: SANDLOOM-B036 (proposed): one env name declared twice.
++COLLISION_CODE = "SANDLOOM-B036"
++
++
++class ModuleSettingsError(ConfigurationError):
++    """A module's settings are invalid (fatal for an optional module too)."""
++
++
++# --------------------------------------------------------------- snapshot ----
++
++#: P7 spy: how often each source was read in this process.
++STATS: dict[str, Any] = {"dotenv_parses": 0, "secrets_lookups": Counter()}
++
++
++class SourceSnapshot:
++    """One frozen, case-insensitive read of env > ``.env`` > ``SECRETS_DIR``.
++
++    ``.env`` is parsed once; ``SECRETS_DIR`` is never listed, each declared
++    alias is looked up once (cached). ``origin(name)`` is the source that
++    supplied it (``env`` / ``dotenv`` / ``secrets_dir``) or ``None``.
++    """
++
++    def __init__(self, env_file: str | None = ".env") -> None:
++        self._env = {str(k).upper(): v for k, v in os.environ.items()}
++        self._dotenv: dict[str, str] = {}
++        if env_file and Path(env_file).is_file():
++            from dotenv import dotenv_values
++
++            STATS["dotenv_parses"] += 1
++            self._dotenv = {
++                str(k).upper(): v
++                for k, v in dotenv_values(env_file).items()
++                if v is not None
++            }
++        secrets_dir = self._env.get("SECRETS_DIR") or self._dotenv.get("SECRETS_DIR")
++        self._secrets_dir = Path(secrets_dir) if secrets_dir else None
++        self._secrets: dict[str, str | None] = {}
++
++    def _secret(self, name: str) -> str | None:
++        if self._secrets_dir is None:
++            return None
++        if name not in self._secrets:
++            STATS["secrets_lookups"][name] += 1
++            value = None
++            for candidate in (name, name.lower()):
++                path = self._secrets_dir / candidate
++                if path.is_file():
++                    value = path.read_text().strip()
++                    break
++            self._secrets[name] = value
++        return self._secrets[name]
++
++    def get(self, name: str) -> tuple[str | None, str | None]:
++        key = name.upper()
++        if key in self._env:
++            return self._env[key], "env"
++        if key in self._dotenv:
++            return self._dotenv[key], "dotenv"
++        value = self._secret(key)
++        if value is not None:
++            return value, "secrets_dir"
++        return None, None
++
++    def origin(self, name: str) -> str | None:
++        return self.get(name)[1]
++
++    def present(self) -> set[str]:
++        """Names supplied by env or ``.env`` (secrets are never listed)."""
++        return set(self._env) | set(self._dotenv)
++
++    def merged(self, declared: Iterable[str]) -> dict[str, str]:
++        """``{lowercase name: value}`` for a pydantic-settings env source:
++        every env / ``.env`` key plus a secrets lookup per declared alias."""
++        out: dict[str, str] = {}
++        for name in declared:
++            value = self._secret(name.upper())
++            if value is not None:
++                out[name.lower()] = value
++        out.update({k.lower(): v for k, v in self._dotenv.items()})
++        out.update({k.lower(): v for k, v in self._env.items()})
++        return out
++
++
++_PROCESS_SNAPSHOT: SourceSnapshot | None = None
++
++
++def set_process_snapshot(snapshot: SourceSnapshot) -> None:
++    global _PROCESS_SNAPSHOT
++    _PROCESS_SNAPSHOT = snapshot
++
++
++def process_snapshot() -> SourceSnapshot:
++    """The snapshot the process settings were loaded from (built on demand)."""
++    global _PROCESS_SNAPSHOT
++    if _PROCESS_SNAPSHOT is None:
++        _PROCESS_SNAPSHOT = SourceSnapshot()
++    return _PROCESS_SNAPSHOT
++
++
++# ------------------------------------------------------------ declarations ----
++
++
++def env_names(model: type[BaseModel]) -> dict[str, str]:
++    """``{ENV_NAME: field name}`` of a declared model."""
++    out: dict[str, str] = {}
++    for name, info in model.model_fields.items():
++        alias = (
++            info.validation_alias if isinstance(info.validation_alias, str) else None
++        )
++        out[str(alias or info.alias or name).upper()] = name
++    return out
++
++
++def declared_risks(model: type[BaseModel]) -> tuple[_risks.Risk, ...]:
++    return tuple(getattr(model, "risks", ()) or ())
++
++
++def declared_semantic(model: type[BaseModel]) -> tuple[SemanticSetting, ...]:
++    return tuple(getattr(model, "semantic", ()) or ())
++
++
++def declared_removed(model: type[BaseModel]) -> tuple[RemovedSetting, ...]:
++    return tuple(getattr(model, "removed", ()) or ())
++
++
++def is_secret_field(model: type[BaseModel], field_name: str) -> bool:
++    from pydantic import SecretStr
++
++    annotation = model.model_fields[field_name].annotation
++    text = repr(annotation)
++    return annotation is SecretStr or "SecretStr" in text
++
++
++@dataclass
++class ModuleSettingsRecord:
++    module: str  # short name (billing, inventory)
++    package: str
++    model: type[BaseModel]
++    instance: BaseModel | None
++    origins: dict[str, str | None] = field(default_factory=dict)
++    problem: str | None = None
++
++
++# ------------------------------------------------------------ collect mode ----
++
++#: Set by ``config dump`` / doctor before the composition root is imported.
++#: Never read from the environment (adversarial D-1).
++COLLECT: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
++    "sandloom_settings_collect", default=None
++)
++
++
++@contextmanager
++def collect_mode() -> Iterator[list[str]]:
++    problems: list[str] = []
++    token = COLLECT.set(problems)
++    try:
++        yield problems
++    finally:
++        COLLECT.reset(token)
++
++
++class CollectedSettingsProblem(Exception):
++    """Collect mode: a module's settings error, recorded instead of exiting."""
++
++
++# -------------------------------------------------------------- validation ----
++
++
++def _format(error: ValidationError, names: Mapping[str, str]) -> str:
++    by_field = {v: k for k, v in names.items()}
++    parts = []
++    for item in error.errors(include_input=False):
++        loc = item.get("loc") or ()
++        msg = str(item.get("msg", "invalid"))
++        msg = msg.removeprefix("Value error, ")
++        if loc:
++            head = str(loc[0])
++            alias = head.upper() if head.upper() in names else by_field.get(head, head)
++            parts.append(f"{alias}: {msg}")
++        else:
++            parts.append(msg)
++    return "; ".join(parts)
++
++
++def _accepts_risk_for(
++    module: str, model: type[BaseModel], kernel: Any
++) -> Callable[[str], bool]:
++    local = {r.id for r in declared_risks(model)}
++    accepted = set(getattr(kernel, "sandloom_accepted_risks", None) or ())
++
++    def accepts_risk(risk_id: str) -> bool:
++        name = risk_id.split(".", 1)[1] if risk_id.startswith(f"{module}.") else risk_id
++        if "." in name or name not in local:
++            raise KeyError(f"{module} declares no risk {risk_id!r}")
++        return f"{module}.{name}" in accepted
++
++    return accepts_risk
++
++
++def _raw_values(
++    model: type[BaseModel], snapshot: SourceSnapshot
++) -> tuple[dict[str, Any], dict[str, str | None]]:
++    data: dict[str, Any] = {}
++    origins: dict[str, str | None] = {}
++    for alias, name in env_names(model).items():
++        value, origin = snapshot.get(alias)
++        origins[alias] = origin
++        if value is None:
++            continue
++        annotation = repr(model.model_fields[name].annotation)
++        text = value.strip()
++        if text[:1] in "[{" and (
++            "list" in annotation
++            or "dict" in annotation
++            or "tuple" in annotation
++            or "set" in annotation
++        ):
++            try:
++                data[alias] = json.loads(text)
++                continue
++            except ValueError:
++                pass
++        data[alias] = value
++    return data, origins
++
++
++def validate_module_settings(
++    module: str,
++    package: str,
++    model: type[M],
++    kernel: Any,
++    snapshot: SourceSnapshot | None = None,
++) -> ModuleSettingsRecord:
++    """Validate ``model`` from the snapshot with the module's context."""
++    snap = snapshot or process_snapshot()
++    data, origins = _raw_values(model, snap)
++    environment = getattr(getattr(kernel, "environment", None), "value", None) or str(
++        getattr(kernel, "environment", "dev")
++    )
++    context = {
++        "environment": environment,
++        "accepts_risk": _accepts_risk_for(module, model, kernel),
++        "kernel": kernel,
++        "module": module,
++    }
++    try:
++        instance = model.model_validate(data, context=context)
++    except ValidationError as exc:
++        reason = _format(exc, env_names(model))
++        message = f"{INVALID_CONFIGURATION}module {package}: {reason}"
++        collected = COLLECT.get()
++        if collected is not None:
++            collected.append(message)
++            return ModuleSettingsRecord(module, package, model, None, origins, message)
++        raise ModuleSettingsError(message) from None
++    return ModuleSettingsRecord(module, package, model, instance, origins)
++
++
++def module_short_name(package: str) -> str:
++    by_package = {pkg: name for name, pkg in installed_module_names().items()}
++    return by_package.get(package) or package.rsplit(".", 1)[-1]
++
++
++def declare(core: Any, package: str, model: type[M], kernel: Any) -> M | None:
++    """``api.declare_settings(Model)``: validate now, store on the core, return it."""
++
++    module = module_short_name(package)
++
++    record = validate_module_settings(module, package, model, kernel)
++    registry: dict[str, ModuleSettingsRecord] = core.__dict__.setdefault(
++        "_module_settings", {}
++    )
++    registry[module] = record
++    if record.instance is None:
++        raise CollectedSettingsProblem(record.problem)
++    return record.instance  # type: ignore[return-value]
++
++
++def records(core: Any) -> dict[str, ModuleSettingsRecord]:
++    return dict(getattr(core, "_module_settings", {}) or {})
++
++
++# ----------------------------------------------------------------- readers ----
++
++_OVERRIDES: contextvars.ContextVar[dict[type[BaseModel], BaseModel] | None] = (
++    contextvars.ContextVar("sandloom_settings_overrides", default=None)
++)
++_LOADING: contextvars.ContextVar[Any] = contextvars.ContextVar(
++    "sandloom_settings_loading_core", default=None
++)
++
++
++@contextmanager
++def loading(core: Any) -> Iterator[None]:
++    token = _LOADING.set(core)
++    try:
++        yield
++    finally:
++        _LOADING.reset(token)
++
++
++#: The active-core lookup, installed by ``sandloom.core.module_api`` (the
++#: configuration layer imports nothing above it, ADR-0007).
++ACTIVE_CORE: Callable[[], Any] | None = None
++
++
++class SettingsNotBoundError(RuntimeError):
++    """``settings_of`` with no application bound (e.g. at import time)."""
++
++
++#: ``patch_settings`` (monkeypatch-scoped test overrides).
++_PATCHED: dict[type[BaseModel], BaseModel] = {}
++
++
++def settings_of(model: type[M]) -> M:
++    """The validated instance of ``model`` in the bound application."""
++    overrides = _OVERRIDES.get()
++    if overrides and model in overrides:
++        return overrides[model]  # type: ignore[return-value]
++    if model in _PATCHED:
++        return _PATCHED[model]  # type: ignore[return-value]
++    core = _LOADING.get()
++    if core is None and ACTIVE_CORE is not None:
++        core = ACTIVE_CORE()
++    if core is None:
++        raise SettingsNotBoundError(
++            f"settings_of({model.__name__}) with no application bound: read "
++            "settings inside a request, task or setup, never at import"
++        )
++    for record in records(core).values():
++        if record.model is model and record.instance is not None:
++            return record.instance  # type: ignore[return-value]
++    raise SettingsNotBoundError(
++        f"settings_of({model.__name__}): no loaded module declared this model"
++    )
++
++
++def patch_settings(monkeypatch: Any, model: type[M], **values: Any) -> M:
++    """Testing override for the test's ``monkeypatch`` scope: ``settings_of``
++    returns the current instance (or the model's defaults with no app) with
++    ``values`` (field names) applied. Repeated calls accumulate."""
++    try:
++        base = settings_of(model)
++    except SettingsNotBoundError:
++        base = model.model_construct()
++    instance = base.model_copy(update=values)
++    monkeypatch.setitem(_PATCHED, model, instance)
++    return instance
++
++
++def reset_process_snapshot(monkeypatch: Any) -> None:
++    """Testing: re-read the process snapshot from the (monkeypatched)
++    environment for the test's scope (it is read once per process)."""
++    monkeypatch.setattr(
++        __import__(__name__, fromlist=["_"]),
++        "_PROCESS_SNAPSHOT",
++        SourceSnapshot(env_file=None),
++    )
++
++
++def validate_settings(model: type[M], kernel: Any) -> M:
++    """Testing: validate ``model`` from the process snapshot exactly as the
++    loader does before ``setup`` (raises :class:`ModuleSettingsError`)."""
++    package = str(model.__module__).split(".", 1)[0]
++    record = validate_module_settings(
++        module_short_name(package), package, model, kernel
++    )
++    return record.instance  # type: ignore[return-value]
++
++
++@contextmanager
++def override_settings(model: type[M], **values: Any) -> Iterator[M]:
++    """Testing override: ``settings_of(model)`` returns a copy with ``values``
++    (field names) for the scope; the kernel singleton is untouched."""
++    try:
++        base = settings_of(model)
++        instance = base.model_copy(update=values)
++    except SettingsNotBoundError:
++        instance = model.model_construct(**values)
++    current = dict(_OVERRIDES.get() or {})
++    current[model] = instance
++    token = _OVERRIDES.set(current)
++    try:
++        yield instance
++    finally:
++        _OVERRIDES.reset(token)
++
++
++# ------------------------------------------------------- known namespaces ----
++
++
++_INSTALLED: dict[str, str] | None = None
++
++
++def installed_module_names() -> dict[str, str]:
++    """K1: ``{entry-point name: package}`` of the installed modules (read
++    once per process: the installed distributions do not change while it runs)."""
++    global _INSTALLED
++    if _INSTALLED is None:
++        _INSTALLED = _scan_installed()
++    return dict(_INSTALLED)
++
++
++def _scan_installed() -> dict[str, str]:
++    return {
++        ep.name: str(ep.value).split(":", 1)[0].strip()
++        for ep in metadata.entry_points().select(group="sandloom.modules")
++    }
++
++
++def _installed_declaration(package: str) -> type[BaseModel] | None:
++    """The settings model an installed module declares (import only)."""
++    import importlib
++
++    try:
++        mod = importlib.import_module(package)
++    except Exception:  # noqa: BLE001 - a broken install names nothing
++        return None
++    register = getattr(mod, "register", None)
++    model = getattr(register, "__sandloom_settings__", None)
++    return model if isinstance(model, type) and issubclass(model, BaseModel) else None
++
++
++def flat_id_replacement(risk_id: str) -> str | None:
++    """Option (ii) of alternatives-d §6.1: the namespaced id an installed
++    module declares for a flat id (imports the declarations, no register)."""
++    for name, package in sorted(installed_module_names().items()):
++        model = _installed_declaration(package)
++        if model is None:
++            continue
++        if any(r.id == risk_id for r in declared_risks(model)):
++            return f"{name}.{risk_id}"
++    return None
++
++
++def flat_risk_problem(ids: Iterable[str]) -> str | None:
++    """Kernel ``Settings`` validator: a flat id that is not a kernel id."""
++    for risk_id in sorted({str(i) for i in ids}):
++        if "." in risk_id or risk_id in _risks.RISK_IDS:
++            continue
++        replacement = flat_risk_hint(risk_id)
++        return (
++            f"SANDLOOM_ACCEPTED_RISKS names unknown risk id {risk_id!r}; {replacement}"
++        )
++    return None
++
++
++def flat_risk_hint(risk_id: str) -> str:
++    replacement = flat_id_replacement(risk_id)
++    if replacement:
++        return (
++            f"module risk ids are namespaced: use {replacement!r} "
++            "(docs/upgrade notes: accepted-risk ids)"
++        )
++    return (
++        "module risk ids are namespaced <module>.<id> since the settings "
++        f"migration (see the upgrade notes); kernel ids: {sorted(_risks.RISK_IDS)}"
++    )
++
++
++# -------------------------------------------------------- post-load check ----
++
++
++@dataclass
++class LoadedSettingsState:
++    """What the post-load check found (diagnostics, doctor, overrides)."""
++
++    module_risks: dict[str, _risks.Risk] = field(default_factory=dict)
++    not_applicable: list[str] = field(default_factory=list)
++    records: dict[str, ModuleSettingsRecord] = field(default_factory=dict)
++
++
++#: The last composition checked in this process (I-24: one app per process
++#: outside tests; tests rebuild it with each app).
++STATE = LoadedSettingsState()
++
++
++def _kernel_names(kernel_cls: Any) -> set[str]:
++    return {
++        str(info.alias or name).upper()
++        for name, info in kernel_cls.model_fields.items()
++    }
++
++
++def app_local_modules(kernel: Any) -> set[str]:
++    """Short names of the app-local modules the composition names
++    (``SANDLOOM_MODULES`` entries that are not entry points)."""
++    by_package = {pkg: name for name, pkg in installed_module_names().items()}
++    names = set()
++    for entry in getattr(kernel, "sandloom_modules", None) or ():
++        text = str(entry)
++        names.add(by_package.get(text) or text.rsplit(".", 1)[-1])
++    return names
++
++
++def post_load_check(
++    core: Any, loaded_names: Iterable[str], kernel: Any
++) -> LoadedSettingsState:
++    """ADR-0015 decision 3: the one check after the load pass."""
++    Settings = type(kernel)
++
++    snap = process_snapshot()
++    regs = {m: r for m, r in records(core).items()}
++    problems: list[str] = []
++
++    # 1. collisions (kernel and loaded modules)
++    owners: dict[str, str] = dict.fromkeys(_kernel_names(Settings), "kernel")
++    for module, record in sorted(regs.items()):
++        for name in env_names(record.model):
++            if name in owners:
++                problems.append(
++                    f"{COLLISION_CODE}: {name} is declared by {owners[name]} and "
++                    f"module {module}"
++                )
++            else:
++                owners[name] = f"module {module}"
++
++    # 2. accepted-risk namespaces
++    loaded = set(regs) | {str(n) for n in loaded_names}
++    known = set(installed_module_names()) | loaded | app_local_modules(kernel)
++    module_risks: dict[str, _risks.Risk] = {}
++    for module, record in regs.items():
++        for item in declared_risks(record.model):
++            module_risks[f"{module}.{item.id}"] = item
++    not_applicable: list[str] = []
++    for risk_id in sorted(getattr(kernel, "sandloom_accepted_risks", None) or ()):
++        if "." not in risk_id:
++            continue  # flat: the kernel validator already judged it
++        ns, _, _name = risk_id.partition(".")
++        if ns in regs:
++            if risk_id not in module_risks:
++                declared = sorted(k for k in module_risks if k.startswith(f"{ns}."))
++                problems.append(
++                    f"SANDLOOM_ACCEPTED_RISKS names {risk_id!r}, which module "
++                    f"{ns} does not declare (declared: {declared})"
++                )
++        elif ns in known:
++            not_applicable.append(risk_id)
++        else:
++            problems.append(
++                f"SANDLOOM_ACCEPTED_RISKS names {risk_id!r}: no module {ns!r} is "
++                f"known in this deployment (installed or loaded: {sorted(known)})"
++            )
++
++    # 3. removed settings of loaded modules
++    for module, record in sorted(regs.items()):
++        for removed in declared_removed(record.model):
++            raw, _origin = snap.get(removed.name)
++            if raw is None:
++                continue
++            problem, fatal = removed_setting_problem(removed, raw)
++            if fatal:
++                problems.append(f"module {module}: {problem}")
++            else:
++                logger.warning(problem)
++
++    # 4. production typo check over the union
++    if getattr(kernel, "is_prod", False):
++        aliases = set(owners)
++        prefixes = {n.split("_", 1)[0] for n in aliases if "_" in n}
++        for key in sorted(snap.present()):
++            if key in aliases or len(key) < 8 or "_" not in key:
++                continue
++            if key.split("_", 1)[0] not in prefixes:
++                continue
++            matches = get_close_matches(key, sorted(aliases), n=1, cutoff=0.95)
++            if matches:
++                problems.append(f"Unknown setting {key}; did you mean {matches[0]}?")
++
++    if problems:
++        message = f"{INVALID_CONFIGURATION}" + "; ".join(problems)
++        collected = COLLECT.get()
++        if collected is None:
++            raise ModuleSettingsError(message)
++        collected.append(message)
++
++    STATE.module_risks = module_risks
++    STATE.not_applicable = not_applicable
++    STATE.records = regs
++    _risks.set_module_risks(module_risks, not_applicable)
++    return STATE
++
++
++def is_module_override(item: Any) -> bool:
++    """An override the post-load report already logged (module-owned)."""
++    if item.kind == "accepted_risk":
++        return "." in str(item.value)
++    return any(item.setting in env_names(r.model) for r in STATE.records.values())
++
++
++def module_override_items(kernel: Any) -> list[Any]:
++    """The module-owned overrides and accepted risks as tiers.Override."""
++    from sandloom.core.config import tiers
++
++    return [o for o in tiers.active_overrides(kernel) if is_module_override(o)]
++
++
++# --------------------------------------------------- overrides (tiers) ----
++
++
++def _profile_value(spec: SemanticSetting, prof: str) -> object:
++    return spec.profile.get(prof, NO_OPINION)
++
++
++def module_overrides(kernel: Any) -> list[tuple[str, object, str, object, bool]]:
++    """``(setting, value, profile, profile value, explicit)`` for each module
++    semantic setting weaker than its profile value (a risk it names that is
++    accepted reports as the risk instead)."""
++    from sandloom.core.config.tiers import profile_of
++
++    prof = profile_of(kernel)
++    out = []
++    for module, record in sorted(STATE.records.items()):
++        if record.instance is None:
++            continue
++        names = env_names(record.model)
++        for spec in declared_semantic(record.model):
++            if spec.risk is not None:
++                full = spec.risk if "." in spec.risk else f"{module}.{spec.risk}"
++                if full in (getattr(kernel, "sandloom_accepted_risks", None) or ()):
++                    continue
++            field_name = names.get(spec.name)
++            if field_name is None:
++                continue
++            value = (
++                spec.effective(record.instance)
++                if spec.effective is not None
++                else getattr(record.instance, field_name)
++            )
++            expected = _profile_value(spec, prof)
++            if expected is not NO_OPINION and spec.weaker(value, expected):
++                explicit = record.origins.get(spec.name) is not None
++                out.append((spec.name, value, prof, expected, explicit))
++    return out
++
++
++def module_tiers(model: type[BaseModel]) -> dict[str, str]:
++    """``{ENV_NAME: tier}`` of a declared model (undeclared fields are ops)."""
++    semantic = {s.name for s in declared_semantic(model)}
++    return {
++        name: ("semantic" if name in semantic else "ops")
++        for name in sorted(env_names(model))
++    }
++
++
++def _module_tier_counts() -> dict[str, dict[str, int]]:
++    out: dict[str, dict[str, int]] = {}
++    for module, record in sorted(STATE.records.items()):
++        tiers_of = module_tiers(record.model)
++        out[module] = {
++            "semantic": sum(1 for t in tiers_of.values() if t == "semantic"),
++            "ops": sum(1 for t in tiers_of.values() if t == "ops"),
++        }
++    return out
++
++
++# tiers reads the loaded modules through hooks (no import cycle in config).
++from sandloom.core.config import tiers as _tiers  # noqa: E402
++
++_tiers.MODULE_OVERRIDES = module_overrides
++_tiers.MODULE_TIER_COUNTS = _module_tier_counts
++
++
++__all__ = [
++    "COLLECT",
++    "COLLISION_CODE",
++    "CollectedSettingsProblem",
++    "ModuleSettingsError",
++    "ModuleSettingsRecord",
++    "STATE",
++    "STATS",
++    "SettingsNotBoundError",
++    "SourceSnapshot",
++    "collect_mode",
++    "declare",
++    "env_names",
++    "flat_risk_problem",
++    "module_overrides",
++    "module_tiers",
++    "override_settings",
++    "patch_settings",
++    "post_load_check",
++    "process_snapshot",
++    "records",
++    "settings_of",
++    "validate_module_settings",
++]
+diff --git a/src/sandloom/core/config/modules.py b/src/sandloom/core/config/modules.py
+index c8cec49..b7106ac 100644
+--- a/src/sandloom/core/config/modules.py
++++ b/src/sandloom/core/config/modules.py
+@@ -2,28 +2,12 @@
+ 
+ from __future__ import annotations
+ 
+-from typing import Literal
+-
+ from pydantic import BaseModel, Field
+ 
+ 
+ class ModulesConfig(BaseModel):
+     """Settings of the bundled business modules (2FA, billing, SSO providers)."""
+ 
+-    # Dedicated key(s) for encrypting TOTP secrets at rest (comma-separated,
+-    # newest first, for rotation). Required in production when identity is
+-    # loaded (its startup check fails without it); outside production an unset
+-    # key falls back to one derived from JWT_SECRET.
+-    twofa_encryption_key: str | None = Field(
+-        default=None,
+-        alias="TWOFA_ENCRYPTION_KEY",
+-        description=(
+-            "Comma-separated TOTP encryption keys, newest first, for rotation; "
+-            "production identity requires explicit keys, while development can "
+-            "derive a fallback from JWT_SECRET."
+-        ),
+-    )
+-
+     # Admin console (the optional sandloom-admin package)
+     admin_console_enabled: bool | None = Field(
+         default=None,
+@@ -42,93 +26,6 @@ class ModulesConfig(BaseModel):
+         ),
+     )
+ 
+-    # Billing (Stripe)
+-    billing_provider: Literal["fake", "stripe"] = Field(
+-        default="fake",
+-        alias="BILLING_PROVIDER",
+-        description=(
+-            "Payment provider selector: fake for local/testing flows or stripe "
+-            "for real Stripe integration."
+-        ),
+-    )
+-    stripe_secret_key: str | None = Field(
+-        default=None,
+-        alias="STRIPE_SECRET_KEY",
+-        description=("Stripe API secret used by the Stripe payment-provider adapter."),
+-    )
+-    stripe_webhook_secret: str | None = Field(
+-        default=None,
+-        alias="STRIPE_WEBHOOK_SECRET",
+-        description=(
+-            "Stripe webhook signing secret used to authenticate incoming webhook "
+-            "payloads."
+-        ),
+-    )
+-    billing_deny_on_past_due: bool = Field(
+-        default=False,
+-        alias="BILLING_DENY_ON_PAST_DUE",
+-        description=(
+-            "Deny subscription entitlements while payment is past due; disabled "
+-            "preserves the configured past-due grace behavior."
+-        ),
+-    )
+-    # ADR-0003 open item 9: a subscription created WITHOUT an operation intent
+-    # (operator-created in the PSP, migrated, restored) is synced but grants
+-    # entitlements only when this is true (and its price is in the catalog).
+-    # Default false = fail closed; rows that existed before the policy
+-    # (origin "legacy") and intent-backed ones are unaffected.
+-    billing_grant_intentless_subscriptions: bool = Field(
+-        default=False,
+-        alias="BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
+-        description=(
+-            "Allow catalog-backed subscriptions created without a framework "
+-            "operation intent to grant access; default denies those new "
+-            "intentless grants."
+-        ),
+-    )
+-    # #72: the periodic reconciler (billing.tasks.reconcile_operation_intents)
+-    # closes a ``pending`` operation intent older than this (its client never
+-    # retried) after looking its PSP session up. Must exceed the longest
+-    # request (PSP timeouts + retries), hence the floor.
+-    billing_intent_reconcile_after_minutes: int = Field(
+-        default=30,
+-        ge=5,
+-        le=24 * 60,
+-        alias="BILLING_INTENT_RECONCILE_AFTER_MINUTES",
+-        description=(
+-            "Minimum pending-intent age in minutes before periodic reconciliation "
+-            "looks up or expires its payment-provider operation."
+-        ),
+-    )
+-    # Failed reconciliation steps per intent (PSP lookup / expire) before it is
+-    # left to an operator (``followup_at``).
+-    billing_intent_reconcile_max_attempts: int = Field(
+-        default=5,
+-        ge=1,
+-        le=100,
+-        alias="BILLING_INTENT_RECONCILE_MAX_ATTEMPTS",
+-        description=(
+-            "Failed reconciliation attempts per operation intent before leaving "
+-            "it for operator follow-up."
+-        ),
+-    )
+-    # ADR-0003 open item 10: a user-actionable subscription change (plan /
+-    # cancel_at_period_end) is attributed to the customer portal when the
+-    # customer has a portal intent issued within this window before it;
+-    # otherwise it is audited ``billing.subscription.unattributed_change``
+-    # (never blocked).
+-    billing_portal_attribution_window_minutes: int = Field(
+-        default=60,
+-        ge=1,
+-        le=24 * 60,
+-        alias="BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES",
+-        description=(
+-            "Minutes during which a preceding portal intent attributes "
+-            "subscription changes to that portal visit; changes outside it are "
+-            "audited as unattributed."
+-        ),
+-    )
+-
+     # SSO
+     google_client_id: str | None = Field(
+         default=None,
+diff --git a/src/sandloom/core/config/settings.py b/src/sandloom/core/config/settings.py
+index f415079..e32cd31 100644
+--- a/src/sandloom/core/config/settings.py
++++ b/src/sandloom/core/config/settings.py
+@@ -24,12 +24,14 @@ from pydantic import ValidationError
+ from pydantic.functional_validators import field_validator, model_validator
+ from pydantic_settings import (
+     BaseSettings,
++    EnvSettingsSource,
+     PydanticBaseSettingsSource,
+     SecretsSettingsSource,
+     SettingsConfigDict,
+ )
+ 
+ from sandloom.core.config import accepted_risks as _risks
++from sandloom.core.config import module_settings as _module_settings
+ from sandloom.core.config.auth import AuthConfig
+ from sandloom.core.config.cache import CacheConfig
+ from sandloom.core.config.common import (
+@@ -57,6 +59,24 @@ from sandloom.core.config.services import ServicesConfig
+ from sandloom.core.config.tiers import REMOVED, removed_setting_problem
+ from sandloom.core.config.trust import TrustConfig
+ 
++#: KB-49 PoC: the snapshot the process load validates from (``_load_into``).
++_LOAD_SNAPSHOT: _module_settings.SourceSnapshot | None = None
++
++
++class _SnapshotSource(EnvSettingsSource):
++    """pydantic-settings' env source over the process snapshot (env > .env >
++    one SECRETS_DIR lookup per declared alias): decoding stays pydantic's."""
++
++    def __init__(self, settings_cls: type[BaseSettings], snapshot: Any) -> None:
++        self._snapshot = snapshot
++        super().__init__(settings_cls, case_sensitive=False)
++
++    def _load_env_vars(self) -> Any:
++        declared = [
++            str(f.alias or n).upper() for n, f in self.settings_cls.model_fields.items()
++        ]
++        return self._snapshot.merged(declared)
++
+ 
+ def effective_secrets_dir(settings_cls: type[BaseSettings]) -> str | None:
+     """The secrets directory of ``settings_cls``: its configured
+@@ -135,6 +155,8 @@ class Settings(
+         dotenv_settings: PydanticBaseSettingsSource,
+         file_secret_settings: PydanticBaseSettingsSource,
+     ) -> tuple[PydanticBaseSettingsSource, ...]:
++        if _LOAD_SNAPSHOT is not None:
++            return init_settings, _SnapshotSource(settings_cls, _LOAD_SNAPSHOT)
+         if (
+             isinstance(file_secret_settings, SecretsSettingsSource)
+             and file_secret_settings.secrets_dir is None
+@@ -201,8 +223,11 @@ class Settings(
+ 
+     @model_validator(mode="after")
+     def _known_accepted_risks(self) -> Settings:
+-        if _risks.unknown_ids(self.sandloom_accepted_risks):
+-            raise ValueError(_risks.unknown_ids_message(self.sandloom_accepted_risks))
++        # KB-49: flat ids must be kernel ids; namespaced <module>.<id> ids
++        # are judged after the modules load (post-load check).
++        problem = _module_settings.flat_risk_problem(self.sandloom_accepted_risks)
++        if problem:
++            raise ValueError(problem)
+         return self
+ 
+     @model_validator(mode="before")
+@@ -494,15 +519,6 @@ class Settings(
+                         f"JWT_PREVIOUS_SECRETS[{idx}] is {problem}; previous "
+                         "secrets must meet the same rules as JWT_SECRET"
+                     )
+-            if self.twofa_encryption_key:
+-                for idx, key in enumerate(
+-                    k.strip() for k in self.twofa_encryption_key.split(",")
+-                ):
+-                    if key and (problem := secret_problem(key)):
+-                        raise ValueError(
+-                            f"TWOFA_ENCRYPTION_KEY[{idx}] is {problem}; generate "
+-                            "a random one (e.g. openssl rand -hex 32)"
+-                        )
+         if self.jwt_secret is not None and self.jwt_secret in self.jwt_previous_secrets:
+             raise ValueError(
+                 "JWT_PREVIOUS_SECRETS must not contain the current JWT_SECRET"
+@@ -620,44 +636,6 @@ class Settings(
+             )
+         return self
+ 
+-    @model_validator(mode="after")
+-    def _billing_requirements(self) -> Settings:
+-        """Fail fast when Stripe is selected but its keys are missing.
+-
+-        A misconfigured billing provider must not surface only at the first
+-        webhook/charge in production — it aborts startup instead.
+-        """
+-        if (
+-            self.environment == Environment.prod
+-            and self.billing_provider == "fake"
+-            and "billing_provider" in self.model_fields_set
+-            and not self.accepts_risk("fake_psp_in_prod")
+-        ):
+-            # Only an EXPLICIT fake selection is rejected here: the kernel names
+-            # no business module, so a deployment without billing keeps the
+-            # field's default. The billing module's critical startup check
+-            # rejects the implicit default when billing is actually loaded.
+-            raise ValueError(
+-                "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: use "
+-                "BILLING_PROVIDER=stripe (with STRIPE_SECRET_KEY and "
+-                "STRIPE_WEBHOOK_SECRET) or, for a demo stack, "
+-                'SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]'
+-            )
+-        if self.billing_provider == "stripe":
+-            missing = [
+-                name
+-                for name, val in {
+-                    "STRIPE_SECRET_KEY": self.stripe_secret_key,
+-                    "STRIPE_WEBHOOK_SECRET": self.stripe_webhook_secret,
+-                }.items()
+-                if not val
+-            ]
+-            if missing:
+-                raise ValueError(
+-                    f"BILLING_PROVIDER=stripe requires variables: {', '.join(missing)}"
+-                )
+-        return self
+-
+     @model_validator(mode="after")
+     def _storage_requirements(self) -> Settings:
+         if self.storage_type == "local":
+@@ -772,11 +750,20 @@ def _load_into(target: Settings) -> None:
+     with _LOAD_LOCK:
+         if type(target) is not _UnloadedSettings:
+             return  # another thread loaded it
++        global _LOAD_SNAPSHOT
++        snapshot = _module_settings.SourceSnapshot(".env")
++        _module_settings.set_process_snapshot(snapshot)
++        _LOAD_SNAPSHOT = snapshot
+         try:
+-            fresh = Settings()
++            # _env_file=None: pydantic-settings builds its default .env source
++            # before settings_customise_sources replaces it, which would read
++            # the file a second time (KB-49 P7 spy).
++            fresh = Settings(_env_file=None)
+         except ValidationError as e:
+             # fail loudly and immediately: an invalid config is unacceptable
+             raise SystemExit(f"{INVALID_CONFIGURATION}{_hint(e)}{e}") from e
++        finally:
++            _LOAD_SNAPSHOT = None
+         for slot in _STATE_SLOTS:
+             object.__setattr__(target, slot, object.__getattribute__(fresh, slot))
+         object.__setattr__(target, "__class__", Settings)
+diff --git a/src/sandloom/core/config/tiers.py b/src/sandloom/core/config/tiers.py
+index a84c5c7..dd7b951 100644
+--- a/src/sandloom/core/config/tiers.py
++++ b/src/sandloom/core/config/tiers.py
+@@ -329,13 +329,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
+         risk="relay_disabled",
+         adr="docs/adr/0006-accepted-risks.md",
+     ),
+-    # ---- billing policy
+-    SemanticSetting(
+-        "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
+-        "A subscription without an operation intent grants entitlements.",
+-        profile=_all(False),
+-        strength=_BOOL_WEAK_TRUE,
+-    ),
+     # ---- transport
+     SemanticSetting(
+         "SMTP_USE_TLS",
+@@ -393,17 +386,6 @@ REMOVED: tuple[RemovedSetting, ...] = (
+         "contract_read_scope(memo=False)",
+         inert=True,
+     ),
+-    RemovedSetting(
+-        "BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS",
+-        "0.8",
+-        "the fake PSP always rejects unsigned webhooks; sign test payloads with "
+-        "sandloom_billing.psp.sign_stripe_payload",
+-    ),
+-    RemovedSetting(
+-        "BILLING_ALLOW_FAKE_PSP_IN_PROD",
+-        "0.8",
+-        'accept the risk explicitly: SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]',
+-    ),
+     RemovedSetting(
+         "NOTIFIER_ALLOW_LOG_IN_PROD",
+         "0.8",
+@@ -656,16 +638,8 @@ OPS: frozenset[str] = frozenset(
+         "RATE_LIMIT_GLOBAL_REQUESTS",
+         "RATE_LIMIT_GLOBAL_PERIOD_SECONDS",
+         "RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES",
+-        "TWOFA_ENCRYPTION_KEY",
+         "ADMIN_CONSOLE_ENABLED",
+         "ADMIN_CONSOLE_DIST",
+-        "BILLING_PROVIDER",
+-        "BILLING_DENY_ON_PAST_DUE",
+-        "STRIPE_SECRET_KEY",
+-        "STRIPE_WEBHOOK_SECRET",
+-        "BILLING_INTENT_RECONCILE_AFTER_MINUTES",
+-        "BILLING_INTENT_RECONCILE_MAX_ATTEMPTS",
+-        "BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES",
+         "GOOGLE_CLIENT_ID",
+         "GOOGLE_CLIENT_SECRET",
+         "GITHUB_CLIENT_ID",
+@@ -707,6 +681,13 @@ RAW_ENV_OPS: tuple[str, ...] = (
+ )
+ 
+ 
++#: KB-49 PoC hooks, set by sandloom.core.config.module_settings.
++MODULE_OVERRIDES: (
++    Callable[[Any], list[tuple[str, object, str, object, bool]]] | None
++) = None
++MODULE_TIER_COUNTS: Callable[[], dict[str, dict[str, int]]] | None = None
++
++
+ def tier_of(name: str) -> Tier | None:
+     """Tier of a ``Settings`` alias / ``<capability>.<option>`` (None: unknown)."""
+     if any(s.name == name for s in SEMANTIC):
+@@ -833,6 +814,12 @@ def active_overrides(cfg: Any) -> list[Override]:
+     out: list[Override] = []
+     for spec in SEMANTIC:
+         out += _semantic_overrides(spec, cfg, prof)
++    # KB-49 PoC: the loaded modules' semantic settings (hook set by
++    # sandloom.core.config.module_settings).
++    for name, value, _prof, expected, explicit in (
++        MODULE_OVERRIDES(cfg) if MODULE_OVERRIDES is not None else []
++    ):
++        out.append(Override(name, "weaker", value, prof, expected, explicit))
+     return out + _risk_overrides(cfg, prof)
+ 
+ 
+@@ -871,9 +858,14 @@ def diagnostics(cfg: Any) -> dict[str, object]:
+         "tiers": tier_counts(),
+         "overrides": [o.to_dict() for o in active_overrides(cfg)],
+         "accepted_risks": accepted_risks.diagnostics(cfg),
++        "module_tiers": _module_tier_counts(),
+     }
+ 
+ 
++def _module_tier_counts() -> dict[str, dict[str, int]]:
++    return MODULE_TIER_COUNTS() if MODULE_TIER_COUNTS is not None else {}
++
++
+ # ------------------------------------------------------------------- docs ----
+ 
+ 
+@@ -932,7 +924,7 @@ def render_markdown() -> str:
+         "## Accepted risks (`SANDLOOM_ACCEPTED_RISKS`)",
+         "",
+         "The one list of weaker guarantees a deployment accepts, e.g. "
+-        '`SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-'
++        '`SANDLOOM_ACCEPTED_RISKS=["relay_disabled"]` (JSON list or comma-'
+         "separated). An unknown id fails startup. Each accepted risk is logged "
+         "as a WARNING at every start, exported as "
+         "`sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` "
+diff --git a/src/sandloom/core/config/trust.py b/src/sandloom/core/config/trust.py
+index 4c540ee..09a3fdf 100644
+--- a/src/sandloom/core/config/trust.py
++++ b/src/sandloom/core/config/trust.py
+@@ -50,7 +50,7 @@ class TrustConfig(BaseModel):
+     )
+     # The ONE list of weaker guarantees this deployment accepts in prod
+     # (sandloom.core.config.accepted_risks; JSON list or comma-separated ids, e.g.
+-    # ["fake_psp_in_prod"]). An unknown id fails startup; every accepted risk is
++    # ["billing.fake_psp_in_prod"]). An unknown id fails startup; every accepted risk is
+     # logged at every start, exported as sandloom_accepted_risk_active{risk} and
+     # listed by /diagnostics/core and `sandloom doctor`.
+     sandloom_accepted_risks: Annotated[list[str], NoDecode] = Field(
+diff --git a/src/sandloom/core/facade/__init__.py b/src/sandloom/core/facade/__init__.py
+index 149bbb4..0201f86 100644
+--- a/src/sandloom/core/facade/__init__.py
++++ b/src/sandloom/core/facade/__init__.py
+@@ -200,6 +200,7 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
+         """
+         draft = ModuleRegistrationDraft()
+         api = ModuleAPI(self, draft=draft)
++        api._module_name = module_name
+         try:
+             yield api
+         except Exception as exc:
+@@ -207,6 +208,12 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
+                 self.logger.warning(
+                     "Discarding partial registration of module %s", module_name
+                 )
++            from sandloom.core.config import module_settings as _ms
++
++            if _ms.COLLECT.get() is None:
++                self.__dict__.get("_module_settings", {}).pop(
++                    getattr(api, "_settings_module", None), None
++                )
+             raise
+         # Reached only on success: apply the whole draft atomically. The
+         # registering module's name is visible while applying so contributions
+diff --git a/src/sandloom/core/loader/plugin_loader.py b/src/sandloom/core/loader/plugin_loader.py
+index 4bd5cdf..183b98c 100644
+--- a/src/sandloom/core/loader/plugin_loader.py
++++ b/src/sandloom/core/loader/plugin_loader.py
+@@ -659,6 +659,23 @@ def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  #
+                 raise
+ 
+ 
++def _report_module_overrides() -> None:
++    """Log the loaded modules' overrides and accepted risks once, and set
++    their metrics, in every process that builds the composition."""
++    from sandloom.core.config import module_settings as _ms
++    from sandloom.core.config import tiers as _tiers
++
++    items = _ms.module_override_items(settings)
++    _tiers.log_overrides(settings, logging.getLogger("sandloom.settings"), items)
++    for item in items:
++        try:
++            _metrics_mod.config_override_active.labels(item.setting, item.kind).set(1)
++            if item.kind == "accepted_risk":
++                _metrics_mod.accepted_risk_active.labels(str(item.value)).set(1)
++        except Exception:  # pragma: no cover  # noqa: BLE001, S110 - metrics optional
++            pass
++
++
+ def load_modules(
+     core_facade: CoreFacade, modules: Sequence[str] | None = None
+ ) -> list[ModuleDescriptor]:
+@@ -742,9 +759,16 @@ def _load_with_summary(
+         except Exception:  # pragma: no cover - reported again by the loader
+             logger.exception("[plugin_loader] Entry point package discovery failed")
+     logger.debug("[plugin_loader] Start load; explicit=%s", explicit)
+-    _load_list(explicit, core_facade, summary)
+-    if getattr(settings, "module_load_entrypoints", False):
+-        _load_entry_points(core_facade, summary)
++    from sandloom.core.config import module_settings as _ms
++
++    with _ms.loading(core_facade):
++        _load_list(explicit, core_facade, summary)
++        if getattr(settings, "module_load_entrypoints", False):
++            _load_entry_points(core_facade, summary)
++    # ADR-0015 decision 3: the one post-load configuration check, in every
++    # entry point that builds the composition.
++    _ms.post_load_check(core_facade, [d.name for d in summary.loaded], settings)
++    _report_module_overrides()
+     core_facade.loaded_modules = [d.name for d in summary.loaded]
+     core_facade.module_descriptors = list(summary.loaded)
+     logger.debug(
+diff --git a/src/sandloom/core/module_api/__init__.py b/src/sandloom/core/module_api/__init__.py
+index 062b7d9..beb76d3 100644
+--- a/src/sandloom/core/module_api/__init__.py
++++ b/src/sandloom/core/module_api/__init__.py
+@@ -165,6 +165,16 @@ from sandloom.core.module_api._spec import session_parameters as session_paramet
+ from sandloom.core.module_api._spec import undigested as undigested
+ 
+ __all__ = [
++    "ModuleSettingsError",
++    "RemovedSetting",
++    "Risk",
++    "SemanticSetting",
++    "override_settings",
++    "patch_settings",
++    "reset_process_snapshot",
++    "secret_problem",
++    "settings_of",
++    "validate_settings",
+     "DEFAULT_CONTRACT_DTO_PACKAGES",
+     "contract_dto_problems",
+     "AUTO",
+@@ -212,3 +222,17 @@ __all__ = [
+     "operation_key",
+     "step",
+ ]
++
++# KB-49 PoC: module settings (installs the active-core lookup).
++from sandloom.core.module_api._settings import (
++    ModuleSettingsError,
++    RemovedSetting,
++    Risk,
++    SemanticSetting,
++    override_settings,
++    patch_settings,
++    reset_process_snapshot,
++    secret_problem,
++    settings_of,
++    validate_settings,
++)
+diff --git a/src/sandloom/core/module_api/_define.py b/src/sandloom/core/module_api/_define.py
+index ca34bb1..92df84f 100644
+--- a/src/sandloom/core/module_api/_define.py
++++ b/src/sandloom/core/module_api/_define.py
+@@ -101,6 +101,7 @@ def define_module(
+     router: Any = AUTO,
+     events: Any = AUTO,
+     issues_tokens: bool = False,
++    settings: Any = None,
+ ) -> Callable[[ModuleAPI], Any]:
+     """Build a module's ``register(core)`` from declarations + conventions.
+ 
+@@ -157,6 +158,9 @@ def define_module(
+         for channel, schema in schemas.items():
+             core.register_event_schema(channel=channel, name=channel, schema=schema)
+ 
++        if settings is not None:
++            # ADR-0015 D2a: validated before setup, stored on the core.
++            core.declare_settings(settings, package=pkg)
+         if setup is not None:
+             setup(core)
+ 
+@@ -180,6 +184,7 @@ def define_module(
+             issues_tokens=issues_tokens,
+         )
+ 
++    register.__sandloom_settings__ = settings  # type: ignore[attr-defined]
+     register.__qualname__ = register.__name__ = "register"
+     register.__module__ = pkg
+     register.__doc__ = f"Register the {short} module (declared via define_module)."
+diff --git a/src/sandloom/core/module_api/_registration.py b/src/sandloom/core/module_api/_registration.py
+index ebae00d..962a41f 100644
+--- a/src/sandloom/core/module_api/_registration.py
++++ b/src/sandloom/core/module_api/_registration.py
+@@ -331,6 +331,17 @@ class ModuleAPI:
+     ) -> None:
+         self._facade = facade
+         self._draft = draft
++        self._module_name: str | None = None
++
++    # -- Settings (ADR-0015 D2a, KB-49 PoC) -------------------------------
++    def declare_settings(self, model: Any, *, package: str | None = None) -> Any:
++        """Declare this module's settings model: validated from the process
++        snapshot now (before ``setup``), stored on the core, returned."""
++        from sandloom.core.config import module_settings as _ms
++
++        pkg = package or self._module_name or str(model.__module__).split(".", 1)[0]
++        self._settings_module = _ms.module_short_name(pkg)
++        return _ms.declare(self._facade, pkg, model, self._facade.settings)
+ 
+     # -- HTTP -------------------------------------------------------------
+     def include_router(self, router: APIRouter, **kwargs: Any) -> None:
+diff --git a/src/sandloom/core/module_api/_settings.py b/src/sandloom/core/module_api/_settings.py
+new file mode 100644
+index 0000000..206ad30
+--- /dev/null
++++ b/src/sandloom/core/module_api/_settings.py
+@@ -0,0 +1,32 @@
++"""Module settings, public surface (ADR-0015 D2a; KB-49 PoC)."""
++
++from sandloom.core.config import module_settings as _ms
++from sandloom.core.config.accepted_risks import Risk
++from sandloom.core.config.common import secret_problem
++from sandloom.core.config.module_settings import (
++    ModuleSettingsError,
++    SettingsNotBoundError,
++    override_settings,
++    patch_settings,
++    reset_process_snapshot,
++    settings_of,
++    validate_settings,
++)
++from sandloom.core.config.tiers import RemovedSetting, SemanticSetting
++from sandloom.core.runtime import get_active_core
++
++_ms.ACTIVE_CORE = get_active_core
++
++__all__ = [
++    "ModuleSettingsError",
++    "reset_process_snapshot",
++    "validate_settings",
++    "RemovedSetting",
++    "Risk",
++    "SemanticSetting",
++    "SettingsNotBoundError",
++    "override_settings",
++    "patch_settings",
++    "secret_problem",
++    "settings_of",
++]
+diff --git a/src/sandloom/core/testing/deploy_profile.py b/src/sandloom/core/testing/deploy_profile.py
+index 5ddcba5..9de3db7 100644
+--- a/src/sandloom/core/testing/deploy_profile.py
++++ b/src/sandloom/core/testing/deploy_profile.py
+@@ -84,7 +84,6 @@ SHARED_KEYS: tuple[str, ...] = (
+     "RPC_SERVICE_DH_KEYS",
+     "RPC_ALLOWED_CALLS",
+     "FRONTEND_URL",
+-    "BILLING_DENY_ON_PAST_DUE",
+     "NOTIFIER_BACKEND",
+     "SMTP_HOST",
+     "SMTP_PORT",
+@@ -617,9 +616,43 @@ def profile_problems(
+     return report
+ 
+ 
++def module_declaration(module: str) -> Any:
++    """KB-49 PoC: the settings model a module declares (import only)."""
++    import importlib
++
++    path = module
++    try:
++        from sandloom.core.config.module_settings import installed_module_names
++
++        path = installed_module_names().get(module, module)
++        package = importlib.import_module(path)
++    except Exception:  # noqa: BLE001 - reported by the boot check
++        return None
++    return getattr(getattr(package, "register", None), "__sandloom_settings__", None)
++
++
++def module_shared_keys(modules: list[str]) -> dict[str, tuple[str, ...]]:
++    """``{module: its declared shared env names}`` (D-B2)."""
++    out: dict[str, tuple[str, ...]] = {}
++    for module in modules:
++        model = module_declaration(module)
++        shared = tuple(sorted(getattr(model, "shared", ()) or ()))
++        if shared:
++            out[module] = shared
++    return out
++
++
+ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
+-    for key in SHARED_KEYS:
+-        values = {name: _env(svc).get(key) for name, svc in procs.items()}
++    keys: list[tuple[str, dict[str, dict[str, Any]]]] = [
++        (k, procs) for k in SHARED_KEYS
++    ]
++    loaded = {name: modules_of(svc) for name, svc in procs.items()}
++    every = sorted({m for ms in loaded.values() for m in ms})
++    for module, shared in module_shared_keys(every).items():
++        holders = {n: svc for n, svc in procs.items() if module in loaded[n]}
++        keys += [(k, holders) for k in shared]
++    for key, scope in keys:
++        values = {name: _env(svc).get(key) for name, svc in scope.items()}
+         missing = sorted(n for n, v in values.items() if v is None)
+         if missing:
+             problem(
+@@ -925,21 +958,34 @@ def dev_shell(compose_text: str) -> dict[str, str]:
+         "JWT_KID": "jwt-dev",
+         "JWT_SECRET": secrets.token_hex(32),
+         "INTERNAL_API_TOKEN": secrets.token_hex(32),
+-        "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
+         "RPC_SERVICE_KEYS": json.dumps(
+             {s: {f"{s}-dev": pem} for s, pem in sorted(callers.items())}
+         ),
+         "RPC_SERVICE_DH_KEYS": json.dumps(
+             {s: {f"{s}-dh-dev": pem} for s, pem in sorted(dh.items())}
+         ),
+-        # A demo stack on the fake PSP (production chooses stripe).
+-        "BILLING_PROVIDER": "fake",
+     }
++    # KB-49 PoC: the modules' dev values come from their declarations
++    # (``dev_env``; ``random_hex32`` = a fresh key), with the risks the dev
++    # value needs (``dev_accepted_risks``).
++    risks: list[str] = []
++    from sandloom.core.config.module_settings import installed_module_names
++
++    for module in sorted(installed_module_names()):
++        model = module_declaration(module)
++        dev_env = dict(getattr(model, "dev_env", {}) or {})
++        used = False
++        for var, value in dev_env.items():
++            if var in required:
++                fixed[var] = secrets.token_hex(32) if value == "random_hex32" else value
++                used = True
++        if used:
++            risks += [f"{module}.{r}" for r in getattr(model, "dev_accepted_risks", ())]
+     for var in required:
+         if var in fixed:
+             shell[var] = fixed[var]
+-    if "BILLING_PROVIDER" in shell:
+-        shell["SANDLOOM_ACCEPTED_RISKS"] = "local_storage_in_prod,fake_psp_in_prod"
++    if risks:
++        shell["SANDLOOM_ACCEPTED_RISKS"] = ",".join(["local_storage_in_prod", *risks])
+     return shell
+ 
+ 
+diff --git a/src/sandloom/core/tests/test_asymmetric_jwt.py b/src/sandloom/core/tests/test_asymmetric_jwt.py
+index ebf84ed..a3e05ed 100644
+--- a/src/sandloom/core/tests/test_asymmetric_jwt.py
++++ b/src/sandloom/core/tests/test_asymmetric_jwt.py
+@@ -358,7 +358,7 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
+     env = {
+         "ENVIRONMENT": "prod",
+         "JWT_SECRET": _STRONG,
+-        "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
++        "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
+     }
+     problem = tokens.token_signing_problem
+     monolith = _role_cfg(**env)
+@@ -374,7 +374,10 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
+     )
+     assert "split" in str(problem(issuer_loaded=True, cfg=bound))
+     opted_out = _role_cfg(
+-        **{**env, "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod,shared_hs_secret_split"}
++        **{
++            **env,
++            "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod,shared_hs_secret_split",
++        }
+     )
+     assert problem(issuer_loaded=False, cfg=opted_out) is None
+     # Outside prod the shared secret stays the default.
+diff --git a/src/sandloom/core/tests/test_auth_rotation_revocation.py b/src/sandloom/core/tests/test_auth_rotation_revocation.py
+index 2e3b951..ed57d4c 100644
+--- a/src/sandloom/core/tests/test_auth_rotation_revocation.py
++++ b/src/sandloom/core/tests/test_auth_rotation_revocation.py
+@@ -190,7 +190,6 @@ def test_prod_previous_secrets_follow_jwt_secret_rules() -> None:
+             ENVIRONMENT="prod",
+             JWT_SECRET=_STRONG,
+             JWT_PREVIOUS_SECRETS=["change_me_in_production_use_openssl_rand_hex_32"],
+-            TWOFA_ENCRYPTION_KEY=_STRONG_2,
+         )
+     ok = _settings(
+         ENVIRONMENT="prod",
+@@ -210,34 +209,76 @@ def test_previous_secrets_must_not_contain_current() -> None:
+ # --------------------------------------------------------------------------- #
+ # S7 — billing / 2FA production settings
+ # --------------------------------------------------------------------------- #
++def _module_settings(model: type, cfg: Settings, **env: str) -> Any:
++    """Validate a module's declared settings the way the loader does (before
++    ``setup``), from ``env`` and the kernel ``cfg``'s environment / risks."""
++    from sandloom.core.config.module_settings import (
++        SourceSnapshot,
++        validate_module_settings,
++    )
++
++    module = {"BillingSettings": "billing", "IdentitySettings": "identity"}[
++        model.__name__
++    ]
++    package = f"sandloom_{module}"
++    with pytest.MonkeyPatch.context() as mp:
++        for key in ("BILLING_PROVIDER", "TWOFA_ENCRYPTION_KEY"):
++            mp.delenv(key, raising=False)
++        for key, value in env.items():
++            mp.setenv(key, value)
++        return validate_module_settings(
++            module, package, model, cfg, SourceSnapshot(env_file=None)
++        ).instance
++
++
+ def test_prod_rejects_explicit_fake_psp_unless_opted_in() -> None:
+-    with pytest.raises(ValidationError, match="BILLING_PROVIDER=fake"):
+-        _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, BILLING_PROVIDER="fake")
++    from sandloom.core.config.module_settings import ModuleSettingsError
++    from sandloom_billing.settings import BillingSettings
++
++    prod = _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG)
++    with pytest.raises(ModuleSettingsError, match="BILLING_PROVIDER=fake"):
++        _module_settings(BillingSettings, prod, BILLING_PROVIDER="fake")
+     demo = _settings(
+         ENVIRONMENT="prod",
+         JWT_SECRET=_STRONG,
+-        BILLING_PROVIDER="fake",
+-        SANDLOOM_ACCEPTED_RISKS="fake_psp_in_prod",
++        SANDLOOM_ACCEPTED_RISKS="billing.fake_psp_in_prod",
+     )
+-    assert demo.accepts_risk("fake_psp_in_prod")
+-    # Not configured at all (a deployment without billing): the default passes;
+-    # the billing module's critical startup check covers it when loaded.
+-    assert _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG).is_prod
++    assert demo.accepts_risk("billing.fake_psp_in_prod")
++    accepted = _module_settings(BillingSettings, demo, BILLING_PROVIDER="fake")
++    assert accepted.billing_provider == "fake"
++    # The flat id is gone: the kernel names the replacement.
++    with pytest.raises(ValidationError, match=r"billing\.fake_psp_in_prod"):
++        _settings(
++            ENVIRONMENT="prod",
++            JWT_SECRET=_STRONG,
++            SANDLOOM_ACCEPTED_RISKS="fake_psp_in_prod",
++        )
++    # The kernel no longer reads billing's variables at all.
++    assert _settings(
++        ENVIRONMENT="prod", JWT_SECRET=_STRONG, BILLING_PROVIDER="fake"
++    ).is_prod
+ 
+ 
+ def test_fake_psp_risk_is_not_accepted_by_default() -> None:
+     cfg = _settings(JWT_SECRET="x")
+-    assert not cfg.accepts_risk("fake_psp_in_prod")
++    assert not cfg.accepts_risk("billing.fake_psp_in_prod")
+ 
+ 
+ def test_prod_twofa_key_must_be_strong() -> None:
+-    with pytest.raises(ValidationError, match="TWOFA_ENCRYPTION_KEY"):
+-        _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, TWOFA_ENCRYPTION_KEY="k")
+-    assert _settings(
+-        ENVIRONMENT="prod",
+-        JWT_SECRET=_STRONG,
++    from sandloom.core.config.module_settings import ModuleSettingsError
++    from sandloom_identity.config import IdentitySettings
++
++    prod = _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG)
++    with pytest.raises(ModuleSettingsError, match="TWOFA_ENCRYPTION_KEY"):
++        _module_settings(IdentitySettings, prod, TWOFA_ENCRYPTION_KEY="k")
++    with pytest.raises(ModuleSettingsError, match="TWOFA_ENCRYPTION_KEY"):
++        _module_settings(IdentitySettings, prod)
++    ok = _module_settings(
++        IdentitySettings,
++        prod,
+         TWOFA_ENCRYPTION_KEY=f"{_STRONG_2},{_STRONG[::-1]}",
+-    ).is_prod
++    )
++    assert ok.keys() == [_STRONG_2, _STRONG[::-1]]
+ 
+ 
+ def test_revocation_fail_closed_defaults_by_environment() -> None:
+diff --git a/src/sandloom/core/tests/test_boot_configuration_checks.py b/src/sandloom/core/tests/test_boot_configuration_checks.py
+index 06b7490..538eaac 100644
+--- a/src/sandloom/core/tests/test_boot_configuration_checks.py
++++ b/src/sandloom/core/tests/test_boot_configuration_checks.py
+@@ -216,12 +216,20 @@ def test_module_refusal_stops_every_composed_entry_point(
+ def test_config_dump_is_not_forced_to_build_the_composition(
+     case: str, tmp_path: Path
+ ) -> None:
+-    """``sandloom config dump`` reads settings only: a module refusal does not
+-    reach it (it builds no composition)."""
+-    values, _reason = MODULE_CASES[case]
++    """KB-49 (ADR-0015 decision 8): ``sandloom config dump`` builds the
++    composition in collect mode: a module refusal is diagnosed (exit 0, the
++    reason listed as a PROBLEM on stderr), never an exit; ``--kernel-only`` builds no
++    composition, so the refusal does not reach it."""
++    values, reason = MODULE_CASES[case]
+     proc = _run(_cli("config", "dump"), values, tmp_path)
+     assert proc.returncode == 0, proc.stderr[-2000:]
+-    assert INVALID_CONFIGURATION not in proc.stderr
++    assert any(
++        line.startswith(f"PROBLEM: {INVALID_CONFIGURATION}") and reason in line
++        for line in proc.stderr.splitlines()
++    ), proc.stderr[-2000:]
++    lean = _run(_cli("config", "dump", "--kernel-only"), values, tmp_path)
++    assert lean.returncode == 0, lean.stderr[-2000:]
++    assert INVALID_CONFIGURATION not in lean.stderr + lean.stdout
+ 
+ 
+ @pytest.mark.subprocess_probe
+@@ -232,7 +240,7 @@ def test_module_cases_build_once_the_configuration_is_fixed(tmp_path: Path) -> N
+         **_MODULE_BASE,
+         "SANDLOOM_MODULES": ["sandloom_identity", "sandloom_billing"],
+         "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
+-        "SANDLOOM_ACCEPTED_RISKS": ["fake_psp_in_prod"],
++        "SANDLOOM_ACCEPTED_RISKS": ["billing.fake_psp_in_prod"],
+     }
+     proc = _run(
+         [sys.executable, "-c", "import sandloom.main; print('built')"], values, tmp_path
+diff --git a/src/sandloom/core/tests/test_config_tiers.py b/src/sandloom/core/tests/test_config_tiers.py
+index cac4b2d..9969090 100644
+--- a/src/sandloom/core/tests/test_config_tiers.py
++++ b/src/sandloom/core/tests/test_config_tiers.py
+@@ -62,13 +62,12 @@ SEMANTIC_BASELINE = frozenset(
+         "CONTRACT_COMPAT_CHECK",
+         "INTERNAL_ENDPOINTS_OPEN_IN_DEV",
+         "DOCS_ENABLED",
+-        "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
+         "SMTP_USE_TLS",
+     }
+ )
+-SEMANTIC_BASELINE_COUNT = 13
++SEMANTIC_BASELINE_COUNT = 12
+ #: Total semantic settings (baseline + ADR-argued). Only goes down.
+-SEMANTIC_COUNT_CEILING = 15
++SEMANTIC_COUNT_CEILING = 14
+ 
+ 
+ @pytest.fixture(autouse=True)
+@@ -261,14 +260,17 @@ def test_every_risk_is_documented() -> None:
+ 
+ @pytest.mark.parametrize(
+     "raw",
+-    ['["fake_psp_in_prod", "relay_disabled"]', "fake_psp_in_prod, relay_disabled"],
++    [
++        '["billing.fake_psp_in_prod", "relay_disabled"]',
++        "billing.fake_psp_in_prod, relay_disabled",
++    ],
+ )
+ def test_accepted_risks_parse_json_or_comma_list(
+     raw: str, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+     monkeypatch.setenv("SANDLOOM_ACCEPTED_RISKS", raw)
+     cfg = _settings(ENVIRONMENT="prod")
+-    assert cfg.sandloom_accepted_risks == ["fake_psp_in_prod", "relay_disabled"]
++    assert cfg.sandloom_accepted_risks == ["billing.fake_psp_in_prod", "relay_disabled"]
+     assert cfg.accepts_risk("relay_disabled")
+     assert not cfg.accepts_risk("weak_password_hash")
+     with pytest.raises(KeyError):
+diff --git a/src/sandloom/core/tests/test_deploy_profiles.py b/src/sandloom/core/tests/test_deploy_profiles.py
+index 39857a0..1f1ecd8 100644
+--- a/src/sandloom/core/tests/test_deploy_profiles.py
++++ b/src/sandloom/core/tests/test_deploy_profiles.py
+@@ -95,7 +95,7 @@ SHELL = {
+     "INTERNAL_API_TOKEN": secrets.token_hex(32),
+     "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
+     "BILLING_PROVIDER": "fake",
+-    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod",
++    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod",
+ }
+ 
+ 
+@@ -176,12 +176,36 @@ def test_every_process_env_validates(
+             assert cfg.sandloom_modules, name
+             env = svc["environment"]
+             assert "SANDLOOM_ACCEPTED_RISKS" in env, name
++            from sandloom.core.config.module_settings import (
++                SourceSnapshot,
++                validate_module_settings,
++            )
++
+             if "sandloom_billing" in cfg.sandloom_modules:
+-                assert cfg.accepts_risk("fake_psp_in_prod"), name
++                assert cfg.accepts_risk("billing.fake_psp_in_prod"), name
++                from sandloom_billing.settings import BillingSettings
++
++                # billing's own production check accepts this process env.
++                validate_module_settings(
++                    "billing",
++                    "sandloom_billing",
++                    BillingSettings,
++                    cfg,
++                    SourceSnapshot(env_file=None),
++                )
+             if "sandloom_identity" in cfg.sandloom_modules:
+                 # identity refuses to start in prod without a dedicated key.
+                 assert ":?" in env.get("TWOFA_ENCRYPTION_KEY", ""), name
+-                assert cfg.twofa_encryption_key, name
++                from sandloom_identity.config import IdentitySettings
++
++                record = validate_module_settings(
++                    "identity",
++                    "sandloom_identity",
++                    IdentitySettings,
++                    cfg,
++                    SourceSnapshot(env_file=None),
++                )
++                assert record.instance is not None and record.instance.keys(), name
+ 
+ 
+ @pytest.mark.parametrize(
+diff --git a/src/sandloom/core/tests/test_guarantee_windows.py b/src/sandloom/core/tests/test_guarantee_windows.py
+index 09f7f40..b0f6338 100644
+--- a/src/sandloom/core/tests/test_guarantee_windows.py
++++ b/src/sandloom/core/tests/test_guarantee_windows.py
+@@ -124,11 +124,24 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
+     monkeypatch.setattr(settings, "environment", "prod")
+     # The bundled modules refuse prod without these while they register,
+     # before the window check runs: satisfy them so this test sees its own.
+-    monkeypatch.setattr(settings, "twofa_encryption_key", "9f1c4e7a" * 8)
++    # identity's TWOFA_ENCRYPTION_KEY is its own declared setting now: it
++    # reaches the module through the process environment, not the kernel.
++    # (the process snapshot is frozen once per process: rebuild it).
++    from sandloom.core.config import module_settings
++
++    monkeypatch.setenv(
++        "TWOFA_ENCRYPTION_KEY",
++        "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b",
++    )
++    monkeypatch.setattr(
++        module_settings,
++        "_PROCESS_SNAPSHOT",
++        module_settings.SourceSnapshot(env_file=None),
++    )
+     monkeypatch.setattr(
+         settings,
+         "sandloom_accepted_risks",
+-        [*settings.sandloom_accepted_risks, "fake_psp_in_prod"],
++        [*settings.sandloom_accepted_risks, "billing.fake_psp_in_prod"],
+     )
+     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
+         app_factory.create_app()
+diff --git a/src/sandloom/core/tests/test_ledger_runtime_pins.py b/src/sandloom/core/tests/test_ledger_runtime_pins.py
+index f0aa74e..a03dbff 100644
+--- a/src/sandloom/core/tests/test_ledger_runtime_pins.py
++++ b/src/sandloom/core/tests/test_ledger_runtime_pins.py
+@@ -56,7 +56,6 @@ def test_accepted_risk_ids_are_pinned() -> None:
+         "command_dedupe_below_retry_horizon",
+         "development_database_in_prod",
+         "experimental_capability",
+-        "fake_psp_in_prod",
+         "local_storage_in_prod",
+         "log_links_in_prod",
+         "log_notifier_in_prod",
+@@ -67,3 +66,11 @@ def test_accepted_risk_ids_are_pinned() -> None:
+         "volatile_event_bus",
+         "weak_password_hash",
+     ]
++    # billing's risk moved out of the kernel list (ADR-0015): its module
++    # declares it, namespaced; the full id is pinned here just the same.
++    from sandloom.core.config.module_settings import declared_risks
++    from sandloom_billing.settings import BillingSettings
++
++    assert sorted(f"billing.{r.id}" for r in declared_risks(BillingSettings)) == [
++        "billing.fake_psp_in_prod"
++    ]
+diff --git a/src/sandloom/core/tests/test_password_hash_config.py b/src/sandloom/core/tests/test_password_hash_config.py
+index 6ffc41e..dd534fd 100644
+--- a/src/sandloom/core/tests/test_password_hash_config.py
++++ b/src/sandloom/core/tests/test_password_hash_config.py
+@@ -30,7 +30,7 @@ _BASE_ENV = {
+ _PROD_ENV = {
+     "ENVIRONMENT": "prod",
+     "JWT_SECRET": "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b",
+-    "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
++    "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
+ }
+ #: A hash made with today's (``strong``) parameters by the former passlib setup.
+ STRONG_HASH_OF_X = (
+@@ -133,7 +133,7 @@ def test_prod_accepts_presets_and_the_explicit_opt_out(
+     weak = _settings(
+         **{
+             **_PROD_ENV,
+-            "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod,weak_password_hash",
++            "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod,weak_password_hash",
+         },
+         PASSWORD_HASH_PROFILE="owasp_min",
+         PASSWORD_HASH_TIME_COST=1,
+diff --git a/src/sandloom/core/tests/test_secret_redaction_agreement.py b/src/sandloom/core/tests/test_secret_redaction_agreement.py
+index 4bd2204..896ae53 100644
+--- a/src/sandloom/core/tests/test_secret_redaction_agreement.py
++++ b/src/sandloom/core/tests/test_secret_redaction_agreement.py
+@@ -2,7 +2,7 @@
+ 
+ Regression for ``TWOFA_ENCRYPTION_KEY``: ``config dump`` redacted it while the
+ log redactor (:func:`guardrails.is_sensitive_key`) let it through in clear.
+-Every field of ``Settings`` (module settings are mixed into it) is enumerated,
++Every field of ``Settings`` and of the installed modules' declarations is enumerated,
+ so a new secret setting is covered without editing this test.
+ """
+ 
+@@ -22,11 +22,23 @@ _SAMPLE = "s3cr3t-value"
+ 
+ 
+ def _setting_names() -> list[str]:
+-    """Env names (alias, upper-cased) of every ``Settings`` field."""
+-    return sorted(
++    """Env names (alias, upper-cased) of every ``Settings`` field and of every
++    installed module's declared settings (KB-49: module settings left the
++    kernel ``Settings``; the agreement must still cover them)."""
++    import importlib
++
++    from sandloom.core.config import module_settings as ms
++
++    names = {
+         str(field.alias or name).upper()
+         for name, field in Settings.model_fields.items()
+-    )
++    }
++    for package in ms.installed_module_names().values():
++        register = getattr(importlib.import_module(package), "register", None)
++        model = getattr(register, "__sandloom_settings__", None)
++        if model is not None:
++            names |= set(ms.env_names(model))
++    return sorted(names)
+ 
+ 
+ def _dump_masks(name: str) -> bool:
+diff --git a/src/sandloom/sdk/_decl/module.py b/src/sandloom/sdk/_decl/module.py
+index 7c13689..4c062f0 100644
+--- a/src/sandloom/sdk/_decl/module.py
++++ b/src/sandloom/sdk/_decl/module.py
+@@ -513,6 +513,7 @@ def define_module(
+     router: Any = AUTO,
+     events: Any = AUTO,
+     issues_tokens: bool = False,
++    settings: Any = None,
+ ) -> Callable[[ModuleAPI], Any]:
+     """Build a module's ``register(core)`` from its declarations (spec §5.7).
+ 
+@@ -552,6 +553,9 @@ def define_module(
+         for channel, schema in schemas.items():
+             core.register_event_schema(channel=channel, name=channel, schema=schema)
+         _register_declarations(core, pkg, found, producers=events == AUTO)
++        if settings is not None:
++            # ADR-0015 D2a: validated before setup, stored on the core.
++            core.declare_settings(settings, package=pkg)
+         if setup is not None:
+             setup(core)
+ 
+@@ -574,6 +578,7 @@ def define_module(
+             issues_tokens=issues_tokens,
+         )
+ 
++    register.__sandloom_settings__ = settings  # type: ignore[attr-defined]
+     register.__qualname__ = register.__name__ = "register"
+     register.__module__ = pkg
+     register.__doc__ = f"Register the {short} module (declared via define_module)."
+diff --git a/src/sandloom/sdk/module.py b/src/sandloom/sdk/module.py
+index cc3125c..f93c70f 100644
+--- a/src/sandloom/sdk/module.py
++++ b/src/sandloom/sdk/module.py
+@@ -21,6 +21,13 @@ from sandloom.core.descriptors import (
+     ModuleLoadSummary,
+     SkippedModule,
+ )
++from sandloom.core.module_api import (
++    RemovedSetting,
++    Risk,
++    SemanticSetting,
++    secret_problem,
++    settings_of,
++)
+ from sandloom.sdk._decl.module import define_module
+ from sandloom.sdk._prim.module import (
+     AUTO,
+@@ -42,8 +49,13 @@ __all__ = [
+     "ModuleAPI",
+     "ModuleDescriptor",
+     "ModuleLoadSummary",
++    "RemovedSetting",
++    "Risk",
++    "SemanticSetting",
+     "SkippedModule",
+     "define_module",
++    "secret_problem",
++    "settings_of",
+ ]
+ #: The beginner tier of this module (spec §2.2).
+ __beginner__ = ("define_module",)
+diff --git a/src/sandloom/sdk/testing/__init__.py b/src/sandloom/sdk/testing/__init__.py
+index 5fda824..3cb7362 100644
+--- a/src/sandloom/sdk/testing/__init__.py
++++ b/src/sandloom/sdk/testing/__init__.py
+@@ -53,6 +53,11 @@ from sandloom.core.di import (
+ )
+ from sandloom.core.module_api import (
+     ModuleRegistrationDraft,
++    ModuleSettingsError,
++    override_settings,
++    patch_settings,
++    reset_process_snapshot,
++    validate_settings,
+ )
+ from sandloom.core.testing import (
+     BootOutcome,
+@@ -124,6 +129,11 @@ from sandloom.sdk._prim.testing import (
+ )
+ 
+ __all__ = [
++    "ModuleSettingsError",
++    "reset_process_snapshot",
++    "validate_settings",
++    "override_settings",
++    "patch_settings",
+     "BootOutcome",
+     "Captured",
+     "ContractCase",
+diff --git a/src/sandloom_billing/__init__.py b/src/sandloom_billing/__init__.py
+index 425cc1e..3b07c0f 100644
+--- a/src/sandloom_billing/__init__.py
++++ b/src/sandloom_billing/__init__.py
+@@ -19,13 +19,13 @@ its ``operation_key`` and NOT atomic with the caller's transaction (saga).
+ """
+ 
+ from sandloom.sdk import define_module
+-from sandloom.sdk.infra import settings
+ from sandloom.sdk.module import ContractRequirement, ModuleAPI
+ 
+ from . import psp
+ from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
+ from .claims import contribute_billing_claims
+ from .services.operations import OPERATIONS
++from .settings import BillingSettings
+ 
+ ENTITLEMENTS_SERVICE_V1 = "billing.entitlements.v1"
+ CREDITS_SERVICE_V1 = "billing.credits.v1"
+@@ -34,21 +34,9 @@ MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
+ 
+ 
+ def _setup(core: ModuleAPI) -> None:
+-    """Register billing's PSP client, claims, access facts and reads.
+-
+-    Raises ``SystemExit`` (the loader's configuration refusal) when the PSP
+-    configuration is refused in this environment (the implicit fake PSP in
+-    prod without the accepted risk ``fake_psp_in_prod``).
+-    """
+-    # Production must never run on the fake PSP (fake checkouts; forged-event
+-    # risk). Refused here, at registration, so every process that builds the
+-    # composition (the app, worker, beat, ``sandloom migrate``, the operator
+-    # CLIs) stops with the kernel's INVALID_CONFIGURATION refusal before the
+-    # PSP client is built.
+-    config_error = psp.psp_configuration_error(settings)
+-    if config_error is not None:
+-        raise SystemExit(config_error)
+-
++    """Register billing's PSP client, claims, access facts and reads."""
++    # The fake-PSP refusal is billing's production check (BillingSettings),
++    # validated before this setup runs (ADR-0015 D2a).
+     core.add_shutdown_task(psp.close_psp_client)
+ 
+     # The PSP client is billing-INTERNAL (it can create checkout sessions and
+@@ -89,6 +77,7 @@ register = define_module(
+         ),
+     ],
+     setup=_setup,
++    settings=BillingSettings,
+ )
+ 
+ __all__ = [
+diff --git a/src/sandloom_billing/access.py b/src/sandloom_billing/access.py
+index 9e5a22b..d2ab706 100644
+--- a/src/sandloom_billing/access.py
++++ b/src/sandloom_billing/access.py
+@@ -44,10 +44,11 @@ from sandloom.sdk.authz import (
+     FactUnavailable,
+ )
+ from sandloom.sdk.errors import ServiceNotFound
+-from sandloom.sdk.infra import settings
+ from sandloom.sdk.tenant import current_tenant_id_optional
+ from sandloom_billing.entitlements import ENTITLEMENTS_SERVICE_V1
+ 
++from .settings import billing_settings
++
+ if TYPE_CHECKING:  # pragma: no cover - typing only
+     from sandloom.sdk.authz import AuthzContext
+ 
+@@ -74,7 +75,7 @@ def subscription_claim_rule() -> ClaimRule:
+     processes (so they interpret the claim exactly like billing does).
+     """
+     statuses = set(ACTIVE_SUBSCRIPTION_STATUSES)
+-    if not settings.billing_deny_on_past_due:
++    if not billing_settings().billing_deny_on_past_due:
+         statuses.add(_PAST_DUE)
+     return ClaimRule.one_of(statuses)
+ 
+diff --git a/src/sandloom_billing/api/platform.py b/src/sandloom_billing/api/platform.py
+index a419c56..614781e 100644
+--- a/src/sandloom_billing/api/platform.py
++++ b/src/sandloom_billing/api/platform.py
+@@ -4,7 +4,6 @@ from uuid import UUID
+ 
+ from fastapi import APIRouter, Depends, Query
+ 
+-from sandloom.sdk.infra import settings
+ from sandloom.sdk.web import (
+     DbSession,
+     at_commit,
+@@ -28,6 +27,7 @@ from sandloom_billing.schemas.platform import (
+     ProviderInfo,
+ )
+ from sandloom_billing.services.platform_service import PlatformBillingService
++from sandloom_billing.settings import billing_settings
+ 
+ platform_billing_router = APIRouter(
+     prefix="/api/v1/platform/billing",
+@@ -322,13 +322,11 @@ async def payment_states(
+     response_model=ProviderInfo,
+ )
+ async def provider_info() -> ProviderInfo:
+-    cfg = settings
++    cfg = billing_settings()
+     if cfg.billing_provider == "fake":
+         return ProviderInfo(provider="fake", mode="demo", dashboard_url=None)
+-    live = bool(
+-        cfg.stripe_secret_key
+-        and cfg.stripe_secret_key.startswith(("sk_live_", "rk_live_"))
+-    )
++    key = cfg.stripe_secret_key.get_secret_value() if cfg.stripe_secret_key else ""
++    live = key.startswith(("sk_live_", "rk_live_"))
+     return ProviderInfo(
+         provider="stripe",
+         mode="live" if live else "test",
+diff --git a/src/sandloom_billing/module.snapshot.json b/src/sandloom_billing/module.snapshot.json
+index db558ca..dfcbfb6 100644
+--- a/src/sandloom_billing/module.snapshot.json
++++ b/src/sandloom_billing/module.snapshot.json
+@@ -388,5 +388,15 @@
+   "format": 1,
+   "module": "sandloom_billing",
+   "projections": [],
+-  "sagas": []
++  "sagas": [],
++  "settings": {
++    "BILLING_DENY_ON_PAST_DUE": "ops",
++    "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS": "semantic",
++    "BILLING_INTENT_RECONCILE_AFTER_MINUTES": "ops",
++    "BILLING_INTENT_RECONCILE_MAX_ATTEMPTS": "ops",
++    "BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES": "ops",
++    "BILLING_PROVIDER": "ops",
++    "STRIPE_SECRET_KEY": "ops",
++    "STRIPE_WEBHOOK_SECRET": "ops"
++  }
+ }
+diff --git a/src/sandloom_billing/psp/__init__.py b/src/sandloom_billing/psp/__init__.py
+index 61b11fd..b3d5517 100644
+--- a/src/sandloom_billing/psp/__init__.py
++++ b/src/sandloom_billing/psp/__init__.py
+@@ -2,8 +2,7 @@
+ 
+ from typing import Any
+ 
+-from sandloom.sdk.infra import settings
+-
++from ..settings import billing_settings
+ from .fake import FakeStripeClient
+ from .port import (
+     CHECKOUT_COMPLETE,
+@@ -41,40 +40,25 @@ __all__ = [
+     "sign_stripe_payload",
+     "parse_stripe_event",
+     "build_psp_client",
+-    "psp_configuration_error",
+     "install_psp_client",
+     "active_psp_client",
+ ]
+ 
+ 
+-def psp_configuration_error(settings: Any) -> str | None:
+-    """Why this PSP configuration must not serve traffic, or ``None``.
+-
+-    The fake PSP issues fake checkout sessions and (without a secret) rejects
+-    every webhook, so production with ``BILLING_PROVIDER=fake`` is a
+-    misconfiguration that must stop startup, not degrade silently.
+-    """
+-    if settings.billing_provider != "fake" or not settings.is_prod:
+-        return None
+-    if settings.accepts_risk("fake_psp_in_prod"):
+-        return None
+-    return (
+-        "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set "
+-        "BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and "
+-        "STRIPE_WEBHOOK_SECRET (or, for a demo stack, "
+-        'SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"])'
+-    )
++def _plain(value: Any) -> Any:
++    return value.get_secret_value() if value is not None else None
+ 
+ 
+ def build_psp_client() -> StripeClientPort:
+-    """Build the PSP client according to settings (fake by default)."""
+-    if settings.billing_provider == "stripe":
+-        if not settings.stripe_secret_key:
+-            raise RuntimeError("BILLING_PROVIDER=stripe requires STRIPE_SECRET_KEY")
++    """Build the PSP client from billing's declared settings (fake by default).
++
++    Builds a client object only: no connection (ADR-0015 activation rule)."""
++    cfg = billing_settings()
++    if cfg.billing_provider == "stripe":
+         return StripeHttpClient(
+-            settings.stripe_secret_key, settings.stripe_webhook_secret
++            _plain(cfg.stripe_secret_key), _plain(cfg.stripe_webhook_secret)
+         )
+-    return FakeStripeClient(settings.stripe_webhook_secret)
++    return FakeStripeClient(_plain(cfg.stripe_webhook_secret))
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/src/sandloom_billing/services/billing_service.py b/src/sandloom_billing/services/billing_service.py
+index d0ed3cb..7c34ea3 100644
+--- a/src/sandloom_billing/services/billing_service.py
++++ b/src/sandloom_billing/services/billing_service.py
+@@ -50,6 +50,8 @@ from sandloom_billing.services.operations import (
+     subscriptions_of,
+ )
+ 
++from ..settings import billing_settings
++
+ #: A subscription the access predicate reads (ORM row or declared-read DTO).
+ _Sub = TypeVar("_Sub", bound=SubscriptionAccessView)
+ _SubsWithPlans = Select[UUID, BillingSubscription, str]
+@@ -242,8 +244,8 @@ class BillingService:
+         The newest subscription that grants access (same predicate as the live
+         check) wins; otherwise the newest one. Returns ``(sub, grants)``.
+         """
+-        deny_on_past_due = settings.billing_deny_on_past_due
+-        allow_intentless = settings.billing_grant_intentless_subscriptions
++        deny_on_past_due = billing_settings().billing_deny_on_past_due
++        allow_intentless = billing_settings().billing_grant_intentless_subscriptions
+         for sub in subs:
+             if subscription_grants_access(
+                 sub,
+@@ -503,7 +505,7 @@ class BillingService:
+         if (
+             not grants
+             and sub.status == STATUS_PAST_DUE
+-            and not settings.billing_deny_on_past_due
++            and not billing_settings().billing_deny_on_past_due
+         ):
+             claim_status = CLAIM_STATUS_EXPIRED  # grace window elapsed
+         claims: dict[str, object] = {"subscription_status": claim_status}
+diff --git a/src/sandloom_billing/services/intent_reconciler.py b/src/sandloom_billing/services/intent_reconciler.py
+index 81731b5..e64dd83 100644
+--- a/src/sandloom_billing/services/intent_reconciler.py
++++ b/src/sandloom_billing/services/intent_reconciler.py
+@@ -68,7 +68,6 @@ from uuid import UUID
+ from sqlalchemy import and_, case, func, select, update
+ 
+ from sandloom.sdk.data import open_uow
+-from sandloom.sdk.infra import settings
+ from sandloom_billing.models import (
+     INTENT_FAILED,
+     INTENT_METADATA_KEY,
+@@ -91,6 +90,8 @@ from sandloom_billing.services.operation_intents import (
+     record_expire_outcome,
+ )
+ 
++from ..settings import billing_settings
++
+ logger = logging.getLogger("sandloom_billing.intents.reconcile")
+ 
+ #: Sessions are listed from this long before the intent was created (clock
+@@ -148,10 +149,10 @@ class IntentReconciler:
+         now = now or datetime.now(UTC)
+         if stale_after is None:
+             stale_after = timedelta(
+-                minutes=settings.billing_intent_reconcile_after_minutes
++                minutes=billing_settings().billing_intent_reconcile_after_minutes
+             )
+         if max_attempts is None:
+-            max_attempts = settings.billing_intent_reconcile_max_attempts
++            max_attempts = billing_settings().billing_intent_reconcile_max_attempts
+         report = ReconcileReport()
+         for candidate in await cls._stale_pending(
+             now - stale_after, max_attempts, batch
+diff --git a/src/sandloom_billing/services/webhook_service.py b/src/sandloom_billing/services/webhook_service.py
+index f15b5f6..ecd4ff8 100644
+--- a/src/sandloom_billing/services/webhook_service.py
++++ b/src/sandloom_billing/services/webhook_service.py
+@@ -56,7 +56,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from sandloom.sdk import record_audit
+ from sandloom.sdk.data import WallClock, conflict_insert
+-from sandloom.sdk.infra import settings
+ from sandloom_billing import events
+ from sandloom_billing.models import (
+     DISPUTE_INQUIRY,
+@@ -93,6 +92,8 @@ from sandloom_billing.models import (
+ from sandloom_billing.psp import StripeClientPort
+ from sandloom_billing.services.billing_service import BillingService
+ 
++from ..settings import billing_settings
++
+ logger = logging.getLogger("sandloom_billing.webhooks")
+ 
+ SUBSCRIPTION_CREATED = "customer.subscription.created"
+@@ -164,8 +165,8 @@ _RESPONSE_STATUS = {
+ def _grants(sub: BillingSubscription) -> bool:
+     """The access predicate (same as the live check and the claims)."""
+     return sub.grants_access(
+-        deny_on_past_due=settings.billing_deny_on_past_due,
+-        allow_intentless=settings.billing_grant_intentless_subscriptions,
++        deny_on_past_due=billing_settings().billing_deny_on_past_due,
++        allow_intentless=billing_settings().billing_grant_intentless_subscriptions,
+     )
+ 
+ 
+@@ -1055,7 +1056,9 @@ class WebhookService:
+             if created is not None
+             else datetime.now(UTC)
+         )
+-        window = timedelta(minutes=settings.billing_portal_attribution_window_minutes)
++        window = timedelta(
++            minutes=billing_settings().billing_portal_attribution_window_minutes
++        )
+         found = await db.execute(
+             select(OperationIntent.id)
+             .where(
+@@ -1082,7 +1085,7 @@ class WebhookService:
+                 "price_id_after": sub.price_id,
+                 "cancel_at_period_end_before": previous[1],
+                 "cancel_at_period_end_after": bool(sub.cancel_at_period_end),
+-                "window_minutes": settings.billing_portal_attribution_window_minutes,
++                "window_minutes": billing_settings().billing_portal_attribution_window_minutes,
+             },
+             required=True,
+         )
+@@ -1090,7 +1093,7 @@ class WebhookService:
+             "subscription %s: plan / cancellation change with no portal intent "
+             "of its customer in the last %d min (audited, applied)",
+             sub.stripe_subscription_id,
+-            settings.billing_portal_attribution_window_minutes,
++            billing_settings().billing_portal_attribution_window_minutes,
+         )
+ 
+     # --- Refunds / disputes (ADR-0003 open item 12) ---------------------------
+diff --git a/src/sandloom_billing/settings.py b/src/sandloom_billing/settings.py
+new file mode 100644
+index 0000000..a3c7ab9
+--- /dev/null
++++ b/src/sandloom_billing/settings.py
+@@ -0,0 +1,129 @@
++"""Billing's declared settings (ADR-0015 D2a; KB-49 PoC port).
++
++Env names are byte-identical to the former kernel fields (answer #30); the
++unprefixed ``STRIPE_*`` names are grandfathered by the module snapshot.
++"""
++
++from __future__ import annotations
++
++from typing import Any, ClassVar, Literal
++
++from pydantic import BaseModel, Field, SecretStr, ValidationInfo, model_validator
++
++from sandloom.sdk.module import RemovedSetting, Risk, SemanticSetting, settings_of
++
++
++class BillingSettings(BaseModel):
++    """Payment provider and billing policy."""
++
++    billing_provider: Literal["fake", "stripe"] = Field(
++        default="fake",
++        alias="BILLING_PROVIDER",
++        description="Payment provider: fake (local / tests) or stripe.",
++    )
++    stripe_secret_key: SecretStr | None = Field(
++        default=None, alias="STRIPE_SECRET_KEY", description="Stripe API secret."
++    )
++    stripe_webhook_secret: SecretStr | None = Field(
++        default=None,
++        alias="STRIPE_WEBHOOK_SECRET",
++        description="Stripe webhook signing secret.",
++    )
++    billing_deny_on_past_due: bool = Field(
++        default=False,
++        alias="BILLING_DENY_ON_PAST_DUE",
++        description="Deny entitlements while payment is past due.",
++    )
++    billing_grant_intentless_subscriptions: bool = Field(
++        default=False,
++        alias="BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
++        description="Catalog subscriptions without an operation intent grant access.",
++    )
++    billing_intent_reconcile_after_minutes: int = Field(
++        default=30, ge=5, le=24 * 60, alias="BILLING_INTENT_RECONCILE_AFTER_MINUTES"
++    )
++    billing_intent_reconcile_max_attempts: int = Field(
++        default=5, ge=1, le=100, alias="BILLING_INTENT_RECONCILE_MAX_ATTEMPTS"
++    )
++    billing_portal_attribution_window_minutes: int = Field(
++        default=60, ge=1, le=24 * 60, alias="BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES"
++    )
++
++    semantic: ClassVar[tuple[SemanticSetting, ...]] = (
++        SemanticSetting(
++            "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
++            "A subscription without an operation intent grants entitlements.",
++            profile=dict.fromkeys(("dev", "test", "prod", "prod_strict"), False),
++            strength=(True, False),
++        ),
++    )
++    risks: ClassVar[tuple[Risk, ...]] = (
++        Risk(
++            "fake_psp_in_prod",
++            "BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout "
++            "sessions, no real payment (demo stacks).",
++            "billing's production check (sandloom_billing.settings)",
++        ),
++    )
++    removed: ClassVar[tuple[RemovedSetting, ...]] = (
++        RemovedSetting(
++            "BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS",
++            "0.8",
++            "the fake PSP always rejects unsigned webhooks; sign test payloads "
++            "with sandloom_billing.psp.sign_stripe_payload",
++        ),
++        RemovedSetting(
++            "BILLING_ALLOW_FAKE_PSP_IN_PROD",
++            "0.8",
++            "accept the risk explicitly: "
++            'SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"]',
++        ),
++    )
++    shared: ClassVar[frozenset[str]] = frozenset({"BILLING_DENY_ON_PAST_DUE"})
++    console: ClassVar[tuple[str, ...]] = ("BILLING_PROVIDER",)
++    dev_env: ClassVar[dict[str, str]] = {"BILLING_PROVIDER": "fake"}
++    dev_accepted_risks: ClassVar[tuple[str, ...]] = ("fake_psp_in_prod",)
++    backup: ClassVar[dict[str, str]] = {
++        "STRIPE_WEBHOOK_SECRET": "webhooks in flight verify with it"
++    }
++
++    @model_validator(mode="after")
++    def _stripe_keys(self) -> BillingSettings:
++        if self.billing_provider == "stripe":
++            missing = [
++                name
++                for name, value in (
++                    ("STRIPE_SECRET_KEY", self.stripe_secret_key),
++                    ("STRIPE_WEBHOOK_SECRET", self.stripe_webhook_secret),
++                )
++                if not value
++            ]
++            if missing:
++                raise ValueError(
++                    f"BILLING_PROVIDER=stripe requires variables: {', '.join(missing)}"
++                )
++        return self
++
++    @model_validator(mode="after")
++    def _no_fake_psp_in_prod(self, info: ValidationInfo) -> BillingSettings:
++        ctx: dict[str, Any] = info.context or {}
++        if (
++            ctx.get("environment") == "prod"
++            and self.billing_provider == "fake"
++            and not ctx["accepts_risk"]("fake_psp_in_prod")
++        ):
++            raise ValueError(
++                "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set "
++                "BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and "
++                "STRIPE_WEBHOOK_SECRET (or, for a demo stack, "
++                'SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"])'
++            )
++        return self
++
++
++def billing_settings() -> BillingSettings:
++    """Billing's validated settings in the bound application."""
++    return settings_of(BillingSettings)
++
++
++__all__ = ["BillingSettings", "billing_settings"]
+diff --git a/src/sandloom_billing/tests/test_entitlement_intentless.py b/src/sandloom_billing/tests/test_entitlement_intentless.py
+index 9c022d3..0c56da2 100644
+--- a/src/sandloom_billing/tests/test_entitlement_intentless.py
++++ b/src/sandloom_billing/tests/test_entitlement_intentless.py
+@@ -49,13 +49,13 @@ pytestmark = pytest.mark.asyncio
+ 
+ @pytest.fixture
+ def intentless(monkeypatch: pytest.MonkeyPatch) -> Any:
+-    from sandloom.sdk.infra import settings
++    from sandloom.sdk.testing import patch_settings
++    from sandloom_billing.settings import BillingSettings
+ 
+     def _set(allow: bool) -> None:
+-        if "billing_grant_intentless_subscriptions" in type(settings).model_fields:
+-            monkeypatch.setattr(
+-                settings, "billing_grant_intentless_subscriptions", allow
+-            )
++        patch_settings(
++            monkeypatch, BillingSettings, billing_grant_intentless_subscriptions=allow
++        )
+ 
+     return _set
+ 
+diff --git a/src/sandloom_billing/tests/test_entitlement_unknown_price.py b/src/sandloom_billing/tests/test_entitlement_unknown_price.py
+index 376b42a..b87577f 100644
+--- a/src/sandloom_billing/tests/test_entitlement_unknown_price.py
++++ b/src/sandloom_billing/tests/test_entitlement_unknown_price.py
+@@ -40,13 +40,13 @@ pytestmark = pytest.mark.asyncio
+ 
+ @pytest.fixture
+ def intentless(monkeypatch: pytest.MonkeyPatch) -> Any:
+-    from sandloom.sdk.infra import settings
++    from sandloom.sdk.testing import patch_settings
++    from sandloom_billing.settings import BillingSettings
+ 
+     def _set(allow: bool) -> None:
+-        if "billing_grant_intentless_subscriptions" in type(settings).model_fields:
+-            monkeypatch.setattr(
+-                settings, "billing_grant_intentless_subscriptions", allow
+-            )
++        patch_settings(
++            monkeypatch, BillingSettings, billing_grant_intentless_subscriptions=allow
++        )
+ 
+     return _set
+ 
+diff --git a/src/sandloom_billing/tests/test_guards_and_contracts.py b/src/sandloom_billing/tests/test_guards_and_contracts.py
+index 9e91cc0..26176e0 100644
+--- a/src/sandloom_billing/tests/test_guards_and_contracts.py
++++ b/src/sandloom_billing/tests/test_guards_and_contracts.py
+@@ -68,11 +68,14 @@ class TestSharedGuards:
+         catalog,
+         monkeypatch: pytest.MonkeyPatch,
+     ):
+-        from sandloom.sdk.infra import settings
++        from sandloom.sdk.testing import patch_settings
++        from sandloom_billing.settings import BillingSettings
+ 
+         # An intent-less (PSP-created) subscription grants only under the
+         # explicit policy (ADR-0003 open item 9).
+-        monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
++        patch_settings(
++            monkeypatch, BillingSettings, billing_grant_intentless_subscriptions=True
++        )
+         user_id, headers = make_user_headers()
+         customer = await BillingService.get_or_create_customer(test_db, user_id=user_id)
+         customer.stripe_customer_id = "cus_guarded"
+diff --git a/src/sandloom_billing/tests/test_intent_reconcile.py b/src/sandloom_billing/tests/test_intent_reconcile.py
+index 430e8eb..6dbdce8 100644
+--- a/src/sandloom_billing/tests/test_intent_reconcile.py
++++ b/src/sandloom_billing/tests/test_intent_reconcile.py
+@@ -568,11 +568,14 @@ async def test_reconcile_task_body_reports_counts(
+ ) -> None:
+     """The task body (what ``run_async`` drives in the worker) uses billing's
+     PSP client and the settings' threshold."""
+-    from sandloom.sdk.infra import settings
++    from sandloom.sdk.testing import patch_settings
+     from sandloom_billing import tasks
++    from sandloom_billing.settings import BillingSettings
+ 
+     await _abandoned_pending(async_client, catalog, fake_psp, monkeypatch, sessions)
+-    monkeypatch.setattr(settings, "billing_intent_reconcile_after_minutes", 30)
++    patch_settings(
++        monkeypatch, BillingSettings, billing_intent_reconcile_after_minutes=30
++    )
+     async with sessions() as db:
+         await db.execute(
+             update(OperationIntent).values(
+diff --git a/src/sandloom_billing/tests/test_registration_surface.py b/src/sandloom_billing/tests/test_registration_surface.py
+index f36da77..5306e4b 100644
+--- a/src/sandloom_billing/tests/test_registration_surface.py
++++ b/src/sandloom_billing/tests/test_registration_surface.py
+@@ -8,6 +8,7 @@ billing router was later split into a read router and a financial one
+ """
+ 
+ from collections.abc import Iterator
++from typing import Any
+ 
+ import pytest
+ 
+@@ -105,6 +106,11 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
+         "sandloom_billing.contracts.CreditsContract",
+         "database=None",
+     ),
++    (
++        "declare_settings",
++        "sandloom_billing.settings.BillingSettings",
++        "package='sandloom_billing'",
++    ),
+     ("add_shutdown_task", "sandloom_billing.psp.close_psp_client"),
+     ("add_claims_contributor", "sandloom_billing.claims.contribute_billing_claims"),
+     ("register_access_fact", "AccessFact('subscription.active')"),
+@@ -161,13 +167,21 @@ def test_registration_surface_is_pinned() -> None:
+ 
+ 
+ def test_fake_psp_in_prod_refuses_registration(
+-    monkeypatch: pytest.MonkeyPatch,
++    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+     """A refused PSP configuration stops registration itself (not a lifespan
+-    task), so every process that builds the composition refuses with it."""
+-    import sandloom_billing
+-    import sandloom_billing.psp as psp
+-
+-    monkeypatch.setattr(psp, "psp_configuration_error", lambda _settings: "boom")
+-    with pytest.raises(SystemExit, match="boom"):
+-        registration_surface(sandloom_billing.register)
++    task), so every process that builds the composition refuses with it. The
++    check is billing's own settings model, validated before ``setup``."""
++    from sandloom.sdk.infra import settings
++    from sandloom.sdk.module import ModuleAPI
++    from sandloom.sdk.testing import ModuleRegistrationDraft, set_environment
++    from sandloom_billing import register
++    from sandloom_billing.tests.test_webhook_hardening import _process_env
++
++    _process_env(monkeypatch, BILLING_PROVIDER="fake")
++    set_environment(monkeypatch, "prod")
++    monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
++    draft = ModuleRegistrationDraft()
++    with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
++        register(ModuleAPI(sandloom_app.state.core, draft=draft))
++    assert draft.startup == []
+diff --git a/src/sandloom_billing/tests/test_tenant_gates.py b/src/sandloom_billing/tests/test_tenant_gates.py
+index 73a3ca4..51d19fe 100644
+--- a/src/sandloom_billing/tests/test_tenant_gates.py
++++ b/src/sandloom_billing/tests/test_tenant_gates.py
+@@ -370,11 +370,12 @@ class TestClaimInterpretation:
+     def test_past_due_claim_follows_grace_policy(
+         self, monkeypatch: pytest.MonkeyPatch
+     ) -> None:
+-        from sandloom.sdk.infra import settings
++        from sandloom.sdk.testing import patch_settings
+         from sandloom_billing.access import subscription_claim_rule
++        from sandloom_billing.settings import BillingSettings
+ 
+-        monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
++        patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=False)
+         assert subscription_claim_rule().interpret("past_due") is True
+-        monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
++        patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=True)
+         assert subscription_claim_rule().interpret("past_due") is False
+         assert subscription_claim_rule().interpret("expired") is False
+diff --git a/src/sandloom_billing/tests/test_webhook_hardening.py b/src/sandloom_billing/tests/test_webhook_hardening.py
+index 4cec299..68f5eac 100644
+--- a/src/sandloom_billing/tests/test_webhook_hardening.py
++++ b/src/sandloom_billing/tests/test_webhook_hardening.py
+@@ -10,16 +10,16 @@ from httpx import AsyncClient
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from sandloom.sdk.testing import set_environment
++from sandloom.sdk.testing import ModuleSettingsError, patch_settings, set_environment
+ from sandloom_billing.models import BillingSubscription, StripeEvent
+ from sandloom_billing.psp import (
+     FakeStripeClient,
+     StripeHttpClient,
+     StripeSignatureError,
+-    psp_configuration_error,
+     sign_stripe_payload,
+ )
+ from sandloom_billing.services import BillingService
++from sandloom_billing.settings import BillingSettings
+ from sandloom_billing.tests.conftest import WEBHOOK_SECRET
+ 
+ HOOK = "/api/v1/billing/webhooks/stripe"
+@@ -32,9 +32,9 @@ def _intentless_subscriptions_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+     event (no ``sandloom_intent_id``): granting those is an explicit policy
+     (ADR-0003 open item 9, default off). Every other test in this module runs
+     under the default (intent-less subscriptions grant nothing)."""
+-    from sandloom.sdk.infra import settings
+-
+-    monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
++    patch_settings(
++        monkeypatch, BillingSettings, billing_grant_intentless_subscriptions=True
++    )
+ 
+ 
+ def _signed(payload: dict) -> tuple[bytes, dict[str, str]]:
+@@ -42,6 +42,28 @@ def _signed(payload: dict) -> tuple[bytes, dict[str, str]]:
+     return body, {"Stripe-Signature": sign_stripe_payload(body, WEBHOOK_SECRET)}
+ 
+ 
++def _process_env(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
++    """Set billing's variables for the process snapshot (frozen once per
++    process: rebuilt here, restored with the monkeypatch)."""
++    from sandloom.sdk.testing import reset_process_snapshot
++
++    for name in ("BILLING_PROVIDER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"):
++        monkeypatch.delenv(name, raising=False)
++    for name, value in env.items():
++        monkeypatch.setenv(name, value)
++    reset_process_snapshot(monkeypatch)
++
++
++def _validate_billing(monkeypatch: pytest.MonkeyPatch, **env: str) -> Any:
++    """Billing's settings validated as the loader does (raises
++    ``ModuleSettingsError``)."""
++    from sandloom.sdk.infra import settings
++    from sandloom.sdk.testing import validate_settings
++
++    _process_env(monkeypatch, **env)
++    return validate_settings(BillingSettings, settings)
++
++
+ async def _post(client: AsyncClient, payload: dict) -> Any:
+     body, headers = _signed(payload)
+     return await client.post(HOOK, content=body, headers=headers)
+@@ -194,41 +216,51 @@ class TestForgedWebhooks:
+         assert await BillingService.get_credit_balance(customer.id, test_db) == 0
+ 
+     def test_prod_refuses_fake_psp(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        """The production check is billing's own: its settings model refuses
++        the fake PSP in prod unless the namespaced demo risk is accepted."""
+         from sandloom.sdk.infra import settings
+ 
+         monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
+-        monkeypatch.setattr(settings, "billing_provider", "fake")
+         set_environment(monkeypatch, "dev")
+-        assert psp_configuration_error(settings) is None
++        assert _validate_billing(monkeypatch, BILLING_PROVIDER="fake")
+ 
+         set_environment(monkeypatch, "prod")
+-        error = psp_configuration_error(settings)
+-        assert error is not None and "BILLING_PROVIDER=fake" in error
++        with pytest.raises(ModuleSettingsError, match="BILLING_PROVIDER=fake") as err:
++            _validate_billing(monkeypatch, BILLING_PROVIDER="fake")
++        assert "billing.fake_psp_in_prod" in str(err.value)  # the opt-in is named
+ 
+-        monkeypatch.setattr(settings, "sandloom_accepted_risks", ["fake_psp_in_prod"])
+-        assert psp_configuration_error(settings) is None  # explicit demo opt-in
++        monkeypatch.setattr(
++            settings, "sandloom_accepted_risks", ["billing.fake_psp_in_prod"]
++        )
++        assert _validate_billing(monkeypatch, BILLING_PROVIDER="fake")  # demo opt-in
+         monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
+ 
+-        monkeypatch.setattr(settings, "billing_provider", "stripe")
+-        assert psp_configuration_error(settings) is None
++        assert _validate_billing(
++            monkeypatch,
++            BILLING_PROVIDER="stripe",
++            STRIPE_SECRET_KEY="sk_test_x",
++            STRIPE_WEBHOOK_SECRET="whsec_x",
++        )
+ 
+     def test_register_refuses_fake_psp_in_prod(
+-        self, monkeypatch: pytest.MonkeyPatch
++        self, sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
+     ) -> None:
+-        """Registration itself refuses, so no entry point builds past it."""
+-        from unittest.mock import MagicMock
+-
++        """Registration itself refuses (the loader validates billing's
++        settings before ``setup``), so no entry point builds past it."""
+         from sandloom.sdk.infra import settings
++        from sandloom.sdk.module import ModuleAPI
++        from sandloom.sdk.testing import ModuleRegistrationDraft
+         from sandloom_billing import register
+ 
+-        monkeypatch.setattr(settings, "billing_provider", "fake")
++        _process_env(monkeypatch, BILLING_PROVIDER="fake")
+         set_environment(monkeypatch, "prod")
+         monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
+ 
+-        recorder = MagicMock()
++        draft = ModuleRegistrationDraft()
+         with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
+-            register(recorder)
+-        recorder.add_startup_task.assert_not_called()
++            register(ModuleAPI(sandloom_app.state.core, draft=draft))
++        assert draft.startup == []
++        assert draft.claims_contributors == []
+ 
+ 
+ # --------------------------------------------------------------------------- #
+diff --git a/src/sandloom_billing/tests/test_webhooks.py b/src/sandloom_billing/tests/test_webhooks.py
+index a8c76cb..a301d31 100644
+--- a/src/sandloom_billing/tests/test_webhooks.py
++++ b/src/sandloom_billing/tests/test_webhooks.py
+@@ -19,9 +19,12 @@ def _intentless_subscriptions_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+     event (no ``sandloom_intent_id``): granting those is an explicit policy
+     (ADR-0003 open item 9, default off). Every other test in this module runs
+     under the default (intent-less subscriptions grant nothing)."""
+-    from sandloom.sdk.infra import settings
++    from sandloom.sdk.testing import patch_settings
++    from sandloom_billing.settings import BillingSettings
+ 
+-    monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
++    patch_settings(
++        monkeypatch, BillingSettings, billing_grant_intentless_subscriptions=True
++    )
+ 
+ 
+ def _signed(payload: dict) -> tuple[bytes, dict[str, str]]:
+@@ -193,7 +196,8 @@ class TestWebhookProcessing:
+         catalog,
+         monkeypatch: pytest.MonkeyPatch,
+     ):
+-        from sandloom.sdk.infra import settings
++        from sandloom.sdk.testing import patch_settings
++        from sandloom_billing.settings import BillingSettings
+ 
+         customer = await self._make_psp_customer(test_db)
+         body, headers = _signed(
+@@ -208,10 +212,10 @@ class TestWebhookProcessing:
+             "/api/v1/billing/webhooks/stripe", content=body, headers=headers
+         )
+ 
+-        monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
++        patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=False)
+         assert await BillingService.check_subscription_active(customer.id, test_db)
+ 
+-        monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
++        patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=True)
+         assert not await BillingService.check_subscription_active(customer.id, test_db)
+ 
+     async def test_checkout_completed_grants_credits(
+diff --git a/src/sandloom_identity/__init__.py b/src/sandloom_identity/__init__.py
+index 815b2e5..18e3884 100644
+--- a/src/sandloom_identity/__init__.py
++++ b/src/sandloom_identity/__init__.py
+@@ -13,8 +13,8 @@ from sandloom.sdk.infra import settings
+ from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
+ 
+ from .claims import contribute_identity_claims
++from .config import IdentitySettings
+ from .consumers import revoke_refresh_tokens_on_block
+-from .services import twofa_service
+ from .services.auth_service import AuthService, drain_emails_on_shutdown
+ from .services.operations import OPERATIONS
+ from .sessions import apply_token_revocation
+@@ -33,9 +33,8 @@ def _setup(core: ModuleAPI) -> None:
+     # registration, so every process that builds the composition (the app,
+     # worker, beat, ``sandloom migrate``, the operator CLIs) stops with the
+     # kernel's INVALID_CONFIGURATION refusal, not only the API's lifespan.
+-    twofa_error = twofa_service.twofa_configuration_error()
+-    if twofa_error is not None:
+-        raise SystemExit(twofa_error)
++    # KB-49: the TOTP key's presence and strength are IdentitySettings'
++    # production check, validated before this setup (ADR-0015 D2a).
+ 
+     # identity keys its emailed tokens / fingerprints with JWT_SECRET, which
+     # is optional in an asymmetric JWT deployment (issuer-only there). Refused
+@@ -106,6 +105,7 @@ register = define_module(
+     # process holds JWT_PRIVATE_KEY, every other service only public keys.
+     issues_tokens=True,
+     setup=_setup,
++    settings=IdentitySettings,
+ )
+ 
+ __all__ = ["register"]
+diff --git a/src/sandloom_identity/config.py b/src/sandloom_identity/config.py
+new file mode 100644
+index 0000000..bf464c6
+--- /dev/null
++++ b/src/sandloom_identity/config.py
+@@ -0,0 +1,65 @@
++"""Identity's declared settings (ADR-0015 D2a; KB-49 PoC port: the TOTP key).
++
++The SSO / Telegram / refresh-session names stay kernel fields in this PoC
++(not needed by any P-row); KB-53 moves them.
++"""
++
++from __future__ import annotations
++
++from typing import Any, ClassVar
++
++from pydantic import BaseModel, Field, SecretStr, ValidationInfo, model_validator
++
++from sandloom.sdk.module import secret_problem, settings_of
++
++
++class IdentitySettings(BaseModel):
++    twofa_encryption_key: SecretStr | None = Field(
++        default=None,
++        alias="TWOFA_ENCRYPTION_KEY",
++        description=(
++            "Comma-separated TOTP encryption keys, newest first; required in "
++            "production, derived from JWT_SECRET elsewhere."
++        ),
++    )
++
++    dev_env: ClassVar[dict[str, str]] = {"TWOFA_ENCRYPTION_KEY": "random_hex32"}
++    backup: ClassVar[dict[str, str]] = {
++        "TWOFA_ENCRYPTION_KEY": (
++            "every key still in the list: losing it makes every 2FA secret "
++            "undecryptable"
++        )
++    }
++
++    def keys(self) -> list[str]:
++        raw = (
++            self.twofa_encryption_key.get_secret_value()
++            if self.twofa_encryption_key
++            else ""
++        )
++        return [k.strip() for k in raw.split(",") if k.strip()]
++
++    @model_validator(mode="after")
++    def _twofa_key_in_prod(self, info: ValidationInfo) -> IdentitySettings:
++        ctx: dict[str, Any] = info.context or {}
++        if ctx.get("environment") != "prod":
++            return self
++        keys = self.keys()
++        if not keys:
++            raise ValueError(
++                "TWOFA_ENCRYPTION_KEY is required with ENVIRONMENT=prod (no "
++                "JWT_SECRET fallback in production); generate one with openssl "
++                "rand -hex 32"
++            )
++        for idx, key in enumerate(keys):
++            problem = secret_problem(key)
++            if problem:
++                raise ValueError(
++                    f"TWOFA_ENCRYPTION_KEY[{idx}] is {problem}; generate a random "
++                    "one (e.g. openssl rand -hex 32)"
++                )
++        return self
++
++
++def identity_settings() -> IdentitySettings:
++    return settings_of(IdentitySettings)
+diff --git a/src/sandloom_identity/module.snapshot.json b/src/sandloom_identity/module.snapshot.json
+index dce93b0..7d2d2df 100644
+--- a/src/sandloom_identity/module.snapshot.json
++++ b/src/sandloom_identity/module.snapshot.json
+@@ -1350,5 +1350,8 @@
+   "format": 1,
+   "module": "sandloom_identity",
+   "projections": [],
+-  "sagas": []
++  "sagas": [],
++  "settings": {
++    "TWOFA_ENCRYPTION_KEY": "ops"
++  }
+ }
+diff --git a/src/sandloom_identity/services/twofa_service.py b/src/sandloom_identity/services/twofa_service.py
+index cbee12d..33c22b8 100644
+--- a/src/sandloom_identity/services/twofa_service.py
++++ b/src/sandloom_identity/services/twofa_service.py
+@@ -19,6 +19,7 @@ from sandloom.sdk import record_audit
+ from sandloom.sdk.data import WallClock
+ from sandloom.sdk.effects import sensitive_effect
+ from sandloom.sdk.infra import settings
++from sandloom_identity.config import identity_settings
+ from sandloom_identity.events import (
+     EventActor,
+     TwoFABackupCodesRegeneratedEvent,
+@@ -48,8 +49,7 @@ class TwoFASecretDecryptionError(RuntimeError):
+ 
+ 
+ def _configured_twofa_keys() -> list[str]:
+-    configured = settings.twofa_encryption_key or ""
+-    return [k.strip() for k in configured.split(",") if k.strip()]
++    return identity_settings().keys()
+ 
+ 
+ def twofa_configuration_error() -> str | None:
+diff --git a/src/sandloom_identity/tests/services/test_twofa_service.py b/src/sandloom_identity/tests/services/test_twofa_service.py
+index 43d6d3a..8b98296 100644
+--- a/src/sandloom_identity/tests/services/test_twofa_service.py
++++ b/src/sandloom_identity/tests/services/test_twofa_service.py
+@@ -7,6 +7,7 @@ decryption, and key rotation.
+ 
+ import asyncio
+ import time
++from typing import Any
+ from unittest.mock import patch
+ 
+ import pyotp
+@@ -29,6 +30,16 @@ from sandloom_identity.services.twofa_service import (
+ PASSWORD = "TestPassword123!"
+ 
+ 
++def _twofa_key(value: str) -> Any:
++    """identity's declared ``TWOFA_ENCRYPTION_KEY`` for the scope (ADR-0015)."""
++    from pydantic import SecretStr
++
++    from sandloom.sdk.testing import override_settings
++    from sandloom_identity.config import IdentitySettings
++
++    return override_settings(IdentitySettings, twofa_encryption_key=SecretStr(value))
++
++
+ def _code_for_step(secret: str, step: int) -> str:
+     totp = pyotp.TOTP(secret)
+     return totp.at(step * totp.interval)
+@@ -350,14 +361,12 @@ class TestSecretCrypto:
+             _decrypt_secret("JBSWY3DPEHPK3PXP")  # legacy plaintext is NOT accepted
+ 
+     def test_key_rotation(self) -> None:
+-        from sandloom.sdk.infra import settings
+-
+-        with patch.object(settings, "twofa_encryption_key", "old-key"):
++        with _twofa_key("old-key"):
+             stored = _encrypt_secret("SECRET")
+-        with patch.object(settings, "twofa_encryption_key", "new-key,old-key"):
++        with _twofa_key("new-key,old-key"):
+             assert _decrypt_secret(stored) == "SECRET"
+             rotated = _encrypt_secret("SECRET")
+-        with patch.object(settings, "twofa_encryption_key", "new-key"):
++        with _twofa_key("new-key"):
+             assert _decrypt_secret(rotated) == "SECRET"
+             with pytest.raises(TwoFASecretDecryptionError):
+                 _decrypt_secret(stored)
+@@ -369,9 +378,7 @@ class TestSecretCrypto:
+ 
+         from cryptography.fernet import Fernet
+ 
+-        from sandloom.sdk.infra import settings
+-
+-        with patch.object(settings, "twofa_encryption_key", "some-key"):
++        with _twofa_key("some-key"):
+             sha = Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"some-key").digest()))
+             stored = base64.urlsafe_b64encode(sha.encrypt(b"OLD")).decode()
+             with pytest.raises(TwoFASecretDecryptionError):
+diff --git a/src/sandloom_identity/tests/test_module_registration.py b/src/sandloom_identity/tests/test_module_registration.py
+index 4695d2c..e49889b 100644
+--- a/src/sandloom_identity/tests/test_module_registration.py
++++ b/src/sandloom_identity/tests/test_module_registration.py
+@@ -34,7 +34,7 @@ from sandloom_identity.contracts import (
+     SecurityOperationsContract,
+ )
+ from sandloom_identity.events import BaseEvent
+-from sandloom_identity.services import auth_service, twofa_service
++from sandloom_identity.services import auth_service
+ 
+ EXPECTED_DESCRIPTOR = ModuleDescriptor(
+     name="sandloom_identity",
+@@ -116,12 +116,15 @@ def test_missing_twofa_key_refuses_registration(
+ ) -> None:
+     """A missing TOTP key stops registration itself (not a lifespan task),
+     so every process that builds the composition refuses with the reason;
+-    nothing of the module is registered."""
+-    monkeypatch.setattr(
+-        twofa_service, "twofa_configuration_error", lambda: "TWOFA key missing"
+-    )
++    nothing of the module is registered. The check is identity's own settings
++    model, validated before ``setup``."""
++    from sandloom.sdk.testing import reset_process_snapshot, set_environment
++
++    monkeypatch.delenv("TWOFA_ENCRYPTION_KEY", raising=False)
++    reset_process_snapshot(monkeypatch)
++    set_environment(monkeypatch, "prod")
+     draft = ModuleRegistrationDraft()
+-    with pytest.raises(SystemExit, match="TWOFA key missing"):
++    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY is required"):
+         register(ModuleAPI(sandloom_app.state.core, draft=draft))
+     assert draft.startup == []
+     assert draft.claims_contributors == []
+diff --git a/src/sandloom_identity/tests/test_token_claims_and_revocation.py b/src/sandloom_identity/tests/test_token_claims_and_revocation.py
+index 8ce892a..8ad96d4 100644
+--- a/src/sandloom_identity/tests/test_token_claims_and_revocation.py
++++ b/src/sandloom_identity/tests/test_token_claims_and_revocation.py
+@@ -95,11 +95,22 @@ async def test_auth_audit_ip_is_proxy_aware(monkeypatch: pytest.MonkeyPatch) ->
+     assert _ip(SimpleNamespace(client=None, headers={})) is None  # type: ignore[arg-type]
+ 
+ 
+-async def test_twofa_key_is_mandatory_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
++async def test_twofa_key_is_mandatory_in_prod(
++    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    from pydantic import SecretStr
++
++    from sandloom.sdk.module import ModuleAPI
++    from sandloom.sdk.testing import (
++        ModuleRegistrationDraft,
++        patch_settings,
++        reset_process_snapshot,
++    )
+     from sandloom_identity import register
++    from sandloom_identity.config import IdentitySettings
+     from sandloom_identity.services import twofa_service
+ 
+-    monkeypatch.setattr(settings, "twofa_encryption_key", None)
++    patch_settings(monkeypatch, IdentitySettings, twofa_encryption_key=None)
+     set_environment(monkeypatch, "dev")
+     assert twofa_service.twofa_configuration_error() is None
+     assert twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # dev fallback works
+@@ -110,8 +121,14 @@ async def test_twofa_key_is_mandatory_in_prod(monkeypatch: pytest.MonkeyPatch) -
+     with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
+         twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
+ 
++    # refused at registration, in every entry point (the loader validates
++    # identity's own settings before ``setup``)
++    monkeypatch.delenv("TWOFA_ENCRYPTION_KEY", raising=False)
++    reset_process_snapshot(monkeypatch)
+     with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY"):
+-        register(Mock())  # refused at registration, in every entry point
++        register(ModuleAPI(sandloom_app.state.core, draft=ModuleRegistrationDraft()))
+ 
+-    monkeypatch.setattr(settings, "twofa_encryption_key", "k" * 64)
++    patch_settings(
++        monkeypatch, IdentitySettings, twofa_encryption_key=SecretStr("k" * 64)
++    )
+     assert twofa_service.twofa_configuration_error() is None
+diff --git a/tests/integration/test_access_facts_split.py b/tests/integration/test_access_facts_split.py
+index 75e516e..b1dc816 100644
+--- a/tests/integration/test_access_facts_split.py
++++ b/tests/integration/test_access_facts_split.py
+@@ -30,10 +30,12 @@ from sandloom.core.contract_testing import rpc_settings
+ from sandloom.core.facade import CoreFacade
+ from sandloom.core.module_api import contract_method
+ from sandloom.core.rpc import proxy as rpc_proxy
++from sandloom.sdk.testing import patch_settings
+ from sandloom.shared.authz import Account, Entitled, Subscribed
+ from sandloom.shared.authz.context import AuthzContext
+ from sandloom.shared.authz.results import AccessDecision
+ from sandloom.shared.subject import UserContext
++from sandloom_billing.settings import BillingSettings
+ 
+ pytestmark = pytest.mark.asyncio
+ 
+@@ -144,7 +146,7 @@ def split(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+     )
+     for name, value in owner_keys.items():
+         monkeypatch.setattr(settings, name, value)
+-    monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
++    patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=False)
+     STATE.clear()
+     STATE["active"] = {}
+     owner_app, owner = _owner()
+@@ -213,9 +215,7 @@ async def test_entitled_subscription_same_decision_in_split(
+ async def test_owner_settings_drive_the_remote_claim_rule(
+     split: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+-    from sandloom.core.config.settings import settings
+-
+-    monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
++    patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=True)
+     split["consumer"].remote_access_fact_cache.clear()
+     subject = _subject(**MINTED, subscription_status="past_due")
+     mono, remote = await _both(split, Entitled("subscription.active"), subject)
+diff --git a/tests/integration/test_claims_provenance_and_subscribed.py b/tests/integration/test_claims_provenance_and_subscribed.py
+index 4aada23..cc0f9df 100644
+--- a/tests/integration/test_claims_provenance_and_subscribed.py
++++ b/tests/integration/test_claims_provenance_and_subscribed.py
+@@ -135,10 +135,11 @@ async def test_subscribed_honours_past_due_grace(
+     deny_past_due: bool,
+     expected: bool,
+ ) -> None:
+-    from sandloom.core.di import settings
++    from sandloom.sdk.testing import patch_settings
+     from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
++    from sandloom_billing.settings import BillingSettings
+ 
+-    monkeypatch.setattr(settings, "billing_deny_on_past_due", deny_past_due)
++    patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=deny_past_due)
+     claims = {"subscription_status": status} if status else {}
+     # The grace rule is billing's (the registered fact), not shared's.
+     core = _Core(facts={"subscription.active": SUBSCRIPTION_ACTIVE_FACT})
+@@ -211,9 +212,10 @@ async def test_subscribed_uses_registered_fact_interpretation() -> None:
+ async def test_subscribed_explicit_statuses_are_verbatim(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+-    from sandloom.core.di import settings
++    from sandloom.sdk.testing import patch_settings
++    from sandloom_billing.settings import BillingSettings
+ 
+-    monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
++    patch_settings(monkeypatch, BillingSettings, billing_deny_on_past_due=False)
+     ctx = AuthzContext(_subject(subscription_status="past_due"), core=_Core())
+     assert (
+         await Subscribed(frozenset({"active"}), of=Account.user()).evaluate(ctx)
+diff --git a/tests/integration/test_resilience_config.py b/tests/integration/test_resilience_config.py
+index f93d61c..35540c7 100644
+--- a/tests/integration/test_resilience_config.py
++++ b/tests/integration/test_resilience_config.py
+@@ -3,11 +3,16 @@
+ from __future__ import annotations
+ 
+ import pytest
+-from pydantic import ValidationError
+ 
++from sandloom.core.config.module_settings import (
++    ModuleSettingsError,
++    SourceSnapshot,
++    validate_module_settings,
++)
+ from sandloom.core.config.settings import Settings
+ from sandloom.core.infra.config import InstanceConfig
+ from sandloom.core.infra.registry import InfraError, InfraRegistry
++from sandloom_billing.settings import BillingSettings
+ 
+ 
+ def _set_base_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
+@@ -27,10 +32,23 @@ def _set_base_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
+         monkeypatch.setenv(key, value)
+ 
+ 
++def _billing_settings() -> BillingSettings:
++    """Billing's declared settings, validated as the loader does."""
++    record = validate_module_settings(
++        "billing",
++        "sandloom_billing",
++        BillingSettings,
++        Settings(_env_file=None),
++        SourceSnapshot(env_file=None),
++    )
++    assert record.instance is not None
++    return record.instance
++
++
+ def test_stripe_provider_requires_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+     _set_base_env(monkeypatch, BILLING_PROVIDER="stripe")
+-    with pytest.raises(ValidationError, match="STRIPE_SECRET_KEY"):
+-        Settings(_env_file=None)
++    with pytest.raises(ModuleSettingsError, match="STRIPE_SECRET_KEY"):
++        _billing_settings()
+ 
+ 
+ def test_stripe_provider_ok_with_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+@@ -40,13 +58,13 @@ def test_stripe_provider_ok_with_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+         STRIPE_SECRET_KEY="sk_test_x",
+         STRIPE_WEBHOOK_SECRET="whsec_x",
+     )
+-    s = Settings(_env_file=None)
++    s = _billing_settings()
+     assert s.billing_provider == "stripe"
+ 
+ 
+ def test_fake_provider_needs_no_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+     _set_base_env(monkeypatch, BILLING_PROVIDER="fake")
+-    s = Settings(_env_file=None)
++    s = _billing_settings()
+     assert s.billing_provider == "fake"
+ 
+ 
+diff --git a/tools/smoke/split_check.py b/tools/smoke/split_check.py
+index 7a9f0c5..d3a87cc 100644
+--- a/tools/smoke/split_check.py
++++ b/tools/smoke/split_check.py
+@@ -358,7 +358,7 @@ class Runner:
+     def drop_env_file_variables(self) -> None:
+         """A variable in the caller's environment wins over --env-file in
+         compose: drop every one the dev env file sets (an exported
+-        SANDLOOM_ACCEPTED_RISKS without fake_psp_in_prod stopped billing)."""
++        SANDLOOM_ACCEPTED_RISKS without billing.fake_psp_in_prod stopped billing)."""
+         keys = Path(self.cwd / "deploy" / ".env.microservices").read_text()
+         for line in keys.splitlines():
+             if "=" in line and not line.startswith("#"):

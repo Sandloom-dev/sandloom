@@ -202,6 +202,12 @@ was edited. The ADRs cite these numbers.
 
 Earlier evidence the ADRs also cite: the replaceability PoC of §1 (`47c31de`), the authorization
 perf and DX baseline ([perf-dx-baseline.md](perf-dx-baseline.md), `162d84a`), the gate probe at
-`86aed8b` ([roadmap-review.md](roadmap-review.md) §2.2, `38f33cb`). No PoC was run for decision D:
-the settings PoC rows P1-P16 (`alternatives-d-settings.md` §11) are the acceptance criteria of
-KB-50..KB-56 in [migration-plan.md](migration-plan.md).
+`86aed8b` ([roadmap-review.md](roadmap-review.md) §2.2, `38f33cb`). Decision D's PoC is the gate
+KB-49 of [migration-plan.md](migration-plan.md), run after the ADRs were accepted:
+
+| PoC | tm | results | commit | candidate | headline | ADR |
+|---|---|---|---|---|---|---|
+| module-declared settings (D2a), P1-P16 | `kb-49-settings-poc-gate` | [poc/settings/results.md](poc/settings/results.md) | `c7896c5` | `poc/settings/d2a-kernel.patch` on `3806ad0` (merged baseline `c9b9b05` + ADRs) | all 16 pass mono and split; fixture `inventory` outside `src/` with no kernel edit; billing and identity (TOTP key) ported, ledger tests kept; `config dump` +1.9 s, no socket, no lifespan; boot −4 ms against 46 ms base-vs-base; D2a kept over D2b; 12 findings (spelling of decision 1, one more SDK name, three testing names) | [ADR-0015](../../docs/adr/0015-module-settings.md) |
+
+The rows P1-P16 remain the acceptance criteria of KB-50..KB-56: each PR turns its rows into
+repository tests.

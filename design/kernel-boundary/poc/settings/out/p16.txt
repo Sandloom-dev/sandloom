@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/tmp/claude-501/-Users-admin-Documents-dev-projects-sandloom--claude-worktrees-kb-49-settings-poc-c58833/314f0817-2494-4115-bfb5-0b22ec0c11f6/scratchpad/kernel
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4, hypothesis-6.168.5, cov-7.1.0, xdist-3.8.0, Faker-40.41.0, asyncio-1.4.0, metadata-3.1.1, html-4.2.0, mock-3.17.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+collected 19 items
+
+src/sandloom/core/tests/test_password_hash_config.py ...........         [ 57%]
+src/sandloom_identity/tests/services/test_password_rehash_on_login.py .. [ 68%]
+.                                                                        [ 73%]
+src/sandloom/core/tests/test_password_hash_config.py .                   [ 78%]
+src/sandloom_identity/tests/services/test_login_timing_equalizer.py .... [100%]
+
+============================== 19 passed in 1.66s ==============================
