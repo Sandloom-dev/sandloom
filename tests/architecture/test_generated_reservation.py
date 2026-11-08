@@ -14,6 +14,8 @@ from pathlib import Path
 
 from sandloom.core import error_codes
 from sandloom.core.archcheck.generated_rules import find_reserved_generated_problems
+from sandloom.core.archcheck.manifest import load_rules
+from sandloom.core.archcheck.runner import run_checks
 from sandloom.core.cli import consumer_copies as cc
 from sandloom.core.descriptors import generated_provenance as gp
 
@@ -130,3 +132,27 @@ def test_the_rule_has_its_catalogue_entry() -> None:
     entry = error_codes.lookup("generated-reserved")
     assert entry is not None and entry.code == "SANDLOOM-C032"
     assert entry.kind == "check"
+
+
+def test_sandloom_check_runs_the_rule(tmp_path: Path) -> None:
+    (tmp_path / "architecture_rules.yml").write_text(
+        "version: 1\nmodules_path: app/modules\nmodules_package: app.modules\n"
+        "source_root: .\n"
+    )
+    _write(
+        tmp_path / "app",
+        {
+            "__init__.py": "",
+            "modules/__init__.py": "",
+            "modules/notes/__init__.py": "",
+            "modules/notes/_generated/__init__.py": "x = 1\n",
+            "modules/notes/tests/test_n.py": "from app.modules.shop._generated import y\n",
+            "modules/shop/__init__.py": "",
+        },
+    )
+    rules = load_rules(tmp_path / "architecture_rules.yml")
+    found = run_checks(rules, only=["generated-reserved"])
+    assert sorted((v.file.name, v.code) for v in found) == [
+        ("__init__.py", "SANDLOOM-C032"),
+        ("test_n.py", "SANDLOOM-C032"),
+    ]

@@ -387,8 +387,7 @@ class _Planner:
             self.plan.problems.append(
                 f"{self.where(file, node)}: {name} = Contract(...) is never used, "
                 f"so {self.package} consumes {contract or 'a contract'} for "
-                "nothing: call it, "
-                "or drop the declaration"
+                "nothing: call it, or drop the declaration"
             )
 
     def _imports(self, file: _File) -> None:
