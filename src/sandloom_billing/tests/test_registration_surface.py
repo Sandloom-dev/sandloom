@@ -120,11 +120,6 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
     ),
 ]
 
-#: Added only when the PSP configuration is invalid (fake PSP in production).
-REFUSE_FAKE_PSP = [
-    ("add_startup_task", "sandloom_billing._refuse_fake_psp_in_prod", "critical=True")
-]
-
 
 @pytest.fixture(autouse=True)
 def _keep_psp_client() -> Iterator[None]:
@@ -165,11 +160,14 @@ def test_registration_surface_is_pinned() -> None:
     ]
 
 
-def test_fake_psp_in_prod_adds_a_critical_startup_task(
+def test_fake_psp_in_prod_refuses_registration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A refused PSP configuration stops registration itself (not a lifespan
+    task), so every process that builds the composition refuses with it."""
+    import sandloom_billing
     import sandloom_billing.psp as psp
 
     monkeypatch.setattr(psp, "psp_configuration_error", lambda _settings: "boom")
-    surface = _surface()
-    assert sorted(surface.calls) == sorted(EXPECTED + REFUSE_FAKE_PSP)
+    with pytest.raises(SystemExit, match="boom"):
+        registration_surface(sandloom_billing.register)

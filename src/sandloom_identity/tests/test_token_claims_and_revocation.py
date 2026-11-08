@@ -110,16 +110,8 @@ async def test_twofa_key_is_mandatory_in_prod(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
         twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
 
-    recorder = Mock()
-    register(recorder)
-    calls = [
-        c
-        for c in recorder.add_startup_task.call_args_list
-        if c.kwargs == {"critical": True}
-    ]
-    assert len(calls) == 1
-    with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
-        await calls[0].args[0]()
+    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY"):
+        register(Mock())  # refused at registration, in every entry point
 
     monkeypatch.setattr(settings, "twofa_encryption_key", "k" * 64)
     assert twofa_service.twofa_configuration_error() is None

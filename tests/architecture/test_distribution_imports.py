@@ -26,11 +26,21 @@ sys.path.insert(0, str(REPO / "tools" / "packaging"))
 
 import distribution_imports as di  # noqa: E402
 
-TOPS = {"fastapi": {"fastapi"}, "redis": {"redis"}, "pyotp": {"pyotp"}}
+TOPS = {
+    "fastapi": {"fastapi"},
+    "redis": {"redis"},
+    "pyotp": {"pyotp"},
+    "argon2": {"argon2-cffi"},
+    "starlette": {"starlette"},
+    "cryptography": {"cryptography"},
+    "authlib": {"authlib"},
+}
+#: Third-party requirements of third-party distributions (the environment).
+DEPS = {"fastapi": ["starlette"], "authlib": ["cryptography"]}
 
 
 def _requires(dist: str, extras: frozenset[str]) -> list[tuple[str, frozenset[str]]]:
-    return []
+    return [(name, frozenset()) for name in DEPS.get(dist, [])]
 
 
 def _check(
@@ -42,11 +52,12 @@ def _check(
         top_levels=TOPS,
         requires_of=_requires,
         allowlist=allowlist or {},
+        provides={"sandloom": ["fastapi"]},
     )
 
 
 def _kernel(**modules: str) -> di.Wheel:
-    wheel = di.Wheel("sandloom", {"fastapi", "redis"})
+    wheel = di.Wheel("sandloom", {"fastapi", "redis", "argon2-cffi"})
     wheel.modules = {"sandloom": "", "sandloom.sdk": "", "sandloom.core": "", **modules}
     wheel.packages = {"sandloom", "sandloom.sdk", "sandloom.core"}
     return wheel
@@ -143,8 +154,62 @@ def test_undeclared_third_party_is_caught_unless_optional() -> None:
 
 
 def test_a_dependency_brings_its_imports_transitively() -> None:
-    identity = _identity(**{"sandloom_identity.x": "import fastapi\n"})
+    """What the kernel provides modules, and what that brings in turn."""
+    identity = _identity(
+        **{"sandloom_identity.x": "import fastapi\nfrom starlette import y\n"}
+    )
     assert _check(_kernel(), identity) == []
+
+
+def test_a_declared_third_party_brings_its_own_requirements() -> None:
+    identity = _identity(**{"sandloom_identity.x": "import cryptography\n"})
+    identity.requires = {"sandloom", "authlib"}
+    assert _check(_kernel(), identity) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from argon2 import PasswordHasher\n",
+        "def verify():\n    import redis\n",
+    ],
+    ids=["argon2", "function-local-redis"],
+)
+def test_a_kernel_implementation_requirement_is_not_the_modules(source: str) -> None:
+    """``sandloom_identity`` imported argon2 that only the kernel declared
+    for its own hashing: the kernel may drop it in any release."""
+    identity = _identity(**{"sandloom_identity.services": source})
+    (problem,) = _check(_kernel(), identity)
+    assert "which sandloom-identity does not declare" in problem
+    assert "a Sandloom dependency brings it for its own use" in problem
+    identity.requires |= {"argon2-cffi", "redis"}
+    assert _check(_kernel(), identity) == []
+
+
+def test_nothing_passes_through_a_first_party_wheel_by_default() -> None:
+    identity = _identity(**{"sandloom_identity.x": "import fastapi\n"})
+    (problem,) = di.check(
+        [_kernel(), identity],
+        first_party=["sandloom", "sandloom_identity"],
+        top_levels=TOPS,
+        requires_of=_requires,
+        allowlist={},
+    )
+    assert "imports fastapi from fastapi, which sandloom-identity" in problem
+
+
+def test_what_a_wheel_provides_does_not_pass_through_an_extra() -> None:
+    """``provides`` follows dependencies, and an extra is not one (I-02): an
+    app that names ``sandloom`` only in an extra may not import the kernel's
+    FastAPI through it, while a base requirement on ``sandloom`` may."""
+    app = di.Wheel("acme", set())
+    app.optional = {"web": {("sandloom", frozenset())}}
+    app.modules = {"acme": "import fastapi\n"}
+    app.packages = {"acme"}
+    (problem,) = _check(_kernel(), app)
+    assert "imports fastapi from fastapi, which acme does not declare" in problem
+    app.requires = {"sandloom"}
+    assert _check(_kernel(), app) == []
 
 
 def test_relative_imports_resolve_against_the_package(tmp_path: Path) -> None:

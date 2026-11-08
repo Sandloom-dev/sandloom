@@ -506,8 +506,11 @@ def test_facts_contract_build_failure_fails_registration() -> None:
         def build_facts_contract(core: Any, owner: str) -> Any:
             raise RuntimeError("cannot build the facts contract")
 
-    with pytest.raises(RuntimeError, match="cannot build"):
-        core.register_access_fact(_BrokenFact())
+    with (
+        pytest.raises(RuntimeError, match="cannot build"),
+        core.module_registration("demo") as api,
+    ):
+        api.register_access_fact(_BrokenFact())
 
     class _OddFact(_BrokenFact):
         name = "demo.odd"
@@ -517,7 +520,8 @@ def test_facts_contract_build_failure_fails_registration() -> None:
         def build_facts_contract(core: Any, owner: str) -> Any:
             return object()
 
-    core.register_access_fact(_OddFact())  # unnameable owner: local-only
+    with core.module_registration("odd-mod") as api:
+        api.register_access_fact(_OddFact())  # unnameable owner: local-only
     assert not core.service_registry.contains("odd-mod.facts.v1")
 
 

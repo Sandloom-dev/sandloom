@@ -15,6 +15,39 @@ website renders this same changelog.
 
 ### Security
 
+- **Identity's and billing's production refusals stop every process, not only
+  the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, identity without
+  `JWT_SECRET` (any environment; issuer-only with an asymmetric `JWT_ALGORITHM`),
+  and billing on the implicit fake PSP in prod were refused only by critical startup tasks in the
+  ASGI lifespan: the Celery worker, beat, `sandloom migrate` and the operator
+  commands (`outbox`, `streams`, `projection`, `sagas`, `backup`, …) built and
+  ran. The modules now refuse while they register, and the loader turns a
+  module's `SystemExit(reason)` from `register` / `setup` into the kernel's
+  `[core.config] Invalid configuration: module <name>: <reason>` (exit status
+  1), in every entry point that builds the composition; an optional or
+  aggregated module load cannot carry on past it. `sandloom config dump` still
+  builds no composition. **Upgrade:** a deployment that ran its worker, beat or
+  migrate one-shot without these settings must give them the same module
+  environment as the app (the shipped compose profiles already do).
+  `ConfigurationError` now lives in `sandloom.core.config.common` (still
+  importable from `sandloom.core.app_factory`).
+- **A module registers claims, facts and their contracts only under its own
+  name** (`SANDLOOM-B034`). An access fact whose `owner_module` is another
+  module, a claims contributor given `owner=` naming another module, and
+  another module's `<m>.claims.v1` or `<m>.facts.v1` contract now refuse the
+  module's load and the boot. So does any of them registered outside a
+  module's registration (a direct call on the core from a startup task or the
+  composition root). Before, the kernel took the name as given: a module could
+  answer another module's facts, become the owner of `identity.claims.v1`, or
+  be stamped `identity` in `claims_sources`. Over RPC, a consumer drops a fact
+  that `<m>.facts.v1` describes under another `owner_module` and logs
+  `SANDLOOM-B034`. **Upgrade:** give each `AccessFact` the registering
+  module's short name as `owner_module`; drop `owner=` from
+  `add_claims_contributor`; register facts, contributors and these contracts
+  from the module's `register()` or `setup=`, never on the core directly.
+  Tests that register on a bare `CoreFacade` wrap the calls in
+  `with core.module_registration("<module>") as api:` and call `api`.
+
 - **A token claim has one owner, and no claims contributor writes another's
   claim or a reserved key.** A second module writing a key an earlier module
   wrote (identity's `roles`, say), or any module writing a key the kernel
@@ -28,6 +61,13 @@ website renders this same changelog.
   must drop it; return values as top-level claims your module owns instead of a
   nested `claims` mapping. A nested `sub`, `roles` or `permissions` cannot move
   up unchanged (reserved, or identity's): rename it and update its readers.
+- **The log redactor masks every setting `sandloom config dump` masks.**
+  `TWOFA_ENCRYPTION_KEY`, `SENTRY_DSN` and `S3_ACCESS_KEY_ID` passed the log
+  redactor (a log extra or a logged mapping key) in clear while `config dump`
+  redacted them. Both now judge a name by one rule
+  (`guardrails.is_secret_name`), and the log redactor keeps its broader
+  substring markers on top. Lookup keys such as `operation_key`,
+  `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
 
 ### Changed
 
@@ -50,6 +90,12 @@ website renders this same changelog.
 
 ### Fixed
 
+- **`sandloom-identity` declares `argon2-cffi`, which its login service
+  imports.** It installed only because the `sandloom` kernel requires it for
+  its own password hashing. The packaging import check now refuses a module
+  wheel importing a kernel requirement that is not part of the stack the
+  kernel provides modules (FastAPI, Starlette, SQLAlchemy, Alembic, Pydantic,
+  HTTPX): such a requirement is declared by the module itself.
 - **A failure to list the installed module entry points stops startup.** The
   loader logged it and started without those modules; it is now a required
   module failure (`ModuleLoadError`).

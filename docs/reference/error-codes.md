@@ -88,6 +88,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
 | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
+| [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1273,6 +1274,31 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
 **Fix:** run the module on a database whose SQL dialect renderer declares the feature (PostgreSQL declares arrays, fulltext_search, json_path, json_contains, list_aggregates and transaction_locks), or move the module off the form
 
 **More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-B034
+
+**a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration**
+
+Slug: `foreign-owner-registration` · kind: boot · status: active
+
+**What happened and why it matters**
+
+The kernel stamps a fact's owner_module and a claims contributor's owner
+into provenance (claims_sources), resolves claim-mode facts by them, and
+serves &lt;owner>.facts.v1 and &lt;owner>.claims.v1 under them. A module that could
+register under another module's name would answer that module's facts and
+write claims in its name. So the owner of each of these registrations must
+be the short name of the module being registered (the entry-point name,
+else the last segment of its import path): a different name, and a
+registration made when no module is registering (a direct call on the core
+from a startup task or the composition root), refuse the module's load and
+the boot. Over RPC a consumer reads facts from the &lt;m>.facts.v1 binding and
+drops, with a logged SANDLOOM-B034 warning, any fact described under
+another owner_module.
+
+**Fix:** register the fact, contributor or contract from the module whose short name it carries (its register() or setup=); give an access fact the registering module as owner_module and drop owner= that names another module
+
+**More:** `docs/advanced/security-model.md`
 
 ### SANDLOOM-B020
 

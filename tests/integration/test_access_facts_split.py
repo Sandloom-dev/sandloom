@@ -95,8 +95,9 @@ def _owner() -> tuple[FastAPI, CoreFacade]:
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     core.register_service("billing.entitlements.v1", _Entitlements)
     core.register_service("tenancy.membership.v1", _Membership)
-    core.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
-    core.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
+    with core.module_registration("sandloom_billing") as api:
+        api.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
+        api.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
     rpc.install_service_rpc_routes(app, core)
     return app, core
 

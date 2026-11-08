@@ -7,6 +7,11 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+### Fixed
+
+- Declare `argon2-cffi>=25.1.0,<26`, which the login service imports; it was
+  installed only as a dependency of `sandloom`.
+
 ## [0.7.0a6] — 2026-11-01
 
 ### Added

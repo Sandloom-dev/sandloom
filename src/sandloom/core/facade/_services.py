@@ -48,8 +48,60 @@ def _short_module_name(name: str | None) -> str | None:
     return _module_name(name) or None
 
 
+def reserved_contract_owner(name: str) -> str | None:
+    """The module a reserved contract name belongs to, else ``None``.
+
+    ``<m>.claims.v1`` and ``<m>.facts.v1`` are the two contract families the
+    kernel reads provenance from: ``"billing.facts.v1"`` -> ``"billing"``.
+    Any other name (``"billing.entitlements.v1"``) is not reserved.
+    """
+    for suffix in (CLAIMS_CONTRACT_SUFFIX, FACTS_CONTRACT_SUFFIX):
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
+class ForeignOwnerRegistration(RuntimeError):
+    """SANDLOOM-B034: a registration names a module other than the registering one.
+
+    Raised when a module registers an access fact whose ``owner_module`` is
+    another module, a claims contributor with another module's ``owner=``,
+    or another module's ``<m>.claims.v1`` / ``<m>.facts.v1`` contract, and
+    when any of these is registered outside a module's registration.
+    """
+
+    sandloom_code = "SANDLOOM-B034"
+
+
 class _ServicesMixin(_FacadeState):
     """CoreFacade methods: see :mod:`sandloom.core.facade._services`."""
+
+    def _require_own_name(self, owner: str, what: str) -> str:
+        """Refuse ``what`` registered under ``owner`` by anyone but module ``owner``.
+
+        The owner of a fact, a claims contributor or a reserved contract is the
+        name the kernel stamps into provenance (``claims_sources``) and serves
+        ``<owner>.facts.v1`` / ``<owner>.claims.v1`` under, so it must be the
+        short name of the module whose registration is being applied. Outside
+        a module's registration there is no module to check it against, and
+        the registration is refused too (SANDLOOM-B034). Returns ``owner``.
+        """
+        module = self._registering_module
+        short = _short_module_name(module)
+        if short is None:
+            raise ForeignOwnerRegistration(
+                f"SANDLOOM-B034: {what} under module {owner!r} is registered "
+                "outside a module's registration: register it from the "
+                "module's register() or setup= (`sandloom explain SANDLOOM-B034`)"
+            )
+        if owner != short:
+            raise ForeignOwnerRegistration(
+                f"SANDLOOM-B034: module {module!r} registers {what} under module "
+                f"{owner!r}: a module registers only under its own name "
+                f"{short!r}; move the registration into module {owner!r} or "
+                f"name it after {short!r} (`sandloom explain SANDLOOM-B034`)"
+            )
+        return owner
 
     def register_service(
         self, name: str, impl: Any, *, database: str | None = None
@@ -58,8 +110,13 @@ class _ServicesMixin(_FacadeState):
 
         The registering module (if any) is recorded as the contract's owner so
         the contract runtime opens the provider's Unit of Work on the database
-        that module declares; ``database`` overrides it explicitly.
+        that module declares; ``database`` overrides it explicitly. A reserved
+        name (``<m>.claims.v1``, ``<m>.facts.v1``) is registered only by
+        module ``m`` itself (SANDLOOM-B034).
         """
+        reserved = reserved_contract_owner(name)
+        if reserved is not None:
+            self._require_own_name(reserved, f"contract {name!r}")
         problems = self.contract_dto_problems(name, impl)
         if problems:
             raise _contract_wire.ContractTypeError("; ".join(problems))
@@ -221,20 +278,34 @@ class _ServicesMixin(_FacadeState):
 
         Binds a fact name (e.g. ``"subscription.active"``) to its claim /
         projection / live resolution paths so ``Entitled(name)`` policies can
-        resolve it by configuration. Raises on a duplicate name.
+        resolve it by configuration. Raises on a duplicate name, naming the
+        module that holds it. The fact's ``owner_module`` must be the
+        registering module's short name (SANDLOOM-B034): a module answers only
+        its own facts.
         """
         name = fact.name
-        if name in self._access_facts:
-            raise ValueError(f"Access fact {name!r} is already registered")
+        owner = getattr(fact, "owner_module", None)
+        if not isinstance(owner, str) or not owner:
+            raise ForeignOwnerRegistration(
+                f"SANDLOOM-B034: access fact {name!r} names no owner_module "
+                "(`sandloom explain SANDLOOM-B034`)"
+            )
+        self._require_own_name(owner, f"access fact {name!r}")
+        existing = self._access_facts.get(name)
+        if existing is not None:
+            raise ValueError(
+                f"Access fact {name!r} is already registered by module "
+                f"{getattr(existing, 'owner_module', '?')!r}; module "
+                f"{owner!r} registers it again"
+            )
         self._access_facts[name] = fact
         # Facts are part of the owner's PUBLIC contract: expose
         # ``<owner>.facts.v1`` (describe / evaluate) so a process without the
         # owner resolves the same fact over RPC. Built through a duck-typed
         # hook on the fact's class — the kernel never imports the authz
         # subsystem.
-        owner = getattr(fact, "owner_module", None)
         build = getattr(type(fact), "build_facts_contract", None)
-        if not isinstance(owner, str) or not owner or not callable(build):
+        if not callable(build):
             return
         contract_name = facts_contract_name(owner)
         if self.service_registry.contains(contract_name):
