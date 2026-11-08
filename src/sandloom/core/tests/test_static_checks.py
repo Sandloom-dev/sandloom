@@ -117,3 +117,48 @@ def test_the_summary_line_of_a_step_that_skipped_says_so() -> None:
     assert schema.endswith("(migration chains skipped (SANDLOOM-T002))")
     ruff = next(line for line in lines if "ruff check" in line)
     assert ruff.endswith("s")
+
+
+# --------------------------------------------------------------------------- #
+# SANDLOOM-T012: the kernel names no module's redundant index (B-N19)
+# --------------------------------------------------------------------------- #
+
+
+def _redundant_metadata(info: dict[str, str] | None = None) -> Any:
+    """A table whose plain ``ix_t_a (a)`` duplicates the unique ``(a, b)``."""
+    from sqlalchemy import Column, Index, Integer, MetaData, Table
+
+    metadata = MetaData()
+    Table(
+        "t",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("a", Integer),
+        Column("b", Integer),
+        Index("ix_t_a", "a", info=info or {}),
+        Index("uq_t_a_b", "a", "b", unique=True),
+    )
+    return metadata
+
+
+def test_an_unmarked_redundant_index_is_reported() -> None:
+    """With no ``known`` names and no marker the index is a T012 problem."""
+    [problem] = checks.redundant_index_problems(_redundant_metadata())
+    assert "t.ix_t_a" in problem and "SANDLOOM-T012" in problem
+
+
+def test_an_index_its_module_marks_with_a_reason_is_not_reported() -> None:
+    """The owning module's ``info`` marker with a reason waives the index;
+    an empty reason does not."""
+    marked = {checks.KNOWN_REDUNDANT_INFO: "kept until measured"}
+    assert checks.redundant_index_problems(_redundant_metadata(marked)) == []
+    blank = {checks.KNOWN_REDUNDANT_INFO: " "}
+    assert len(checks.redundant_index_problems(_redundant_metadata(blank))) == 1
+
+
+def test_the_kernel_check_names_no_module_index() -> None:
+    """B-N19: the ratchet of a module's redundant index lives in that module's
+    tests, never as a name in the kernel's check."""
+    source = Path(checks.__file__).read_text(encoding="utf-8")
+    assert "ix_external_identities" not in source
+    assert not hasattr(checks, "KNOWN_REDUNDANT")

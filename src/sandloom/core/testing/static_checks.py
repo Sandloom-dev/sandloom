@@ -66,9 +66,11 @@ from sandloom.core.testing.migrations import (
     uncovered_by_chain,
 )
 
-#: Known redundant indexes not yet dropped (remove-only ratchet): found by the
-#: SQL profile's guard, outside the drop set approved for identity 0007.
-KNOWN_REDUNDANT = frozenset({"external_identities.ix_external_identities_provider"})
+#: ``info`` key of an Index its owning module keeps on purpose although it
+#: duplicates a unique prefix; the value is the reason. The kernel names no
+#: module's index: the module that sets the key holds the remove-only ratchet
+#: over its own marked indexes in its tests.
+KNOWN_REDUNDANT_INFO = "sandloom_known_redundant"
 
 
 # --------------------------------------------------------------------------- #
@@ -183,11 +185,23 @@ def skip_note() -> str | None:
 
 
 def redundant_index_problems(
-    metadata: MetaData | None = None, known: Iterable[str] = KNOWN_REDUNDANT
+    metadata: MetaData | None = None, known: Iterable[str] = ()
 ) -> list[str]:
+    """SANDLOOM-T012 problems: plain indexes on the leading column(s) of a
+    unique key of the same table.
+
+    ``metadata`` defaults to the models the composition root imported. An
+    index is not reported when its ``table.index`` name is in ``known`` or when
+    its ``info`` carries :data:`KNOWN_REDUNDANT_INFO` with a non-empty reason
+    (the owning module's own, ratcheted exception)."""
     if metadata is None:
         metadata = Base.metadata  # the composition root imported the models
-    allowed = set(known)
+    allowed = set(known) | {
+        f"{table.name}.{index.name}"
+        for table in metadata.tables.values()
+        for index in table.indexes
+        if str(index.info.get(KNOWN_REDUNDANT_INFO) or "").strip()
+    }
     return [
         f"index {name} duplicates the leading column(s) of a unique key of the "
         "same table: the unique index already serves those lookups. Fix: drop "
@@ -425,7 +439,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
-    "KNOWN_REDUNDANT",
+    "KNOWN_REDUNDANT_INFO",
     "all_problems",
     "beginner_tier_problems",
     "chain_check_skipped",
