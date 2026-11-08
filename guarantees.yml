@@ -1927,8 +1927,9 @@ guarantees:
 - id: G-REVOKE-07
   statement: 'Revocation is at-least-once: core.auth.tokens_revoked.v1 is written to the outbox in the
     same UoW, the post-commit mark write is retried AUTH_REVOCATION_WRITE_ATTEMPTS times, a still-failing
-    write is counted (auth_revocation_deferred_total) and identity''s durable consumer sessions@tokens_revoked
-    applies it idempotently without ever lowering a newer mark.'
+    write is counted (auth_revocation_deferred_total) and the kernel''s durable applier auth@tokens_revoked,
+    registered in every composition under the group sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>,
+    applies it idempotently in every service without ever lowering a newer mark.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
@@ -1938,6 +1939,7 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
   - tests/integration/test_revocation_pipeline.py::test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_durable_replay_lifts_past_an_early_mark_whose_re_mark_was_lost
+  - src/sandloom/core/tests/test_revocation_applier.py::test_applier_writes_the_pending_mark_once_the_cache_is_back
 - id: G-REVOKE-08
   statement: 'The revocation applier is registered dead_letter=False: an outage is retried forever with
     capped backoff (never parked in the DLQ), only a malformed payload is dead-lettered at once, and while
@@ -2106,6 +2108,67 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_guarded_request_never_sends_remote_command
   - src/sandloom/core/tests/test_security_review_regressions.py::test_guarded_request_can_still_send_described_remote_read
+- id: G-REVOKE-25
+  statement: 'The kernel registers the durable core.auth.tokens_revoked.v1 applier (auth@tokens_revoked,
+    dead_letter=False) in every composition, with no business module loaded too (identity absent): a mark
+    that failed after commit is re-applied in every service. Its group is per service,
+    sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME> (never derived from the database): the replicas of
+    one service share it and every other service applies every revocation in its own group; the in-process
+    memory bus runs it under ...@local.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_lean_app_registers_the_local_applier_and_is_ready
+  - src/sandloom/core/tests/test_revocation_applier.py::test_the_group_is_named_by_the_service_not_the_database
+  - src/sandloom/core/tests/test_revocation_applier.py::test_three_replicas_and_two_deployments_on_one_bus
+  - src/sandloom/core/tests/test_revocation_applier.py::test_cache_failure_redelivers_then_applies_and_restart_replays_idempotently
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_channel_version_change_keeps_the_deployment_group
+- id: G-REVOKE-26
+  statement: 'On a shared event bus a process without SANDLOOM_SERVICE_NAME (or with whitespace or ''|''
+    in it) refuses to start in every entry point (app, worker, sandloom migrate, the configured CLI) with
+    INVALID_CONFIGURATION, in every environment. The bus is the resolved driver of the default eventbus
+    instance, EVENT_BUS_BACKEND with the INFRA overlay applied; every driver but memory is shared, and an
+    INFRA eventbus the merge refuses counts as shared.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_shared_bus_without_a_name_is_refused
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_shared_bus_chosen_through_infra_is_refused_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_an_unreadable_infra_eventbus_counts_as_shared
+  - src/sandloom/core/tests/test_revocation_applier.py::test_every_entry_point_refuses_a_shared_bus_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_create_app_refuses_an_infra_selected_shared_bus_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_the_in_process_bus_needs_no_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_infra_selecting_the_memory_bus_is_in_process
+  gap: Two services given the same SANDLOOM_SERVICE_NAME share one applier group and split revocations; only
+    SANDLOOM-T014 refuses that, statically, within one deploy profile. Nothing detects at runtime one group
+    consumed by processes with different module sets (the subscription inventory keeps one entry per stream
+    and group, and the owner fingerprint compares module and database only).
+  gap_size: M
+- id: G-REVOKE-27
+  statement: '/ready (never /health) answers 503 naming the consumer when the applier is needed (shared
+    bus) and its group is missing or not running, when a core.auth.tokens_revoked.v1 or core.auth.user_blocked.v1
+    consumer is not running, when its oldest unacknowledged event is older than ACCESS_TOKEN_EXPIRE_MINUTES,
+    when one of its group''s events is dead-lettered (counted over the whole DLQ), or when that count is
+    unknown (the read failed or the DLQ is longer than the scan); a younger backlog stays ready. The DLQ is
+    read at most once per HEALTH_CACHE_TTL_SECONDS (single flight), and sandloom_consumer_lag_seconds returns
+    to 0 once the backlog clears.'
+  sources:
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_backlog_older_than_the_token_lifetime_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_one_dead_letter_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_consumer_that_is_not_running_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_needed_applier_that_is_missing_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_ready_answers_by_the_criteria
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_ready_judges_the_applier_on_an_infra_selected_bus
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_an_unknown_dead_letter_count_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_failed_dead_letter_read_is_not_ready_until_it_succeeds
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_the_whole_dead_letter_queue_is_counted_not_the_oldest_page
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_dead_letter_queue_longer_than_the_scan_is_unknown
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_concurrent_ready_calls_share_one_dead_letter_read
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_the_lag_gauge_resets_when_the_backlog_clears
 - id: G-BLOCK-01
   statement: 'The block is a value of the subject-state record (v1:blocked:<us>, no TTL), read live on
     every authenticated request, never from a per-process copy, and rejects every token of the user,
@@ -2165,8 +2228,9 @@ guarantees:
   gap_size: M
 - id: G-BLOCK-05
   statement: 'On commit block_user ends the user''s sessions: all access tokens issued so far are revoked
-    and core.auth.user_blocked.v1 is published, whose identity consumer revokes every refresh token, so
-    lifting the block requires a fresh login.'
+    and core.auth.user_blocked.v1 is published, whose durable consumer in the token issuer (identity''s
+    sessions@user_blocked; the SANDLOOM-B035 obligation of every issues_tokens module, G-BLOCK-08) revokes
+    every refresh token, so lifting the block requires a fresh login.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
@@ -2194,6 +2258,20 @@ guarantees:
   - src/sandloom/core/tests/test_subject_record.py::test_unblock_never_resurrects_pre_block_tokens
   - src/sandloom/core/tests/test_subject_record.py::test_a_rolled_back_unblock_keeps_the_block
   - src/sandloom/core/tests/test_subject_record.py::test_redis_unblock_swaps_and_never_deletes
+- id: G-BLOCK-08
+  statement: 'SANDLOOM-B035: startup refuses a module declared issues_tokens=True that neither registers a
+    durable core.auth.user_blocked.v1 consumer (a volatile one or another module''s does not count) nor
+    declares refresh_sessions=False, and refuses that declaration when the module registers a refresh route,
+    a refresh-session table or a user_blocked consumer; the declaration is recorded in module.snapshot.json.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  tests:
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_an_issuer_without_a_block_consumer_is_refused
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_a_volatile_block_consumer_does_not_count
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_another_modules_block_consumer_does_not_count
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_a_contradicted_stateless_declaration_is_refused
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_the_refusal_is_an_invalid_configuration_naming_b035
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_the_declaration_is_recorded_in_the_module_snapshot
 - id: G-OPCLASS-03
   statement: 'The platform route policy is pinned: each module''s routes equal its committed routes.snapshot.json
     (format 3: the full resolved policy per route and method) and the kernel-mounted routes carry the kernel''s
@@ -7391,7 +7469,7 @@ issued:
   G-AUTH: 19
   G-AUTHZ: 13
   G-BILLING: 22
-  G-BLOCK: 7
+  G-BLOCK: 8
   G-CMD: 9
   G-COMPAT: 7
   G-CONFIG: 8
@@ -7412,7 +7490,7 @@ issued:
   G-OPS: 23
   G-OUTBOX: 16
   G-PROFILE: 9
-  G-REVOKE: 24
+  G-REVOKE: 27
   G-RISK: 14
   G-RLS: 15
   G-ROUTE: 5
@@ -7992,7 +8070,13 @@ adr_sections:
     "2. One edge register, checked": planned
     "3. The standard composition lives in `sandloom-standard`": planned
     "4. The admin battery": planned
-    "5. Revocation: the kernel applies, the issuer ends its sessions": planned
+    "5. Revocation: the kernel applies, the issuer ends its sessions":
+    - G-REVOKE-07
+    - G-REVOKE-25
+    - G-REVOKE-26
+    - G-REVOKE-27
+    - G-BLOCK-05
+    - G-BLOCK-08
     "6. The CLI phase comes later": planned
     "7. Status of the 46 judged rows": planned
     "8. Mechanisms (one ledger for the four ADRs, adversarial A-8)": informational

@@ -58,7 +58,12 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   to the kernel's durable applier `auth@tokens_revoked`, which every service
   runs in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
   (redelivered until the cache is back; idempotent). On a shared bus a
-  process without `SANDLOOM_SERVICE_NAME` refuses to start. Alerts:
+  process without `SANDLOOM_SERVICE_NAME` refuses to start. The bus is the
+  one the `default` eventbus instance resolves to: `EVENT_BUS_BACKEND`, or
+  the `INFRA` entry `eventbus.default` when it sets a driver. Every driver
+  except `memory` counts as shared. Give each service its own name, the same
+  for all its replicas. Two services under one name share one group, and
+  each misses part of the other's revocations. Alerts:
   `increase(auth_revocation_deferred_total[5m]) > 0` (warning: revocations
   pending on the applier — a cache outage), and
   `increase(auth_revocation_applier_failures_total[10m]) > 0` sustained, or a
@@ -66,10 +71,13 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted).
   `/ready` answers 503 when the applier is not running, or when its oldest
   pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
-  It also answers 503 when such an event is dead-lettered. The reasons are
+  It also answers 503 when such an event is dead-lettered. A dead-letter
+  queue it cannot count is not ready either: the read failed, or the queue
+  holds more than 10,000 entries. The queue is read at most once per
+  `HEALTH_CACHE_TTL_SECONDS`, however many probes arrive. The reasons are
   listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
-  exports the lag. Revocations made with `require_immediate=True` (every bundled
-  security event) never depend on it: their mark is written before commit,
+  exports the lag and drops to 0 once the backlog clears. Revocations made
+  with `require_immediate=True` (every bundled security event) never depend on it: their mark is written before commit,
   or the change is refused with `503` —
   `increase(auth_revocation_immediate_refused_total[5m]) > 0` means changes
   are being refused because the cache is unreachable;
@@ -98,6 +106,20 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   is fixed and the payload corrected upstream, drop the entry. `sandloom streams
   dlq-replay` would re-deliver the same malformed payload and dead-letter it
   again.
+- **The retired identity group (upgrade runbook).** Before the kernel took
+  over, identity applied revocations in the group
+  `identity:sessions@tokens_revoked`. Nothing reads it any more. Redis still
+  keeps it with its pending entries; `sandloom streams groups
+  core.auth.tokens_revoked.v1` shows its lag growing. Wait until every
+  service runs the new version with its
+  `sandloom:auth@tokens_revoked@<service>` group running. Then delete the
+  old group and its owner record:
+  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1
+  identity:sessions@tokens_revoked`, then `sandloom streams release-group
+  core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`. Its
+  inventory entry turns stale after 5 minutes and is listed only by
+  `sandloom streams consumers --all`. Nothing is lost: the new groups apply
+  every revocation from the stream, idempotently.
 - Logs redact keys containing sensitive substrings and scrub token-like values
   inside messages (`sandloom.core.observability.guardrails`); the same scrubber is
   Sentry's `before_send`.
@@ -277,8 +299,10 @@ This section holds the settings, commands and metrics.
   `sandloom_streams_group_pending` and `/diagnostics/consumers`);
   `sandloom streams consumers [--all]` lists the cross-service subscription
   inventory (stream, group, module, `SANDLOOM_SERVICE_NAME`, consumer id;
-  heartbeated every 30 s, stale after 5 min). Set `SANDLOOM_SERVICE_NAME` per
-  deployment so these listings say which service a consumer belongs to.
+  heartbeated every 30 s, stale after 5 min). `SANDLOOM_SERVICE_NAME` says
+  which service a consumer belongs to in these listings. It also names the
+  kernel's revocation applier group, so it is required on a shared bus and
+  must differ between services. It never renames a module's group.
 - Group ownership: the first process to join a group records
   `sandloom:group-owner:<stream>:<group>` (module + physical consumer database).
   A process of another module / database joining that group fails startup —

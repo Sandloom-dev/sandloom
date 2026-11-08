@@ -6,7 +6,7 @@ import importlib.util
 import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import HTTPException
@@ -70,27 +70,31 @@ def _required_modules(core_facade: CoreFacade) -> list[str]:
     ]
 
 
-class _HealthCache:
+_T = TypeVar("_T")
+
+
+class _HealthCache(Generic[_T]):
     """Short-TTL, single-flight cache of the aggregated health probes.
 
     ``/health`` and ``/ready`` are public: without a cache every anonymous hit
     fans out to the database, cache, object store and remote RPC bindings — a
     cheap amplification lever. Results are reused for ``ttl`` seconds and
-    concurrent callers share one in-flight probe.
+    concurrent callers share one in-flight probe. Generic over the probe's
+    result (the revocation dead-letter read caches its own reading).
     """
 
     def __init__(
         self,
-        probe: Callable[[], Awaitable[dict[str, HealthResult]]],
+        probe: Callable[[], Awaitable[_T]],
         ttl: float,
     ) -> None:
         self._probe = probe
         self._ttl = ttl
-        self._value: dict[str, HealthResult] | None = None
+        self._value: _T | None = None
         self._at = 0.0
-        self._inflight: asyncio.Task[dict[str, HealthResult]] | None = None
+        self._inflight: asyncio.Task[_T] | None = None
 
-    async def get(self) -> dict[str, HealthResult]:
+    async def get(self) -> _T:
         now = time.monotonic()
         if self._ttl > 0 and self._value is not None and now - self._at < self._ttl:
             return self._value
@@ -105,7 +109,7 @@ class _HealthCache:
             if task.done() and self._inflight is task:
                 self._inflight = None
 
-    async def _refresh(self) -> dict[str, HealthResult]:
+    async def _refresh(self) -> _T:
         self._value = await self._probe()
         self._at = time.monotonic()
         return self._value
@@ -166,7 +170,9 @@ class _TaskqueueReadiness:
     def __init__(self, core_facade: CoreFacade, *, ttl: float) -> None:
         """Bind the core whose loaded modules and taskqueue are checked."""
         self._core = core_facade
-        self._cache = _HealthCache(self._probe, ttl=ttl)
+        self._cache: _HealthCache[dict[str, HealthResult]] = _HealthCache(
+            self._probe, ttl=ttl
+        )
         self._loaded: tuple[str, ...] | None = None
         self._task_modules: list[str] = []
 
@@ -248,10 +254,12 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         core_facade, ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0))
     )
     # The revocation / block consumers' backlog, dead letters and state
-    # (ADR-0012 decision 5, A9); its dead-letter read shares the probes' TTL.
-    revocation_probe = _applier.RevocationReadinessProbe(
-        core_facade,
-        settings,
+    # (ADR-0012 decision 5, A9). The state and lag are the runtime's
+    # snapshot (no I/O); the dead-letter read shares the probes' TTL and
+    # single flight: one read per TTL however many /ready calls arrive.
+    revocation_probe = _applier.RevocationReadinessProbe(core_facade, settings)
+    revocation_dead_letters = _HealthCache(
+        revocation_probe.read_dead_letters,
         ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0)),
     )
 
@@ -310,7 +318,9 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         await _revocation.reconcile_pending_revocations()
         revocations = _revocation.pending_revocations()
         revocations_pending = revocations["count"] > 0
-        revocation_consumers = await revocation_probe(consumer_runtime)
+        revocation_consumers = await revocation_probe(
+            consumer_runtime, dead_letters=revocation_dead_letters.get
+        )
         relay: dict[str, Any] = {"enabled": False}
         local_relay = getattr(application.state, "relay_task", None)
         if local_relay is not None:

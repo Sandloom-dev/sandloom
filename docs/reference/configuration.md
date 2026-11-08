@@ -45,7 +45,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONSUMER_RETRY_BASE_SECONDS` | `float` | `1.0` | Initial backoff delay in seconds when supervised event consumers retry a failed subscription. |
 | `CONSUMER_RETRY_MAX_SECONDS` | `float` | `30.0` | Maximum backoff delay in seconds for supervised event-consumer subscription retries. |
 | `EVENT_BUS_BACKEND` | `Literal['auto', 'memory', 'redis', 'streams']` | `'auto'` | Event transport selector: auto chooses durable Streams in production and in-memory delivery elsewhere; volatile production transports require accepted risk. |
-| `SANDLOOM_SERVICE_NAME` | `str | None` | `None` | Logical service label attached to Streams consumer inventory and ownership diagnostics; does not rename a module consumer group. |
+| `SANDLOOM_SERVICE_NAME` | `str | None` | `None` | This service's name: required on a shared event bus and distinct per service, the same for all its replicas. Names the kernel revocation applier's consumer group (sandloom:auth@tokens_revoked@<name>) and labels the Streams consumer inventory and ownership diagnostics; never renames a module consumer group. |
 | `EVENT_STREAM_RETENTION_SECONDS` | `int` | `604800` | Approximate maximum Streams entry age in seconds, trimmed during publish; zero disables age trimming. |
 | `EVENT_STREAM_MAXLEN` | `int` | `0` | Approximate maximum entries retained per channel stream; zero disables length trimming. |
 | `EVENT_STREAM_PREFIX` | `str` | `""` | Namespace prepended to Streams, dead-letter and consumer-inventory keys; changing it starts a separate stream namespace. |
