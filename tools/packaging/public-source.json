@@ -2473,6 +2473,7 @@
         "tests/integration/test_sensitive_risk.py",
         "tests/integration/test_shared_authz_review.py",
         "tests/integration/test_standard_composition_root.py",
+        "tests/integration/test_standard_root_modules.py",
         "tests/integration/test_units_and_admission.py",
         "tests/integration/test_write_store.py",
         "tests/integration/with_batteries/test_admin_operations.py",
