@@ -6,6 +6,7 @@ on:
   push:
     tags:
       - "sandloom-v*"
+      - "sandloom-standard-v*"
       - "sandloom-identity-v*"
       - "sandloom-tenancy-v*"
       - "sandloom-billing-v*"
@@ -16,7 +17,7 @@ on:
         required: true
         default: all
         type: choice
-        options: [all, sandloom, sandloom-identity, sandloom-tenancy, sandloom-billing]
+        options: [all, sandloom, sandloom-standard, sandloom-identity, sandloom-tenancy, sandloom-billing]
       dry_run:
         description: "Validate and retain artifacts without uploading to PyPI"
         required: true

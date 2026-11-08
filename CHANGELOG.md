@@ -71,6 +71,28 @@ website renders this same changelog.
 
 ### Changed
 
+- **The standard composition root moved into a new distribution,
+  `sandloom-standard`** (ADR-0012 decision 3). `sandloom_standard.main` exposes
+  `app` and `core`: the kernel factory with every installed module, the same
+  composition `sandloom.main` built so far. `sandloom[standard]` installs it.
+  The Sandloom image (`deploy/docker/Dockerfile`: `ENV
+  SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, `CMD ...
+  sandloom_standard.main:app`), both shipped compose profiles and the
+  framework's `sandloom add deploy` name it, so the API, the Celery worker and
+  beat, `sandloom migrate` and the operator commands build one composition.
+  `sandloom.main` stays in `sandloom` as the lean kernel root and the default
+  when no root is configured; its behaviour is unchanged. SANDLOOM-T014 now
+  refuses a microservices profile whose processes name different
+  `SANDLOOM_COMPOSITION_ROOT` values. The publishing tools release six
+  distributions. **Upgrade:** `pip install "sandloom[standard]"` keeps working
+  and pulls `sandloom-standard`. A deployment built on the Sandloom image or on
+  the shipped profiles gets the root with the new image; a deployment with its
+  own compose files, manifests or process commands sets
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` on every process (API,
+  worker, beat, migrate, operator commands) and serves
+  `sandloom_standard.main:app`, or keeps `sandloom.main` everywhere. Do not mix
+  roots in one deployment. Applications made with `sandloom new` keep their
+  `<app>.asgi` root and need no change.
 - **`unscoped()` takes an optional `reason=` and is never silent.** Every
   scope that disables tenant enforcement is counted in
   `sandloom_tenant_unscoped_total{caller}` by the module that entered it; the

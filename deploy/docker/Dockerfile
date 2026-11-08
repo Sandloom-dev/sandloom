@@ -22,11 +22,15 @@ COPY src/sandloom/core/cli/templates/deploy/harden_runtime.py /tmp/harden_runtim
 RUN python /tmp/harden_runtime.py && rm /tmp/harden_runtime.py
 COPY --chown=appuser:appuser migrations /app/migrations
 ENV PATH="/opt/venv/bin:${PATH}" VIRTUAL_ENV=/opt/venv PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# The standard composition root (sandloom-standard, ADR-0012): the API below,
+# the Celery worker and beat, `sandloom migrate` and the operator commands of
+# this image all build the same composition.
+ENV SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main
 WORKDIR /app
 USER appuser
 EXPOSE 2222
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:2222/health/simple')" || exit 1
 FROM runtime AS production
-CMD ["gunicorn", "-c", "python:sandloom.core.cli.gunicorn_conf", "sandloom.main:app"]
+CMD ["gunicorn", "-c", "python:sandloom.core.cli.gunicorn_conf", "sandloom_standard.main:app"]
 FROM runtime AS debug
-CMD ["uvicorn", "sandloom.main:app", "--host", "0.0.0.0", "--port", "2222"]
+CMD ["uvicorn", "sandloom_standard.main:app", "--host", "0.0.0.0", "--port", "2222"]

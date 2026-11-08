@@ -17,6 +17,9 @@ spec = importlib.util.spec_from_file_location(
 assert spec and spec.loader
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+#: A coordinated release: a wheel and an sdist per distribution (the GitHub
+#: release adds sha256.json and release-manifest.json).
+ARCHIVES = 2 * len(release.PACKAGES)
 
 
 @pytest.fixture
@@ -110,14 +113,14 @@ def test_malformed_boolean_does_not_enable_publication(monkeypatch):
 
 def test_candidate_contains_exact_validated_files_and_the_verifier(candidate):
     folder, manifest = candidate
-    assert len(manifest["files"]) == 10
+    assert len(manifest["files"]) == ARCHIVES
     assert (folder / "pypi_release.py").read_bytes() == (
         ROOT / "tools/packaging/pypi_release.py"
     ).read_bytes()
     assert release.prepare_upload(
         manifest, folder / "dist", folder / "upload", fetch=lambda *_: None
     )
-    assert len(list((folder / "upload").iterdir())) == 10
+    assert len(list((folder / "upload").iterdir())) == ARCHIVES
 
 
 def published(manifest):
@@ -343,7 +346,7 @@ def test_github_release_publishes_verified_assets_last_and_reruns_are_noops(
     assert [call[1] for call in calls] == ["create", "upload", "edit"]
     assert "--draft" in calls[0]
     assert "--prerelease=true" in calls[0]
-    assert len(state["release"]["assets"]) == 12
+    assert len(state["release"]["assets"]) == ARCHIVES + 2
     assert state["release"]["draft"] is False
     assert not any("--clobber" in call for call in calls)
     calls.clear()
@@ -383,7 +386,7 @@ def test_github_release_waits_for_a_new_draft_without_repeating_writes(
     publish()
     assert [call[1] for call in calls] == ["create", "upload", "edit"]
     assert sleeps == [2, 2]
-    assert len(state["release"]["assets"]) == 12
+    assert len(state["release"]["assets"]) == ARCHIVES + 2
     assert state["release"]["draft"] is False
 
 

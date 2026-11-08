@@ -184,6 +184,39 @@ def test_every_process_env_validates(
                 assert cfg.twofa_encryption_key, name
 
 
+#: The composition root the framework's image and profiles boot (ADR-0012
+#: decision 3: the sandloom-standard distribution; sandloom.main is lean).
+STANDARD_ROOT = "sandloom_standard.main"
+
+
+@pytest.mark.parametrize(
+    "profile", ["compose/monolith.yml", "compose/microservices.yml"]
+)
+def test_every_process_names_the_standard_composition_root(profile: str) -> None:
+    """The API, worker, beat and migrate one-shots of a shipped profile all
+    boot ``sandloom_standard.main``: one composition per deployment."""
+    roots = {
+        name: (svc.get("environment") or {}).get("SANDLOOM_COMPOSITION_ROOT")
+        for name, svc in _load(profile)["services"].items()
+        if "SANDLOOM_MODULES" in (svc.get("environment") or {})
+    }
+    assert roots, profile
+    assert set(roots.values()) == {STANDARD_ROOT}, roots
+
+
+def test_the_image_boots_the_standard_composition_root() -> None:
+    """The image's default for every command (ENV) and its API (CMD, both
+    targets) name the standard root, so ``docker run <image> sandloom ...``
+    composes what the API serves."""
+    text = (DEPLOY / "docker/Dockerfile").read_text()
+    assert f"ENV SANDLOOM_COMPOSITION_ROOT={STANDARD_ROOT}" in text
+    commands = re.findall(r"^CMD (\[.*\])$", text, re.M)
+    assert len(commands) == 2, commands
+    for command in commands:
+        assert f"{STANDARD_ROOT}:app" in json.loads(command), command
+    assert "sandloom.main:app" not in text
+
+
 @pytest.mark.parametrize(
     "profile", ["compose/monolith.yml", "compose/microservices.yml"]
 )
@@ -1064,8 +1097,24 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             },
             "tenancy: does not wait for migrate-tenancy to complete",
         ),
+        (
+            {
+                "compose/microservices.yml": (
+                    _TENANCY_ID,
+                    _TENANCY_ID + "  SANDLOOM_COMPOSITION_ROOT: sandloom.main\n",
+                )
+            },
+            "SANDLOOM_COMPOSITION_ROOT differs between processes",
+        ),
     ],
-    ids=["cache-url", "binding", "internal-route", "issuer-only", "migrate"],
+    ids=[
+        "cache-url",
+        "binding",
+        "internal-route",
+        "issuer-only",
+        "migrate",
+        "composition-root",
+    ],
 )
 def test_the_split_invariants_report_what_breaks_them(
     tmp_path: Path, edits: dict[str, tuple[str, str]], expected: str

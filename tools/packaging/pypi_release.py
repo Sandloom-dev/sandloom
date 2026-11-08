@@ -17,6 +17,7 @@ from typing import Any
 
 PACKAGES = (
     "sandloom",
+    "sandloom-standard",
     "sandloom-identity",
     "sandloom-tenancy",
     "sandloom-billing",

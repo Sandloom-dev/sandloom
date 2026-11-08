@@ -65,9 +65,11 @@ redis = [
 celery = [
     "celery[redis]>=5.6.3,<6",
 ]
-# The batteries-included set: the three standard modules plus Redis and Celery.
+# The batteries-included set: the standard composition root
+# (sandloom_standard.main), the three standard modules, Redis and Celery.
 standard = [
     "sandloom[redis,celery]",
+    "sandloom-standard>=0.7.0a11,<0.8",
     "sandloom-identity>=0.7.0a11,<0.8",
     "sandloom-tenancy>=0.7.0a11,<0.8",
     "sandloom-billing>=0.7.0a11,<0.8",

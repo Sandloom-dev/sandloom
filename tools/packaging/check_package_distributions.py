@@ -11,8 +11,10 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
    every ``sandloom`` subcommand's ``--help``, ``sandloom docs <name>``,
    ``sandloom new`` and the kernel app factory work; the RPC transport
    smoke runs from the installed wheel;
-4. ``sandloom[standard]`` (every wheel): ``sandloom.main:app`` composes the
-   installed ``sandloom.modules`` entry points.
+4. ``sandloom[standard]`` (every wheel but the console): the standard root
+   ``sandloom_standard.main:app`` (the ``sandloom-standard`` distribution, the
+   one ``SANDLOOM_COMPOSITION_ROOT`` names in the image and the profiles)
+   composes the installed ``sandloom.modules`` entry points.
 
 ``--skip-install`` runs steps 1-2 only (no network).
 """
@@ -43,6 +45,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = BACKEND_ROOT / "packages"
 PACKAGES = (
     "sandloom",
+    "sandloom-standard",
     "sandloom-identity",
     "sandloom-tenancy",
     "sandloom-billing",
@@ -198,7 +201,9 @@ def _check_contents(package: str, wheel: Path) -> None:
                 f"{name} = {path}, found {entry_points}"
             )
     elif "sandloom.modules" in entry_points:
-        raise RuntimeError(f"{wheel.name}: the kernel registers no module")
+        # The kernel and the standard composition root compose modules; they
+        # register none.
+        raise RuntimeError(f"{wheel.name}: registers a module, expected none")
 
 
 def _entry_points(wheel: Path) -> dict[str, dict[str, str]]:
@@ -258,7 +263,11 @@ def build(out: Path) -> dict[str, Path]:
 def check_layering(wheels: dict[str, Path]) -> None:
     problems = distribution_imports.check(
         [distribution_imports.read_wheel(w) for w in wheels.values()],
-        first_party=["sandloom", *(path for _n, path in MODULES.values())],
+        first_party=[
+            "sandloom",
+            "sandloom_standard",
+            *(path for _n, path in MODULES.values()),
+        ],
         provides={"sandloom": KERNEL_PROVIDES},
     )
     if problems:
@@ -328,7 +337,13 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         ).stdout
     )  # fmt: skip
     names = {str(item["name"]).lower() for item in installed}
-    leaked = names & {"redis", "celery", "sentry-sdk", "sandloom-identity"}
+    leaked = names & {
+        "redis",
+        "celery",
+        "sentry-sdk",
+        "sandloom-identity",
+        "sandloom-standard",
+    }
     if leaked:
         raise RuntimeError(
             f"optional distributions in a lean install: {sorted(leaked)}"
@@ -414,14 +429,18 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
         "from sandloom.core.app_factory import create_app; "
         "assert type(create_app()).__name__ == 'FastAPI'; "
         "import sandloom.main as m; assert m.core.loaded_modules == []; "
-        "print('lean sandloom OK: CLI, kernel factory, empty standard root')",
+        "print('lean sandloom OK: CLI, kernel factory, empty lean root')",
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )
 
 
 def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
-    """Every wheel (``sandloom[standard]``): the modules compose by entry point."""
+    """``sandloom[standard]``: the standard root composes the module entry points.
+
+    ``sandloom_standard.main`` (what ``SANDLOOM_COMPOSITION_ROOT`` names in the
+    image and the profiles) builds the three standard modules, and the kernel's
+    composition resolution returns that root's core."""
     venv = temp / "standard"
     _run("uv", "venv", str(venv))
     kernel = wheels["sandloom"]
@@ -433,14 +452,19 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     _run(
         str(_python(venv)),
         "-c",
-        "import redis, celery; import sandloom.main as m; "
+        "import redis, celery; import sandloom_standard.main as m; "
+        "from sandloom.core.composition import load_composition_core; "
         "assert type(m.app).__name__ == 'FastAPI'; "
         "assert m.core.loaded_modules == "
         "['sandloom_billing', 'sandloom_identity', 'sandloom_tenancy'], "
         "m.core.loaded_modules; "
+        "assert load_composition_core() is m.core; "
         "print('standard set OK:', m.core.loaded_modules)",
         cwd=temp,
-        env=_smoke_environment(),
+        env={
+            **_smoke_environment(),
+            "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
+        },
     )
 
 
