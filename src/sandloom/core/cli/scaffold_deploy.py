@@ -186,9 +186,16 @@ class Project:
             # root in every process of the profile (SANDLOOM-T014).
             app_env.append(("SANDLOOM_COMPOSITION_ROOT", FRAMEWORK_COMPOSITION_ROOT))
         else:
-            app_env.append(
-                ("CONTRACT_DTO_PACKAGES", f"'{json.dumps([rules.shared_dto_package])}'")
-            )
+            # A tree of module distributions: each module's own generated
+            # copies too (ADR-0013 decision 1), where it has any.
+            dto_packages = [rules.shared_dto_package] + [
+                f"{rules.module_package(name)}._generated.contracts"
+                for name in (
+                    rules.business_modules() if rules.top_level_modules else []
+                )
+                if (rules.modules_path / name / "_generated" / "contracts").is_dir()
+            ]
+            app_env.append(("CONTRACT_DTO_PACKAGES", f"'{json.dumps(dto_packages)}'"))
             if (root / top / "asgi.py").is_file():
                 app_env.append(("SANDLOOM_COMPOSITION_ROOT", f"{top}.asgi"))
         context = Path(_relpath(root, deploy_dir / "compose"))
