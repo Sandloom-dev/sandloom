@@ -1709,6 +1709,7 @@
         "src/sandloom/core/tests/test_queue_claim_without_skip_locked.py",
         "src/sandloom/core/tests/test_quickstart.py",
         "src/sandloom/core/tests/test_quiet_boot.py",
+        "src/sandloom/core/tests/test_ready_taskqueue.py",
         "src/sandloom/core/tests/test_reconnect_backoff.py",
         "src/sandloom/core/tests/test_redis_cache_bounded.py",
         "src/sandloom/core/tests/test_redis_cache_loop_affinity.py",
