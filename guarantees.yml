@@ -1935,7 +1935,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_revocation_is_persisted_in_the_uow_for_the_durable_applier
   - src/sandloom/core/tests/test_revocation_windows.py::test_exhausted_retries_count_a_deferred_revocation
-  - src/sandloom_identity/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
+  - src/sandloom/core/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
   - tests/integration/test_revocation_pipeline.py::test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_durable_replay_lifts_past_an_early_mark_whose_re_mark_was_lost
 - id: G-REVOKE-08
