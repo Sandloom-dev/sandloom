@@ -8,7 +8,9 @@ search:
 - **Status:** Accepted (2026-11-08, by the owner, after the Codex reviews of `c5efeac` and
   `787ca60`; tm `kb-adrs-accept`). The settings PoC gate KB-49 (all sixteen
   scenarios P1-P16) is mandatory before KB-50..KB-56: if D2a fails one of its criteria, this ADR
-  is reopened before any settings implementation starts.
+  is reopened before any settings implementation starts. KB-49 ran (`c7896c5`,
+  `design/kernel-boundary/poc/settings/results.md`): D2a passes all sixteen; its findings
+  F-1..F-6 amend the spelling of decision 1 (pending the owner).
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision D (alternative D2 in the D2a form, on top of PR
@@ -251,9 +253,9 @@ breaks the dump's no-activation rule until fixed.
 
 **Migration.** Upgrade steps: the risk id rename; no env name changes; a prod `sandloom migrate`
 one-shot needs the module env (already true after PR #71). The settings PoC (P1-P16 of
-alternatives-d §11) was not run. It is the gate KB-49 of the migration plan: all 16 scenarios run
-and get a recorded result before any of KB-50..KB-56 starts, and each of those PRs then turns its
-scenarios into repository tests. A failed scenario reopens this ADR or picks its fallback (D2b on
+alternatives-d §11) is the gate KB-49 of the migration plan: all 16 scenarios run and get a
+recorded result before any of KB-50..KB-56 starts, and each of those PRs then turns its scenarios
+into repository tests. KB-49 recorded them (`c7896c5`): all pass. A failed scenario reopens this ADR or picks its fallback (D2b on
 P12, D3 for the dump on P11, H2 on P16) first.
 
 **Conditions to revisit.** `config dump` with the composition is too slow (then D3 for the dump
@@ -278,6 +280,7 @@ the reference for decisions; each PR re-measures base against candidate on `c9b9
 | an optional module cannot swallow a refusal | `core/config/common.py`, `core/loader/plugin_loader.py` (alternatives-d F-c) | `ConfigurationError` subclasses `SystemExit`; the per-module handler catches `Exception` |
 | one secret rule | PR #74 (`30104e8`), `core/tests/test_secret_redaction_agreement.py` | every `Settings` field: log redactor and dump agree |
 | alternatives and verdict | `alternatives-d-settings.md` §5, §10; `adversarial.md` §5.1, §9 | D2a stands with the collect switch counted, activation defined, the static gate's scope stated |
+| settings PoC gate KB-49, P1-P16 | `design/kernel-boundary/poc/settings/results.md` (`c7896c5`; candidate `d2a-kernel.patch` on `3806ad0`, 71 files) | all 16 pass mono and split. P2: 5 refusals × 9 entry points + doctor, identical reason. P4: namespace rule (a)-(d) with K1 only. P7: one `.env` parse, one lookup per alias. P11: no socket, no lifespan, `--kernel-only --json` byte-identical minus the 9 moved names, dump +1.9 s (3.3 s vs 1.45 s). P12: D2a kept (one error, from the missing `ClassVar` in decision 1's example). P13: −4 ms vs 46 ms base-vs-base, mechanism 5-12 ms (one entry-point scan). Full suite 6555 passed. Findings F-1..F-12: `ClassVar` metadata, `api.declare_settings` (`api.settings` is taken), `secret_problem` as a sixth SDK name, three testing names, public names from `core.module_api` |
 
 ## Fitness tests
 
