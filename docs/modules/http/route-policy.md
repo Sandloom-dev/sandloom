@@ -106,9 +106,9 @@ await revoke_user_tokens_on_commit(user_id, reason="tenancy.member.removed", req
   `AUTH_REVOCATION_MARK_TTL_SECONDS` (at least the access-token lifetime;
   keep `ACCESS_TOKEN_EXPIRE_MINUTES` identical in every service). Delivery is
   at-least-once: the revocation is also written to the outbox
-  (`core.auth.tokens_revoked.v1`) and applied by the kernel's durable
-  applier, which every service runs whether identity is loaded there or
-  not, if the post-commit write fails (`auth_revocation_deferred_total`).
+  (`core.auth.tokens_revoked.v1`). When the post-commit write fails
+  (`auth_revocation_deferred_total`), the kernel's durable applier writes
+  it. Every service runs that applier, even one without identity.
 - **Emergency stop:** `block_user(user_id, reason=, actor_id=)` and
   `unblock_user(...)` (`sandloom.sdk.security`, inside a unit, audited). A block
   ends every session, also for tokens minted later; token issuers refuse a

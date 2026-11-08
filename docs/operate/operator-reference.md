@@ -61,9 +61,9 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   process without `SANDLOOM_SERVICE_NAME` refuses to start. The bus is the
   one the `default` eventbus instance resolves to: `EVENT_BUS_BACKEND`, or
   the `INFRA` entry `eventbus.default` when it sets a driver. Every driver
-  except `memory` counts as shared. Give each service its own name and all
-  its replicas the same one: two services under one name share one group
-  and each misses part of the other's revocations. Alerts:
+  except `memory` counts as shared. Give each service its own name, the same
+  for all its replicas. Two services under one name share one group, and
+  each misses part of the other's revocations. Alerts:
   `increase(auth_revocation_deferred_total[5m]) > 0` (warning: revocations
   pending on the applier — a cache outage), and
   `increase(auth_revocation_applier_failures_total[10m]) > 0` sustained, or a
@@ -71,13 +71,13 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted).
   `/ready` answers 503 when the applier is not running, or when its oldest
   pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
-  It also answers 503 when such an event is dead-lettered, or when the
-  dead-letter queue cannot be counted: the read failed, or the queue holds
-  more than 10,000 entries. The queue is read at most once per
+  It also answers 503 when such an event is dead-lettered. A dead-letter
+  queue it cannot count is not ready either: the read failed, or the queue
+  holds more than 10,000 entries. The queue is read at most once per
   `HEALTH_CACHE_TTL_SECONDS`, however many probes arrive. The reasons are
   listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
-  exports the lag and drops to 0 once the backlog clears. Revocations made with `require_immediate=True` (every bundled
-  security event) never depend on it: their mark is written before commit,
+  exports the lag and drops to 0 once the backlog clears. Revocations made
+  with `require_immediate=True` (every bundled security event) never depend on it: their mark is written before commit,
   or the change is refused with `503` —
   `increase(auth_revocation_immediate_refused_total[5m]) > 0` means changes
   are being refused because the cache is unreachable;
@@ -108,11 +108,12 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   again.
 - **The retired identity group (upgrade runbook).** Before the kernel took
   over, identity applied revocations in the group
-  `identity:sessions@tokens_revoked`. Nothing reads it any more, but Redis
-  keeps it and its pending entries, and `sandloom streams groups
-  core.auth.tokens_revoked.v1` shows its lag growing. Once every service runs
-  the new version and its `sandloom:auth@tokens_revoked@<service>` group is
-  running, delete the old group and its owner record:
+  `identity:sessions@tokens_revoked`. Nothing reads it any more. Redis still
+  keeps it with its pending entries; `sandloom streams groups
+  core.auth.tokens_revoked.v1` shows its lag growing. Wait until every
+  service runs the new version with its
+  `sandloom:auth@tokens_revoked@<service>` group running. Then delete the
+  old group and its owner record:
   `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1
   identity:sessions@tokens_revoked`, then `sandloom streams release-group
   core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`. Its
