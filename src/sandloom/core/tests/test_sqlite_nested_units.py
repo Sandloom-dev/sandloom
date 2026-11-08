@@ -14,9 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import subprocess
-import sys
 import uuid
 import warnings
 from collections.abc import AsyncGenerator, Iterator
@@ -521,54 +518,6 @@ def test_startup_warns_once_per_serial_writer_instance(
 
 
 # -- saga steps on the SQLite test harness -------------------------------------
-
-_REPO = Path(__file__).resolve().parents[4]
-#: Saga protocol tests whose steps (the transition unit, the step-started
-#: marker unit, the provider's command unit) nest on SQLite.
-_SAGA_TESTS = (
-    "src/sandloom/core/tests/test_sagas_protocol.py::"
-    "test_happy_path_runs_every_step_once_with_derived_keys",
-    "src/sandloom/core/tests/test_sagas_protocol.py::"
-    "test_duplicate_deliveries_never_run_a_step_twice",
-    "src/sandloom/core/tests/test_sagas_recovery.py::"
-    "test_refused_before_the_pivot_compensates_the_applied_steps",
-    # the harness beside the client fixture: no mark waits for db's lock
-    "src/sandloom/core/tests/test_saga_harness_with_client.py::"
-    "test_a_saga_run_between_requests_waits_for_no_lock",
-)
-
-
-@pytest.mark.subprocess_probe
-def test_saga_steps_run_on_the_sqlite_test_harness(tmp_path: Path) -> None:
-    """The real saga protocol (``saga_harness``) on a SQLite test database:
-    each step's units nest in the transition's unit and commit with it."""
-    url = f"sqlite+aiosqlite:///{tmp_path / 'saga_test.db'}"
-    env = {
-        **{k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")},
-        "SANDLOOM_TEST_DATABASE_URL": url,
-        "DATABASE_URL": url,
-    }
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-q",
-            "-p",
-            "no:xdist",
-            "-p",
-            "no:randomly",
-            *_SAGA_TESTS,
-        ],
-        cwd=_REPO,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-2000:]
-    assert f"{len(_SAGA_TESTS)} passed" in proc.stdout, proc.stdout[-2000:]
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,6 @@ from sandloom.core.loader.manifest import (
     module_manifest,
 )
 from sandloom.core.module_api import ModuleRegistrationDraft, contract_method
-from sandloom.main import app
 
 
 class _Provider:
@@ -142,12 +141,3 @@ def test_manifest_is_frozen_and_aggregates_in_load_order() -> None:
         manifests={"a": first, "b": second},
     )
     assert [m.name for m in AppManifest.from_summary(summary).modules] == ["b", "a"]
-
-
-def test_create_app_publishes_the_manifest() -> None:
-    manifest: AppManifest = app.state.app_manifest
-    summary = app.state.module_summary
-    assert [m.name for m in manifest.modules] == [d.name for d in summary.loaded]
-    identity = manifest.module("sandloom_identity")
-    assert any(r.path.startswith("/api/v1/") for r in identity.routes)
-    assert "refresh_tokens" in {m.table for m in identity.models}

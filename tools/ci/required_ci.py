@@ -28,6 +28,8 @@ AREA_JOBS = {
     "backend-static": ("backend",),
     "supply-chain": ("backend",),
     "backend-tests": ("backend",),
+    # The kernel suites with no module package importable (ADR-0012, KB-05).
+    "kernel-without-batteries": ("backend",),
     # The second database (SQLite) and the merge of the lanes' skip ledgers.
     "second-db-test-lane": ("backend", "examples"),
     "skip-ledger": ("backend", "examples"),

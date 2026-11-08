@@ -1,4 +1,4 @@
-"""A tenant row (table created with RLS by setup_db.py)."""
+"""A tenant row (table created with RLS by the test, or the PoC's setup_db.py)."""
 
 import uuid
 

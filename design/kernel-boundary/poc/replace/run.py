@@ -1,6 +1,10 @@
 """kb-poc-replace driver: boot a topology of real uvicorn processes running
-``sandloom.main:app`` with the fixture modules of ``app/pocapp``, then run the
+``sandloom.main:app`` with the fixture modules of ``pocapp``, then run the
 experiments over HTTP. Nothing under ``src/`` is touched.
+
+The fixture modules now live in ``tests/integration/replaceability/pocapp``,
+where ``tests/integration/replaceability/test_replaceability.py`` runs the same
+experiments as integration tests (KB-05); this driver prints the transcript.
 
 Usage (from any directory; the interpreter decides which kernel is tested):
 
@@ -40,7 +44,7 @@ from sandloom.sdk.security import (
 )
 
 HERE = Path(__file__).resolve().parent
-APP = HERE / "app"
+APP = HERE.parents[3] / "tests" / "integration" / "replaceability"
 LOGS = Path(
     os.environ.get("SANDLOOM_POC_LOGS") or tempfile.mkdtemp(prefix="kbpoc-logs-")
 )

@@ -124,22 +124,6 @@ async def test_resolution_order_is_fastapi_depth_first_and_cached() -> None:
     assert calls == names  # the order FastAPI actually ran them in
 
 
-def test_bundled_app_routes_pass() -> None:
-    # create_app already refuses a violation; this pins that the bundled
-    # routes really carry guards and authentication the check can see.
-    from sandloom.core.guard_order import is_authenticator, is_idempotency_guard
-    from sandloom.main import app
-
-    guarded = 0
-    for route in app.routes:
-        order = resolution_order(getattr(route, "dependant", None))
-        if any(is_idempotency_guard(c) for c in order):
-            guarded += 1
-            assert any(is_authenticator(c) for c in order), route
-    assert guarded >= 10
-    assert guard_order_problems(app.routes) == []
-
-
 # --- SANDLOOM-B007: an org-scoped gate must not run before TenantScope() ---------
 
 

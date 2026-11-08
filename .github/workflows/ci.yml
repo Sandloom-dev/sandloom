@@ -525,6 +525,92 @@ jobs:
           GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
           SANDLOOM_E2E_REQUIRED: "1"
 
+  kernel-without-batteries:
+    # ADR-0012 fitness test (KB-05): the kernel's unit, SDK and architecture
+    # suites in a venv with the sandloom package alone, and the
+    # replaceability fixtures (identity, tenancy and billing replaced by
+    # test modules, mono and split). tools/ci/no_batteries.py hides the
+    # bundled modules from every import, also from the checkout's src/;
+    # tests that still need one are deselected from its pending list, which
+    # only goes down. A new kernel test that needs a battery fails here:
+    # put it in tests/integration/with_batteries or the module's own tests.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-kernel-lane-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-kernel-without-batteries
+      # The replaceability topologies are real uvicorn processes: missing
+      # PostgreSQL/Redis fails the job instead of skipping.
+      SANDLOOM_E2E_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: A venv with the kernel package and no module package
+        # The kernel's extras and the pinned dev tools; no sandloom-identity,
+        # -tenancy, -billing or -admin. The hook then hides their sources.
+        run: |
+          uv venv --python 3.12 .venv-kernel
+          uv export --frozen --only-group dev --no-hashes --no-emit-project \
+            > "$RUNNER_TEMP/dev-requirements.txt"
+          uv pip install --python .venv-kernel/bin/python \
+            -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" \
+            -r "$RUNNER_TEMP/dev-requirements.txt"
+          .venv-kernel/bin/python tools/ci/no_batteries.py install
+          .venv-kernel/bin/python tools/ci/no_batteries.py check
+
+      - name: Kernel suites and the replaceability fixtures
+        run: >-
+          .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile
+          --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
+          src/sandloom/core/tests tests/sdk tests/architecture
+          tests/integration/replaceability
+
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
     # PostgreSQL (backend-tests) is the mandatory lane and runs everything;
@@ -1268,6 +1354,7 @@ jobs:
       - supply-chain
       - backend-tests
       - backend-tests-isolation
+      - kernel-without-batteries
       - second-db-test-lane
       - skip-ledger
       - benchmarks-security

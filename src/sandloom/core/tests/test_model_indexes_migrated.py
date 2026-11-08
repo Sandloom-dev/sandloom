@@ -17,12 +17,9 @@ from typing import Any
 from sqlalchemy import MetaData, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from sandloom.core.orm import Base
 from sandloom.core.tenant import TenantScoped
 from sandloom.core.testing import (
     chain_coverage_problems,
-    migration_chains,
-    model_tables,
 )
 from sandloom.core.testing.database import redundant_indexes
 from sandloom.core.testing.static_checks import redundant_index_problems
@@ -31,15 +28,6 @@ from sandloom.core.testing.static_checks import redundant_index_problems
 def test_every_model_table_and_index_is_created_by_its_owning_chain() -> None:
     problems = chain_coverage_problems()
     assert not problems, "\n".join(problems)
-
-
-def test_owners_come_from_the_declaring_package() -> None:
-    owners = {table: chain.key for table, chain in model_tables().items()}
-    assert owners["outbox_messages"] == "core"
-    assert owners["saga_instances"] == owners["saga_steps"] == "core"
-    assert owners["tenancy_members"] == "tenancy"
-    assert owners["billing_customers"] == "billing"
-    assert {c.key for c in migration_chains()} >= {"core", "identity", "tenancy"}
 
 
 def test_tables_created_by_reads_the_chain_revisions(tmp_path: Any) -> None:
@@ -59,16 +47,6 @@ def test_tables_created_by_reads_the_chain_revisions(tmp_path: Any) -> None:
         '    op.drop_table("quotas_old")\n'
     )
     assert tables_created_by(chain) == {"quotas_limits", "quotas_usage", "quotas_plans"}
-
-
-def test_profiled_indexes_are_declared() -> None:
-    declared = {
-        (table.name, index.name)
-        for table in Base.metadata.tables.values()
-        for index in table.indexes
-    }
-    assert ("consumer_inbox", "ix_consumer_inbox_processed_at") in declared
-    assert ("twofa_backup_codes", "ix_twofa_backup_codes_user_id") in declared
 
 
 def test_no_index_duplicates_a_unique_prefix() -> None:

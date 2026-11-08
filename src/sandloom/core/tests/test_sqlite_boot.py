@@ -15,10 +15,7 @@ in a child process on a file in ``tmp_path``: ``/health``, a public route
 
 from __future__ import annotations
 
-import json
 import sqlite3
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -488,71 +485,3 @@ async def main():
 
 asyncio.run(main())
 """
-
-
-def _boot(
-    tmp_path: Path, database: Path, **extra: str
-) -> subprocess.CompletedProcess[str]:
-    script = tmp_path / "boot.py"
-    script.write_text(_BOOT)
-    env = {
-        "JWT_SECRET": "sqlite-boot-test-secret-0123456789abcdef0123",
-        "DATABASE_URL": _url(database),
-        "CACHE_URL": settings.cache_url,
-        "BROKER_URL": settings.broker_url,
-        **extra,
-    }
-    return subprocess.run(
-        [sys.executable, "-I", str(script)],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=180,
-    )
-
-
-def _result(run: subprocess.CompletedProcess[str]) -> dict[str, Any]:
-    assert run.returncode == 0, run.stderr[-4000:]
-    line = next(x for x in run.stdout.splitlines() if x.startswith("RESULT "))
-    return dict(json.loads(line.removeprefix("RESULT ")))
-
-
-@pytest.mark.subprocess_probe
-def test_the_platform_boots_on_sqlite_and_refuses_a_drifted_file(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "platform.db"
-    first = _result(_boot(tmp_path, database, ENVIRONMENT="test"))
-    assert first == {
-        "health": 200,
-        "register": 202,
-        "create_org": 201,
-        "orgs": ["acme"],
-    }
-
-    # A model change the file does not have: create_all never alters it, and
-    # ENVIRONMENT unset (dev by default) is no signal to touch the file.
-    with sqlite3.connect(database) as conn:
-        conn.execute("ALTER TABLE outbox_messages ADD COLUMN stray TEXT")
-    refused = _boot(tmp_path, database)
-    assert refused.returncode != 0
-    assert "SANDLOOM-B028" in refused.stderr
-    assert "outbox_messages.stray (not in the models)" in refused.stderr
-    assert not [p for p in tmp_path.iterdir() if ".stale-" in p.name]
-    with sqlite3.connect(database) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM tenancy_organizations"
-        ).fetchone() == (1,)
-
-    # The signal `sandloom dev run` sets: the file is set aside, a fresh one
-    # built (the same slug is free again), and the log names where it went.
-    recreated = _boot(tmp_path, database, DB_RECREATE_ON_MODEL_CHANGE="true")
-    out = _result(recreated)
-    assert out["create_org"] == 201 and out["orgs"] == ["acme"]
-    stale = [p for p in tmp_path.iterdir() if p.name.startswith("platform.db.stale-")]
-    assert stale and any(str(p) in recreated.stderr for p in stale)
-    with sqlite3.connect(database) as conn:
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(outbox_messages)")}
-        assert "stray" not in columns
