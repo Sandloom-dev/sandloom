@@ -332,6 +332,9 @@ def test_dangling_destination_link_is_refused(source: Path, tmp_path: Path) -> N
 def test_dx_classification_and_triggers_follow_the_exported_layout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The DX eval classifies changed paths by the exported layout and
+    triggers only on what ships to new projects: templates, the generators
+    and the public API, never the framework repository's own agent context."""
     import re
     import runpy
     import sys
@@ -340,6 +343,7 @@ def test_dx_classification_and_triggers_follow_the_exported_layout(
     namespace = runpy.run_path(str(exporter.ROOT / "benchmarks/dx/run_eval.py"))
 
     def kind(path: str) -> str:
+        """The first ``OUTSIDE_KINDS`` label whose pattern matches ``path``."""
         return next(
             label
             for pattern, label in namespace["OUTSIDE_KINDS"]
@@ -352,8 +356,20 @@ def test_dx_classification_and_triggers_follow_the_exported_layout(
     assert kind("public_api_baseline.json") == "framework"
     assert kind("tools/checks/check_architecture.py") == "framework"
     assert kind("src/sandloom_tenancy/api/organizations.py") == "other-module"
-    for path in ("architecture_rules.yml", "public_api_baseline.json"):
+    # The eval measures what ships to new projects, not the framework repo's own context.
+    for path in (
+        "public_api_baseline.json",
+        "src/sandloom/core/cli/templates/api-cheatsheet.md",
+        "src/sandloom/core/cli/image_secrets.py",
+        "src/sandloom/core/cli/dev/envfile.py",
+        "src/sandloom/core/cli/wizard.py",
+        "src/sandloom/core/cli/generated.py",
+        "src/sandloom/core/cli/dto_copies.py",
+        "src/sandloom/core/cli/contracts.py",
+    ):
         assert any(pattern.search(path) for pattern in namespace["TRIGGERS"])
+    for path in ("architecture_rules.yml", "AGENTS.md", ".claude/rules/tests.md"):
+        assert not any(pattern.search(path) for pattern in namespace["TRIGGERS"])
 
 
 def test_public_ignore_transformation_preserves_source_and_records_both_hashes(

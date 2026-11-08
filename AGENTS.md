@@ -1,7 +1,10 @@
 # Sandloom Framework — agent map
 
-This file is a map, not the manual. **Before editing, read the contract for the code
-you touch** (nearest wins):
+This repository is the framework itself. This file and `.claude/` (rules,
+skills, agents) are context for working **on** Sandloom; what a new project
+gets from `sandloom new` lives in `src/sandloom/core/cli/templates/`.
+
+**Before editing, read the contract for the code you touch** (nearest wins):
 
 | you are changing | read first |
 |---|---|
@@ -12,26 +15,9 @@ you touch** (nearest wins):
 
 ## The one rule
 
-**Modules are atomic and isolated.** Cross-module work goes through typed events (`Event`,
-`@on`), contracts (`@contract`, `Contract(REF)`), projections or sagas, never an import; what a
-module may import: `src/sandloom/AGENTS.md`.
-
-## Non-negotiables (each enforced — the failure prints a code: `uv run sandloom explain <code>`)
-
-| rule | enforced by |
-|---|---|
-| imports: `sandloom.sdk` + stubs/DTOs + own package; no sibling module, no function-local import | `sandloom check` C001, C002, C005, C013, C021 |
-| never `db().commit()` / `rollback()` — the unit owns the transaction; `db()`, `publish()`, `record_audit` only inside a unit | `sandloom check` C006, C007; SANDLOOM-R002 |
-| a route is authenticated (the default of `module_router()`) or declares `public(reason=)`; nothing else to declare | SANDLOOM-B008 at startup; route snapshot SANDLOOM-T001 |
-| tenant rows (`tenant_id`, `organization_id`, … columns) inherit `TenantScoped`; `sandloom migrate new` writes the RLS policy; raw SQL needs `unscoped()` | `sandloom check` C014, C015, C024; SANDLOOM-T006 |
-| an `Event` class: versioned channel, wire fields, one producer; same `.vN` only gains optional fields | SANDLOOM-B015, SANDLOOM-T005, C025 |
-| a `@contract` class: stateless, async, wire types; DTOs in its own `schemas`, copied by `sandloom generate` | SANDLOOM-B018, C012, SANDLOOM-T004, SANDLOOM-T007 |
-| an `@on` consumer takes exactly its event; billing atoms state `of=` | SANDLOOM-B016; SANDLOOM-B017, C027 |
-| endpoints in `api`, SQLAlchemy only in `models`/`services`, pure `schemas`; no backend SDK or raw client, no SQL dialect (`sandloom.sdk.data` has the portable forms); only portable `func.<name>`, raw SQL marked, in tests too | `sandloom check` C009–C011, C003, C004, C028, C031 |
-| the public surface and the beginner tier (kernel work) | SANDLOOM-T008, SANDLOOM-T009, `lint-imports` |
-
-Rules **no check enforces yet** (rows owned through a tenant row, effect dedupe in tasks and commands, `.v2`
-dual-publish, security revocation, commands as saga steps; agents skip them most): `src/sandloom/AGENTS.md`.
+**Modules are atomic and isolated.** Cross-module work goes through typed events,
+contracts, projections or sagas, never an import. Every rule is enforced: a failure
+prints a code, `uv run sandloom explain <code>` gives why and the fix.
 
 ## Golden path (run from the repository root)
 
@@ -45,33 +31,20 @@ uv run sandloom test <name>                      # module tests, fast suite (par
 uv run sandloom test --full                      # once, at the end: full parallel suite + gates
 ```
 
-- **`sandloom generate` writes** the generated files (a breaking change writes nothing; `sandloom
-  add` runs it last). **`sandloom test` is the gate, never writes:** ruff, format, mypy, `sandloom
-  check`, architecture tests, `lint-imports`, API baseline, generated files. No serial `pytest -q`.
-- Use your own test DB and Redis on a shared machine: `SANDLOOM_TEST_DATABASE_URL`,
-  `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL`, `SANDLOOM_TEST_OWNER`. The owner is the
-  checkout (or `SANDLOOM_TEST_OWNER`): a run refuses another owner's resources, but two runs
-  in one checkout share them, so concurrent runs each set their own.
-- Changing an AGENTS.md, a rule or skill, a generator or the public API? Re-run the DX eval
-  (`benchmarks/dx/README.md`; `run_eval.py triggers` says when).
+- **`sandloom generate` writes** the generated files; **`sandloom test` is the gate and
+  never writes**. No serial `pytest -q`.
+- Parallel runs on one machine each set their own `SANDLOOM_TEST_DATABASE_URL`,
+  `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER`:
+  two runs in one checkout share resources otherwise.
+- Changing what ships to new projects (`src/sandloom/core/cli/templates/`, the
+  `sandloom new` / `sandloom add` output, the public API)? Re-run the DX eval
+  (`benchmarks/dx/README.md`). Context for framework work does not need it.
 
-## Index — where the detail lives
+## Where the detail lives
 
-| topic | file |
-|---|---|
-| every `sandloom.sdk` name: signature, tier, example | `docs/reference/sdk/index.md`, `uv run sandloom docs <name>` |
-| every error code: why and the fix | `docs/reference/error-codes.md`, `uv run sandloom explain <code>` |
-| tests: every fixture, `as_user`, `deliver`, `published`, fakes (copy-paste) | `docs/reference/testing.md` |
-| concepts: modules, discovery, the three API levels | `docs/modules/index.md`, `docs/advanced/module-internals.md` |
-| units, `db()`, effects; one writer per request | `docs/modules/database/units.md`, `docs/advanced/write-admission.md` |
-| typed events, views, consumers; contracts, stubs, `optional` | `docs/modules/between/events.md`, `docs/modules/between/contracts.md` |
-| route policy, sessions, idempotency modes; per-route lifecycle | `docs/modules/http/route-policy.md`, `docs/advanced/lifecycle.md` |
-| guarantees and labels; projections | `docs/advanced/guarantees.md`, `docs/modules/between/projections.md` |
-| billing gates and `of=Account…`; sagas (cross-module processes with undo) | `docs/modules/http/authorization.md`, `docs/modules/between/sagas.md` |
-| deployment profiles; a module in microservices; the distributions | `deploy/AGENTS.md`, `deploy/README.md`, `packages/README.md` |
-| security model; operations runbook (secrets, backups, incidents) | `docs/advanced/security-model.md`, `docs/operate/operator-reference.md` |
-| decisions (effect model, route policy, Public API 1.0, …) | `docs/adr/` |
-| issue tracker, triage labels, domain docs | `CONTRIBUTING.md` |
+`uv run sandloom docs <name>` (every `sandloom.sdk` name), `uv run sandloom explain <code>`
+(every error code), `docs/reference/testing.md` (fixtures, fakes), `docs/adr/` (decisions),
+`CONTRIBUTING.md` (issues, labels).
 
 ## Looks wrong but is intentional
 
