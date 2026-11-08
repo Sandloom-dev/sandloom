@@ -26,7 +26,8 @@ website renders this same changelog.
   identity and pass the platform administrator gate, or override `user_id` and
   revocation fields. **Upgrade:** a contributor that returned one of these keys
   must drop it; return values as top-level claims your module owns instead of a
-  nested `claims` mapping.
+  nested `claims` mapping. A nested `sub`, `roles` or `permissions` cannot move
+  up unchanged (reserved, or identity's): rename it and update its readers.
 
 ### Changed
 

@@ -231,6 +231,9 @@ token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
 Upgrading: a contributor that returns a reserved key now gets `503` at minting.
 Drop the key. Return each value as a top-level claim your module owns, not
 under `claims`. Top-level keys already land in `UserContext.claims`.
+Some nested keys cannot move up unchanged. `sub` is reserved. `roles` and
+`permissions` belong to identity and are `UserContext` fields. Rename such a
+key under your module's own name and update its readers.
 
 ## The route snapshot
 
