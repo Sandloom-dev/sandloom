@@ -966,6 +966,7 @@
         "logger_factory",
         "module_descriptors",
         "module_registration",
+        "module_settings",
         "notifier",
         "objectstore",
         "projection_registry",
@@ -1209,6 +1210,7 @@
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
+        "declare_settings",
         "get_schema_registry",
         "get_service",
         "include_router",
@@ -1247,6 +1249,16 @@
       ],
       "signature": "() -> None"
     },
+    "ModuleSettingsError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
     "ReadContractWriteError": {
       "kind": "class",
       "members": [
@@ -1255,6 +1267,27 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "RemovedSetting": {
+      "kind": "class",
+      "members": [
+        "hint",
+        "inert",
+        "name",
+        "removed_in"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, removed_in:POSITIONAL_OR_KEYWORD|str, hint:POSITIONAL_OR_KEYWORD|str, inert:POSITIONAL_OR_KEYWORD|object=False) -> None"
+    },
+    "Risk": {
+      "kind": "class",
+      "members": [
+        "consulted_by",
+        "id",
+        "outside_prod",
+        "refused",
+        "weakens"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, weakens:POSITIONAL_OR_KEYWORD|str, consulted_by:POSITIONAL_OR_KEYWORD|str, refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), outside_prod:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "Saga": {
       "kind": "class",
@@ -1290,6 +1323,26 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "SemanticSetting": {
+      "kind": "class",
+      "members": [
+        "adr",
+        "applies",
+        "effective",
+        "infra_option",
+        "name",
+        "profile",
+        "refused",
+        "risk",
+        "risk_list",
+        "selector",
+        "strength",
+        "value",
+        "weaker",
+        "why"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, why:POSITIONAL_OR_KEYWORD|str, profile:POSITIONAL_OR_KEYWORD|Mapping[str, object], strength:POSITIONAL_OR_KEYWORD|tuple[object, ...]=tuple(), refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), effective:POSITIONAL_OR_KEYWORD|Callable[[Any], object] | None=None, applies:POSITIONAL_OR_KEYWORD|Callable[[Any], bool] | None=None, adr:POSITIONAL_OR_KEYWORD|str | None=None, selector:POSITIONAL_OR_KEYWORD|bool=False, infra_option:POSITIONAL_OR_KEYWORD|bool=False, risk:POSITIONAL_OR_KEYWORD|str | None=None, risk_list:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "StepKind": {
       "kind": "class",
@@ -1401,7 +1454,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, settings:KEYWORD_ONLY|type[BaseModel] | None=None) -> Callable[[ModuleAPI], Any]"
     },
     "invalidate_contract_read_memo": {
       "kind": "function",
@@ -1419,13 +1472,25 @@
       "kind": "function",
       "signature": "(parts:VAR_POSITIONAL|object) -> str"
     },
+    "override_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], values:VAR_KEYWORD|Any) -> Iterator[M]"
+    },
     "run_contract_call": {
       "kind": "function",
       "signature": "(func:POSITIONAL_OR_KEYWORD|Callable[..., Awaitable[Any]], args:POSITIONAL_OR_KEYWORD|tuple[Any, ...], kwargs:POSITIONAL_OR_KEYWORD|dict[str, Any], spec:KEYWORD_ONLY|ContractMethodSpec, core:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str='default', contract:KEYWORD_ONLY|str | None=None) -> Any"
     },
+    "settings_of": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M]) -> M"
+    },
     "step": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:KEYWORD_ONLY|str, args:KEYWORD_ONLY|ArgsFn, compensate:KEYWORD_ONLY|str | None=None, compensate_args:KEYWORD_ONLY|ArgsFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, refuse_on:KEYWORD_ONLY|Iterable[int]=tuple(), check_args:KEYWORD_ONLY|bool=True, deadline:KEYWORD_ONLY|timedelta | None=None) -> CommandStep"
+    },
+    "validate_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], env:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None, environment:KEYWORD_ONLY|str | None=None, accepted_risks:KEYWORD_ONLY|Iterable[str] | None=None, package:KEYWORD_ONLY|str | None=None) -> M"
     }
   },
   "sandloom.core.orm": {
@@ -2755,7 +2820,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, settings:KEYWORD_ONLY|type[BaseModel] | None=None) -> Callable[[ModuleAPI], Any]"
     },
     "module_router": {
       "kind": "function",
@@ -4477,6 +4542,7 @@
         "logger_factory",
         "module_descriptors",
         "module_registration",
+        "module_settings",
         "notifier",
         "objectstore",
         "projection_registry",
@@ -4689,6 +4755,7 @@
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
+        "declare_settings",
         "get_schema_registry",
         "get_service",
         "include_router",
@@ -4746,6 +4813,47 @@
       ],
       "signature": "(loaded:POSITIONAL_OR_KEYWORD|list[ModuleDescriptor]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, skipped:POSITIONAL_OR_KEYWORD|list[SkippedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, failed:POSITIONAL_OR_KEYWORD|list[FailedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, duplicates:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, explicit:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, consumes:POSITIONAL_OR_KEYWORD|dict[str, list[dict[str, Any]]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, manifests:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
+    "RemovedSetting": {
+      "kind": "class",
+      "members": [
+        "hint",
+        "inert",
+        "name",
+        "removed_in"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, removed_in:POSITIONAL_OR_KEYWORD|str, hint:POSITIONAL_OR_KEYWORD|str, inert:POSITIONAL_OR_KEYWORD|object=False) -> None"
+    },
+    "Risk": {
+      "kind": "class",
+      "members": [
+        "consulted_by",
+        "id",
+        "outside_prod",
+        "refused",
+        "weakens"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, weakens:POSITIONAL_OR_KEYWORD|str, consulted_by:POSITIONAL_OR_KEYWORD|str, refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), outside_prod:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "SemanticSetting": {
+      "kind": "class",
+      "members": [
+        "adr",
+        "applies",
+        "effective",
+        "infra_option",
+        "name",
+        "profile",
+        "refused",
+        "risk",
+        "risk_list",
+        "selector",
+        "strength",
+        "value",
+        "weaker",
+        "why"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, why:POSITIONAL_OR_KEYWORD|str, profile:POSITIONAL_OR_KEYWORD|Mapping[str, object], strength:POSITIONAL_OR_KEYWORD|tuple[object, ...]=tuple(), refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), effective:POSITIONAL_OR_KEYWORD|Callable[[Any], object] | None=None, applies:POSITIONAL_OR_KEYWORD|Callable[[Any], bool] | None=None, adr:POSITIONAL_OR_KEYWORD|str | None=None, selector:POSITIONAL_OR_KEYWORD|bool=False, infra_option:POSITIONAL_OR_KEYWORD|bool=False, risk:POSITIONAL_OR_KEYWORD|str | None=None, risk_list:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
     "SkippedModule": {
       "kind": "class",
       "members": [
@@ -4756,7 +4864,11 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, settings:KEYWORD_ONLY|type[BaseModel] | None=None) -> Callable[[ModuleAPI], Any]"
+    },
+    "settings_of": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M]) -> M"
     }
   },
   "sandloom.sdk.projections": {
@@ -5387,6 +5499,16 @@
       ],
       "signature": "() -> None"
     },
+    "ModuleSettingsError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
     "Outcome": {
       "kind": "class",
       "members": [
@@ -5624,6 +5746,10 @@
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', driver:KEYWORD_ONLY|str, options:VAR_KEYWORD|Any) -> AsyncIterator[Any]"
     },
+    "override_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], values:VAR_KEYWORD|Any) -> Iterator[M]"
+    },
     "probe": {
       "kind": "function",
       "signature": "(server:POSITIONAL_OR_KEYWORD|SpawnedServer, timeout:POSITIONAL_OR_KEYWORD|float=1.0) -> bool"
@@ -5731,6 +5857,10 @@
     "use_security_cache": {
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+    },
+    "validate_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], env:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None, environment:KEYWORD_ONLY|str | None=None, accepted_risks:KEYWORD_ONLY|Iterable[str] | None=None, package:KEYWORD_ONLY|str | None=None) -> M"
     },
     "wait_revocation_listener_subscribed": {
       "kind": "function",

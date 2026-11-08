@@ -1,5 +1,7 @@
 """Modules: ``define_module``, the L2 ``register`` form (``ModuleAPI``,
-``ModuleDescriptor``), requirements, health and loader results.
+``ModuleDescriptor``), requirements, health, loader results and a module's
+declared settings (``settings_of``, ``SemanticSetting``, ``RemovedSetting``,
+``Risk``).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -7,7 +9,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 beginner: define_module
 advanced: AUTO, CapabilityRequirement, ContractRequirement, FailedModule,
     HealthCheck, HealthResult, HealthStatus, MigrationTargetError, ModuleAPI,
-    ModuleDescriptor, ModuleLoadSummary, SkippedModule
+    ModuleDescriptor, ModuleLoadSummary, RemovedSetting, Risk, SemanticSetting,
+    SkippedModule, settings_of
 docs: docs/reference/sdk/module.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
@@ -20,6 +23,12 @@ from sandloom.core.descriptors import (
     MigrationTargetError,
     ModuleLoadSummary,
     SkippedModule,
+)
+from sandloom.core.module_api import (
+    RemovedSetting,
+    Risk,
+    SemanticSetting,
+    settings_of,
 )
 from sandloom.sdk._decl.module import define_module
 from sandloom.sdk._prim.module import (
@@ -42,8 +51,12 @@ __all__ = [
     "ModuleAPI",
     "ModuleDescriptor",
     "ModuleLoadSummary",
+    "RemovedSetting",
+    "Risk",
+    "SemanticSetting",
     "SkippedModule",
     "define_module",
+    "settings_of",
 ]
 #: The beginner tier of this module (spec §2.2).
 __beginner__ = ("define_module",)

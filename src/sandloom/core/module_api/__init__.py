@@ -151,6 +151,20 @@ from sandloom.core.module_api._registration import (
     ModuleRegistrationDraft,
 )
 from sandloom.core.module_api._schema import ContractMethodRuntime, ContractSchema
+from sandloom.core.module_api._settings import (
+    ModuleSettingsError,
+    RemovedSetting,
+    Risk,
+    SemanticSetting,
+    override_settings,
+    settings_of,
+    validate_settings,
+)
+
+# Not in ``__all__``: ``settings_of``'s error, a ``RuntimeError`` (no public home).
+from sandloom.core.module_api._settings import (
+    SettingsNotBoundError as SettingsNotBoundError,
+)
 from sandloom.core.module_api._spec import CONTRACT_SPEC_ATTR as CONTRACT_SPEC_ATTR
 from sandloom.core.module_api._spec import SESSION_PARAM_NAMES as SESSION_PARAM_NAMES
 from sandloom.core.module_api._spec import (
@@ -211,4 +225,12 @@ __all__ = [
     "local_step",
     "operation_key",
     "step",
+    # Module settings (ADR-0015)
+    "ModuleSettingsError",
+    "RemovedSetting",
+    "Risk",
+    "SemanticSetting",
+    "override_settings",
+    "settings_of",
+    "validate_settings",
 ]
