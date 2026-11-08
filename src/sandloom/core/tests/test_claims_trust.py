@@ -380,14 +380,6 @@ LOADED = {"idp": IDP, "grants": GRANTS, "plans": PLANS}
 CONTRIBUTORS = {"idp": True, "grants": True, "plans": False}
 
 
-@pytest.fixture
-def known_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The ``acme.*`` paths name modules; anything else is a typo."""
-    monkeypatch.setattr(
-        _ca, "_names_a_module", lambda path: path.startswith(("acme.", "other."))
-    )
-
-
 def _problems(
     mapping: dict[str, str],
     *,
@@ -405,26 +397,24 @@ def _problems(
     )
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_a_composition_that_honours_the_map_passes() -> None:
     """Local authorities, critical where required; the plans one non-critical."""
     assert _problems(MAP) == []
 
 
-@pytest.mark.usefixtures("known_modules")
-def test_startup_refuses_a_typo() -> None:
-    """T-5: an assigned path that names no module."""
-    (problem,) = _problems({**MAP, "roles": "acme_idp"})
-    assert "claim_authorities['roles'] is 'acme_idp', which names no module" in problem
+def test_startup_names_a_typo_of_a_loaded_authority() -> None:
+    """T-5: an assigned path close to a loaded one is named as its typo."""
+    (problem,) = _problems({**MAP, "roles": "acme.ipd"})
+    assert "claim 'roles' is assigned to 'acme.ipd', which is neither loaded" in problem
+    assert "a typo of 'acme.idp'?" in problem
 
 
-def test_the_typo_check_reads_the_real_import_system() -> None:
-    """Without the fixture: a real module path passes, a missing one does not."""
-    assert _ca._names_a_module("sandloom.core.claims")
-    assert not _ca._names_a_module("sandloom.core.no_such_module_kb10")
+def test_the_typo_hint_imports_nothing() -> None:
+    """Only loaded paths are compared; an unrelated path gets no hint."""
+    assert _ca._typo_hint("acme.ipd", LOADED) == "; a typo of 'acme.idp'?"
+    assert _ca._typo_hint("zzz.unrelated", LOADED) == ""
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_an_authority_neither_loaded_nor_bound() -> None:
     """T-5: the issuing process cannot reach the authority."""
     (problem,) = _problems(MAP, loaded={"idp": IDP, "plans": PLANS})
@@ -432,7 +422,6 @@ def test_startup_refuses_an_authority_neither_loaded_nor_bound() -> None:
     assert "grants.claims.v1 is not in SERVICE_BINDINGS" in problem
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_a_non_critical_authority_of_a_rights_key() -> None:
     """T-5 / decision 7: ``roles`` from a critical=False contributor."""
     problems = _problems(MAP, contributors={**CONTRIBUTORS, "idp": False})
@@ -440,7 +429,6 @@ def test_startup_refuses_a_non_critical_authority_of_a_rights_key() -> None:
     assert all("critical=False" in p for p in problems)
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_a_non_critical_binding_of_a_rights_key() -> None:
     """Split: ``grants.claims.v1`` with ``critical: false`` writing tenant_ids."""
     (problem,) = _problems(
@@ -451,7 +439,6 @@ def test_startup_refuses_a_non_critical_binding_of_a_rights_key() -> None:
     assert "whose binding grants.claims.v1 is critical: false" in problem
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_a_non_critical_fail_safe_authority_is_accepted_local_and_bound() -> None:
     """Billing option (c), mono and split."""
     assert _problems(MAP) == []
@@ -465,7 +452,6 @@ def test_a_non_critical_fail_safe_authority_is_accepted_local_and_bound() -> Non
     )
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_an_authority_without_a_contributor() -> None:
     """A loaded authority that writes nothing cannot vouch for its key."""
     (problem,) = _problems(MAP, contributors={"idp": True, "plans": False})
@@ -473,14 +459,12 @@ def test_startup_refuses_an_authority_without_a_contributor() -> None:
     assert "registers no claims contributor" in problem
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_a_module_of_the_same_name_from_another_path() -> None:
     """T-7: the short name is not proof of the authority."""
     (problem,) = _problems(MAP, loaded={**LOADED, "grants": "other.grants"})
     assert "the module loaded here under the name 'grants' is 'other.grants'" in problem
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_an_issuer_that_is_not_the_maps() -> None:
     """X2: an ``issues_tokens`` module that is not the map's issuer."""
     problems = _problems({**MAP, "issuer": GRANTS}, issuers=(IDP,))
@@ -491,7 +475,6 @@ def test_startup_refuses_an_issuer_that_is_not_the_maps() -> None:
     )
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_startup_refuses_the_maps_issuer_without_issues_tokens() -> None:
     """X2, the reverse: the map's issuer loaded but not issuing."""
     assert _problems(MAP, issuers=()) == [
@@ -500,7 +483,6 @@ def test_startup_refuses_the_maps_issuer_without_issues_tokens() -> None:
     ]
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_a_map_without_issuer_refuses_a_loaded_issuer() -> None:
     """An assigned map with no ``issuer`` entry and an issuing module."""
     mapping = {k: v for k, v in MAP.items() if k != "issuer"}
@@ -508,7 +490,6 @@ def test_a_map_without_issuer_refuses_a_loaded_issuer() -> None:
     assert "but the claim_authorities issuer is None" in problem
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_a_non_issuing_process_checks_only_the_issuer() -> None:
     """A split's provider process neither mints nor needs the authorities."""
     assert _problems(MAP, loaded={"plans": PLANS}, issuers=()) == []
@@ -544,7 +525,6 @@ def _descriptor(path: str, *, issues_tokens: bool = False) -> Any:
     return SimpleNamespace(name=path, issues_tokens=issues_tokens)
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_install_assigns_the_checked_map_and_the_explicit_map_wins() -> None:
     """``create_app``'s step: the facade's mint check gets the result."""
     core = _core(None)
@@ -561,7 +541,6 @@ def test_install_assigns_the_checked_map_and_the_explicit_map_wins() -> None:
     assert policy.owner_of("roles") == "idp"
 
 
-@pytest.mark.usefixtures("known_modules")
 def test_install_refuses_with_b035_naming_every_problem() -> None:
     """One ``ConfigurationError`` listing each problem, with the code."""
     core = _core(None)
@@ -577,7 +556,7 @@ def test_install_refuses_with_b035_naming_every_problem() -> None:
         )
     message = str(refused.value)
     assert "SANDLOOM-B035" in message
-    assert "'nowhere', which names no module" in message
+    assert "'nowhere', which is neither loaded" in message
     assert "critical=False" in message
     assert not core.claim_authorities.assigned
 

@@ -220,13 +220,14 @@ def test_t3_a_critical_remote_violator_refuses_the_mint(infra: Infra) -> None:
 
 
 def test_t5_a_typo_in_an_authority_refuses_the_boot(infra: Infra) -> None:
-    """T-5: the assigned path names no module."""
+    """T-5: the assigned path names no module: refused, named as a typo."""
     log = boot_refusal(infra, mono(infra, Users(), ALL, root=TYPO_ROOT))
     assert "SANDLOOM-B035" in log
     assert (
-        "claim_authorities['roles'] is 'pocapp.modules.test_identty', which names "
-        "no module" in log
+        "claim 'roles' is assigned to 'pocapp.modules.test_identty', which is "
+        "neither loaded in this issuing process nor bound" in log
     )
+    assert "a typo of 'pocapp.modules.test_identity'?" in log
 
 
 def test_t5_an_authority_neither_loaded_nor_bound_refuses_the_boot(

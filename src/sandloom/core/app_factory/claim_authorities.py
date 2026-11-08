@@ -14,10 +14,12 @@ the result, which the mint check applies in the merge pass
   path both match. A remote authority is its ``<m>.claims.v1`` binding in
   ``SERVICE_BINDINGS``, which the configuration checks already require to be
   pinned to a ``service_id`` and authenticated with the pair MAC (ADR-0004).
-* **Startup refusals**, each naming the key and the module: an assigned path
-  that names no module (a typo); in the issuing process, an authority neither
-  loaded nor bound, loaded under its short name from another path, loaded
-  without a claims contributor, or non-critical for a key whose readers have
+* **Startup refusals**, each naming the key and the module, in the issuing
+  process (only it mints; a split's other services may not even install the
+  authority): an authority neither loaded nor bound (a typo of a loaded path
+  is named as one; nothing is imported to tell), loaded under its short name
+  from another path, loaded without a claims contributor, or non-critical
+  for a key whose readers have
   no fallback (decision 7: only :data:`~sandloom.core.claims.FAIL_SAFE_KEYS`
   may have a non-critical authority, billing option (c)); an issuer mismatch
   (an ``issues_tokens=True`` module that is not the map's ``issuer``, or the
@@ -35,7 +37,7 @@ the result, which the mint check applies in the merge pass
 
 from __future__ import annotations
 
-import importlib.util
+import difflib
 import logging
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -111,14 +113,14 @@ def build_claim_authorities(
     )
 
 
-def _names_a_module(path: str) -> bool:
-    """Whether ``path`` is importable or a ``sandloom.modules`` entry point."""
-    if any(m.path == path or m.name == path for m in installed_modules()):
-        return True
-    try:
-        return importlib.util.find_spec(path) is not None
-    except (ImportError, ValueError):
-        return False
+def _typo_hint(path: str, loaded: Mapping[str, str]) -> str:
+    """``"; a typo of '<loaded path>'?"`` when ``path`` names no installed
+    module and is close to a loaded one, else ``""``. No import: the check
+    reads only what loaded and the installed entry points."""
+    if any(m.path == path for m in installed_modules()):
+        return ""
+    close = difflib.get_close_matches(path, sorted(set(loaded.values())), n=1)
+    return f"; a typo of {close[0]!r}?" if close else ""
 
 
 def _in_composition(
@@ -198,7 +200,7 @@ def _authority_problem(
         return (
             f"claim {key!r} is assigned to {path!r}, which is neither loaded in "
             f"this issuing process nor bound ({short}{_CLAIMS_SUFFIX} is not in "
-            "SERVICE_BINDINGS)"
+            f"SERVICE_BINDINGS){_typo_hint(path, loaded)}"
         )
     if binding.get("critical", True) is False and authorities.critical_required(key):
         return (
@@ -261,28 +263,15 @@ def claim_authority_problems(
         # Only the issuing process mints, so only it needs every authority
         # loaded or bound; another process may not even have the module
         # installed (a split's own images).
-        named = dict(authorities.authorities)
-        if authorities.issuer is not None:
-            named[ISSUER_ENTRY] = authorities.issuer
-        for key, path in sorted(named.items()):
-            problem: str | None
-            if not _names_a_module(path):
-                problem = (
-                    f"claim_authorities[{key!r}] is {path!r}, which names no "
-                    "module (not importable, no sandloom.modules entry point): "
-                    "a typo?"
-                )
-            elif key == ISSUER_ENTRY:
-                continue
-            else:
-                problem = _authority_problem(
-                    key,
-                    path,
-                    authorities,
-                    loaded=loaded,
-                    contributors=contributors,
-                    bindings=bindings,
-                )
+        for key, path in sorted(authorities.authorities.items()):
+            problem = _authority_problem(
+                key,
+                path,
+                authorities,
+                loaded=loaded,
+                contributors=contributors,
+                bindings=bindings,
+            )
             if problem is not None:
                 problems.append(problem)
     problems.extend(_issuer_problems(authorities, loaded, issuer_list))
