@@ -27,7 +27,6 @@ from sandloom.core import planner as _planner
 from sandloom.core._internal.db_provider import get_db
 from sandloom.core.app_factory.config import (
     DEVELOPMENT_DATABASE_RISK,
-    ConfigurationError,
     application_enforced_isolation,
     configuration_problems,
     configured_database_urls,
@@ -70,7 +69,7 @@ from sandloom.core.app_factory.pages import (
     _install_favicon,
     _install_start_page,
 )
-from sandloom.core.config.common import INVALID_CONFIGURATION
+from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleLoadSummary
 from sandloom.core.drivers.bootstrap import (

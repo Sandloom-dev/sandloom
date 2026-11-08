@@ -22,6 +22,7 @@ try:  # optional metrics (Phase G)
     from sandloom.core.observability import metrics as _metrics_mod
 except Exception:  # pragma: no cover  # noqa: BLE001 - metrics are optional
     _metrics_mod = None  # type: ignore
+from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors.module_names import (
     ENTRY_POINT_GROUP,
@@ -302,6 +303,30 @@ def _should_skip(name: str) -> bool:
     return name in bl
 
 
+def _configuration_refusal(module: Any, refusal: SystemExit) -> ConfigurationError:
+    """The boot refusal for a module that refused its configuration.
+
+    A module refuses a configuration it cannot run with by raising
+    ``SystemExit(reason)`` from ``register`` / ``setup`` (identity without
+    ``TWOFA_ENCRYPTION_KEY`` in prod, billing on the implicit fake PSP in
+    prod). Registration runs in every process that builds the composition
+    (the app, the worker and beat, ``sandloom migrate``, the operator CLIs),
+    so the refusal is the same everywhere: :class:`ConfigurationError`,
+    prefixed :data:`INVALID_CONFIGURATION`, exit status 1. It is never a
+    module load failure, so an optional module cannot be skipped past it. A
+    refusal already prefixed (a ``Settings`` load forced inside the module)
+    passes through unchanged.
+    """
+    if isinstance(refusal, ConfigurationError):
+        return refusal
+    code = refusal.code
+    reason = code if isinstance(code, str) else f"exit status {code!r}"
+    if reason.startswith(INVALID_CONFIGURATION):
+        return ConfigurationError(reason)
+    name = getattr(module, "__name__", "?")
+    return ConfigurationError(f"{INVALID_CONFIGURATION}module {name}: {reason}")
+
+
 def _invoke_register(module: Any, api: ModuleAPI) -> ModuleDescriptor:
     register_fn = getattr(module, "register", None)
     if not callable(register_fn):
@@ -313,7 +338,10 @@ def _invoke_register(module: Any, api: ModuleAPI) -> ModuleDescriptor:
         )
     # ``api`` is the NARROW, draft-backed ModuleAPI — the module sees only the
     # registration surface, and its writes are buffered until commit.
-    result = register_fn(api)
+    try:
+        result = register_fn(api)
+    except SystemExit as refusal:
+        raise _configuration_refusal(module, refusal) from None
     if isinstance(result, ModuleDescriptor):
         # Phase I: auto-detect migrations directory if not provided
         if result.migrations_path is None:

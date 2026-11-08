@@ -212,9 +212,12 @@ class TestForgedWebhooks:
         monkeypatch.setattr(settings, "billing_provider", "stripe")
         assert psp_configuration_error(settings) is None
 
-    async def test_register_adds_critical_startup_guard_in_prod(
+    def test_register_refuses_fake_psp_in_prod(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Registration itself refuses, so no entry point builds past it."""
+        from unittest.mock import MagicMock
+
         from sandloom.sdk.infra import settings
         from sandloom_billing import register
 
@@ -222,16 +225,10 @@ class TestForgedWebhooks:
         set_environment(monkeypatch, "prod")
         monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
 
-        from unittest.mock import MagicMock
-
         recorder = MagicMock()
-        register(recorder)
-        calls = recorder.add_startup_task.call_args_list
-        assert len(calls) == 1
-        task = calls[0].args[0]
-        assert calls[0].kwargs == {"critical": True}
-        with pytest.raises(RuntimeError, match="BILLING_PROVIDER=fake"):
-            await task()
+        with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
+            register(recorder)
+        recorder.add_startup_task.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #

@@ -11,7 +11,11 @@ from sandloom.core import rpc_binding, rpc_identity, rpc_pair_mac
 from sandloom.core.auth.tokens import jwt_key_material_problem
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.config import tiers
-from sandloom.core.config.common import INVALID_CONFIGURATION, strict_profile_active
+from sandloom.core.config.common import (
+    INVALID_CONFIGURATION,
+    ConfigurationError,
+    strict_profile_active,
+)
 from sandloom.core.config.password_params import meets_owasp_minimum
 from sandloom.core.config.settings import load_settings, settings
 from sandloom.core.guarantee_lattice import (
@@ -39,15 +43,6 @@ from sandloom.core.sql_alchemy.portable import (
 )
 from sandloom.core.sql_alchemy.read_only_policy import read_only_sessions_problem
 from sandloom.core.sql_alchemy.tenant_rls import row_security_problem
-
-
-class ConfigurationError(SystemExit):
-    """The configuration fails a check that runs at boot.
-
-    A ``SystemExit`` like a ``Settings`` load failure: the entry point
-    (ASGI import, worker, ``sandloom-migrate``, the ``sandloom`` CLI) stops with the
-    message and exit status 1 before serving or touching anything.
-    """
 
 
 def configured_database_urls(cfg: Any) -> list[tuple[str, str]]:

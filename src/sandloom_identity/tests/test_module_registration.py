@@ -2,7 +2,7 @@
 
 Run against a buffering registration draft (nothing reaches the live app), so
 the declared surface — routers and their order, event schemas, the critical
-claims contributor, the 2FA-key startup guard and the descriptor — is
+claims contributor, the 2FA-key registration refusal and the descriptor — is
 compared as a whole.
 """
 
@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from sandloom.sdk.infra import settings
 from sandloom.sdk.module import CapabilityRequirement, ModuleAPI, ModuleDescriptor
 from sandloom.sdk.testing import ModuleRegistrationDraft
 from sandloom_identity import register
@@ -110,24 +111,31 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     assert draft.access_facts == []
 
 
-async def test_missing_twofa_key_registers_a_critical_refusal(
+def test_missing_twofa_key_refuses_registration(
     sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A missing TOTP key stops registration itself (not a lifespan task),
+    so every process that builds the composition refuses with the reason;
+    nothing of the module is registered."""
     monkeypatch.setattr(
         twofa_service, "twofa_configuration_error", lambda: "TWOFA key missing"
     )
-    descriptor, draft = _register(sandloom_app)
+    draft = ModuleRegistrationDraft()
+    with pytest.raises(SystemExit, match="TWOFA key missing"):
+        register(ModuleAPI(sandloom_app.state.core, draft=draft))
+    assert draft.startup == []
+    assert draft.claims_contributors == []
 
-    assert descriptor == EXPECTED_DESCRIPTOR
-    assert [t.__name__ for t, _ in draft.startup] == [
-        "_refuse_missing_twofa_key",
-        "warm_dummy_password_hash",
-        "prepare_declared_operations",
-    ]
-    task, critical = draft.startup[0]
-    assert critical is True
-    with pytest.raises(RuntimeError, match="TWOFA key missing"):
-        await task()
-    # Everything else is registered unchanged.
-    assert len(draft.routers) == 8
-    assert draft.claims_contributors == [(contribute_identity_claims, True)]
+
+def test_missing_jwt_secret_refuses_registration(
+    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """identity keys its emailed tokens with ``JWT_SECRET``: without it (an
+    asymmetric deployment's verify-only processes) registration itself
+    refuses, so no entry point builds past it; nothing is registered."""
+    monkeypatch.setattr(settings, "jwt_secret", "")
+    draft = ModuleRegistrationDraft()
+    with pytest.raises(SystemExit, match="identity requires JWT_SECRET"):
+        register(ModuleAPI(sandloom_app.state.core, draft=draft))
+    assert draft.startup == []
+    assert draft.claims_contributors == []
