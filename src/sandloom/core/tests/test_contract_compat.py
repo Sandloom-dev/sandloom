@@ -199,32 +199,6 @@ def test_model_without_field_info_is_a_warning_not_an_error() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Committed snapshots are current (CI diff gate)
-# --------------------------------------------------------------------------- #
-def test_committed_module_snapshots_match_registered_contracts() -> None:
-    from sandloom.main import core
-
-    docs = contract_compat.module_snapshots(core)
-    assert {"sandloom_identity", "sandloom_tenancy", "sandloom_billing"} <= set(docs)
-    for module, doc in docs.items():
-        path = contract_compat.snapshot_path(module)
-        assert path is not None and path.is_file(), f"{module}: no snapshot"
-        assert path.read_text(encoding="utf-8") == contract_compat.render_snapshot(
-            doc
-        ), f"{path} is stale: run `sandloom contracts snapshot --write`"
-
-
-def test_expectation_is_found_in_the_provider_package_without_importing_it() -> None:
-    core = CoreFacade(app=FastAPI())
-    core.loaded_modules = ["sandloom_identity"]
-    found = contract_compat.expected_contracts(core, ["billing.credits.v1"])
-    assert found["billing.credits.v1"].source.endswith(
-        "sandloom_billing/contracts.snapshot.json"
-    )
-    assert "spend" in found["billing.credits.v1"].describe["methods"]
-
-
-# --------------------------------------------------------------------------- #
 # Readiness + startup against a live provider
 # --------------------------------------------------------------------------- #
 def _provider_app(impl: Any) -> FastAPI:

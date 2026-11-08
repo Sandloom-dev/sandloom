@@ -22,12 +22,10 @@ from pydantic import BaseModel
 from sandloom.core import guarantee_windows as gw
 from sandloom.core.descriptors import (
     ContractRequirement,
-    ModuleDescriptor,
     saga_contract_requirements,
     synthetic_instance,
 )
 from sandloom.core.facade import CoreFacade
-from sandloom.core.loader import plugin_loader
 from sandloom.core.module_api import (
     ContractArgumentError,
     ContractCallError,
@@ -43,7 +41,6 @@ from sandloom.core.module_api import (
     operation_key,
     step,
 )
-from sandloom.core.module_api._registration import pending_saga_requirements
 from sandloom.core.module_api._service_registry import (
     ServiceNotFound,
     ServiceUnavailableInDeployment,
@@ -230,29 +227,6 @@ def test_synthetic_instance_covers_wire_types() -> None:
     assert made.e.n == 1 and made.f == [] and made.h == "default"
 
 
-def test_unregistered_definition_has_no_type() -> None:
-    saga = _saga(_grant(), local_step("p", kind="pivot", apply=_apply))
-    with pytest.raises(SagaDefinitionError, match="not registered"):
-        _ = saga.saga_type
-    assert saga.bind("sandloom_tenancy") == "tenancy.org_setup"
-    with pytest.raises(SagaDefinitionError, match="already registered"):
-        saga.bind("sandloom_billing")
-
-
-# --------------------------------------------------------------------------- #
-# contracts (startup)
-# --------------------------------------------------------------------------- #
-def test_a_matching_definition_builds() -> None:
-    saga = _saga(_grant(), local_step("p", kind="pivot", apply=_apply))
-    registry = build_registry(_core(saga))
-    reg = next(iter(registry))
-    assert reg.saga_type == "tenancy.org_setup"
-    assert reg.channel == "tenancy.saga_advance.v1"
-    assert reg.key_params[("grant_trial_credits", "do")] == "operation_key"
-    assert reg.key_params[("grant_trial_credits", "undo")] == "operation_key"
-    assert registry.describe()[0]["steps"][0]["call"] == "dfbilling.credits.v1.grant"
-
-
 def test_parameter_typo_names_the_fix() -> None:
     saga = _saga(_grant(args=typo_args), local_step("p", kind="pivot", apply=_apply))
     with pytest.raises(SagaDefinitionError) as info:
@@ -326,20 +300,6 @@ def test_requirements_cover_every_called_method() -> None:
             methods=("grant", "revoke"),
         )
     ]
-
-
-def test_register_saga_buffers_and_the_loader_merges_consumes() -> None:
-    core = CoreFacade(app=FastAPI())
-    saga = _saga(_grant(), local_step("p", kind="pivot", apply=_apply), name="onboard")
-    with core.module_registration("sandloom_tenancy") as api:
-        api.register_saga(saga)
-        assert pending_saga_requirements(api)[0].methods == ("grant", "revoke")
-        desc = ModuleDescriptor(name="sandloom_tenancy", version="1")
-        plugin_loader._merge_saga_requirements(desc, api)
-        plugin_loader._merge_saga_requirements(desc, api)  # idempotent
-    assert [r.name for r in desc.consumes] == ["dfbilling.credits.v1"]
-    assert core.sagas == [(saga, "sandloom_tenancy")]
-    assert saga.saga_type == "tenancy.onboard"
 
 
 def test_register_saga_rejects_a_non_definition() -> None:

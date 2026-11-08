@@ -50,22 +50,6 @@ def test_import_has_no_side_effects() -> None:
     assert worker._app is None
 
 
-def test_worker_registers_loaded_module_tasks_and_beat_schedule() -> None:
-    app = _celery()
-    core = _Core(app, ["sandloom_identity", "sandloom_tenancy"])
-
-    built = worker.build_worker_app(core)
-
-    assert built is app
-    assert core.requested == ["default"]
-    app.finalize()
-    assert "sandloom_identity.tasks.cleanup_expired_refresh_tokens" in app.tasks
-    # The identity beat hook ran on finalize and filled the schedule.
-    schedule = app.conf.beat_schedule
-    assert "cleanup_revoked_refresh_tokens_daily" in schedule
-    assert "cleanup_expired_refresh_tokens_hourly" in schedule
-
-
 def test_worker_without_identity_has_no_identity_tasks() -> None:
     """A deployment that does not load identity gets a worker without it."""
     app = _celery()

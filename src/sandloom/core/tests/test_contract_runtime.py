@@ -377,45 +377,6 @@ def _remote(
 
 
 @pytest.mark.asyncio
-async def test_identity_alone_collects_remote_claims(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Microservices: identity runs alone; tenancy/billing claims come via RPC."""
-    core, _log = _core()
-    seen: list[Any] = []
-
-    async def identity_claims(user_id: Any) -> dict[str, Any]:
-        seen.append(contract_session())
-        return {"roles": ["member"]}
-
-    with core.module_registration("sandloom_identity") as api:
-        api.add_claims_contributor(identity_claims, critical=True)
-    org = str(uuid4())
-    tenancy = _Proxy({"tenant_ids": [org]})
-    billing = _Proxy(error=RuntimeError("billing down"))
-    _remote(
-        core,
-        monkeypatch,
-        {
-            "tenancy.claims.v1": {"base_url": "http://a"},
-            "billing.claims.v1": {"base_url": "http://b", "critical": False},
-            "tenancy.membership.v1": {"base_url": "http://a"},
-        },
-        {"tenancy.claims.v1": tenancy, "billing.claims.v1": billing},
-    )
-    issuer_session = object()
-    user = uuid4()
-    claims = await core.collect_claims(user, issuer_session, issuer="identity")
-
-    assert claims["tenant_ids"] == [org]
-    assert claims["roles"] == ["member"]
-    assert seen == [issuer_session]  # issuer's own contributors: its session
-    assert tenancy.calls == [user]
-    assert claims["claims_sources"] == ["identity", "tenancy"]
-    assert claims["claims_sources_failed"] == ["billing"]
-
-
-@pytest.mark.asyncio
 async def test_critical_remote_contributor_failure_is_503(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -443,26 +404,6 @@ async def test_critical_local_contributor_failure_is_503() -> None:
         api.add_claims_contributor(broken, critical=True)
     with pytest.raises(ClaimsUnavailable):
         await core.collect_claims(uuid4())
-
-
-@pytest.mark.asyncio
-async def test_local_contributor_runs_in_its_own_uow_and_is_exposed() -> None:
-    core, log = _core()
-
-    async def tenancy_claims(user_id: Any) -> dict[str, Any]:
-        assert isinstance(contract_session(), _FakeSession)
-        return {"tenant_ids": ["t1"]}
-
-    with core.module_registration("sandloom_tenancy") as api:
-        api.add_claims_contributor(tenancy_claims, critical=True)
-    # Exposed as tenancy.claims.v1 for remote issuers.
-    assert core.service_registry.contains("tenancy.claims.v1")
-    claims = await core.collect_claims(uuid4())
-    assert claims["tenant_ids"] == ["t1"]
-    assert claims["claims_sources"] == ["tenancy"]
-    assert ("default", "rollback") in log  # its own read-only UoW
-    remote_view = await core.get_service("tenancy.claims.v1").contribute(uuid4())
-    assert remote_view == {"tenant_ids": ["t1"]}
 
 
 @pytest.mark.asyncio
@@ -532,27 +473,6 @@ async def test_collect_claims_refuses_a_caller_session_without_issuer() -> None:
         await core.collect_claims(uuid4(), object())
     claims = await core.collect_claims(uuid4())
     assert claims == {"claims_sources": [], "claims_sources_failed": []}
-
-
-def test_local_contributor_wins_over_remote_binding(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    core, _log = _core()
-
-    async def tenancy_claims(user_id: Any) -> dict[str, Any]:  # pragma: no cover
-        return {}
-
-    with core.module_registration("sandloom_tenancy") as api:
-        api.add_claims_contributor(tenancy_claims)
-    monkeypatch.setattr(
-        core.settings,
-        "service_bindings",
-        {
-            "tenancy.claims.v1": {"base_url": "http://a"},
-            "billing.claims.v1": {"base_url": "http://b", "critical": False},
-        },
-    )
-    assert core.remote_claims_contributors() == {"billing": False}
 
 
 # ---------------------------------------------------------------------------

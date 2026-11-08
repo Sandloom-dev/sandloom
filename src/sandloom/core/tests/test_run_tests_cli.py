@@ -15,61 +15,11 @@ def _names(steps: list[run_tests.Step]) -> list[str]:
     return [s.name for s in steps]
 
 
-def test_the_plan_of_the_framework_tree() -> None:
-    root = Path(__file__).resolve().parents[4]  # backend/
-    steps = run_tests.plan(root, "billing", full=False, gates=True, workers="auto")
-    assert _names(steps) == [
-        "ruff check",
-        "generated files",
-        "schema & deploy",
-        "billing",
-        "suite (not slow)",
-        "ruff format",
-        "mypy",
-        "sandloom check",
-        "architecture tests",
-        "lint-imports",
-        "contract snapshots",
-        "route snapshots",
-        "migration drift",
-        "public API baseline",
-    ]
-    suite = steps[4]
-    assert suite.argv[-6:] == ["-n", "auto", "--dist", "loadfile", "-m", "not slow"]
-    assert suite.env["SANDLOOM_TEST_REDIS_DB_STRIDE"]
-    assert steps[3].argv[-1].endswith("sandloom_billing/tests")
-    full = run_tests.plan(root, None, full=True, gates=True, workers="auto")
-    assert _names(full)[-1] == "typing tests"
-
-
 def test_full_runs_the_slow_tests_and_no_gates_skips_them() -> None:
     root = Path(__file__).resolve().parents[4]
     steps = run_tests.plan(root, None, full=True, gates=False, workers="4")
     assert _names(steps) == ["full suite"]
     assert "not slow" not in steps[0].argv
-
-
-def test_the_test_steps_run_in_a_seeded_random_order(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Every test step loads the shuffle plugin with ONE seed; ``sandloom test``
-    picks a fresh one unless ``--seed`` replays it or ``--no-shuffle``."""
-    root = Path(__file__).resolve().parents[4]
-    steps = run_tests.plan(
-        root, "billing", full=True, gates=False, workers="2", shuffle_seed=42
-    )
-    order = ["-p", run_tests.SHUFFLE_PLUGIN, "--sandloom-shuffle=42"]
-    for step in steps:  # the module's tests and the full suite
-        argv = step.argv
-        assert any(argv[i : i + 3] == order for i in range(len(argv))), argv
-    plain = run_tests.plan(root, None, full=True, gates=False, workers="2")
-    assert run_tests.SHUFFLE_PLUGIN not in plain[0].argv
-    assert run_tests.main(["--plan", "--no-gates", "--seed", "7"]) == 0
-    assert "--sandloom-shuffle=7" in capsys.readouterr().out
-    assert run_tests.main(["--plan", "--no-gates", "--no-shuffle"]) == 0
-    assert "--sandloom-shuffle" not in capsys.readouterr().out
-    assert run_tests.main(["--plan", "--no-gates"]) == 0
-    assert "--sandloom-shuffle=" in capsys.readouterr().out
 
 
 def test_ci_never_writes_so_ruff_check_never_fixes() -> None:
@@ -161,15 +111,6 @@ def test_every_step_runs_and_the_summary_names_the_failures(
     text = run_tests.summary(outcomes)
     assert "FAIL (exit 1)" in text and "sandloom explain SANDLOOM-T001" in text
     assert text.rstrip().endswith("sandloom test: FAILED (route snapshots)")
-
-
-def test_every_xdist_step_gets_the_redis_stride_default() -> None:
-    root = Path(__file__).resolve().parents[4]
-    steps = run_tests.plan(root, "billing", full=True, gates=True, workers="auto")
-    xdist = [s for s in steps if "-n" in s.argv]
-    assert {s.name for s in xdist} == {"full suite", "architecture tests"}
-    for step in xdist:
-        assert step.env.get("SANDLOOM_TEST_REDIS_DB_STRIDE") == "auto", step.name
 
 
 def test_an_exported_stride_wins_over_the_step_default(

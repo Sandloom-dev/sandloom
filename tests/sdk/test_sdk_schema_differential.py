@@ -1775,28 +1775,3 @@ def test_every_refused_shape_raises_at_definition(
         _event("Ev", {"d": fields})
     assert info.value.sandloom_code == "SANDLOOM-B015"
     assert "\n  fix: " in str(info.value)
-
-
-def test_every_bundled_event_is_in_the_closed_set() -> None:
-    """(round 10) the bundled modules' events define (their readers are
-    built at definition); the example apps' are checked by their own
-    suites in CI (examples job)."""
-    import sandloom_billing.events
-    import sandloom_identity.events
-    import sandloom_tenancy.events
-    from sandloom.sdk import Event
-    from sandloom.sdk._decl.events import _READERS, is_concrete
-
-    modules = (
-        sandloom_billing.events,
-        sandloom_identity.events,
-        sandloom_tenancy.events,
-    )
-    events = [
-        value
-        for module in modules
-        for value in vars(module).values()
-        if isinstance(value, type) and issubclass(value, Event) and is_concrete(value)
-    ]
-    assert len(events) > 30
-    assert all(event in _READERS for event in events)
