@@ -132,13 +132,18 @@ and the rows a change moves, for the PR description.
         "SANDLOOM-T016",
         "admin-manifest",
         "test",
-        "the admin console's manifest is stale or cannot be compiled",
-        "run sandloom generate; if it reports a declaration, fix that admin.py",
+        "a module-declared generated file (the console's manifest) is stale or "
+        "cannot be rendered",
+        "run sandloom generate; if it reports a declaration, fix the module it names",
         """
-The admin console draws its screens from `<app>/shared/admin-manifest.json`,
-compiled from the `admin.py` declarations of every composed module and checked
-against the application's OpenAPI. `sandloom test` fails when the file differs
-from what the current declarations and routes compile to.
+A module can declare a file `sandloom generate` writes into `<app>/shared/`
+(`define_module(generates=...)`), rendered from the composed app's data: its
+OpenAPI, its routes and every loaded module's `admin.py` declarations. The
+admin console declares its manifest this way and checks each screen against
+the application's OpenAPI. `sandloom test` fails when the file differs from
+what the current declarations and routes render to; a renderer that refuses,
+a name two modules declare and a partially failed composition are reported
+with the module to fix.
 """,
         docs="docs/admin-console/add-your-module.md",
     ),

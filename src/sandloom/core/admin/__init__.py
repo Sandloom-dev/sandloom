@@ -1,5 +1,5 @@
-"""Offline admin manifest compiler; no ORM, lifespan or production discovery."""
+"""The platform operations API the kernel serves whether a console exists or not.
 
-from .compiler import compile_app, compile_resources
-
-__all__ = ["compile_app", "compile_resources"]
+The console's manifest compiler belongs to the console module (ADR-0012
+decision 4): ``sandloom generate`` renders the file the console declares.
+"""

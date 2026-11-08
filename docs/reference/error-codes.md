@@ -24,7 +24,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | Code | Slug | Kind | What happened | Status |
 | --- | --- | --- | --- | --- |
 | [`SANDLOOM-T017`](#sandloom-t017) | `kernel-edge` | test | the kernel names a module its edge register does not record, or the register is out of date | active |
-| [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | the admin console's manifest is stale or cannot be compiled | active |
+| [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | a module-declared generated file (the console's manifest) is stale or cannot be rendered | active |
 | [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
 | [`SANDLOOM-C001`](#sandloom-c001) | `module-boundaries` | check | a business module imports a sibling business module | active |
 | [`SANDLOOM-C002`](#sandloom-c002) | `framework-imports` | check | import outside the framework public API | active |
@@ -1650,18 +1650,22 @@ and the rows a change moves, for the PR description.
 
 ### SANDLOOM-T016
 
-**the admin console's manifest is stale or cannot be compiled**
+**a module-declared generated file (the console's manifest) is stale or cannot be rendered**
 
 Slug: `admin-manifest` · kind: test · status: active
 
 **What happened and why it matters**
 
-The admin console draws its screens from `<app>/shared/admin-manifest.json`,
-compiled from the `admin.py` declarations of every composed module and checked
-against the application's OpenAPI. `sandloom test` fails when the file differs
-from what the current declarations and routes compile to.
+A module can declare a file `sandloom generate` writes into `<app>/shared/`
+(`define_module(generates=...)`), rendered from the composed app's data: its
+OpenAPI, its routes and every loaded module's `admin.py` declarations. The
+admin console declares its manifest this way and checks each screen against
+the application's OpenAPI. `sandloom test` fails when the file differs from
+what the current declarations and routes render to; a renderer that refuses,
+a name two modules declare and a partially failed composition are reported
+with the module to fix.
 
-**Fix:** run sandloom generate; if it reports a declaration, fix that admin.py
+**Fix:** run sandloom generate; if it reports a declaration, fix the module it names
 
 **More:** `docs/admin-console/add-your-module.md`
 

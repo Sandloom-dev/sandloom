@@ -425,6 +425,7 @@ class ModuleDescriptor(
     consumes: list[ContractRequirement] = <factory>,
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    generated_files: dict[str, GeneratedFileRenderer] = <factory>,
 ) -> None
 ```
 
