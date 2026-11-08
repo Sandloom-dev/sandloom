@@ -15,6 +15,38 @@ website renders this same changelog.
 
 ### Security
 
+- **The kernel applies durable token revocations in every service; the token
+  issuer must end its sessions on a block** (ADR-0012 decision 5). The durable
+  consumer of `core.auth.tokens_revoked.v1` moved from identity into the
+  kernel: every composition registers it as `auth@tokens_revoked` in its own
+  group, `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`, so a mark
+  that failed after commit is re-applied in every service whether identity
+  is loaded there or not (identity's `sessions@tokens_revoked` is gone).
+  There is no fallback to the database identity: on a shared event bus
+  (`EVENT_BUS_BACKEND=streams|redis`, or `auto` in prod) a process without
+  `SANDLOOM_SERVICE_NAME` refuses to start in every entry point (app, worker,
+  `sandloom migrate`, the configured CLI commands) with
+  `INVALID_CONFIGURATION`, in every environment. The in-process memory bus
+  needs no name (group `…@local`). `/ready` now also fails, naming the
+  consumer, when the applier is needed and missing or not running, when the
+  oldest pending `core.auth.tokens_revoked.v1` / `core.auth.user_blocked.v1`
+  event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`, or when one is
+  dead-lettered; a younger backlog stays ready, exported as
+  `sandloom_consumer_lag_seconds` and logged at WARNING above half the bound.
+  A module declared `issues_tokens=True` must register a durable consumer of
+  `core.auth.user_blocked.v1`, or declare
+  `define_module(..., refresh_sessions=False)` (new, recorded in
+  `module.snapshot.json`, shown by `sandloom doctor` and
+  `/diagnostics/core`); startup refuses an issuer with neither, and a
+  declaration contradicted by a refresh route, a session table or such a
+  consumer (`SANDLOOM-B035`). **Upgrade:** set `SANDLOOM_SERVICE_NAME` in
+  every process on a shared bus — the same value for all replicas of one
+  service, a different one for every other service (the shipped compose
+  profiles and `sandloom add deploy` already do; T014 refuses two services
+  of one profile with one name). A custom token issuer without a block
+  consumer adds one or declares `refresh_sessions=False`. Drop any operator
+  pin of the old `identity:sessions@tokens_revoked` group; its pending
+  entries are re-applied by the new group from the stream (idempotent).
 - **Identity's and billing's production refusals stop every process, not only
   the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, identity without
   `JWT_SECRET` (any environment; issuer-only with an asymmetric `JWT_ALGORITHM`),
