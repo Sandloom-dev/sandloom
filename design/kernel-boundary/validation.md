@@ -185,3 +185,23 @@ Gaps:
   `PRODUCTION_PROFILE=multi_tenant_strict` were not exercised.
 - **Grant storage**: grants live in process memory; the provider's own database, migrations and
   RLS on its tables are outside what B tests (the protocol between provider and kernel).
+
+## 2. PoCs for decisions B and C (pointers, recorded by tm `kb-adrs`)
+
+The three PoCs after the alternatives wrote their own results files; this section points to them
+and records the commits. Each ran on the branch head `ceb3d66` (`src/`, `packages/` and `tests/`
+equal at `53701d9`), in throwaway worktrees outside the repository, with its own PostgreSQL and
+Redis containers and `SANDLOOM_TEST_OWNER`; nothing under this checkout's `src/` or `packages/`
+was edited. The ADRs cite these numbers.
+
+| PoC | tm | results | commit | candidate | headline | ADR |
+|---|---|---|---|---|---|---|
+| consumer-owned contract copies (B1) | `kb-poc-contracts` | [poc/contracts/results.md](poc/contracts/results.md) | `67980bf` | `poc/contracts/b1-candidate.patch` on `ceb3d66` | 13 proofs: consumer-only install, kernel wheel unchanged (526 files, `7d7922e781850821`), D4 closed under `strict`, byte-identical generation (`b2f4f35ae641bd88`); one defect (whole-describe expectation refuses a consumer-first order) and one input (the project formatter), both fixed by ADR-0013 decisions 3 and 6 | [ADR-0013](../../docs/adr/0013-contract-ownership.md) |
+| claims trust model (TA-1) with the TA-0 control | `kb-poc-trust` | [poc/trust/results.md](poc/trust/results.md) | `627c9c9` | `poc/trust/ta1-kernel.patch` on `ceb3d66` + PR #72 (`a51a59d`, `971f80a`) | T-1..T-18 pass mono and split; TA-0 fails exactly T-9, T-10, T-11; request rung +0.57 % Ir, mint +0.68 % Ir, no extra call; full suite 6504 passed (6 failures by design or environment) | [ADR-0014](../../docs/adr/0014-claims-trust-and-authorization-portability.md) part (a), [ADR-0012](../../docs/adr/0012-kernel-boundary.md) decisions 3, 5 |
+| contract-anchored access checks (PA-2) with PA-1, PA-3, K5, K6, witness | `kb-poc-authz` | [poc/authz/results.md](poc/authz/results.md) | `ccc420e` | `poc/authz/patches/kb-poc-authz.patch` on `ceb3d66` | decisions 20/20 and counts equal mono and split (decisive 3 calls / 9 DB); decisive shape +0.6 % Ir inside noise; DX 31 consumer lines → 0; Z-10 failed (422 instead of 501) and Z-12 not done (kernel atoms kept), both turned into requirements of ADR-0014 decisions 12 and 14 | [ADR-0014](../../docs/adr/0014-claims-trust-and-authorization-portability.md) part (b), [ADR-0010 amendment](../../docs/adr/0010-public-api-1.0.md) |
+
+Earlier evidence the ADRs also cite: the replaceability PoC of §1 (`47c31de`), the authorization
+perf and DX baseline ([perf-dx-baseline.md](perf-dx-baseline.md), `162d84a`), the gate probe at
+`86aed8b` ([roadmap-review.md](roadmap-review.md) §2.2, `38f33cb`). No PoC was run for decision D:
+the settings PoC rows P1-P16 (`alternatives-d-settings.md` §11) are the acceptance criteria of
+KB-50..KB-56 in [migration-plan.md](migration-plan.md).
