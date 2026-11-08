@@ -1,0 +1,97 @@
+# sandloom test --full on the patched copy (SANDLOOM_TEST_OWNER=kb-poc-trust, own Postgres :38533 / Redis :38480)
+
+## run 1
+= 297 failed, 6051 passed, 12 skipped, 1 xfailed, 16 warnings, 122 errors in 300.85s (0:05:00) =
+  FAIL (exit 1)    ruff check               0.2s
+  FAIL (exit 1)    generated files          2.0s  -> sandloom explain SANDLOOM-T005 / T007 / C012 (stale: sandloom generate)
+  FAIL (exit 1)    schema & deploy          0.2s  -> sandloom explain SANDLOOM-T002 / SANDLOOM-T010 / SANDLOOM-T012 (per problem)
+  FAIL (exit 1)    full suite             304.6s
+  FAIL (exit 1)    ruff format              0.1s
+  FAIL (exit 1)    mypy                     8.9s
+  FAIL (exit 1)    architecture tests      25.9s
+  FAIL (exit 1)    public API baseline      0.9s  -> sandloom explain SANDLOOM-T008
+sandloom test: FAILED (ruff check, generated files, schema & deploy, full suite, ruff format, mypy, architecture tests, public API baseline)
+
+## run 2
+= 93 failed, 6368 passed, 17 skipped, 1 xfailed, 16 warnings, 28 errors in 201.51s (0:03:21) =
+  FAIL (exit 1)    ruff check               0.1s
+  FAIL (exit 1)    generated files          1.5s  -> sandloom explain SANDLOOM-T005 / T007 / C012 (stale: sandloom generate)
+  FAIL (exit 1)    schema & deploy          0.2s  -> sandloom explain SANDLOOM-T002 / SANDLOOM-T010 / SANDLOOM-T012 (per problem)
+  FAIL (exit 1)    full suite             203.6s
+  FAIL (exit 1)    ruff format              0.1s
+  FAIL (exit 1)    mypy                     0.6s
+  FAIL (exit 1)    architecture tests      24.1s
+  FAIL (exit 1)    public API baseline      0.9s  -> sandloom explain SANDLOOM-T008
+sandloom test: FAILED (ruff check, generated files, schema & deploy, full suite, ruff format, mypy, architecture tests, public API baseline)
+
+## run 3
+= 11 failed, 6471 passed, 17 skipped, 1 xfailed, 16 warnings, 28 errors in 227.79s (0:03:47) =
+  FAIL (exit 1)    full suite             230.0s
+  FAIL (exit 1)    sandloom check           9.8s  -> sandloom explain SANDLOOM-C0xx (per violation)
+  FAIL (exit 1)    architecture tests      32.0s
+sandloom test: FAILED (full suite, sandloom check, architecture tests)
+
+## run 4
+= 7 failed, 6503 passed, 17 skipped, 1 xfailed, 17 warnings in 255.85s (0:04:15) =
+  FAIL (exit 1)    ruff check               0.1s
+  FAIL (exit 1)    full suite             258.0s
+  FAIL (exit 1)    ruff format              0.0s
+  FAIL (exit 1)    architecture tests      24.9s
+sandloom test: FAILED (ruff check, full suite, ruff format, architecture tests)
+
+## run 5
+= 7 failed, 6503 passed, 17 skipped, 1 xfailed, 17 warnings in 233.28s (0:03:53) =
+  FAIL (exit 1)    full suite             235.4s
+  FAIL (exit 1)    architecture tests      36.5s
+sandloom test: FAILED (full suite, architecture tests)
+
+## run 1: exception classes (count)
+ 312 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: the kernel test authority mints only in a test composition (the sandloom.sdk.testing pytest plugin)
+  27 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries email, email_verified outside a sealed collect_claims result:
+  26 E   AssertionError: split-identity-httpx/identity (http://HOST) exited with code 1 before it was ready (startup failure; see its log)
+   5 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries tenant_ids outside a sealed collect_claims result: protected 
+   5 E   assert 1 == 0
+   2 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries tenant_id outside a sealed collect_claims result: protected c
+   2 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries permissions, roles outside a sealed collect_claims result: pr
+   2 E   AssertionError: assert SealedClaims(...726513e5f33'}) == {'claims_sour...s_failed': []}
+   2 E   AssertionError: 2026-11-08 13:52:02,429 [WARNING] sandloom.app: RPC nonce guard: the shared (security cache) layer FAILS OPEN outside prod — a cache outage accepts 
+   1 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries tenant_id, tenant_ids outside a sealed collect_claims result:
+   1 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries roles outside a sealed collect_claims result: protected claim
+   1 E   sandloom.core.auth.claim_trust.UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries permissions, tenant_ids outside a sealed collect_claims resul
+
+## run 5: remaining failures
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_reset_and_prune_drop_only_a_marked_database
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_services_end_to_end
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_up_never_adopts_a_database_it_did_not_create
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_only_empty_redis_indexes_are_taken_on_your_own_server
+FAILED src/sandloom/core/tests/test_dev/test_dev_slots.py::test_a_second_run_in_one_checkout_gets_slot_two
+FAILED src/sandloom/core/tests/test_module_names.py::test_the_kernel_names_no_module
+FAILED src/sandloom/core/tests/test_sqlite_test_harness.py::test_a_sqlite_file_is_claimed_by_its_marker
+FAILED tests/architecture/test_source_export.py::test_repository_selection_is_complete_and_safe
+
+## run 6 (final patched copy = ta1-kernel.patch)
+= 6 failed, 6504 passed, 17 skipped, 1 xfailed, 16 warnings in 207.46s (0:03:27) =
+sandloom test summary
+----------------
+  PASS             ruff check               0.0s
+  PASS             generated files          1.3s
+  PASS             schema & deploy          0.2s
+  FAIL (exit 1)    full suite             209.3s
+  PASS             ruff format              0.0s
+  PASS             mypy                     0.5s
+  PASS             sandloom check           9.2s
+  PASS             architecture tests      22.1s
+  PASS             lint-imports             0.2s
+  PASS             contract snapshots       0.0s
+  PASS             route snapshots          0.0s
+  PASS             migration drift          2.0s
+  PASS             public API baseline      0.8s
+  PASS             typing tests             8.2s
+
+sandloom test: FAILED (full suite)
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_reset_and_prune_drop_only_a_marked_database
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_services_end_to_end
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_external_up_never_adopts_a_database_it_did_not_create
+FAILED src/sandloom/core/tests/test_dev/test_dev_external.py::test_only_empty_redis_indexes_are_taken_on_your_own_server
+FAILED src/sandloom/core/tests/test_dev/test_dev_slots.py::test_a_second_run_in_one_checkout_gets_slot_two
+FAILED src/sandloom/core/tests/test_module_names.py::test_the_kernel_names_no_module

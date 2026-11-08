@@ -1,0 +1,681 @@
+From eb2a43f38cba8ab355fbda8b17eb008466ff5c2e Mon Sep 17 00:00:00 2001
+From: admin <vasiliy.cherniavskiy@gmail.com>
+Date: Sun, 8 Nov 2026 12:37:31 +0000
+Subject: [PATCH 1/2] security: a module registers facts, claims and their
+ contracts only under its own name
+
+AccessFact.owner_module, add_claims_contributor(owner=) and the reserved
+contract families <m>.claims.v1 / <m>.facts.v1 are checked against the
+module whose registration is being applied; another module's name, or a
+registration outside a module's registration, refuses the load
+(SANDLOOM-B034). Over RPC, a consumer drops a fact <m>.facts.v1 describes
+under another owner_module.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ docs/advanced/security-model.md       | 13 +++++
+ docs/modules/http/route-policy.md     | 10 ++++
+ docs/reference/error-codes.md         | 26 +++++++++
+ src/sandloom/core/error_codes.py      | 28 +++++++++
+ src/sandloom/core/facade/_claims.py   | 26 ++++-----
+ src/sandloom/core/facade/_services.py | 83 +++++++++++++++++++++++++--
+ src/sandloom/shared/authz/facts.py    | 20 ++++++-
+ 7 files changed, 183 insertions(+), 23 deletions(-)
+
+diff --git a/docs/advanced/security-model.md b/docs/advanced/security-model.md
+index 6daa526..e1c5b9a 100644
+--- a/docs/advanced/security-model.md
++++ b/docs/advanced/security-model.md
+@@ -241,6 +241,19 @@ the modules that ran. Without this rule, a module could put
+ `roles: ["admin"]` in a token stamped with identity and pass the platform
+ administrator gate.
+ 
++The names in provenance are tied to the module that registers. Claims
++contributors and access facts are accepted only under the short name of the
++module being registered. So are the contracts named after a module
++(`<m>.claims.v1`, `<m>.facts.v1`). Another module's name refuses the boot
++(`SANDLOOM-B034`), and so does a registration made outside a module's
++registration. Without this rule, a module could answer another module's facts
++or write claims in its name.
++
++Over RPC, the binding names the owner. A consumer drops a fact that
++`<m>.facts.v1` describes under another `owner_module`, and logs
++`SANDLOOM-B034`. The check compares names with the registering module; which
++module may write a given claim key is the first-writer rule above.
++
+ ### Authority at commit (admin and money effects)
+ 
+ A live read is fresh at read time only. Every authenticated write therefore
+diff --git a/docs/modules/http/route-policy.md b/docs/modules/http/route-policy.md
+index 10b8580..b6a3925 100644
+--- a/docs/modules/http/route-policy.md
++++ b/docs/modules/http/route-policy.md
+@@ -229,6 +229,16 @@ binding reads `tenant_id` and `org_id`. It stamps the
+ token envelope: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`, `iat_us`,
+ `auth_time`, `token_type`.
+ 
++A module registers claims and facts only under its own name. The owner the
++kernel stamps into `claims_sources` is the short name of the module being
++registered. These registrations refuse the boot (`SANDLOOM-B034`):
++
++- a claims contributor with `owner=` naming another module;
++- another module's `<m>.claims.v1` or `<m>.facts.v1` contract;
++- an access fact whose `owner_module` is another module;
++- any of these made outside a module's registration, such as a direct call on
++  the core from a startup task.
++
+ Upgrading: a contributor that returns a reserved key now gets `503` at minting.
+ Drop the key. Return each value as a top-level claim your module owns, not
+ under `claims`. Top-level keys already land in `UserContext.claims`.
+diff --git a/docs/reference/error-codes.md b/docs/reference/error-codes.md
+index 27601aa..4e63cf2 100644
+--- a/docs/reference/error-codes.md
++++ b/docs/reference/error-codes.md
+@@ -88,6 +88,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
+ | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
+ | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
+ | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
++| [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
+ | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
+ | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
+ | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
+@@ -1274,6 +1275,31 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
+ 
+ **More:** `docs/infrastructure/database.md`
+ 
++### SANDLOOM-B034
++
++**a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration**
++
++Slug: `foreign-owner-registration` · kind: boot · status: active
++
++**What happened and why it matters**
++
++The kernel stamps a fact's owner_module and a claims contributor's owner
++into provenance (claims_sources), resolves claim-mode facts by them, and
++serves &lt;owner>.facts.v1 and &lt;owner>.claims.v1 under them. A module that could
++register under another module's name would answer that module's facts and
++write claims in its name. So the owner of each of these registrations must
++be the short name of the module being registered (the entry-point name,
++else the last segment of its import path): a different name, and a
++registration made when no module is registering (a direct call on the core
++from a startup task or the composition root), refuse the module's load and
++the boot. Over RPC a consumer reads facts from the &lt;m>.facts.v1 binding and
++drops, with a logged SANDLOOM-B034 warning, any fact described under
++another owner_module.
++
++**Fix:** register the fact, contributor or contract from the module whose short name it carries (its register() or setup=); give an access fact the registering module as owner_module and drop owner= that names another module
++
++**More:** `docs/advanced/security-model.md`
++
+ ### SANDLOOM-B020
+ 
+ **a requested module name has two providers (two installed packages, or an installed package and a local module)**
+diff --git a/src/sandloom/core/error_codes.py b/src/sandloom/core/error_codes.py
+index 82edf20..de5a101 100644
+--- a/src/sandloom/core/error_codes.py
++++ b/src/sandloom/core/error_codes.py
+@@ -1204,6 +1204,33 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
+ """,
+         docs="docs/infrastructure/database.md",
+     ),
++    _entry(
++        "SANDLOOM-B034",
++        "foreign-owner-registration",
++        "boot",
++        "a module registers an access fact, a claims contributor or a "
++        "<m>.claims.v1 / <m>.facts.v1 contract under another module's name, "
++        "or one of them is registered outside a module's registration",
++        "register the fact, contributor or contract from the module whose "
++        "short name it carries (its register() or setup=); give an access "
++        "fact the registering module as owner_module and drop owner= that "
++        "names another module",
++        """
++The kernel stamps a fact's owner_module and a claims contributor's owner
++into provenance (claims_sources), resolves claim-mode facts by them, and
++serves <owner>.facts.v1 and <owner>.claims.v1 under them. A module that could
++register under another module's name would answer that module's facts and
++write claims in its name. So the owner of each of these registrations must
++be the short name of the module being registered (the entry-point name,
++else the last segment of its import path): a different name, and a
++registration made when no module is registering (a direct call on the core
++from a startup task or the composition root), refuse the module's load and
++the boot. Over RPC a consumer reads facts from the <m>.facts.v1 binding and
++drops, with a logged SANDLOOM-B034 warning, any fact described under
++another owner_module.
++""",
++        "docs/advanced/security-model.md",
++    ),
+     _entry(
+         "SANDLOOM-B020",
+         "ambiguous-module",
+@@ -1722,6 +1749,7 @@ EXCEPTION_CODES: dict[str, str] = {
+     "ReadOnlySessionsUnavailable": "SANDLOOM-B031",
+     "SqliteUnavailable": "SANDLOOM-B032",
+     "DatabaseFeatureMissing": "SANDLOOM-B033",
++    "ForeignOwnerRegistration": "SANDLOOM-B034",
+     "ModelSchemaDrift": "SANDLOOM-B028",
+     "DatabaseFileReplaced": "SANDLOOM-B028",
+     "NestedWriterRefused": "SANDLOOM-R016",
+diff --git a/src/sandloom/core/facade/_claims.py b/src/sandloom/core/facade/_claims.py
+index d3a94bb..74bf981 100644
+--- a/src/sandloom/core/facade/_claims.py
++++ b/src/sandloom/core/facade/_claims.py
+@@ -253,23 +253,19 @@ class _ClaimsMixin(_ServicesMixin):
+         claims like roles/permissions/tenant allowlists, where a fail-open
+         reduced-claims token is worse than a failed login.
+ 
+-        ``owner`` (the module's short name, e.g. ``"billing"``) is stamped into
+-        ``claims_sources``. When omitted it is taken from the module whose
+-        registration is in progress (last dotted segment of its name — works for
+-        ``sandloom_billing`` and ``myapp.modules.billing`` alike), else from the
+-        contributor's ``sandloom.<module>`` package.
++        The owner stamped into ``claims_sources`` is the short name of the
++        module whose registration is in progress (``sandloom_billing`` and
++        ``myapp.modules.billing`` alike give ``"billing"``). ``owner``, when
++        given, must equal it; another module's name, or a contributor
++        registered outside a module's registration, is refused
++        (SANDLOOM-B034).
+         """
+-        resolved = owner or _short_module_name(self._registering_module)
+-        if resolved is None:
+-            module = getattr(fn, "__module__", "") or ""
+-            parts = module.split(".")
+-            if len(parts) >= 2 and parts[0] == "sandloom":
+-                resolved = parts[1]
++        module = self._registering_module
++        resolved = self._require_own_name(
++            owner or _short_module_name(module) or "?", "a claims contributor"
++        )
+         self._claims_contributors.append((fn, critical, resolved))
+-        if resolved is None:
+-            return
+-        if self._registering_module is not None:
+-            self._claims_owner_modules.setdefault(resolved, self._registering_module)
++        self._claims_owner_modules.setdefault(resolved, str(module))
+         contract_name = claims_contract_name(resolved)
+         if self.service_registry.contains(contract_name):
+             return
+diff --git a/src/sandloom/core/facade/_services.py b/src/sandloom/core/facade/_services.py
+index da7cc0f..70dfbe9 100644
+--- a/src/sandloom/core/facade/_services.py
++++ b/src/sandloom/core/facade/_services.py
+@@ -48,9 +48,61 @@ def _short_module_name(name: str | None) -> str | None:
+     return _module_name(name) or None
+ 
+ 
++def reserved_contract_owner(name: str) -> str | None:
++    """The module a reserved contract name belongs to, else ``None``.
++
++    ``<m>.claims.v1`` and ``<m>.facts.v1`` are the two contract families the
++    kernel reads provenance from: ``"billing.facts.v1"`` -> ``"billing"``.
++    Any other name (``"billing.entitlements.v1"``) is not reserved.
++    """
++    for suffix in (CLAIMS_CONTRACT_SUFFIX, FACTS_CONTRACT_SUFFIX):
++        if name.endswith(suffix) and len(name) > len(suffix):
++            return name[: -len(suffix)]
++    return None
++
++
++class ForeignOwnerRegistration(RuntimeError):
++    """SANDLOOM-B034: a registration names a module other than the registering one.
++
++    Raised when a module registers an access fact whose ``owner_module`` is
++    another module, a claims contributor with another module's ``owner=``,
++    or another module's ``<m>.claims.v1`` / ``<m>.facts.v1`` contract, and
++    when any of these is registered outside a module's registration.
++    """
++
++    sandloom_code = "SANDLOOM-B034"
++
++
+ class _ServicesMixin(_FacadeState):
+     """CoreFacade methods: see :mod:`sandloom.core.facade._services`."""
+ 
++    def _require_own_name(self, owner: str, what: str) -> str:
++        """Refuse ``what`` registered under ``owner`` by anyone but module ``owner``.
++
++        The owner of a fact, a claims contributor or a reserved contract is the
++        name the kernel stamps into provenance (``claims_sources``) and serves
++        ``<owner>.facts.v1`` / ``<owner>.claims.v1`` under, so it must be the
++        short name of the module whose registration is being applied. Outside
++        a module's registration there is no module to check it against, and
++        the registration is refused too (SANDLOOM-B034). Returns ``owner``.
++        """
++        module = self._registering_module
++        short = _short_module_name(module)
++        if short is None:
++            raise ForeignOwnerRegistration(
++                f"SANDLOOM-B034: {what} under module {owner!r} is registered "
++                "outside a module's registration: register it from the "
++                "module's register() or setup= (`sandloom explain SANDLOOM-B034`)"
++            )
++        if owner != short:
++            raise ForeignOwnerRegistration(
++                f"SANDLOOM-B034: module {module!r} registers {what} under module "
++                f"{owner!r}: a module registers only under its own name "
++                f"{short!r}; move the registration into module {owner!r} or "
++                f"name it after {short!r} (`sandloom explain SANDLOOM-B034`)"
++            )
++        return owner
++
+     def register_service(
+         self, name: str, impl: Any, *, database: str | None = None
+     ) -> None:
+@@ -58,8 +110,13 @@ class _ServicesMixin(_FacadeState):
+ 
+         The registering module (if any) is recorded as the contract's owner so
+         the contract runtime opens the provider's Unit of Work on the database
+-        that module declares; ``database`` overrides it explicitly.
++        that module declares; ``database`` overrides it explicitly. A reserved
++        name (``<m>.claims.v1``, ``<m>.facts.v1``) is registered only by
++        module ``m`` itself (SANDLOOM-B034).
+         """
++        reserved = reserved_contract_owner(name)
++        if reserved is not None:
++            self._require_own_name(reserved, f"contract {name!r}")
+         problems = self.contract_dto_problems(name, impl)
+         if problems:
+             raise _contract_wire.ContractTypeError("; ".join(problems))
+@@ -221,20 +278,34 @@ class _ServicesMixin(_FacadeState):
+ 
+         Binds a fact name (e.g. ``"subscription.active"``) to its claim /
+         projection / live resolution paths so ``Entitled(name)`` policies can
+-        resolve it by configuration. Raises on a duplicate name.
++        resolve it by configuration. Raises on a duplicate name, naming the
++        module that holds it. The fact's ``owner_module`` must be the
++        registering module's short name (SANDLOOM-B034): a module answers only
++        its own facts.
+         """
+         name = fact.name
+-        if name in self._access_facts:
+-            raise ValueError(f"Access fact {name!r} is already registered")
++        owner = getattr(fact, "owner_module", None)
++        if not isinstance(owner, str) or not owner:
++            raise ForeignOwnerRegistration(
++                f"SANDLOOM-B034: access fact {name!r} names no owner_module "
++                "(`sandloom explain SANDLOOM-B034`)"
++            )
++        self._require_own_name(owner, f"access fact {name!r}")
++        existing = self._access_facts.get(name)
++        if existing is not None:
++            raise ValueError(
++                f"Access fact {name!r} is already registered by module "
++                f"{getattr(existing, 'owner_module', '?')!r}; module "
++                f"{owner!r} registers it again"
++            )
+         self._access_facts[name] = fact
+         # Facts are part of the owner's PUBLIC contract: expose
+         # ``<owner>.facts.v1`` (describe / evaluate) so a process without the
+         # owner resolves the same fact over RPC. Built through a duck-typed
+         # hook on the fact's class — the kernel never imports the authz
+         # subsystem.
+-        owner = getattr(fact, "owner_module", None)
+         build = getattr(type(fact), "build_facts_contract", None)
+-        if not isinstance(owner, str) or not owner or not callable(build):
++        if not callable(build):
+             return
+         contract_name = facts_contract_name(owner)
+         if self.service_registry.contains(contract_name):
+diff --git a/src/sandloom/shared/authz/facts.py b/src/sandloom/shared/authz/facts.py
+index d005fcd..1bde427 100644
+--- a/src/sandloom/shared/authz/facts.py
++++ b/src/sandloom/shared/authz/facts.py
+@@ -512,14 +512,30 @@ def remote_fact(descriptor: Any, contract: str) -> AccessFact | None:
+ 
+ 
+ async def _describe_owner(core: Any, owner: str) -> dict[str, AccessFact]:
++    """The facts ``<owner>.facts.v1`` describes, by name.
++
++    A descriptor whose ``owner_module`` is not ``owner`` is dropped and
++    logged (SANDLOOM-B034): the binding names the owner, and a provider bound
++    as one module's facts contract never answers for another module.
++    """
+     contract = facts_contract_name(owner)
+     service = core.get_service(contract)
+     raw = await service.describe()
+     found: dict[str, AccessFact] = {}
+     for descriptor in raw if isinstance(raw, list) else []:
+         fact = remote_fact(descriptor, contract)
+-        if fact is not None:
+-            found[fact.name] = fact
++        if fact is None:
++            continue
++        if fact.owner_module != owner:
++            logger.warning(
++                "SANDLOOM-B034: %s describes access fact %r under module %r; "
++                "ignored, a facts contract answers only for its own module",
++                contract,
++                fact.name,
++                fact.owner_module,
++            )
++            continue
++        found[fact.name] = fact
+     return found
+ 
+ 
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 2beb38a85ffbb2b39ab5712ff544050eca703bf5 Mon Sep 17 00:00:00 2001
+From: admin <vasiliy.cherniavskiy@gmail.com>
+Date: Sun, 8 Nov 2026 12:57:22 +0000
+Subject: [PATCH 2/2] test: negative tests for registration ownership;
+ CHANGELOG and upgrade steps
+
+New src/sandloom/core/tests/test_registration_ownership.py: a fact naming
+another owner, another module's <m>.claims.v1 / <m>.facts.v1, owner= naming
+another module, registrations outside a module context (and direct core calls
+during register()), and the split describe that claims another owner_module.
+Two existing tests now register through module_registration().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CHANGELOG.md                                  |  17 ++
+ .../core/tests/test_contract_runtime.py       |  10 +-
+ .../core/tests/test_registration_ownership.py | 206 ++++++++++++++++++
+ tests/integration/test_access_facts_split.py  |   5 +-
+ tools/packaging/public-source.json            |   1 +
+ 5 files changed, 234 insertions(+), 5 deletions(-)
+ create mode 100644 src/sandloom/core/tests/test_registration_ownership.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a3b24fc..c094e87 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -15,6 +15,23 @@ website renders this same changelog.
+ 
+ ### Security
+ 
++- **A module registers claims, facts and their contracts only under its own
++  name** (`SANDLOOM-B034`). An access fact whose `owner_module` is another
++  module, a claims contributor given `owner=` naming another module, and
++  another module's `<m>.claims.v1` or `<m>.facts.v1` contract now refuse the
++  module's load and the boot. So does any of them registered outside a
++  module's registration (a direct call on the core from a startup task or the
++  composition root). Before, the kernel took the name as given: a module could
++  answer another module's facts, become the owner of `identity.claims.v1`, or
++  be stamped `identity` in `claims_sources`. Over RPC, a consumer drops a fact
++  that `<m>.facts.v1` describes under another `owner_module` and logs
++  `SANDLOOM-B034`. **Upgrade:** give each `AccessFact` the registering
++  module's short name as `owner_module`; drop `owner=` from
++  `add_claims_contributor`; register facts, contributors and these contracts
++  from the module's `register()` or `setup=`, never on the core directly.
++  Tests that register on a bare `CoreFacade` wrap the calls in
++  `with core.module_registration("<module>") as api:` and call `api`.
++
+ - **A token claim has one owner, and no claims contributor writes another's
+   claim or a reserved key.** A second module writing a key an earlier module
+   wrote (identity's `roles`, say), or any module writing a key the kernel
+diff --git a/src/sandloom/core/tests/test_contract_runtime.py b/src/sandloom/core/tests/test_contract_runtime.py
+index f77033c..7d66b2e 100644
+--- a/src/sandloom/core/tests/test_contract_runtime.py
++++ b/src/sandloom/core/tests/test_contract_runtime.py
+@@ -506,8 +506,11 @@ def test_facts_contract_build_failure_fails_registration() -> None:
+         def build_facts_contract(core: Any, owner: str) -> Any:
+             raise RuntimeError("cannot build the facts contract")
+ 
+-    with pytest.raises(RuntimeError, match="cannot build"):
+-        core.register_access_fact(_BrokenFact())
++    with (
++        pytest.raises(RuntimeError, match="cannot build"),
++        core.module_registration("demo") as api,
++    ):
++        api.register_access_fact(_BrokenFact())
+ 
+     class _OddFact(_BrokenFact):
+         name = "demo.odd"
+@@ -517,7 +520,8 @@ def test_facts_contract_build_failure_fails_registration() -> None:
+         def build_facts_contract(core: Any, owner: str) -> Any:
+             return object()
+ 
+-    core.register_access_fact(_OddFact())  # unnameable owner: local-only
++    with core.module_registration("odd-mod") as api:
++        api.register_access_fact(_OddFact())  # unnameable owner: local-only
+     assert not core.service_registry.contains("odd-mod.facts.v1")
+ 
+ 
+diff --git a/src/sandloom/core/tests/test_registration_ownership.py b/src/sandloom/core/tests/test_registration_ownership.py
+new file mode 100644
+index 0000000..e5f21ab
+--- /dev/null
++++ b/src/sandloom/core/tests/test_registration_ownership.py
+@@ -0,0 +1,206 @@
++"""A module registers claims, facts and their contracts only under its own name.
++
++Before SANDLOOM-B034 the kernel took the owner a registration named: a module
++``forged`` could register an access fact with ``owner_module="inventory"`` and
++become the owner of ``inventory.facts.v1`` (validation C4), register
++``identity.claims.v1`` itself (R2), or pass ``owner="identity"`` to
++``CoreFacade.add_claims_contributor`` and be stamped ``identity`` in
++``claims_sources`` (R3). Each of these is now refused at registration, as is
++any of them made outside a module's registration; over RPC a consumer drops a
++fact a ``<m>.facts.v1`` provider describes under another module.
++"""
++
++from __future__ import annotations
++
++import logging
++from collections.abc import Iterator
++from contextlib import contextmanager
++from typing import Any
++
++import pytest
++from fastapi import FastAPI
++
++from sandloom.core.error_codes import code_for_exception
++from sandloom.core.facade import CoreFacade
++from sandloom.core.facade._services import ForeignOwnerRegistration
++from sandloom.core.module_api import contract_method
++from sandloom.shared.authz.facts import AccessFact, _describe_owner
++
++
++def _fact(name: str, owner: str) -> AccessFact:
++    """A claim-mode fact ``name`` owned by ``owner``."""
++    return AccessFact(name=name, owner_module=owner, claim_key="stock")
++
++
++async def _claims(user_id: Any) -> dict[str, Any]:
++    """A contributor with nothing to say."""
++    return {}
++
++
++class _Stock:
++    """A provider standing in for a reserved contract."""
++
++    @classmethod
++    @contract_method
++    async def ping(cls) -> int:
++        """Answer anything."""
++        return 0
++
++
++@contextmanager
++def _applying(core: CoreFacade, module: str) -> Iterator[None]:
++    """The kernel's state while ``module``'s draft is applied (as the loader does)."""
++    previous = core._registering_module
++    core._registering_module = module
++    try:
++        yield
++    finally:
++        core._registering_module = previous
++
++
++def test_a_module_registers_its_own_fact_and_facts_contract() -> None:
++    """The ordinary case is unchanged: the owner is the registering module."""
++    core = CoreFacade(app=FastAPI())
++    with core.module_registration("shop.modules.inventory") as api:
++        api.register_access_fact(_fact("inventory.stock.available", "inventory"))
++    assert core.get_access_fact("inventory.stock.available") is not None
++    assert core.contract_owner("inventory.facts.v1") == "shop.modules.inventory"
++
++
++def test_a_fact_naming_another_owner_refuses_the_load() -> None:
++    """Validation C4: ``forged`` cannot answer ``inventory``'s fact."""
++    core = CoreFacade(app=FastAPI())
++    with (
++        pytest.raises(ForeignOwnerRegistration, match="SANDLOOM-B034") as exc,
++        core.module_registration("shop.modules.forged") as api,
++    ):
++        api.register_access_fact(_fact("inventory.stock.available", "inventory"))
++    assert code_for_exception(exc.value) == "SANDLOOM-B034"
++    assert "'shop.modules.forged'" in str(exc.value)
++    assert "'inventory'" in str(exc.value)
++    # nothing of the module was applied
++    assert core.get_access_fact("inventory.stock.available") is None
++    assert core.contract_owner("inventory.facts.v1") is None
++    assert not core.service_registry.contains("inventory.facts.v1")
++
++
++@pytest.mark.parametrize("contract", ["identity.claims.v1", "inventory.facts.v1"])
++def test_another_modules_reserved_contract_refuses_the_load(contract: str) -> None:
++    """R2: a module cannot register another module's claims or facts contract."""
++    core = CoreFacade(app=FastAPI())
++    with (
++        pytest.raises(ForeignOwnerRegistration, match="SANDLOOM-B034"),
++        core.module_registration("shop.modules.forged") as api,
++    ):
++        api.register_service(contract, _Stock)
++    assert not core.service_registry.contains(contract)
++    assert core.contract_owner(contract) is None
++
++
++def test_a_module_may_register_its_own_reserved_contract_name() -> None:
++    """Only the name check applies: ``forged.facts.v1`` belongs to ``forged``."""
++    core = CoreFacade(app=FastAPI())
++    with core.module_registration("shop.modules.forged") as api:
++        api.register_service("forged.facts.v1", _Stock)
++    assert core.contract_owner("forged.facts.v1") == "shop.modules.forged"
++
++
++def test_owner_naming_another_module_is_refused() -> None:
++    """R3: ``owner="identity"`` from module ``inventory`` is not stamped."""
++    core = CoreFacade(app=FastAPI())
++    with (
++        _applying(core, "shop.modules.inventory"),
++        pytest.raises(ForeignOwnerRegistration, match="SANDLOOM-B034"),
++    ):
++        core.add_claims_contributor(_claims, owner="identity")
++    assert core.claims_contributors == []
++    assert not core.service_registry.contains("identity.claims.v1")
++
++
++def test_owner_naming_the_registering_module_is_accepted() -> None:
++    """``owner=`` equal to the registering module changes nothing."""
++    core = CoreFacade(app=FastAPI())
++    with _applying(core, "shop.modules.inventory"):
++        core.add_claims_contributor(_claims, owner="inventory")
++    assert core._local_claim_owners() == {"inventory": False}
++    assert core.service_registry.contains("inventory.claims.v1")
++
++
++def test_a_spoofed_module_name_gets_its_own_name_only() -> None:
++    """A module named after another (``app.modules.identity_x``) owns only its name."""
++    core = CoreFacade(app=FastAPI())
++    with core.module_registration("shop.modules.identity_x") as api:
++        api.add_claims_contributor(_claims, critical=True)
++    assert core._local_claim_owners() == {"identity_x": True}
++    assert not core.service_registry.contains("identity.claims.v1")
++
++
++def test_registrations_outside_a_module_context_are_refused() -> None:
++    """A direct call on the core (a startup task, the composition root) has no
++    module to check the name against, so it is refused."""
++    core = CoreFacade(app=FastAPI())
++    with pytest.raises(ForeignOwnerRegistration, match="outside a module"):
++        core.register_access_fact(_fact("inventory.stock.available", "inventory"))
++    with pytest.raises(ForeignOwnerRegistration, match="outside a module"):
++        core.add_claims_contributor(_claims)
++    with pytest.raises(ForeignOwnerRegistration, match="outside a module"):
++        core.add_claims_contributor(_claims, owner="identity")
++    with pytest.raises(ForeignOwnerRegistration, match="outside a module"):
++        core.register_service("identity.claims.v1", _Stock)
++    assert core.get_access_fact("inventory.stock.available") is None
++    assert core.claims_contributors == []
++
++
++def test_a_direct_core_call_during_register_is_outside_the_context() -> None:
++    """``register()`` writes only through its ``ModuleAPI``: the core's own
++    methods called while it runs see no registering module."""
++    core = CoreFacade(app=FastAPI())
++    with (
++        pytest.raises(ForeignOwnerRegistration, match="outside a module"),
++        core.module_registration("shop.modules.inventory"),
++    ):
++        core.register_access_fact(_fact("inventory.stock.available", "inventory"))
++
++
++class _Describes:
++    """A remote ``<m>.facts.v1`` client answering ``describe``."""
++
++    def __init__(self, descriptors: list[dict[str, Any]]) -> None:
++        """Remember what the provider describes."""
++        self._descriptors = descriptors
++
++    async def describe(self) -> list[dict[str, Any]]:
++        """Answer like ``<m>.facts.v1.describe`` over RPC."""
++        return self._descriptors
++
++
++class _RemoteCore:
++    """The consumer's core: ``<m>.facts.v1`` resolves to the remote client."""
++
++    def __init__(self, client: _Describes) -> None:
++        """Serve ``client`` for every contract."""
++        self._client = client
++
++    def get_service(self, name: str) -> _Describes:
++        """The bound remote client."""
++        return self._client
++
++
++@pytest.mark.asyncio
++async def test_split_drops_a_fact_described_under_another_owner(
++    caplog: pytest.LogCaptureFixture,
++) -> None:
++    """Split: the binding names the owner; a provider bound as ``forged.facts.v1``
++    that describes a fact under ``inventory`` is not believed."""
++    client = _Describes(
++        [
++            _fact("inventory.stock.available", "inventory").to_wire(),
++            _fact("forged.ok", "forged").to_wire(),
++        ]
++    )
++    with caplog.at_level(logging.WARNING, logger="sandloom.access.facts"):
++        facts = await _describe_owner(_RemoteCore(client), "forged")
++    assert set(facts) == {"forged.ok"}
++    assert facts["forged.ok"].owner_module == "forged"
++    assert "SANDLOOM-B034" in caplog.text
++    assert "inventory.stock.available" in caplog.text
+diff --git a/tests/integration/test_access_facts_split.py b/tests/integration/test_access_facts_split.py
+index 9aa2870..75e516e 100644
+--- a/tests/integration/test_access_facts_split.py
++++ b/tests/integration/test_access_facts_split.py
+@@ -95,8 +95,9 @@ def _owner() -> tuple[FastAPI, CoreFacade]:
+     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
+     core.register_service("billing.entitlements.v1", _Entitlements)
+     core.register_service("tenancy.membership.v1", _Membership)
+-    core.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
+-    core.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
++    with core.module_registration("sandloom_billing") as api:
++        api.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
++        api.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
+     rpc.install_service_rpc_routes(app, core)
+     return app, core
+ 
+diff --git a/tools/packaging/public-source.json b/tools/packaging/public-source.json
+index 649d6ee..1634e6d 100644
+--- a/tools/packaging/public-source.json
++++ b/tools/packaging/public-source.json
+@@ -1705,6 +1705,7 @@
+         "src/sandloom/core/tests/test_redis_cache_bounded.py",
+         "src/sandloom/core/tests/test_redis_cache_loop_affinity.py",
+         "src/sandloom/core/tests/test_redis_cache_retry_policy.py",
++        "src/sandloom/core/tests/test_registration_ownership.py",
+         "src/sandloom/core/tests/test_relational_driver_contract.py",
+         "src/sandloom/core/tests/test_relay_batch_publish.py",
+         "src/sandloom/core/tests/test_release_pools.py",
+-- 
+2.54.0 (Apple Git-157)
+
