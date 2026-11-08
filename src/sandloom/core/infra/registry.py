@@ -244,9 +244,42 @@ class CapabilityUnavailable(CapabilityError):
     """A module requires a capability its composition cannot serve
     (SANDLOOM-B037): every unmet required requirement of the module, each
     naming the capability, instance, driver, the missing feature or package,
-    and the fix."""
+    and the fix. The raised class also subclasses each underlying error's
+    class (:func:`_unavailable_class`)."""
 
     sandloom_code = "SANDLOOM-B037"
+
+    def __init__(self, message: str, *, fix: str | None = None) -> None:
+        # Not a cause's own __init__ (DriverUnavailableError's would tag twice).
+        CapabilityError.__init__(self, message, fix=fix)
+
+
+_UNAVAILABLE_CLASSES: dict[frozenset[type], type[CapabilityUnavailable]] = {}
+
+
+def _unavailable_class(causes: tuple[type, ...]) -> type[CapabilityUnavailable]:
+    """:class:`CapabilityUnavailable`, also a subclass of each cause's class
+    (``FeatureUnsupportedError``, ``InstanceNotConfiguredError``, ...), so a
+    handler of the precise error keeps matching the aggregated refusal. The
+    code stays SANDLOOM-B037, first in the MRO."""
+    distinct = {c for c in causes if not issubclass(CapabilityUnavailable, c)}
+    # Keep the most derived: a base next to its subclass has no consistent MRO.
+    most_derived = [
+        c
+        for c in distinct
+        if not any(o is not c and issubclass(o, c) for o in distinct)
+    ]
+    bases = tuple(sorted(most_derived, key=lambda c: c.__qualname__))
+    key = frozenset(bases)
+    found = _UNAVAILABLE_CLASSES.get(key)
+    if found is None:
+        found = type(
+            "CapabilityUnavailable",
+            (CapabilityUnavailable, *bases),
+            {"__module__": __name__, "sandloom_code": "SANDLOOM-B037"},
+        )
+        _UNAVAILABLE_CLASSES[key] = found
+    return found
 
 
 class DriverConflictError(CapabilityError):
@@ -871,7 +904,7 @@ class InfraRegistry:
         be met are returned for the caller to report; an unexpected error of
         a required one propagates as it is.
         """
-        unmet: list[str] = []
+        unmet: list[tuple[str, CapabilityError]] = []
         optional: list[tuple[CapabilityRequirement, Exception]] = []
         for req in requirements:
             try:
@@ -883,7 +916,7 @@ class InfraRegistry:
                 )
             except CapabilityError as exc:
                 if req.required:
-                    unmet.append(self._describe_unmet(req, exc))
+                    unmet.append((self._describe_unmet(req, exc), exc))
                 else:
                     optional.append((req, exc))
             except Exception as exc:
@@ -891,9 +924,10 @@ class InfraRegistry:
                     raise
                 optional.append((req, exc))
         if unmet:
-            raise CapabilityUnavailable(
+            error = _unavailable_class(tuple(type(exc) for _text, exc in unmet))
+            raise error(
                 f"module {module!r} requires infrastructure this composition "
-                f"cannot serve [SANDLOOM-B037]: {'; '.join(unmet)}",
+                f"cannot serve [SANDLOOM-B037]: {'; '.join(t for t, _e in unmet)}",
                 fix="install or select what each requirement names; "
                 "`sandloom explain SANDLOOM-B037`",
             )

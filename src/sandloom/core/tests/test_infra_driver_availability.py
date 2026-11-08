@@ -36,6 +36,7 @@ from sandloom.core.infra.contracts import InfraProvider
 from sandloom.core.infra.registry import (
     CapabilityUnavailable,
     DriverUnavailableError,
+    FeatureUnsupportedError,
     InfraRegistry,
     InfraStartupError,
 )
@@ -285,6 +286,10 @@ def test_a_module_gets_every_unmet_requirement_in_one_refusal(
     assert "pip install 'sandloom[celery]'" in message
     assert "capability 'objectstore'" in message and "no_such_feature" in message
     assert "capability 'database'" not in message
+    assert message.count("[SANDLOOM-B037]") == 1
+    # A handler of the precise errors keeps matching the aggregated refusal.
+    assert isinstance(caught.value, FeatureUnsupportedError)
+    assert isinstance(caught.value, DriverUnavailableError)
     assert no_network == []
 
     optional = registry.check_module_requirements(
@@ -468,6 +473,58 @@ async def test_a_reachability_failure_keeps_its_uncoded_startup_error() -> None:
     with pytest.raises(InfraStartupError) as caught:
         await registry.aopen_all(strict=True)
     assert error_codes.code_for_exception(caught.value) is None
+
+
+# ----------------------------------------------------------------- loader ----
+
+
+def test_the_module_preflight_refuses_with_b037_and_the_load_names_it(
+    monkeypatch: pytest.MonkeyPatch, no_network: list[Any]
+) -> None:
+    """The loader's preflight raises the module's B037; the aggregated load
+    failure carries B037, not the generic B001."""
+    from fastapi import FastAPI
+
+    from sandloom.core.descriptors import (
+        FailedModule,
+        ModuleDescriptor,
+        ModuleLoadSummary,
+    )
+    from sandloom.core.facade import CoreFacade
+    from sandloom.core.loader.plugin_loader import (
+        ModuleLoadError,
+        _preflight_capabilities,
+    )
+
+    monkeypatch.setitem(sys.modules, "celery", None)
+    core = CoreFacade(app=FastAPI())
+    core.set_infra(_real_registry())
+    desc = ModuleDescriptor(
+        name="ic1_orders",
+        version="1",
+        capabilities=[
+            CapabilityRequirement("database"),
+            CapabilityRequirement("taskqueue", features=frozenset({"delay"})),
+            CapabilityRequirement("search", required=False),
+        ],
+    )
+    with pytest.raises(CapabilityUnavailable) as caught:
+        _preflight_capabilities(core, desc)
+    assert "module 'ic1_orders'" in str(caught.value)
+    assert no_network == []
+
+    def load_error(*errors: str) -> ModuleLoadError:
+        summary = ModuleLoadSummary(explicit=[])
+        for i, error in enumerate(errors):
+            summary.failed.append(
+                FailedModule(name=f"m{i}", error=error, required=True)
+            )
+        return ModuleLoadError(summary)
+
+    refused = load_error(str(caught.value))
+    assert error_codes.code_for_exception(refused) == "SANDLOOM-B037"
+    mixed = load_error(str(caught.value), "ImportError: no module named 'x'")
+    assert error_codes.code_for_exception(mixed) == "SANDLOOM-B001"
 
 
 # -------------------------------------------------------------- catalogue ----
