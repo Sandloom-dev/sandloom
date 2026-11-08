@@ -2400,6 +2400,7 @@
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
         "tests/fixtures/specs/api10-ledger-delta-firstrun.md",
         "tests/fixtures/specs/api10-ledger-delta-generate.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb05.md",
         "tests/fixtures/specs/api10-ledger-delta-kbaccept.md",
         "tests/fixtures/specs/api10-ledger-delta-layout.md",
         "tests/fixtures/specs/api10-ledger-delta-modprod.md",
