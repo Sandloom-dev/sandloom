@@ -31,6 +31,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ContractRequirement`](#contractrequirement) | class | A sync service contract a module CALLS (`core.get_service(name)`). |
 | [`FailedModule`](#failedmodule) | class | A module that failed to load, with its error and whether it was required. |
 | [`GenerationInput`](#generationinput) | class | What `sandloom generate` hands a module's generated-file renderer. |
+| [`GenerationIssuer`](#generationissuer) | class | The composition's assigned token issuer as a generated file's renderer sees it. |
 | [`GenerationModule`](#generationmodule) | class | One loaded module as a generated file's renderer sees it: data, not the module. |
 | [`HealthCheck`](#healthcheck) | callable |  |
 | [`HealthResult`](#healthresult) | class | Outcome of a module health check: a status plus optional details. |
@@ -68,6 +69,7 @@ def define_module(
     events: Any = 'auto',
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    login_entry: str | None = None,
     settings: type[BaseModel] | None = None,
     generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]
@@ -95,6 +97,11 @@ refresh sessions on an emergency block with a durable consumer of
 `core.auth.user_blocked.v1`; one that holds no refresh sessions
 declares `refresh_sessions=False` instead, which startup verifies
 against its refresh routes, session tables and consumers (SANDLOOM-B035).
+`login_entry="/auth/login"` declares, on the issuer only, the route path
+of its login endpoint: the admin console is served in front of the
+composition's `issuer` only when that issuer declares one (a module
+without it is a configuration error naming it); a value that is not a
+route path of this application is refused.
 
 `settings=` declares the module's settings: a plain pydantic
 `BaseModel` whose fields are aliased to their environment names
@@ -178,6 +185,7 @@ class GenerationInput(
     openapi: Mapping[str, Any],
     routes: Mapping[tuple[str, str], str],
     modules: tuple[GenerationModule, ...],
+    issuer: GenerationIssuer | None = None,
 ) -> None
 ```
 
@@ -186,6 +194,21 @@ What `sandloom generate` hands a module's generated-file renderer.
 Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
 routes as `(path, METHOD) -> the endpoint's Python module` and every
 loaded module in load order. A renderer imports no other module.
+
+### `GenerationIssuer`
+
+```python
+class GenerationIssuer(package: str, name: str, login_entry: str | None = None) -> None
+```
+
+The composition's assigned token issuer as a generated file's renderer sees it.
+
+`package` is the import path the `claim_authorities` map assigns as
+`issuer` (never read from a token), `name` its module name and
+`login_entry` the login route the issuer declared on its registration
+(`define_module(login_entry=...)`; `None`: it declared none). A
+declaration the composition cannot honour is a `ValueError` of the
+collector, never a silent `None`.
 
 ### `GenerationModule`
 
@@ -492,6 +515,7 @@ class ModuleDescriptor(
     consumes: list[ContractRequirement] = <factory>,
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    login_entry: str | None = None,
     generated_files: dict[str, GeneratedFileRenderer] = <factory>,
 ) -> None
 ```

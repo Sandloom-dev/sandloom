@@ -524,4 +524,19 @@ def compile_manifest(source: Any) -> Json:
             )
     if operations:
         declarations.append((_PLATFORM, "core", operations))
-    return compile_resources(dict(source.openapi), source.routes, declarations)
+    manifest = compile_resources(dict(source.openapi), source.routes, declarations)
+    manifest["issuer"] = _issuer(getattr(source, "issuer", None))
+    return manifest
+
+
+def _issuer(issuer: Any) -> Json | None:
+    """The assigned token issuer the console signs operators in through.
+
+    What the claim-authorities map assigned and the issuer declared on its
+    registration (``login_entry``), as the kernel collected it: never read
+    from a token. ``None`` is a composition with no issuer; an issuer without
+    ``login_entry`` is kept so the console can name it.
+    """
+    if issuer is None:
+        return None
+    return {"module": issuer.name, "login_entry": issuer.login_entry}

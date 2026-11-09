@@ -115,6 +115,13 @@ uv add "sandloom[admin]"
 Add `"admin"` to `BUNDLED` in `asgi.py`, add `"identity"` if it isn't there, then run
 `uv run sandloom generate` and restart the application.
 
+Operators sign in through the token issuer your `claim_authorities` map assigns (the
+`"issuer"` entry). That module declares the route of its login endpoint on its
+registration, `define_module(..., issues_tokens=True, login_entry="/auth/login")`, and
+`sandloom generate` writes both into the manifest. When the map assigns no issuer, or
+the issuer declares no `login_entry`, the console shows a `503` that names the missing
+piece. It never picks an issuer from the `iss` of a token.
+
 ## What's in it
 
 
