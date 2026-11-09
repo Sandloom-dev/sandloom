@@ -281,6 +281,44 @@ def access_check_of(method: Any) -> dict[str, Any] | None:
 _GENERATED: weakref.WeakSet[type[Requirement]] = weakref.WeakSet()
 
 
+#: The generated claim-tier atom classes imported in this process
+#: (``ClaimFactCheck`` / ``ClaimReadCheck`` subclasses): the claim keys
+#: their literals read are protected claims (ADR-0014 decisions 1 and 7).
+_CLAIM_ATOMS: weakref.WeakSet[type[Requirement]] = weakref.WeakSet()
+
+
+def generated_claim_keys() -> frozenset[str]:
+    """The claim keys the imported generated claim atoms read (their
+    literal's ``claim_key`` / ``claim_keys``); read at boot by ``create_app``
+    to protect them, never on a request."""
+    found: set[str] = set()
+    for cls in list(_CLAIM_ATOMS):
+        atom = cls.__dict__.get(ATOM_ATTR)
+        if not isinstance(atom, dict):
+            continue
+        keys = atom.get("claim_keys") or [atom.get("claim_key")]
+        found.update(k for k in keys if isinstance(k, str) and k)
+    return frozenset(found)
+
+
+def _declares(member: Any) -> bool:
+    if not isinstance(member, classmethod | staticmethod) and not callable(member):
+        return False
+    return access_check_of(member) is not None
+
+
+def declares_access_checks(impl: Any) -> bool:
+    """Whether a contract implementation (a class or an instance) or a class
+    it derives from (its declared ``@contract`` class) carries an
+    :func:`access_check` method: its contract is access-bearing (ADR-0014
+    decision 6). Reads the class dictionaries only (no attribute is
+    computed); called at registration, never on a request."""
+    cls = impl if isinstance(impl, type) else type(impl)
+    return any(
+        _declares(member) for klass in cls.__mro__ for member in vars(klass).values()
+    )
+
+
 def generated_access_contracts() -> frozenset[str]:
     """The contracts the imported generated atoms call (read at boot by
     ``create_app``'s access-provider sweep, never on a request)."""
@@ -635,6 +673,7 @@ class ClaimFactCheck(Requirement):
                 {ATOM_ATTR: otherwise, "__module__": cls.__module__},
             )
         _GENERATED.add(cls)
+        _CLAIM_ATOMS.add(cls)
 
     def __init__(
         self,

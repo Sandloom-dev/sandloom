@@ -2818,10 +2818,11 @@
     "Authority": {
       "kind": "class",
       "members": [
+        "fail_safe",
         "module",
         "previous"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str | None=None, previous:POSITIONAL_OR_KEYWORD|Authority | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str | None=None, previous:POSITIONAL_OR_KEYWORD|Authority | None=None, fail_safe:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "LegacyClaimsTokens": {
       "kind": "class",

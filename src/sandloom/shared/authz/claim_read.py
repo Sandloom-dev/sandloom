@@ -58,6 +58,7 @@ from sandloom.shared.authz.atoms_claims import (
     _raise_if_policy_indeterminate,
 )
 from sandloom.shared.authz.contract_check import (
+    _CLAIM_ATOMS,
     ACCESS_UNKNOWN,
     ATOM_ATTR,
     ContractCheck,
@@ -181,6 +182,8 @@ class ClaimReadCheck(Requirement):
         if not isinstance(atom, dict) or not atom:
             return
         cls.category = str(atom.get("category") or Category.FORBIDDEN)
+        # Its claim keys are protected claims (read at boot by create_app).
+        _CLAIM_ATOMS.add(cls)
         otherwise = atom.get("otherwise")
         if isinstance(otherwise, dict) and otherwise:
             # The provider's live check, from the same literal; registered as

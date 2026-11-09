@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,22 @@ from sandloom.core.cli.project import generate_project
 from sandloom.sdk import Contract
 from sandloom.sdk.testing import fake_contract
 from tools.smoke import split_check
+
+
+@pytest.fixture(autouse=True)
+def _leave_no_probe_app_imported() -> Iterator[None]:
+    """A test that imports the generated ``probe`` app (the split smoke does)
+    leaves its package in ``sys.modules`` and its root on ``sys.path``; a later
+    test generating another ``probe`` app would then import the stale one
+    (SANDLOOM-T019 in ``test_project``). Restore both after each test."""
+    path = list(sys.path)
+    try:
+        yield
+    finally:
+        sys.path[:] = path
+        for name in [m for m in sys.modules if m == "probe" or m.startswith("probe.")]:
+            del sys.modules[name]
+
 
 BACKEND = Path(__file__).resolve().parents[2]
 SDK = BACKEND / "src" / "sandloom" / "sdk"

@@ -1864,15 +1864,17 @@ guarantees:
   - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestSecretCrypto::test_key_rotation
 - id: G-AUTH-20
-  statement: A protected claim (roles, permissions, tenant_ids, email, email_verified, subscription_status,
-    plan_code, features, limits and every key of the composition's claim_authorities) is minted only from
-    the authority the composition root assigned it (the module loaded from the assigned import path, or
-    its <m>.claims.v1 binding); a contributor writing a protected claim it is not assigned, or a reserved
-    key, is a violator. An optional violator loses its whole result (claims_sources_failed, an ERROR log,
-    claims_contributor_violations_total) and the token is minted with the authorities' values; a critical
-    one refuses the mint (503) naming itself. Startup refuses an assignment the composition cannot honour
-    (SANDLOOM-B035), incl. a non-critical authority of any claim but the four billing claims, so a billing
-    outage still mints a login.
+  statement: A protected claim (roles, permissions, tenant_ids, email, email_verified, every key of the
+    composition's claim_authorities, every key a claims contributor declares fail-safe and every key a
+    generated claim atom imported in the process reads) is minted only from the authority the composition
+    root assigned it (the module loaded from the assigned import path, or its <m>.claims.v1 binding); a
+    contributor writing a protected claim it is not assigned, or a reserved key, is a violator. An optional
+    violator loses its whole result (claims_sources_failed, an ERROR log, claims_contributor_violations_total)
+    and the token is minted with the authorities' values; a critical one refuses the mint (503) naming
+    itself. Startup refuses an assignment the composition cannot honour (SANDLOOM-B035), incl. a
+    non-critical authority of a claim not declared fail-safe (by its local authority, add_claims_contributor
+    fail_safe=, or by the root, Authority(fail_safe=True); never roles, permissions, tenant_ids or the
+    issuer's fields), so billing, which declares its four claims, still mints a login when it is down.
   sources:
   - docs/advanced/security-model.md#Authorization
   - docs/modules/http/route-policy.md#Token claims
@@ -2020,7 +2022,7 @@ guarantees:
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_issuer_session
   - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_the_facade_behind_the_runtime
   - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
   - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
   - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
   - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
@@ -2926,11 +2928,11 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_path_is_three_valued_from_the_token
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_or_of_unknown_branches_never_allows
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
   - tests/integration/with_batteries/test_subscribed_agree.py::test_both_paths_answer_every_row_alike
   - tests/integration/with_batteries/test_subscribed_agree.py::test_billing_declares_its_absent_claim_a_deny
   - tests/integration/with_batteries/test_subscribed_agree.py::test_an_absent_status_never_equals_none

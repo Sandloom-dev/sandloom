@@ -1,6 +1,6 @@
 ## Public API cheat-sheet (`sandloom.sdk`; any other signature: `uv run sandloom docs <name>`)
 
-The 30 beginner names, exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
+The 20 beginner names (26 with the test helpers and the `client` fixture), exact signatures; any other name's import carries `# sandloom: advanced <reason>`.
 
 ```python
 # from sandloom.sdk import ...
@@ -22,10 +22,11 @@ await NoteCreated(...).publish(*, database=None)   # outbox of the running unit
 quota = Contract(STATS_QUOTA_V1)           # REF from the generated <app>.shared.contracts.<name>
 Contract(REF, optional=True).client() -> P | None          # None only when not deployed
 require(policy, *, status_code=None)       # dependencies=[Depends(require(OrgRole("admin")))]
-Subscribed(statuses=None, *, of: Account, claim_key="subscription_status")   # claims, zero I/O
-SubscriptionActive(*, of: Account, adapter=None);  Credits(minimum, *, of: Account, adapter=None)
+Owner(get_owner: Callable[[Any], UUID | None])   # a resource policy, used with authorize_resource
+# Generated, not sdk names (`sandloom generate`): from <app>.shared.contracts.billing_entitlements_v1 import
+#   Subscribed(statuses=None, *, of), SubscriptionActive(*, of), Credits(minimum, *, of), Feature, WithinLimit;
+#   from <app>.shared.contracts.tenancy_membership_v1 import OrgRole(minimum, *, org_param="org_id")
 #   of= is required: Account.user() | Account.org(param="org_id") | Account.bound_tenant()
-OrgRole(minimum, *, org_param="org_id", adapter=None);  Owner(get_owner: Callable[[Any], UUID | None])
 authorize_resource(*, loader, by: str, policy, cast=None, not_found_detail="Not found",
               status_code=None)            # loader: async (id, db) -> entity | None
 record_audit(action, *, actor_id=None, actor_type="user", resource_type=None,
@@ -48,7 +49,7 @@ Advanced names, by module (`uv run sandloom docs sandloom.sdk.<module>` lists th
 | `sandloom.sdk.data` / `.tenant` | `open_uow`, `UpdatedAt`, `MoneyLedger`, `enable_tenant_rls`, the read planner, the portable SQL forms (`CaseInsensitiveText`, `partial_index`, `search_index`, `conflict_insert`, `transaction_lock`; C028), `WallClock` for `func.now()` (only portable `func.<name>`, raw SQL marked: C031), the feature forms (`Array`, `fulltext_index`, `matches`, `json_path`, `json_contains`, `transaction_lock`, `aggregate_list`: declare the feature, C030) / `bind_tenant`, `unscoped`, `current_tenant_id`, `tenant_kind` |
 | `sandloom.sdk.events` / `.effects` | `EventMeta`, `publish_event_versions` (dual-publish) / `before_commit`, `durable_inbox`, `operation_key`, `run_async`, `sensitive_effect` |
 | `sandloom.sdk.contracts` | `ContractRef`, `service`, `contract_method`, the provider runtime |
-| `sandloom.sdk.authz` | `Account`, `Role`, `Perm`, `Feature`, `WithinLimit`, `Not`, `authorize`, access facts |
+| `sandloom.sdk.authz` | `Account`, `Role`, `Perm`, `Not`, `authorize`, access facts |
 | `sandloom.sdk.sagas` / `.projections` | `Saga`, `step`, `start_saga` / `Projection`, `SourceGroup`, `full_state`, `View` |
 | `sandloom.sdk.module` / `.app` / `.migrations` | `ModuleAPI`, `ContractRequirement` / `create_app` / `run_module_migrations` |
 | `sandloom.sdk.infra` / `.security` / `.errors` | `cache`, `notifier`, `settings` / tokens, revocation, keys / every exception |

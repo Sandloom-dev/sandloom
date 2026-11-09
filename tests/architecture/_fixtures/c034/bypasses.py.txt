@@ -1,0 +1,330 @@
+# C034 bypass fixtures (kb-rev56-c034): data, not importable.
+#
+# Each "# === case: <name>" section is one module of the package ``c034app``
+# (written as ``c034app/case_<name>.py``). Its class ``Hand`` calls the declared
+# access check ``projects.roles.v1.has_project_role`` (stub: ``z8_stub.py.txt``
+# at ``c034app/_generated/contracts/projects_roles_v1.py``) without stating its
+# tier, category or risk: every case must be reported by SANDLOOM-C034. The
+# helper modules ``reex``, ``star`` and ``clients`` are ``helpers.py.txt``.
+
+# === case: baseline
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: module_alias
+import c034app._generated.contracts.projects_roles_v1 as m
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+
+roles = Contract(m.PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: from_package_module
+from c034app._generated.contracts import projects_roles_v1 as stub
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+
+roles = Contract(stub.PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: dotted_import
+import c034app._generated.contracts.projects_roles_v1
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+
+roles = Contract(c034app._generated.contracts.projects_roles_v1.PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: annotated_assignment
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles: object = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: inline_client
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await Contract(PROJECTS_ROLES_V1).has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: client_in_function
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+def roles():
+    return Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles().has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: client_local_variable
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        client = Contract(PROJECTS_ROLES_V1)
+        return await client.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: client_on_self
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+class Hand(Requirement):
+    def __init__(self):
+        self._roles = Contract(PROJECTS_ROLES_V1)
+
+    async def evaluate(self, ctx):
+        return await self._roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: client_class_attribute
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+class Hand(Requirement):
+    roles = Contract(PROJECTS_ROLES_V1)
+
+    async def evaluate(self, ctx):
+        return await self.roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: lowercase_reexport
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app.reex import membership_ref
+
+roles = Contract(membership_ref)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: star_reexport
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app.star import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: star_import_here
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import *
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: ref_variable_alias
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+R = PROJECTS_ROLES_V1
+roles = Contract(R)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: ref_keyword
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(ref=PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: aliased_factory
+from sandloom.sdk import Contract as Client
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+make = Client
+roles = make(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: optional_client
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1, optional=True)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        client = roles.client()
+        return client is not None and await client.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: bound_method
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+check = Contract(PROJECTS_ROLES_V1).has_project_role
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await check(ctx.tenant, ctx.user, "lead")
+
+# === case: constant_getattr
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await getattr(roles, "has_project_role")(ctx.tenant, ctx.user, "lead")
+
+# === case: local_helper
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+async def _is_lead(ctx):
+    return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+
+async def _check(ctx):
+    return await _is_lead(ctx)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await _check(ctx)
+
+# === case: imported_client
+from sandloom.sdk.authz import Requirement
+from c034app.clients import shared_roles
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await shared_roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: imported_helper
+from sandloom.sdk.authz import Requirement
+from c034app import clients
+from c034app.clients import is_lead
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await is_lead(ctx) or await clients.is_lead(ctx)
+
+# === case: handwritten_contract_ref
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from sandloom.sdk.contracts import ContractRef as Ref
+
+MINE = Ref("projects.roles.v1", object)
+roles = Contract(MINE)
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: function_local_import
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1 as P
+
+        return await Contract(P).has_project_role(ctx.tenant, ctx.user, "lead")
+
+# === case: walrus
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+
+class Hand(Requirement):
+    async def evaluate(self, ctx):
+        if (client := Contract(PROJECTS_ROLES_V1)) is not None:
+            return await client.has_project_role(ctx.tenant, ctx.user, "lead")
+        return False
+
+# === case: forged_atom_literal
+from typing import Any, ClassVar
+
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+
+
+class Hand(Requirement):
+    __sandloom_atom__: ClassVar[dict[str, Any]] = {"contract": "projects.roles.v1"}
+
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")

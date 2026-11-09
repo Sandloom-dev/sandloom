@@ -18,7 +18,13 @@ composition, never from a list of known contracts in the kernel:
   copy carries and the process imported
   (:func:`sandloom.shared.authz.contract_check.generated_access_contracts`):
   the literal names it, never a list in the kernel, so a third party's
-  ``acme.seats.v1`` is access-bearing with no kernel edit.
+  ``acme.seats.v1`` is access-bearing with no kernel edit;
+* (c) a contract whose registered implementation, or the declared
+  ``@contract`` class it derives from, carries an ``@access_check`` method
+  (:func:`sandloom.shared.authz.contract_check.declares_access_checks`),
+  at any registration attempt in this process: a provider-only process (no
+  consumer imported the generated atoms) classifies it too, so a module
+  other than its provider cannot first-register it.
 
 A provider cannot declassify its own contract by omitting a declaration. The
 provider is checked by its real identity: its loaded import path, not only
@@ -144,7 +150,9 @@ def install_access_providers(
     def access_bearing() -> frozenset[str]:
         return keys | _contract_check.generated_access_contracts()
 
-    core_facade._assign_access_providers(assigned, access_bearing)
+    core_facade._assign_access_providers(
+        assigned, access_bearing, declares=_contract_check.declares_access_checks
+    )
     return assigned
 
 

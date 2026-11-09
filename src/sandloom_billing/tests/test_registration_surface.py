@@ -112,7 +112,12 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "database=None",
     ),
     ("add_shutdown_task", "sandloom_billing.psp.close_psp_client"),
-    ("add_claims_contributor", "sandloom_billing.claims.contribute_billing_claims"),
+    # its four claim keys declared fail-safe (ADR-0014 decision 7, B-N12)
+    (
+        "add_claims_contributor",
+        "sandloom_billing.claims.contribute_billing_claims",
+        "fail_safe=tuple",
+    ),
     ("register_access_fact", "AccessFact('subscription.active')"),
     ("register_access_fact", "AccessFact('organization.subscription.active')"),
     # the declared reads of GET /subscription and GET /credits (planner)

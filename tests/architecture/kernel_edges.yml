@@ -771,18 +771,19 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-33, KB-34]
+    prs: [KB-30, KB-33, KB-34, kb-rev56-keys]
     anchors:
       - {path: sandloom/shared/authz/atoms_claims.py, symbol: ACTIVE_SUBSCRIPTION_STATUSES}
       - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"subscription_status\""}
-      - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"features\""}
-      - {path: sandloom/shared/authz/atoms_claims.py, literal: "\"limits\""}
+      # "features" / "limits" are no anchors once fixed: the kernel uses the
+      # words for its own driver features and query limits (kb-rev56-keys).
       # KB-10: the claims those atoms read are protected and may have a
       # non-critical authority (ADR-0014 decisions 1, 7); read from the
-      # declarations once the atoms leave the kernel.
+      # declarations since kb-rev56-keys (billing's fail_safe=, the root's
+      # Authority(fail_safe=True), the imported claim atoms' keys).
       - {path: sandloom/core/claims.py, symbol: FAIL_SAFE_KEYS}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}

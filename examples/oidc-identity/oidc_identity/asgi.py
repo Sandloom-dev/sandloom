@@ -17,6 +17,7 @@ bound (``sandloom explain SANDLOOM-B035``).
 """
 
 from sandloom.sdk.app import (  # sandloom: advanced composition root
+    Authority,
     app_modules,
     create_app,
 )
@@ -25,17 +26,22 @@ BUNDLED: list[str] = ["tenancy", "billing"]
 
 IDP = "oidc_identity.modules.acme_idp"
 
+#: Billing's keys are fail-safe (ADR-0014 decision 7): declared here too, for
+#: the process that binds billing remotely ``"critical": false``, where
+#: billing's own declaration does not run.
+BILLING = Authority("sandloom_billing", fail_safe=True)
+
 #: Who may write each protected token claim, and the module that issues
 #: tokens (ADR-0014): code, never a setting.
-CLAIM_AUTHORITIES: dict[str, str] = {
+CLAIM_AUTHORITIES: dict[str, str | Authority] = {
     "issuer": IDP,
     "roles": IDP,
     "permissions": IDP,
     "tenant_ids": "sandloom_tenancy",
-    "subscription_status": "sandloom_billing",
-    "plan_code": "sandloom_billing",
-    "features": "sandloom_billing",
-    "limits": "sandloom_billing",
+    "subscription_status": BILLING,
+    "plan_code": BILLING,
+    "features": BILLING,
+    "limits": BILLING,
 }
 
 app = create_app(

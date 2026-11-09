@@ -46,9 +46,11 @@ description: Create a new Sandloom business module (sandloom add module, migrate
      tenant; take the caller as `user: CurrentUser` and the session as
      `db()`. Only an open route declares `dependencies=[public(reason="...")]`.
      Idempotency, session checks and risk are derived: declare none of them.
-   - **Gates:** `dependencies=[Depends(require(OrgRole("admin")))]`; a billing
-     atom names its account: `Subscribed(of=Account.user())`,
-     `Credits(1, of=Account.org(param="org_id"))`.
+   - **Gates:** `dependencies=[Depends(require(OrgRole("admin")))]`; `OrgRole` and
+     the billing atoms are not sdk names: import them from the generated contract
+     copy (`<module>._generated.contracts.tenancy_membership_v1`,
+     `...billing_entitlements_v1`). A billing atom names its account:
+     `Subscribed(of=Account.user())`, `Credits(1, of=Account.org(param="org_id"))`.
    - **Events:** `uv run sandloom add event <name> <CamelName>` appends a producer
      `class X(Event, channel="<name>.<x>.v1")`; publish it with
      `await X(...).publish()` inside the unit.

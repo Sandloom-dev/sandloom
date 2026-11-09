@@ -21,7 +21,7 @@ registered contributor returned in this pass.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, cast
 
@@ -36,6 +36,7 @@ from sandloom.core.claims import (
     SealedClaims,
     UnsealedClaimsError,
     _seal_claims,
+    fail_safe_keys,
 )
 from sandloom.core.facade._services import (
     CLAIMS_CONTRACT_SUFFIX,
@@ -300,7 +301,12 @@ class _ClaimsMixin(_ServicesMixin):
     # Token claims contributors
     # -----------------
     def add_claims_contributor(
-        self, fn: Any, *, critical: bool = False, owner: str | None = None
+        self,
+        fn: Any,
+        *,
+        critical: bool = False,
+        owner: str | None = None,
+        fail_safe: Iterable[str] = (),
     ) -> None:
         """Register a contributor that adds claims to freshly minted tokens.
 
@@ -315,6 +321,14 @@ class _ClaimsMixin(_ServicesMixin):
         claims like roles/permissions/tenant allowlists, where a fail-open
         reduced-claims token is worse than a failed login.
 
+        ``fail_safe`` names the claim keys of this contributor whose every
+        reader escalates or answers indeterminate when the key is absent
+        (ADR-0014 decision 7): only such a key, assigned to this module, may
+        come from a non-critical contributor, and a declared key is protected
+        whether or not the composition's map names it. Never ``roles``,
+        ``permissions``, ``tenant_ids`` or the issuer's fields (a
+        ``ValueError``).
+
         The owner stamped into ``claims_sources`` is the short name of the
         module whose registration is in progress (``sandloom_billing`` and
         ``myapp.modules.billing`` alike give ``"billing"``). ``owner``, when
@@ -326,7 +340,8 @@ class _ClaimsMixin(_ServicesMixin):
         resolved = self._require_own_name(
             owner or _short_module_name(module) or "?", "a claims contributor"
         )
-        self._claims_contributors.append((fn, critical, resolved))
+        keys = fail_safe_keys(fail_safe, f"claims contributor of {resolved!r}")
+        self._claims_contributors.append((fn, critical, resolved, keys))
         self._claims_owner_modules.setdefault(resolved, str(module))
         contract_name = claims_contract_name(resolved)
         if self.service_registry.contains(contract_name):
@@ -339,17 +354,26 @@ class _ClaimsMixin(_ServicesMixin):
 
     @property
     def claims_contributors(self) -> list[Any]:
-        return [fn for fn, _, _ in self._claims_contributors]
+        return [fn for fn, _, _, _ in self._claims_contributors]
 
     def _contributors_of(self, owner: str | None) -> list[Any]:
-        return [fn for fn, _, o in self._claims_contributors if o == owner]
+        return [fn for fn, _, o, _ in self._claims_contributors if o == owner]
 
     def _local_claim_owners(self) -> dict[str | None, bool]:
         """Local contributor owners (registration order) -> is any critical."""
         owners: dict[str | None, bool] = {}
-        for _fn, critical, owner in self._claims_contributors:
+        for _fn, critical, owner, _keys in self._claims_contributors:
             owners[owner] = owners.get(owner, False) or critical
         return owners
+
+    def _declared_fail_safe(self) -> dict[str, frozenset[str]]:
+        """Local contributor owner -> the claim keys it declares fail-safe
+        (``add_claims_contributor(..., fail_safe=...)``; ADR-0014 decision 7)."""
+        declared: dict[str, frozenset[str]] = {}
+        for _fn, _critical, owner, keys in self._claims_contributors:
+            if owner and keys:
+                declared[owner] = declared.get(owner, frozenset()) | keys
+        return declared
 
     def remote_claims_contributors(self) -> dict[str, bool]:
         """Remote claims contributors declared via ``SERVICE_BINDINGS``.
@@ -444,7 +468,7 @@ class _ClaimsMixin(_ServicesMixin):
                 "that registered it"
             )
         owner: str | None = None
-        for fn, _critical, registered in self._claims_contributors:
+        for fn, _critical, registered, _keys in self._claims_contributors:
             if fn == issuer:
                 if registered is None or (owner is not None and registered != owner):
                     owner = None

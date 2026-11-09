@@ -752,9 +752,15 @@ Contract(REF) is a second declaration the others do not see: a lower tier
 skips the live check where a claim decides, another category answers with
 another status, a missing risks() hides an administrative gate from the route
 policy. sandloom check compares the class with the literal and refuses a
-difference. Not seen: a call through getattr, an atom built at run time, an
-authority decided in a function body. Those are not proven statically; every
-route is classified independently at startup and the runtime checks apply.
+difference, however the client is spelled: Contract or OptionalContract
+(aliased or not), built anywhere in the file or imported from the package,
+its ContractRef reached through a module alias, a re-export, a star import, a
+local alias or written by hand; a call through a bound method, a constant
+getattr or a helper function counts as the class's own. Only a class that
+sandloom generate wrote into a _generated/ package is exempt. Not seen: a name
+computed at run time (getattr with a variable, importlib), an authority
+decided outside the package. Those are not proven statically; every route is
+classified independently at startup and the runtime checks apply.
 
 **Fix:** use the generated atom (sandloom generate writes it beside your stub), or state the declared tier, category and risks() on your class
 
@@ -1453,9 +1459,13 @@ from its authority, the module loaded from the assigned import path or its
   '&lt;loaded path>'?" when it is close to a loaded one), loaded under its name
   from another path, or loaded without a claims contributor;
 - a non-critical authority (contributor critical=False, or binding
-  "critical": false) of a claim whose readers have no fallback (only
-  subscription_status, plan_code, features and limits may have one,
-  decision 7);
+  "critical": false) of a claim not declared fail-safe (decision 7: only a
+  key whose every reader escalates or answers indeterminate when it is
+  absent; its local authority declares it with
+  add_claims_contributor(..., fail_safe=[...]), the root with
+  Authority(..., fail_safe=True), the only declaration of a remote
+  authority; roles, permissions, tenant_ids and the issuer's fields never
+  are);
 - an issuer field (email, email_verified) assigned to a module other than the
   map's issuer, or in a map without an issuer: the issuer writes them itself,
   through the same mint check (a map with an issuer that names none assigns
@@ -2097,7 +2107,7 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 30 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Generators and examples teach the 26 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
 

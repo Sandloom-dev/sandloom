@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -56,26 +56,17 @@ ALWAYS_PROTECTED: frozenset[str] = frozenset({"roles", "permissions", "tenant_id
 #: claims contributor writes them at the mint through the same check (no
 #: caller hands the mint a claim value).
 ISSUER_FIELDS: frozenset[str] = frozenset({"email", "email_verified"})
-#: Keys the kernel's claim atoms read to grant access (``Subscribed``,
-#: ``Feature``, ``WithinLimit``): protected whether or not the map names them
-#: (answer #10). No reader takes an absent value as allow:
-#: ``subscription_status`` escalates to its owner's live subscription fact
-#: when the writer is in ``claims_sources_failed``. The plan keys ``features``
-#: / ``limits`` read by a generated ``Feature`` / ``WithinLimit``
-#: (``ClaimReadCheck``, G-AUTHZ-12 as amended by KB-33d) never take an absent
-#: claim as a deny either, since ``Not`` would invert it: absent while their
-#: authority failed is indeterminate 503 ``claim_authority_failed``, absent
-#: otherwise is indeterminate 501 ``access_unknown``; a present mapping is the
-#: complete snapshot (an entry it does not list denies), so a writer emits it
-#: whole or not at all. (The kernel ``Feature`` / ``WithinLimit``, removed by
-#: KB-34, still deny on an absent plan key.) So these are the only keys whose
-#: authority may be registered non-critical (decision 7, billing option (c)):
-#: a billing outage still mints a login.
-FAIL_SAFE_KEYS: frozenset[str] = frozenset(
-    {"subscription_status", "plan_code", "features", "limits"}
-)
-#: Protected in every composition, assigned or not.
-PROTECTED_BASE: frozenset[str] = ALWAYS_PROTECTED | ISSUER_FIELDS | FAIL_SAFE_KEYS
+#: Keys that are never fail-safe (ADR-0014 decision 7): ``Role``, ``Perm``,
+#: ``TenantScope`` and row security read the kernel's keys with no live
+#: fallback, and the issuer's fields have no other writer. Neither a module
+#: nor a composition root may declare one of them fail-safe.
+NEVER_FAIL_SAFE: frozenset[str] = ALWAYS_PROTECTED | ISSUER_FIELDS
+#: Protected in every composition, assigned or not. The kernel names no
+#: module's key: a module's claim keys are protected because the composition
+#: assigns them, because their authority declares them fail-safe, or because
+#: a generated claim atom imported here reads them
+#: (:attr:`ClaimAuthorities.declared`).
+PROTECTED_BASE: frozenset[str] = ALWAYS_PROTECTED | ISSUER_FIELDS
 #: The tenant a token binds (``TenantScope`` reads them before the grant):
 #: no contributor writes them, and a verifier trusts them with the authority
 #: of ``tenant_ids`` (ADR-0014 decision 1).
@@ -104,11 +95,19 @@ class Authority:
     (``Authority("identity", module="sandloom_identity")``), never by short
     name, it need not be loaded or bound here, and an issuer never stamps it.
     It exists for one rollout and is removed by the next deploy.
+
+    ``fail_safe=True`` declares, in the composition root, that every reader
+    of the key escalates or answers indeterminate when it is absent, so the
+    authority may be non-critical (ADR-0014 decision 7): needed for an
+    authority bound remotely with ``"critical": false``, whose own
+    declaration (``add_claims_contributor(..., fail_safe=...)``) does not run
+    in the issuing process. Never for :data:`NEVER_FAIL_SAFE` or the issuer.
     """
 
     name: str
     module: str | None = None
     previous: Authority | None = None
+    fail_safe: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,7 +198,20 @@ class ClaimAuthorities:
     #: a ``cpv`` this map does not accept, issued before it, is outdated (a
     #: refresh fixes it); one issued after it is a mismatch.
     effective_at: float = 0.0
-    #: Every protected key: :data:`PROTECTED_BASE` plus the map's keys.
+    #: The keys whose authority may be non-critical here (ADR-0014 decision
+    #: 7), read from declarations at boot: a key the root marks
+    #: ``Authority(..., fail_safe=True)``, or one its assigned local authority
+    #: declares with ``add_claims_contributor(..., fail_safe=...)``. Empty
+    #: when nothing declares one (a kernel without batteries).
+    fail_safe: frozenset[str] = frozenset()
+    #: Keys modules declare that the map may not name: those a claims
+    #: contributor declares fail-safe and those the generated claim atoms
+    #: imported here read. Protected whether or not the map names them, so
+    #: an unassigned one is nobody's (the merge drops it, the view removes
+    #: it).
+    declared: frozenset[str] = frozenset()
+    #: Every protected key: :data:`PROTECTED_BASE`, the map's keys and
+    #: :attr:`declared`.
     protected: frozenset[str] = field(init=False)
     #: The digests an issuer stamps: key -> ``cpv_digest(key, authority)``.
     digests: Mapping[str, str] = field(init=False)
@@ -223,10 +235,15 @@ class ClaimAuthorities:
         object.__setattr__(self, "previous", previous)
         previous_owners = dict(self.previous_owners)
         object.__setattr__(self, "previous_owners", MappingProxyType(previous_owners))
+        object.__setattr__(self, "fail_safe", frozenset(self.fail_safe))
+        object.__setattr__(self, "declared", frozenset(self.declared))
         object.__setattr__(
             self,
             "protected",
-            PROTECTED_BASE | frozenset(authorities) | frozenset(verified),
+            PROTECTED_BASE
+            | frozenset(authorities)
+            | frozenset(verified)
+            | self.declared,
         )
         object.__setattr__(
             self,
@@ -257,6 +274,8 @@ class ClaimAuthorities:
                         self.legacy_until,
                         self.effective_at,
                         self.assigned,
+                        # The protected set decides what the view removes.
+                        sorted(self.declared),
                     )
                 ).encode()
             ).hexdigest()[:16],
@@ -266,21 +285,42 @@ class ClaimAuthorities:
         """Short name of ``key``'s authority (``None``: unassigned)."""
         return self.owners.get(key)
 
-    @staticmethod
-    def critical_required(key: str) -> bool:
+    def critical_required(self, key: str) -> bool:
         """Whether ``key``'s authority must be a critical contributor.
 
-        Decision 7: only a :data:`FAIL_SAFE_KEYS` key may come from a
-        non-critical authority; ``roles``, ``permissions``, ``tenant_ids``,
-        the issuer's fields and every key an application assigns need theirs
-        critical (``Role``, ``Perm`` and ``TenantScope`` have no live
-        fallback, and the kernel cannot know an application key's readers).
+        Decision 7: only a key declared fail-safe (:attr:`fail_safe`) may
+        come from a non-critical authority; ``roles``, ``permissions``,
+        ``tenant_ids`` and the issuer's fields never are (``Role``, ``Perm``
+        and ``TenantScope`` have no live fallback), and any other key needs
+        a declaration: the kernel cannot know a module key's readers, its
+        authority or the composition root states them.
         """
-        return key not in FAIL_SAFE_KEYS
+        return key in NEVER_FAIL_SAFE or key not in self.fail_safe
 
 
 #: A composition whose root passed no ``claim_authorities``: nothing assigned.
 NO_AUTHORITIES = ClaimAuthorities()
+
+
+def fail_safe_keys(keys: Iterable[str], what: str) -> frozenset[str]:
+    """``keys`` as a fail-safe declaration, refused (``ValueError``) when one
+    is not a claim key or is one of :data:`NEVER_FAIL_SAFE` (decision 7)."""
+    if isinstance(keys, str):
+        raise ValueError(f"{what}: fail_safe is a collection of claim keys")
+    declared = frozenset(keys)
+    bad = sorted(
+        repr(k)
+        for k in declared
+        if not isinstance(k, str) or not k or k in NEVER_FAIL_SAFE
+    )
+    if bad:
+        raise ValueError(
+            f"{what}: fail_safe={', '.join(bad)} refused: a fail-safe key is a "
+            "claim key whose every reader escalates or answers indeterminate "
+            "when it is absent; roles, permissions, tenant_ids and the "
+            "issuer's fields never are (ADR-0014 decision 7)"
+        )
+    return declared
 
 
 # ---------------------------------------------------------------------------

@@ -171,6 +171,32 @@ claims your own authority writes.
 `Subscribed(statuses=...)` follows the same rule: an absent `subscription_status`
 with a failed authority answers 503, absent otherwise answers 501.
 
+**Fail-safe claim keys are declared, not built in.** The kernel no longer
+knows billing's keys (`subscription_status`, `plan_code`, `features`,
+`limits`). Only a key declared fail-safe may come from a non-critical
+authority ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)
+decision 7). A declared key is protected even when the map does not name
+it:
+
+- Billing declares its four keys itself; a monolith, or a process that loads
+  billing, needs no change.
+- An issuer that binds billing remotely with `"critical": false` declares
+  them in its composition root:
+  `"subscription_status": Authority("sandloom_billing", fail_safe=True)` for
+  each of the four (`from sandloom.sdk.app import Authority`). The standard
+  root does. Without it the issuing process refuses the boot
+  (`SANDLOOM-B035`, naming the entry to write).
+- Your own non-critical authority declares its keys:
+  `api.add_claims_contributor(fn, fail_safe=["loyalty_tier"])`. Declare only
+  a key whose every reader escalates or answers indeterminate when it is
+  absent. `roles`, `permissions`, `tenant_ids`, `email` and `email_verified`
+  are never fail-safe.
+
+A contract whose implementation carries `@access_check` methods is now
+access-bearing in every process, also where no consumer imported its
+generated atoms. Only the module its first segment names registers it, or
+the one `access_providers` assigns (`SANDLOOM-B034`).
+
 ### Commands
 
 | Old | New |
