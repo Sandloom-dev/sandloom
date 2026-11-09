@@ -405,6 +405,27 @@ website renders this same changelog.
 
 ### Added
 
+- **A provider down is an indeterminate 503 inside the algebra** (ADR-0014
+  K5, KB-35). A generated access check whose bound provider is unreachable,
+  fails or times out (`remote_service_unavailable`, `rpc_timeout`) is
+  indeterminate 503 `owner_unavailable`: `OrgRole("admin") |
+  SubscriptionActive(of=...)` with tenancy down allows only on a subscription
+  that allowed, `~OrgRole(...)` never allows. Each such branch logs a warning
+  on `sandloom.access` and counts `access_indeterminate_branch_total`, even
+  when a sibling allows. An RPC authentication or allowlist refusal
+  (`rpc_caller_forbidden`, `rpc_auth_*`, ...) stays an error. Before, the
+  outage escaped the algebra as an HTTP 503 even where another branch allowed.
+- **Per-atom request session; describe at boot** (ADR-0014 K6, KB-36).
+  `Requirement.needs_request_session()` (default: any tier above claims, as
+  before) decides whether `require()` opens a database session; a generated
+  contract check answers False (its provider runs in its own unit), so a
+  policy made of claims and contract checks opens none. The boot probe now
+  describes every remote binding, not only those with a known snapshot, and
+  seeds the RPC proxy's describe cache: one `GET` per binding at start, no
+  describe `GET` on a first request (also with `CONTRACT_COMPAT_CHECK=off`,
+  through `sandloom.core.rpc.describe_remote_bindings`). Nothing to change in
+  callers: a custom `Requirement` keeps the tier rule unless it overrides the
+  method.
 - **Contract-anchored access checks** (ADR-0014 decisions 8 to 12, KB-30).
   A provider marks a boolean contract read with
   `@access_check("OrgRole", bind={"organization_id": From.org(param="org_id"),

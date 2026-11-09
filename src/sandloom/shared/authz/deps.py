@@ -38,7 +38,7 @@ from sandloom.core.di import (
     sensitive_effect,
 )
 from sandloom.shared.authz.account import bind_authz_request
-from sandloom.shared.authz.algebra import TIER_CLAIM, Requirement
+from sandloom.shared.authz.algebra import Requirement
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.enforce import SOURCE_HTTP, decide, record_denial
 from sandloom.shared.authz.results import AccessDecision, AccessDenied
@@ -118,11 +118,6 @@ def _denied(decision: AccessDecision, status_code: int | None) -> AccessDenied:
     return AccessDenied(decision, status_code=override)
 
 
-def _needs_db(policy: Requirement) -> bool:
-    """True when the policy may reach a resource/live atom that uses ``ctx.db``."""
-    return policy.tier > TIER_CLAIM
-
-
 _GateFn = Callable[..., Awaitable[UserContext]]
 
 
@@ -139,9 +134,10 @@ def require(
     missing contract → 501);
     ``status_code`` is an explicit override for definite denials.
 
-    A claims-only policy (every atom tier 1) never opens a database session /
-    Unit of Work; only policies that may reach a live atom depend on
-    ``get_db``.
+    A policy opens a database session / Unit of Work (``get_db``) only when
+    one of its atoms may use it (``Requirement.needs_request_session``): a
+    claims-only policy never does, nor does a contract-anchored check, whose
+    provider runs in its own unit.
 
     Raises ``ValueError`` at wiring time if ``policy`` contains a resource-scoped
     atom (e.g. ``Owner``): ``require`` has no request resource, so such a policy
@@ -163,7 +159,7 @@ def require(
             raise _denied(decision, status_code)
         return subject
 
-    if not _needs_db(policy):
+    if not policy.needs_request_session():
 
         async def _claims_guard(
             request: Request,
