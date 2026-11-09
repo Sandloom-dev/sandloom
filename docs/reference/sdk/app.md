@@ -71,6 +71,7 @@ def create_app(
     claim_authorities: collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None = None,
     default_claim_authorities: collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None = None,
     legacy_tokens: sandloom.core.claims.LegacyClaimsTokens | None = None,
+    access_providers: collections.abc.Mapping[str, str] | None = None,
 ) -> fastapi.applications.FastAPI
 ```
 
@@ -101,6 +102,14 @@ compatibility mode of the initial `cpv` enablement (an accepted
 temporary risk, G-RISK-14): written for one upgrade, never by default,
 off by itself at `until + ACCESS_TOKEN_EXPIRE_MINUTES +
 JWT_LEEWAY_SECONDS`.
+
+`access_providers` assigns an access-bearing contract to the module
+that provides it in-process (`{contract: import path or entry-point
+name}`; ADR-0014 decision 6): a contract a live adapter asks, or a key
+of this map, is registered only by the module its first segment names
+or by the one assigned here, checked by import path; anyone else refuses
+the boot (SANDLOOM-B034). Remotely, `SERVICE_BINDINGS` is the
+assignment. Every other contract keeps the first-registrant rule.
 
 ### `LegacyClaimsTokens`
 

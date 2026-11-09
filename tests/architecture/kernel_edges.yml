@@ -370,6 +370,7 @@ edges:
       - {path: sandloom/shared/authz/live_contracts.py, symbol: register_live_adapter}
       - {path: sandloom/sdk/authz.py, symbol: EntitlementsAdapter}
       - {path: sandloom/sdk/authz.py, symbol: MembershipAdapter}
+    note: "Started by KB-13: the contract a live adapter names, or a key of create_app(access_providers=...), is registered in-process only by its first-segment module or the assigned one, by import path (SANDLOOM-B034); read generically from the adapter table, no contract literal in the kernel. Fixed after KB-30 and KB-34."
   - id: B-I1
     class: b
     type: import

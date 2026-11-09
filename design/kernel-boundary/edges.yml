@@ -87,6 +87,8 @@ edges:
       Approved exception to public-API preservation (owner #2): removed only after the
       G-AUTHZ-05 scenarios pass over access checks, with the ledger, ADR, docs and migration
       guide updated; third-party provider capability kept through access_providers / bindings.
+      Started by KB-13 (access_providers assignment, B034 widened; current_status stays open
+      until KB-30 and KB-34).
 
   # --- 4.1 imports -------------------------------------------------------------------------
   - id: B-I1
