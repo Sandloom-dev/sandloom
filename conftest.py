@@ -60,10 +60,18 @@ def _standard_root_when_installed() -> None:
     ``sandloom-standard`` tests the
     standard composition, ``sandloom_standard.main`` with its trust map; the
     ``kernel-without-batteries`` venv has no ``sandloom-standard`` and keeps
-    the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins.
+    the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins, except the
+    standard root ``.env.test`` names (loaded by the plugin before this file)
+    where ``sandloom-standard`` is not installed.
     """
+    standard = "sandloom_standard.main"
     if importlib.util.find_spec("sandloom_standard") is not None:
-        os.environ.setdefault("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
+        os.environ.setdefault("SANDLOOM_COMPOSITION_ROOT", standard)
+    elif os.environ.get("SANDLOOM_COMPOSITION_ROOT") == standard:
+        del os.environ["SANDLOOM_COMPOSITION_ROOT"]
+        loaded = sys.modules.get("sandloom.core.config.settings")
+        if loaded is not None:  # its snapshot took the variable too
+            loaded.settings.sandloom_composition_root = None
 
 
 _standard_root_when_installed()
