@@ -72,4 +72,11 @@ def test_the_schema_builds_on_sqlite(root: Path, packages: list[str]) -> None:
 
 def test_every_example_is_built() -> None:
     examples = {r.name for r, _ in APPLICATIONS}
-    assert {"academy", "helpdesk", "linkly", "projecthub", "tutorial"} <= examples
+    assert {
+        "academy",
+        "helpdesk",
+        "linkly",
+        "oidc-identity",
+        "projecthub",
+        "tutorial",
+    } <= examples

@@ -1,0 +1,88 @@
+[project]
+name = "oidc_identity"
+version = "0.1.0"
+description = "A Sandloom application."
+requires-python = ">=3.11"
+dependencies = [
+    "sandloom[redis,celery]>=0.7.0a11,<0.8",
+    "sandloom-tenancy>=0.7.0a11,<0.8",
+    "sandloom-billing>=0.7.0a11,<0.8",
+]
+
+[project.optional-dependencies]
+# Native accelerators (hiredis C reply parser, jsonschema-rs) — the engines the
+# production image runs (the Dockerfile installs `--extra fast`); the framework
+# falls back to pure Python without them.
+fast = ["sandloom[fast]"]
+# Exact pins (matching the framework's) so every machine, pre-commit and CI
+# lint / type-check / `sandloom check` with the same tool versions. Includes `fast`
+# so tests exercise the production engines.
+dev = [
+    "ruff==0.17.1",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-xdist==3.8.0",
+    "pre-commit==4.7.0",
+    "sandloom[check,testing,sqlite]",
+    "oidc_identity[fast]",
+]
+
+[dependency-groups]
+# `uv sync` installs the dev group by default — it never strips the tools.
+dev = ["oidc_identity[dev]"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["oidc_identity"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["oidc_identity", "tests"]
+python_files = ["test_*.py"]
+# `-p sandloom.sdk.testing.plugin`: the framework's test harness and the 1.0 kit —
+# loads .env.test before anything imports the framework, gives every module's
+# tests the client / db fixtures, records `published(...)` events and resolves
+# `Contract(...)` through the test app (no conftest.py needed).
+addopts = [
+    "-v", "--tb=short", "--asyncio-mode=auto",
+    "-p", "sandloom.sdk.testing.plugin",
+]
+asyncio_mode = "auto"
+# A test still running after 300 s dumps every thread's stack.
+faulthandler_timeout = 300
+# A deprecated call (in the app or a library it uses) fails the suite.
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+fix = true
+force-exclude = true
+# `_generated/` holds copies `sandloom generate` lays out itself (ADR-0013).
+extend-exclude = ["oidc_identity/modules/*/migrations", "**/_generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP", "C901"]
+ignore = ["B008"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+# Framework imports are grouped like first-party (matching sandloom add output).
+known-first-party = ["sandloom", "oidc_identity"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["E501", "C901"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["/migrations/", ".*/tests/.*"]
+
+[tool.uv.sources]
+sandloom = { path = "../../packages/sandloom", editable = true }
+sandloom-tenancy = { path = "../../packages/sandloom-tenancy", editable = true }
+sandloom-billing = { path = "../../packages/sandloom-billing", editable = true }

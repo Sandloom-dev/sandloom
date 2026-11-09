@@ -16,6 +16,7 @@ its import line (SANDLOOM-T009).
 | [`helpdesk/`](helpdesk) | `sandloom new helpdesk --with identity,tenancy,billing --module tickets` | multi-tenant SaaS reusing the installed identity, tenancy and billing modules, cross-module **sync contract** (`tenancy.membership.v1`), the **organization billing gate** (`Subscribed(of=Account.org(...))`), RBAC, idempotency, events + audit |
 | [`academy/`](academy) | `sandloom new academy --no-batteries --module enrollment` | **sagas** (ADR-0008) with **typed steps**: a course-enrollment flow across three modules — `@contract` / `@command` providers, local + command steps, a pivot, compensation, retries, the timer sweep — and a split-conformance case (monolith vs split over RPC, same terminal state) |
 | [`projecthub/`](projecthub) | `sandloom new projecthub --no-batteries --module projects` | the **Cross-Module Query / Projection layer**: a `taskboard` read model folds `projects`+`tasks` events (read through **views**) into one indexed `project_task_query_index` (monotonic version-guarded upsert, exactly-once durable consumers, rebuild CLI through typed `Contract(...)` callers) — a cross-module list with **no runtime join** |
+| [`oidc-identity/`](oidc-identity) | `sandloom new oidc_identity --with tenancy,billing --module storefront`, then the issuer module `acme_idp` added | **replacing a bundled module**: an external OpenID Connect provider instead of `sandloom_identity`. The app's own `acme_idp` verifies the provider's `id_token` and issues the token; tenancy and billing run unchanged; the claim-authority map names the issuer. Proof test in mono and split: sign-in, invitations, billing gates, three kinds of revocation, with no change to the kernel or the batteries |
 
 ## What a module looks like
 
@@ -112,7 +113,7 @@ does), run from the repository root:
 
 ```bash
 framework_root="$PWD"
-for app in examples/linkly examples/helpdesk examples/projecthub examples/academy examples/tutorial; do
+for app in examples/linkly examples/helpdesk examples/projecthub examples/academy examples/oidc-identity examples/tutorial; do
   (cd "$app" && "$framework_root/.venv/bin/sandloom" test --full) || break
 done
 ```

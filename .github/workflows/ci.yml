@@ -709,7 +709,7 @@ jobs:
         # runs: its PostgreSQL ledgers are this one's other lane.
         if: ${{ !cancelled() && needs.changes.outputs.examples == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'examples') }}
         run: |
-          for app in linkly helpdesk projecthub academy tutorial; do
+          for app in linkly helpdesk projecthub academy oidc-identity tutorial; do
             (cd "examples/$app" && \
               SANDLOOM_TEST_DATABASE_URL="sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/${app}_test.db" \
               "${{ github.workspace }}/.venv/bin/python" -m pytest -q -n 2 -p no:cacheprovider \
@@ -885,6 +885,8 @@ jobs:
             path: examples/projecthub
           - app: academy
             path: examples/academy
+          - app: oidc-identity
+            path: examples/oidc-identity
           - app: tasklist
             path: examples/tutorial
     services:
