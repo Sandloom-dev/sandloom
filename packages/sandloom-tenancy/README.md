@@ -32,8 +32,9 @@ The import package is `sandloom_tenancy`. Installation registers the
 `sandloom.modules` entry point `tenancy`; `sandloom.main:app` discovers installed
 module entry points, and applications select their deployed modules with
 `SANDLOOM_MODULES`. Other modules interact through typed contracts and events.
-The framework ships the standard modules' generated contract DTOs, stubs and
-event schemas in `sandloom.shared`.
+The module ships the event schemas it produces in its `module.snapshot.json`,
+and a module that calls a contract keeps the generated stub and DTO copies in
+its own `_generated/` package: the framework ships none of them.
 
 The same module code runs in a monolith or a separate service. Infrastructure
 configuration and service bindings belong to the application; moving existing

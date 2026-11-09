@@ -1,10 +1,10 @@
 """Tenancy module events: typed producers of the ``tenancy.*.v1`` channels.
 
 Additive-only within v1 (a breaking change bumps the version). Each class is
-the producer of its channel: ``sandloom test`` registers and snapshots its schema
-and exports it to ``sandloom/shared/events/<channel>.json`` so views elsewhere can
-be verified. Publish with ``await MemberAdded(...).publish()`` inside the
-change's unit (transactional outbox).
+the producer of its channel: ``sandloom generate`` records its schema in
+``module.snapshot.json`` so views elsewhere can be verified. Publish with
+``await MemberAdded(...).publish()`` inside the change's unit (transactional
+outbox).
 
 An optional field that is unset is omitted from the payload (as before the
 typed classes), so v1 consumers see the same payloads.
@@ -117,15 +117,45 @@ class OrganizationDeleted(OrganizationEvent, channel=ORG_DELETED_V1):
 
 
 class MemberAdded(MemberEvent, channel=MEMBER_ADDED_V1):
-    """A member joined (``add_member``, an accepted invitation, a new owner)."""
+    """A member joined (``add_member``, an accepted invitation, a new owner).
+
+    Ordering: delivery is at-least-once and unordered, and ``version`` is
+    optional within ``.v1`` (a tenancy still on an older release publishes
+    none during a rolling upgrade). Decide per event: ``version`` present:
+    apply it when it is newer than the version you stored (or you stored
+    none), else skip it; ``version`` absent: refresh, re-reading
+    ``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role
+    and version in one statement) and storing that unless it is older than
+    what you stored.
+    """
 
 
 class MemberRemoved(MemberEvent, channel=MEMBER_REMOVED_V1):
-    """A member was removed or left (no ``role``)."""
+    """A member was removed or left (no ``role``).
+
+    Ordering: delivery is at-least-once and unordered, and ``version`` is
+    optional within ``.v1`` (a tenancy still on an older release publishes
+    none during a rolling upgrade). Decide per event: ``version`` present:
+    apply it when it is newer than the version you stored (or you stored
+    none), else skip it; ``version`` absent: refresh, re-reading
+    ``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role
+    and version in one statement) and storing that unless it is older than
+    what you stored.
+    """
 
 
 class MemberRoleChanged(MemberEvent, channel=MEMBER_ROLE_CHANGED_V1):
-    """A member's role changed (both sides of an ownership transfer too)."""
+    """A member's role changed (both sides of an ownership transfer too).
+
+    Ordering: delivery is at-least-once and unordered, and ``version`` is
+    optional within ``.v1`` (a tenancy still on an older release publishes
+    none during a rolling upgrade). Decide per event: ``version`` present:
+    apply it when it is newer than the version you stored (or you stored
+    none), else skip it; ``version`` absent: refresh, re-reading
+    ``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role
+    and version in one statement) and storing that unless it is older than
+    what you stored.
+    """
 
 
 class InvitationCreated(InvitationEvent, channel=INVITATION_CREATED_V1):

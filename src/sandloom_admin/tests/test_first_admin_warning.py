@@ -9,8 +9,10 @@ import pytest
 
 from sandloom.sdk.errors import ContractCallError
 from sandloom.sdk.testing import fake_contract
-from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1
 from sandloom_admin import startup as admin_setup
+from sandloom_admin._generated.contracts.identity_security_v1 import (
+    IDENTITY_SECURITY_V1,
+)
 
 
 class _Security:

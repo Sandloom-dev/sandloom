@@ -134,10 +134,10 @@ packages `sandloom_identity`, `sandloom_tenancy` and `sandloom_billing`
 - **Isolation.** An installed module package is another module: an app
   module importing it, in any spelling, is
   [SANDLOOM-C001](../reference/error-codes.md#sandloom-c001). Talk to it
-  through its events and contracts. The standard modules' contract stubs, the
-  generated copies of their DTOs and their event schemas live in
-  `sandloom.shared` and ship with `sandloom` (SANDLOOM-C012: every caller
-  process imports them).
+  through its events and contracts. A module keeps the stubs and DTO copies of the
+  contracts it consumes in its own `_generated/` package, and its event
+  schemas in `module.snapshot.json`; `sandloom` ships none of them
+  (SANDLOOM-C012: a caller process imports the copy its own module holds).
 
 To ship a module of your own:
 
@@ -147,10 +147,11 @@ To ship a module of your own:
    its `architecture_rules.yml`, so `sandloom check` applies.
 2. Depend on a compatible framework range, `sandloom>=0.7.0a11,<0.8`, never an
    exact pin, and on no other module package.
-3. Author its contract DTOs in its own `schemas` module and ship the stubs and
-   DTO copies `sandloom generate` writes in a package every caller process
-   imports (SANDLOOM-C012), listed in the app's `CONTRACT_DTO_PACKAGES`; an
-   app composing the module also generates its own copies into `<app>.shared`.
+3. Author its contract DTOs in its own `schemas` module. `sandloom generate`
+   writes the stubs and DTO copies of the contracts it consumes into its own
+   `_generated/` package, which ships in its wheel (SANDLOOM-C012; list the
+   packages in the app's `CONTRACT_DTO_PACKAGES`); an app composing the
+   module also generates its own copies into `<app>.shared`.
 
 Then `pip install` it next to an app and add its name to `SANDLOOM_MODULES`.
 

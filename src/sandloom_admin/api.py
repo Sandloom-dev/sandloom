@@ -55,7 +55,7 @@ def _console() -> Path:
 
 def _read_manifest() -> dict[str, Any] | None:
     """The first manifest found in the application's generated packages."""
-    for package in (*settings.contract_dto_packages, "sandloom.shared"):
+    for package in settings.contract_dto_packages:
         try:
             file = resources.files(package) / MANIFEST
             if file.is_file():

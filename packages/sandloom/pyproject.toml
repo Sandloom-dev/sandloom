@@ -132,9 +132,9 @@ path = "../../tools/packaging/package_build.py"
 "../../src/sandloom" = "sandloom"
 "../../migrations/core" = "sandloom/core/migrations/core_chain"
 
-# Repository-only agent files. `sandloom.shared` ships whole (DTOs, the
-# standard modules' generated stubs and event schemas, authz, guards): every
-# caller process imports it (SANDLOOM-C012).
+# Repository-only agent files. `sandloom.shared` ships whole (authz, guards,
+# subject): no generated stub, DTO copy or event schema of a module is in this
+# wheel, each module wheel carries its own (ADR-0013).
 [tool.sandloom.exclude]
 paths = []
 

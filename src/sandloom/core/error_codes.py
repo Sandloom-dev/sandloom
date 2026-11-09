@@ -206,8 +206,8 @@ with the module to fix.
         "a business module imports a sibling business module",
         "publish an Event subclass (`await NoteCreated(...).publish()`) and "
         "react to it with @on(NoteCreated) in the other module, or call its "
-        "contract through Contract(X_Y_V1) from the generated "
-        "sandloom.shared.contracts stub; never import the other module",
+        "contract through Contract(X_Y_V1) from the generated stub "
+        "(`sandloom generate`); never import the other module",
         """
 Modules are atomic and isolated: each one can be deployed as its own service.
 An import of another business module (any spelling: absolute, relative,
@@ -349,9 +349,11 @@ must be visible in review.
 A provider authors its contract DTOs (pydantic models, Enums) in its own
 module, by convention its schemas module. `sandloom generate` writes a
 wire-shape copy of every DTO a provided contract signature names (nested ones
-included) into the shared DTO package, next to the stub, which names the
-copy: every caller process imports the same generated class, and a call
-returns it locally and over RPC alike. A copy carries the fields, their types
+included) into each consumer's generated package (the consuming module's
+`_generated/contracts/`, an application's shared package), next to the stub,
+which names the copy: a caller process imports its own generated class (a
+consumer's copy decodes the provider's result on the typed path), locally
+and over RPC alike. The kernel ships no copy. A copy carries the fields, their types
 and constraints, defaults, aliases, Literal / Enum values, nested models and
 the model_config options; not methods, properties or validators (a validator
 is the provider's: it runs where the provider binds an argument or builds
@@ -363,9 +365,10 @@ one the copy cannot carry (a parametrised generic, a default or
 default_factory it cannot write, a custom constraint, a callable
 discriminator) when @contract decorates the provider; a DTO of ANOTHER
 module's package or a function-local one when the module registers the
-contract (use the other module's generated copy from the shared DTO
-package); a missing copy (`sandloom check`, contract-dtos); a hand-edited or
-stale copy (`sandloom test`: run `sandloom generate`).
+contract (use the other module's generated copy from your own generated
+package); in an application, a provider DTO missing from its shared package
+(`sandloom check`, contract-dtos); a hand-edited or stale copy (`sandloom
+test`: run `sandloom generate`).
 """,
     ),
     _entry(
@@ -558,7 +561,8 @@ unscoped() block (the relational counterpart is SANDLOOM-C015).
         "only the producing module publishes a channel",
         """
 A view (an Event class for a foreign channel) is checked against the producer
-schema found in the manifest or the exported schema file; with neither it is
+schema found in the tree, in an application's exported schema file, or in the
+`module.snapshot.json` of the installed producer; with none of them it is
 reported as unverified (warning). .publish() on a view is refused: only the
 producer owns a channel.
 """,

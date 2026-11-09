@@ -2,8 +2,8 @@
 account before it acts (``sandloom admin create`` / ``invite``,
 ``sandloom security grant-admin``).
 
-Callers import the generated copy (``sandloom.shared.contracts.identity_dto``),
-written by ``sandloom generate``.
+Callers import the generated copy (``identity_dto``, written by
+``sandloom generate`` into the consuming module), never this module.
 """
 
 from __future__ import annotations

@@ -3,8 +3,9 @@
 A provider authors its contract DTOs (pydantic models, Enums) in its own
 module, by convention its ``schemas`` module. ``sandloom generate`` writes a
 copy of every DTO a provided contract signature names -- nested ones
-included -- into the shared DTO package, one file per provider module
-(``<shared>/contracts/<module>_dto.py``); the contract stubs name the copies,
+included -- into the consumer's generated package (``<module>/_generated/contracts/`` or
+an application's ``<app>.shared/contracts/``), one file per provider module
+(``<provider>_dto.py``); the contract stubs name the copies,
 so every caller process imports the same generated class and a remote caller
 never needs the provider's package.
 
@@ -14,8 +15,8 @@ defaults, the aliases (an ``alias_generator`` resolved to per-field
 ``model_config`` options of the allowed set. It does not carry methods,
 properties or validators: a validator is the provider's and runs where the
 provider binds an argument or builds its result. Each copy is marked with
-:func:`sandloom.sdk.contracts.dto_copy` (its origin; the framework's own
-copies import it from its kernel home, :func:`contract_refs_home`).
+:func:`sandloom.sdk.contracts.dto_copy` (its origin, imported from the public
+home, :func:`contract_refs_home`; the kernel ships no copy).
 
 What cannot be copied faithfully is refused (:class:`CopyError`, naming the
 field path and the fix): ``@contract`` checks the closed set when it
@@ -78,22 +79,17 @@ def _within(module: str, package: str) -> bool:
     return module == package or module.startswith(package + ".")
 
 
-#: The framework's own shared package: kernel, which never imports
-#: ``sandloom.sdk`` (ADR-0010, the import contract kernel-never-imports-sdk).
+#: The framework's own shared package: classes a stub names there are
+#: referenced as they are, never copied (nothing is generated into it).
 KERNEL_SHARED = "sandloom.shared"
 
 
-def contract_refs_home(dto_package: str | None) -> tuple[str, str | None]:
+def contract_refs_home() -> tuple[str, str]:
     """``(module, marker)`` a generated stub or DTO copy imports
-    ``ContractRef`` / ``dto_copy`` from, by the package it is written to.
-
-    The framework's own shared package takes the kernel home (no marker);
-    an application's takes the public ``sandloom.sdk.contracts`` with the
-    ``# sandloom: advanced`` marker of the beginner-tier pin (SANDLOOM-T009),
-    since both names are advanced. ``None`` (no target) is an application.
-    """
-    if dto_package is not None and _within(dto_package, KERNEL_SHARED):
-        return "sandloom.core.descriptors.contract_refs", None
+    ``ContractRef`` / ``dto_copy`` from, wherever it is written: the public
+    ``sandloom.sdk.contracts`` with the ``# sandloom: advanced`` marker of the
+    beginner-tier pin (SANDLOOM-T009), since both names are advanced; never a
+    ``sandloom.core`` import (ADR-0013 decision 10)."""
     return "sandloom.sdk.contracts", "sandloom: advanced generated code"
 
 
@@ -752,7 +748,7 @@ def render_module(module: str, resolver: Resolver) -> str:
     every class ``resolver`` placed for copying (and what those name)."""
     imports = Imports(("sandloom", resolver.dto_package.split(".", 1)[0]))
     r = Renderer(resolver, imports)
-    home, marker = contract_refs_home(resolver.dto_package)
+    home, marker = contract_refs_home()
     imports.need(home, "dto_copy", marker)
     # Discover field/default dependencies before choosing any exported name.
     index = 0
