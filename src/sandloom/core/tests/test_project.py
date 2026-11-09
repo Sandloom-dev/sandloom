@@ -467,6 +467,23 @@ def test_identity_apps_require_twofa_key(tmp_path: Path) -> None:
     assert "TWOFA_ENCRYPTION_KEY" not in plain
 
 
+def test_mail_apps_expose_a_real_notifier_and_name_the_demo_risk(
+    tmp_path: Path,
+) -> None:
+    """identity / tenancy require an email notifier: the app's compose passes the
+    smtp settings through and says what a mail-less demo accepts."""
+    for battery in ("identity", "tenancy"):
+        generate_project(f"shop_{battery}", tmp_path, with_batteries=[battery])
+        root = tmp_path / f"shop_{battery}"
+        env = _compose(root)["services"]["app"]["environment"]
+        for key in ("NOTIFIER_BACKEND", "SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
+            assert key in env, (battery, key)
+        assert "log_notifier_in_prod" in _read(root, "deploy/docker-compose.yml")
+    generate_project("probe_nomail", tmp_path, with_batteries=["billing"])
+    plain = _compose(tmp_path / "probe_nomail")["services"]["app"]["environment"]
+    assert "NOTIFIER_BACKEND" not in plain
+
+
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
     generate_project("shop", tmp_path, with_batteries=["billing"])
     env = _compose(tmp_path / "shop")["services"]["app"]["environment"]

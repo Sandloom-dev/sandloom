@@ -131,6 +131,12 @@ x-common-env: &common-env
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   # Subscription gates evaluate the same past-due policy on every service.
   BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}
+  # Mail. identity and tenancy REQUIRE an email notifier (notification +
+  # email), so with ENVIRONMENT=prod this stack refuses to start on the default
+  # `log` driver, which delivers no mail. Production: NOTIFIER_BACKEND=smtp with
+  # SMTP_HOST, SMTP_FROM, and SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true.
+  # A demo that runs without mail adds log_notifier_in_prod to
+  # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-25}
