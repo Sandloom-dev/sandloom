@@ -46,8 +46,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from pydantic import TypeAdapter
+
 import sandloom.core.cli.generation_input as _generation_input
 import sandloom.core.cli.ui as _ui
+import sandloom.core.config.module_settings as _module_settings
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
 from sandloom.core.cli.dev import errors as _dev_errors
@@ -64,6 +67,7 @@ SECURITY_CONTRACT = "identity.security.v1"
 DEV_BASE_URL = "http://127.0.0.1:8000"
 #: ``FRONTEND_URL``'s default: a frontend dev server, not this app's console.
 _FRONTEND_DEFAULT = "http://localhost:3000"
+_CONSOLE_FLAG: TypeAdapter[bool | None] = TypeAdapter(bool | None)
 #: How often the prompt asks before giving up.
 PROMPT_ATTEMPTS = 3
 
@@ -126,8 +130,19 @@ def _frontend_url() -> str | None:
     return url if url and url != _FRONTEND_DEFAULT else None
 
 
+#: The console switch the admin module declares (ADR-0015). The CLI reads it
+#: from the process's one source read, not from a kernel setting: the link
+#: target must not depend on the module being loaded in this process (edge row
+#: K2, KB-60 decides how the CLI learns it).
+_CONSOLE_SWITCH = "ADMIN_CONSOLE_ENABLED"
+
+
 def _console_enabled() -> bool:
-    enabled = settings.admin_console_enabled
+    raw, _ = _module_settings.process_snapshot().get(_CONSOLE_SWITCH)
+    try:
+        enabled = _CONSOLE_FLAG.validate_python(raw)
+    except ValueError:  # the console module refuses a bad value at boot
+        enabled = None
     return (not settings.is_prod) if enabled is None else bool(enabled)
 
 

@@ -320,6 +320,34 @@ website renders this same changelog.
 
 ### Changed
 
+- **Identity, tenancy and the admin console declare their own settings**
+  (KB-53, KB-54; ADR-0015). `TWOFA_ENCRYPTION_KEY`, the SSO client ids and
+  secrets, `TELEGRAM_BOT_TOKEN`, `SSO_ALLOWED_REDIRECT_URIS`,
+  `REFRESH_TOKEN_EXPIRE_DAYS` and `MAX_SESSION_DAYS` belong to
+  `sandloom_identity` (`IdentitySettings`); `TENANT_CLAIMS_MAX_ORGANIZATIONS`
+  to `sandloom_tenancy` (`TenancySettings`); `ADMIN_CONSOLE_ENABLED` and
+  `ADMIN_CONSOLE_DIST` to `sandloom_admin` (`AdminSettings`). Environment names,
+  defaults and bounds are unchanged. The kernel `Settings` no longer has these
+  fields, so `settings.twofa_encryption_key` and the others are gone (no alias):
+  a module reads its own with `settings_of(Model)`. A weak or missing
+  `TWOFA_ENCRYPTION_KEY` in production is now identity's own settings check, run
+  before its `setup` in every entry point: the message is unchanged apart from
+  the `module sandloom_identity:` prefix. The secrets are `SecretStr`. A process
+  that does not load identity (or tenancy, or the console) no longer parses or
+  validates its variables. New advanced name `sandloom.sdk.security.secret_problem`
+  (the strength rule `JWT_SECRET` uses) for a module's production check.
+  **Upgrade:** a module of your own that read one of these kernel attributes
+  reads it through the owning module's settings model or its own environment;
+  in a `compose/microservices.yml` run `sandloom add deploy --refresh`:
+  `REFRESH_TOKEN_EXPIRE_DAYS` moves from the shared env to the identity
+  service's, and a service that loads no identity must not set it
+  (`SANDLOOM-T019`). `sandloom admin create` / `invite` still choose the console
+  or the frontend link from `ADMIN_CONSOLE_ENABLED`, read from the process's
+  environment. The generated configuration reference lists the module settings;
+  the ops tier count falls by the 16 names that moved.
+  The production typo check of module settings also counts every loaded module,
+  one that declares no settings included, as the owner of its variable prefix.
+
 - **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
   required mail is sent** (kb-ic-6). Identity and tenancy require an email
   notifier, so a prod stack on the default `log` driver already refuses to

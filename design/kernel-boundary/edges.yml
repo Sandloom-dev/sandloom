@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 41, fixed: 4, retained: 2}
+  current_status: {open: 38, fixed: 7, retained: 2}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -297,7 +297,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
@@ -314,7 +314,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-53]
@@ -323,7 +323,7 @@ edges:
       - weak TOTP key refused in prod by identity's production check in every entry point (P2)
       - G-AUTH-19
     anchors:
-      - {path: sandloom/core/config/settings.py, literal: "TWOFA_ENCRYPTION_KEY"}
+      - {path: sandloom/core/config/settings.py, literal: "TWOFA_ENCRYPTION_KEY["}
     note: Presence already moved to registration by PR #71 (8d3413a); strength moves with the field.
 
   - id: B-C4
@@ -417,17 +417,19 @@ edges:
     class: b
     type: configuration
     scope: runtime
-    owner: billing
+    owner: [billing, identity]
     baseline_verdict: violation
     current_status: open
     target: fixed
     adr: ADR-0015
-    prs: [KB-52]
+    prs: [KB-52, KB-53, KB-55]
     invariants: [I-03]
     tests:
       - console list shows billing_provider only where billing is loaded (P10)
+      - the platform settings view lists refresh_token_expire_days only where identity is loaded (KB-53)
     anchors:
       - {path: sandloom/core/admin/api/platform.py, literal: '"billing_provider"'}
+      - {path: sandloom/core/admin/api/platform.py, literal: '"refresh_token_expire_days"'}
 
   - id: B-C10
     class: b
@@ -435,7 +437,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
@@ -443,10 +445,11 @@ edges:
     tests:
       - sandloom admin create picks the link target from the composed app's console route, not a setting
     anchors:
-      - {path: sandloom/core/cli/admin.py, symbol: admin_console_enabled}
+      - {path: sandloom/core/cli/admin.py, literal: '"admin_console_enabled"'}
     note: >-
-      The kernel CLI stops reading admin's setting and tests whether the composed app mounts the
-      console route (generic). The link path itself is B-N3 (deferred).
+      KB-54: the kernel `Settings` no longer holds the console switch (admin declares it). The CLI
+      still reads the declared name from the process's source read to keep today's link choice:
+      that remaining name is held by B-N3 (KB-60), which also decides the composed-route test.
 
   # --- 4.5 naming --------------------------------------------------------------------------
   - id: B-N1
@@ -497,7 +500,8 @@ edges:
       - moves with sandloom admin create in the CLI phase
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: "/admin/set-password"}
-    note: CLI phase (owner #14); the link target becomes the issuer's or admin's (owner question A5).
+      - {path: sandloom/core/cli/admin.py, literal: "ADMIN_CONSOLE_ENABLED"}
+    note: CLI phase (owner #14); the link target becomes the issuer's or admin's (owner question A5). KB-54 added the ADMIN_CONSOLE_ENABLED anchor: the link choice reads the admin module's declared switch by name until then.
 
   - id: B-N4
     class: b

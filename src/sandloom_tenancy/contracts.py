@@ -24,7 +24,7 @@ from sqlalchemy import and_, select
 
 from sandloom.sdk import contract, db
 from sandloom.sdk.contracts import contract_reads
-from sandloom.sdk.infra import settings
+from sandloom_tenancy.config import tenancy_settings
 from sandloom_tenancy.models import (
     Organization,
     OrganizationMember,
@@ -130,7 +130,7 @@ class MembershipReadContract:
         (an error above ``TENANT_CLAIMS_MAX_ORGANIZATIONS``)."""
         reads = contract_reads()
         ids: list[UUID] = []
-        cap = settings.tenant_claims_max_organizations
+        cap = tenancy_settings().tenant_claims_max_organizations
         cursor = None
         while True:
             page = await reads.page(

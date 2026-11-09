@@ -1850,7 +1850,6 @@ guarantees:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_twofa_key_is_mandatory_in_prod
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_twofa_key_refuses_registration
   - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
-  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_twofa_key_must_be_strong
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestSecretCrypto::test_key_rotation
 - id: G-AUTH-20
   statement: A protected claim (roles, permissions, tenant_ids, email, email_verified, subscription_status,

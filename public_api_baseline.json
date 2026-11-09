@@ -1482,6 +1482,10 @@
       "kind": "function",
       "signature": "(func:POSITIONAL_OR_KEYWORD|Callable[..., Awaitable[Any]], args:POSITIONAL_OR_KEYWORD|tuple[Any, ...], kwargs:POSITIONAL_OR_KEYWORD|dict[str, Any], spec:KEYWORD_ONLY|ContractMethodSpec, core:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str='default', contract:KEYWORD_ONLY|str | None=None) -> Any"
     },
+    "secret_problem": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str, min_length:KEYWORD_ONLY|int=32) -> str | None"
+    },
     "settings_of": {
       "kind": "function",
       "signature": "(model:POSITIONAL_OR_KEYWORD|type[M]) -> M"
@@ -5348,6 +5352,10 @@
     "run_password_hashing": {
       "kind": "function",
       "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[..., _T], args:VAR_POSITIONAL|Any) -> _T"
+    },
+    "secret_problem": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str, min_length:KEYWORD_ONLY|int=32) -> str | None"
     },
     "subject_commit_check": {
       "kind": "function",

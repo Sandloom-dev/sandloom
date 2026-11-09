@@ -1386,5 +1386,59 @@
   },
   "module": "sandloom_identity",
   "projections": [],
-  "sagas": []
+  "sagas": [],
+  "settings": {
+    "GITHUB_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GITHUB_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GOOGLE_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GOOGLE_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "LINKEDIN_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "LINKEDIN_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MAX_SESSION_DAYS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MICROSOFT_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MICROSOFT_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "REFRESH_TOKEN_EXPIRE_DAYS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "SSO_ALLOWED_REDIRECT_URIS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "TELEGRAM_BOT_TOKEN": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "TWOFA_ENCRYPTION_KEY": {
+      "legacy": true,
+      "tier": "ops"
+    }
+  }
 }

@@ -46,9 +46,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
 from sandloom.sdk.effects import sensitive_effect
-from sandloom.sdk.infra import cache, settings
+from sandloom.sdk.infra import cache
 from sandloom.sdk.security import ensure_user_not_blocked
 from sandloom_identity import lockout
+from sandloom_identity.config import identity_settings
 from sandloom_identity.events import (
     EventActor,
     SSOLinkedEvent,
@@ -117,7 +118,7 @@ class SSOService:
 
         allowed_uris = [
             uri.strip()
-            for uri in settings.sso_allowed_redirect_uris.split(",")
+            for uri in identity_settings().sso_allowed_redirect_uris.split(",")
             if uri.strip()
         ]
 
@@ -261,22 +262,20 @@ class SSOService:
         """Get list of available SSO providers."""
         providers: list[SSOProviderOut] = []
 
-        if settings.google_client_id and settings.google_client_secret:
+        configured = identity_settings()
+
+        if configured.google_client_id and configured.google_client_secret:
             providers.append(SSOProviderOut(code="google", name="Google", enabled=True))
 
-        if getattr(settings, "microsoft_client_id", None) and getattr(
-            settings, "microsoft_client_secret", None
-        ):
+        if configured.microsoft_client_id and configured.microsoft_client_secret:
             providers.append(
                 SSOProviderOut(code="microsoft", name="Microsoft", enabled=True)
             )
 
-        if settings.github_client_id and settings.github_client_secret:
+        if configured.github_client_id and configured.github_client_secret:
             providers.append(SSOProviderOut(code="github", name="GitHub", enabled=True))
 
-        if getattr(settings, "linkedin_client_id", None) and getattr(
-            settings, "linkedin_client_secret", None
-        ):
+        if configured.linkedin_client_id and configured.linkedin_client_secret:
             providers.append(
                 SSOProviderOut(code="linkedin", name="LinkedIn", enabled=True)
             )

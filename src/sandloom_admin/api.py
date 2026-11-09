@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 
 from sandloom.sdk import module_router, public
 from sandloom.sdk.infra import settings
+from sandloom_admin.config import admin_settings
 
 MANIFEST = "admin-manifest.json"
 PACKAGED = Path(__file__).parent / "console"
@@ -30,7 +31,7 @@ COMPRESS_FROM = 1024
 
 
 def _enabled() -> None:
-    enabled = settings.admin_console_enabled
+    enabled = admin_settings().admin_console_enabled
     if enabled is None:
         enabled = settings.environment.value != "prod"
     if not enabled:
@@ -48,7 +49,7 @@ router = module_router(
 
 
 def _console() -> Path:
-    custom = settings.admin_console_dist
+    custom = admin_settings().admin_console_dist
     return Path(custom) if custom else PACKAGED
 
 

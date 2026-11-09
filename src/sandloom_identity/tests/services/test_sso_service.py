@@ -14,6 +14,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from sandloom.sdk.testing import override_settings
+from sandloom_identity.config import IdentitySettings
 from sandloom_identity.models.external_identity import ExternalIdentity, Provider
 from sandloom_identity.models.user import User
 from sandloom_identity.schemas.auth import TokenPair
@@ -172,11 +174,9 @@ class TestState:
     async def test_exchange_uses_stored_redirect_and_verifier(
         self, test_db, fake_client
     ) -> None:
-        from sandloom.sdk.infra import settings
-
         client = fake_client(VERIFIED)
         allowed = "https://app.example.com/sso/cb"
-        with patch.object(settings, "sso_allowed_redirect_uris", allowed):
+        with override_settings(IdentitySettings, sso_allowed_redirect_uris=allowed):
             init = await _start(redirect_uri=allowed)
         await SSOService.handle_callback(
             "google", "code-1", init.state, test_db, binding=init.binding

@@ -104,21 +104,25 @@ class TestSSOProviderManagement:
 
     @pytest.mark.asyncio
     async def test_telegram_hidden_and_rejected_until_implemented(
-        self, async_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, async_client: AsyncClient
     ) -> None:
         """A configured TELEGRAM_BOT_TOKEN must not advertise or start a flow
         whose exchange is unimplemented (it would only fail at the callback)."""
-        from sandloom.sdk.infra import settings
+        from pydantic import SecretStr
 
-        monkeypatch.setattr(settings, "telegram_bot_token", "123456:ABC", raising=False)
+        from sandloom.sdk.testing import override_settings
+        from sandloom_identity.config import IdentitySettings
 
-        providers = await async_client.get("/auth/sso/providers")
-        assert providers.status_code == 200
-        assert "telegram" not in {p["code"] for p in providers.json()}
+        with override_settings(
+            IdentitySettings, telegram_bot_token=SecretStr("123456:ABC")
+        ):
+            providers = await async_client.get("/auth/sso/providers")
+            assert providers.status_code == 200
+            assert "telegram" not in {p["code"] for p in providers.json()}
 
-        redirect = await async_client.get("/auth/sso/telegram/redirect")
-        assert redirect.status_code == 400
-        assert "not supported" in redirect.json()["detail"].lower()
+            redirect = await async_client.get("/auth/sso/telegram/redirect")
+            assert redirect.status_code == 400
+            assert "not supported" in redirect.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_get_sso_redirect_url_invalid_provider(
