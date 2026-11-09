@@ -23,8 +23,6 @@ from fastapi.dependencies.models import Dependant
 from fastapi.dependencies.utils import get_dependant
 from fastapi.routing import APIRoute
 
-from sandloom.shared.authz import Account
-
 FRAMEWORK_PREFIXES = ("sandloom.",)
 
 
@@ -48,17 +46,20 @@ def _sync_framework_calls(dep: Dependant, where: str, out: list[str]) -> None:
 
 def _factory_products() -> dict[str, Any]:
     from sandloom.core import di
-    from sandloom.shared.authz import (
-        Credits,
-        Subscribed,
-        SubscriptionActive,
-        authorize_resource,
-        require,
-    )
+    from sandloom.shared.authz import Role, authorize_resource, require
+    from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
     from sandloom.shared.guards import auth as guards
 
     async def _loader(_id: Any, _db: Any) -> Any:  # pragma: no cover
         return None
+
+    class _Live(Requirement):
+        """A live-tier atom: ``require()`` opens the request session for it."""
+
+        tier = TIER_LIVE
+
+        async def evaluate(self, ctx: Any) -> bool:  # pragma: no cover
+            return True
 
     products: dict[str, Any] = {
         "Capability": di.Capability("cache"),
@@ -66,12 +67,10 @@ def _factory_products() -> dict[str, Any]:
         "TenantScope": di.TenantScope(),
         "rate_limiter": di.rate_limiter(requests=1, period=1),
         "idempotency_guard": di.idempotency_guard(scope="t"),
-        "require(claims)": require(Subscribed(of=Account.user())),
-        "require(live)": require(
-            SubscriptionActive(of=Account.user()) & Credits(1, of=Account.user())
-        ),
+        "require(claims)": require(Role("member")),
+        "require(live)": require(Role("member") & _Live()),
         "authorize_resource": authorize_resource(
-            loader=_loader, by="id", policy=Subscribed(of=Account.user())
+            loader=_loader, by="id", policy=Role("member")
         ),
         "get_core": di.get_core,
         "get_db": di.get_db,
