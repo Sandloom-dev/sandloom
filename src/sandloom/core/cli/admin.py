@@ -67,12 +67,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from pydantic import TypeAdapter
-
 import sandloom.core.cli.generation_input as _generation_input
 import sandloom.core.cli.operator_owner as _operator_owner
 import sandloom.core.cli.ui as _ui
-import sandloom.core.config.module_settings as _module_settings
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
 from sandloom.core.cli.dev import errors as _dev_errors
@@ -92,7 +89,6 @@ from sandloom.core.rpc.errors import RemoteServiceUnavailable
 DEV_BASE_URL = "http://127.0.0.1:8000"
 #: ``FRONTEND_URL``'s default: a frontend dev server, not this app's console.
 _FRONTEND_DEFAULT = "http://localhost:3000"
-_CONSOLE_FLAG: TypeAdapter[bool | None] = TypeAdapter(bool | None)
 #: How often the prompt asks before giving up.
 PROMPT_ATTEMPTS = 3
 
@@ -155,45 +151,62 @@ def _frontend_url() -> str | None:
     return url if url and url != _FRONTEND_DEFAULT else None
 
 
-#: The console switch the admin module declares (ADR-0015). The CLI reads it
-#: from the process's one source read, not from a kernel setting: the link
-#: target must not depend on the module being loaded in this process (edge rows
-#: B-C10 and B-N3, KB-60 decides how the CLI learns it).
-_CONSOLE_SWITCH = "ADMIN_CONSOLE_ENABLED"
+#: The name a module gives the route of the page that opens a set-password
+#: link while it serves it (ADR-0015: the composed app's console route, not a
+#: module's setting). A module that serves no such page is the reset email's
+#: frontend case.
+LINK_PAGE_ROUTE = "set_password_page"
 
 
-def _console_enabled() -> bool:
-    raw, _ = _module_settings.process_snapshot().get(_CONSOLE_SWITCH)
-    try:
-        enabled = _CONSOLE_FLAG.validate_python(raw)
-    except ValueError:  # the console module refuses a bad value at boot
-        enabled = None
-    return (not settings.is_prod) if enabled is None else bool(enabled)
+def _page_path(core: Any) -> str | None:
+    """The path of the set-password page the composed application serves, or
+    ``None``: a mounted ``GET`` route of that name (never a pattern). A link
+    carries a single-use token, so it is never built on a route that is not
+    mounted."""
+    for route in getattr(getattr(core, "app", None), "routes", ()):
+        path = getattr(route, "path", "")
+        if (
+            getattr(route, "name", None) == LINK_PAGE_ROUTE
+            and "GET" in (getattr(route, "methods", None) or ())
+            and "{" not in path
+        ):
+            return str(path)
+    return None
 
 
-def link_for(token: str, email: str = "") -> str:
+def _base_url() -> str:
+    """Where this application is reached: ``FRONTEND_URL`` when set, else (outside
+    production) its live ``dev run`` or the default local address."""
+    base = _frontend_url()
+    if base is not None:
+        return base
+    if settings.is_prod:
+        raise SystemExit(
+            "error: set FRONTEND_URL (where this app is served) so the "
+            "link points at the right host"
+        )
+    return _dev_run_base(_checkout_root()) or DEV_BASE_URL
+
+
+def link_for(core: Any, token: str, email: str = "") -> str:
     """Where the set-password link points.
 
-    The token (and the address the console pre-fills) is always in the URL
-    fragment, which a browser never sends: no server, proxy or referrer log
-    records it. A custom frontend serving ``/auth/reset-password`` reads it
-    from ``location.hash`` (``docs/admin-console/index.md``).
+    The page comes from ``core``'s composed application: a served set-password
+    route (``LINK_PAGE_ROUTE``), else the frontend's reset page
+    (``FRONTEND_URL``), else a refusal. The token (and the address the page
+    pre-fills) is always in the URL fragment, which a browser never sends: no
+    server, proxy or referrer log records it. A custom frontend serving
+    ``/auth/reset-password`` reads it from ``location.hash``
+    (``docs/admin-console/index.md``).
     """
-    frontend = _frontend_url()
-    if _console_enabled():
-        base = frontend
-        if base is None:
-            if settings.is_prod:
-                raise SystemExit(
-                    "error: set FRONTEND_URL (where this app is served) so the "
-                    "link points at the right host"
-                )
-            base = _dev_run_base(_checkout_root()) or DEV_BASE_URL
+    page = _page_path(core)
+    if page is not None:
         fragment = f"token={token}" + (f"&email={quote(email)}" if email else "")
-        return f"{base}/admin/set-password#{fragment}"
+        return f"{_base_url()}{page}#{fragment}"
+    frontend = _frontend_url()
     if frontend is None:
         raise SystemExit(
-            "error: the admin console is off (ADMIN_CONSOLE_ENABLED): set "
+            "error: this application serves no set-password page: set "
             "FRONTEND_URL to a frontend that serves /auth/reset-password, or "
             "enable the console"
         )
@@ -201,9 +214,9 @@ def link_for(token: str, email: str = "") -> str:
     return f"{frontend}/auth/reset-password#token={token}"
 
 
-def _check_link_target() -> None:
+def _check_link_target(core: Any) -> None:
     """Refuse before acting when no link could be printed."""
-    link_for("")
+    link_for(core, "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,11 +360,11 @@ def _style() -> _ui.Style:
     return _ui.style_for(sys.stdout, _dev_errors.environment())
 
 
-def _print_link(email: str, token: str, *, created: str) -> None:
+def _print_link(core: Any, email: str, token: str, *, created: str) -> None:
     style = _style()
     print(
         f"{style.green(created)} Set the password within 15 minutes:\n"
-        f"  {style.accent(link_for(token, email))}\n"
+        f"  {style.accent(link_for(core, token, email))}\n"
         "The link works once. A new one: "
         f"uv run sandloom admin invite --email {email}"
     )
@@ -522,7 +535,7 @@ async def create_admin(
     mode = _mode_unless_missing(args)
     intent = _intent(args, "first administrator")
     if mode == "invite":
-        _check_link_target()
+        _check_link_target(core)
     owners = await admin_owners(
         core,
         "admin create",
@@ -557,7 +570,7 @@ async def create_admin(
             f"{owners.issuer.owner.module} issued no set-password link for {email}"
         )
     if password is None:
-        _print_link(email, token, created=done)
+        _print_link(core, email, token, created=done)
         return 0
     try:
         await owners.issuer.call(
@@ -573,13 +586,16 @@ async def create_admin(
         )
         return 1
     if not args.quiet:
-        print(f"{_style().green(done)} {email} can sign in at {_sign_in_hint()}")
+        print(f"{_style().green(done)} {email} can sign in at {_sign_in_hint(core)}")
     return 0
 
 
-def _sign_in_hint() -> str:
+def _sign_in_hint(core: Any) -> str:
+    page = _page_path(core)
+    if page is None:
+        return "the console"
     try:
-        return link_for("x").split("/set-password", 1)[0] + "/"
+        return f"{_base_url()}{page.rsplit('/', 1)[0]}/"
     except SystemExit:
         return "the console"
 
@@ -685,7 +701,7 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
     """``sandloom admin invite``; returns the exit status."""
     email = args.email.strip()
     intent = _intent(args, "new set-password link")
-    _check_link_target()
+    _check_link_target(core)
     owners = await admin_owners(
         core,
         "admin invite",
@@ -720,7 +736,9 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
         raise _Refused(
             f"{owners.issuer.owner.module} issued no set-password link for {email}"
         )
-    _print_link(email, token, created=f"A new link for {email}; its sessions ended.")
+    _print_link(
+        core, email, token, created=f"A new link for {email}; its sessions ended."
+    )
     return 0
 
 

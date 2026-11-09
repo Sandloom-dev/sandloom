@@ -345,3 +345,37 @@ async def test_a_custom_build_without_files_says_so(
 async def test_it_stays_out_of_the_api_schema(client: AsyncClient) -> None:
     schema = (await client.get("/openapi.json")).json()
     assert not [path for path in schema.get("paths", {}) if path.startswith("/admin")]
+
+
+async def test_the_set_password_page_is_named_only_while_it_is_served(
+    config: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The operator commands build their link on the mounted route of that
+    name (``sandloom admin create --invite``); a console that is off mounts the
+    same path unnamed, so the link falls back to the frontend's reset page."""
+    monkeypatch.setattr(settings, "sandloom_modules", ["sandloom_admin"])
+
+    def named(application: object) -> list[str]:
+        return [
+            r.path
+            for r in application.routes  # type: ignore[attr-defined]
+            if getattr(r, "name", None) == api.LINK_PAGE_ROUTE
+        ]
+
+    served = create_app()
+    assert named(served) == ["/admin/set-password"]
+    async with AsyncClient(
+        transport=ASGITransport(app=served), base_url="http://test"
+    ) as http:
+        page = await http.get("/admin/set-password")
+        assert page.status_code == 200
+        assert "/admin/assets/" in page.text
+        assert "script-src 'self'" in page.headers["content-security-policy"]
+
+    config.environment = SimpleNamespace(value="prod")
+    off = create_app()
+    assert named(off) == []
+    async with AsyncClient(
+        transport=ASGITransport(app=off), base_url="http://test"
+    ) as http:
+        assert (await http.get("/admin/set-password")).status_code == 404

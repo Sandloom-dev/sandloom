@@ -319,6 +319,19 @@ Register a sync service contract provided by this module.
 provider's Unit of Work on; by default it is the database the module's
 descriptor declares (`ModuleDescriptor.database_instances()`).
 
+#### `ModuleAPI.claim_owner`
+
+```python
+def claim_owner(self, key: str) -> str | None
+```
+
+The public name of the module the composition's
+`claim_authorities` assigns the protected claim key `key`
+(`"roles"`), or `None` when it names none. Call it when a startup
+task runs, not from `setup` (the map is installed after the modules
+register); the owner's reserved `<name>.security.v1` is the
+contract that answers operator questions about that claim.
+
 #### `ModuleAPI.get_service`
 
 ```python

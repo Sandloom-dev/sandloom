@@ -781,6 +781,15 @@ class _ClaimsMixin(_ServicesMixin):
         """The composition's claim-authority assignment."""
         return self._claim_authorities
 
+    def claim_owner(self, key: str) -> str | None:
+        """The public name of the module the composition's claim map assigns
+        ``key`` (``"roles"``, a protected claim key), else ``None``: the
+        module whose reserved ``<name>.security.v1`` answers the operator
+        questions about that claim. Read at run time, after the map is
+        installed (never during a module's registration); no I/O."""
+        owners = self._claim_authorities.verified_owners or {}
+        return owners.get(key)
+
     @property
     def tenant_witness(self) -> _tenant_witness.TenantWitness | None:
         """The assigned tenant authority's membership witness, which

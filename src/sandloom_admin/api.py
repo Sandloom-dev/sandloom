@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from sandloom.sdk import module_router, public
@@ -30,11 +30,16 @@ ENCODINGS = (("br", ".br"), ("gzip", ".gz"))
 COMPRESS_FROM = 1024
 
 
-def _enabled() -> None:
+def console_enabled() -> bool:
+    """Whether the console is served: the switch, else on outside production."""
     enabled = admin_settings().admin_console_enabled
     if enabled is None:
-        enabled = settings.environment.value != "prod"
-    if not enabled:
+        return settings.environment.value != "prod"
+    return enabled
+
+
+def _enabled() -> None:
+    if not console_enabled():
         raise HTTPException(404, "Not found")
 
 
@@ -256,3 +261,34 @@ def _entry_page(index: Path) -> FileResponse:
         index,
         headers={"Cache-Control": "no-store", "Content-Security-Policy": CSP},
     )
+
+
+#: The name the page that opens a set-password link carries while the console
+#: is served. The operator commands (``sandloom admin create --invite``) look
+#: for a mounted route of this name in the composed application and build the
+#: link on its path, so a link never points at a console that is off.
+LINK_PAGE_ROUTE = "set_password_page"
+
+
+def _page_router(name: str | None) -> APIRouter:
+    page = module_router(
+        prefix="/admin",
+        tags=["admin-console"],
+        dependencies=[
+            public(reason="the console's entry page; every API it calls checks access"),
+            Depends(_enabled),
+        ],
+    )
+
+    @page.get("/set-password", include_in_schema=False, name=name)
+    async def set_password_entry(request: Request) -> Response:
+        return await console_file("set-password", request)
+
+    return page
+
+
+#: Mounted before ``router`` (its catch-all would otherwise take the path),
+#: and chosen once settings are known: the same path either way, so the route
+#: snapshot does not depend on the switch, but only the served one has the name.
+PAGE_SERVED = _page_router(LINK_PAGE_ROUTE)
+PAGE_OFF = _page_router(None)

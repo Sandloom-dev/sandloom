@@ -27,7 +27,6 @@ from sandloom.core.cli import admin
 from sandloom.core.cli._operator import OperatorIntent
 from sandloom.core.cli.dev import commands, identity, state
 from sandloom.core.cli.security import grant_admin
-from sandloom.core.config import module_settings
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
 from sandloom.core.module_api._service_registry import ServiceNotFound
@@ -167,6 +166,15 @@ class _Core:
             [] if security is None else [SimpleNamespace(name=IDENTITY)]
         )
         self.settings = settings
+        routes = [
+            SimpleNamespace(path="/admin/{path:path}", name="console", methods={"GET"}),
+            SimpleNamespace(
+                path="/admin/set-password",
+                name="set_password_page" if _PAGE["served"] else "set_password_entry",
+                methods={"GET"},
+            ),
+        ]
+        self.app = SimpleNamespace(routes=routes)
         self.service_registry = SimpleNamespace(try_get=self._local)
 
     def _local(self, name: str) -> Any:
@@ -202,12 +210,15 @@ class _Stream(io.StringIO):
         return self._tty
 
 
-def _console_switch(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
-    """``ADMIN_CONSOLE_ENABLED`` as the process's one source read holds it (the
-    admin module declares the setting; the CLI reads the name, edge row K2)."""
-    environ = {} if value is None else {"ADMIN_CONSOLE_ENABLED": value}
-    snapshot = module_settings.SourceSnapshot(environ=environ, env_file=None)
-    monkeypatch.setattr(module_settings, "_PROCESS_SNAPSHOT", snapshot)
+#: Whether the fake composed application mounts the console's set-password
+#: page (the console module names the route only while it serves it).
+_PAGE = {"served": True}
+
+
+def _console_switch(monkeypatch: pytest.MonkeyPatch, served: bool) -> None:
+    """The composed application serves the console's set-password page, or
+    mounts a route of another name (ADR-0015, edge rows B-C10 / B-N3)."""
+    monkeypatch.setitem(_PAGE, "served", served)
 
 
 @pytest.fixture
@@ -216,7 +227,7 @@ def run(
 ) -> Any:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(settings, "frontend_url", "http://localhost:3000")
-    _console_switch(monkeypatch, None)
+    _console_switch(monkeypatch, True)
     fields = set(settings.model_fields_set) - {"frontend_url"}
     monkeypatch.setattr(type(settings), "model_fields_set", property(lambda s: fields))
 
@@ -245,7 +256,9 @@ def _frontend(monkeypatch: pytest.MonkeyPatch, frontend: str) -> None:
 
 
 def _prod(monkeypatch: pytest.MonkeyPatch, frontend: str | None = None) -> None:
+    """Production, where the console module serves no console by default."""
     monkeypatch.setattr(type(settings), "is_prod", property(lambda s: True))
+    _console_switch(monkeypatch, False)
     if frontend is not None:
         _frontend(monkeypatch, frontend)
 
@@ -447,37 +460,48 @@ def test_production_needs_apply_confirm_and_reason(
 
 
 @pytest.mark.parametrize(
-    ("switch", "environment", "link"),
+    ("served", "environment", "link"),
     [
-        ("false", "dev", "https://app.example.com/auth/reset-password#token="),
-        ("true", "prod", "https://app.example.com/admin/set-password#token="),
-        ("0", "dev", "https://app.example.com/auth/reset-password#token="),
-        ("not-a-bool", "dev", "/admin/set-password#token="),
+        (False, "dev", "https://app.example.com/auth/reset-password#token="),
+        (True, "prod", "https://app.example.com/admin/set-password#token="),
+        (True, "dev", "https://app.example.com/admin/set-password#token="),
     ],
 )
-def test_link_target_follows_the_console_switch(
+def test_link_target_follows_the_composed_apps_page(
     run: Any,
     monkeypatch: pytest.MonkeyPatch,
-    switch: str,
+    served: bool,
     environment: str,
     link: str,
 ) -> None:
-    """``ADMIN_CONSOLE_ENABLED`` (declared by the admin module, read here from
-    the process's source read) picks the console or the frontend's reset page;
-    an unreadable value falls back to the environment default (the console
-    module refuses it at boot)."""
-    _console_switch(monkeypatch, switch)
+    """A mounted set-password page of the composed application (the console
+    names the route only while it serves it) picks the console; without one
+    the frontend's reset page. No setting name is read."""
     if environment == "prod":
         _prod(monkeypatch, "https://app.example.com")
         extra = ("--apply", "--confirm-production", "--reason", "go-live")
     else:
         _frontend(monkeypatch, "https://app.example.com")
         extra = ("--apply",)
+    _console_switch(monkeypatch, served)
     code, out, _ = run(
         _Security(), "create", "--email", "owner@example.com", "--invite", *extra
     )
     assert code == 0
     assert link in out
+
+
+def test_no_page_and_no_frontend_refuses_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token never goes into a link to a route that is not mounted."""
+    _console_switch(monkeypatch, False)
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == [] and "set-password#" not in out + err
 
 
 def test_production_invite_needs_frontend_url(

@@ -706,6 +706,17 @@ website renders this same changelog.
 
 ### Added
 
+- **`ModuleAPI.claim_owner(key)`** (KB-proto-operator-b2). The public name of the
+  module the composition's `claim_authorities` assigns a protected claim key, or
+  `None`. Call it when a startup task runs, not from `setup` (the map is installed
+  after the modules register). The admin console's first-administrator check asks
+  `claim_owner("roles")`'s `<owner>.security.v1` (`platform_admin_exists`) and is
+  skipped, with a debug line, when there is no owner or it lacks the method.
+  `sandloom admin create --invite` and `admin invite` build the set-password link
+  on the composed application's served `set_password_page` route (the console names
+  it only while it serves it), else on `FRONTEND_URL`'s reset page, else refuse; no
+  setting name is read. The development start page names no module command.
+
 - **`sandloom check` reads atom metadata** (ADR-0014, KB-32, H-20). The gate-order,
   sensitive-route (C022) and account-route (C027) rules resolve an imported atom
   name to the file that defines it and read its `__sandloom_atom__` literal, so a

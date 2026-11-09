@@ -442,7 +442,7 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-60]
@@ -451,11 +451,11 @@ edges:
       - sandloom admin create picks the link target from the composed app's console route, not a setting
     anchors:
       - {path: sandloom/core/cli/admin.py, symbol: _CONSOLE_SWITCH}
+      - {path: sandloom/core/cli/admin.py, literal: "the admin console is off (ADMIN_CONSOLE_ENABLED)"}
     note: >-
-      KB-54 moved the switch out of the kernel `Settings` (admin declares it). `sandloom admin
-      create` still reads the declared name `ADMIN_CONSOLE_ENABLED` from the process's source read
-      to choose the link target. ADR-0015 wants the composed app's console route instead; the owner
-      moved that to KB-60 (2026-11-09), which closes this row together with B-N3 (the link path).
+      KB-proto-operator-b2: `sandloom admin create` / `invite` take the link target from the composed
+      app's console route (the route the console names `set_password_page` while it serves it), found on
+      `core.app.routes`; no setting name is read in the kernel (ADR-0015).
 
   # --- 4.5 naming --------------------------------------------------------------------------
   - id: B-N1
@@ -497,8 +497,8 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-60]
     invariants: [I-03]
@@ -506,26 +506,24 @@ edges:
       - moves with sandloom admin create in the CLI phase
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: "/admin/set-password"}
-      - {path: sandloom/core/cli/admin.py, literal: "ADMIN_CONSOLE_ENABLED"}
-    note: CLI phase (owner #14); the link target becomes the issuer's or admin's (owner question A5). KB-54 added the ADMIN_CONSOLE_ENABLED anchor: the link choice reads the admin module's declared switch by name until then.
-
+      - {path: sandloom/core/cli/admin.py, literal: "the admin console is off (ADMIN_CONSOLE_ENABLED)"}
+    note: "KB-proto-operator-b2 - the page path comes from the composed app's served set-password route, not a kernel literal; the switch name is gone (owner question A5, ADR-0015)."
   - id: B-N4
     class: b
     type: naming
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-60]
     invariants: [I-03]
     tests:
       - start page in a lean app names no module command
     anchors:
-      - {path: sandloom/core/app_factory/pages.py, literal: "sandloom admin create"}
-    note: The /admin route probe stays (generic); the command hint follows the CLI phase.
-
+      - {path: sandloom/core/app_factory/pages.py, literal: "<code>uv run sandloom admin create --email &lt;address&gt;</code>"}
+    note: "KB-proto-operator-b2 - the start page names no module command; the /admin route probe stays (generic) and the console's own startup log says how to create the first administrator."
   - id: B-N5
     class: b
     type: naming

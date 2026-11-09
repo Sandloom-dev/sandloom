@@ -395,6 +395,15 @@ class ModuleAPI:
         else:
             self._facade.register_service(name, impl, database=database)
 
+    def claim_owner(self, key: str) -> str | None:
+        """The public name of the module the composition's
+        ``claim_authorities`` assigns the protected claim key ``key``
+        (``"roles"``), or ``None`` when it names none. Call it when a startup
+        task runs, not from ``setup`` (the map is installed after the modules
+        register); the owner's reserved ``<name>.security.v1`` is the
+        contract that answers operator questions about that claim."""
+        return self._facade.claim_owner(key)
+
     def get_service(self, name: str) -> Any:
         if self._draft is not None:
             raise ModuleRegistrationConflict(
