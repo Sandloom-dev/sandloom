@@ -164,6 +164,9 @@ def _claim_spec(fact: Any) -> dict[str, Any]:
         "claim_keys": keys,
         "statuses": sorted(getattr(fact, "atom_statuses", ()) or ()),
         "category": fact.deny_category or Category.FORBIDDEN,
+        # What the fact's primary claim proven absent means: the owner's
+        # declaration (KB-33h), "unknown" unless it declares "deny".
+        "absent_claim": getattr(fact, "absent_claim", None) or "unknown",
     }
     describe = getattr(fact, "atom_describe", None)
     if describe:
@@ -632,13 +635,16 @@ class ClaimFactCheck(Requirement):
     * a status present that the owner vouched for decides: the default read
       by the owner's rule (e.g. a grace period), the verbatim read by the
       chosen statuses; outside them a definite deny (the declared 402);
-    * the owner's own claim proven absent is the owner's definite deny too:
-      the key is the fact's claim, assigned to the owner and verified, the
-      owner ran at the mint (in ``claims_sources``, not failed) under the
-      token's intact claim policy (its ``cpv`` entry is the one the
-      verifier accepts for the owner), and the view removed nothing. An
-      absent key never equals any status (``statuses={"none"}`` does not
-      match it);
+    * the owner's own claim proven absent is the owner's definite deny only
+      where its fact declares ``absent_claim="deny"`` (the literal's
+      ``absent_claim``; missing means ``"unknown"``, KB-33h): the key is
+      the fact's claim, assigned to the owner and verified, the owner ran
+      at the mint (in ``claims_sources``, not failed) under the token's
+      intact claim policy (its ``cpv`` entry is the one the verifier
+      accepts for the owner), and the view removed nothing. Declared
+      ``"unknown"`` (the default), the same proven absence is 501
+      ``access_unknown``. An absent key never equals any status
+      (``statuses={"none"}`` does not match it);
     * the claim removed by the view for a reason a refresh or a retry may
       change: its 401 ``token_policy_outdated`` / 503
       ``claims_policy_mismatch``;
@@ -798,7 +804,12 @@ class ClaimFactCheck(Requirement):
                     "authority vouches for the status, so it is unknown, not "
                     "denied"
                 )
-            if key == str(atom["claim_key"]) and _absence_proven(ctx, key, owner):
+            if (
+                key == str(atom["claim_key"])
+                and atom.get("absent_claim") == "deny"
+                and _absence_proven(ctx, key, owner)
+            ):
+                # The owner declares that absence means "no" (KB-33h).
                 return None
             raise self._claim_unknown(
                 f"claim {key!r} is not in the token: no source vouches for the "
