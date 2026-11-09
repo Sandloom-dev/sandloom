@@ -253,7 +253,7 @@ Identity exposes these service contracts:
 | Contract | Purpose |
 | --- | --- |
 | `identity.contact.v1` | `get_contact(user_id)` and `get_contacts(user_ids)` return contact DTOs at send time; unknown users are omitted or return `None`. Batches are capped at 1000 IDs. |
-| `identity.security.v1` | Operator commands for session revocation, forced password resets and the first administrator (`sandloom admin create`, `sandloom admin invite`, `sandloom security grant-admin`), with durable command deduplication and required audit records. See the [operator reference](../../operate/operator-reference.md). |
+| `identity.security.v1` | Identity's operator contract as the claim map's issuer: `end_sessions` (its refresh sessions and access tokens, reported kind by kind: `SessionsEnded`), `require_password_reset`, `list_user_ids` for `sandloom security revoke-sessions` / `force-password-reset`, and the first administrator (`sandloom admin create`, `sandloom admin invite`, `sandloom security grant-admin`), with durable command deduplication and required audit records. `revoke_sessions` stays one release; use `end_sessions`. See the [operator reference](../../operate/operator-reference.md). |
 | `identity.claims.v1` | The critical claims contributor, automatically exposed by the framework for token issuance across services. |
 
 Business modules use the generated typed contract stubs and DTOs, not identity's

@@ -24,7 +24,11 @@ from sandloom.sdk.app import (  # sandloom: advanced composition root
 
 BUNDLED: list[str] = ["tenancy", "billing"]
 
-IDP = "oidc_identity.modules.acme_idp"
+#: acme_idp under its public name: a process that does not load it (a
+#: split's tenancy or billing service, the operator CLI there) still knows
+#: the issuer's operator contract is ``acme_idp.security.v1``; an import path
+#: alone names nothing outside the process that loads it.
+IDP = Authority("acme_idp", module="oidc_identity.modules.acme_idp")
 
 #: Billing's keys are fail-safe (ADR-0014 decision 7): declared here too, for
 #: the process that binds billing remotely ``"critical": false``, where

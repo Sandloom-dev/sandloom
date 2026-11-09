@@ -434,19 +434,20 @@ edges:
     prs: [KB-60]
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: identity.security.v1}
+      - {path: sandloom/core/cli/security.py, literal: identity.security.v1}
   - id: B-R5
     class: b
     type: runtime_call
     scope: runtime
     owner: [identity, tenancy]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
-    prs: [KB-60]
+    prs: [KB-60, kb-proto-operator-a2]
     anchors:
-      - {path: sandloom/core/cli/security.py, literal: identity.security.v1}
-      - {path: sandloom/core/cli/security.py, literal: tenancy.membership.v1}
+      - {path: sandloom/core/cli/security.py, literal: MEMBERSHIP_CONTRACT}
+      - {path: sandloom/core/cli/security.py, literal: '"tenancy.membership.v1"'}
   - id: B-R6
     class: b
     type: runtime_call

@@ -7,9 +7,13 @@ time by any module that writes to users; events carry no PII.
 the first platform administrator: ``sandloom admin create`` / ``invite``).
 
 The contract behind ``sandloom security revoke-sessions`` and ``sandloom security
-force-password-reset`` (:mod:`sandloom.core.cli.security`): the kernel CLI pages
-the target users (all users here, or a tenant's members through
-``tenancy.membership.v1``) and sends them in batches. Every command:
+force-password-reset`` (:mod:`sandloom.core.cli.security`), found as the
+issuer's ``<issuer>.security.v1`` and confirmed by describe: the kernel CLI
+pages the target users (all users through ``list_user_ids`` here, or a
+tenant's members through the ``tenant_ids`` owner's
+``tenancy.security.v1``), sends them in batches (``end_sessions``,
+``require_password_reset``) and then revokes their access tokens itself.
+Every command:
 
 * runs in identity's own UoW and is deduplicated durably on
   ``operation_key`` (a retried batch never repeats its effect);
@@ -60,7 +64,11 @@ from sandloom_identity.models.user import User
 from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
-from sandloom_identity.schemas.operator import AccountStanding, PlatformAdmin
+from sandloom_identity.schemas.operator import (
+    AccountStanding,
+    PlatformAdmin,
+    SessionsEnded,
+)
 from sandloom_identity.services.auth_service import AuthService
 from sandloom_identity.services.role_service import ADMIN_ROLE_CODE
 from sandloom_identity.services.setup_state import platform_admin_exists
@@ -480,7 +488,10 @@ class SecurityOperationsContract:
     async def revoke_sessions(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
     ) -> int:
-        """End every session of the users; returns how many exist."""
+        """End every session of the users; returns how many exist.
+
+        Kept for one release: ``sandloom security revoke-sessions`` calls
+        :meth:`end_sessions`, which also says which kinds of session ended."""
         _check_batch(user_ids, reason, operator)
         users = await _existing(user_ids)
         if users:
@@ -492,6 +503,30 @@ class SecurityOperationsContract:
                 key=operation_key,
             )
         return len(users)
+
+    @command(idempotency_key="operation_key")
+    async def end_sessions(
+        self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
+    ) -> SessionsEnded:
+        """End every session identity holds for the users: their refresh
+        sessions (revoked in the database) and their access tokens. Audited
+        per user (``identity.user.sessions_revoked``). ``affected``: how many
+        of the users exist. The kernel revokes the access tokens of every
+        issuer itself (``sandloom security revoke-sessions``); this is
+        identity's own part, called before it."""
+        _check_batch(user_ids, reason, operator)
+        users = await _existing(user_ids)
+        if users:
+            await _end_sessions(
+                users,
+                action="identity.user.sessions_revoked",
+                reason=reason,
+                operator=operator,
+                key=operation_key,
+            )
+        return SessionsEnded(
+            affected=len(users), ended=["access_tokens", "refresh_sessions"]
+        )
 
     @command(idempotency_key="operation_key")
     async def require_password_reset(

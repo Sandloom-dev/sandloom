@@ -28,6 +28,12 @@ Each topology proves, against real processes, PostgreSQL and Redis:
 - revocation: removing a member revokes their tokens (tenancy), the
   provider's back-channel logout revokes a subject's tokens (acme_idp); a
   new sign-in works again;
+- operator: ``sandloom security revoke-sessions`` finds acme_idp as the
+  issuer (``acme_idp.security.v1``, confirmed by describe), the kernel
+  revokes the access tokens and the report says what was and was not done;
+  ``force-password-reset`` is refused before anything (acme_idp has no
+  passwords): no audit row, no mark, a dry run too. In split the command
+  runs in P2, which does not load acme_idp, and reaches it over RPC;
 - ``mono`` (one process) and ``split`` (P1 = acme_idp + storefront, P2 =
   tenancy + billing, over the signed internal RPC with EdDSA tokens only P1
   can mint).
@@ -408,6 +414,11 @@ BATTERY_CONTRACTS = [
 ]
 
 
+#: acme_idp's operator contract, and what the operator CLI may call on it.
+OPERATOR_CONTRACT = "acme_idp.security.v1"
+OPERATOR_METHODS = ["end_sessions", "list_user_ids", "require_password_reset"]
+
+
 def split(infra: Infra) -> Topology:
     """P1 (issuer + consumer) and P2 (tenancy + billing) over the real RPC.
 
@@ -437,7 +448,10 @@ def split(infra: Infra) -> Topology:
         "RPC_SERVICE_KEYS": json.dumps(
             {s: {"k1": public_pem(k)} for s, k in rpc.items()}
         ),
-        "RPC_ALLOWED_CALLS": json.dumps({"p1": sorted(bound)}),
+        # P2's operator CLI asks acme_idp (in P1) for its sessions.
+        "RPC_ALLOWED_CALLS": json.dumps(
+            {"p1": sorted(bound), "p2": {OPERATOR_CONTRACT: OPERATOR_METHODS}}
+        ),
         "RPC_DH_KEY_ID": "d1",
         "RPC_SERVICE_DH_KEYS": json.dumps(
             {s: {"d1": x25519_public_pem(k)} for s, k in dh.items()}
@@ -779,6 +793,98 @@ def _assert_revocation(
     assert refused.status == 401, refused
 
 
+def _security(topo: Topology, *args: str) -> subprocess.CompletedProcess[str]:
+    """``sandloom security ...`` in the batteries' process environment: in
+    split that is P2, which does not load acme_idp and binds its operator
+    contract to P1."""
+    proc = topo.batteries
+    env = {
+        **proc.env,
+        "SANDLOOM_MODULES": json.dumps(proc.modules),
+        "SANDLOOM_COMPOSITION_ROOT": "oidc_identity.asgi",
+    }
+    if proc is not topo.issuer:
+        env["SERVICE_BINDINGS"] = json.dumps(
+            {OPERATOR_CONTRACT: {"base_url": topo.issuer.url, "service_id": "p1"}}
+        )
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from sandloom.core.cli.security import main; "
+            "sys.exit(main(sys.argv[1:]))",
+            *args,
+        ],
+        cwd=HERE,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def _kernel_revocations(infra: Infra, user_id: str) -> int:
+    return int(
+        asyncio.run(
+            _sql(
+                infra.database_url,
+                "SELECT count(*) FROM audit_log WHERE action = "
+                "'core.security.tokens_revoked' AND resource_id = :u",
+                u=user_id,
+            )
+        )
+    )
+
+
+def _sign_in_past_the_mark(topo: Topology, infra: Infra, before: Session) -> Session:
+    """A new sign-in of ``before``'s subject whose token is accepted (one
+    minted within the revocation's clock-skew margin is revoked too)."""
+    person = Person("carol", subject=_subject(infra, before))
+    deadline = time.monotonic() + 15
+    while True:
+        again = sign_in(topo, infra.idp, person)
+        if call(topo.issuer, "GET", "/api/v1/storefront/me", again.token).status == 200:
+            return again
+        assert time.monotonic() < deadline, "no accepted token after the mark"
+        time.sleep(0.2)
+
+
+def _assert_operator_security(topo: Topology, infra: Infra) -> None:
+    """The incident commands with a stateless third-party issuer."""
+    carol = sign_in(topo, infra.idp, Person("carol"))
+    me = "/api/v1/storefront/me"
+    assert call(topo.issuer, "GET", me, carol.token).status == 200
+    apply = ["--apply", "--reason", "token leak SEC-1", "--operator", "al"]
+    done = _security(topo, "revoke-sessions", "--user", carol.user_id, *apply)
+    assert done.returncode == 0, done.stdout + done.stderr[-3000:]
+    out = done.stdout
+    assert "revoke-sessions: 1 user(s) affected of 1 targeted" in out, out
+    for line in (
+        "access tokens revoked",
+        "refresh sessions not applicable: acme_idp holds none",
+        "external IdP sessions not controlled",
+        "new sign-in still possible: revocation is not a block",
+    ):
+        assert line in out, out
+    # Revoked in every process; a new sign-in works (not a block).
+    assert call(topo.issuer, "GET", me, carol.token).status == 401
+    assert call(topo.batteries, "GET", "/api/v1/orgs", carol.token).status == 401
+    assert _kernel_revocations(infra, carol.user_id) == 1
+    again = _sign_in_past_the_mark(topo, infra, carol)
+
+    # acme_idp keeps no passwords: refused before anything, a dry run too.
+    for extra in ([], apply):
+        refused = _security(
+            topo, "force-password-reset", "--user", carol.user_id, *extra
+        )
+        assert refused.returncode == 1, refused.stdout + refused.stderr[-3000:]
+        assert "SANDLOOM-B039" in refused.stderr, refused.stderr[-3000:]
+        assert "acme_idp.security.v1 has no require_password_reset" in refused.stderr
+    assert _kernel_revocations(infra, carol.user_id) == 1  # no audit row
+    assert call(topo.issuer, "GET", me, again.token).status == 200  # no mark
+
+
 def test_identity_replaced_by_an_external_oidc_issuer(
     topology: Topology, infra: Infra
 ) -> None:
@@ -791,3 +897,4 @@ def test_identity_replaced_by_an_external_oidc_issuer(
         Person("alice", ["platform-admins"], subject=_subject(infra, owner)),
     )
     _assert_revocation(topology, infra, owner, org, member, outsider)
+    _assert_operator_security(topology, infra)

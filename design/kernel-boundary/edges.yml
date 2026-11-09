@@ -59,8 +59,8 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 5, fixed: 34, retained: 8}
-  target: {fixed: 35, retained: 8, deferred: 4}
+  current_status: {open: 4, fixed: 35, retained: 8}
+  target: {fixed: 36, retained: 8, deferred: 3}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
@@ -178,7 +178,8 @@ edges:
       - core/tests/test_security_cli.py, moved with the commands in the CLI phase
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: "identity.security.v1"}
-    note: CLI phase after ADR-0012..0015 (owner #14).
+      - {path: sandloom/core/cli/security.py, literal: "identity.security.v1"}
+    note: "CLI phase after ADR-0012..0015 (owner #14). security.py's literal is grant-admin's (a platform-admin grant, moved with sandloom admin in kb-proto-operator-b); the session commands left it with B-R5."
 
   - id: B-R5
     class: b
@@ -186,17 +187,20 @@ edges:
     scope: runtime
     owner: [identity, tenancy]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
-    prs: [KB-60]
+    prs: [KB-60, kb-proto-operator-a2]
     invariants: [I-02, I-03, I-21]
     tests:
       - G-OPS-12, C-OPS-08 tests (core/tests/test_security_cli.py)
+      - core/tests/test_security_operator.py (third-party issuer, other tenant_ids owner, missing method, missing grant, mono = split)
+      - tests/integration/test_security_revocation_split.py (the kernel's durable unit, a CLI process without the issuer)
+      - examples/oidc-identity e2e (acme_idp, mono and split)
     anchors:
-      - {path: sandloom/core/cli/security.py, literal: "identity.security.v1"}
-      - {path: sandloom/core/cli/security.py, literal: "tenancy.membership.v1"}
-    note: CLI phase (owner #14); whether issuer-agnostic incident revocation is a platform guarantee stays an owner question.
+      - {path: sandloom/core/cli/security.py, literal: MEMBERSHIP_CONTRACT}
+      - {path: sandloom/core/cli/security.py, literal: '"tenancy.membership.v1"'}
+    note: "Fixed by kb-proto-operator-a2 as a platform guarantee (owner decision 1, 2026-11-09): the session commands ask the claim map's issuer (<issuer>.security.v1) and the tenant_ids owner, each method confirmed by describe before any side effect; the kernel revokes every access token itself (one unit: audit, mark before commit, core.auth.tokens_revoked.v1 in the outbox, applied by every service's applier); the issuer ends its own refresh sessions (end_sessions); external IdP sessions are reported as not controlled; revocation is not a block."
 
   - id: B-R6
     class: b

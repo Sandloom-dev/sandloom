@@ -118,6 +118,13 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "sandloom_tenancy.contracts.MembershipReadContract",
         "database=None",
     ),
+    # the operator contract: a tenant's members for ``sandloom security --tenant``
+    (
+        "register_service",
+        "'tenancy.security.v1'",
+        "sandloom_tenancy.contracts.TenancySecurityContract",
+        "database=None",
+    ),
     (
         "add_claims_contributor",
         "sandloom_tenancy.claims.tenancy_claims",

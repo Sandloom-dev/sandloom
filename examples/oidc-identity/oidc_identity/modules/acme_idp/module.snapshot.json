@@ -10,7 +10,16 @@
   ],
   "consumers": [],
   "consumes": [],
-  "contracts": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "end_sessions",
+        "list_user_ids"
+      ],
+      "name": "acme_idp.security.v1"
+    }
+  ],
   "events": {},
   "format": 1,
   "issuer": {

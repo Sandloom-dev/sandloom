@@ -64,6 +64,7 @@
         "account_standing",
         "appoint_platform_admin",
         "create_platform_admin",
+        "end_sessions",
         "find_user_id",
         "list_platform_admins",
         "list_user_ids",

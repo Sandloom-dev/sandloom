@@ -37,8 +37,19 @@ uv run sandloom security revoke-sessions --user <UUID> --apply --reason "INC-123
 Replace `<UUID>` with the affected user ID. In production, `--apply` additionally
 requires `--confirm-production`. `--operator` records who acts;
 `--operation-id` resumes an interrupted operation and `--batch` bounds its work.
-The [operator reference](../../operate/operator-reference.md) documents the
-remaining incident commands and confirmation rules.
+
+The command works with any token issuer. The kernel revokes every Sandloom
+access token of the targets itself. Its durable `core.auth.tokens_revoked.v1`
+record reaches every service. Before that, the claim map's issuer ends its
+own refresh sessions through `end_sessions` on its `<issuer>.security.v1`,
+confirmed before anything is done. The output reports each kind of session.
+A stateless issuer has no refresh sessions ("not applicable"). Sessions at an
+external identity provider are "not controlled": end them at the provider.
+A revocation is not a block, so the user can sign in again. To refuse that,
+block the account. The
+[operator reference](../../operate/operator-reference.md#security-incident-runbook-database-leak-credential-leak-key-compromise)
+documents the remaining incident commands, who answers each and the
+confirmation rules.
 
 ## Verify the outcome
 
