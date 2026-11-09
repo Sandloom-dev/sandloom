@@ -19,7 +19,12 @@ from pydantic import ValidationError
 from starlette.testclient import TestClient
 
 from sandloom.core.auth import bearer, marks, revocation, tokens
+from sandloom.core.auth.claims_view import TEST_AUTHORITY, TEST_CPV
 from sandloom.core.config.settings import Settings, settings
+
+#: The kernel test authority vouches for these raw tokens' claims
+#: (a test composition only; ADR-0014 trusted view).
+_KIT = {"cpv": TEST_CPV, "claims_sources": [TEST_AUTHORITY]}
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _STRONG_2 = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b"
@@ -109,7 +114,7 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> _MemoryCache:
 def _token(sub: str, *, iat_offset: int = 0, **extra: Any) -> str:
     now = datetime.now(UTC) + timedelta(seconds=iat_offset)
     return tokens.create_access_token(
-        {"sub": sub, "token_type": "access", "iat": now, **extra}
+        {"sub": sub, "token_type": "access", "iat": now, **_KIT, **extra}
     )
 
 
@@ -190,7 +195,6 @@ def test_prod_previous_secrets_follow_jwt_secret_rules() -> None:
             ENVIRONMENT="prod",
             JWT_SECRET=_STRONG,
             JWT_PREVIOUS_SECRETS=["change_me_in_production_use_openssl_rand_hex_32"],
-            TWOFA_ENCRYPTION_KEY=_STRONG_2,
         )
     ok = _settings(
         ENVIRONMENT="prod",
@@ -228,16 +232,6 @@ def test_prod_rejects_explicit_fake_psp_unless_opted_in() -> None:
 def test_fake_psp_risk_is_not_accepted_by_default() -> None:
     cfg = _settings(JWT_SECRET="x")
     assert not cfg.accepts_risk("fake_psp_in_prod")
-
-
-def test_prod_twofa_key_must_be_strong() -> None:
-    with pytest.raises(ValidationError, match="TWOFA_ENCRYPTION_KEY"):
-        _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, TWOFA_ENCRYPTION_KEY="k")
-    assert _settings(
-        ENVIRONMENT="prod",
-        JWT_SECRET=_STRONG,
-        TWOFA_ENCRYPTION_KEY=f"{_STRONG_2},{_STRONG[::-1]}",
-    ).is_prod
 
 
 def test_revocation_fail_closed_defaults_by_environment() -> None:
@@ -300,6 +294,7 @@ async def test_revoked_token_is_rejected_by_every_framework_guard(
         {
             "sub": uid,
             "token_type": "access",
+            **_KIT,
             "permissions": ["x.read"],
             "tenant_ids": [tenant],
         }

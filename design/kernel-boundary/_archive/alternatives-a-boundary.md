@@ -1,13 +1,13 @@
 # Alternatives A: what dependency of the kernel on modules is legitimate
 
-Task: tm `kb-alt-boundary` (parent `kb-assess`), decision A of [requirements.md](requirements.md) §2.
+Task: tm `kb-alt-boundary` (parent `kb-assess`), decision A of [requirements.md](../requirements.md) §2.
 This file proposes and compares; it decides nothing. ADR-A decides.
 
 **Blind.** Written without reading `target-architecture.md`, `codex-review.md`, `reconciled.md`,
 `roadmap-review.md`, the ChatGPT roadmap inputs, or the other decisions' alternatives files. Inputs:
-[goals.md](goals.md), [requirements.md](requirements.md), [owner-answers.md](owner-answers.md),
-[problems.md](problems.md), [baseline.md](baseline.md), [guarantee-map.md](guarantee-map.md),
-[validation.md](validation.md), [perf-dx-baseline.md](perf-dx-baseline.md),
+[goals.md](../goals.md), [requirements.md](../requirements.md), [owner-answers.md](../owner-answers.md),
+[problems.md](../problems.md), [baseline.md](../baseline.md), [guarantee-map.md](../guarantee-map.md),
+[validation.md](../validation.md), [perf-dx-baseline.md](../perf-dx-baseline.md),
 [research-trust.md](research-trust.md), [research-authz-portability.md](research-authz-portability.md),
 [research-settings.md](research-settings.md), the code, and the owner decisions recorded in tm on
 `kb-alt-boundary` (admin battery, 2026-11-08) and `kb-assess` (minimal sufficient alternative;
@@ -534,7 +534,7 @@ if the M4 PoC shows the kernel cannot own an event consumer without a module, M4
 
 ## Sources
 
-- Baseline rows and counts: [baseline.md](baseline.md) §2-§5, §8-§9, §14.
+- Baseline rows and counts: [baseline.md](../baseline.md) §2-§5, §8-§9, §14.
 - Guards since the baseline: commit `fd7b058`; `tests/architecture/test_shared_purity.py:1-60`;
   `tests/architecture/kernel_module_imports_allowlist.json`; `.importlinter:17-22`;
   `guarantees.yml:4051-4063` (G-KERNEL-10), `:4094-4104` (G-KERNEL-13).
@@ -549,5 +549,5 @@ if the M4 PoC shows the kernel cannot own an event consumer without a module, M4
 - Trust, authorization, settings: [research-trust.md](research-trust.md) §6;
   [research-authz-portability.md](research-authz-portability.md) §7;
   [research-settings.md](research-settings.md) §7.4-§7.6.
-- Behaviour without batteries and with replacements: [guarantee-map.md](guarantee-map.md) §2, §8, §11,
-  §12; [validation.md](validation.md) §1.2-§1.5.
+- Behaviour without batteries and with replacements: [guarantee-map.md](../guarantee-map.md) §2, §8, §11,
+  §12; [validation.md](../validation.md) §1.2-§1.5.

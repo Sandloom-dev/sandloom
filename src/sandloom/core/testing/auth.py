@@ -10,6 +10,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from sandloom.core.auth import claims_view as _claims_view
+
 Headers = dict[str, str]
 
 
@@ -52,6 +54,13 @@ def make_user_headers(
     if email_verified is not None:
         data["email_verified"] = email_verified
     data.update(claims)
+    # The kernel test authority (a test composition only): with no
+    # ``claims_sources`` of the caller's own it vouches for every claim; a
+    # caller stating provenance gets the verifier's own policy for it, so
+    # parts 1 and 3 of the trusted view still decide per key (ADR-0014).
+    data.setdefault("cpv", _claims_view.TEST_CPV)
+    if data["cpv"] == _claims_view.TEST_CPV and "claims_sources" not in claims:
+        data["claims_sources"] = [_claims_view.TEST_AUTHORITY]
     token = create_access_token(data=data)
     return uid, {
         "Authorization": f"Bearer {token}",

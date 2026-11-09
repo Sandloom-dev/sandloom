@@ -94,6 +94,8 @@ MODULE_ENV: dict[str, tuple[str, ...]] = {
         "# fallback in prod); comma-separated, newest first, for rotation.",
         "TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY "
         "(openssl rand -hex 32) - required when identity is loaded}",
+        "# Refresh-session lifetime: identity's setting (the issuer's sessions).",
+        "REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}",
     ),
     "sandloom_billing": (
         "# billing refuses the fake PSP in prod: the operator must choose.",

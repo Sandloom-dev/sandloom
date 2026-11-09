@@ -58,6 +58,8 @@ vocabulary:
     - TELEGRAM_BOT_TOKEN
     - SSO_*
     - TENANT_CLAIMS_MAX_ORGANIZATIONS
+    - REFRESH_TOKEN_EXPIRE_DAYS
+    - MAX_SESSION_DAYS
 
 edges:
   # --- class (a): protocol, retained (ADR-0012 decision 1; baseline.md section 3) -------
@@ -463,7 +465,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -475,12 +477,11 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
     anchors:
-      - {path: sandloom/core/admin/api/platform.py, symbol: platform_operator}
       - {path: sandloom/core/admin/api/platform.py, literal: "\"identity\""}
   - id: B-S3
     class: b
@@ -488,9 +489,10 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: disputed
-    current_status: open
+    current_status: retained
     target: retained
     adr: ADR-0014
+    reason: "the kernel's tenant grant protocol: TenantScope reads tenant_ids from the trusted view, trusted only from the tenant authority the map assigns (ADR-0014 decisions 1, 3)"
     prs: [KB-10, KB-11]
     anchors:
       - {path: sandloom/core/http/tenant_scope.py, literal: "\"tenant_ids\""}
@@ -514,7 +516,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
@@ -527,12 +529,12 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-53]
     anchors:
-      - {path: sandloom/core/config/settings.py, literal: TWOFA_ENCRYPTION_KEY}
+      - {path: sandloom/core/config/settings.py, literal: "TWOFA_ENCRYPTION_KEY["}
   - id: B-C4
     class: b
     type: configuration
@@ -603,26 +605,27 @@ edges:
     class: b
     type: configuration
     scope: runtime
-    owner: billing
+    owner: [billing, identity]
     baseline_verdict: violation
     current_status: open
     target: fixed
     adr: ADR-0015
-    prs: [KB-52]
+    prs: [KB-52, KB-53, KB-55]
     anchors:
       - {path: sandloom/core/admin/api/platform.py, literal: "\"billing_provider\""}
+      - {path: sandloom/core/admin/api/platform.py, literal: "\"refresh_token_expire_days\""}
   - id: B-C10
     class: b
     type: configuration
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-54]
     anchors:
-      - {path: sandloom/core/cli/admin.py, symbol: admin_console_enabled}
+      - {path: sandloom/core/cli/admin.py, literal: "\"admin_console_enabled\""}
   - id: B-N1
     class: b
     type: naming
@@ -659,6 +662,7 @@ edges:
     prs: [KB-60]
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: /admin/set-password}
+      - {path: sandloom/core/cli/admin.py, literal: ADMIN_CONSOLE_ENABLED}
   - id: B-N4
     class: b
     type: naming
@@ -829,12 +833,13 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: retained
     target: retained
     adr: ADR-0014
+    reason: "roles and permissions are the kernel's protocol rights format, read only from the trusted view (ADR-0014 decision 3)"
     prs: [KB-11]
     anchors:
-      - {path: sandloom/shared/subject.py, literal: "From 'identity' module"}
+      - {path: sandloom/shared/subject.py, symbol: UserContext}
   - id: B-N17
     class: b
     type: naming

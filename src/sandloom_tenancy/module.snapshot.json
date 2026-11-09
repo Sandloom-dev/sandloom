@@ -660,5 +660,11 @@
   "format": 1,
   "module": "sandloom_tenancy",
   "projections": [],
-  "sagas": []
+  "sagas": [],
+  "settings": {
+    "TENANT_CLAIMS_MAX_ORGANIZATIONS": {
+      "legacy": true,
+      "tier": "ops"
+    }
+  }
 }

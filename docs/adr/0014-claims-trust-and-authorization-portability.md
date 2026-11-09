@@ -11,6 +11,9 @@ search:
   explicitly accepted temporary security risk (guarantee ledger G-RISK-14), bounded to the
   transition, one access-token lifetime and the clock-skew allowance, never extended without a
   separate operator decision; 503 `claims_policy_mismatch` (decision 3) is accepted.
+  Amended 2026-11-09 by the owner (KB-11; tm reflection `01a1bdeb` on `kb-11-trusted-view`):
+  the `cpv` identity of an authority is its import path, local or remote (see
+  [the amendment](#amendment-2026-11-09-the-cpv-identity-of-an-authority)).
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision C: part (a) trust, alternative TA-1; part (b)
@@ -85,7 +88,8 @@ app's map into `<app>/asgi.py`.
 - **An authority is verified, never named into trust.** Local: the module actually registered
   from the assigned import path (short name and loaded import path both match). Remote: the
   `<m>.claims.v1` binding in `SERVICE_BINDINGS`, pinned `service_id`, pair-MAC authenticated
-  (ADR-0004). A module naming itself `identity` is not proof.
+  (ADR-0004), whose answer names the assigned import path (the authority binding, amendment
+  2026-11-09). A module naming itself `identity` is not proof.
 - **Startup refusals** (SANDLOOM-B035 proposed), in the issuing process: an assigned path that
   names no module (a typo); an authority neither loaded nor bound; a non-critical authority
   outside decision 7's billing rule (answer #14); the kernel test authority in a non-test
@@ -113,10 +117,11 @@ holds for a single authority A of K, the same A in all three parts:
 
 1. **allowed:** A is K's current authority in the verifier's map, or the one `previous=`
    authority the map declares for K (decision 4);
-2. **policy version:** the token's `cpv` entry for K equals the digest of (K, A's verified
-   identity): the loaded import path of a local authority, the pinned `service_id` of a remote
-   authority's `<m>.claims.v1` binding. A `previous=` authority is declared with that identity
-   in full, never by short name, and need not be loaded or bound in the verifying process;
+2. **policy version:** the token's `cpv` entry for K equals the digest of (K, A's canonical
+   identity): the full import path `claim_authorities` assigns, whether A is loaded locally or
+   reached over RPC (amendment 2026-11-09). A `previous=` authority is declared with that
+   identity in full, never by short name, and need not be loaded or bound in the verifying
+   process;
 3. **verified source:** A's short name is in the token's `claims_sources` and not in
    `claims_sources_failed`: A ran at mint and its result was kept. The issuer's mint check
    (decision 2) accepted K only from the step of the authority its own map assigned, and part 2
@@ -166,8 +171,8 @@ key and fails closed on any digest it does not accept.
 
 A key's entry may name one other authority the verifier accepts during a rollout, declared with
 its verified identity: `claim_authorities={"roles": Authority("acme_identity",
-previous=Authority("identity", module="sandloom_identity"))}` (a remote one by its pinned
-`service_id`). A verifier then trusts the key under decision 3's one condition with either
+previous=Authority("identity", module="sandloom_identity"))}` (a remote one by its import path
+too, amendment 2026-11-09). A verifier then trusts the key under decision 3's one condition with either
 authority, the same authority in every part; an issuer always stamps the current one. The entry
 exists only for one rollout and is removed by the next deploy. It is a composition argument, not
 a setting. With the enablement's `legacy_tokens` below, it is one of the two pieces of rollout
@@ -519,6 +524,48 @@ They are removed only after:
 Removed: `register_live_adapter` and its table (after decision 14), `WELL_KNOWN_FACT_OWNERS`, the
 kernel's domain atoms, class-name lists in archcheck. Extended, not new: the merge pass (mint
 check), `decode_token` (view), B034 (ownership).
+
+### Amendment 2026-11-09: the `cpv` identity of an authority
+
+Owner decision (tm reflection `01a1bdeb` on `kb-11-trusted-view`), replacing "the pinned
+`service_id` of a remote authority" in decisions 3 and 4:
+
+> The cpv fingerprint of a protected key is computed from its name and the canonical identity of
+> the authority assigned in `claim_authorities` (the full import path). This identity does not
+> depend on whether the module is loaded locally or reached over RPC. For a remote authority the
+> pinned `service_id` and RPC authentication are checked independently and do not replace the
+> authority identity in cpv.
+
+The import path is the identity of the business module trusted with the claim; the
+`service_id` is the identity of the remote service allowed to provide it over authenticated
+RPC; `cpv` fingerprints the authority assignment, not the deployment shape. A digest of the
+`service_id` would differ between an issuer reaching the authority over RPC and a verifier that
+runs it, so mono and split would disagree on one map.
+
+- **Two independent checks for a remote authority, at the mint.** The pinned `service_id` and
+  the pair MAC prove which service answered (ADR-0004; a call pinned to one service and answered
+  by another is refused). The **authority binding** proves which module that service runs under
+  the short name: every `<m>.claims.v1` answer names the import path of the module registered
+  under `<m>` (`sandloom.authority`, written by the kernel, never kept in a token), and the
+  issuer refuses an answer that names another path, or none, for an owner its map assigns a
+  protected key (the step fails; a critical authority refuses the mint, 503). A provider older
+  than this check names none: upgrade every `<m>.claims.v1` provider before the issuer. The
+  path is never taken as proof on its own: the pin stays mandatory (KB-10).
+- **Moving an authority between services** (a new `service_id`, the same import path) no
+  longer changes `cpv`: tokens stay trusted, which is right when the same authority moves.
+- **A real change of security authority behind the same import path** (a new implementation
+  shipped under the old path) is not invalidated by `cpv` either. Today's invalidation paths:
+  assign the new authority under a new import path (a key change with `previous=`, one refresh
+  per client), or end every session (a JWT key rotation without the old key,
+  `sandloom-key-rotation`). **Recorded gap ("authority revision"):** a revision of the
+  assignment that changes the key's digest without a new import path, written in the
+  composition root like `previous=` (no new registry), is not built.
+
+Tests (`src/sandloom/core/tests/test_claims_cpv_identity.py`): mono and split stamp and accept
+the same `cpv` for one assignment; a service other than the pinned one is refused while running
+the assigned module; another module behind the assigned short name on the pinned service is
+refused by the binding; the same-path rule; a `previous=` rollout reads alike with the new
+authority local, remote or absent.
 
 ## Alternatives considered
 

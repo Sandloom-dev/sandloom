@@ -582,7 +582,12 @@ def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
         "--python",
         str(_python(venv)),
         f"sandloom[admin] @ {wheels['sandloom'].resolve().as_uri()}",
-        *(str(wheels[name]) for name in ("sandloom-identity", "sandloom-admin")),
+        # identity issues tokens: it boots only under a root that carries its
+        # trust map (SANDLOOM-B035), the standard root in this wheel.
+        *(
+            str(wheels[name])
+            for name in ("sandloom-identity", "sandloom-admin", "sandloom-standard")
+        ),
     )
     _run(
         str(_python(venv)),
@@ -592,7 +597,7 @@ def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
         "assert (console / 'index.html').is_file(); "
         "assert (console / 'third-party-licenses.txt').is_file(); "
         "assert not (console / 'admin-manifest.json').exists(); "
-        "import sandloom.main as m; "
+        "import sandloom_standard.main as m; "
         "assert m.core.loaded_modules == ['sandloom_admin', 'sandloom_identity'], "
         "m.core.loaded_modules; "
         "assert any(getattr(r, 'path', '') == '/admin/{path:path}' for r in m.app.routes); "

@@ -1,5 +1,11 @@
 # Kernel boundary requirements: invariants, constraints, quality scenarios
 
+Sections (find one with `grep -n '^## '`): Changed by the owner's answers; 1. Problem
+statement; 2. Decisions in scope; 3. Invariants; 4. Hard constraints and trade-off
+criteria; 5. Quality scenarios; 6. The owner's answers. Research and alternatives this
+file cites by name (`research-trust`, `alternatives-c-authz`, `_evidence/...`) live in
+[_archive/](_archive/README.md).
+
 Status: **approved by the owner on 2026-11-08, conditionally** (answer #1 of
 [owner-answers.md](owner-answers.md)): I-01..I-23 and H-1..H-19 are the target requirements
 after the refinements the answers make, which are applied below and listed in "Changed by the
@@ -66,8 +72,8 @@ verifier's current map. This narrows when 401 is used; it changes no requirement
 | I-16 | `Feature` and `WithinLimit` stay public capabilities; removal only as an approved exception with a ledger change | #21 |
 | I-17 | a generated consumer interface (domain atoms) only through an ADR-0010 amendment with a formally approved migration | #18; RA1 |
 | I-18 | module prod refusals at every entry point that builds the composition; static CLIs not forced to build it; absent module's variables inert, topology errors found by `sandloom check`/`test`; optional module's settings error fatal; env names kept; risk ids namespaced; per-module semantic ratchets; ratchet 15; `config dump` | #7, #25-#31, #B |
-| I-19 | all 16 subsets with an expected outcome; a refusal only for a predefined reason | #4; RA2 |
-| I-20 | D1, D4, billing without celery and `/ready` 200 with an unusable taskqueue kept as defects | condition 4 |
+| I-19 | every required capability has an installed driver with its features, else a refusal (B037) naming the guarantee; temporary trouble in readiness; all 16 subsets with an expected outcome | #4; RA2; infra decision 2026-11-08 |
+| I-20 | D1 and D4 kept as defects (billing without celery and `/ready` 200 with an unusable taskqueue closed by KB-IC-1..4) | condition 4; infra decision 2026-11-08 |
 | I-21 | revocation duties split: the kernel guarantees access-token revocation and a durable applier; the issuer ends refresh sessions and the kernel verifies the obligation | #16 |
 | I-22 | T3, T4 in scope; T7 state from validation C4; T8, T10 restated | #10, #13, #16, #26-#28; RA6 |
 | I-23 | "does not increase"; baseline counts recorded; the third `bound_tenant` call removed only as a separate change; freshness and comparison equivalence | #5, #20, #23, #24; RA8 |
@@ -180,7 +186,7 @@ Not every entry point builds the composition through `create_app`: the static co
 add check explain docs context graph keys test`) build no settings by design, the deploy-profile
 tooling (`sandloom add deploy`, the T014 check) runs `register`/`setup` on a bare facade, and
 part of the admin CLI reads settings directly before or without building the app
-([research-settings.md](research-settings.md) §1.2, F7). A requirement stated "at every entry
+([research-settings.md](_archive/research-settings.md) §1.2, F7). A requirement stated "at every entry
 point" means every entry point that builds the composition, plus the stated outcome for those
 that do not (I-18).
 
@@ -369,7 +375,7 @@ error that signals a broken security invariant stays an error.
 - State: holds for the atoms the kernel defines. No proof for an atom or fact defined
   outside the kernel: the law tests use fixed-outcome test atoms. Provider down: a hand-written
   `Requirement` over a provider's stub surfaces the outage as a proxy 503 outside the algebra,
-  with no deny log and no metric ([research-authz-portability.md](research-authz-portability.md)
+  with no deny log and no metric ([research-authz-portability.md](_archive/research-authz-portability.md)
   §1.7; roadmap-review M6), so `A | B` with `B`'s provider down never reaches `A`'s allow.
 - Missing proof: run the law properties over atoms registered by a test module from
   outside `src/sandloom`, including one that raises and one whose owner is absent; the
@@ -801,59 +807,94 @@ Allowed install profiles:
   template's dependencies.
 
 In each profile, in clean environments, each of the 16 subsets of {identity, tenancy, billing,
-admin} has an expected outcome: it boots and becomes ready, or it refuses at startup only for a
-predefined reason, with a defined code and a message naming what is missing (owner, answer #4;
-roadmap-review RA2, R33). A refusal is never caused by an undeclared dependency. The predefined
-reasons today: a required consumed contract with no provider and no binding
-(`ContractBindingError`, SANDLOOM-B005), and a configuration error of a selected module (I-18,
-answer #29). A narrower guarantee for a subset is an owner exception in writing.
+admin} has an expected outcome (owner, answer #4; roadmap-review RA2, R33), and the rule is
+this (owner decision on module infrastructure dependencies, 2026-11-08,
+[owner-decision-infra-deps.md](owner-decision-infra-deps.md)):
 
-On today's declarations no bundled module requires another's contract: billing consumes
-`tenancy.membership.v1` with `required=False` (`sandloom_billing/__init__.py:76-84`), admin
-consumes `identity.security.v1` with `optional=True` (`sandloom_admin/startup.py:18`); identity
-and tenancy consume none. So every subset is expected to boot and become ready:
+> A supported module combination starts and becomes ready when every capability its modules
+> require (declared or derived) has a configured, installed driver with the required features.
+> Otherwise startup refuses with a diagnosable code naming the missing guarantee. A configured
+> capability that is temporarily unavailable is reflected in the readiness of the processes that
+> use it; a required background guarantee that stops being met (billing's reconciler) is not
+> hidden behind a green `/ready`.
 
-| # | subset | expected | proved today (repository environment) |
+A module wheel never depends on Celery or any driver package through its metadata: it declares
+the abstract capability (and its features), the application chooses the driver, the kernel
+checks that they match. The refusal names the module, the capability, the instance, the driver,
+the feature and the install hint, not only a package. A refusal is never caused by an
+undeclared dependency. The predefined reasons: a required consumed contract with no provider
+and no binding (`ContractBindingError`, SANDLOOM-B005); a required capability with no installed
+driver offering its features (`CapabilityUnavailable`, SANDLOOM-B037); and a configuration
+error of a selected module (I-18, answer #29). An explicitly selected optional module with an
+unmet required capability is refused too (decision answer 5). A narrower guarantee for a subset
+is an owner exception in writing.
+
+**Declarations today** (KB-IC-2, effective capabilities): identity requires `cache` and
+`notification` with `email`, and `taskqueue` as optional (token cleanup is storage hygiene);
+tenancy requires `notification` with `email`; billing requires `taskqueue` with the feature
+`periodic` (its intent reconciler must run); admin requires nothing beyond the kernel. No
+bundled module requires another's contract: billing consumes `tenancy.membership.v1` with
+`required=False`, admin consumes `identity.security.v1` with `optional=True`.
+
+The expected outcome of a subset is a function of these declarations and of the drivers
+installed:
+
+| # | subset | plain `sandloom` (P2: no redis-py, no Celery) | `sandloom[standard]` / `[admin]` (P3) |
 |---|---|---|---|
-| 1 | none (P1) | boots, ready | lean install (I-01) |
-| 2 | identity | boots, ready | `test_module_subset.py:44`; `sandloom_identity/tests/test_module_wiring.py:26` |
-| 3 | tenancy | boots, ready | `test_module_subset.py:43`; tenancy's `test_module_wiring.py` |
-| 4 | billing | boots, ready (billing answers 501 for organization context, `sandloom_billing/__init__.py:77-80`) | `test_module_subset.py:51`; billing's `test_module_wiring.py`; **fails in P2 without celery** |
-| 5 | admin | boots, ready (no admin hint without identity, `sandloom_admin/startup.py:1-7`) | none |
-| 6 | identity + tenancy | boots, ready | none |
-| 7 | identity + billing | boots, ready | none |
-| 8 | identity + admin | boots, ready | none |
-| 9 | tenancy + billing | boots, ready | `test_module_subset.py:45-50` |
-| 10 | tenancy + admin | boots, ready | none |
-| 11 | billing + admin | boots, ready | none |
-| 12 | identity + tenancy + billing | boots, ready | none |
-| 13 | identity + tenancy + admin | boots, ready | none |
-| 14 | identity + billing + admin | boots, ready | none |
-| 15 | tenancy + billing + admin | boots, ready | none |
-| 16 | all four | boots, ready | `test_module_subset.py` (`test_full_monolith_set_loads`) |
+| 1 | none (P1) | boots; not ready: the kernel's own cache check fails naming `redis` | boots, ready |
+| 2 | identity | refused, SANDLOOM-B037 (`cache`) | boots, ready |
+| 3 | tenancy | boots; not ready (cache check) | boots, ready |
+| 4 | billing | refused, SANDLOOM-B037 (`taskqueue`, `periodic`) | boots, ready |
+| 5 | admin | boots; not ready (cache check) | boots, ready |
+| 6 | identity + tenancy | refused, B037 (`cache`) | boots, ready |
+| 7 | identity + billing | refused, B037 (`cache`; `taskqueue`, `periodic`) | boots, ready |
+| 8 | identity + admin | refused, B037 (`cache`) | boots, ready |
+| 9 | tenancy + billing | refused, B037 (`taskqueue`, `periodic`) | boots, ready |
+| 10 | tenancy + admin | boots; not ready (cache check) | boots, ready |
+| 11 | billing + admin | refused, B037 (`taskqueue`, `periodic`) | boots, ready |
+| 12 | identity + tenancy + billing | refused, B037 | boots, ready |
+| 13 | identity + tenancy + admin | refused, B037 (`cache`) | boots, ready |
+| 14 | identity + billing + admin | refused, B037 | boots, ready |
+| 15 | tenancy + billing + admin | refused, B037 (`taskqueue`, `periodic`) | boots, ready |
+| 16 | all four | refused, B037 | boots, ready |
 
-(Boot of the full set and of single modules is also covered by the probes of
-`test_module_boots_alone.py`.) A subset whose expected outcome changes after a decision (a
-consumed contract made required) updates this table with the predefined reason.
+"Ready" needs the services themselves (database, cache, event bus) to answer, and in
+production a delivering notifier for identity and tenancy (the default `log` notifier is
+refused, `log_notifier_in_prod` accepts the risk). Beyond the two P2 columns, a subset with a
+required capability whose driver lacks the feature is refused the same way: a taskqueue driver
+that does not advertise `periodic` (it supports `enqueue` only) refuses billing and lets the
+other subsets boot. A broker nobody listens on keeps the web process of a periodic-only module
+ready; the worker and beat run the work, and billing's reconciler check fails when no run
+completed in the allowed interval (G-OPS-23, G-OPS-24). A subset whose expected outcome changes
+after a decision (a consumed contract made required) updates this table with the predefined
+reason.
 
-- Guarantees: G-MODULE-15, C-SPLIT-03, C-MODULE-06, C-MODULE-07, G-OPS-21.
-- Proof today: `src/sandloom_identity/tests/test_module_wiring.py:26` (and tenancy,
-  billing); `src/sandloom/core/tests/test_module_boots_alone.py:68`;
-  `src/sandloom/core/tests/test_module_subset.py:54`;
-  `src/sandloom/core/tests/test_split_readiness.py:231`. All run in the repository
-  environment, where the `celery` extra is installed (P3).
-- State: **violated in P2.** `pip install sandloom sandloom-billing` installs, then bootstrap
-  fails: `ModuleLoadError: Required modules failed: sandloom_billing: No module named
-  'celery'` (`sandloom_billing/tasks.py:25` imports `sandloom.sdk.tasks`, which imports
-  `celery` at module level, `sdk/_prim/tasks.py:16`; billing depends on plain `sandloom`,
-  `packages/sandloom-billing/pyproject.toml`) (baseline §13.2, `_evidence/consumer-install.txt`;
-  kb-baseline-close). This is a refusal for an undeclared dependency, which answer #4 forbids;
-  it stays on the list of defects (condition 4). Identity: inferred, not run (baseline §12).
-  Holds in P1 (baseline §13.1) and P3. Packaging fix tracked as tm `billing-boots-without-celery`.
-  Of the 16 subsets, 6 are proved in the repository environment, none in clean P2 venvs.
-- Missing proof: a packaging check that installs each of the 16 subsets of module wheels on
-  plain `sandloom` (P2) and through the extras (P3) in clean venvs, boots it, and asserts the
-  expected outcome of the table above.
+- Guarantees: G-MODULE-15, C-SPLIT-03, C-MODULE-06, C-MODULE-07, G-OPS-21, G-INFRA-10,
+  G-INFRA-11, G-INFRA-12, G-OPS-23, G-OPS-24.
+- Proof (KB-04, KB-IC-4): `tests/integration/module_subsets/` boots the 16 subsets in fresh
+  interpreters, with `/health`, `/ready` and `sandloom --help`:
+  - `test_module_subsets_repository.py`: the repository environment (P3), probes stubbed
+    (composition only);
+  - `test_module_subsets_wheels.py` (slow): clean venvs, plain `sandloom` with the subset's
+    wheels (P2), then `sandloom[standard,admin]` (P3); the P2 venvs are booted again with the
+    cache and taskqueue probes real (`test_subset_on_plain_sandloom_p2_unstubbed`), which shows
+    `No module named 'redis'` that a stub hid;
+  - `test_module_subsets_infrastructure.py`: Celery and Redis installed with real services, no
+    stub at all; a broker nobody listens on; `redis` or `celery` made unimportable; a taskqueue
+    driver published through the `sandloom.drivers` entry point that lacks `periodic`. A B037
+    refusal must name the module, the capability and the feature.
+  - Unit proof: `src/sandloom/core/tests/test_infra_driver_availability.py`,
+    `test_module_capability_derivation.py`, `test_ready_taskqueue.py`.
+- State: **holds** in every profile, with one recorded consequence. Plain `sandloom` without
+  redis-py boots the subsets that need no cache driver of their own but is not ready: the
+  kernel's cache (revocation and security state) is a required instance, so its check fails
+  naming the package, and a strict (production) startup refuses with B037. A dev/test memory
+  cache driver (KB-IC-5, not a blocker) would change that outcome; it is refused in production
+  and states the weaker guarantees while used. The earlier defect (billing and identity failing
+  to boot on plain `sandloom` with a `ModuleLoadError` for an undeclared Celery dependency)
+  is fixed: the refusal is B037, the dependency is declared as a capability.
+- Missing proof: none for the 16 subsets; a driver that fails to initialise (not only to
+  import) is proved in the unit tests, not in the matrix.
 
 ### I-20 No platform guarantee degrades silently
 
@@ -879,11 +920,18 @@ capability, security guarantee"; owner, tm reflection on `kb-requirements-amend`
   - D3: identity absent → `Role`/`Perm` trust the first writer of `roles`/`permissions` (S1);
   - D4: provider package absent → no compatibility comparison, also under `strict` (compat
     probe); a WARNING only.
-  Not a guarantee loss but recorded (guarantee-map §11): `/ready` 200 while the default
-  taskqueue cannot open (tasks probe); a replacement serving `identity.security.v1` gets the
-  fallback password policy silently (B-I1, inferred).
-  The owner keeps D1, D4, billing failing to boot without celery (I-19) and `/ready` 200 with an
-  unusable taskqueue on the list of defects every decision must not forget (condition 4).
+  Not a guarantee loss but recorded (guarantee-map §11): a replacement serving
+  `identity.security.v1` gets the fallback password policy silently (B-I1, inferred).
+  **Closed by the infrastructure decision (2026-11-08, KB-IC-1..4):** billing failing to boot
+  without celery (a required capability with no installed driver is a startup refusal,
+  SANDLOOM-B037, naming the guarantee, I-19) and `/ready` 200 with an unusable taskqueue (a
+  permanent installation error is the startup refusal; a request-path use of a broker that
+  cannot be reached is `/ready` 503; a required background guarantee, billing's reconciler, has
+  its own run record and check, so a green `/ready` with no worker or beat is not possible
+  after the startup interval; G-OPS-23, G-OPS-24). Identity's token cleanup is optional: token
+  expiry and revocation do not depend on it, `sandloom doctor` and `/diagnostics/core` show a
+  missing beat as a warning, and the storage growth is documented. The owner keeps D1 and D4 on
+  the list of defects every decision must not forget (condition 4).
 - Missing proof: for each battery (identity, tenancy, billing, admin) and for a consumer-only
   install, a test per guarantee of guarantee-map §2 that observes fail-closed or a startup
   refusal, never a warning alone (A-F5, B-F5, C-F5).

@@ -1,9 +1,10 @@
 # Sandloom kernel-contributor contract (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`)
 
 For changes to the framework kernel itself. Module authors never need this file: their
-contract is `src/sandloom/AGENTS.md`. The module rules still apply here wherever kernel code
-acts like a module (units, effects, tenancy). Concepts: `docs/modules/index.md`; every check
+contract is `.claude/rules/module-author.md`. The module rules still apply here wherever kernel
+code acts like a module (units, effects, tenancy). Concepts: `docs/modules/index.md`; every check
 and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its source).
+Each gate below fails with a code; `uv run sandloom explain <code>` gives the why and the fix.
 
 ## Layers and imports (ADR-0007)
 
@@ -18,10 +19,9 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
   - `- optional: <reason>`: the dependency may be absent or unconfigured;
   - `- cold: <reason>`: import cost or side effects kept off the app import.
 
-  The reason names a boundary (plugin entry, static command, gunicorn master,
-  worker healthcheck, a driver SDK on the app path); a cycle break is not a
-  category. A hoisted import is `import sandloom.core.x as _x` so test patches still
-  apply. Check: `test_lint_suppression_ratchet.py`.
+  The reason names a boundary, never a cycle break. A hoisted import is
+  `import sandloom.core.x as _x` so test patches still apply.
+  Gate: `test_lint_suppression_ratchet.py`.
 - **Other `# noqa` markers:** one code per line (`PGH004`, `RUF100`); `BLE001`
   and bandit `S…` need a reason after ` - `; `NOQA_BASELINE` only goes down
   (`docs/contributing/lint-policy.md`).
@@ -30,12 +30,12 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
   the 30 beginner names. `public_api_baseline.json` records every
   name and signature (SANDLOOM-T008), and each module's generated reference block
   stays current (`sandloom docs --write`). Adding a name is an API decision.
-  - **Levels:** public facades > `sandloom.sdk._decl` (L1, declarative) >
-    `sandloom.sdk._prim` (L2 primitives) > `sandloom.core` (L3). `_decl` never imports
-    `sandloom.core`; `sandloom.core` and `sandloom.shared` never import `sandloom.sdk`; every L2
-    name L1 uses is public (`test_l1_uses_only_public_l2`).
+  - **Levels:** public facades > `sandloom.sdk._decl` (L1) > `sandloom.sdk._prim` (L2) >
+    `sandloom.core` (L3). `_decl` never imports `sandloom.core`; `sandloom.core` and
+    `sandloom.shared` never import `sandloom.sdk`; every L2 name L1 uses is public
+    (`test_l1_uses_only_public_l2`).
   - **Importing `sandloom.sdk` reads no environment and does no I/O**
-    (`test_sdk_import_is_side_effect_free`): settings stay lazy.
+    (`test_sdk_import_is_side_effect_free`).
   - Public API changes follow `docs/contributing/versioning.md`; include upgrade steps.
 
 ## Guarantees and effects (ADR-0005)
@@ -74,10 +74,10 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
 - **Drivers construct backends.** A backend constructor
   (`create_async_engine`, `redis.from_url`, `Celery(...)`, `Storage(...)`)
   appears only in `sandloom.core.drivers/**`, built lazily by `get_default_*()`
-  factories. Check: `test_infra_constructed_only_in_drivers`.
+  factories (`test_infra_constructed_only_in_drivers`).
 - **SQLAlchemy stays inside the relational surface**: `orm`, `tenant`, `di`,
-  `sql_alchemy/`, `projections/upsert`, `migrations/` and the drivers.
-  `TYPE_CHECKING` imports are exempt. Check: `test_relational_paradigm_boundary`.
+  `sql_alchemy/`, `projections/upsert`, `migrations/` and the drivers
+  (`test_relational_paradigm_boundary`; `TYPE_CHECKING` imports exempt).
 - **Outbox and audit writes go through the `OutboxStore` / `AuditStore`
   contracts** (`provider.outbox()` / `.audit()`). `sandloom.core.di` never imports
   a concrete ORM model.
@@ -103,18 +103,13 @@ and refusal: `docs/reference/error-codes.md` (`sandloom.core.error_codes` is its
 - **The framework carries no deprecated API.** `error::DeprecationWarning:sandloom`
   turns one into a test failure.
 - **Hot paths are measured.** Change the request path, the UoW or eventing
-  only with numbers: cachegrind instruction counts on a shared machine
-  (`benchmarks/`, `docs/design/*profile*`).
+  only with numbers: cachegrind instruction counts on a shared machine, measured
+  when it is idle (`benchmarks/`, `docs/design/*profile*`).
 - **The test harness is framework code** (`sandloom.core.testing`, public through
   `sandloom.sdk.testing`). A seam module tests need goes there.
 
 ## Before you push
 
-- `uv run sandloom generate`, `uv run sandloom test --full`, then `uv run sandloom test --ci`
-  (no ruff fixes) and `uv run python tools/checks/check_architecture.py`, plus:
-  - the slow suites: `SANDLOOM_TEST_REDIS_DB_STRIDE=auto uv run pytest -q -n auto --dist loadfile`
-    (split conformance included; `sandloom test` will wrap it).
-- Run the local CI stand-in from the repo root:
-  `tools/ci/ci_local.sh <ref> [--jobs a,b]` (`docs/contributing/local-ci.md`).
-- On a shared machine, use your own test DB and Redis (`SANDLOOM_TEST_*`), never
-  `pkill` by pattern, and measure CPU only when the machine is idle.
+Inside a tracked wave an agent runs the tests of what it touched plus every test that
+references the changed symbols (`grep -rln '<symbol>' src tests`) and the static gates;
+`sandloom test --full` runs once per wave, by the orchestrator.

@@ -8,17 +8,17 @@ of database queries, the evaluation order or the policy syntax"). Task: tm
 Measured on 2026-11-08 at `47c31de` (branch `arch/kernel-boundary`). The authorization
 evaluation code is identical to the fixed evidence commit `b8d8506`: `git diff --stat
 b8d8506 47c31de -- src/` touches only `core/facade/_claims.py` and its test (token
-minting, not evaluation). Scripts, raw results and the DX log: `_evidence/perf-dx/`.
+minting, not evaluation). Scripts, raw results and the DX log: `_archive/_evidence/perf-dx/`.
 
 ## 1. Method
 
 ### 1.1 The stand
 
-`_evidence/perf-dx/stand/authzstand/` is a throwaway module with one authenticated `GET`
+`_archive/_evidence/perf-dx/stand/authzstand/` is a throwaway module with one authenticated `GET`
 per policy (`Depends(require(policy))`, handler does nothing) plus two controls without a
 policy (`/azs/control`, and `/azs/bound/control` with `TenantScope()`). It is loaded into
 the real `sandloom.main:app` with the real batteries; nothing in `src/` was changed.
-`_evidence/perf-dx/authz_stand.py` drives it.
+`_archive/_evidence/perf-dx/authz_stand.py` drives it.
 
 | policy (route) | as written |
 |---|---|
@@ -33,7 +33,7 @@ the real `sandloom.main:app` with the real batteries; nothing in `src/` was chan
 | `bound/orgrole_and_subactive` (+ `TenantScope()`, `X-Tenant-Id`) | `OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())` (the owner's decisive PoC shape) |
 
 Data: `benchsuite.platform seed` (one user, owner of one organization) plus
-`_evidence/perf-dx/seed_billing.sql` (an active subscription with a catalog price and
+`_archive/_evidence/perf-dx/seed_billing.sql` (an active subscription with a catalog price and
 100 credits for the user and for the organization). Subjects: `admin` (`roles=[admin]`,
 `permissions=[perm.stand.read]`), `user` (neither), `outsider` (not a member). Every
 token carries `subscription_status=active`, `tenant_ids=[org]`, `claims_sources=[identity,
@@ -63,7 +63,7 @@ requirements).
 | **Instructions (cachegrind)**, mono | `cg_authz.sh`: the ladder method of `benchmarks/README.md` / `ladder/cg/cgdriver.py`: `Ir/req = (Ir(K requests) − Ir(0 requests)) / K`, K = 200, both runs with the same boot, 20 warm-ups and shutdown, `PYTHONHASHSEED=0`, image `sandloom-ladder-cg:3.13` built from `benchmarks/ladder/cg/` | 1–3 runs per case (section 2.3) | the spread of repeated runs: ±4 % (section 2.3); the I-14 budget of +1 % is below this stand's noise, so a +1 % comparison needs more repeats |
 | **Latency and instructions (rusage)**, mono and split | in-process ASGI calls at concurrency 1 (no client socket), `perf_counter` per request; retired instructions of the measuring process and of the provider process (`proc_pid_rusage`, `benchmarks/ladder/darwin_rusage.py`) over the window | 2 runs × 3 repetitions × 2,000 requests per case (200 warm-ups), cases interleaved and rotated per repetition | instructions: ±3 % between repetitions; latency: the machine was shared with other agents (load average ≈ 8 on 10 cores), so medians of repetitions are reported; p50 moved by up to 40 % between the two runs, so only differences above 50 % (p50) or 2× (p99) are signal |
 
-Reproduce (from `_evidence/perf-dx/`, with an owner DSN of a seeded database):
+Reproduce (from `_archive/_evidence/perf-dx/`, with an owner DSN of a seeded database):
 
 ```bash
 export DATABASE_URL=postgresql+asyncpg://…/kbperf CACHE_URL=redis://…/3
@@ -130,7 +130,7 @@ request every 5 minutes) does.
 Whole request through `sandloom.main:app` (middleware, token decode, revocation `GET`,
 the guard, the provider's own unit in the monolith, the 200/403 response). Δ is against
 the control without a policy (`bound.*` against the `TenantScope()` control). Raw:
-`_evidence/perf-dx/results/cg.txt`.
+`_archive/_evidence/perf-dx/results/cg.txt`.
 
 | case | Ir/req | runs | Δ vs control |
 |---|---|---|---|
@@ -221,7 +221,7 @@ One developer task, end to end, by following only the shipped docs and CLI, in a
 throwaway app outside the repository: a provider module `quota` with a contract, a
 consumer module `reports` with a typed `QuotaAvailable(units=1)` access check on a route,
 both tested, then provider and consumer split into two processes. Full log:
-`_evidence/perf-dx/dx/dx-log.md`; the hand-written files: `_evidence/perf-dx/dx/files/`.
+`_archive/_evidence/perf-dx/dx/dx-log.md`; the hand-written files: `_archive/_evidence/perf-dx/dx/files/`.
 
 | measure | today |
 |---|---|

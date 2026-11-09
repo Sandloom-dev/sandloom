@@ -96,6 +96,7 @@ Package layout (internal — import only from ``sandloom.core.module_api``)
 ``_provider``      ``contract_schema``, DTO checks, ``ContractProvider``
 """
 
+from sandloom.core.config.common import secret_problem
 from sandloom.core.descriptors import (
     BACKWARD,
     FORWARD,
@@ -231,6 +232,7 @@ __all__ = [
     "Risk",
     "SemanticSetting",
     "override_settings",
+    "secret_problem",
     "settings_of",
     "validate_settings",
 ]

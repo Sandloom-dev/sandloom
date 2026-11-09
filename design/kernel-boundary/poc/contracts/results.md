@@ -1,7 +1,7 @@
 # PoC: consumer-owned contract copies (alternative B1)
 
 tm `kb-poc-contracts` (parent `kb-assess`). Proves or refutes alternative B1 of
-[alternatives-b-contracts.md](../../alternatives-b-contracts.md) on running code, item by item of
+[alternatives-b-contracts.md](../../_archive/alternatives-b-contracts.md) on running code, item by item of
 its §11 ("what kb-poc-contracts must prove", 1-13). Written for the ADR of decision B; it does
 not decide.
 

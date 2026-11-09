@@ -45,8 +45,11 @@ async def test_unverified_user_and_contributors_cannot_override_identity() -> No
     user.email = "u@example.com"
     user.is_verified = False
     checked = {"email": "u@example.com", "email_verified": False, "roles": ["r"]}
+    # The merge's provenance and policy version, here the kernel test
+    # authority's (what as_user stamps), so the verifier's view keeps them.
+    stamped = {"cpv": "sandloom-test", "claims_sources": ["sandloom-test"]}
     core = SimpleNamespace(
-        collect_claims=AsyncMock(return_value={**checked, "sub": "x"})
+        collect_claims=AsyncMock(return_value={**checked, **stamped, "sub": "x"})
     )
     db = AsyncMock()
     db.add = Mock()
@@ -119,22 +122,36 @@ async def test_auth_audit_ip_is_proxy_aware(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 async def test_twofa_key_is_mandatory_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom_identity import register
+    from pydantic import SecretStr
+
+    from sandloom.sdk.testing import override_settings, validate_settings
+    from sandloom_identity.config import IdentitySettings
     from sandloom_identity.services import twofa_service
 
-    monkeypatch.setattr(settings, "twofa_encryption_key", None)
-    set_environment(monkeypatch, "dev")
-    assert twofa_service.twofa_configuration_error() is None
-    assert twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # dev fallback works
+    with override_settings(IdentitySettings, twofa_encryption_key=None):
+        set_environment(monkeypatch, "dev")
+        assert twofa_service.twofa_configuration_error() is None
+        assert twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # dev fallback works
 
-    set_environment(monkeypatch, "prod")
-    error = twofa_service.twofa_configuration_error()
-    assert error is not None and "TWOFA_ENCRYPTION_KEY" in error
-    with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
-        twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
+        set_environment(monkeypatch, "prod")
+        error = twofa_service.twofa_configuration_error()
+        assert error is not None and "TWOFA_ENCRYPTION_KEY" in error
+        with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
+            twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
 
-    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY"):
-        register(Mock())  # refused at registration, in every entry point
-
-    monkeypatch.setattr(settings, "twofa_encryption_key", "k" * 64)
-    assert twofa_service.twofa_configuration_error() is None
+    # refused by identity's own settings, before its setup, in every entry
+    # point (the loader validates the model at registration)
+    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY is required"):
+        validate_settings(IdentitySettings, {}, environment="prod")
+    with pytest.raises(SystemExit, match=r"TWOFA_ENCRYPTION_KEY\[0\] is too short"):
+        validate_settings(
+            IdentitySettings, {"TWOFA_ENCRYPTION_KEY": "short"}, environment="prod"
+        )
+    with override_settings(IdentitySettings, twofa_encryption_key=SecretStr("k" * 64)):
+        assert twofa_service.twofa_configuration_error() is None
+    strong = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
+    rotated = f"{strong},{strong[::-1]}"  # newest first, the old key kept
+    configured = validate_settings(
+        IdentitySettings, {"TWOFA_ENCRYPTION_KEY": rotated}, environment="prod"
+    )
+    assert configured.twofa_keys() == [strong, strong[::-1]]

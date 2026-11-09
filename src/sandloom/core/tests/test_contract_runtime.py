@@ -472,7 +472,12 @@ async def test_collect_claims_refuses_a_caller_session_without_issuer() -> None:
     with pytest.raises(ValueError, match="issuer"):
         await core.collect_claims(uuid4(), object())
     claims = await core.collect_claims(uuid4())
-    assert claims == {"claims_sources": [], "claims_sources_failed": []}
+    # No map: no key assigned, so the per-key policy version names none.
+    assert claims == {
+        "claims_sources": [],
+        "claims_sources_failed": [],
+        "cpv": {"v": 1, "k": {}},
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from sandloom.sdk import db
-from sandloom.sdk.infra import settings
+from sandloom_tenancy.config import tenancy_settings
 from sandloom_tenancy.services import MembershipService
 
 
@@ -22,7 +22,7 @@ async def tenancy_claims(user_id: UUID | str) -> dict[str, list[str]]:
     (read in tenancy's contract session)."""
     session = db()
     uid = user_id if isinstance(user_id, UUID) else UUID(str(user_id))
-    cap = settings.tenant_claims_max_organizations
+    cap = tenancy_settings().tenant_claims_max_organizations
     tenant_ids = await MembershipService.list_user_organization_ids(
         uid, session, limit=cap + 1
     )

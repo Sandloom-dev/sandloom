@@ -19,8 +19,8 @@ search:
 - **Related:** [ADR-0012](0012-kernel-boundary.md) (B-C rows of the edge register; admin
   settings), [ADR-0014](0014-claims-trust-and-authorization-portability.md) (authorities are
   never settings, answer #9)
-- **Research and evidence:** `design/kernel-boundary/research-settings.md` (commit `de53875`),
-  `alternatives-d-settings.md` (commit `95f6479`), `adversarial.md` §5, `baseline.md` §4.4,
+- **Research and evidence:** `design/kernel-boundary/_archive/research-settings.md` (commit `de53875`),
+  `_archive/alternatives-d-settings.md` (commit `95f6479`), `adversarial.md` §5, `baseline.md` §4.4,
   `guarantee-map.md` §10; PR #71 (`816f587`: `8d3413a`, `2a85572`), PR #73 (`dae6883`), PR #74
   (`30104e8`) on `main`
 

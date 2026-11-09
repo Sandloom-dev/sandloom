@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-review
+disable-model-invocation: true
 description: Review a Sandloom docs page before it ships — linters, two reviewers (spec and voice), reader questions on a context-free subagent, the render, and the owner's verdict. Use after writing or editing a page under docs/, when asked to review, check or grade a page, and before handing docs work over.
 ---
 

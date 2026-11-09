@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -121,10 +122,12 @@ async def _probe_remote(
     """Probe remote bindings for reachability and/or contract compatibility.
 
     ``reachability``: contracts whose unreachable peer is a failure (``None``
-    = every remote binding). ``compat``: also compare each binding that has an
-    expected snapshot (:mod:`sandloom.core.contract_compat`) with the provider's
-    live describe document — an incompatible provider is a failure, a peer
-    that cannot be reached is NOT (reachability is the other check's job).
+    = every remote binding). ``compat``: also compare each binding with what
+    this caller expects of it (:func:`contract_compat.resolve_expectations`,
+    resolved once at startup) against the provider's live describe document:
+    an incompatible provider is a failure, and so is a required contract
+    with no expectation (``contract_unverified``, ADR-0013 decision 4); a
+    peer that cannot be reached is NOT (reachability is the other check's job).
     """
 
     cfg = core.settings
@@ -133,9 +136,8 @@ async def _probe_remote(
         for name, binding in cfg.service_bindings.items()
         if not core.service_registry.contains(name)
     }
-    expectations = (
-        contract_compat.expected_contracts(core, sorted(remote)) if compat else {}
-    )
+    plan = contract_compat.resolve_expectations(core, remote) if compat else None
+    expectations = plan.expectations if plan is not None else {}
     failures: dict[str, object] = {}
     unverified: dict[str, object] = {}
     probes = _probe_targets(cfg, remote, reachability, expectations, failures)
@@ -146,9 +148,9 @@ async def _probe_remote(
     )
     for name, outcome in zip(names, outcomes, strict=True):
         reach = reachability is None or name in reachability
-        expectation = expectations.get(name)
+        expected = expectations.get(name, ())
         if outcome.failure is not None:
-            failure = _probe_failure(name, outcome, reach, expectation, probes[name][0])
+            failure = _probe_failure(name, outcome, reach, expected, probes[name][0])
             if failure is not None:
                 failures[name] = failure
             continue
@@ -156,25 +158,47 @@ async def _probe_remote(
         if drift is not None:
             failures[name] = {"config_drift": [drift]}
             continue
-        if expectation is None:
+        if not expected:
             continue
         if outcome.contract is None:
             unverified[name] = ["the provider published no contract description"]
             continue
-        report = contract_compat.compare_contract(
-            name,
-            expectation.describe,
-            outcome.contract,
-            methods=expectation.methods,
-        )
-        if report.errors:
-            failures[name] = {
-                "contract_incompatible": report.errors,
-                "expected_from": expectation.source,
-            }
-        if report.warnings:
-            unverified[name] = report.warnings
+        _compare(name, expected, outcome.contract, failures, unverified)
+    for name, reasons in (plan.unverified if plan is not None else {}).items():
+        entry = failures.get(name)
+        failures[name] = {
+            **(entry if isinstance(entry, dict) else {}),
+            "contract_unverified": list(reasons),
+        }
     return _probe_result(names, failures, unverified)
+
+
+def _compare(
+    name: str,
+    expected: tuple[contract_compat.Expectation, ...],
+    actual: dict[str, Any],
+    failures: dict[str, object],
+    unverified: dict[str, object],
+) -> None:
+    """Hold the provider's describe document to every consumer's expectation."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    sources: list[str] = []
+    for expectation in expected:
+        report = contract_compat.compare_contract(
+            name, expectation.describe, actual, methods=expectation.methods
+        )
+        errors += [e for e in report.errors if e not in errors]
+        warnings += [w for w in report.warnings if w not in warnings]
+        if report.errors:
+            sources.append(expectation.source)
+    if errors:
+        failures[name] = {
+            "contract_incompatible": errors,
+            "expected_from": sources[0] if len(sources) == 1 else sources,
+        }
+    if warnings:
+        unverified[name] = warnings
 
 
 def _token_lifetime_drift(cfg: Any, contract: dict[str, Any] | None) -> str | None:
@@ -199,7 +223,7 @@ def _probe_targets(
     cfg: Any,
     remote: dict[str, Any],
     reachability: set[str] | None,
-    expectations: dict[str, Any],
+    expectations: Mapping[str, Any],
     failures: dict[str, object],
 ) -> dict[str, _ProbeTarget]:
     """What to probe per remote binding (a binding without a URL that must be
@@ -236,16 +260,16 @@ def _probe_failure(
     name: str,
     outcome: _ProbeOutcome,
     reach: bool,
-    expectation: Any,
+    expected: tuple[contract_compat.Expectation, ...],
     base_url: str,
 ) -> dict[str, object] | None:
     """The failure a failed probe records (``None``: it does not count)."""
-    if expectation is not None and outcome.not_served:
+    if expected and outcome.not_served:
         return {
             "contract_incompatible": [
                 f"{name}: not served by the provider at {base_url}"
             ],
-            "expected_from": expectation.source,
+            "expected_from": expected[0].source,
         }
     return outcome.failure if reach else None
 
@@ -304,13 +328,23 @@ class ContractIncompatibleError(RuntimeError):
     snapshot (``CONTRACT_COMPAT_CHECK=strict`` aborts startup with it)."""
 
 
-async def check_remote_contract_compat(core: Any) -> HealthResult:
-    """Compare every remote binding with its expected snapshot (no reachability).
+class ContractUnverifiedError(ContractIncompatibleError):
+    """A required remote contract has no expectation to check it against
+    (``CONTRACT_COMPAT_CHECK=strict`` aborts startup with it before any probe;
+    ADR-0013 decision 4)."""
 
-    The startup half of the rolling-upgrade guard: logs an incompatible
-    provider (``ready``) or raises :class:`ContractIncompatibleError`
-    (``strict``). An unreachable peer is only logged — it may simply start
-    later; readiness keeps re-checking.
+
+async def check_remote_contract_compat(core: Any) -> HealthResult:
+    """Compare every remote binding with its expectation (no reachability).
+
+    The startup half of the rolling-upgrade guard. It resolves what this
+    caller expects of each remote contract (read once here; ``/ready`` reuses
+    it). A required contract with no expectation is refused before any probe
+    under ``strict`` (:class:`ContractUnverifiedError`) and logged at ERROR
+    under ``ready``, whose ``/ready`` then fails with ``contract_unverified``.
+    An incompatible provider is logged (``ready``) or raises
+    :class:`ContractIncompatibleError` (``strict``). An unreachable peer is
+    only logged: it may simply start later; readiness keeps re-checking.
     """
     mode = _compat_mode(core)
     if mode == "off":
@@ -321,15 +355,14 @@ async def check_remote_contract_compat(core: Any) -> HealthResult:
         for name in core.settings.service_bindings
         if not core.service_registry.contains(name)
     )
-    known = contract_compat.expected_contracts(core, remote)
-    for name in remote:
-        if name not in known:
-            logger.warning(
-                "No contract snapshot for remote contract %s: its compatibility "
-                "is not checked (ship the provider module's package or set "
-                "CONTRACT_SNAPSHOT_PATHS)",
-                name,
-            )
+    plan = contract_compat.resolve_expectations(core, remote)
+    for name, reasons in sorted(plan.unverified.items()):
+        logger.error("Remote contract %s cannot be checked: %s", name, reasons)
+    if plan.unverified and mode == "strict":
+        raise ContractUnverifiedError(
+            "remote contract(s) cannot be checked (no expectation): "
+            + "; ".join(r for reasons in plan.unverified.values() for r in reasons)
+        )
     result = await _probe_remote(core, reachability=set(), compat=True)
     details = result.details or {}
     unverified = details.get("contracts_unverified")

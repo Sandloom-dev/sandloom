@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.auth.bearer import bearer_claims
+from sandloom.core.auth.claims_view import platform_admission, untrusted_reasons
 from sandloom.core.auth.verification import (
     assert_token_valid_now,
     ensure_token_not_revoked,
@@ -61,15 +62,10 @@ async def platform_operator(request: Request) -> None:
     except ValueError as exc:
         raise HTTPException(401, "Invalid token subject") from exc
     await ensure_token_not_revoked(request, claims)
-    sources, roles = claims.get("claims_sources"), claims.get("roles")
-    if (
-        not isinstance(sources, list)
-        or "identity" not in sources
-        or not isinstance(roles, list)
-        or "admin" not in roles
-        or "identity" in (claims.get("claims_sources_failed") or [])
-    ):
-        raise HTTPException(403, "Platform administrator role required")
+    # The one platform admission (ADR-0014 decision 3), shared with
+    # ``require_platform_admin``: ``roles`` counts only when it is in the
+    # token's trusted view; no module name is trusted.
+    platform_admission(claims.get("roles"), untrusted_reasons(claims))
 
 
 # ADR-0009 item 6: the platform console's operator gate carries the admin risk.
@@ -600,7 +596,6 @@ _SAFE_SETTINGS = (
     "rpc_transport",
     "jwt_algorithm",
     "access_token_expire_minutes",
-    "refresh_token_expire_days",
     "auth_revocation_fail_closed",
     "password_hash_profile",
     "rate_limit_enabled",
@@ -611,6 +606,20 @@ _SAFE_SETTINGS = (
     "log_format",
     "log_level",
 )
+
+
+#: Non-secret settings a loaded module declares (ADR-0015), shown when some
+#: loaded module has the field. Until KB-55 (kernel tools read declarations)
+#: the list is kernel-held: edge row B-C11.
+_DECLARED_SAFE_SETTINGS = ("refresh_token_expire_days",)
+
+
+def _declared_setting(core: Any, key: str) -> tuple[bool, Any]:
+    """``(found, value)`` of the field ``key`` in the loaded modules' settings."""
+    for record in core.module_settings.records():
+        if key in record.model.model_fields:
+            return True, getattr(record.instance, key)
+    return False, None
 
 
 def _setting_text(value: Any) -> str:
@@ -741,14 +750,16 @@ def _runtime_routes(router: APIRouter, core: Any) -> None:
                     status=result.status,
                 )
             )
-        return SettingsView(
-            settings=[
-                SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
-                for key in _SAFE_SETTINGS
-                if hasattr(cfg, key)
-            ],
-            infrastructure=instances,
-        )
+        rows = [
+            SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
+            for key in _SAFE_SETTINGS
+            if hasattr(cfg, key)
+        ]
+        for key in _DECLARED_SAFE_SETTINGS:
+            found, value = _declared_setting(core, key)
+            if found:
+                rows.append(SettingView(key=key, value=_setting_text(value)))
+        return SettingsView(settings=rows, infrastructure=instances)
 
 
 __all__ = ["install", "platform_operator", "safe_error"]

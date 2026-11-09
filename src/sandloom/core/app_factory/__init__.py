@@ -71,6 +71,7 @@ from sandloom.core.app_factory.pages import (
     _install_favicon,
     _install_start_page,
 )
+from sandloom.core.claims import Authority, LegacyClaimsTokens
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleLoadSummary
@@ -103,7 +104,9 @@ from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 __all__ = [
+    "Authority",
     "ConfigurationError",
+    "LegacyClaimsTokens",
     "ContractDiffRequest",
     "DEVELOPMENT_DATABASE_RISK",
     "POST_COMMIT_DRAIN_TIMEOUT_SECONDS",
@@ -149,8 +152,9 @@ def create_app(
     default_modules: Sequence[str] = (),
     default_optional_modules: Sequence[str] = (),
     title: str = "Sandloom Framework",
-    claim_authorities: Mapping[str, str] | None = None,
-    default_claim_authorities: Mapping[str, str] | None = None,
+    claim_authorities: Mapping[str, str | Authority] | None = None,
+    default_claim_authorities: Mapping[str, str | Authority] | None = None,
+    legacy_tokens: LegacyClaimsTokens | None = None,
 ) -> FastAPI:
     """Build a fully wired Sandloom application (kernel + modules + ops API).
 
@@ -170,6 +174,15 @@ def create_app(
     is part of the composition (loaded, or bound through its
     ``<m>.claims.v1``). With neither, no claim is assigned, and a composition
     that loads a token issuer (``issues_tokens=True``) refuses the boot.
+    A value may be an ``Authority(name, previous=Authority(old, module=...))``
+    for one rollout of a key's authority. Every verifier reads protected
+    claims only through the trusted view of this map (per-key ``cpv``).
+
+    ``legacy_tokens=LegacyClaimsTokens(until="<UTC time>")`` is the bounded
+    compatibility mode of the initial ``cpv`` enablement (an accepted
+    temporary risk, G-RISK-14): written for one upgrade, never by default,
+    off by itself at ``until + ACCESS_TOKEN_EXPIRE_MINUTES +
+    JWT_LEEWAY_SECONDS``.
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
@@ -232,6 +245,9 @@ def create_app(
         default_claim_authorities=default_claim_authorities,
         bindings=settings.service_bindings,
         log=main_logger,
+        legacy_tokens=legacy_tokens,
+        lifetime_seconds=settings.access_token_expire_minutes * 60,
+        leeway_seconds=settings.jwt_leeway_seconds,
     )
     # Sagas (ADR-0008): check every registered definition against its
     # contracts, install the advance consumers and the timer sweep.

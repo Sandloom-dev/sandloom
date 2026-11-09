@@ -47,3 +47,21 @@ def test_expectation_is_found_in_the_provider_package_without_importing_it() -> 
         "sandloom_billing/contracts.snapshot.json"
     )
     assert "spend" in found["billing.credits.v1"].describe["methods"]
+
+
+def test_a_bundled_consumer_is_held_to_its_own_expectation() -> None:
+    """KB-21: billing's expectation of ``tenancy.membership.v1`` comes from
+    beside its own stub (what a consumer-only install carries), verified and
+    narrowed to its composed ``consumes``."""
+    from sandloom_standard.main import core
+
+    contract = "tenancy.membership.v1"
+    plan = contract_compat.resolve_expectations(core, [contract])
+    assert plan.unverified == {}
+    (found,) = plan.expectations[contract]
+    assert found.consumer == "sandloom_billing"
+    assert found.source.endswith(
+        "sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json"
+    )
+    assert found.methods == ("get_member_state", "get_role", "has_role_at_least")
+    assert set(found.describe["methods"]) == set(found.methods)

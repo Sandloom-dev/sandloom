@@ -29,8 +29,11 @@ the root's map and refuses the boot on an assignment it cannot honour
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any
 from uuid import UUID
@@ -65,6 +68,85 @@ FAIL_SAFE_KEYS: frozenset[str] = frozenset(
 )
 #: Protected in every composition, assigned or not.
 PROTECTED_BASE: frozenset[str] = ALWAYS_PROTECTED | ISSUER_FIELDS | FAIL_SAFE_KEYS
+#: The tenant a token binds (``TenantScope`` reads them before the grant):
+#: no contributor writes them, and a verifier trusts them with the authority
+#: of ``tenant_ids`` (ADR-0014 decision 1).
+TENANT_SELECTORS: frozenset[str] = frozenset({"tenant_id", "org_id"})
+
+#: The claim policy version the merge stamps (ADR-0014 decision 4, owner
+#: decision #10): ``{"v": 1, "k": {key: digest of (key, authority)}}``.
+CPV_CLAIM = "cpv"
+CPV_VERSION = 1
+#: The key of a ``<m>.claims.v1`` answer naming the import path of the
+#: module that served it (the authority binding, ADR-0014 decision 4): the
+#: issuer refuses a remote authority whose service answers for another
+#: module than the map's, whatever its short name. The kernel writes it; it
+#: never reaches a token.
+AUTHORITY_CLAIM = "sandloom.authority"
+
+
+@dataclass(frozen=True)
+class Authority:
+    """One claim key's authority in ``create_app(claim_authorities=...)``.
+
+    A plain string value is ``Authority(<value>)``. ``module`` is the import
+    path when ``name`` is a short (entry-point) name; ``previous`` is the one
+    other authority a verifier accepts for the key during a rollout
+    (ADR-0014 decision 4): declared with its identity in full
+    (``Authority("identity", module="sandloom_identity")``), never by short
+    name, it need not be loaded or bound here, and an issuer never stamps it.
+    It exists for one rollout and is removed by the next deploy.
+    """
+
+    name: str
+    module: str | None = None
+    previous: Authority | None = None
+
+
+@dataclass(frozen=True)
+class LegacyClaimsTokens:
+    """The bounded compatibility mode of the initial ``cpv`` enablement
+    (ADR-0014 decision 4; an accepted temporary risk, G-RISK-14).
+
+    ``until`` (an absolute UTC time, required, no default, no setting) is the
+    end of the transition: the time by which the last issuer that stamps no
+    ``cpv`` stopped. A verifier then trusts a token without ``cpv`` per key
+    when the key's authority ran at its mint and was kept, its ``iat`` is
+    before ``until`` and its ``exp - iat`` does not exceed
+    ``ACCESS_TOKEN_EXPIRE_MINUTES``; from ``until + ACCESS_TOKEN_EXPIRE_MINUTES
+    + JWT_LEEWAY_SECONDS`` on the mode is off by itself (fail closed). The
+    framework never moves or extends ``until``: a later one is a new operator
+    decision written in the composition root.
+    """
+
+    until: str | datetime
+
+    def until_timestamp(self) -> float:
+        """``until`` as a POSIX timestamp; a ``ValueError`` when it is not an
+        absolute UTC time (a naive time or an offset other than UTC)."""
+        value = self.until
+        if isinstance(value, str):
+            text = value.strip()
+            if text.endswith(("Z", "z")):
+                text = text[:-1] + "+00:00"
+            value = datetime.fromisoformat(text)
+        if not isinstance(value, datetime) or value.utcoffset() is None:
+            raise ValueError(
+                f"LegacyClaimsTokens(until={self.until!r}): an absolute UTC time "
+                "is required (e.g. '2026-12-01T00:00Z')"
+            )
+        if value.utcoffset() != UTC.utcoffset(None):
+            raise ValueError(
+                f"LegacyClaimsTokens(until={self.until!r}): write the time in UTC"
+            )
+        return value.timestamp()
+
+
+def cpv_digest(key: str, identity: str) -> str:
+    """The ``cpv`` entry of ``key`` under the authority ``identity`` (its
+    import path): 64 bits of SHA-256, URL-safe base64 (11 characters)."""
+    raw = hashlib.sha256(f"{key}\x00{identity}".encode()).digest()[:8]
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
 @dataclass(frozen=True)
@@ -88,14 +170,84 @@ class ClaimAuthorities:
     owners: Mapping[str, str] = field(default_factory=dict)
     issuer: str | None = None
     assigned: bool = False
+    #: The verifier's map (the trusted view, decision 3): claim key -> import
+    #: path of its current authority. The root's whole map, never filtered
+    #: to this process: in a split a verifier trusts an authority that runs
+    #: elsewhere, proven by the token's ``cpv`` digest and provenance (the
+    #: issuer's mint check verified it). ``None``: the same as
+    #: ``authorities``.
+    verified: Mapping[str, str] | None = None
+    #: claim key -> short name of its ``verified`` authority (``None``: the
+    #: same as ``owners``).
+    verified_owners: Mapping[str, str] | None = None
+    #: claim key -> import path of the one ``previous=`` authority a verifier
+    #: also accepts during a rollout (decision 4), and its short name.
+    previous: Mapping[str, str] = field(default_factory=dict)
+    previous_owners: Mapping[str, str] = field(default_factory=dict)
+    #: The end of the initial enablement's transition (POSIX time) when the
+    #: root passed ``legacy_tokens=LegacyClaimsTokens(until=...)``.
+    legacy_until: float | None = None
+    #: When this map took effect in this process (POSIX time): a token with
+    #: a ``cpv`` this map does not accept, issued before it, is outdated (a
+    #: refresh fixes it); one issued after it is a mismatch.
+    effective_at: float = 0.0
     #: Every protected key: :data:`PROTECTED_BASE` plus the map's keys.
     protected: frozenset[str] = field(init=False)
+    #: The digests an issuer stamps: key -> ``cpv_digest(key, authority)``.
+    digests: Mapping[str, str] = field(init=False)
+    #: The verifier's accepted ``(owner short name, digest)`` per key: the
+    #: current authority first, then a ``previous=`` one.
+    accepted: Mapping[str, tuple[tuple[str, str], ...]] = field(init=False)
+    #: Identifies the verifier policy in the verified-token cache key.
+    marker: str = field(init=False)
 
     def __post_init__(self) -> None:
         authorities = MappingProxyType(dict(self.authorities))
         object.__setattr__(self, "authorities", authorities)
         object.__setattr__(self, "owners", MappingProxyType(dict(self.owners)))
-        object.__setattr__(self, "protected", PROTECTED_BASE | frozenset(authorities))
+        verified = dict(authorities if self.verified is None else self.verified)
+        object.__setattr__(self, "verified", MappingProxyType(verified))
+        verified_owners = dict(
+            self.owners if self.verified_owners is None else self.verified_owners
+        )
+        object.__setattr__(self, "verified_owners", MappingProxyType(verified_owners))
+        previous = MappingProxyType(dict(self.previous))
+        object.__setattr__(self, "previous", previous)
+        previous_owners = dict(self.previous_owners)
+        object.__setattr__(self, "previous_owners", MappingProxyType(previous_owners))
+        object.__setattr__(
+            self,
+            "protected",
+            PROTECTED_BASE | frozenset(authorities) | frozenset(verified),
+        )
+        object.__setattr__(
+            self,
+            "digests",
+            MappingProxyType({k: cpv_digest(k, p) for k, p in authorities.items()}),
+        )
+        accepted: dict[str, tuple[tuple[str, str], ...]] = {}
+        for key, path in verified.items():
+            entries = [(verified_owners[key], cpv_digest(key, path))]
+            if key in previous:
+                old = previous[key]
+                entries.append((previous_owners[key], cpv_digest(key, old)))
+            accepted[key] = tuple(entries)
+        object.__setattr__(self, "accepted", MappingProxyType(accepted))
+        object.__setattr__(
+            self,
+            "marker",
+            hashlib.sha256(
+                repr(
+                    (
+                        sorted(verified.items()),
+                        sorted(previous.items()),
+                        self.legacy_until,
+                        self.effective_at,
+                        self.assigned,
+                    )
+                ).encode()
+            ).hexdigest()[:16],
+        )
 
     def owner_of(self, key: str) -> str | None:
         """Short name of ``key``'s authority (``None``: unassigned)."""

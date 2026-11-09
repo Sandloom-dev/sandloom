@@ -624,7 +624,7 @@ def _provider(procs: list[Proc]) -> Proc:
 
 
 def _assert_rights_from_the_issuer(issuer: Proc, users: Users) -> None:
-    """A1: rights from the replacement issuer; the platform gates stay closed."""
+    """A1: rights from the replacement issuer, the platform gates included."""
     admin = mint(issuer, users.admin)
     assert admin.status == 200, admin
     claims = admin.body["claims"]
@@ -634,9 +634,10 @@ def _assert_rights_from_the_issuer(issuer: Proc, users: Users) -> None:
     assert gate_statuses(issuer, token_of(admin)) == {
         "/api/v1/shop/role-admin": 200,
         "/api/v1/shop/perm-write": 200,
-        # the platform gates do not trust a non-identity issuer (T1)
-        "/api/v1/shop/platform": 403,
-        "/api/v1/platform/shop/services": 403,
+        # one platform admission over the trusted view (KB-11): the assigned
+        # authority of ``roles`` opens them, whatever its name (B-S1, B-S2)
+        "/api/v1/shop/platform": 200,
+        "/api/v1/platform/shop/services": 200,
     }
     user = mint(issuer, users.user)
     assert user.status == 200, user
@@ -731,19 +732,16 @@ def test_a_noncritical_rights_authority_refuses_the_boot(infra: Infra) -> None:
     )
 
 
-@pytest.mark.xfail(
-    not IDENTITY_BATTERY,
-    strict=True,
-    reason="gap A6 (validation §1.2): the platform gates trust the module NAME "
-    "'identity'; closed by KB-11 (one platform admission)",
-)
 def test_a_module_named_identity_is_not_trusted_as_the_platform_authority(
     infra: Infra,
 ) -> None:
     """A6: the replacement issuer under the short name ``identity``.
 
     With the identity battery installed, the local module is refused at boot
-    (SANDLOOM-B020); without it, the name must not open the platform gates.
+    (SANDLOOM-B020); without it, the name gives nothing of its own: the
+    platform gates admit the admin because the root's map assigns ``roles``
+    to this module, exactly as for ``test_identity`` (A1; KB-11 closed gap
+    A6: the gates trusted the NAME ``identity``).
     """
     users = Users()
     procs = mono(infra, users, [f"{M}identity", f"{M}shop"], root=IDENTITY_ROOT)
@@ -754,8 +752,8 @@ def test_a_module_named_identity_is_not_trusted_as_the_platform_authority(
         admin = mint(proc, users.admin, module="identity")
         assert admin.status == 200, admin
         token = token_of(admin)
-        assert get(proc, "/api/v1/shop/platform", token).status == 403
-        assert get(proc, "/api/v1/platform/shop/services", token).status == 403
+        assert get(proc, "/api/v1/shop/platform", token).status == 200
+        assert get(proc, "/api/v1/platform/shop/services", token).status == 200
 
 
 # ---------------------------------------------------------------------------

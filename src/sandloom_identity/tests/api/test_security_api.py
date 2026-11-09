@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from sandloom.sdk.security import create_access_token
+from sandloom.sdk.testing import as_user
 from sandloom_identity import lockout
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.role import Role
@@ -99,16 +99,15 @@ async def test_role_revocation_is_immediate_on_identity_endpoints(
 ) -> None:
     """A demoted admin's still-valid token is rejected by identity's guards."""
     # Mint the admin's token "in the past" so the revocation mark postdates it.
-    old_token = create_access_token(
-        data={
-            "sub": str(admin_user.id),
-            "token_type": "access",
-            "roles": ["admin"],
-            "permissions": [],
-            "iat": int(time.time()) - 10,
-        }
+    _uid, headers = as_user(
+        admin_user.id,
+        tenant=False,
+        email=None,
+        email_verified=None,
+        roles=["admin"],
+        permissions=[],
+        iat=int(time.time()) - 10,
     )
-    headers = {"Authorization": f"Bearer {old_token}"}
     assert (await async_client.get("/api/v1/roles", headers=headers)).status_code == 200
 
     admin_role = (

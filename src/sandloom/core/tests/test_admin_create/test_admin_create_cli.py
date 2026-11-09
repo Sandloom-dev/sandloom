@@ -22,6 +22,7 @@ from sandloom.core.cli import admin
 from sandloom.core.cli._operator import OperatorIntent
 from sandloom.core.cli.dev import commands, identity, state
 from sandloom.core.cli.security import SECURITY_CONTRACT, grant_admin
+from sandloom.core.config import module_settings
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
 from sandloom.core.module_api._service_registry import ServiceNotFound
@@ -145,13 +146,21 @@ class _Stream(io.StringIO):
         return self._tty
 
 
+def _console_switch(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+    """``ADMIN_CONSOLE_ENABLED`` as the process's one source read holds it (the
+    admin module declares the setting; the CLI reads the name, edge row K2)."""
+    environ = {} if value is None else {"ADMIN_CONSOLE_ENABLED": value}
+    snapshot = module_settings.SourceSnapshot(environ=environ, env_file=None)
+    monkeypatch.setattr(module_settings, "_PROCESS_SNAPSHOT", snapshot)
+
+
 @pytest.fixture
 def run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> Any:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(settings, "frontend_url", "http://localhost:3000")
-    monkeypatch.setattr(settings, "admin_console_enabled", None)
+    _console_switch(monkeypatch, None)
     fields = set(settings.model_fields_set) - {"frontend_url"}
     monkeypatch.setattr(type(settings), "model_fields_set", property(lambda s: fields))
 
@@ -173,14 +182,16 @@ def run(
     return _run
 
 
+def _frontend(monkeypatch: pytest.MonkeyPatch, frontend: str) -> None:
+    monkeypatch.setattr(settings, "frontend_url", frontend)
+    fields = set(settings.model_fields_set) | {"frontend_url"}
+    monkeypatch.setattr(type(settings), "model_fields_set", property(lambda s: fields))
+
+
 def _prod(monkeypatch: pytest.MonkeyPatch, frontend: str | None = None) -> None:
     monkeypatch.setattr(type(settings), "is_prod", property(lambda s: True))
     if frontend is not None:
-        monkeypatch.setattr(settings, "frontend_url", frontend)
-        fields = set(settings.model_fields_set) | {"frontend_url"}
-        monkeypatch.setattr(
-            type(settings), "model_fields_set", property(lambda s: fields)
-        )
+        _frontend(monkeypatch, frontend)
 
 
 def test_no_terminal_and_no_mode_names_both_flags(run: Any) -> None:
@@ -377,6 +388,40 @@ def test_production_needs_apply_confirm_and_reason(
     # The token stays in the fragment there too.
     assert f"https://app.example.com/auth/reset-password#token={TOKEN}" in out
     assert "?token=" not in out
+
+
+@pytest.mark.parametrize(
+    ("switch", "environment", "link"),
+    [
+        ("false", "dev", "https://app.example.com/auth/reset-password#token="),
+        ("true", "prod", "https://app.example.com/admin/set-password#token="),
+        ("0", "dev", "https://app.example.com/auth/reset-password#token="),
+        ("not-a-bool", "dev", "/admin/set-password#token="),
+    ],
+)
+def test_link_target_follows_the_console_switch(
+    run: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    switch: str,
+    environment: str,
+    link: str,
+) -> None:
+    """``ADMIN_CONSOLE_ENABLED`` (declared by the admin module, read here from
+    the process's source read) picks the console or the frontend's reset page;
+    an unreadable value falls back to the environment default (the console
+    module refuses it at boot)."""
+    _console_switch(monkeypatch, switch)
+    if environment == "prod":
+        _prod(monkeypatch, "https://app.example.com")
+        extra = ("--apply", "--confirm-production", "--reason", "go-live")
+    else:
+        _frontend(monkeypatch, "https://app.example.com")
+        extra = ("--apply",)
+    code, out, _ = run(
+        _Security(), "create", "--email", "owner@example.com", "--invite", *extra
+    )
+    assert code == 0
+    assert link in out
 
 
 def test_production_invite_needs_frontend_url(

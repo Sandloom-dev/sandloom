@@ -1,8 +1,8 @@
 # Kernel boundary: review of the ChatGPT unified roadmap
 
 Independent check of "Sandloom: unified target architecture and migration map" (ChatGPT,
-received 2026-11-08; v1 and v2 as received: [`_inputs/chatgpt-roadmap-v1.md`](_inputs/chatgpt-roadmap-v1.md),
-[`_inputs/chatgpt-roadmap-v2.md`](_inputs/chatgpt-roadmap-v2.md); v2 sections 14–21 supersede 1–13)
+received 2026-11-08; v1 and v2 as received: [`_inputs/chatgpt-roadmap-v1.md`](_archive/_inputs/chatgpt-roadmap-v1.md),
+[`_inputs/chatgpt-roadmap-v2.md`](_archive/_inputs/chatgpt-roadmap-v2.md); v2 sections 14–21 supersede 1–13)
 against the code and our documents. Task: tm `kb-roadmap-review` (parent `kb-assess`).
 
 Commit: `arch/kernel-boundary` HEAD `86aed8b`, which contains `main` `fe24a79` (PR #70 and
@@ -103,7 +103,7 @@ Counts: **38 verified** (10 of them also run), **1 wrong**, **4 outdated**, **1 
 The roadmap's §3.2/§16.2 row 1 ("`identity` declared but does not return `roles`; `rogue` alone
 returns `roles: ["admin"]`") was stated from reading the code. We ran it on HEAD with the real merge, the
 real `require_platform_admin` and the real `Role` atom
-([`_evidence/roadmap-review/gate-probe.txt`](_evidence/roadmap-review/gate-probe.txt)):
+([`_evidence/roadmap-review/gate-probe.txt`](_archive/_evidence/roadmap-review/gate-probe.txt)):
 
 | case | merge | `require_platform_admin` | `Role("admin")` |
 |---|---|---|---|

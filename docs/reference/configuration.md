@@ -4,7 +4,7 @@ title: Configuration Reference
 
 # Configuration Reference
 
-Every runtime setting Sandloom reads from the environment, generated directly from `sandloom.core.config.settings.Settings` so this table can never drift from the code. Settings may be supplied as environment variables, in a `.env` file, or — when `SECRETS_DIR` is set — as files named after each field (Docker/Kubernetes secrets).
+Every runtime setting Sandloom reads from the environment, generated directly from `sandloom.core.config.settings.Settings` and the settings the bundled modules declare, so this table can never drift from the code. Settings may be supplied as environment variables, in a `.env` file, or — when `SECRETS_DIR` is set — as files named after each field (Docker/Kubernetes secrets).
 
 !!! info "Required settings"
     `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and `JWT_SECRET` are mandatory; the process aborts at startup if any is missing or invalid. In production, `JWT_SECRET` must be at least 32 random characters.
@@ -89,7 +89,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `JWT_SECRET` | `str | None` | `None` | Shared secret for symmetric JWT signing and verification. In asymmetric mode only the token issuer uses it for emailed tokens; verifier-only services must leave it unset. |
 | `JWT_ALGORITHM` | `Literal['HS256', 'HS384', 'HS512', 'EdDSA', 'RS256', 'ES256']` | `'HS256'` | Accepted and issued JWT algorithm. Symmetric algorithms use JWT_SECRET; asymmetric algorithms use issuer private keys and published public keys. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `int` | `15` | Lifetime, in minutes, of newly issued access tokens. |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `int` | `14` | Lifetime, in days, of newly issued refresh tokens, bounded by the absolute session lifetime. |
 | `JWT_ISSUER` | `str | None` | `None` | Expected JWT issuer claim; when configured it is included in issued tokens and checked during verification. |
 | `JWT_AUDIENCE` | `str | None` | `None` | Expected JWT audience claim; when configured it is included in issued tokens and checked during verification. |
 | `JWT_LEEWAY_SECONDS` | `int` | `10` | Clock-skew tolerance in seconds when validating JWT time claims. |
@@ -97,7 +96,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `TRUST_PROXY_HEADERS` | `bool` | `False` | Honor forwarded client-IP headers only under the configured trusted-proxy policy. |
 | `TRUSTED_PROXY_IPS` | `list[str]` | `[]` | JSON list of trusted proxy CIDRs; forwarded chains are walked from the immediate peer toward the first untrusted hop. |
 | `RATE_LIMIT_ENABLED` | `bool` | `False` | Enable route rate limiting outside production; production always enforces configured route limits. |
-| `TWOFA_ENCRYPTION_KEY` | `str | None` | `None` | Comma-separated TOTP encryption keys, newest first, for rotation; production identity requires explicit keys, while development can derive a fallback from JWT_SECRET. |
+| `TWOFA_ENCRYPTION_KEY` | `SecretStr | None` | `None` | Comma-separated TOTP encryption keys, newest first, for rotation; production identity requires explicit keys, while development can derive a fallback from JWT_SECRET. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `int` | `14` | Lifetime, in days, of newly issued refresh tokens, bounded by the absolute session lifetime. |
 
 ## Billing
 
@@ -138,14 +138,14 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | Env var | Type | Default | Description |
 | --- | --- | --- | --- |
 | `GOOGLE_CLIENT_ID` | `str | None` | `None` | OAuth client ID for Google sign-in. |
-| `GOOGLE_CLIENT_SECRET` | `str | None` | `None` | OAuth client secret for Google sign-in. |
+| `GOOGLE_CLIENT_SECRET` | `SecretStr | None` | `None` | OAuth client secret for Google sign-in. |
 | `GITHUB_CLIENT_ID` | `str | None` | `None` | OAuth client ID for GitHub sign-in. |
-| `GITHUB_CLIENT_SECRET` | `str | None` | `None` | OAuth client secret for GitHub sign-in. |
+| `GITHUB_CLIENT_SECRET` | `SecretStr | None` | `None` | OAuth client secret for GitHub sign-in. |
 | `MICROSOFT_CLIENT_ID` | `str | None` | `None` | OAuth client ID for Microsoft sign-in. |
-| `MICROSOFT_CLIENT_SECRET` | `str | None` | `None` | OAuth client secret for Microsoft sign-in. |
+| `MICROSOFT_CLIENT_SECRET` | `SecretStr | None` | `None` | OAuth client secret for Microsoft sign-in. |
 | `LINKEDIN_CLIENT_ID` | `str | None` | `None` | OAuth client ID for LinkedIn sign-in. |
-| `LINKEDIN_CLIENT_SECRET` | `str | None` | `None` | OAuth client secret for LinkedIn sign-in. |
-| `TELEGRAM_BOT_TOKEN` | `str | None` | `None` | Telegram bot credential used by the Telegram sign-in integration. |
+| `LINKEDIN_CLIENT_SECRET` | `SecretStr | None` | `None` | OAuth client secret for LinkedIn sign-in. |
+| `TELEGRAM_BOT_TOKEN` | `SecretStr | None` | `None` | Telegram bot credential used by the Telegram sign-in integration. |
 | `SSO_ALLOWED_REDIRECT_URIS` | `str` | `'http://localhost:3000,http://localhost:3000/auth/callback,https://app.example.com/auth/callback'` | Comma-separated exact redirect URI allowlist for SSO callbacks and frontend redirects. |
 
 ## Frontend & CORS
@@ -244,8 +244,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `NOTIFIER_LOG_LINKS` | `bool` | `False` | The log notifier also logs the links an email carries (verification, password reset), marked [dev only], so a dev app without SMTP can follow them. Refused with ENVIRONMENT=prod unless SANDLOOM_ACCEPTED_RISKS lists log_links_in_prod. |
 | `JWT_PRIVATE_KEY` | `str | None` | `None` | Issuer-only PEM private key for asymmetric access-token signing; its public key must be published under JWT_KID. |
 | `JWT_PUBLIC_KEYS` | `dict[str, str]` | `{}` | JSON map of key IDs to PEM public keys used to verify asymmetric access tokens in every service. |
-| `MAX_SESSION_DAYS` | `int` | `30` | Absolute session lifetime in days; refreshing a token does not extend this deadline. |
-| `TENANT_CLAIMS_MAX_ORGANIZATIONS` | `int` | `128` | Maximum organization memberships embedded in an access token; excessive claims are refused rather than silently truncated. |
 | `AUTH_REVOCATION_MARK_TTL_SECONDS` | `int | None` | `None` | Lifetime of token-revocation marks in seconds. Unset uses at least 24 hours and the local access-token lifetime plus skew; explicit values must cover that access-token window. |
 | `JWT_PREVIOUS_SECRETS` | `list[str]` | `[]` | JSON list of retired symmetric JWT secrets accepted for verification only during rotation; asymmetric deployments leave it empty. |
 | `JWT_KID` | `str | None` | `None` | Key ID placed in issued JWT headers. Required for asymmetric signing and must identify the published signing public key. |
@@ -279,13 +277,15 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `RATE_LIMIT_GLOBAL_REQUESTS` | `int` | `0` | Global per-client-IP request allowance per configured period; zero disables this additional fail-open floor. |
 | `RATE_LIMIT_GLOBAL_PERIOD_SECONDS` | `int` | `60` | Window length in seconds for the global per-client-IP request allowance. |
 | `RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES` | `list[str]` | `['/health', '/ready', '/metrics', '/_sandloom/']` | Request path prefixes excluded from the additional global rate limiter. |
-| `ADMIN_CONSOLE_ENABLED` | `bool | None` | `None` | Serve the admin console at /admin/; unset means on outside production and off in production. |
-| `ADMIN_CONSOLE_DIST` | `str | None` | `None` | Directory of a console you built yourself, served instead of the packaged one. |
 | `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS` | `bool` | `False` | Allow catalog-backed subscriptions created without a framework operation intent to grant access; default denies those new intentless grants. |
 | `BILLING_INTENT_RECONCILE_AFTER_MINUTES` | `int` | `30` | Minimum pending-intent age in minutes before periodic reconciliation looks up or expires its payment-provider operation. |
 | `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` | `int` | `5` | Failed reconciliation attempts per operation intent before leaving it for operator follow-up. |
 | `BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES` | `int` | `60` | Minutes during which a preceding portal intent attributes subscription changes to that portal visit; changes outside it are audited as unattributed. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `Literal['grpc', 'http/protobuf']` | `'grpc'` | OTLP exporter protocol used with TRACING_URL: grpc or http/protobuf. |
+| `MAX_SESSION_DAYS` | `int` | `30` | Absolute session lifetime in days; refreshing a token does not extend this deadline. |
+| `TENANT_CLAIMS_MAX_ORGANIZATIONS` | `int` | `128` | Maximum organization memberships embedded in an access token; excessive claims are refused rather than silently truncated. |
+| `ADMIN_CONSOLE_ENABLED` | `bool | None` | `None` | Serve the admin console at /admin/; unset means on outside production and off in production. |
+| `ADMIN_CONSOLE_DIST` | `str | None` | `None` | Directory of a console you built yourself, served instead of the packaged one. |
 
 ---
 

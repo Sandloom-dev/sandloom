@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-positioning
+disable-model-invocation: true
 description: Agree Sandloom's positioning with the owner — category, alternatives, advantages, pains, value, best-fit readers, core idea, one message, naming — in design/docs-writing/positioning.md. Use when a docs brief finds it unapproved, when the owner names a new pain, advantage or alternative, and when asked what Sandloom is, who it is for or how it compares.
 ---
 

@@ -79,6 +79,15 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
 
+
+def pytest_configure(config: pytest.Config) -> None:
+    # A test composition (as the sandloom pytest plugin declares it): the
+    # kernel test authority vouches for the test kit's tokens (ADR-0014).
+    from sandloom.core.auth.claims_view import enable_test_authority
+
+    enable_test_authority()
+
+
 # pytest-xdist: move this worker onto its own database / Redis DBs BEFORE any
 # test module imports the framework (sandloom.core.config.settings snapshots the
 # environment at import — e.g. CI's exported DATABASE_URL). Every later

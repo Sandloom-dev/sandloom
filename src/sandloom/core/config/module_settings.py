@@ -553,6 +553,7 @@ def _typos(
     records: Sequence[ModuleSettingsRecord],
     snapshot: SourceSnapshot,
     known_modules: Callable[[], Iterable[str]],
+    loaded_modules: Iterable[str] = (),
 ) -> list[str]:
     """Near-misses of a declared name (kernel or loaded module), in prod.
 
@@ -561,14 +562,15 @@ def _typos(
     A variable under the prefix of a module known in the deployment
     (``known_modules``, asked only once a near-miss is found) but not loaded
     here is that module's, never a typo: an absent module's variables do not
-    interfere (ADR-0015 decision 3, answer #25).
+    interfere (ADR-0015 decision 3, answer #25). ``loaded_modules`` counts
+    every loaded module, one that declares no settings included.
     """
     known = set(owners) | {
         r.name for record in records for r in declared_removed(record.model)
     }
     prefixes = {name.split("_", 1)[0] for name in known if "_" in name}
     names = sorted(known)
-    loaded = {record.module for record in records}
+    loaded = {record.module for record in records} | set(loaded_modules)
     absent: set[str] | None = None
     problems = []
     for key in sorted(snapshot.names()):
@@ -734,7 +736,7 @@ def post_load_check(
     )
     problems += risks.problems
     if environment_of(kernel) == "prod":
-        problems += _typos(owners, ordered, snap, known)
+        problems += _typos(owners, ordered, snap, known, loaded_modules)
     overrides = module_overrides(ordered, kernel) + _risk_overrides(risks, kernel)
     return PostLoadOutcome(problems, warnings, overrides, risks)
 

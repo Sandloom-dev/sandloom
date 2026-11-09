@@ -33,7 +33,7 @@ for _name, _value in (
 from sandloom.core.composition import load_composition_app
 from sandloom.core.cli.generation_input import collect
 from sandloom_admin.compiler import compile_manifest
-app = load_composition_app('sandloom.main')
+app = load_composition_app('sandloom_standard.main')
 # The kernel collects the composed app's data; the console's compiler renders it.
 manifest = compile_manifest(collect(app))
 schema = app.openapi()

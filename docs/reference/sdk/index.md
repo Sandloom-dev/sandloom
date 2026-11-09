@@ -69,7 +69,7 @@ These 24 code names are importable from `sandloom.sdk` directly; the six testing
 
 | Module | Beginner names | Names | Summary |
 | --- | ---: | ---: | --- |
-| [`sandloom.sdk.app`](app.md) | 0 | 2 |  |
+| [`sandloom.sdk.app`](app.md) | 0 | 4 |  |
 | [`sandloom.sdk.authz`](authz.md) | 7 | 55 |  |
 | [`sandloom.sdk.contracts`](contracts.md) | 3 | 32 |  |
 | [`sandloom.sdk.data`](data.md) | 6 | 42 |  |
@@ -78,10 +78,10 @@ These 24 code names are importable from `sandloom.sdk` directly; the six testing
 | [`sandloom.sdk.events`](events.md) | 2 | 7 |  |
 | [`sandloom.sdk.infra`](infra.md) | 0 | 23 |  |
 | [`sandloom.sdk.migrations`](migrations.md) | 0 | 2 |  |
-| [`sandloom.sdk.module`](module.md) | 1 | 19 |  |
+| [`sandloom.sdk.module`](module.md) | 1 | 20 |  |
 | [`sandloom.sdk.projections`](projections.md) | 0 | 26 |  |
 | [`sandloom.sdk.sagas`](sagas.md) | 0 | 16 |  |
-| [`sandloom.sdk.security`](security.md) | 0 | 24 |  |
+| [`sandloom.sdk.security`](security.md) | 0 | 25 |  |
 | [`sandloom.sdk.tasks`](tasks.md) | 0 | 4 |  |
 | [`sandloom.sdk.tenant`](tenant.md) | 0 | 8 |  |
 | [`sandloom.sdk.testing`](testing.md) | 5 | 83 |  |

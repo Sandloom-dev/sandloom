@@ -11,11 +11,16 @@ At startup it logs how to create the first administrator while none exists
 
 from sandloom.sdk import define_module
 
+from .config import AdminSettings
 from .manifest import FILE_NAME, render
 from .startup import setup
 
 register = define_module(
-    __name__, version="1.0.0", setup=setup, generates={FILE_NAME: render}
+    __name__,
+    version="1.0.0",
+    setup=setup,
+    generates={FILE_NAME: render},
+    settings=AdminSettings,
 )
 
 __all__ = ["register"]

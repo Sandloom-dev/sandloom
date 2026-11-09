@@ -22,7 +22,7 @@ search:
 - **Research and evidence** (repository files, branch `arch/kernel-boundary`):
   `design/kernel-boundary/goals.md`, `requirements.md` (invariants I-01..I-24, hard
   constraints H-1..H-20), `baseline.md` (commit `b8d8506`), `guarantee-map.md`,
-  `alternatives-a-boundary.md`, `adversarial.md`, `validation.md`,
+  `_archive/alternatives-a-boundary.md`, `adversarial.md`, `validation.md`,
   `poc/trust/results.md`, `owner-answers.md`, `owner-decisions-adr.md`, `edges.yml`,
   `migration-plan.md`
 

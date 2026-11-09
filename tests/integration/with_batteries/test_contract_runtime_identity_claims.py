@@ -133,7 +133,7 @@ async def test_identity_alone_collects_remote_claims(
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(identity_claims, critical=True)
     org = str(uuid4())
-    tenancy = _Proxy({"tenant_ids": [org]})
+    tenancy = _Proxy({"tenant_ids": [org], "sandloom.authority": "sandloom_tenancy"})
     billing = _Proxy(error=RuntimeError("billing down"))
     _remote(
         core,
@@ -174,7 +174,11 @@ async def test_local_contributor_runs_in_its_own_uow_and_is_exposed() -> None:
     assert claims["claims_sources"] == ["tenancy"]
     assert ("default", "rollback") in log  # its own read-only UoW
     remote_view = await core.get_service("tenancy.claims.v1").contribute(uuid4())
-    assert remote_view == {"tenant_ids": ["t1"]}
+    # The answer names the module serving it (the authority binding).
+    assert remote_view == {
+        "tenant_ids": ["t1"],
+        "sandloom.authority": "sandloom_tenancy",
+    }
 
 
 def test_local_contributor_wins_over_remote_binding(

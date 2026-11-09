@@ -7,14 +7,18 @@ decryption, and key rotation.
 
 import asyncio
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pyotp
 import pytest
 from fastapi import HTTPException
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from sandloom.sdk.testing import override_settings
+from sandloom_identity.config import IdentitySettings
 from sandloom_identity.events import BaseEvent, EventActor
 from sandloom_identity.models.twofa_backup_code import TwoFABackupCode
 from sandloom_identity.models.twofa_secret import TwoFASecret
@@ -27,6 +31,11 @@ from sandloom_identity.services.twofa_service import (
 )
 
 PASSWORD = "TestPassword123!"
+
+
+def _twofa_key(value: str) -> Any:
+    """identity's declared ``TWOFA_ENCRYPTION_KEY`` for the scope (ADR-0015)."""
+    return override_settings(IdentitySettings, twofa_encryption_key=SecretStr(value))
 
 
 def _code_for_step(secret: str, step: int) -> str:
@@ -350,14 +359,12 @@ class TestSecretCrypto:
             _decrypt_secret("JBSWY3DPEHPK3PXP")  # legacy plaintext is NOT accepted
 
     def test_key_rotation(self) -> None:
-        from sandloom.sdk.infra import settings
-
-        with patch.object(settings, "twofa_encryption_key", "old-key"):
+        with _twofa_key("old-key"):
             stored = _encrypt_secret("SECRET")
-        with patch.object(settings, "twofa_encryption_key", "new-key,old-key"):
+        with _twofa_key("new-key,old-key"):
             assert _decrypt_secret(stored) == "SECRET"
             rotated = _encrypt_secret("SECRET")
-        with patch.object(settings, "twofa_encryption_key", "new-key"):
+        with _twofa_key("new-key"):
             assert _decrypt_secret(rotated) == "SECRET"
             with pytest.raises(TwoFASecretDecryptionError):
                 _decrypt_secret(stored)
@@ -369,9 +376,7 @@ class TestSecretCrypto:
 
         from cryptography.fernet import Fernet
 
-        from sandloom.sdk.infra import settings
-
-        with patch.object(settings, "twofa_encryption_key", "some-key"):
+        with _twofa_key("some-key"):
             sha = Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"some-key").digest()))
             stored = base64.urlsafe_b64encode(sha.encrypt(b"OLD")).decode()
             with pytest.raises(TwoFASecretDecryptionError):
