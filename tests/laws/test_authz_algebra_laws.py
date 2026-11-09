@@ -267,3 +267,130 @@ def test_the_known_order_dependence_is_kept() -> None:
     f, u = Atom(next(_ids), "F", 1), Atom(next(_ids), "U", 1)
     assert decide(Node("not", (Node("and", (f, u)),)))[0] == "T"
     assert decide(Node("not", (Node("and", (u, f)),)))[0] == "U"
+
+
+# --------------------------------------------------------------------------- #
+# The status of an indeterminate (ADR-0014 decision 3): 401 > 503 > 501
+# --------------------------------------------------------------------------- #
+#: Indeterminate outcomes by HTTP status: 401 ``token_policy_outdated`` (one
+#: refresh fixes it), 503 (a retry: ``claims_policy_mismatch``, a provider
+#: down), 501 (an operator: a contract not deployed).
+STATUSES = ("401", "503", "501")
+_RANK = {"401": 0, "503": 1, "501": 2}
+
+
+class Status(Fixed):
+    """A fixed atom whose indeterminate carries an HTTP status."""
+
+    async def decide(self, ctx: Any) -> AccessDecision:
+        self._log.append(self.atom.ident)
+        outcome = self.atom.outcome
+        if outcome == "T":
+            return AccessDecision.allow()
+        if outcome == "F":
+            return AccessDecision.deny(code="fixed_deny")
+        return AccessDecision.error(code=f"fixed_{outcome}", http_status=int(outcome))
+
+
+def build_status(tree: Tree, log: list[int]) -> Requirement:
+    if isinstance(tree, Atom):
+        return Status(tree, log)
+    parts = [build_status(p, log) for p in tree.parts]
+    if tree.kind == "and":
+        return And(*parts)
+    if tree.kind == "or":
+        return Or(*parts)
+    return Not(parts[0])
+
+
+def status_model(tree: Tree) -> str:
+    """The documented rule with statuses: ``And`` returns its first
+    non-allowing operand (cheapest tier first); ``Or`` allows on a genuine
+    allow, else returns its most fixable indeterminate (401, then 503, then
+    501; the first of equal rank), else denies; ``Not`` inverts a definite
+    answer and returns an indeterminate unchanged, status included."""
+    if isinstance(tree, Atom):
+        return tree.outcome
+    if tree.kind == "not":
+        inner = status_model(tree.parts[0])
+        return {"T": "F", "F": "T"}.get(inner, inner)
+    values = [status_model(p) for p in sorted(_operands(tree), key=_tier)]
+    if tree.kind == "and":
+        return next((v for v in values if v != "T"), "T")
+    if "T" in values:
+        return "T"
+    unknown = [v for v in values if v in _RANK]
+    return min(unknown, key=_RANK.__getitem__) if unknown else "F"
+
+
+def decide_status(tree: Tree) -> str:
+    decision = asyncio.run(build_status(tree, []).decide(None))  # type: ignore[arg-type]
+    if decision.allowed:
+        return "T"
+    if decision.indeterminate:
+        assert decision.http_status is not None
+        return str(decision.http_status)
+    return "F"
+
+
+@st.composite
+def status_atom(draw: st.DrawFn) -> Atom:
+    return Atom(
+        ident=next(_ids),
+        outcome=draw(st.sampled_from(("T", "F", *STATUSES))),
+        tier=draw(st.integers(1, 3)),
+    )
+
+
+status_trees: st.SearchStrategy[Tree] = st.recursive(
+    status_atom(), _extend, max_leaves=10
+)
+
+
+@LAWS
+@given(status_trees)
+def test_the_status_equals_the_documented_rule(tree: Tree) -> None:
+    """Value and status of every tree: 401 / 503 / 501 kept through ``And``
+    and ``Not``, ordered 401 > 503 > 501 by ``Or``."""
+    assert decide_status(tree) == status_model(tree)
+
+
+@LAWS
+@given(st.lists(st.sampled_from(("F", *STATUSES)), min_size=1, max_size=6), st.data())
+def test_or_answers_the_most_fixable_indeterminate(
+    outcomes: list[str], data: st.DataObject
+) -> None:
+    """With no operand allowing, ``Or`` answers 401 before 503 before 501,
+    whatever their order or tiers: a client refreshes before it retries, and
+    retries before an operator is needed."""
+    parts = tuple(
+        Atom(next(_ids), outcome, data.draw(st.integers(1, 3))) for outcome in outcomes
+    )
+    unknown = [o for o in outcomes if o in _RANK]
+    expected = min(unknown, key=_RANK.__getitem__) if unknown else "F"
+    assert decide_status(Node("or", parts)) == expected
+
+
+@LAWS
+@given(status_trees)
+def test_not_keeps_the_status(tree: Tree) -> None:
+    """``Not(U) = U`` with its status: ``~Role("admin")`` on an outdated
+    token is a 401, never an allow."""
+    value = decide_status(tree)
+    negated = decide_status(Node("not", (tree,)))
+    assert negated == {"T": "F", "F": "T"}.get(value, value)
+    assert decide_status(Node("not", (Node("not", (tree,)),))) == value
+
+
+@LAWS
+@given(status_trees, st.sampled_from(STATUSES), st.integers(1, 3))
+def test_an_allow_beside_any_indeterminate_allows_and_and_keeps_it(
+    tree: Tree, status: str, tier: int
+) -> None:
+    """``Role("admin") | AlwaysAllow`` still allows on an outdated token;
+    ``A & U`` never allows and answers ``U``'s status when ``A`` allows."""
+    allow = Atom(next(_ids), "T", tier)
+    broken = Atom(next(_ids), status, tier)
+    assert decide_status(Node("or", (tree, broken, allow))) == "T"
+    assert decide_status(Node("and", (allow, broken))) == status
+    assert decide_status(Node("and", (tree, broken))) != "T"

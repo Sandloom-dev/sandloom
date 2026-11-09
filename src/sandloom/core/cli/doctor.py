@@ -5,8 +5,9 @@ serving traffic and without changing anything::
 
     sandloom doctor                    # human report
     sandloom doctor --json             # machine-readable
-    sandloom doctor --skip consumers   # sections: config, modules, infra,
-                                  # periodic, migrations, consumers, rls, sagas
+    sandloom doctor --skip consumers   # sections: config, modules, claims,
+                                  # infra, periodic, migrations, consumers,
+                                  # rls, sagas
     sandloom doctor --timeout 10       # per-section budget (seconds)
 
 Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
@@ -20,6 +21,13 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
   (:func:`sandloom.core.config.tiers.active_overrides`).
 * **modules** — the composition root (``SANDLOOM_COMPOSITION_ROOT``) loads; which
   modules are loaded; required consumed contracts are bound.
+* **claims** — the claim policy's ``legacy_tokens`` compatibility mode
+  (ADR-0014 decision 4, accepted risk G-RISK-14): ``off``; ``on`` with its
+  ``until``, window end (``until + ACCESS_TOKEN_EXPIRE_MINUTES +
+  JWT_LEEWAY_SECONDS``) and time left (a warning); or ``ended`` with the
+  argument still written (a warning asking to remove it). The same state as
+  ``/diagnostics/core`` (``claims.legacy_tokens``), whose serving process
+  also counts the acceptances per key.
 * **infra** — every configured instance (databases, caches, object stores,
   task queue / broker, event bus) answers its health probe within the
   timeout — the same probes as ``/diagnostics/infra`` (the ``celery``
@@ -55,12 +63,15 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import sandloom.core.auth.claims_view as _claims_view
 import sandloom.core.beat_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
+from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.config import mask_url_credentials, redact_value
 from sandloom.core.cli.migrate import _hosting_databases
 from sandloom.core.composition import load_composition_core
@@ -78,6 +89,7 @@ OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
 SECTIONS = (
     "config",
     "modules",
+    "claims",
     "infra",
     "periodic",
     "migrations",
@@ -285,6 +297,47 @@ def check_modules(report: Report, core: Any) -> None:
                 "SERVICE_BINDINGS"
                 + ("" if req.required else " (optional: the module degrades)"),
             )
+
+
+# ---------------------------------------------------------------- claims ----
+
+
+def check_claims(report: Report, core: Any, cfg: Any = None) -> None:
+    """The ``legacy_tokens`` mode of the composition's claim policy (G-RISK-14).
+
+    ``details`` carry the state the deploy-profile boot check compares
+    between services (one mode per deployment, the adoption release gate)."""
+    cfg = settings if cfg is None else cfg
+    policy = getattr(core, "claim_authorities", None)
+    if not isinstance(policy, ClaimAuthorities):
+        report.add("claims", "legacy_tokens", SKIP, "no claim policy on this core")
+        return
+    state = _claims_view.legacy_tokens_state(
+        policy,
+        now=time.time(),
+        lifetime_seconds=cfg.access_token_expire_minutes * 60,
+        leeway_seconds=cfg.jwt_leeway_seconds,
+    )
+    details = {k: v for k, v in state.items() if k != "accepted"}
+    mode = state["mode"]
+    if mode == _claims_view.LEGACY_OFF:
+        status, message = OK, "off: a token without cpv gives no rights"
+    elif mode == _claims_view.LEGACY_ON:
+        status, message = (
+            WARN,
+            "compatibility mode ON (accepted risk G-RISK-14): tokens without "
+            f"cpv are trusted per key until {state['window_end']} "
+            f"({state['seconds_left']} s left; until={state['until']}); remove "
+            "legacy_tokens from the composition root after the window end",
+        )
+    else:
+        status, message = (
+            WARN,
+            f"the legacy_tokens window ended at {state['window_end']}: tokens "
+            "without cpv give no rights; remove legacy_tokens from the "
+            "composition root",
+        )
+    report.add("claims", "legacy_tokens", status, message, **details)
 
 
 # ----------------------------------------------------------------- infra ----
@@ -645,6 +698,8 @@ async def run_doctor(  # noqa: C901
     try:
         if "modules" not in skip:
             check_modules(report, core)
+        if "claims" not in skip:
+            check_claims(report, core)
         if "infra" not in skip:
             await _guarded(report, "infra", lambda: check_infra(report, core, timeout))
         if "periodic" not in skip:

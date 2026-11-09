@@ -1924,6 +1924,11 @@ guarantees:
   - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_status
   - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named
   - tests/integration/replaceability/test_trust_rows.py::test_t1_the_assigned_replacement_issuer_grants_rights
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_key_change_steps_and_rollback_in_split
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_negative_rows_at_step_2
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_a_key_change_without_previous_answers_503_not_a_refresh_loop
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_one_service_issuer_and_verifier_never_loops
+  - src/sandloom/core/tests/test_claims_io_counts.py::test_role_perm_and_tenant_scope_cost_one_cache_get
 - id: G-AUTH-24
   statement: 'A key''s cpv digest is computed from the key and the full import path claim_authorities assigns,
     the same whether the authority is loaded locally or reached over RPC, so the monolith and every split
@@ -4875,13 +4880,13 @@ guarantees:
   - src/sandloom/core/tests/test_claims_view.py::test_inside_the_window_a_token_without_cpv_is_trusted
   - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_window
   - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_view_expires_at_the_window_end
-  gap: 'KB-11 built legacy_tokens with its bounds (until required, absolute UTC, no default or setting;
-    iat before until, exp - iat within ACCESS_TOKEN_EXPIRE_MINUTES; off by itself from the window end, the
-    cached view recomputed there), the per-key counter claims_policy_legacy_tokens_total and the startup
-    WARNING with the time left; the window-end test runs on the verifier policy of the monolith and of a
-    split service. Not built yet: the mode with its time left in /diagnostics/core and sandloom doctor, and
-    the one-mode-per-deploy-profile check (T014).'
-  gap_size: S
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_initial_enablement_stages_and_rollback
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_window_bounds_hold_on_real_tokens
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_on_until_the_window_end_with_the_time_left
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_ended_at_and_after_the_window_end
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_diagnostics_show_the_mode_and_count_each_acceptance
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_doctor_shows_the_mode
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_the_profile_keeps_one_mode
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
