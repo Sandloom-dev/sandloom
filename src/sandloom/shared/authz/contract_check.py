@@ -332,6 +332,13 @@ class ContractCheck(Requirement):
         self._args: tuple[str, ...] = tuple(atom.get("args") or ())
         self._contract = str(atom.get("contract"))
         self._method = str(atom.get("method"))
+        template = atom.get("describe")
+        # The label is fixed by the parameters: formatted once, not per request.
+        self._label = (
+            template.format(**params)
+            if isinstance(template, str)
+            else type(self).__name__
+        )
         kinds = {source[0] for source in self._binds.values()}
         self.account: Account | None = None
         if kinds & {"account_type", "account_id"}:
@@ -360,10 +367,7 @@ class ContractCheck(Requirement):
         return frozenset(out)
 
     def describe(self) -> str:
-        template = self.__sandloom_atom__.get("describe")
-        if isinstance(template, str):
-            return template.format(**self.params)
-        return type(self).__name__
+        return self._label
 
     # -- evaluation ----------------------------------------------------------
     async def _bind(self, ctx: AuthzContext, requirement: str) -> dict[str, Any]:
