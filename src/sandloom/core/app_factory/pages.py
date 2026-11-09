@@ -297,10 +297,11 @@ def _install_start_page(application: FastAPI) -> None:
     links.append('<li><a href="/health">Health</a> (/health)</li>')
     commands = []
     if console:
+        # The kernel names no module command: the console's own startup log
+        # says how to create its first administrator.
         commands.append(
-            "<li><code>uv run sandloom admin list</code> (the administrators; "
-            "<code>uv run sandloom admin create --email &lt;address&gt;</code> "
-            "adds one)</li>"
+            "<li>Nobody can sign in to the console yet? The application's "
+            "startup log says how to create the first administrator.</li>"
         )
     commands += [
         "<li><code>uv run sandloom add module notes</code> (a module)</li>",

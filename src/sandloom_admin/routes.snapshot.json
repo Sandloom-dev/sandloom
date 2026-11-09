@@ -38,6 +38,17 @@
     {
       "auth": "public",
       "method": "GET",
+      "path": "/admin/set-password",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "public_reason": "the console's entry page; every API it calls checks access",
+        "session": "none"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "GET",
       "path": "/admin/{path:path}",
       "policy": {
         "effect": "read",

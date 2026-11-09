@@ -162,6 +162,9 @@ def test_the_console_brings_identity_and_stays_off_in_production(
     compose = _read(root, "deploy/docker-compose.yml")
     assert "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}" in compose
     assert "TWOFA_ENCRYPTION_KEY" in compose
+    # The switch is the console's declared setting: no console, no switch.
+    generate_project("plain", tmp_path)
+    assert "ADMIN_CONSOLE" not in _read(tmp_path / "plain", "deploy/docker-compose.yml")
 
 
 def test_apps_depend_on_sandloom_and_each_chosen_module_package(
