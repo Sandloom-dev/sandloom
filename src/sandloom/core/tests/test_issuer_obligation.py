@@ -171,8 +171,13 @@ def test_define_module_carries_the_declaration(level: str) -> None:
     from sandloom.sdk import define_module
 
     define = define_module if level == "sdk" else core_define
+    # A package that owns no importable module. Never ``sandloom.core.tests``:
+    # the SDK's discovery collects every ``sys.modules`` entry under the
+    # package, so it would visit each test module the run has collected
+    # (their declarations raise SANDLOOM-B006), failing in big runs only.
+    package = "acme.modules.issuer_probe"
     register = define(
-        "sandloom.core.tests",
+        package,
         issues_tokens=True,
         refresh_sessions=False,
         router=None,
@@ -182,7 +187,7 @@ def test_define_module_carries_the_declaration(level: str) -> None:
     descriptor = register(api)
     assert descriptor.issues_tokens is True
     assert descriptor.refresh_sessions is False
-    default = define("sandloom.core.tests", router=None, events=None)(
+    default = define(package, router=None, events=None)(
         ModuleAPI(CoreFacade(app=FastAPI()), draft=ModuleRegistrationDraft())
     )
     assert default.refresh_sessions is True  # never inferred: the default holds
