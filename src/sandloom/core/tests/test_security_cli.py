@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.app_factory.claim_authorities import build_claim_authorities
+from sandloom.core.claims import Authority
 from sandloom.core.cli._operator import OperatorIntent
 from sandloom.core.cli.operator_owner import OperatorCapabilityUnavailable
 from sandloom.core.cli.security import (
@@ -77,7 +78,11 @@ class _Core:
     def __init__(self, **contracts: tuple[str, Any]) -> None:
         self.contracts = contracts
         self.claim_authorities = build_claim_authorities(
-            {"issuer": IDENTITY, "roles": IDENTITY, "tenant_ids": TENANCY}
+            {
+                "issuer": Authority("identity", module=IDENTITY),
+                "roles": Authority("identity", module=IDENTITY),
+                "tenant_ids": Authority("tenancy", module=TENANCY),
+            }
         )
         self.module_descriptors = [
             SimpleNamespace(name=path, refresh_sessions=True)
