@@ -175,7 +175,7 @@ _describe_failed: dict[tuple[str, str], tuple[str, float]] = {}
 _DESCRIBE_FAILURE_TTL_SECONDS = 5.0
 
 
-def _parse_remote_contract(data: Any) -> _RemoteContract | None:
+def _parse_remote_contract(data: Any, service: str) -> _RemoteContract | None:
     contract = data.get("contract") if isinstance(data, dict) else None
     if not isinstance(contract, dict) or not isinstance(contract.get("hash"), str):
         return None
@@ -189,7 +189,7 @@ def _parse_remote_contract(data: Any) -> _RemoteContract | None:
                 continue
             descriptor = schema.get("returns")
             ret = (
-                contract_wire.annotation_from_descriptor(descriptor)
+                contract_wire.annotation_from_descriptor(descriptor, service)
                 if isinstance(descriptor, dict)
                 else Any
             )
@@ -204,7 +204,7 @@ def _parse_remote_contract(data: Any) -> _RemoteContract | None:
                         name=str(param.get("name")),
                         kind=str(param.get("kind") or "positional_or_keyword"),
                         annotation=(
-                            contract_wire.annotation_from_descriptor(type_desc)
+                            contract_wire.annotation_from_descriptor(type_desc, service)
                             if isinstance(type_desc, dict)
                             else Any
                         ),
@@ -702,7 +702,7 @@ class RemoteServiceProxy:
                 signer=signer,
             )
             described = (
-                _parse_remote_contract(_unpack(response.content))
+                _parse_remote_contract(_unpack(response.content), self._service_name)
                 if response.status_code == status.HTTP_200_OK
                 else None
             )
