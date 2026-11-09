@@ -713,6 +713,19 @@ website renders this same changelog.
   Edge B-C10 is open again with KB-60: `sandloom admin create` still reads the
   declared `ADMIN_CONSOLE_ENABLED` by name, and the owner moved the composed
   console-route test to the CLI phase.
+- **A replacement provider's DTOs decode into the consumer's generated copy on
+  the untyped path** (KB-23, I-06; contracts PoC section 3.3). A remote
+  `core.get_service(name)` call resolved a model or Enum result to the
+  consumer's copy only by the provider class's own `module:qualname`, so a
+  module that replaces a provider under the same contract name (`acme_orgs`
+  serving `tenancy.membership.v1` with its own `MemberState`) returned a plain
+  `dict`. A result that matches no copy by origin now resolves to the copy,
+  among those the consumer's stubs of that contract name in their signatures,
+  with the same wire shape (fields, types, constraints; not class names or
+  docstrings); two copies of one shape from different origins are told by class
+  name, else the result stays plain data. Decided once when the provider's
+  contract is described: no extra I/O, nothing on the call path; the typed path
+  (`Contract(REF)`) is unchanged.
 - **A registered driver whose package is missing no longer passes the
   preflight; SANDLOOM-B037 names what is missing** (KB-IC-1). The built-in
   `celery` taskqueue and `redis` cache drivers are registered whether or not
