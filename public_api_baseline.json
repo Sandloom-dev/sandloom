@@ -2307,7 +2307,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None, owner:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
     },
     "flush_owned_redis": {
       "kind": "function",
@@ -2657,25 +2657,6 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
-    "Credits": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "CurrentUser": {
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
@@ -2717,24 +2698,6 @@
       ],
       "signature": "() -> None"
     },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "Owner": {
       "kind": "class",
       "members": [
@@ -2751,43 +2714,6 @@
         "tier"
       ],
       "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
-    },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
     },
     "TenantScoped": {
       "kind": "class",
@@ -2914,9 +2840,6 @@
     }
   },
   "sandloom.sdk.authz": {
-    "ACTIVE_SUBSCRIPTION_STATUSES": {
-      "kind": "value"
-    },
     "AccessDecision": {
       "kind": "class",
       "members": [
@@ -3095,28 +3018,6 @@
       ],
       "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
-    "Credits": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
-    "ENTITLEMENTS": {
-      "kind": "value"
-    },
     "Entitled": {
       "kind": "class",
       "members": [
@@ -3132,15 +3033,7 @@
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
-    },
-    "EntitlementsAdapter": {
-      "kind": "class",
-      "members": [
-        "credit_balance",
-        "subscription_active"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, owner:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -3169,25 +3062,6 @@
       ],
       "signature": null
     },
-    "Feature": {
-      "kind": "class",
-      "members": [
-        "category",
-        "claim_key",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
-    },
     "From": {
       "kind": "class",
       "members": [
@@ -3197,9 +3071,6 @@
         "subject_id"
       ],
       "signature": "()"
-    },
-    "MEMBERSHIP": {
-      "kind": "value"
     },
     "MODE_AUTO": {
       "kind": "value"
@@ -3212,13 +3083,6 @@
     },
     "MODE_PROJECTION": {
       "kind": "value"
-    },
-    "MembershipAdapter": {
-      "kind": "class",
-      "members": [
-        "has_role_at_least"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "Not": {
       "kind": "class",
@@ -3254,24 +3118,6 @@
       ],
       "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
     },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "Owner": {
       "kind": "class",
       "members": [
@@ -3305,21 +3151,6 @@
         "tier"
       ],
       "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Permissions": {
-      "kind": "class",
-      "members": [
-        "PERMISSIONS_READ",
-        "PERMISSIONS_WRITE",
-        "ROLES_DELETE",
-        "ROLES_READ",
-        "ROLES_WRITE",
-        "SYSTEM_ADMIN",
-        "USERS_DELETE",
-        "USERS_READ",
-        "USERS_WRITE"
-      ],
-      "signature": "()"
     },
     "PolicyIndeterminate": {
       "kind": "class",
@@ -3364,15 +3195,6 @@
       ],
       "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
     },
-    "Roles": {
-      "kind": "class",
-      "members": [
-        "ADMIN",
-        "OPS",
-        "SUPPORT"
-      ],
-      "signature": "()"
-    },
     "SOURCE_HTTP": {
       "kind": "value"
     },
@@ -3385,43 +3207,6 @@
     "SOURCE_TASK": {
       "kind": "value"
     },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "TIER_CLAIM": {
       "kind": "value"
     },
@@ -3430,25 +3215,6 @@
     },
     "TIER_RESOURCE": {
       "kind": "value"
-    },
-    "WithinLimit": {
-      "kind": "class",
-      "members": [
-        "category",
-        "claim_key",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
     },
     "access_check": {
       "kind": "function",
@@ -3485,10 +3251,6 @@
     "register_authz_projection": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
-    },
-    "register_live_adapter": {
-      "kind": "function",
-      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
     },
     "require": {
       "kind": "function",
@@ -5882,7 +5644,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None, owner:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
     },
     "fake_contract": {
       "kind": "function",
@@ -6338,9 +6100,6 @@
   },
   "sandloom.shared": {},
   "sandloom.shared.authz": {
-    "ACTIVE_SUBSCRIPTION_STATUSES": {
-      "kind": "value"
-    },
     "AccessDecision": {
       "kind": "class",
       "members": [
@@ -6519,28 +6278,6 @@
       ],
       "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
-    "Credits": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
-    "ENTITLEMENTS": {
-      "kind": "value"
-    },
     "Entitled": {
       "kind": "class",
       "members": [
@@ -6556,15 +6293,7 @@
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
-    },
-    "EntitlementsAdapter": {
-      "kind": "class",
-      "members": [
-        "credit_balance",
-        "subscription_active"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, owner:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -6593,25 +6322,6 @@
       ],
       "signature": null
     },
-    "Feature": {
-      "kind": "class",
-      "members": [
-        "category",
-        "claim_key",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
-    },
     "From": {
       "kind": "class",
       "members": [
@@ -6621,16 +6331,6 @@
         "subject_id"
       ],
       "signature": "()"
-    },
-    "MEMBERSHIP": {
-      "kind": "value"
-    },
-    "MembershipAdapter": {
-      "kind": "class",
-      "members": [
-        "has_role_at_least"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "Not": {
       "kind": "class",
@@ -6666,24 +6366,6 @@
       ],
       "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
     },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "Owner": {
       "kind": "class",
       "members": [
@@ -6717,21 +6399,6 @@
         "tier"
       ],
       "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Permissions": {
-      "kind": "class",
-      "members": [
-        "PERMISSIONS_READ",
-        "PERMISSIONS_WRITE",
-        "ROLES_DELETE",
-        "ROLES_READ",
-        "ROLES_WRITE",
-        "SYSTEM_ADMIN",
-        "USERS_DELETE",
-        "USERS_READ",
-        "USERS_WRITE"
-      ],
-      "signature": "()"
     },
     "PolicyIndeterminate": {
       "kind": "class",
@@ -6776,15 +6443,6 @@
       ],
       "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
     },
-    "Roles": {
-      "kind": "class",
-      "members": [
-        "ADMIN",
-        "OPS",
-        "SUPPORT"
-      ],
-      "signature": "()"
-    },
     "SOURCE_HTTP": {
       "kind": "value"
     },
@@ -6797,43 +6455,6 @@
     "SOURCE_TASK": {
       "kind": "value"
     },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "TIER_CLAIM": {
       "kind": "value"
     },
@@ -6842,25 +6463,6 @@
     },
     "TIER_RESOURCE": {
       "kind": "value"
-    },
-    "WithinLimit": {
-      "kind": "class",
-      "members": [
-        "category",
-        "claim_key",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "needs_request_session",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
     },
     "access_check": {
       "kind": "function",
@@ -6897,10 +6499,6 @@
     "register_authz_projection": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
-    },
-    "register_live_adapter": {
-      "kind": "function",
-      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
     },
     "require": {
       "kind": "function",

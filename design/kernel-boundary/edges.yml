@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 19, fixed: 24, retained: 4}
+  current_status: {open: 12, fixed: 31, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -71,18 +71,18 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-13, KB-30, KB-34]
+    prs: [KB-13, KB-30, KB-34, KB-34g]
     invariants: [I-07, I-13, I-23, H-2]
     tests:
       - G-AUTHZ-05 equivalence scenarios against access checks (KB-34)
       - access_providers assignment, in-process and bound (KB-13)
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, symbol: register_live_adapter}
-      - {path: sandloom/sdk/authz.py, symbol: EntitlementsAdapter}
-      - {path: sandloom/sdk/authz.py, symbol: MembershipAdapter}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: register_live_adapter}
+      - {path: sandloom/sdk/authz.py, literal: EntitlementsAdapter}
+      - {path: sandloom/sdk/authz.py, literal: MembershipAdapter}
     note: >-
       Approved exception to public-API preservation (owner #2): removed only after the
       G-AUTHZ-05 scenarios pass over access checks, with the ledger, ADR, docs and migration
@@ -117,17 +117,17 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     invariants: [I-13, I-23, H-16]
     tests:
       - authorization stand in CI: counts, order, decisions equal (KB-30)
       - tests/laws/test_authz_algebra_laws.py over generated atoms
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: "billing.entitlements.v1"}
-      - {path: sandloom/shared/authz/live_contracts.py, literal: "tenancy.membership.v1"}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: '"billing.entitlements.v1"'}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: '"tenancy.membership.v1"'}
 
   - id: B-R2
     class: b
@@ -153,15 +153,15 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     invariants: [I-13, I-22]
     tests:
       - generated claim atom resolves billing's fact through its literal owner, mono and split
     anchors:
-      - {path: sandloom/shared/authz/facts.py, symbol: WELL_KNOWN_FACT_OWNERS}
+      - {path: sandloom/shared/authz/facts.py, literal: WELL_KNOWN_FACT_OWNERS}
 
   - id: B-R4
     class: b
@@ -204,16 +204,16 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     invariants: [I-13, I-16]
     tests:
       - fake_access_fact generic stubbing; live atoms tested with fake_contract(REF, Fake())
     anchors:
-      - {path: sandloom/core/testing/authz.py, symbol: LIVE_SUBSCRIPTION_FACTS}
-      - {path: sandloom/core/testing/authz.py, literal: "billing.entitlements.v1"}
+      - {path: sandloom/core/testing/authz.py, literal: LIVE_SUBSCRIPTION_FACTS}
+      - {path: sandloom/core/testing/authz.py, literal: '"billing.entitlements.v1"'}
 
   # --- 4.3 security authority --------------------------------------------------------------
   - id: B-S1
@@ -672,15 +672,15 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     invariants: [I-13, I-23]
     tests:
       - generated OrgRole: Literal values from tenancy's declaration; mypy typing test
     anchors:
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: OrgRole}
+      - {path: sandloom/shared/authz/atoms_live.py, literal: '"OrgRole"'}
 
   - id: B-N14
     class: b
@@ -688,10 +688,10 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     invariants: [I-17, H-8]
     tests:
       - public API baseline (SANDLOOM-T008) and beginner tier (SANDLOOM-T009) reviewed diff
@@ -699,7 +699,7 @@ edges:
     anchors:
       - {path: sandloom/sdk/authz.py, literal: '"OrgRole"'}
       - {path: sandloom/sdk/authz.py, literal: '"SubscriptionActive"'}
-      - {path: sandloom/sdk/__init__.py, literal: "Credits"}
+      - {path: sandloom/sdk/__init__.py, literal: '"Credits"'}
     note: Through the ADR-0010 amendment of 2026-11-08 (owner #6).
 
   - id: B-N15
@@ -708,16 +708,16 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     invariants: [I-17]
     tests:
       - public API baseline diff reviewed; constants importable from identity
     anchors:
-      - {path: sandloom/shared/authz/constants.py, symbol: Permissions}
-      - {path: sandloom/shared/authz/constants.py, symbol: Roles}
+      - {path: sandloom/shared/authz/constants.py, literal: '"Permissions"'}
+      - {path: sandloom/shared/authz/constants.py, literal: '"Roles"'}
     note: Moved to identity (owner of the rows they name); no importer today.
 
   - id: B-N16

@@ -20,10 +20,9 @@ What it cannot see: a call through ``getattr``, a dynamically built atom, an
 authority decided in a function body. Those are not proven here; the route is
 classified independently and the runtime checks apply (the backstop).
 
-``_KERNEL_ATOMS`` is the one transitional table: the kernel's own domain atoms
-(``OrgRole``, ``Subscribed``, ...) still carry no literal until KB-34 removes
-them and every atom is generated. It is keyed by the file that *defines* the
-class, never by the name a caller imports, and is deleted with those atoms.
+The kernel keeps no table of atoms (KB-34): a class without the literal is
+not an atom here, whatever its name, so renaming or re-exporting a class never
+borrows another atom's metadata.
 """
 
 from __future__ import annotations
@@ -39,31 +38,6 @@ ATOM_ATTR = "__sandloom_atom__"
 _MAX_REEXPORT_DEPTH = 5
 
 AtomLiteral = dict[str, Any]
-
-#: Kernel domain atoms without a generated literal, by (defining file's path
-#: suffix, class). Removed with the atoms (KB-34).
-_KERNEL_ATOMS: dict[tuple[str, str], AtomLiteral] = {
-    ("sandloom/shared/authz/atoms_live.py", "OrgRole"): {
-        "args": ["minimum"],
-        "binds": {"organization_id": ["org", "org_id", False]},
-        "risk": {"admin": {"minimum": ["admin", "owner"]}},
-    },
-    ("sandloom/shared/authz/atoms_live.py", "SubscriptionActive"): {
-        "binds": {"tenant_id": ["account_id"]},
-    },
-    ("sandloom/shared/authz/atoms_live.py", "Credits"): {
-        "binds": {"tenant_id": ["account_id"]},
-    },
-    ("sandloom/shared/authz/atoms_claims.py", "Subscribed"): {
-        "binds": {"tenant_id": ["account_id"]},
-    },
-    ("sandloom/shared/authz/atoms_claims.py", "Feature"): {
-        "binds": {"tenant_id": ["account_id"]},
-    },
-    ("sandloom/shared/authz/atoms_claims.py", "WithinLimit"): {
-        "binds": {"tenant_id": ["account_id"]},
-    },
-}
 
 
 def clear_caches() -> None:
@@ -159,21 +133,13 @@ def _file_classes(path: Path) -> _FileInfo | None:
     return _FileInfo(tree, path)
 
 
-def _kernel_literal(path: Path, name: str) -> AtomLiteral | None:
-    posix = path.as_posix()
-    for (suffix, cls), literal in _KERNEL_ATOMS.items():
-        if cls == name and posix.endswith(suffix):
-            return literal
-    return None
-
-
 def _resolve(path: Path, name: str, depth: int = 0) -> AtomLiteral | None:
     """The literal of the class ``name`` defined in, or re-exported by, ``path``."""
     info = _file_classes(path)
     if info is None or depth > _MAX_REEXPORT_DEPTH:
         return None
     if name in info.classes:
-        return info.classes[name] or _kernel_literal(path, name)
+        return info.classes[name]
     origin = info.imports.get(name)
     if origin is not None:
         return _resolve(origin[0], origin[1], depth + 1)
@@ -253,8 +219,15 @@ def binds_org(literal: AtomLiteral) -> str | None:
 
 
 def binds_account(literal: AtomLiteral) -> bool:
-    """An atom whose account is stated with ``of=`` (contract or claim atom)."""
-    return bool(_kinds(literal) & {"account_type", "account_id"}) or "fact" in literal
+    """An atom whose account is stated with ``of=``: a contract atom that
+    binds an account, a claim-fact atom (``fact``), or a claim-read atom whose
+    live check (``otherwise``) binds one."""
+    if _kinds(literal) & {"account_type", "account_id"} or "fact" in literal:
+        return True
+    otherwise = literal.get("otherwise")
+    return isinstance(otherwise, dict) and bool(
+        _kinds(otherwise) & {"account_type", "account_id"}
+    )
 
 
 def _scalar(node: ast.AST, consts: Mapping[str, ast.expr]) -> Any:
@@ -333,20 +306,38 @@ def _ref_methods(
         if not isinstance(node, ast.ImportFrom):
             continue
         path = _import_file(node, origin)
-        info = _file_classes(path) if path is not None else None
-        if info is None:
-            continue
-        by_method = {
-            str(lit["method"]): lit
-            for lit in info.classes.values()
-            if lit and "method" in lit and "contract" in lit
-        }
-        if not by_method:
+        if path is None:
             continue
         for alias in node.names:
-            if alias.name.isupper():  # the ContractRef constant
+            if not alias.name.isupper():  # the ContractRef constant
+                continue
+            # a re-exported constant (``from pkg import REF``) is read from
+            # the stub that defines it, never from the re-exporting file
+            by_method = _stub_methods(_defining_file(path, alias.name))
+            if by_method:
                 out[alias.asname or alias.name] = by_method
     return out
+
+
+def _defining_file(path: Path, name: str, depth: int = 0) -> Path:
+    """The file that defines ``name``, following re-exports from ``path``."""
+    info = _file_classes(path)
+    origin = info.imports.get(name) if info is not None else None
+    if origin is None or depth >= _MAX_REEXPORT_DEPTH:
+        return path
+    return _defining_file(origin[0], origin[1], depth + 1)
+
+
+def _stub_methods(path: Path) -> dict[str, AtomLiteral]:
+    """``{method: literal}`` of the access checks a stub file declares."""
+    info = _file_classes(path)
+    if info is None:
+        return {}
+    return {
+        str(lit["method"]): lit
+        for lit in info.classes.values()
+        if lit and "method" in lit and "contract" in lit
+    }
 
 
 def _declared_clients(

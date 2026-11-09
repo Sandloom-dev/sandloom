@@ -59,7 +59,7 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 123,  # +1: the settings gate of `sandloom check` is imported on use (KB-56)
+    "PLC0415": 121,  # -2: the kernel domain atoms left (KB-34g)
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,

@@ -5,7 +5,10 @@
   the bundled modules and examples has a public home, and every home exists;
 - L1 is built only from public L2 (``test_l1_uses_only_public_l2``);
 - every public module declares ``__all__`` and ``__beginner__``, and the
-  root re-exports exactly the 21 beginner code names;
+  root re-exports exactly the 20 beginner code names (26 with the five
+  testing helpers and the ``client`` fixture); the domain atoms
+  (``Subscribed``, ``OrgRole``, ...) are generated into the consumer's stub,
+  never re-exported by the kernel (KB-34);
 - the names new in 1.0 whose kernel mechanism has not landed yet are typed
   stubs that raise ``NotImplementedError`` naming their spec section and
   hand-off (the L1 names of hand-off H2 are tested in ``tests/sdk``).
@@ -119,11 +122,11 @@ def test_root_reexports_the_beginner_code_names() -> None:
         [
             "define_module", "module_router", "public", "CurrentUser", "Base",
             "TenantScoped", "db", "Event", "on", "contract", "command",
-            "Contract", "require", "Subscribed", "SubscriptionActive",
-            "Credits", "OrgRole", "Owner", "authorize_resource",
+            "Contract", "require", "Owner", "authorize_resource",
             "record_audit", "on_commit", "new_id", "CreatedAt", "UtcDateTime",
         ]
     )  # fmt: skip
+    assert len(sandloom.sdk.__all__) == 20
     testing = importlib.import_module("sandloom.sdk.testing")
     assert set(testing.__beginner__) == {
         "as_user", "published", "deliver", "fake_contract", "fake_access_fact",

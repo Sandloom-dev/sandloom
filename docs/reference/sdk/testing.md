@@ -19,7 +19,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`as_user`](#as_user) | function | `(user_id, headers)` with a freshly minted access token. |
 | [`deliver`](#deliver) | async function | Deliver one event to every consumer of its channel; returns how many. |
-| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `name` with `value` inside the block. |
+| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `name` with `value` inside the block (registered under `owner` when the policy names one). |
 | [`fake_contract`](#fake_contract) | function | Serve contract `ref` from `impl` for the block: |
 | [`published`](#published) | function | The events of `event`'s channel published by the code under test: |
 
@@ -169,10 +169,12 @@ def fake_access_fact(
     *,
     deny_category: str | None = None,
     core: Any = None,
+    owner: str | None = None,
 ) -> Iterator[None]
 ```
 
-Answer the access fact `name` with `value` inside the block.
+Answer the access fact `name` with `value` inside the block
+(registered under `owner` when the policy names one).
 
 ### `fake_contract`
 

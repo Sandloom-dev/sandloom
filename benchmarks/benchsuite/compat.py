@@ -46,9 +46,11 @@ def _billing_stub() -> ModuleType | None:
 
 
 def subscribed_atom() -> Any:
-    """The ``Subscribed`` class: the generated atom, else the baseline kernel's."""
+    """The ``Subscribed`` class: the generated atom, else the baseline kernel's
+    (an older kernel still exports one; the current kernel ships none, so the
+    name is looked up only on that path)."""
     stub = _billing_stub()
-    return stub.Subscribed if stub is not None else _authz.Subscribed
+    return stub.Subscribed if stub is not None else getattr(_authz, "Subscribed")  # noqa: B009 - absent from the current kernel
 
 
 def subscribed() -> Any:

@@ -148,7 +148,7 @@ def _install_revocation_fault(router: object) -> None:
             return f"v1:after:{mark_us // 1_000_000}.{mark_us % 1_000_000:06d}"
         return await real(user_id, mark_us, tail, replay=replay)
 
-    revocation._write_revocation = _faulty  # type: ignore[assignment]
+    revocation._write_revocation = _faulty
 
     async def set_fault(mode: str) -> dict[str, str]:
         if mode not in ("off", "outage", "lost"):
