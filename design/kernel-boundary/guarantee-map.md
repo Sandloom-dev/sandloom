@@ -25,7 +25,7 @@ The five questions, one column each:
 Status of each cell: **verified** (read at the cited line and, where a probe is named, run),
 **inferred** (follows from verified lines, not observed), **unknown**.
 
-Probes (scripts and trimmed transcripts in `_evidence/guarantee-map/`):
+Probes (scripts and trimmed transcripts in `_archive/_evidence/guarantee-map/`):
 
 | environment | what | used by |
 |---|---|---|
@@ -50,7 +50,7 @@ read from code and from the ledger's split tests.
 | tenant isolation | kernel ORM guard, RLS, `TenantScope`, RPC context | tenancy `tenant_ids`; nobody writes `tenant_id`/`org_id` | no claim: 400/403, fail closed | must write the kernel's key `tenant_ids`; **any contributor can grant any tenant through `tenant_id`** (HEAD and PR #70) | tenant bound only from the MAC-covered context |
 | contracts | kernel registry, RPC, compat check | provider modules; stubs/DTOs in the kernel wheel | required: refuse to start; optional: `None` | serve under the original module's name; no name ownership; **compat check off with a warning** | SERVICE_BINDINGS + `service_id` + RPC_ALLOWED_CALLS: the one explicit app trust assignment |
 | admin | kernel platform API per module, gate, CLI | identity (gate source, `identity.security.v1`), admin (console, manifest) | API 403, CLI refuses with a message | a replacement issuer passes the gate only if named `identity`; no manifest for another console | each service mounts its own platform API; gate from the bearer |
-| tasks | kernel worker, enqueue dedupe, outbox relay | celery extra, modules' `tasks.py` | taskqueue unusable, `/ready` 200 with a warning; a module importing `sdk.tasks` fails to load | taskqueue is a capability driver | per-service worker and beat lease |
+| tasks | kernel worker, enqueue dedupe, outbox relay | celery extra, modules' `tasks.py` | taskqueue unusable, `/ready` 200 with a warning (at the probe; closed by kb-ic-1/kb-ic-3, §11); a module importing `sdk.tasks` fails to load | taskqueue is a capability driver | per-service worker and beat lease |
 | settings | kernel `Settings`, tiers, validators, risk registry | 22 module settings live in the kernel | module settings stay, inert | cannot add a setting, a tier entry or an accepted risk | `SHARED_KEYS` names one billing setting |
 
 ## 3. JWT: minting, verification, keys, revocation
@@ -110,7 +110,7 @@ read from code and from the ledger's split tests.
 
 | aspect | 1 provider | 2 data supplier | 3 without the battery | 4 third-party replacement | 5 split |
 |---|---|---|---|---|---|
-| taskqueue, worker | `core/drivers/celery_taskqueue.py`, `core/worker.py:126-137`, enqueue dedupe `core/tasks/enqueue.py`. G-TASK-01..05, C-WORKER-01..06. [verified: read] | The `celery` extra; modules' `tasks.py`. [verified] | Without celery the default taskqueue fails to open: WARNING at startup, `/ready` 200, `taskqueue()` raises `ModuleNotFoundError` at use, `import sandloom.sdk.tasks` fails (tasks probe); a module whose `tasks.py` imports it fails to load (baseline §13.2). Not a guarantee loss (enqueue cannot run, so dedupe cannot weaken), but readiness reports ok. [verified] | A taskqueue driver registered as a capability. [inferred] | Worker and beat lease per service (C-WORKER-06). [verified: ledger] |
+| taskqueue, worker | `core/drivers/celery_taskqueue.py`, `core/worker.py:126-137`, enqueue dedupe `core/tasks/enqueue.py`. G-TASK-01..05, C-WORKER-01..06. [verified: read] | The `celery` extra; modules' `tasks.py`. [verified] | Without celery the default taskqueue fails to open: WARNING at startup, `/ready` 200, `taskqueue()` raises `ModuleNotFoundError` at use, `import sandloom.sdk.tasks` fails (tasks probe); a module whose `tasks.py` imports it fails to load (baseline §13.2). Not a guarantee loss (enqueue cannot run, so dedupe cannot weaken), but readiness reported ok at the probe (closed by kb-ic-1/kb-ic-3, §11). [verified] | A taskqueue driver registered as a capability. [inferred] | Worker and beat lease per service (C-WORKER-06). [verified: ledger] |
 | outbox dispatch | Relay in the app process (`core/tasks/relay.py`), not celery; `OUTBOX_RELAY_ENABLED=off` refused in prod (G-RISK-05). [verified: read] | None. | Unaffected. [verified: read] | n/a | Per database. [inferred] |
 | periodic tasks | Beat imports `setup_periodic_tasks` of loaded modules (`core/tasks/periodic.py`). [verified: read] | modules (billing reconciler, C-AUTH-08). | No runtime check that a beat or worker runs: the deploy check requires a beat service in the shipped profile (`deploy_profile.py:387`, test time). [inferred: rg found no runtime check] | n/a | Per service. [verified: ledger] |
 
@@ -140,8 +140,13 @@ Weakenings found that are not tied to a battery's absence, listed so they are no
   `UserContext.user_id`; PR #70 reserves the key. Verified (S7).
 - **Mint authority is the key, not the issuer declaration** (§3): any code in a process holding
   the signing key mints any claims and provenance. Verified (S5).
-- **Readiness with an unusable taskqueue** (§9): `/ready` 200 while the default taskqueue cannot
-  open. Verified. Enqueue still fails closed, so no guarantee weakens.
+- **Readiness with an unusable taskqueue** (§9): closed. At the time of the probe `/ready` was
+  200 while the default taskqueue could not open (enqueue still failed closed, so no guarantee
+  weakened). Now a missing driver (celery absent) is refused at startup (SANDLOOM-B037, G-INFRA-12;
+  kb-ic-1), and `/ready` answers 503 with `taskqueue_status` fail, naming the capability and the
+  instance, when a loaded module that uses the queue while serving cannot reach its broker or the
+  driver cannot open; a periodic-only module keeps the web process ready (G-OPS-23; kb-ic-3,
+  owner decision on infrastructure dependencies, answers 3 and 4). `/health` never fails on it.
 - **Silent fallback password policy** for a replacement serving `identity.security.v1` (§8).
   Inferred.
 

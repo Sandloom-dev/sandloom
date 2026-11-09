@@ -911,7 +911,7 @@ edges:
 
   # --- rows added after the baseline --------------------------------------------------------
   # Register row K1: not the authorization change "K1" (tenant kind) of KB-31 and
-  # alternatives-c-authz.md, nor the known-namespaces option K1 of alternatives-d-settings.md.
+  # _archive/alternatives-c-authz.md, nor the known-namespaces option K1 of _archive/alternatives-d-settings.md.
   - id: K1
     class: b
     type: configuration

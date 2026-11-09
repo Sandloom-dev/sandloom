@@ -29,7 +29,7 @@ search:
 The kernel holds the bundled modules' settings: `ModulesConfig` ("Settings of the bundled
 business modules", 21 fields: Stripe, 2FA, SSO, Telegram, billing, admin console) mixed into the
 one kernel `Settings`, plus `TENANT_CLAIMS_MAX_ORGANIZATIONS` in the auth config: 22
-module-owned env names (B-C1, B-C2; the earlier count of 23 was off by one, alternatives-d O-1).
+module-owned env names (B-C1, B-C2; the earlier count of 23 was off by one, `_archive/alternatives-d-settings.md` O-1).
 Their validators and accepted risks are kernel code: the TOTP key strength (B-C3), the billing
 PSP requirements (B-C4), the risk `fake_psp_in_prod` in a closed tuple (B-C5), tiers and the
 semantic ratchet (B-C6), the deploy-profile shared keys and dev env (B-C7), backup notes (B-C8)
@@ -272,12 +272,12 @@ the reference for decisions; each PR re-measures base against candidate on `c9b9
 
 | item | where | result |
 |---|---|---|
-| boot order per entry point; what reads settings | `research-settings.md` §1-§3 | the kernel validated before loading modules; refusals reached only the API (F1); `config dump` builds no composition (F2) |
-| cost of reads | `research-settings.md` §3 | kernel `Settings()` 41.8 ms cold; a module `BaseSettings` over its own sources 17.3 ms; `model_validate` over a shared snapshot ~0.001 ms; entry-point scan 3.6 ms; `create_app` with three modules ~440 ms |
+| boot order per entry point; what reads settings | `_archive/research-settings.md` §1-§3 | the kernel validated before loading modules; refusals reached only the API (F1); `config dump` builds no composition (F2) |
+| cost of reads | `_archive/research-settings.md` §3 | kernel `Settings()` 41.8 ms cold; a module `BaseSettings` over its own sources 17.3 ms; `model_validate` over a shared snapshot ~0.001 ms; entry-point scan 3.6 ms; `create_app` with three modules ~440 ms |
 | refusal parity | PR #71 (`8d3413a`, `2a85572`), `core/tests/test_boot_configuration_checks.py` | app, worker, beat, `migrate`, composed CLIs exit 1 with the same reason; `config dump` builds no composition; asymmetric-issuer `JWT_SECRET` case |
-| an optional module cannot swallow a refusal | `core/config/common.py`, `core/loader/plugin_loader.py` (alternatives-d F-c) | `ConfigurationError` subclasses `SystemExit`; the per-module handler catches `Exception` |
+| an optional module cannot swallow a refusal | `core/config/common.py`, `core/loader/plugin_loader.py` (`_archive/alternatives-d-settings.md` F-c) | `ConfigurationError` subclasses `SystemExit`; the per-module handler catches `Exception` |
 | one secret rule | PR #74 (`30104e8`), `core/tests/test_secret_redaction_agreement.py` | every `Settings` field: log redactor and dump agree |
-| alternatives and verdict | `alternatives-d-settings.md` §5, §10; `adversarial.md` §5.1, §9 | D2a stands with the collect switch counted, activation defined, the static gate's scope stated |
+| alternatives and verdict | `_archive/alternatives-d-settings.md` §5, §10; `adversarial.md` §5.1, §9 | D2a stands with the collect switch counted, activation defined, the static gate's scope stated |
 
 ## Fitness tests
 
