@@ -472,14 +472,20 @@ class _ClaimsMixin(_ServicesMixin):
                 "add_claims_contributor), not a name: the issuer is the module "
                 "that registered it"
             )
-        owners = {o for fn, _critical, o in self._claims_contributors if fn == issuer}
-        if len(owners) != 1 or None in owners:
+        owner: str | None = None
+        for fn, _critical, registered in self._claims_contributors:
+            if fn == issuer:
+                if registered is None or (owner is not None and registered != owner):
+                    owner = None
+                    break
+                owner = registered
+        if owner is None:
             raise UnsealedClaimsError(
                 f"SANDLOOM-R017: collect_claims(issuer={issuer!r}) is not a "
-                "claims contributor a module registered: the issuer is "
+                "claims contributor one module registered: the issuer is "
                 "identified by one of its own registered contributors"
             )
-        return owners.pop()
+        return owner
 
     def _check_precomputed(
         self,
@@ -496,20 +502,25 @@ class _ClaimsMixin(_ServicesMixin):
                 "SANDLOOM-R017: collect_claims(precomputed=...) is accepted "
                 "only with issuer=<contributor> and issuer_session"
             )
-        mine = self._contributors_of(owner)
-        authorities = self._claim_authorities
+        owners = self._claim_authorities.owners
         for fn, contributed in precomputed.items():
-            if fn not in mine:
+            for f, _critical, o in self._claims_contributors:
+                if f == fn and o == owner:
+                    break
+            else:
                 raise UnsealedClaimsError(
                     f"SANDLOOM-R017: collect_claims(precomputed=...) names "
                     f"{fn!r}, which is not a claims contributor of the issuer "
                     f"{owner!r}"
                 )
-            foreign = sorted(
-                key
-                for key in (contributed or {})
-                if authorities.owners.get(key) != owner
-            )
+            if not contributed:
+                continue
+            for key in contributed:
+                if owners.get(key) != owner:
+                    break
+            else:
+                continue
+            foreign = sorted(k for k in contributed if owners.get(k) != owner)
             if foreign:
                 raise UnsealedClaimsError(
                     f"SANDLOOM-R017: collect_claims(precomputed=...) carries "

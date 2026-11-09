@@ -92,19 +92,20 @@ def create_access_token(
         )
     _core, policy = _claim_policy()
     refuse_unsealed(data, policy, "create_access_token(data=...)")
-    to_encode = data.copy()
-    # A trusted view's verdict is never minted (a payload copied from a
-    # verified token): every verifier computes its own.
-    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
-    if claims is not None:
+    if claims is None:
+        to_encode = data.copy()
+    else:
         sealed = sealed_data(claims)
-        if not to_encode.keys().isdisjoint(sealed):
-            overridden = sorted(k for k in sealed if k in to_encode)
+        if not sealed.keys().isdisjoint(data):
+            overridden = sorted(k for k in sealed if k in data)
             raise UnsealedClaimsError(
                 "SANDLOOM-R017: create_access_token(data=...) overrides "
                 f"{', '.join(overridden)} of the sealed collect_claims result"
             )
-        to_encode.update(sealed)
+        to_encode = {**sealed, **data}
+    # A trusted view's verdict is never minted (a payload copied from a
+    # verified token): every verifier computes its own.
+    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
     return _mint(to_encode, expires_delta, claims_read_at)
 
 

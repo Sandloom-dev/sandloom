@@ -338,7 +338,10 @@ class SealedClaims(Mapping[str, Any]):
             raise UnsealedClaimsError(
                 "SANDLOOM-R017: SealedClaims are built by collect_claims only"
             )
-        object.__setattr__(self, "_data", dict(data))
+        # A fresh dict is owned as is (``_seal_claims`` callers hand over
+        # one they built and drop); anything else is copied.
+        owned = data if type(data) is dict else dict(data)
+        object.__setattr__(self, "_data", owned)
         object.__setattr__(self, "_seal", seal)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -363,8 +366,9 @@ class SealedClaims(Mapping[str, Any]):
 
 def _seal_claims(data: Mapping[str, Any]) -> SealedClaims:
     """Kernel-internal: seal a merge result (``collect_claims``) or the
-    kernel test authority's contribution (``sandloom.core.testing.auth``),
-    as a copy: the caller's dict stays the caller's."""
+    kernel test authority's contribution (``sandloom.core.testing.auth``).
+    A ``dict`` is taken over, not copied: the caller built it for the seal
+    and keeps no reference."""
     return SealedClaims(data, seal=_SEAL)
 
 
