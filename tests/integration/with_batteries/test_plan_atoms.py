@@ -41,6 +41,7 @@ from sqlalchemy.engine import Engine
 
 import sandloom.shared.authz as kernel
 from sandloom.core import rpc
+from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.generated import render_stub
 from sandloom.core.config.settings import settings
 from sandloom.core.contract_testing import rpc_settings
@@ -393,6 +394,16 @@ async def split(
     )
     consumer = CoreFacade(app=app, settings_obj=cfg)
     app.state.core = consumer
+    # the root's map, as create_app assigns it in the consumer process: the
+    # bound tenant's kind is asked of the tenant authority's witness (KB-31)
+    consumer._assign_claim_authorities(
+        ClaimAuthorities(
+            authorities={"tenant_ids": "sandloom_tenancy"},
+            owners={"tenant_ids": "tenancy"},
+            assigned=True,
+        )
+    )
+    assert consumer.tenant_witness is not None
 
     def no_database(name: str = "default") -> Any:
         raise AssertionError(f"the consumer asked for its database {name!r}")
