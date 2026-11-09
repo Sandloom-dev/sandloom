@@ -214,24 +214,21 @@ def test_previous_secrets_must_not_contain_current() -> None:
 # --------------------------------------------------------------------------- #
 # S7 — billing / 2FA production settings
 # --------------------------------------------------------------------------- #
-def test_prod_rejects_explicit_fake_psp_unless_opted_in() -> None:
-    with pytest.raises(ValidationError, match="BILLING_PROVIDER=fake"):
-        _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, BILLING_PROVIDER="fake")
+def test_the_kernel_settings_do_not_validate_billing() -> None:
+    """B-C4: billing's PSP rules are its own settings' (sandloom_billing.config,
+    G-BILLING-18 / G-RISK-07): a process without billing no longer refuses an
+    explicit fake provider, and the kernel holds no ``billing_provider``."""
+    cfg = _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, BILLING_PROVIDER="fake")
+    assert cfg.is_prod
+    assert not hasattr(cfg, "billing_provider")
     demo = _settings(
         ENVIRONMENT="prod",
         JWT_SECRET=_STRONG,
-        BILLING_PROVIDER="fake",
-        SANDLOOM_ACCEPTED_RISKS="fake_psp_in_prod",
+        SANDLOOM_ACCEPTED_RISKS="billing.fake_psp_in_prod",
     )
-    assert demo.accepts_risk("fake_psp_in_prod")
-    # Not configured at all (a deployment without billing): the default passes;
-    # the billing module's critical startup check covers it when loaded.
-    assert _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG).is_prod
-
-
-def test_fake_psp_risk_is_not_accepted_by_default() -> None:
-    cfg = _settings(JWT_SECRET="x")
-    assert not cfg.accepts_risk("fake_psp_in_prod")
+    # a module's namespaced id passes the kernel's form check; the loader
+    # decides it against billing's declaration (test_risk_namespaces)
+    assert "billing.fake_psp_in_prod" in demo.sandloom_accepted_risks
 
 
 def test_revocation_fail_closed_defaults_by_environment() -> None:

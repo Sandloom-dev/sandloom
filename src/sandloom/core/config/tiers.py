@@ -22,7 +22,7 @@ tier, recorded here and pinned by ``src/sandloom/core/tests/test_config_tiers.py
     log / metrics knobs, endpoints, credentials, backend selection (the
     escape hatch that admits a weaker backend in prod is the semantic
     ``SANDLOOM_ACCEPTED_RISKS`` list), and product policy the framework has no
-    opinion on (``BILLING_DENY_ON_PAST_DUE``).
+    opinion on (a module's own policy knobs).
 
 There is no migration tier and no deprecated value: the framework carries no
 transitional flags (it is not released; a change of behaviour removes the old
@@ -329,13 +329,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         risk="relay_disabled",
         adr="docs/adr/0006-accepted-risks.md",
     ),
-    # ---- billing policy
-    SemanticSetting(
-        "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
-        "A subscription without an operation intent grants entitlements.",
-        profile=_all(False),
-        strength=_BOOL_WEAK_TRUE,
-    ),
     # ---- transport
     SemanticSetting(
         "SMTP_USE_TLS",
@@ -392,17 +385,6 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "read contracts are memoised per request; opt out per scope with "
         "contract_read_scope(memo=False)",
         inert=True,
-    ),
-    RemovedSetting(
-        "BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS",
-        "0.8",
-        "the fake PSP always rejects unsigned webhooks; sign test payloads with "
-        "sandloom_billing.psp.sign_stripe_payload",
-    ),
-    RemovedSetting(
-        "BILLING_ALLOW_FAKE_PSP_IN_PROD",
-        "0.8",
-        'accept the risk explicitly: SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]',
     ),
     RemovedSetting(
         "NOTIFIER_ALLOW_LOG_IN_PROD",
@@ -653,13 +635,6 @@ OPS: frozenset[str] = frozenset(
         "RATE_LIMIT_GLOBAL_REQUESTS",
         "RATE_LIMIT_GLOBAL_PERIOD_SECONDS",
         "RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES",
-        "BILLING_PROVIDER",
-        "BILLING_DENY_ON_PAST_DUE",
-        "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET",
-        "BILLING_INTENT_RECONCILE_AFTER_MINUTES",
-        "BILLING_INTENT_RECONCILE_MAX_ATTEMPTS",
-        "BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES",
         "SENTRY_DSN",
         "SENTRY_TRACES_SAMPLE_RATE",
         "TRACING_URL",
@@ -924,10 +899,10 @@ def render_markdown() -> str:
         "## Accepted risks (`SANDLOOM_ACCEPTED_RISKS`)",
         "",
         "The one list of weaker guarantees a deployment accepts, e.g. "
-        '`SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-'
+        '`SANDLOOM_ACCEPTED_RISKS=["relay_disabled"]` (JSON list or comma-'
         "separated). An unknown id fails startup. The ids below are the "
         "kernel's. A module declares its own, named `<module>.<name>` "
-        "(for example `billing.fake_psp_in_prod`): the id of a loaded module "
+        "(for example `inventory.oversell_in_prod`): the id of a loaded module "
         "is checked against what that module declares, the id of a module "
         "installed or listed in `SANDLOOM_MODULES` but not loaded in this "
         "process is inert, listed as not applicable here, and any other "

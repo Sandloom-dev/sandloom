@@ -22,15 +22,16 @@ paths:
 - **DTOs** (models and Enums in a signature) live in the provider's own
   `schemas` module, inside the closed set of event field shapes (finite
   floats, Field constraints, no parametrised generic). `sandloom generate`
-  copies each into `<shared>/contracts/<module>_dto.py`; callers import and
-  receive the copy (C012). Validators are not copied: they run in the provider.
+  copies each into the consumer's generated package (`<module>/_generated/contracts/`,
+  an app's `<app>.shared/contracts/`); callers import and receive the copy (C012). Validators are not copied: they run in the provider.
 - **Reads** run in a unit that is always rolled back, and never write
   (`ReadContractWriteError`).
 - **Commands** are deduped durably in the provider's database by their
   idempotency key. A command is NOT atomic with the caller: design it as a
   saga step. `risk="money"` declares a money source.
 - **Callers** declare `x = Contract(REF)` at module level, with `REF` from the
-  generated stub `sandloom.shared.contracts.<name>`; `define_module` derives
+  generated stub (`<module>._generated.contracts.<name>`, an app's
+  `<app>.shared.contracts.<name>`); `define_module` derives
   `consumes` from it. A required contract nobody provides fails startup
   (SANDLOOM-B005). `Contract(REF, optional=True).client()` is `None` only when the
   provider is not deployed: use it only where the caller has a correct answer

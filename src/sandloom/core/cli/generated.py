@@ -10,12 +10,13 @@ For every module declared with L1 discovery (``define_module`` of
   ``projections`` (``routes`` stay in ``routes.snapshot.json``
   and contract describes in ``contracts.snapshot.json`` until model E's
   route snapshot moves them here);
-- ``<shared>/events/<channel>.json``: each producer's schema, so views in
-  other repositories can be verified (SANDLOOM-C025);
-- ``<shared>/contracts/<x_y_vN>.py``: the typed stub of each ``@contract``
-  provider (the Protocol and ``X_Y_VN: ContractRef[Protocol]``);
-- ``<shared>/contracts/<module>_dto.py``: the wire-shape copies of the
-  provider's own DTOs its contract signatures name
+- in an application only, ``<shared>/events/<channel>.json``: each producer's
+  schema, so views can be verified (SANDLOOM-C025); in a tree of module
+  distributions a view is checked against the producer's ``module.snapshot.json``;
+- in an application only, ``<shared>/contracts/<x_y_vN>.py``: the typed stub of
+  each ``@contract`` provider (the Protocol and ``X_Y_VN: ContractRef[Protocol]``);
+- in an application only, ``<shared>/contracts/<module>_dto.py``: the
+  wire-shape copies of the provider's own DTOs its contract signatures name
   (:mod:`sandloom.core.cli.dto_copies`, SANDLOOM-C012);
 - ``<module>/routes.snapshot.json``: the module's routes and their policy
   (a route that lost its authentication is incompatible, SANDLOOM-T001);
@@ -299,9 +300,7 @@ def render_stub(
     _stem, protocol, ref = stub_names(contract)
     imports = _Imports()
     imports.need("typing", "Protocol")
-    home, marker = _dto_copies.contract_refs_home(
-        resolver.dto_package if resolver is not None else None
-    )
+    home, marker = _dto_copies.contract_refs_home()
     imports.need(home, "ContractRef", marker)
     methods = []
     documented = False
@@ -543,7 +542,7 @@ def _shared_packages(facade: Any, shared_package: str | None) -> tuple[str, ...]
     settings = getattr(facade, "settings", None)
     extra = tuple(getattr(settings, "contract_dto_packages", ()) or ())
     own = (shared_package,) if shared_package else ()
-    return ("sandloom.shared", *own, *extra)
+    return (_dto_copies.KERNEL_SHARED, *own, *extra)
 
 
 def _contract_files(
@@ -635,21 +634,41 @@ def _selected(entry: Any, modules: Iterable[str] | None) -> bool:
     return entry.name in wanted or module_name(entry.name) in wanted
 
 
+def _stem_collisions(facade: Any, shared_dir: Path | None) -> list[Generated]:
+    """Two contracts of an application mapping to one stub file (refused)."""
+    if shared_dir is None:
+        return []
+    return [
+        Generated(
+            shared_dir / "contracts" / f"{stem}.py",
+            "",
+            "SANDLOOM-T007",
+            [_consumer_copies.collision_problem(stem, names)],
+        )
+        for stem, names in sorted(
+            _consumer_copies.stem_collisions(facade.service_registry.list()).items()
+        )
+    ]
+
+
 def plan(
     app: Any,
-    shared_dir: Path,
+    shared_dir: Path | None,
     source_root: Path | None = None,
     *,
-    shared_package: str = "sandloom.shared",
+    shared_package: str | None = None,
     modules: Iterable[str] | None = None,
     format_dto: Callable[[str, Path], str] | None = None,
     consumed_only: bool = False,
 ) -> list[Generated]:
     """Every generated file of the app's L1 modules, with its verdict.
 
-    The consumer side (contract stubs, DTO copies, exported event schemas)
-    is generated for every composed module into ``shared_dir`` (the package
-    ``shared_package``); the module side (``module.snapshot.json``, route
+    The application's consumer side (contract stubs, DTO copies, exported
+    event schemas) is generated for every composed module into ``shared_dir``
+    (the package ``shared_package``); a tree of top-level module packages has
+    none (``shared_dir`` is ``None``: each module's copies are planned by
+    :mod:`sandloom.core.cli.consumer_copies`, the kernel ships no generated
+    stub or DTO copy, ADR-0013). The module side (``module.snapshot.json``, route
     and contract snapshots) only for modules under ``source_root``: an
     installed module package ships its own. ``modules`` (names or import
     paths) keeps those modules' files only. DTO modules are rendered in
@@ -661,17 +680,7 @@ def plan(
     facade = app.state.core
     contracts = _contract_compat.module_snapshots(facade)
     shared_packages = _shared_packages(facade, shared_package)
-    out: list[Generated] = [
-        Generated(
-            shared_dir / "contracts" / f"{stem}.py",
-            "",
-            "SANDLOOM-T007",
-            [_consumer_copies.collision_problem(stem, names)],
-        )
-        for stem, names in sorted(
-            _consumer_copies.stem_collisions(facade.service_registry.list()).items()
-        )
-    ]
+    out = _stem_collisions(facade, shared_dir)
     wanted = _consumed_union(manifest, source_root) if consumed_only else None
     for entry in manifest.modules:
         if not is_l1(entry.name) or not _selected(entry, modules):
@@ -694,6 +703,8 @@ def plan(
             snapshot.problems += [
                 f"{channel}: {p}" for p in schema_problems(previous, schema)
             ]
+            if shared_dir is None:
+                continue
             exported = Generated(
                 shared_dir / "events" / f"{channel}.json",
                 _dump(schema),
@@ -711,16 +722,17 @@ def plan(
         if owned:
             out.append(snapshot)
             out += _module_snapshots(app, entry.name, contracts)
-        out += _contract_files(
-            entry,
-            facade,
-            shared_dir,
-            shared_package,
-            shared_packages,
-            format_dto,
-            wanted=wanted,
-        )
-    if modules is None:
+        if shared_dir is not None and shared_package is not None:
+            out += _contract_files(
+                entry,
+                facade,
+                shared_dir,
+                shared_package,
+                shared_packages,
+                format_dto,
+                wanted=wanted,
+            )
+    if modules is None and shared_dir is not None:
         out += _declared_files(app, shared_dir)
     return out
 
@@ -782,9 +794,9 @@ def _consumer_plan(
     return [Generated(f.path, f.content, f.code, f.problems, f.remove) for f in files]
 
 
-def _ensure_package(directory: Path, shared_dir: Path) -> None:
+def _ensure_package(directory: Path, shared_dir: Path | None) -> None:
     """``__init__.py`` in the shared package and its ``contracts`` package."""
-    for package in (shared_dir, directory):
+    for package in (directory,) if shared_dir is None else (shared_dir, directory):
         init = package / "__init__.py"
         if package.is_dir() and not init.exists():
             init.write_text(
@@ -841,7 +853,7 @@ def _why_stale(item: Generated) -> str:
     return f"({state}){_consumer_copies.explain_diff(item.current, item.content)}"
 
 
-def _write(item: Generated, shared_dir: Path) -> None:
+def _write(item: Generated, shared_dir: Path | None) -> None:
     item.path.parent.mkdir(parents=True, exist_ok=True)
     if item.path.suffix == ".py":
         _ensure_package(item.path.parent, shared_dir)
@@ -855,7 +867,7 @@ def apply(
     files: Iterable[Generated],
     *,
     write: bool,
-    shared_dir: Path,
+    shared_dir: Path | None,
     root: Path | None = None,
 ) -> int:
     """Fail on an incompatible change, writing nothing; then write the stale

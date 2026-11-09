@@ -100,10 +100,13 @@ MODULE_ENV: dict[str, tuple[str, ...]] = {
     "sandloom_billing": (
         "# billing refuses the fake PSP in prod: the operator must choose.",
         "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
-        "fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod "
-        "for demos)}",
+        "fake with SANDLOOM_ACCEPTED_RISKS="
+        "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
         "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
         "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+        "# Past-due policy: billing's setting (other services read it through the",
+        "# access fact billing describes, never from their own environment).",
+        "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
     ),
 }
 
@@ -190,12 +193,15 @@ class Project:
         else:
             # A tree of module distributions: each module's own generated
             # copies too (ADR-0013 decision 1), where it has any.
-            dto_packages = [rules.shared_dto_package] + [
-                f"{rules.module_package(name)}._generated.contracts"
-                for name in (
-                    rules.business_modules() if rules.top_level_modules else []
-                )
-                if (rules.modules_path / name / "_generated" / "contracts").is_dir()
+            dto_packages = [
+                *([rules.shared_dto_package] if rules.shared_dto_package else []),
+                *[
+                    f"{rules.module_package(name)}._generated.contracts"
+                    for name in (
+                        rules.business_modules() if rules.top_level_modules else []
+                    )
+                    if (rules.modules_path / name / "_generated" / "contracts").is_dir()
+                ],
             ]
             app_env.append(("CONTRACT_DTO_PACKAGES", f"'{json.dumps(dto_packages)}'"))
             if (root / top / "asgi.py").is_file():

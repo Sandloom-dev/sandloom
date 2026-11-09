@@ -1,5 +1,5 @@
 """The static settings gate (ADR-0015 decision 7, KB-56; scenarios P6 and P9 of
-alternatives-d §11, owner answers #25, #26, #30).
+design/kernel-boundary/_archive/alternatives-d-settings.md §11, owner answers #25, #26, #30).
 
 Each test writes small module packages and compose profiles into ``tmp_path``
 and runs the gate over them: nothing here boots an application.

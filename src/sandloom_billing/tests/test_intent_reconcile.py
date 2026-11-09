@@ -564,15 +564,15 @@ async def test_reconcile_task_body_reports_counts(
     catalog: dict[str, Any],
     fake_psp: Any,
     monkeypatch: pytest.MonkeyPatch,
+    billing_config: Any,
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
     """The task body (what ``run_async`` drives in the worker) uses billing's
     PSP client and the settings' threshold."""
-    from sandloom.sdk.infra import settings
     from sandloom_billing import tasks
 
     await _abandoned_pending(async_client, catalog, fake_psp, monkeypatch, sessions)
-    monkeypatch.setattr(settings, "billing_intent_reconcile_after_minutes", 30)
+    billing_config(billing_intent_reconcile_after_minutes=30)
     async with sessions() as db:
         await db.execute(
             update(OperationIntent).values(

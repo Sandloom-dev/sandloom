@@ -48,7 +48,6 @@ from sandloom.core.config.database import DatabaseConfig
 from sandloom.core.config.eventing import EventingConfig
 from sandloom.core.config.http import HttpConfig
 from sandloom.core.config.infra import InfraConfig
-from sandloom.core.config.modules import ModulesConfig
 from sandloom.core.config.observability import ObservabilityConfig
 from sandloom.core.config.password_params import (
     PasswordHashParams,
@@ -159,7 +158,6 @@ def database_url_problem(name: str, value: str) -> str | None:
 
 class Settings(
     ObservabilityConfig,
-    ModulesConfig,
     HttpConfig,
     RpcConfig,
     AuthConfig,
@@ -687,44 +685,6 @@ class Settings(
                 "reset and verification links would land in the logs. Unset it, "
                 'or accept the risk: SANDLOOM_ACCEPTED_RISKS=["log_links_in_prod"]'
             )
-        return self
-
-    @model_validator(mode="after")
-    def _billing_requirements(self) -> Settings:
-        """Fail fast when Stripe is selected but its keys are missing.
-
-        A misconfigured billing provider must not surface only at the first
-        webhook/charge in production — it aborts startup instead.
-        """
-        if (
-            self.environment == Environment.prod
-            and self.billing_provider == "fake"
-            and "billing_provider" in self.model_fields_set
-            and not self.accepts_risk("fake_psp_in_prod")
-        ):
-            # Only an EXPLICIT fake selection is rejected here: the kernel names
-            # no business module, so a deployment without billing keeps the
-            # field's default. The billing module's critical startup check
-            # rejects the implicit default when billing is actually loaded.
-            raise ValueError(
-                "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: use "
-                "BILLING_PROVIDER=stripe (with STRIPE_SECRET_KEY and "
-                "STRIPE_WEBHOOK_SECRET) or, for a demo stack, "
-                'SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]'
-            )
-        if self.billing_provider == "stripe":
-            missing = [
-                name
-                for name, val in {
-                    "STRIPE_SECRET_KEY": self.stripe_secret_key,
-                    "STRIPE_WEBHOOK_SECRET": self.stripe_webhook_secret,
-                }.items()
-                if not val
-            ]
-            if missing:
-                raise ValueError(
-                    f"BILLING_PROVIDER=stripe requires variables: {', '.join(missing)}"
-                )
         return self
 
     @model_validator(mode="after")

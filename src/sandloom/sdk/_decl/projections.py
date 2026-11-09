@@ -325,9 +325,10 @@ class Projection:
                 "without it cannot be ordered against the stored row",
                 "consume this source with a hand-written @on consumer that "
                 "re-reads the owner's state when the version is absent (for "
-                "tenancy.member_*.v1: member_event_action from "
-                "sandloom.shared.membership), or project an event whose "
-                "version is required (docs: modules/between/projections.md)",
+                "tenancy.member_*.v1: the ordering rule in the event "
+                "descriptions, `sandloom docs tenancy.member_added.v1`), or "
+                "project an event whose version is required (docs: "
+                "modules/between/projections.md)",
             )
 
     # -- the L2 form ------------------------------------------------------------

@@ -358,7 +358,7 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
     env = {
         "ENVIRONMENT": "prod",
         "JWT_SECRET": _STRONG,
-        "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
+        "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
         "SANDLOOM_SERVICE_NAME": "api",  # prod's Streams bus (ADR-0012 d. 5)
     }
     problem = tokens.token_signing_problem
@@ -375,7 +375,10 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
     )
     assert "split" in str(problem(issuer_loaded=True, cfg=bound))
     opted_out = _role_cfg(
-        **{**env, "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod,shared_hs_secret_split"}
+        **{
+            **env,
+            "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod,shared_hs_secret_split",
+        }
     )
     assert problem(issuer_loaded=False, cfg=opted_out) is None
     # Outside prod the shared secret stays the default.

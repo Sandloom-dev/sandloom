@@ -195,7 +195,8 @@ def Contract(ref: ContractRef[P], *, optional: bool = False) -> P | OptionalCont
         raise ContractDefinitionError(
             f"Contract() expects a generated ContractRef, not {ref!r}",
             fix="import the reference from the generated stub, e.g. "
-            "from sandloom.shared.contracts.stats_quota_v1 import STATS_QUOTA_V1",
+            "from <module>._generated.contracts.stats_quota_v1 import STATS_QUOTA_V1 "
+            "(an application: <app>.shared.contracts)",
         )
     if optional:
         caller: OptionalContract[P] = OptionalContract.__new__(OptionalContract)

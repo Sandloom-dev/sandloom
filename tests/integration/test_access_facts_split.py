@@ -17,6 +17,7 @@ consumer — the review found the consumer answered ``500 fact_unregistered``.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,10 +31,12 @@ from sandloom.core.contract_testing import rpc_settings
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import proxy as rpc_proxy
+from sandloom.sdk.testing import override_settings
 from sandloom.shared.authz import Account, Entitled, Subscribed
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.results import AccessDecision
 from sandloom.shared.subject import UserContext
+from sandloom_billing.config import BillingSettings
 
 pytestmark = pytest.mark.asyncio
 
@@ -135,7 +138,21 @@ def _consumer(bindings: dict[str, Any]) -> CoreFacade:
 
 
 @pytest.fixture
-def split(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+def billing_config() -> Iterator[Callable[..., None]]:
+    """``billing_config(billing_deny_on_past_due=True)``: billing's declared
+    settings (ADR-0015) for the rest of the test; calls nest."""
+    with ExitStack() as stack:
+
+        def _set(**values: Any) -> None:
+            stack.enter_context(override_settings(BillingSettings, **values))
+
+        yield _set
+
+
+@pytest.fixture
+def split(
+    monkeypatch: pytest.MonkeyPatch, billing_config: Callable[..., None]
+) -> Iterator[dict[str, Any]]:
     from sandloom.core.config.settings import settings
 
     # The owner process is keyed as ``billing``; it admits ``tenancy``'s calls.
@@ -144,7 +161,7 @@ def split(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
     )
     for name, value in owner_keys.items():
         monkeypatch.setattr(settings, name, value)
-    monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
+    billing_config(billing_deny_on_past_due=False)
     STATE.clear()
     STATE["active"] = {}
     owner_app, owner = _owner()
@@ -211,11 +228,9 @@ async def test_entitled_subscription_same_decision_in_split(
 
 
 async def test_owner_settings_drive_the_remote_claim_rule(
-    split: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    split: dict[str, Any], billing_config: Callable[..., None]
 ) -> None:
-    from sandloom.core.config.settings import settings
-
-    monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
+    billing_config(billing_deny_on_past_due=True)
     split["consumer"].remote_access_fact_cache.clear()
     subject = _subject(**MINTED, subscription_status="past_due")
     mono, remote = await _both(split, Entitled("subscription.active"), subject)

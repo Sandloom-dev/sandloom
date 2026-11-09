@@ -1,5 +1,6 @@
 """Namespaced accepted risks across processes (ADR-0015 decision 4, KB-51;
-scenarios P3 and P4 of alternatives-d §11, owner answers #27, #28).
+scenarios P3 and P4 of
+design/kernel-boundary/_archive/alternatives-d-settings.md §11, owner answers #27, #28).
 
 Real processes, an empty working directory and an explicit environment, as in
 ``test_module_settings_fixture.py``. The deployment is one image: every

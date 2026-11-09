@@ -34,7 +34,7 @@ x-app-env: &app-env
   SMTP_FROM: ${SMTP_FROM:-}
   SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
   # billing refuses the fake PSP in prod: choose explicitly.
-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=fake_psp_in_prod for demos)}
+  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=billing.fake_psp_in_prod for demos)}
   # The weaker guarantees this stack accepts (logged at every start).
   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}

@@ -30,7 +30,7 @@ _BASE_ENV = {
 _PROD_ENV = {
     "ENVIRONMENT": "prod",
     "JWT_SECRET": "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b",
-    "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
+    "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
 }
 #: A hash made with today's (``strong``) parameters by the former passlib setup.
 STRONG_HASH_OF_X = (
@@ -133,7 +133,7 @@ def test_prod_accepts_presets_and_the_explicit_opt_out(
     weak = _settings(
         **{
             **_PROD_ENV,
-            "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod,weak_password_hash",
+            "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod,weak_password_hash",
         },
         PASSWORD_HASH_PROFILE="owasp_min",
         PASSWORD_HASH_TIME_COST=1,

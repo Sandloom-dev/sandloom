@@ -3,7 +3,8 @@
 tm `kb-adversarial` (parent `kb-assess`). Reviews the four alternatives files against
 [requirements.md](requirements.md) (invariants I-01..I-24, hard constraints H-1..H-20, scenarios
 of §5), [goals.md](goals.md) and [owner-answers.md](owner-answers.md) ("answer #n"). It decides
-nothing; the ADRs decide after the PoCs.
+nothing; the ADRs decide after the PoCs. Citations by short name (`alternatives-c §2.2`,
+`research-trust e-5`) point into [`_archive/`](_archive/README.md).
 
 | alternatives file | favoured there | reviewed in |
 |---|---|---|
@@ -14,11 +15,11 @@ nothing; the ADRs decide after the PoCs.
 
 **Method.** Phase 1, blind to the earlier proposals: requirements, goals, owner answers, the four
 files, the evidence they cite (baseline, guarantee-map, validation, perf-dx-baseline,
-research-*.md) and the code. Every alternative was read for invariant and hard-constraint
+`_archive/research-*.md`) and the code. Every alternative was read for invariant and hard-constraint
 violations, counterexamples from the §5 scenarios, hidden mechanisms and states, claims without
 evidence, and cross-decision conflicts. The favoured option of each decision was attacked
 hardest. Phase 2, after phase 1 was written down: [roadmap-review.md](roadmap-review.md),
-`_inputs/chatgpt-roadmap-v2.md` and the scratch proposals `target-architecture.md`,
+`_archive/_inputs/chatgpt-roadmap-v2.md` and the scratch proposals `target-architecture.md`,
 `codex-review.md`, `reconciled.md` (§7).
 
 **Code read** at `arch/kernel-boundary` HEAD `ceb3d66`; `git diff --stat 44451e4 ceb3d66 -- src`
@@ -183,7 +184,7 @@ flags only) [read], so TA-1's trusted view needs no RPC change.
 ## 7. The earlier proposals against the alternatives
 
 Sources: `target-architecture.md` (TA), `codex-review.md` (CX), `reconciled.md` (RC),
-`_inputs/chatgpt-roadmap-v2.md` (GPT), [roadmap-review.md](roadmap-review.md) (RR). "Evidence"
+`_archive/_inputs/chatgpt-roadmap-v2.md` (GPT), [roadmap-review.md](roadmap-review.md) (RR). "Evidence"
 means the owner's answers, the probes and the code, in that order.
 
 | # | topic | earlier proposal | alternatives | evidence supports |
@@ -303,8 +304,8 @@ Latency threshold (I-14 part 4, with a quieter bench).
 - Alternatives: the four files above at `ceb3d66`.
 - Evidence cited through them: [baseline.md](baseline.md), [guarantee-map.md](guarantee-map.md),
   [validation.md](validation.md) §1, [perf-dx-baseline.md](perf-dx-baseline.md),
-  [research-trust.md](_archive/research-trust.md) §5-§6, research-authz-portability.md,
-  research-settings.md.
+  [research-trust.md](_archive/research-trust.md) §5-§6, [research-authz-portability.md](_archive/research-authz-portability.md),
+  [research-settings.md](_archive/research-settings.md).
 - Code read in this pass: `main.py:1-48`; `core/composition.py:24-27`, `:55-85`;
   `deploy/docker/Dockerfile:30-32`; `deploy/compose/microservices.yml:91-96`;
   `core/facade/_claims.py:240-417`; `core/facade/_runtime.py:41-49`;
@@ -316,5 +317,5 @@ Latency threshold (I-14 part 4, with a quieter bench).
   `core/cli/dto_copies.py:405-440`; `core/cli/security.py:54-110`; `src/sandloom/__init__.py:88-147`;
   `sandloom_billing/psp/__init__.py:45-80`; grep of `deny_on_past_due`; `docs/adr/0010-public-api-1.0.md:50-62`,
   `:300-312`; `poc/replace/app/pocapp/modules/*/__init__.py`.
-- Phase 2: [roadmap-review.md](roadmap-review.md) §1, §3-§5; `_inputs/chatgpt-roadmap-v2.md` §3.3,
+- Phase 2: [roadmap-review.md](roadmap-review.md) §1, §3-§5; `_archive/_inputs/chatgpt-roadmap-v2.md` §3.3,
   §4-§8, §11, §16.3, §17; scratch `target-architecture.md` §8, `codex-review.md`, `reconciled.md`.

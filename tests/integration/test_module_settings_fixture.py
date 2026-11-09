@@ -1,6 +1,6 @@
 """A module outside ``src/`` declares its settings and gets the kernel's
 guarantees (ADR-0015, KB-50; scenarios P1, P2, P5, P7, P15 of
-alternatives-d §11).
+design/kernel-boundary/_archive/alternatives-d-settings.md §11).
 
 The fixture modules live in ``tests/fixtures/settings_modules`` and load by
 ``SANDLOOM_MODULES`` with that directory on ``PYTHONPATH``. Real processes,

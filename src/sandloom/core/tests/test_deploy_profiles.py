@@ -103,7 +103,7 @@ SHELL = {
     "BILLING_PROVIDER": "fake",
     # A demo stack: the default log notifier stands in for mail delivery,
     # which identity and tenancy require (notification + email).
-    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod,log_notifier_in_prod",
+    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod",
 }
 
 
@@ -187,7 +187,7 @@ def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
         "NOTIFIER_BACKEND": "smtp",
         "SMTP_HOST": "smtp.example.test",
         "SMTP_FROM": "noreply@example.test",
-        "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod",
+        "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod",
     }
     for name, svc in _load(profile)["services"].items():
         if "SANDLOOM_MODULES" not in (svc.get("environment") or {}):
@@ -214,7 +214,9 @@ def test_every_process_env_validates(
             env = svc["environment"]
             assert "SANDLOOM_ACCEPTED_RISKS" in env, name
             if "sandloom_billing" in cfg.sandloom_modules:
-                assert cfg.accepts_risk("fake_psp_in_prod"), name
+                # a module risk is billing's own (ADR-0015): the id is accepted
+                # in the list the loader classifies, not by a kernel check
+                assert "billing.fake_psp_in_prod" in cfg.sandloom_accepted_risks, name
             if "sandloom_identity" in cfg.sandloom_modules:
                 # identity refuses to start in prod without a dedicated key.
                 assert ":?" in env.get("TWOFA_ENCRYPTION_KEY", ""), name
@@ -300,7 +302,6 @@ PARITY_KEYS = (
     "ACCESS_TOKEN_EXPIRE_MINUTES",
     "INTERNAL_API_TOKEN",
     "FRONTEND_URL",
-    "BILLING_DENY_ON_PAST_DUE",
     "NOTIFIER_BACKEND",
     "SMTP_HOST",
     "SMTP_PORT",
