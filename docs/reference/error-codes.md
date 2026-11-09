@@ -92,7 +92,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B031`](#sandloom-b031) | `read-only-sessions-unguarded` | boot | DB_READ_ONLY_SESSIONS=true on a default database that has neither read-only transactions nor a client read-only policy for its DBAPI | active |
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
 | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
-| [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
+| [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or an access-bearing contract it is not the provider of, or one of them is registered outside a module's registration | active |
 | [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (no map with an issuer loaded, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer field given to another module, an issuer mismatch) | active |
 | [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
 | [`SANDLOOM-B037`](#sandloom-b037) | `capability-unavailable` | boot | a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import) | active |
@@ -1338,7 +1338,7 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
 
 ### SANDLOOM-B034
 
-**a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration**
+**a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or an access-bearing contract it is not the provider of, or one of them is registered outside a module's registration**
 
 Slug: `foreign-owner-registration` · kind: boot · status: active
 
@@ -1357,7 +1357,20 @@ the boot. Over RPC a consumer reads facts from the &lt;m>.facts.v1 binding and
 drops, with a logged SANDLOOM-B034 warning, any fact described under
 another owner_module.
 
-**Fix:** register the fact, contributor or contract from the module whose short name it carries (its register() or setup=); give an access fact the registering module as owner_module and drop owner= that names another module
+A contract that decides access is access-bearing: a key of
+create_app(access_providers=...), or the contract a bound live adapter asks
+(OrgRole asks tenancy.membership.v1; SubscriptionActive and Credits ask
+billing.entitlements.v1; a custom adapter its own). It is registered
+in-process only by the module its first segment names (from its installed
+distribution when one provides a module of that name) or by the module the
+composition root assigns, both checked by import path: an app module named
+like the assigned or the first-segment module is not it. Anyone else refuses
+that module's load; a registration a later adapter classifies refuses the
+boot. In a split deployment the SERVICE_BINDINGS entry, pinned to the
+provider's service_id, is the assignment. Every other contract name keeps the
+first-registrant rule.
+
+**Fix:** register the fact, contributor or contract from the module whose short name it carries (its register() or setup=); give an access fact the registering module as owner_module and drop owner= that names another module; to serve another module's access-bearing contract, assign it in the composition root: create_app(access_providers={contract: module})
 
 **More:** `docs/advanced/security-model.md`
 
