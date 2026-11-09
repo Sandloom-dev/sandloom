@@ -129,8 +129,9 @@ BOARD = Projection(
   (views of them in your module): they carry `tenant_id` and a required
   per-membership `version`. A source with no version at all needs a
   hand-written `@on` consumer that re-reads the owner's state through its
-  contract (the v1 member channels: `member_event_action` from
-  `sandloom.shared.membership`), and `rebuild_from=` for a rebuild.
+  contract (for the v1 member channels `sandloom docs
+  tenancy.member_added.v1` states the ordering rule), and `rebuild_from=` for a
+  rebuild.
 
 `sandloom add projection <module> <name>` writes the projection, its model and the
 migration. See [Add a projection](add-projection.md).

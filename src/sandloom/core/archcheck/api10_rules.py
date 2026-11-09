@@ -31,6 +31,7 @@ C027   ``account-route-mismatch``   error    an organization route gating billin
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -42,6 +43,7 @@ from sandloom.core.archcheck.analyzers import (
     parse_file,
     read_source,
 )
+from sandloom.core.descriptors.module_names import installed_modules
 
 Hit = tuple[Path, str]
 
@@ -797,6 +799,29 @@ def _view_names_in(file: Path, views: list[EventClass]) -> set[str]:
     return names
 
 
+def _installed_snapshot_schema(channel: str) -> dict[str, object] | None:
+    """The producer's schema of ``channel`` from the ``module.snapshot.json`` of
+    the installed module whose ``sandloom.modules`` entry point is the channel's
+    first segment (the package is located, not imported)."""
+    module = channel.split(".", 1)[0]
+    for installed in installed_modules():
+        if installed.name != module:
+            continue
+        try:
+            spec = importlib.util.find_spec(installed.path)  # located, not imported
+        except (ImportError, ValueError):
+            continue
+        locations = spec.submodule_search_locations if spec else None
+        snapshot = (
+            Path(next(iter(locations))) / "module.snapshot.json" if locations else None
+        )
+        if snapshot is not None and snapshot.is_file():
+            events = json.loads(snapshot.read_text(encoding="utf-8")).get("events")
+            schema = (events or {}).get(channel)
+            return schema if isinstance(schema, dict) else None
+    return None
+
+
 def _view_problems(
     view: EventClass, producers: dict[str, EventClass], exported: Path | None
 ) -> list[tuple[str, Path, str]]:
@@ -806,17 +831,22 @@ def _view_problems(
         problems = _compare_with_class(view, producer)
     else:
         schema_file = exported / f"{view.channel}.json" if exported else None
-        if schema_file is None or not schema_file.is_file():
+        schema: dict[str, object] | None = None
+        if schema_file is not None and schema_file.is_file():
+            schema = json.loads(schema_file.read_text(encoding="utf-8"))
+        else:
+            schema = _installed_snapshot_schema(view.channel)
+        if schema is None:
             return [
                 (
                     "warning",
                     view.file,
                     f"Line {line}: view {view.node.name} of {view.channel!r} is "
-                    "unverified: no producer in this tree and no exported schema "
-                    "— run the producer's `sandloom test` to export it",
+                    "unverified: no producer in this tree, no exported schema and "
+                    "no installed producer snapshot — install the producer, or run "
+                    "its `sandloom test` to export the schema",
                 )
             ]
-        schema = json.loads(schema_file.read_text(encoding="utf-8"))
         problems = _compare_with_schema(view, schema)
     return [
         (

@@ -41,7 +41,7 @@ their operation key and are **not** atomic with the caller's transaction.
 
 These modules talk to each other only through versioned events and service
 contracts — never direct imports — exactly like the
-[isolation rules](../index.md) require. Your app calls their
-contracts through their stubs in `sandloom.shared.contracts` (shipped with
-`sandloom`, with the generated copies of their contract DTOs; `sandloom
-generate` also writes stubs and copies into the app's shared package).
+[isolation rules](../index.md) require. Your code calls their
+contracts through the stubs `sandloom generate` writes from the providers,
+with the copies of their contract DTOs: into your module's `_generated/`
+package, or into the app's shared package. `sandloom` itself ships none.

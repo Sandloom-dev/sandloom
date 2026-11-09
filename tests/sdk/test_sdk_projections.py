@@ -288,7 +288,9 @@ def test_a_source_names_its_tenant_field() -> None:
 
 
 def test_an_optional_version_is_refused_with_the_alternative() -> None:
-    with pytest.raises(ProjectionDefinitionError, match="member_event_action"):
+    with pytest.raises(
+        ProjectionDefinitionError, match="ordering rule in the event descriptions"
+    ):
         Projection(
             "sdkfix.members_loose",
             key=("tenant_id", "note_id"),

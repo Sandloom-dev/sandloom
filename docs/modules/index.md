@@ -61,8 +61,9 @@ A business module and its tests import only:
 - public `sandloom.sdk` modules: the beginner names from `sandloom.sdk`, every other
   name from its themed module (`sandloom.sdk.web`, `sandloom.sdk.data`, ...; see the
   [Python API](../reference/sdk/index.md));
-- generated contract stubs and DTO copies (`sandloom.shared.contracts.*`, or
-  the application's shared package `<app>.shared` / `CONTRACT_DTO_PACKAGES`);
+- generated contract stubs and DTO copies (the module's own
+  `<module>._generated.contracts.*`, or the application's shared package
+  `<app>.shared` / `CONTRACT_DTO_PACKAGES`);
 - its own package.
 
 A module never imports another business module (an installed module package

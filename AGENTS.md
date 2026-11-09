@@ -50,8 +50,10 @@ uv run sandloom test --full                      # once per wave (the orchestrat
 
 - `tests/architecture/_fixtures/*.py.txt` — deliberately broken modules the
   analyzer self-tests scan (data, not importable, never shipped).
-- `sandloom/shared/contracts/*.py` (stubs, `*_dto.py` DTO copies), `sandloom/shared/events/*.json`
-  and each `module.snapshot.json` are written by `sandloom generate`: never hand-edit them.
+- each module's `_generated/contracts/*` (stubs, `*_dto.py` DTO copies, `*.describe.json`
+  expectations), an app's `<app>/shared/contracts/*` and `shared/events/*.json`, and each
+  `module.snapshot.json` are written by `sandloom generate`: never hand-edit them. The kernel
+  ships no generated file (`sandloom/shared` holds `authz`, `guards`, `subject.py` only).
 - `FakeStripeClient` is the default PSP outside prod and rejects unsigned webhooks (sign
   test payloads with `sandloom_billing.psp.sign_stripe_payload`).
 

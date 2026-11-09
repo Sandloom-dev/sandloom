@@ -4,8 +4,8 @@ Events carry no PII (a user is a ``user_id``), so a module that must write
 to a user — a welcome email, a receipt, an invitation reminder — asks
 identity at send time through ``identity.contact.v1`` instead of copying the
 address into its own tables or editing identity. Callers import the
-generated copy (``sandloom.shared.contracts.identity_dto``), written by
-``sandloom generate``.
+generated copy (``identity_dto``, written by ``sandloom generate`` into the
+consuming module), never this module.
 """
 
 from __future__ import annotations

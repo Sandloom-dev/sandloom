@@ -7274,20 +7274,21 @@ capabilities:
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_event_appends_and_refuses_an_unparsable_file
 - id: C-GEN-03
-  statement: 'sandloom add contract writes the provider in contracts.py and its DTO in the module''s own
-    schemas (the provider authors its DTOs; a second contract of the module joins the same schemas import), and
-    writes the stub and the DTO copy at once exactly as sandloom generate renders them (so a saga or caller in
-    the same scaffold boots); a generated stub imports ContractRef and a DTO copy imports dto_copy by where it is written: in an
-    application''s shared package from the public sandloom.sdk.contracts with the `# sandloom: advanced` marker
-    (no sandloom.core import), in the framework''s own sandloom.shared (kernel, which never imports sandloom.sdk,
-    ADR-0010) from the kernel home sandloom.core.descriptors.contract_refs; it names the generated DTO copies,
-    passes its Protocol, and is ruff format clean.'
+  statement: '`sandloom add contract` writes the provider in `contracts.py` and its DTO in the module''s own `schemas`
+    (the provider authors its DTOs; a second contract of the module joins the same `schemas` import), and
+    writes the stub and the DTO copy at once exactly as `sandloom generate` renders them (so a saga or
+    caller in the same scaffold boots), into the consuming package''s generated home:
+    `<module>/_generated/contracts/` for a module, `<app>.shared/contracts/` for an application. A generated
+    stub imports `ContractRef` and a DTO copy imports `dto_copy` from the public `sandloom.sdk.contracts`
+    with the `# sandloom: advanced` marker and no `sandloom.core` import, wherever it is written; the kernel
+    ships no generated stub or DTO copy. The stub names the generated DTO copies, passes its Protocol, and
+    is ruff format clean.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.9 Generators
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_contract_writes_the_generated_stub
   - tests/sdk/test_sdk_generated.py::test_a_generated_stub_is_ruff_formatted
-  - tests/sdk/test_sdk_generated.py::test_the_framework_tree_stubs_keep_the_kernel_home
+  - tests/sdk/test_sdk_generated.py::test_the_kernel_holds_no_generated_file
   - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
 - id: C-GEN-04
   statement: 'sandloom add consumer writes a view from the producer schema (the tree or the exported file);
