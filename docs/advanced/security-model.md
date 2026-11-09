@@ -334,8 +334,8 @@ that is outside the threat model.
 The names in provenance are tied to the module that registers. Claims
 contributors and access facts are accepted only under the short name of the
 module being registered. So are the contracts named after a module
-(`<m>.claims.v1`, `<m>.facts.v1`, and the operator contract
-`<m>.security.v1`). Another module's name refuses the boot
+(`<m>.claims.v1`, `<m>.facts.v1`); the operator contract `<m>.security.v1`
+is reserved the same way. Another module's name refuses the boot
 (`SANDLOOM-B034`), and so does a registration made outside a module's
 registration. Without this rule, a module could answer another module's facts
 or write claims in its name.
