@@ -2012,6 +2012,7 @@ guarantees:
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_issuer_session
   - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_the_facade_behind_the_runtime
   - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
   - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
   - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
   - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
@@ -2871,7 +2872,12 @@ guarantees:
     failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503, absent otherwise
     (unassigned / unvouched by the view, no source wrote it, no provenance) or not a string 501
     access_unknown; Not, Or and And never allow on any of these. The default path is unchanged (a status
-    billing did not vouch for is asked live, 503 without a live check).
+    billing did not vouch for is asked live, 503 without a live check). Amended 2026-11-09 (KB-33f), the
+    default path shares the view's row with zero I/O, before the fact is looked up; removed as outdated /
+    mismatch it is 401 token_policy_outdated / 503 claims_policy_mismatch, no longer the 402 that Not turned
+    into an allow; a value the view removed although billing vouched for the token is 501 access_unknown;
+    billing failed at the mint is still asked live (503 without a live check), and otherwise billing's
+    rule reads the claim (an absent one from a billing that ran is its 402).
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
@@ -2894,6 +2900,7 @@ guarantees:
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_escalates_when_billing_failed
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator

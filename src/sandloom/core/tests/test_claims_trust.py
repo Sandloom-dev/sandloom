@@ -1,12 +1,13 @@
 """Claim authorities: the mint check, the violator rule and the startup
 refusals (ADR-0014 decisions 1, 2 and 7; SANDLOOM-B035).
 
-Kernel-only: the modules are fake import paths (``acme.*``) registered on a
-facade with fake databases, so no battery is needed and no I/O happens. The
-claim atoms ``Feature`` / ``WithinLimit`` are the ones ``sandloom generate``
-writes beside a consumer's stub of a fixture plans contract
-(``acme.plans.v1``, declared as billing declares them; ADR-0014 decision
-15). The running-process rows (T-1..T-8, mono and split) are in
+The modules are fake import paths (``acme.*``) registered on a facade with
+fake databases, so no I/O happens. The claim atoms ``Feature`` /
+``WithinLimit`` are the ones ``sandloom generate`` writes beside a consumer's
+stub of a fixture plans contract (``acme.plans.v1``, declared as billing
+declares them; ADR-0014 decision 15); ``Subscribed`` is billing's generated
+atom (its stub rendered from billing's contract, its fact registered
+locally, nothing called). The running-process rows (T-1..T-8, mono and split) are in
 ``tests/integration/replaceability/test_trust_rows.py``.
 """
 
@@ -57,12 +58,13 @@ from sandloom.shared.authz import (
     Not,
     Or,
     Role,
-    Subscribed,
     access_check,
     claim_atom,
 )
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
+from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
+from sandloom_billing.contracts import EntitlementsContract
 
 ACME_ID = "acme.modules.acme_identity"
 IDP = "acme.idp"
@@ -1083,34 +1085,53 @@ async def test_a_split_verifier_without_the_authority_is_indeterminate(
 # SEC-3: Subscribed / Feature / WithinLimit honour the view's 401 / 503
 # --------------------------------------------------------------------------- #
 
-#: (the atom over the generated module, the claim key it reads). Feature and
-#: WithinLimit are the generated atoms. Subscribed is still the kernel atom
-#: here: the generated ``Subscribed`` (a ``ClaimFactCheck``) does not honour
-#: the view's 401 / 503 yet (it denies 402, so ``Not`` allows); its rows
-#: move once it does (KB-34b handover).
-CLAIM_ATOMS: list[tuple[Callable[[Any], Any], str]] = [
-    (ATOMS["Feature"], "features"),
-    (ATOMS["WithinLimit"], "limits"),
-    (lambda _g: Subscribed(of=Account.user()), "subscription_status"),
+
+@pytest.fixture(scope="module")
+def billing_gen(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
+    """Billing's generated atoms (``billing.entitlements.v1``), imported as a
+    consumer imports them: ``Subscribed`` is a ``ClaimFactCheck``."""
+    path = tmp_path_factory.mktemp("stub") / "billing_entitlements_v1.py"
+    path.write_text(render_stub("billing.entitlements.v1", EntitlementsContract))
+    spec = importlib.util.spec_from_file_location("_trust_billing_v1", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    yield module
+    sys.modules.pop(spec.name, None)
+
+
+#: (the atom over the generated modules, the claim key it reads): the
+#: generated atoms only. ``Subscribed`` is billing's generated atom on its
+#: default and its verbatim path (KB-33f: it answers the view's 401 / 503
+#: as the kernel atom did).
+CLAIM_ATOMS: list[tuple[Callable[[Any, Any], Any], str]] = [
+    (lambda g, _b: ATOMS["Feature"](g), "features"),
+    (lambda g, _b: ATOMS["WithinLimit"](g), "limits"),
+    (lambda _g, b: b.Subscribed(of=Account.user()), "subscription_status"),
     (
-        lambda _g: Subscribed(frozenset({"active"}), of=Account.user()),
+        lambda _g, b: b.Subscribed(frozenset({"active"}), of=Account.user()),
         "subscription_status",
     ),
 ]
 CLAIM_IDS = ["Feature", "WithinLimit", "Subscribed", "Subscribed-statuses"]
-#: The keys the generated claim atoms read: a claim the view removed is no
-#: source's word for them.
-GENERATED_KEYS = frozenset({"features", "limits"})
 
 
-def _viewed(key: str, reason: str) -> UserContext:
-    """A subject whose ``key`` the trusted view removed for ``reason``."""
-    return UserContext(
+def _viewed(key: str, reason: str) -> AuthzContext:
+    """A context whose ``key`` the trusted view removed for ``reason``; the
+    plans and billing authorities ran (billing's fact registered locally)."""
+    subject = UserContext(
         user_id=uuid4(),
-        claims_sources={"idp", "plans"},
+        claims_sources={"idp", "plans", "billing"},
         claims_sources_failed=set(),
         **{view.UNTRUSTED_KEY: {key: reason}},
     )
+    ctx: AuthzContext = _authz(subject)
+    core = ctx.core()
+    core.get_access_fact = lambda name: (
+        SUBSCRIPTION_ACTIVE_FACT if name == SUBSCRIPTION_ACTIVE_FACT.name else None
+    )
+    return ctx
 
 
 @pytest.mark.asyncio
@@ -1119,39 +1140,39 @@ def _viewed(key: str, reason: str) -> UserContext:
     ("reason", "status"), [(view.OUTDATED, 401), (view.MISMATCH, 503)]
 )
 async def test_a_claim_atom_honours_the_views_indeterminate(
-    gen: Any, atom: Callable[[Any], Any], key: str, reason: str, status: int
+    gen: Any,
+    billing_gen: Any,
+    atom: Callable[[Any, Any], Any],
+    key: str,
+    reason: str,
+    status: int,
 ) -> None:
     """The view removed the atom's key because the token predates the claim
     policy (one refresh fixes it) or issuer and verifier disagree: the atom
     answers that indeterminate, never a 402/403 for the token's life, and
     its negation never allows."""
-    ctx = _authz(_viewed(key, reason))
-    decision = await atom(gen).decide(ctx)
+    ctx = _viewed(key, reason)
+    decision = await atom(gen, billing_gen).decide(ctx)
     assert decision.indeterminate and decision.http_status == status
     assert decision.code == reason
-    negated = await Not(atom(gen)).decide(ctx)
-    assert not negated.allowed
+    negated = await Not(atom(gen, billing_gen)).decide(ctx)
+    assert not negated.allowed and negated.indeterminate
+    assert (negated.http_status, negated.code) == (status, reason)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("atom", "key"), CLAIM_ATOMS, ids=CLAIM_IDS)
 async def test_a_definite_untrusted_reason_never_allows(
-    gen: Any, atom: Callable[[Any], Any], key: str
+    gen: Any, billing_gen: Any, atom: Callable[[Any, Any], Any], key: str
 ) -> None:
     """An unassigned key, or one whose authority was absent at the mint (the
-    view's other reasons): for a generated claim atom nobody vouched for the
-    claim, 501 ``access_unknown`` (KB-33d); the kernel ``Subscribed`` denies
-    definitely, as before. Neither allows."""
-    generated = key in GENERATED_KEYS
+    view's other reasons), its authority otherwise vouching for the token:
+    nobody vouched for the claim, 501 ``access_unknown`` (KB-33d, KB-33e,
+    KB-33f), and its negation never allows."""
     for reason in (view.UNASSIGNED, view.SOURCE_ABSENT):
-        ctx = _authz(_viewed(key, reason))
-        decision = await atom(gen).decide(ctx)
-        assert not decision.allowed, reason
-        if generated:
-            assert _unknown(decision), reason
-            assert _unknown(await Not(atom(gen)).decide(ctx)), reason
-        else:
-            assert not decision.indeterminate, reason
+        ctx = _viewed(key, reason)
+        assert _unknown(await atom(gen, billing_gen).decide(ctx)), reason
+        assert _unknown(await Not(atom(gen, billing_gen)).decide(ctx)), reason
 
 
 # --------------------------------------------------------------------------- #

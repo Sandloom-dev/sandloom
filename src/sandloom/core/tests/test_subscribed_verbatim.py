@@ -17,9 +17,16 @@ amended by KB-33d):
 * a value that is not a string: 501 ``access_unknown``.
 
 ``Not``, ``Or`` and ``And`` never allow on an indeterminate, and no row asks
-a contract, a fact over RPC or the database. The default path (no
-``statuses=``) is unchanged: with billing failed at the mint it escalates to
-billing's live answer (503 without one), never a deny.
+a contract, a fact over RPC or the database.
+
+The default path (no ``statuses=``, ``ClaimFactCheck._via_fact``, KB-33f)
+shares the view's row with the same code path: removed as outdated /
+mismatch is 401 / 503 with zero I/O (no fact looked up), never the 402 that
+``Not`` turned into an allow (G-AUTH-23). With billing failed at the mint it
+escalates to billing's live answer (503 without one), never a deny; a value
+the view removed although billing vouched for the token is 501
+``access_unknown``; otherwise billing's rule reads the claim (a status
+present, or absent from a billing that ran: its "no", 402).
 """
 
 from __future__ import annotations
@@ -341,3 +348,200 @@ async def test_the_default_path_escalates_when_billing_failed(gen: Any) -> None:
         assert not decision.allowed and decision.indeterminate, decision
         assert decision.http_status == 503, decision
     assert "billing.entitlements.v1" in core.asked  # it went live, as before
+
+
+# --------------------------------------------------------------------------- #
+# The default path (no statuses=): the view's 401 / 503 first (KB-33f)
+# --------------------------------------------------------------------------- #
+
+ENTITLEMENTS = "billing.entitlements.v1"
+LIVE = "live"
+VIEW = "view"
+
+
+class _NoProvider(_NoIO):
+    """Billing's fact registered locally, no live provider bound: asking for
+    it is recorded (the live escalation) and answers "not deployed"."""
+
+    def get_service(self, name: str) -> Any:
+        self.asked.append(name)
+        raise ServiceUnavailableInDeployment(name)
+
+
+@pytest.fixture
+def counted(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Count the fact lookups and live resolutions (delegating to both)."""
+    calls = {"lookup": 0, "resolve": 0}
+    lookup, resolve = facts.lookup_access_fact, facts.resolve_fact
+
+    async def _lookup(*args: Any, **kwargs: Any) -> Any:
+        calls["lookup"] += 1
+        return await lookup(*args, **kwargs)
+
+    async def _resolve(*args: Any, **kwargs: Any) -> Any:
+        calls["resolve"] += 1
+        return await resolve(*args, **kwargs)
+
+    monkeypatch.setattr(facts, "lookup_access_fact", _lookup)
+    monkeypatch.setattr(facts, "resolve_fact", _resolve)
+    return calls
+
+
+#: row -> (subject, map, outcome over Subscribed(of=Account.user()), what it
+#: may ask). ``None``: nothing beyond the local fact registry; :data:`VIEW`:
+#: not even that (decided before the fact is looked up); :data:`LIVE`: the
+#: live escalation asks billing's provider (absent here: 503).
+DEFAULT_TABLE: dict[str, tuple[Any, dict[str, str] | None, Any, str | None]] = {
+    "present.active": (
+        lambda: _subject(failed=set(), status="active"),
+        MAP,
+        ALLOW,
+        None,
+    ),
+    "present.trialing": (
+        lambda: _subject(failed=set(), status="trialing"),
+        MAP,
+        ALLOW,
+        None,
+    ),
+    "present.canceled": (
+        lambda: _subject(failed=set(), status="canceled"),
+        MAP,
+        DENY,
+        None,
+    ),
+    "present.none": (lambda: _subject(failed=set(), status="none"), MAP, DENY, None),
+    "present.legacy": (lambda: _subject(status="active"), MAP, ALLOW, None),
+    "present.other_source_failed": (
+        lambda: _subject(failed={"rogue"}, status="active"),
+        MAP,
+        ALLOW,
+        None,
+    ),
+    "absent.authority_ran": (lambda: _subject(failed=set()), MAP, DENY, None),
+    "absent.other_source_failed": (
+        lambda: _subject(failed={"rogue"}),
+        MAP,
+        DENY,
+        None,
+    ),
+    "failed": (
+        lambda: _subject(failed={"billing"}),
+        MAP,
+        (503, "claim_unverifiable"),
+        LIVE,
+    ),
+    "failed.no_map": (
+        lambda: _subject(failed={"billing"}),
+        None,
+        (503, "claim_unverifiable"),
+        LIVE,
+    ),
+    "failed.view_source_absent": (
+        lambda: _subject(failed={"billing"}, untrusted=view.SOURCE_ABSENT),
+        MAP,
+        (503, "claim_unverifiable"),
+        LIVE,
+    ),
+    "untrusted.outdated": (
+        lambda: _subject(failed=set(), untrusted=view.OUTDATED),
+        MAP,
+        (401, view.OUTDATED),
+        VIEW,
+    ),
+    "untrusted.mismatch": (
+        lambda: _subject(failed=set(), untrusted=view.MISMATCH),
+        MAP,
+        (503, view.MISMATCH),
+        VIEW,
+    ),
+    "untrusted.outdated.authority_failed": (
+        lambda: _subject(failed={"billing"}, untrusted=view.OUTDATED),
+        MAP,
+        (401, view.OUTDATED),
+        VIEW,
+    ),
+    "untrusted.mismatch.authority_failed": (
+        lambda: _subject(failed={"billing"}, untrusted=view.MISMATCH),
+        MAP,
+        (503, view.MISMATCH),
+        VIEW,
+    ),
+    "untrusted.outdated.legacy": (
+        lambda: _subject(untrusted=view.OUTDATED),
+        MAP,
+        (401, view.OUTDATED),
+        VIEW,
+    ),
+    "untrusted.unassigned": (
+        lambda: _subject(failed=set(), untrusted=view.UNASSIGNED),
+        UNASSIGNED_MAP,
+        (501, "access_unknown"),
+        None,
+    ),
+    "untrusted.source_absent": (
+        lambda: _subject(failed=set(), untrusted=view.SOURCE_ABSENT),
+        MAP,
+        (501, "access_unknown"),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("wrap", sorted(WRAPS))
+@pytest.mark.parametrize("row", sorted(DEFAULT_TABLE))
+async def test_the_default_path_answers_the_views_indeterminate(
+    gen: Any, counted: dict[str, int], row: str, wrap: str
+) -> None:
+    """Every row of the default read, bare and under Not / Or / And: the
+    view's outdated / mismatch is its 401 / 503 before the fact is looked
+    up, so ``~Subscribed(of=Account.user())`` never allows on an untrusted
+    claim; no row touches the database, and only the live escalation of a
+    failed billing asks billing's provider."""
+    subject, mapping, outcome, asks = DEFAULT_TABLE[row]
+    build, expect = WRAPS[wrap]
+    core = _NoProvider(mapping)
+    ctx = AuthzContext(subject(), core=core, db=_NoDB())  # type: ignore[arg-type]
+    decision = await build(gen.Subscribed(of=Account.user())).decide(ctx)
+    expected = expect(outcome)
+    if expected == ALLOW:
+        assert decision.allowed and not decision.indeterminate, decision
+    elif expected == DENY:
+        assert not decision.allowed and not decision.indeterminate, decision
+        if wrap == "bare":
+            assert (decision.http_status, decision.code) == (402, "Subscribed")
+    else:
+        status, code = expected
+        assert not decision.allowed and decision.indeterminate, decision
+        assert (decision.http_status, decision.code) == (status, code), decision
+    if asks == LIVE:
+        assert set(core.asked) <= {ENTITLEMENTS}, row
+        if wrap == "bare":
+            assert core.asked == [ENTITLEMENTS], row
+    else:
+        assert core.asked == [] and counted["resolve"] == 0, row
+    if asks == VIEW:
+        assert counted["lookup"] == 0, row
+
+
+async def test_the_reported_hole_is_closed(gen: Any, counted: dict[str, int]) -> None:
+    """KB-34b's report: the view removed ``subscription_status`` as outdated
+    or mismatch and ``~Subscribed(of=Account.user())`` allowed (a 402 that
+    ``Not`` inverted). Now the view's indeterminate, with zero I/O."""
+    for reason, status in ((view.OUTDATED, 401), (view.MISMATCH, 503)):
+        core = _NoProvider(MAP)
+        ctx = AuthzContext(_subject(failed=set(), untrusted=reason), core=core)
+        decision = await Not(gen.Subscribed(of=Account.user())).decide(ctx)
+        assert not decision.allowed and decision.indeterminate, reason
+        assert (decision.http_status, decision.code) == (status, reason)
+        assert decision.failed_requirement == "active subscription"
+        assert core.asked == [] and counted == {"lookup": 0, "resolve": 0}
+
+
+async def test_a_value_the_view_removed_names_the_claim(gen: Any) -> None:
+    ctx = AuthzContext(
+        _subject(failed=set(), untrusted=view.UNASSIGNED), core=_NoProvider(MAP)
+    )
+    decision = await gen.Subscribed(of=Account.user()).decide(ctx)
+    assert "'subscription_status' was removed by the trusted view" in decision.reason
+    assert decision.metadata == {"claim": KEY}
