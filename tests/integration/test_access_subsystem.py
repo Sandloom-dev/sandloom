@@ -108,8 +108,10 @@ async def test_subscribed_denies_with_payment_required(
     generated_atoms: SimpleNamespace,
 ) -> None:
     Subscribed = generated_atoms.Subscribed
+    # A status billing wrote and denies (an absent one is billing's 402 only
+    # when proven absent, KB-33g; this legacy token proves nothing).
     deny = await Subscribed(of=Account.user()).decide(
-        _ctx(_subject(), core=_billing_core())
+        _ctx(_subject(subscription_status="canceled"), core=_billing_core())
     )
     assert deny.category == Category.PAYMENT_REQUIRED
     assert deny.http_status == 402 and not deny.indeterminate
@@ -119,7 +121,7 @@ async def test_and_returns_first_failing_cheapest_first(
     generated_atoms: SimpleNamespace,
 ) -> None:
     Subscribed = generated_atoms.Subscribed
-    s = _subject(roles={"admin"})
+    s = _subject(roles={"admin"}, subscription_status="canceled")
     # Subscribed (claim, fails) is cheaper than nothing else; it should decide.
     decision = await (Subscribed(of=Account.user()) & Role("admin")).decide(
         _ctx(s, core=_billing_core())
