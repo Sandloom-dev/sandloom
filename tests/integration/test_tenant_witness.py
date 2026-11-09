@@ -17,16 +17,25 @@ from uuid import UUID, uuid4
 import pytest
 
 import sandloom.core.contract_compat as contract_compat
+from sandloom.core.app_factory.tenant_witness import REASON as WITNESS_REASON
+from sandloom.core.app_factory.tenant_witness import add_witness_consumes
 from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.config.settings import settings
+from sandloom.core.descriptors import (
+    ContractRequirement,
+    ModuleDescriptor,
+    ModuleLoadSummary,
+)
 from sandloom.core.di import bind_tenant
 from sandloom.core.facade._tenant_witness import (
     TenantWitness,
     bound_tenant_policies,
+    bound_tenant_routes,
     report,
     resolve_tenant_witness,
     witness_from_describe,
 )
+from sandloom.core.loader.manifest import AppManifest, module_manifest
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
 from sandloom.shared.authz import Account, OrgRole, PolicyIndeterminate, Role
 from sandloom.shared.authz import SubscriptionActive as KernelSubscriptionActive
@@ -453,3 +462,95 @@ async def test_a_bound_tenant_policy_without_a_witness_is_reported(
         report(core, WITNESS, "")
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert bound_tenant_policies(_app_with(Role("admin"))) == []
+
+
+# --------------------------------------------------------------------------- #
+# A bound_tenant() policy consumes the witness contract (KB-31b)
+# --------------------------------------------------------------------------- #
+def _composition(
+    policies: dict[str, Any], consumes: dict[str, list[Any]] | None = None
+) -> tuple[Any, ModuleLoadSummary]:
+    """An app mounting one router per module (under a prefix, as the loader
+    mounts a draft's router) and the load pass's summary and manifest."""
+    from fastapi import APIRouter, Depends, FastAPI
+
+    from sandloom.shared.authz import require
+
+    app = FastAPI()
+    summary = ModuleLoadSummary()
+    for module, policy in policies.items():
+        router = APIRouter()
+
+        @router.get("/items", dependencies=[Depends(require(policy))])
+        async def items() -> dict[str, str]:  # pragma: no cover - never served
+            return {}
+
+        prefix = f"/api/{module}"
+        app.include_router(router, prefix=prefix)
+        desc = ModuleDescriptor(
+            name=module, version="1", consumes=list((consumes or {}).get(module, []))
+        )
+        summary.loaded.append(desc)
+        draft = SimpleNamespace(routers=[(router, {"prefix": prefix})])
+        summary.manifests[module] = module_manifest(desc, draft)
+    return app, summary
+
+
+def _witness_core(witness: TenantWitness | None) -> Any:
+    return SimpleNamespace(
+        tenant_witness=witness,
+        service_registry=SimpleNamespace(contains=lambda name: name == MEM),
+        settings=SimpleNamespace(service_bindings={}),
+    )
+
+
+def _add(witness: TenantWitness | None, app: Any, summary: Any) -> list[str]:
+    core = _witness_core(witness)
+    routes = bound_tenant_routes(app)
+    return add_witness_consumes(core, summary, witness, routes)
+
+
+def _consumed(summary: ModuleLoadSummary, module: str) -> list[tuple[Any, ...]]:
+    entry = AppManifest.from_summary(summary).module(module)
+    return [(u.name, u.required, u.methods) for u in entry.contracts_consumed]
+
+
+async def test_a_bound_tenant_policy_consumes_the_witness_contract() -> None:
+    app, summary = _composition({"reports": _decisive(), "notes": Role("admin")})
+    changed = _add(WITNESS, app, summary)
+    assert changed == ["reports"]
+    reports, notes = summary.loaded
+    [added] = [r for r in reports.consumes if r.name == MEM]
+    assert added == ContractRequirement(
+        MEM, required=False, reason=WITNESS_REASON, methods=("has_role_at_least",)
+    )
+    # optional: an absent provider keeps the policy indeterminate, never open
+    assert (MEM, False, ("has_role_at_least",)) in _consumed(summary, "reports")
+    assert {"contract": MEM, "required": False, "resolution": "local"} in (
+        summary.consumes["reports"]
+    )
+    assert notes.consumes == [] and _consumed(summary, "notes") == []
+    # once: a second pass finds the method already consumed
+    assert _add(WITNESS, app, summary) == []
+
+
+async def test_a_declared_use_of_the_witness_contract_is_merged() -> None:
+    declared = {
+        "narrow": [ContractRequirement(MEM, required=True, methods=("list_members",))],
+        "whole": [ContractRequirement(MEM, required=True)],
+    }
+    app, summary = _composition({"narrow": _decisive(), "whole": _decisive()}, declared)
+    assert _add(WITNESS, app, summary) == ["narrow"]
+    narrow, whole = summary.loaded
+    assert narrow.consumes == [
+        ContractRequirement(
+            MEM, required=True, methods=("list_members", "has_role_at_least")
+        )
+    ]
+    assert whole.consumes == declared["whole"]  # no method list: every method
+
+
+async def test_without_a_witness_nothing_is_consumed() -> None:
+    app, summary = _composition({"reports": _decisive()})
+    assert _add(None, app, summary) == []
+    assert summary.loaded[0].consumes == []

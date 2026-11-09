@@ -2845,6 +2845,8 @@ guarantees:
   tests:
   - tests/integration/test_authz_subjects.py::test_bound_tenant_resolves_by_tenant_kind
   - tests/integration/test_authz_subjects.py::test_tenant_kind_is_authoritative_and_memoised
+  - tests/integration/test_tenant_witness.py::test_a_bound_tenant_policy_consumes_the_witness_contract
+  - src/sandloom/core/tests/test_contract_check.py::test_a_breaking_access_check_change_is_incompatible
 - id: G-AUTHZ-12
   statement: Feature / WithinLimit with an organization account read the owner's organization.features / organization.limits
     facts live (501 without a registered fact); with Account.user() they read the claims as before. Billing's

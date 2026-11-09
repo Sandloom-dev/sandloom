@@ -22,7 +22,7 @@ performs no I/O.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
@@ -473,6 +473,15 @@ def module_manifest(
     )
 
 
+def with_consumed(
+    entry: ModuleManifest, descriptor: ModuleDescriptor
+) -> ModuleManifest:
+    """``entry`` with its ``contracts_consumed`` read again from
+    ``descriptor.consumes``: a requirement the composition derives after the
+    load pass (the tenant authority's witness, ADR-0014 decision 13)."""
+    return replace(entry, contracts_consumed=_consumed(entry.name, descriptor.consumes))
+
+
 __all__ = [
     "AppManifest",
     "CapabilityUse",
@@ -489,4 +498,5 @@ __all__ = [
     "RouteEntry",
     "SagaEntry",
     "module_manifest",
+    "with_consumed",
 ]

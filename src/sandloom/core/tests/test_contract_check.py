@@ -112,6 +112,7 @@ class SeatsContract:
         values={"level": ["viewer", "editor", "owner"]},
         risk={"admin": {"level": ["owner"]}},
         describe="seat level '{level}'",
+        witnesses_membership={"level": "viewer", "region": "eu"},
     )
     async def has_level(
         self, organization_id: UUID, user_id: UUID, level: str, *, region: str = "eu"
@@ -237,6 +238,7 @@ async def test_the_atoms_are_generated_in_their_final_layout(tmp_path: Path) -> 
     assert "class Seated(ClaimFactCheck):" in first
     assert 'level: Literal["viewer", "editor", "owner"]' in first
     assert "# sandloom: advanced generated code" in first
+    assert first.count('"witnesses_membership"') == 1  # SeatRole's literal only
     path = tmp_path / "seatco_seats_v1.py"
     assert _dto_copies.ruff_formatted(first, path, cwd=Path.cwd()) == first
 
@@ -265,6 +267,14 @@ async def test_the_provider_is_called_once_in_signature_order(gen: Any) -> None:
     )
     assert (await atom.decide(ctx)).allowed
     assert seats.calls == [("has_level", (org, user, "editor", "us"))]
+
+
+async def test_the_membership_witness_is_in_the_literal(gen: Any) -> None:
+    """KB-31b: the generated literal carries the witness declaration, as
+    the describe document and the contract snapshot do."""
+    literal = gen.SeatRole.__sandloom_atom__
+    assert literal["witnesses_membership"] == {"level": "viewer", "region": "eu"}
+    assert "witnesses_membership" not in gen.HasSeat.__sandloom_atom__
 
 
 async def test_wiring_answers_come_from_the_literal(gen: Any) -> None:
@@ -440,8 +450,25 @@ def _describe_with(change: Any) -> dict[str, Any]:
         (lambda c: {**c, "risk": {}}, "risk 'admin' removed"),
         (lambda c: {**c, "risk": {"admin": {"level": []}}}, "lowered for 'level'"),
         (lambda c: {**c, "values": {"level": ["viewer"]}}, "lost editor, owner"),
+        (
+            lambda c: {k: v for k, v in c.items() if k != "witnesses_membership"},
+            "membership witness removed",
+        ),
+        (
+            lambda c: {**c, "witnesses_membership": {"level": "owner", "region": "eu"}},
+            "membership witness values changed",
+        ),
     ],
-    ids=["removed", "re-bound", "category", "risk-removed", "risk-lowered", "narrowed"],
+    ids=[
+        "removed",
+        "re-bound",
+        "category",
+        "risk-removed",
+        "risk-lowered",
+        "narrowed",
+        "witness-removed",
+        "witness-narrowed",
+    ],
 )
 async def test_a_breaking_access_check_change_is_incompatible(
     change: Any, fragment: str
@@ -471,6 +498,60 @@ async def test_a_new_label_or_a_wider_check_is_compatible() -> None:
     }
     added = compare_contract(SEATS, without, expected)
     assert added.errors == []
+
+    def no_witness(c: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in c.items() if k != "witnesses_membership"}
+
+    unwitnessed = _describe_with(no_witness)
+    assert compare_contract(SEATS, unwitnessed, expected).errors == []
+
+
+@pytest.mark.parametrize(
+    ("bind", "witness", "fragment"),
+    [
+        (
+            {"user_id": From.subject_id()},
+            {"level": "viewer"},
+            "binds exactly one From.org() and one From.subject_id()",
+        ),
+        (None, {"level": "viewer"}, "gives no value for 'region'"),
+        (
+            None,
+            {"level": "viewer", "region": "eu", "scope": "x"},
+            "names 'scope', not an unbound parameter",
+        ),
+        (None, {"level": "admin", "region": "eu"}, "'admin' is not among"),
+        (None, {"level": 1.5, "region": "eu"}, "not a JSON scalar"),
+    ],
+    ids=["bind", "missing", "unknown", "undeclared", "not-scalar"],
+)
+async def test_an_unusable_witness_is_refused_at_registration(
+    bind: Any, witness: dict[str, Any], fragment: str
+) -> None:
+    """KB-31b: the contract schema validates the witness, not only boot."""
+    org_and_user = {
+        "organization_id": From.org(param="org_id"),
+        "user_id": From.subject_id(),
+    }
+    spec = {
+        "name": "Member",
+        "bind": {str(k): list(v) for k, v in (bind or org_and_user).items()},
+        "category": Category.FORBIDDEN,
+        "values": {"level": ["viewer", "editor"]},
+        "witnesses_membership": witness,
+    }
+
+    class Members:
+        async def is_member(
+            self, organization_id: UUID, user_id: UUID, level: str, region: str = "eu"
+        ) -> bool:
+            return True
+
+    # set as access_check() would, past its own call-time checks
+    Members.is_member.__sandloom_access_check__ = spec  # type: ignore[attr-defined]
+    with pytest.raises(ContractTypeError) as exc:
+        contract_schema(contract("seatco.members.v1")(Members))
+    assert fragment in str(exc.value)
 
 
 async def test_a_declaration_that_is_not_a_boolean_read_is_refused() -> None:
