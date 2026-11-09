@@ -1619,7 +1619,6 @@
         "src/sandloom/core/tests/test_contract_codec_v2.py",
         "src/sandloom/core/tests/test_contract_compat.py",
         "src/sandloom/core/tests/test_contract_compat_expectations.py",
-        "src/sandloom/core/tests/test_contract_dto_shape_decoding.py",
         "src/sandloom/core/tests/test_contract_dto_locality.py",
         "src/sandloom/core/tests/test_contract_dto_shape_decoding.py",
         "src/sandloom/core/tests/test_contract_finish_record.py",
