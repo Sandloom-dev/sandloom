@@ -583,13 +583,17 @@ hint only points at the faster fully typed codec (owner decision Q3).
         "SANDLOOM-C027",
         "account-route-mismatch",
         "check",
-        "a route with an organization parameter gates billing with of=Account.user()",
+        "a route with an organization parameter gates an account atom with "
+        "of=Account.user()",
         "use of=Account.org(param=...) for an organization route, or state "
         'Account.user(reason="...") when the personal account is intended',
         """
-A route under /orgs/{org_id} that checks the caller's personal subscription
-or credits almost always meant the organization's account. The check refuses
-the combination unless the atom states why (spec §7.3).
+A route under /orgs/{org_id} that checks the caller's personal account (a
+subscription, credits, a quota) almost always meant the organization's account.
+The check refuses the combination unless the atom states why (spec §7.3). An
+atom is an account atom when its generated __sandloom_atom__ literal binds an
+account (sandloom check reads the literal of the file the name is imported
+from, not the name).
 """,
     ),
     _entry(
@@ -758,6 +762,30 @@ uses: a module that reaches one another way declares it itself, and the
 startup check stays the last line of defence.
 """,
         docs="docs/modules/background/tasks.md",
+    ),
+    _entry(
+        "SANDLOOM-C034",
+        "handwritten-access-check",
+        "check",
+        "a hand-written Requirement calls a declared access check with other "
+        "tier, category or risk than its declaration",
+        "use the generated atom (sandloom generate writes it beside your stub), "
+        "or state the declared tier, category and risks() on your class",
+        """
+A provider declares an access check once (access_check): its tier, its category
+(the status a denial carries) and the risks of its arguments. sandloom generate
+writes the atom with that declaration in its __sandloom_atom__ literal; the
+route policy, the startup classification and sandloom check all read it. A
+hand-written Requirement whose body calls the same method through
+Contract(REF) is a second declaration the others do not see: a lower tier
+skips the live check where a claim decides, another category answers with
+another status, a missing risks() hides an administrative gate from the route
+policy. sandloom check compares the class with the literal and refuses a
+difference. Not seen: a call through getattr, an atom built at run time, an
+authority decided in a function body. Those are not proven statically; every
+route is classified independently at startup and the runtime checks apply.
+""",
+        docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(
@@ -1009,13 +1037,16 @@ that does not exist on E is refused (spec §5.4).
         "SANDLOOM-B017",
         "authz-subject-missing",
         "boot",
-        "a billing atom has no of= subject",
+        "an access check that binds an account has no of= subject",
         "state the account: of=Account.user(), of=Account.org(param=...) "
         "(a route under /orgs/{...}) or of=Account.bound_tenant()",
         """
-Subscribed, SubscriptionActive, Credits, Feature and WithinLimit take a
-required of=: a default could check another billing account than the one the
-route means (owner decision 1, spec §7.2).
+An access check whose declaration binds an account (its generated class takes a
+required of=, and the atom's __sandloom_atom__ literal binds account_type /
+account_id or names a claim fact) cannot guess the account: a default could
+check another account than the one the route means (owner decision 1, spec
+§7.2). Subscribed, SubscriptionActive, Credits, Feature and WithinLimit are such
+checks today.
 """,
     ),
     _landed(

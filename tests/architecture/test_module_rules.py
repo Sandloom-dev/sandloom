@@ -108,6 +108,7 @@ def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
         {
             "api/x.py": """
             from fastapi import APIRouter, Depends
+            from sandloom.sdk import SubscriptionActive
             router = APIRouter()
             GATE = require(SubscriptionActive(of=Account.org()))
 
@@ -127,7 +128,7 @@ def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
         },
     )
     hits = mr.find_guard_order_problems(files)
-    assert len(hits) == 1 and hits[0][1].startswith("Line 6: a require(...) gate")
+    assert len(hits) == 1 and hits[0][1].startswith("Line 7: a require(...) gate")
 
 
 # --- consumed-contracts ----------------------------------------------------
