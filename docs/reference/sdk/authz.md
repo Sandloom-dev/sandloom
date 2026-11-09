@@ -34,6 +34,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`AccessDecision`](#accessdecision) | class | The outcome of evaluating a policy against an `AuthzContext`. |
 | [`AccessDenied`](#accessdenied) | exception | Raised by `enforce` (and the HTTP guards) when a policy is not satisfied. |
 | [`AccessFact`](#accessfact) | class | Declarative binding of a fact name to its three resolution paths. |
+| [`AccessUnknown`](#accessunknown) | exception | An access check's provider has no source for the answer (501). |
 | [`Account`](#account) | class | The billing account an atom checks (`of=`); build it with `user`, `org` or `bound_tenant`. |
 | [`ACTIVE_SUBSCRIPTION_STATUSES`](#active_subscription_statuses) | constant |  |
 | [`And`](#and) | class | Conjunction: all operands must hold. Short-circuits on first non-allow. |
@@ -630,6 +631,28 @@ The `<owner>.facts.v1` provider (called by the kernel on register).
 
 A duck-typed hook, so the kernel exposes the contract without
 importing the authorization subsystem.
+
+### `AccessUnknown`
+
+```python
+class AccessUnknown(ContractCallError)(
+    detail: Any = None,
+    *,
+    status_code: int | None = None,
+    headers: Mapping[str, str] | None = None,
+    code: str | None = None,
+) -> None
+```
+
+An access check's provider has no source for the answer (501).
+
+Raised by the provider method of an `@access_check` (or a
+`@claim_atom` above one) when it cannot say yes or no, e.g. it keeps no
+catalogue for the key asked: "not known" is never a `False` answer. A
+generated atom maps it to an indeterminate 501 `access_unknown` inside
+the algebra, so `Not` never allows and `Or` allows only on another
+branch that reliably allowed. `detail` says what is missing; the same
+class reaches a local and a remote caller.
 
 ### `Account`
 

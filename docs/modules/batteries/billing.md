@@ -38,8 +38,31 @@ on billing's database, identically in-process and over internal RPC.
 
 | Contract | Methods / purpose |
 | --- | --- |
-| `billing.entitlements.v1` | read: `check_subscription_active(tenant_type, tenant_id)`, `get_credit_balance(tenant_type, tenant_id)`, `subscription_claims(tenant_type, tenant_id)` |
+| `billing.entitlements.v1` | read: `check_subscription_active(tenant_type, tenant_id)`, `has_credits_at_least(tenant_type, tenant_id, minimum)`, `has_feature(tenant_type, tenant_id, key)`, `is_within_limit(tenant_type, tenant_id, key, used)`, `get_credit_balance(tenant_type, tenant_id)`, `subscription_claims(tenant_type, tenant_id)` |
 | `billing.credits.v1` | command: `spend(tenant_type, tenant_id, amount, operation_key, *, reason="") -> int`; read: `get_balance(tenant_type, tenant_id)` |
+
+### Features and limits
+
+`Feature(key, of=...)` and `WithinLimit(key, used, of=...)` are supported
+Sandloom capabilities. Billing declares both as the generated atoms of
+`billing.entitlements.v1`'s `has_feature` and `is_within_limit`; import them
+from the contract's generated stub. With `Account.user()` they read the
+token's `features` and `limits` claims with zero I/O. With an organization
+account they ask billing live.
+
+Billing does not have a per-plan features and limits catalogue yet; it is
+planned as a later task. Until it ships, billing cannot answer either check
+for an organization, and both methods raise `AccessUnknown`. The atom then
+answers an indeterminate `501` with code `access_unknown` and a reason that
+names the missing catalogue. It never answers a deny: no `Not` or `Or` over
+such atoms allows. An `Or` still
+allows when one of its other branches allows.
+
+A module that keeps its own catalogue provides the same atoms from its own
+contract. It declares `@claim_atom` above `@access_check` methods that return
+`True` or `False`, and raises `AccessUnknown` when it has no answer. Nothing
+in the kernel changes, in-process or over internal RPC
+([authorization](../http/authorization.md)).
 
 The PSP client (fake or Stripe, by `BILLING_PROVIDER`) is billing-internal and
 is **not** a service contract: no other module (and no RPC caller) can reach it.

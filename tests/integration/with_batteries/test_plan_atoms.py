@@ -7,8 +7,14 @@ kernel atoms they replace, on the real billing provider over the real test
 database, in-process (mono) and over the real internal RPC (split: a consumer
 core with no module and no database binds the contracts to the standard app).
 
-The producer is a test one: billing's plans declare no features or limits, so
-the plan reads behind billing's methods answer from a table here, and the
+Billing as shipped keeps no features or limits catalogue: its checks raise
+``AccessUnknown``, so for an organization account every policy over them,
+``Not`` and ``Or`` included, is indeterminate 501 ``access_unknown``, never an
+allow, mono and split (KB-33c, C-B5); ``Account.user()`` still reads the
+claims with zero I/O.
+
+Otherwise the producer is a test one: the plan reads behind billing's
+methods answer from a table here (an explicit off is a deny), and the
 kernel atoms' organization facts (``organization.features`` /
 ``organization.limits``) ask the same billing methods. For each case, steady
 state:
@@ -49,7 +55,7 @@ from sandloom.core.di import bind_tenant
 from sandloom.core.facade import CoreFacade
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine, real_uow_client
-from sandloom.shared.authz import AccessFact, Account, Not
+from sandloom.shared.authz import AccessFact, Account, Category, Not, Or
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
 from sandloom_billing import entitlements as billing_entitlements
@@ -451,6 +457,87 @@ async def test_mono_billing_atoms_equal_the_kernel_atoms(
     _check(name, base, candidate)
     assert candidate[3] == []
     assert candidate[2] == EXPECTED_SQL[name], candidate[2]
+
+
+#: Standard billing as shipped (no test producer): it keeps no features or
+#: limits catalogue, so an organization's check is unknown. None may allow.
+NO_CATALOGUE: dict[str, Case] = {
+    "feature": Case(lambda k: k.Feature("export", of=Account.org()), _ORG),
+    "limit": Case(lambda k: k.WithinLimit("seats", 3, of=Account.org()), _ORG),
+    "not.feature": Case(lambda k: Not(k.Feature("export", of=Account.org())), _ORG),
+    "not.limit": Case(lambda k: Not(k.WithinLimit("seats", 3, of=Account.org())), _ORG),
+    "or": Case(
+        lambda k: Or(
+            k.Feature("export", of=Account.org()),
+            k.WithinLimit("seats", 3, of=Account.org()),
+        ),
+        _ORG,
+    ),
+    "or.not": Case(
+        lambda k: Or(
+            Not(k.Feature("export", of=Account.org())),
+            Not(k.WithinLimit("seats", 3, of=Account.org())),
+        ),
+        _ORG,
+    ),
+    "bound.not.feature": Case(
+        lambda k: Not(k.Feature("export", of=Account.bound_tenant())), bound=ORG
+    ),
+}
+
+
+async def _no_catalogue(core: Any, generated: Any, name: str) -> tuple[Any, ...]:
+    case = NO_CATALOGUE[name]
+    request: Any = _Req(case.path)
+    ctx = AuthzContext(_subject(), request=request, core=core)
+    with ExitStack() as stack:
+        if case.bound is not None:
+            stack.enter_context(bind_tenant(case.bound))
+        decision = await case.policy(generated).decide(ctx)
+    return (
+        decision.allowed,
+        decision.http_status,
+        decision.category,
+        decision.code,
+        decision.indeterminate,
+        ENTITLEMENTS in decision.reason and "catalogue" in decision.reason,
+    )
+
+
+#: The decision of every no-catalogue case: an indeterminate 501 whose
+#: reason names billing's contract and what it lacks (C-B5, G-AUTHZ-12).
+UNKNOWN = (False, 501, Category.POLICY_MISCONFIGURED, "access_unknown", True, True)
+
+
+@pytest.mark.parametrize("name", sorted(NO_CATALOGUE))
+async def test_mono_billing_without_a_catalogue_is_501_never_an_allow(
+    mono: Any, generated: Any, name: str
+) -> None:
+    assert await _no_catalogue(mono, generated, name) == UNKNOWN
+
+
+@pytest.mark.parametrize("name", sorted(NO_CATALOGUE))
+async def test_split_billing_without_a_catalogue_is_501_never_an_allow(
+    split: CoreFacade, generated: Any, meter: Meter, name: str
+) -> None:
+    meter.reset()
+    assert await _no_catalogue(split, generated, name) == UNKNOWN
+    # billing was asked over the RPC and its 501 reached the consumer
+    asked_billing = f"POST /_sandloom/rpc/{ENTITLEMENTS}/"
+    assert any(r.startswith(asked_billing) for r in meter.rpc), meter.rpc
+
+
+async def test_without_a_catalogue_the_user_claims_path_is_unchanged(
+    mono: Any, generated: Any, meter: Meter
+) -> None:
+    """``Account.user()`` still reads the token's claims with zero I/O."""
+    request: Any = _Req({})
+    ctx = AuthzContext(_subject(), request=request, core=_Calls(mono))
+    meter.reset()
+    assert (await generated.Feature("export", of=Account.user()).decide(ctx)).allowed
+    denied = await generated.WithinLimit("seats", 3, of=Account.user()).decide(ctx)
+    assert not denied.allowed and denied.http_status == 402
+    assert meter.sql == 0 and meter.rpc == []
 
 
 @pytest.mark.parametrize("name", sorted(CASES))

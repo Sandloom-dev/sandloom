@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.sdk.authz import AccessUnknown
 from sandloom_billing.models import BillingCustomer
 from sandloom_billing.services.billing_service import BillingService
 
@@ -73,10 +74,13 @@ class EntitlementsService:
     async def plan_feature(cls, tenant_type: str, tenant_id: UUID, key: str) -> bool:
         """Whether the account's plan enables the feature flag ``key``.
 
-        Billing's plans declare no feature flags (its claims contributor
-        writes no ``features`` claim): ``False`` for every account, with no
-        read, the same "no" the claim path gives (``Feature(of=...)``)."""
-        return False
+        Billing keeps no per-plan feature catalogue yet: it cannot say yes
+        or no, so it raises :class:`AccessUnknown` (``Feature(of=...)`` is
+        indeterminate 501, never a deny that ``Not`` would turn into an
+        allow), with no read."""
+        raise AccessUnknown(
+            f"billing keeps no feature catalogue for its plans (feature {key!r})"
+        )
 
     @classmethod
     async def plan_limit_allows(
@@ -84,9 +88,12 @@ class EntitlementsService:
     ) -> bool:
         """Whether ``used`` is strictly below the account's plan limit ``key``.
 
-        Billing's plans declare no limits (no ``limits`` claim either): an
-        absent limit is 0, so ``False`` for every account, with no read."""
-        return False
+        Billing keeps no per-plan limits catalogue yet: it raises
+        :class:`AccessUnknown` (``WithinLimit(of=...)`` is indeterminate
+        501, never a quota denial), with no read."""
+        raise AccessUnknown(
+            f"billing keeps no limits catalogue for its plans (limit {key!r})"
+        )
 
     @classmethod
     async def subscription_claims(
