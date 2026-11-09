@@ -163,21 +163,13 @@ def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
 ```
 
 **A module with tasks declares the task queue.** The module states what it
-needs and the deployment picks the driver: `tasks.py` needs the `taskqueue`
-capability, and a schedule needs its feature `periodic`, a driver that runs
+needs, and the deployment picks the driver. `tasks.py` needs the `taskqueue`
+capability. A schedule also needs its feature `periodic`: a driver that runs
 the module's periodic jobs at their interval while the deployment runs. A
-driver that can only enqueue does not have it; today only `celery` does.
-
-```python
-# <module>/__init__.py
-from sandloom.sdk import define_module
-from sandloom.sdk.module import CapabilityRequirement  # sandloom: advanced periodic
-
-register = define_module(
-    __name__,
-    capabilities=[CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))],
-)
-```
+driver that can only enqueue does not have it; today only `celery` does. In
+`define_module`, write
+`capabilities=[CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))]`,
+with `CapabilityRequirement` from `sandloom.sdk.module`.
 
 The kernel derives the same need from `tasks.py` at load, so startup checks
 it either way; `sandloom check` asks for the declaration
