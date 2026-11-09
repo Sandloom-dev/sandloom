@@ -155,6 +155,22 @@ _KEY_VALUE_MARKERS = (
     "private",
     "cookie",
 )
+#: Module declarations whose key matches a secret marker but whose value is
+#: a boolean, never a credential (``issues_tokens=True`` in a SANDLOOM-B035
+#: refusal). Only the exact key with a ``True``/``False`` value is kept: any
+#: other value under it, and every other key, is still masked.
+_DECLARATION_KEYS = frozenset({"issues_tokens"})
+_DECLARATION_VALUES = frozenset({"true", "false"})
+
+
+def _mask_value(match: re.Match[str]) -> str:
+    """``key<sep>***``, except a declaration's boolean (kept as written)."""
+    if (
+        match["key"].lower() in _DECLARATION_KEYS
+        and match["value"].rstrip(".").lower() in _DECLARATION_VALUES
+    ):
+        return match[0]
+    return f"{match['key']}{match['sep']}***"
 
 
 def scrub_text(text: str) -> str:
@@ -179,13 +195,13 @@ def scrub_text(text: str) -> str:
             out = _SQL_PARAMETERS.sub("[parameters: ***]", out)
         if not out.isascii():
             out = _BEARER.sub(r"\1 ***", out)
-            return _KEY_VALUE.sub(r"\g<key>\g<sep>***", out)
+            return _KEY_VALUE.sub(_mask_value, out)
         low = out.lower()
         if "bearer" in low:
             out = _BEARER.sub(r"\1 ***", out)
             low = out.lower()
         if any(marker in low for marker in _KEY_VALUE_MARKERS):
-            out = _KEY_VALUE.sub(r"\g<key>\g<sep>***", out)
+            out = _KEY_VALUE.sub(_mask_value, out)
         return out
     except Exception:  # pragma: no cover  # noqa: BLE001 - redaction must never break logging
         return text

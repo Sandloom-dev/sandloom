@@ -30,20 +30,7 @@ from fastapi import FastAPI
 from sandloom.local_modules import default_modules
 from sandloom.sdk.app import create_app as _create_kernel_app
 from sandloom.sdk.infra import CoreFacade
-
-#: The standard batteries' claim authorities (import paths) and the issuer.
-STANDARD_CLAIM_AUTHORITIES: dict[str, str] = {
-    "issuer": "sandloom_identity",
-    "roles": "sandloom_identity",
-    "permissions": "sandloom_identity",
-    "email": "sandloom_identity",
-    "email_verified": "sandloom_identity",
-    "tenant_ids": "sandloom_tenancy",
-    "subscription_status": "sandloom_billing",
-    "plan_code": "sandloom_billing",
-    "features": "sandloom_billing",
-    "limits": "sandloom_billing",
-}
+from sandloom_standard import STANDARD_CLAIM_AUTHORITIES
 
 
 def standard_modules() -> list[str]:

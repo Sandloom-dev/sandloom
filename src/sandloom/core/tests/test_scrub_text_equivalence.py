@@ -31,6 +31,16 @@ _REF_KV = re.compile(
 )
 
 
+def _ref_mask(match: re.Match[str]) -> str:
+    # A module declaration's boolean (``issues_tokens=True``) is no secret;
+    # any other value under that key, and every other key, is masked.
+    if match["key"].lower() == "issues_tokens" and match["value"].rstrip(
+        "."
+    ).lower() in {"true", "false"}:
+        return match[0]
+    return f"{match['key']}{match['sep']}***"
+
+
 def reference_scrub(text: str) -> str:
     if not text:
         return text
@@ -38,7 +48,7 @@ def reference_scrub(text: str) -> str:
     out = _REF_PROVIDER.sub("***", out)
     out = _REF_SQL.sub("[parameters: ***]", out)
     out = _REF_BEARER.sub(r"\1 ***", out)
-    return _REF_KV.sub(r"\g<key>\g<sep>***", out)
+    return _REF_KV.sub(_ref_mask, out)
 
 
 # ---- corpus -----------------------------------------------------------------
@@ -116,6 +126,12 @@ _FRAGMENTS = [
     "ValueError: bad",
     "some_very_long_identifier_without_secrets_" * 3,
     "tokenizer",
+    "issues_tokens",
+    "ISSUES_TOKENS",
+    "True",
+    "false",
+    "None",
+    "123456",
     "pwdless",
     "secretary",
     "apiary",
@@ -170,6 +186,41 @@ def test_scrub_text_still_redacts() -> None:
     assert "XYZ" not in out
     assert "a@b.c" not in out
     assert out == reference_scrub(raw)
+
+
+def test_an_issuer_declaration_reads_as_written() -> None:
+    """A B035 refusal's ``issues_tokens=True`` is a declaration, not a secret:
+    the ERROR log line says what is wrong, like the CLI's stderr."""
+    for text in (
+        "module 'acme.idp' declares issues_tokens=True, but the map names no issuer",
+        "issues_tokens=False.",
+        'register(issues_tokens="True")',
+    ):
+        assert scrub_text(text) == text
+
+
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("issues_tokens=s3cr3t-value", "s3cr3t-value"),
+        ("issues_tokens=Truely-a-secret", "Truely-a-secret"),
+        ("x_issues_tokens=True", "True"),
+        ("access_token=True", "True"),
+        ("refresh_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "eyJhbGciOiJ"),
+        ("token=482913", "482913"),
+        ("password=123456", "123456"),
+        ("password: None", "None"),
+        ("api_key=False", "False"),
+        ("client_secret='hunter2'", "hunter2"),
+    ],
+)
+def test_secret_values_are_still_masked(raw: str, secret: str) -> None:
+    """The declaration exemption is the exact key with a boolean only: every
+    other value, digits and booleans under any other key, stays masked."""
+    out = scrub_text(raw)
+    assert secret not in out, out
+    assert "***" in out
 
 
 def test_long_identifier_is_linear() -> None:

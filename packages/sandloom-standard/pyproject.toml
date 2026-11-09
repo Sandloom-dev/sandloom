@@ -15,6 +15,12 @@ dependencies = [
     "sandloom>=0.7.0a11,<0.8",
 ]
 
+# The root's claim-authority map, read (without building the app) only to
+# name this root in a SANDLOOM-B035 refusal of a root that loads its issuer
+# without a map.
+[project.entry-points."sandloom.composition_roots"]
+"sandloom_standard.main" = "sandloom_standard:STANDARD_CLAIM_AUTHORITIES"
+
 [project.urls]
 Homepage = "https://sandloom.dev/"
 Documentation = "https://sandloom.dev/docs/"

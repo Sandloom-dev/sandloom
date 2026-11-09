@@ -1879,10 +1879,12 @@ guarantees:
   - tests/integration/with_batteries/test_billing_down_login.py::test_billing_down_still_logs_in
 - id: G-AUTH-21
   statement: A composition that loads a token issuer (issues_tokens=True) with no claim_authorities map
-    refuses the boot (SANDLOOM-B035, naming SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main or a map)
-    instead of running an app whose every mint is refused (503); a process with no issuer boots. A map that
-    assigns an issuer field (email, email_verified) to a module other than its issuer, or names one without
-    an issuer, refuses the boot.
+    refuses the boot (SANDLOOM-B035, naming the booted root, the map the issuer's root must pass, and an
+    installed root only when its registered map names that issuer) instead of running an app whose every
+    mint is refused (503); a process with no issuer boots. A map that assigns an issuer field (email,
+    email_verified) to a module other than its issuer, or names one without an issuer, refuses the boot, and
+    so does an issuer with no claims contributor or a critical=False one (the issuer fields have no
+    fallback, ADR-0014 decision 7).
   sources:
   - docs/advanced/security-model.md#Authorization
   - docs/contributing/setup.md#Configure the environment
@@ -1893,6 +1895,10 @@ guarantees:
   - src/sandloom/core/tests/test_claims_trust.py::test_an_issuer_field_assigned_to_anyone_else_is_refused
   - src/sandloom/core/tests/test_composition_root.py::test_default_root_is_sandloom_main
   - tests/integration/replaceability/test_trust_rows.py::test_t6_an_issuer_under_a_root_without_a_map_refuses_the_boot
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_leads_with_the_root_that_composes_the_issuer
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_suggests_a_registered_root_whose_map_names_the_issuer
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_issuer_needs_a_critical_contributor_of_its_own
+  - tests/integration/replaceability/test_trust_rows.py::test_t6_an_issuer_with_an_optional_contributor_refuses_the_boot
 - id: G-AUTH-22
   statement: Feature and WithinLimit on the user's token are indeterminate (503, never an allow, so Not
     cannot invert them) when the claim is absent because its authority is in claims_sources_failed (or no
