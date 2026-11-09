@@ -22,6 +22,7 @@ try:  # optional metrics (Phase G)
     from sandloom.core.observability import metrics as _metrics_mod
 except Exception:  # pragma: no cover  # noqa: BLE001 - metrics are optional
     _metrics_mod = None  # type: ignore
+import sandloom.core.config.accepted_risks as _accepted_risks
 import sandloom.core.config.module_settings as _module_settings
 import sandloom.core.config.tiers as _tiers
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
@@ -777,14 +778,22 @@ def _check_module_settings(core: CoreFacade) -> None:
     module's removed setting at a live value, and in prod a near-miss of a
     declared name. Logs, once per composition, a removed setting at its
     inert value and each module semantic setting weaker than its profile
-    value (``sandloom_config_override_active``). No module declares
-    settings: nothing to check.
+    value (``sandloom_config_override_active``). The module-namespaced ids
+    of ``SANDLOOM_ACCEPTED_RISKS`` (``<module>.<name>``) are classified here
+    (ADR-0015 decision 4): a loaded module's id against its declaration, a
+    module known but not loaded here inert, any other namespace refused.
+    No module declares settings and no module risk is accepted: nothing to
+    check.
     """
     records = core.module_settings.records()
-    if not records:
-        return
     kernel = core.settings
-    outcome = _module_settings.post_load_check(records, kernel)
+    accepted = getattr(kernel, "sandloom_accepted_risks", None) or ()
+    if not records and not any(_accepted_risks.is_module_id(i) for i in accepted):
+        return
+    outcome = _module_settings.post_load_check(
+        records, kernel, loaded_modules=core.loaded_modules
+    )
+    core.module_settings.risk_report = outcome.risks
     log = logging.getLogger("sandloom.settings")
     for warning in outcome.warnings:
         log.warning(warning)
@@ -794,3 +803,5 @@ def _check_module_settings(core: CoreFacade) -> None:
     if _metrics_mod is not None:
         for item in outcome.overrides:
             _metrics_mod.config_override_active.labels(item.setting, item.kind).set(1)
+            if item.kind == "accepted_risk":
+                _metrics_mod.accepted_risk_active.labels(str(item.value)).set(1)

@@ -1851,6 +1851,37 @@ distinct prefixes).
 """,
         "docs/operate/split-into-services.md",
     ),
+    _entry(
+        "SANDLOOM-T019",
+        "settings-gate",
+        "test",
+        "the settings a module declares, or a service's environment, break the "
+        "static settings gate",
+        "rename a new setting with its module's prefix (INVENTORY_ for inventory); "
+        "run `sandloom generate` and review the settings record of "
+        "module.snapshot.json; correct the module name, remove the variable or fix "
+        "the literal value in the deploy profile's service",
+        """
+`sandloom check` and the schema & deploy step of `sandloom test` import every
+module of the application (importing reads no environment and does no I/O) and
+read the settings each declares with `define_module(settings=Model)`, without
+running a process (ADR-0015 decision 7; SANDLOOM-B036 is the collision it also
+reports). They refuse:
+- a new setting whose name lacks the module's prefix (`INVENTORY_` for
+  `inventory`); a name that `module.snapshot.json` records as `legacy` is
+  grandfathered, a module without a snapshot grandfathers nothing;
+- a module whose snapshot does not record its settings, or records a tier
+  other than the one the code declares: `sandloom generate` writes the record,
+  and a semantic setting that appears there is a reviewed change;
+- in a deploy profile, a `SANDLOOM_MODULES` entry that is neither an installed
+  module nor an importable package, a variable set for a module the service does
+  not load, and a literal value the module's declaration refuses. A profile
+  carries `${VAR:?...}` placeholders and no production secrets, so only names
+  and literal values are checked; values are validated where the process starts.
+A secret literal is never printed.
+""",
+        "docs/adr/0015-module-settings.md",
+    ),
 )
 
 _BY_CODE = {e.code: e for e in CATALOGUE}

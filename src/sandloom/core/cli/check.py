@@ -63,6 +63,15 @@ Each violation prints as ``path:N: error[SANDLOOM-Cnnn rule]: message``;
 ``sandloom explain <code>`` has the long form. A deliberate exception is waived
 on its line with ``# sandloom: allow <rule-id> <reason>``.
 
+After the rules, the settings gate (ADR-0015 decision 7; SANDLOOM-B036,
+SANDLOOM-T019) imports each module of the application (importing reads no
+environment and does no I/O) and checks the settings it declares: a name two
+modules or a module and the kernel declare, a new name without the module's
+prefix, a tier the snapshot does not record, and each service of the deploy
+profiles (a wrong module name in ``SANDLOOM_MODULES``, a name set for a module
+the service does not load, a literal value its declaration refuses). It runs
+with the full rule set only.
+
 ``--boot`` additionally builds the application (``SANDLOOM_COMPOSITION_ROOT``,
 default ``sandloom.main``) through ``create_app`` — no server, no I/O — and reports
 every startup refusal (module load failures SANDLOOM-B001, ``GuardOrderError``
@@ -83,8 +92,8 @@ Usage::
     sandloom check --list-rules
 
 Exit status: 0 clean, 1 violations, 2 bad manifest / usage. Without
-``--boot`` it is purely static: it imports no application code and needs no
-environment (no DATABASE_URL).
+``--boot`` it builds no application and needs no environment (no
+DATABASE_URL): the rules read source, the settings gate imports the modules.
 """
 
 from __future__ import annotations
@@ -151,8 +160,21 @@ def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
     if record is not None and only is None:
         _record(record, args.rules, violations)
 
+    gate = settings_gate_diagnostics(rules) if only is None else []
     boot = boot_diagnostics() if args.boot else []
-    return _report(rules, violations, boot, boot_requested=bool(args.boot))
+    return _report(rules, violations, boot, boot_requested=bool(args.boot), gate=gate)
+
+
+def settings_gate_diagnostics(rules: ArchRules) -> list[str]:
+    """The settings gate's problems for the application ``rules`` describes,
+    rendered like a startup problem (SANDLOOM-B036 / SANDLOOM-T019)."""
+    from sandloom.core.testing import static_checks  # noqa: PLC0415 - cold: the gate imports the application's modules; `--list-rules` and the other static commands stay light
+
+    out = []
+    for problem in static_checks.settings_gate_problems(rules.root):
+        code = "SANDLOOM-B036" if "SANDLOOM-B036" in problem else "SANDLOOM-T019"
+        out.append(error_codes.render(code, problem))
+    return out
 
 
 def _record(path: Path, manifest: Path, violations: list[Violation]) -> None:
@@ -197,6 +219,7 @@ def _report(
     boot: list[str],
     *,
     boot_requested: bool,
+    gate: list[str] | None = None,
 ) -> int:
     """Print warnings / notes, then errors with their fixes; the exit code."""
     modules = rules.business_modules()
@@ -210,7 +233,8 @@ def _report(
                 print(f"      docs: {error_codes.documentation_url(v.code)}")
                 print(f"      help: sandloom explain {v.code}")
         print()
-    if not errors and not boot:
+    gate = gate or []
+    if not errors and not boot and not gate:
         print(
             f"sandloom check: OK ({len(modules)} module(s) under "
             f"{rules.modules_package or 'the top level'}: "
@@ -220,6 +244,7 @@ def _report(
         )
         return 0
     if not errors:
+        _print_gate(gate)
         _print_boot(boot)
         return 1
 
@@ -238,8 +263,17 @@ def _report(
         print(f"  {entry.code} {rule}: {known[rule]}")
         print(f"      docs: {error_codes.documentation_url(entry.code)}")
         print(f"      help: sandloom explain {entry.code}")
+    _print_gate(gate)
     _print_boot(boot)
     return 1
+
+
+def _print_gate(problems: list[str]) -> None:
+    if not problems:
+        return
+    print(f"\nsandloom check: {len(problems)} settings problem(s)\n")
+    for text in problems:
+        print(text + "\n")
 
 
 #: Exceptions a startup refusal raises (every create_app refusal is one of

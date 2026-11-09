@@ -32,7 +32,7 @@ Counts: **15 semantic** (ratcheted: may only go down; a new one needs an ADR), *
 
 ## Accepted risks (`SANDLOOM_ACCEPTED_RISKS`)
 
-The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-separated). An unknown id fails startup. Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` (`configuration.accepted_risks`) and `sandloom doctor`.
+The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-separated). An unknown id fails startup. The ids below are the kernel's. A module declares its own, named `<module>.<name>` (for example `billing.fake_psp_in_prod`): the id of a loaded module is checked against what that module declares, the id of a module installed or listed in `SANDLOOM_MODULES` but not loaded in this process is inert, listed as not applicable here, and any other module name fails startup, so a typo never passes silently. A module risk has no flat spelling and no alias. Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` (`configuration.accepted_risks`) and `sandloom doctor`.
 
 | Risk id | Weakens | Consulted by |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ No longer settings. Still configured with the inert value they log a warning; wi
 | `JWT_ALLOW_SHARED_SECRET_SPLIT` | 0.8 | `false` | accept the risk explicitly: SANDLOOM_ACCEPTED_RISKS=["shared_hs_secret_split"] |
 | `RPC_AUTH_MODE` | 0.8 | `service_mac` | internal RPC is always pair-MAC authenticated (ADR-0004): give every service RPC_DH_PRIVATE_KEY / RPC_SERVICE_DH_KEYS (and RPC_PRIVATE_KEY to sign commands); INTERNAL_API_TOKEN only guards the ops endpoints |
 | `RPC_RESPONSE_BINDING` | 0.8 | `strict` | every RPC response is keyed to its request and pinned provider (the former strict mode) |
-| `AUTH_REVOCATION_STRICT_PATH_PREFIXES` | 1.0 | `[]` | every authenticated request reads the subject-state record live (ADR-0009): there is no staleness budget left to override | <!-- stale-ok: removed setting documented for migration -->
+| `AUTH_REVOCATION_STRICT_PATH_PREFIXES` | 1.0 | `[]` | every authenticated request reads the subject-state record live (ADR-0009): there is no staleness budget left to override |
 | `MODULE_FS_SCAN` | 0.7 | `false` | modules are no longer packages under sandloom.*: list them in SANDLOOM_MODULES (import path or `sandloom.modules` entry-point name) or set MODULE_LOAD_ENTRYPOINTS=true to load every installed module |
 
 ## Ops tier

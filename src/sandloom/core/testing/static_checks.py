@@ -20,6 +20,11 @@ framework's own tests:
 * :func:`beginner_tier_problems` (SANDLOOM-T009): a module imports a
   ``sandloom.sdk`` name outside the beginner tier without a
   ``# sandloom: advanced <reason>`` marker on the line.
+* :func:`settings_gate_problems` (SANDLOOM-B036, SANDLOOM-T019): the settings
+  the application's modules declare (collisions, the prefix rule, recorded
+  tiers) and the chosen topology's services against them (module names,
+  names set for a module a service does not load, literal values;
+  :mod:`sandloom.core.testing.settings_gate`).
 * the split profile (``deploy/compose/microservices.yml``, SANDLOOM-T014):
   the invariants of :func:`sandloom.core.testing.deploy_profile.profile_problems`
   (shared settings, issuer-only keys, a database and migrate one-shot per
@@ -36,6 +41,7 @@ import importlib
 import importlib.util
 import json
 import re
+import sys
 from collections.abc import Container, Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -44,6 +50,7 @@ if TYPE_CHECKING:
     from sqlalchemy import MetaData
 
 import sandloom.core.testing.deploy_profile as _deploy_profile
+import sandloom.core.testing.settings_gate as _settings_gate
 from sandloom.core.archcheck import api10_rules
 from sandloom.core.archcheck.manifest import ManifestError, load_rules
 from sandloom.core.composition import load_composition_core
@@ -380,6 +387,36 @@ def beginner_tier_problems(root: Path) -> list[str]:
     return problems
 
 
+def settings_gate_problems(
+    root: Path, profiles: Sequence[Path] | None = None
+) -> list[str]:
+    """The settings gate over the modules ``root``'s ``architecture_rules.yml``
+    names and the compose ``profiles`` (default: the project's, when PyYAML is
+    installed) (SANDLOOM-B036, SANDLOOM-T019)."""
+    if profiles is None:
+        found = deploy_profiles(root)
+        profiles = found if importlib.util.find_spec("yaml") is not None else []
+    rules_file = root / "architecture_rules.yml"
+    if not rules_file.is_file():
+        return []
+    try:
+        rules = load_rules(rules_file)
+        modules = rules.business_modules()
+    except ManifestError:
+        return []  # sandloom check reports a broken manifest
+    packages = [rules.module_package(m) for m in modules]
+    # The modules are importable from the manifest's source root even when the
+    # project is not installed (the framework tree, a checkout).
+    path = str(rules.source_root.resolve())
+    if path not in sys.path:
+        sys.path.append(path)
+    try:
+        return _settings_gate.gate_problems(packages, profiles, known_modules=modules)
+    finally:
+        if path is not None and path in sys.path:
+            sys.path.remove(path)
+
+
 def all_problems(
     root: Path, core: Any = None, warnings: list[str] | None = None
 ) -> list[str]:
@@ -394,6 +431,7 @@ def all_problems(
     profiles = deploy_profiles(root)
     if profiles and importlib.util.find_spec("yaml") is None:
         profiles = []  # PyYAML (the check extra) is not installed
+    problems += settings_gate_problems(root, profiles)
     for profile in profiles:
         problems += periodic_beat_problems(profile)
         if profile.name == Path(_deploy_profile.PROFILE).name:
@@ -449,6 +487,7 @@ __all__ = [
     "main",
     "periodic_beat_problems",
     "redundant_index_problems",
+    "settings_gate_problems",
     "skip_note",
     "skipped_chains",
     "tenant_key_problems",

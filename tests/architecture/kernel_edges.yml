@@ -247,7 +247,10 @@ edges:
     anchors:
       - {path: sandloom/core/cli/generated.py, symbol: _module_dir}
       - {path: sandloom/core/cli/generated.py, symbol: is_l1}
-    note: sandloom generate imports each module and its register
+      - {path: sandloom/core/testing/settings_gate.py, symbol: _declaration}
+      - {path: sandloom/core/testing/settings_gate.py, symbol: _resolvable}
+      - {path: sandloom/core/config/module_settings.py, symbol: _declared_risks_of}
+    note: "sandloom generate imports each module and its register; the settings gate (sandloom check/test) imports each module of the app to read its declared settings, and a refused flat risk id imports the installed modules to name its replacement (KB-51, KB-56)"
   - id: A14
     class: a
     type: import
@@ -979,6 +982,9 @@ loader_call_sites:
   - {path: sandloom/core/migrations/alembic_support.py, symbol: run_migrations, row: A12, reason: "migrations import each chain's model modules"}
   - {path: sandloom/core/cli/generated.py, symbol: _module_dir, row: A13, reason: sandloom generate locates each module}
   - {path: sandloom/core/cli/generated.py, symbol: is_l1, row: A13, reason: "sandloom generate reads each module's register"}
+  - {path: sandloom/core/testing/settings_gate.py, symbol: _declaration, row: A13, reason: "the settings gate imports each module of the app to read its declared settings (ADR-0015 decision 7)"}
+  - {path: sandloom/core/testing/settings_gate.py, symbol: _resolvable, row: A13, reason: "the settings gate asks whether a SANDLOOM_MODULES entry names an importable package, without importing it"}
+  - {path: sandloom/core/config/module_settings.py, symbol: _declared_risks_of, row: A13, reason: "a refused flat risk id imports the installed modules to name the namespaced replacement (ADR-0015 decision 4)"}
   - {path: sandloom/core/cli/consumer_copies.py, symbol: _contracts_of, row: A13, reason: "sandloom generate imports each provider's contracts module, never composed, to render a consumer's copies (ADR-0013, KB-20)"}
   - {path: sandloom/core/cli/extract.py, symbol: module_tables, row: A14, reason: "sandloom migrate extract-module imports <pkg>.models"}
   - {path: sandloom/core/testing/migrations.py, symbol: model_tables, row: A15, reason: "the test harness imports <module>.models and the kernel's models"}
