@@ -193,9 +193,10 @@ class ClaimReadCheck(Requirement):
                 "(the owner's declaration)"
             )
         self.params = dict(params or {})
-        self._read = str(atom.get("read") or READ_FLAG)
-        self._entry = str(atom.get("entry"))
-        self._below = atom.get("below")
+        # Fixed by the parameters: resolved once, not per decision.
+        self._flag = str(atom.get("read") or READ_FLAG) == READ_FLAG
+        self._key = self.params.get(str(atom.get("entry")))
+        self._used: int = 0 if self._flag else self.params[str(atom.get("below"))]
         # The live check, built once (it validates the parameters' values).
         self._live = self._otherwise(self.params, of=self.account)
         template = atom.get("describe")
@@ -257,13 +258,12 @@ class ClaimReadCheck(Requirement):
 
     def _from_claims(self, ctx: AuthzContext) -> bool:
         mapping = self._claim(ctx)
-        key = self.params.get(self._entry)
-        raw = mapping.get(key) if isinstance(mapping, dict) else None
-        if self._read == READ_FLAG:
+        raw = mapping.get(self._key) if isinstance(mapping, dict) else None
+        if self._flag:
             return raw is True
         if isinstance(raw, bool) or not isinstance(raw, int):
             return False  # an absent or non-integer limit is 0: denied
-        return bool(self.params[str(self._below)] < raw)
+        return self._used < raw
 
 
 __all__ = ["READ_FLAG", "READ_LIMIT", "ClaimReadCheck", "claim_atom"]
