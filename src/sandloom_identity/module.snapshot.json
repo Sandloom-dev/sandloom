@@ -1,4 +1,48 @@
 {
+  "capabilities": [
+    {
+      "capability": "cache",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "database",
+      "features": [
+        "list_aggregates",
+        "transaction_locks"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "eventbus",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "notification",
+      "features": [
+        "email"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "taskqueue",
+      "features": [
+        "periodic"
+      ],
+      "instance": "default",
+      "required": false,
+      "version": "v1"
+    }
+  ],
   "consumers": [
     {
       "bind_tenant_from": null,

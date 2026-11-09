@@ -101,7 +101,9 @@ SHELL = {
     "INTERNAL_API_TOKEN": secrets.token_hex(32),
     "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
     "BILLING_PROVIDER": "fake",
-    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod",
+    # A demo stack: the default log notifier stands in for mail delivery,
+    # which identity and tenancy require (notification + email).
+    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod,log_notifier_in_prod",
 }
 
 

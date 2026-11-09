@@ -244,6 +244,32 @@ website renders this same changelog.
 
 ### Changed
 
+- **Modules declare the infrastructure their code needs; startup checks it,
+  also where it is only derived** (owner decision on module infrastructure
+  dependencies, item 2; kb-ic-2). The `taskqueue` capability has a new
+  feature `periodic`: the driver runs a module's periodic jobs at their
+  interval while the deployment runs (only `celery` advertises it; a driver
+  never gets it for supporting enqueue). `ModuleDescriptor.effective_capabilities()`
+  now adds what a module's code shows it needs, read without importing it: a
+  `tasks.py` needs `taskqueue`, its `setup_periodic_tasks` the feature
+  `periodic`. A declaration keeps its `required` and `instance` and only
+  gains the derived feature; a capability nothing declares is derived as
+  required. New `sandloom check` rule `undeclared-capability`
+  (SANDLOOM-C033) asks for the declaration, `sandloom add task` writes it,
+  and `module.snapshot.json` records the effective requirements
+  (`capabilities`). Billing declares `taskqueue` with `periodic` (its intent
+  reconciler must run); identity declares it optional (its token cleanup is
+  storage hygiene). Identity and tenancy now require `notification` with
+  `email`, so **a production deployment on the default `log` notifier refuses
+  them at startup** instead of logging verification, reset and invitation
+  mail nobody receives. Upgrade: configure a delivering notifier
+  (`NOTIFIER_BACKEND=smtp` and `SMTP_*`, or a driver package), or accept the
+  risk for a demo stack with `SANDLOOM_ACCEPTED_RISKS=log_notifier_in_prod`;
+  run `uv run sandloom generate`; declare `taskqueue` in each module with a
+  `tasks.py` (`sandloom check` names them). A module selected in
+  `SANDLOOM_MODULES` whose required capability is unmet now refuses startup
+  even when it is optional; one only discovered or defaulted is still skipped.
+
 - **The admin console's manifest is a file the console declares** (ADR-0012
   decision 4). A module can declare files `sandloom generate` writes into the
   app's shared package, `define_module(..., generates={"name": render})`:
