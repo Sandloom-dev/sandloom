@@ -717,6 +717,18 @@ website renders this same changelog.
 
 ### Fixed
 
+- **Review fixes of waves 2 and 3** (KB-RF-ledger). The SANDLOOM-R017 fix text
+  and `docs/advanced/security-model.md` show the keyword-only mint,
+  `create_access_token(data=..., claims=...)`. `is_kernel_family` (the
+  generator's rule for contracts that get no consumer copy) matches only
+  `<m>.claims.v1` and `<m>.facts.v1`, the names the runtime reserves: a
+  `<m>.claims.v2` is an ordinary contract and gets its copy. Identity's tests
+  register the `sandloom_db_feature` marker, so `sandloom test identity` runs
+  alone. The ledger gains the entries of KB-13, KB-22, KB-41, KB-51, KB-53 and
+  KB-56 and maps the ADR-0013, ADR-0014 and ADR-0015 sections they built.
+  Edge B-C10 is open again with KB-60: `sandloom admin create` still reads the
+  declared `ADMIN_CONSOLE_ENABLED` by name, and the owner moved the composed
+  console-route test to the CLI phase.
 - **A replacement provider's DTOs decode into the consumer's generated copy on
   the untyped path** (KB-23, I-06; contracts PoC section 3.3). A remote
   `core.get_service(name)` call resolved a model or Enum result to the

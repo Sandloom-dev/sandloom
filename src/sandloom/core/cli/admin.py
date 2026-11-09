@@ -132,8 +132,8 @@ def _frontend_url() -> str | None:
 
 #: The console switch the admin module declares (ADR-0015). The CLI reads it
 #: from the process's one source read, not from a kernel setting: the link
-#: target must not depend on the module being loaded in this process (edge row
-#: K2, KB-60 decides how the CLI learns it).
+#: target must not depend on the module being loaded in this process (edge rows
+#: B-C10 and B-N3, KB-60 decides how the CLI learns it).
 _CONSOLE_SWITCH = "ADMIN_CONSOLE_ENABLED"
 
 

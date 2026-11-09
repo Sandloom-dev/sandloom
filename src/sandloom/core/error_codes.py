@@ -1753,10 +1753,11 @@ in-memory test database.
         "policy marker outside a sealed collect_claims result, a service "
         "token carried one, or collect_claims got an issuer or a precomputed "
         "contribution it cannot verify",
-        "mint a user token with create_access_token(data, claims=await "
-        "core.collect_claims(user_id, issuer=<your contributor>)), data "
-        "holding only the envelope (sub, token_type, auth_time); a token "
-        "with no user rights with create_service_token; a test token with "
+        "mint a user token with create_access_token(data=..., "
+        "claims=await core.collect_claims(user_id, issuer=<your "
+        "contributor>)), data holding only the envelope (sub, token_type, "
+        "auth_time); a token with no user rights with create_service_token; "
+        "a test token with "
         "as_user or mint_test_token (sandloom.sdk.testing)",
         """
 Protected claims (roles, permissions, tenant_ids, email, email_verified, the

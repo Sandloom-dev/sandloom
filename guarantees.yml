@@ -3554,6 +3554,57 @@ guarantees:
   - tests/sdk/test_sdk_consumer_copies.py::test_generation_is_byte_identical_across_seeds_orders_and_formatters
   - tests/sdk/test_sdk_consumer_copies.py::test_the_final_layout_is_what_ruff_format_writes_at_88
   - tests/sdk/test_sdk_consumer_copies.py::test_stem_collisions_are_refused_naming_both
+- id: G-CONTRACT-24
+  statement: 'A contract the authorization layer asks to decide access (a key of create_app(access_providers=...)
+    or the service of any live adapter, a custom one included) is registered in-process only by the module its
+    first segment names, from its installed distribution when one provides a module of that name, or by the
+    one module the composition root assigns, checked by import path. An unassigned third party, an app-local
+    namesake of an assigned or installed module, a second claimant of one assignment, a registration made
+    outside a module''s registration, an adapter bound after the registration and a malformed assignment refuse
+    the boot (SANDLOOM-B034), at boot only; a provider cannot opt out by omitting a declaration. Remotely
+    SERVICE_BINDINGS pinned to the provider''s service_id is the assignment: another process behind the URL
+    answers nothing, and an assigned provider decides the same mono and split. Every other contract name keeps
+    the first-registrant rule.'
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#6. Contract-name ownership for access-bearing contracts
+  - docs/advanced/security-model.md
+  tests:
+  - src/sandloom/core/tests/test_access_providers.py::test_an_unassigned_third_party_provider_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_an_assigned_third_party_provider_is_accepted
+  - src/sandloom/core/tests/test_access_providers.py::test_an_app_local_module_of_the_assigned_name_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_the_first_segment_module_from_its_distribution_is_accepted
+  - src/sandloom/core/tests/test_access_providers.py::test_a_same_named_module_from_another_path_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_an_assignment_is_exclusive
+  - src/sandloom/core/tests/test_access_providers.py::test_an_access_bearing_contract_outside_a_registration_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_a_custom_adapter_makes_its_contract_access_bearing
+  - src/sandloom/core/tests/test_access_providers.py::test_an_adapter_bound_after_the_registration_refuses_the_boot
+  - src/sandloom/core/tests/test_access_providers.py::test_an_adapter_bound_after_create_app_refuses_the_startup
+  - src/sandloom/core/tests/test_access_providers.py::test_a_bare_facade_keeps_the_first_registrant_rule
+  - src/sandloom/core/tests/test_access_providers.py::test_a_malformed_map_refuses_the_boot
+  - src/sandloom/core/tests/test_access_providers.py::test_create_app_refuses_an_unassigned_third_party_provider
+  - tests/integration/test_access_providers_split.py::test_an_assigned_provider_decides_the_same_mono_and_split
+  - tests/integration/test_access_providers_split.py::test_only_the_pinned_service_id_answers_remotely
+  gap: 'Boot-time check only: a contract registered by hostile code that bypasses registration is outside the
+    threat model (mistakes only); the remote half rests on the service_id pin of SERVICE_BINDINGS (G-RPC).'
+  gap_size: S
+- id: G-CONTRACT-25
+  statement: 'Generated consumer artifacts live in the distribution that consumes them: a module keeps the stubs,
+    DTO copies and expectation files of the contracts it consumes in its own _generated/contracts/ package,
+    an application in <app>.shared/contracts/; the producer''s module.snapshot.json, shipped in its wheel,
+    is the published event schema. The kernel ships none: sandloom/shared holds no generated contract stub,
+    DTO copy, event schema or module helper (membership.py is gone) and is never a generation target.
+    _generated/ is reserved: sandloom check refuses a hand-written or edited file in it and an import of
+    another module''s _generated package (SANDLOOM-C032), while the generator''s own files pass.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#1. Home rule
+  - docs/adr/0013-contract-ownership.md#9. C5 leaves the kernel
+  tests:
+  - tests/sdk/test_sdk_generated.py::test_the_kernel_holds_no_generated_file
+  - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
+  - tests/architecture/test_generated_reservation.py::test_the_generators_own_files_pass
+  - tests/architecture/test_generated_reservation.py::test_a_hand_written_or_edited_file_is_refused
+  - tests/architecture/test_generated_reservation.py::test_an_import_of_another_modules_generated_package_is_refused
+  - tests/architecture/test_generated_reservation.py::test_sandloom_check_runs_the_rule
 - id: G-COMPAT-01
   statement: 'Each bundled module commits contracts.snapshot.json equal to the rendered describe documents
     of its registered contracts; a stale or missing snapshot fails the suite. For L1 modules, sandloom
@@ -4785,6 +4836,51 @@ guarantees:
   - src/sandloom/core/tests/test_module_settings.py::test_semantic_override_is_reported_unless_its_risk_is_accepted
   - src/sandloom/core/tests/test_module_settings.py::test_loader_check_refuses_and_logs
   - tests/integration/test_module_settings_fixture.py::test_semantic_override_of_a_module_is_logged
+- id: G-CONFIG-13
+  statement: 'sandloom check and sandloom test import every module of the application and flag, whether or not
+    the modules load together: an environment name two modules (or a module and the kernel) declare
+    (SANDLOOM-B036), a new setting without its module''s prefix (INVENTORY_ for inventory; a name the committed
+    module.snapshot.json records as legacy, written once by generate for a module that already had it, still
+    passes and a new module''s unprefixed name is not grandfathered), a tier that module.snapshot.json does not
+    record, a module that reads its settings at import, and, per service of the deploy profiles (SANDLOOM-T019),
+    a wrong module name in SANDLOOM_MODULES, a variable set for a module the service does not load and a
+    literal value its declaration refuses; a placeholder passes and a secret literal is never echoed. The
+    static gate validates names and literal values only.'
+  sources:
+  - docs/adr/0015-module-settings.md#6. Env names
+  - docs/adr/0015-module-settings.md#7. Static gate in `sandloom check` and `sandloom test`
+  - docs/reference/error-codes.md
+  tests:
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_declared_by_two_modules_that_never_load_together_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_declared_by_the_kernel_and_a_module_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_new_unprefixed_name_fails_and_a_prefixed_one_passes
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_the_snapshot_records_as_legacy_is_grandfathered
+  - src/sandloom/core/tests/test_settings_gate.py::test_settings_section_grandfathers_only_names_a_module_already_had
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_module_without_a_recorded_settings_section_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_tier_changed_in_the_code_but_not_in_the_snapshot_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_left_in_the_snapshot_but_not_declared_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_wrong_module_name_in_a_service_is_reported_with_a_hint
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_set_for_a_module_the_service_does_not_load_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_literal_value_its_declaration_refuses_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_secret_literal_is_never_echoed
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_placeholder_or_a_valid_literal_passes
+  - src/sandloom/core/tests/test_settings_gate.py::test_generate_records_the_settings_and_grandfathers_a_module_that_adopts_them
+  - tests/integration/test_settings_gate_fixture.py::test_p9_a_name_two_modules_declare_is_flagged_though_they_never_load_together
+  - tests/integration/test_settings_gate_fixture.py::test_p6_a_module_that_reads_its_settings_at_import_is_reported
+  - tests/integration/test_settings_gate_fixture.py::test_a_module_that_declares_settings_needs_its_snapshot_record
+  - tests/integration/test_settings_gate_fixture.py::test_the_gate_reaches_sandloom_check
+- id: G-CONFIG-14
+  statement: 'The refresh-session lifetimes REFRESH_TOKEN_EXPIRE_DAYS and MAX_SESSION_DAYS (1 to 365 days, an
+    absolute deadline a refresh does not extend) are identity''s declared settings under unchanged env names;
+    the kernel Settings holds neither and keeps the access-JWT signing, verification and revocation parameters
+    (JWT_*, ACCESS_TOKEN_EXPIRE_MINUTES, AUTH_REVOCATION_*).'
+  sources:
+  - docs/adr/0015-module-settings.md#9. Refresh-session settings move to identity
+  tests:
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_the_kernel_settings_hold_no_refresh_session_lifetime
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_identity_declares_both_lifetimes_under_the_same_env_names
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_the_absolute_session_lifetime_is_bounded_by_the_declaration
+  - src/sandloom_identity/tests/services/test_review_security.py::test_refresh_cannot_extend_primary_session_past_absolute_limit
 - id: G-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS accepts only registered risk ids; an unknown id fails Settings validation
     / startup.
@@ -4948,6 +5044,33 @@ guarantees:
   - src/sandloom/core/tests/test_claims_legacy_mode.py::test_diagnostics_show_the_mode_and_count_each_acceptance
   - src/sandloom/core/tests/test_claims_legacy_mode.py::test_doctor_shows_the_mode
   - src/sandloom/core/tests/test_claims_legacy_mode.py::test_the_profile_keeps_one_mode
+- id: G-RISK-15
+  statement: 'Kernel risk ids stay flat; a module''s accepted risk is <module>.<name>, declared in its settings
+    model. After the modules load, the id of a loaded module is checked against what it declares and an
+    undeclared one refuses the boot; the id of a module installed, loaded or listed in SANDLOOM_MODULES but not
+    loaded in this process is inert and listed as "not applicable here" (so one SANDLOOM_ACCEPTED_RISKS serves
+    every service of a split with one image); any other namespace refuses, so a typo in a module or risk name
+    never passes silently. A flat id that is no kernel id is refused and names the namespaced replacement when
+    the module declaring it is installed; there is no alias. Accepted module risks are logged, counted in
+    sandloom_accepted_risk_active{risk} and reported by the tier diagnostics, in every entry point that builds
+    the composition.'
+  sources:
+  - docs/adr/0015-module-settings.md#4. Risk namespaces
+  - docs/adr/0006-accepted-risks.md#Decision
+  tests:
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_kernel_ids_stay_flat_and_module_ids_are_not_kernel_ids
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_settings_defers_a_module_id_and_refuses_a_flat_unknown_one
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_a_flat_id_names_the_replacement_of_an_installed_module
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_the_id_of_a_loaded_module_is_checked_against_its_declaration
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_an_undeclared_id_of_a_loaded_module_refuses
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_the_id_of_a_known_module_that_is_not_loaded_is_inert
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_an_unknown_namespace_refuses_even_beside_a_known_one
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_a_typo_in_the_risk_name_of_a_loaded_module_is_not_inert
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_diagnostics_list_an_inert_id_as_not_applicable_here
+  - tests/integration/test_settings_risk_namespaces.py::test_a_bad_risk_id_refuses_in_every_composed_entry_point
+  - tests/integration/test_settings_risk_namespaces.py::test_the_id_of_an_installed_module_this_service_does_not_load_is_inert
+  - tests/integration/test_settings_risk_namespaces.py::test_an_accepted_module_risk_starts_and_is_logged
+  - tests/integration/test_settings_risk_namespaces.py::test_without_the_risk_the_module_check_still_refuses_in_prod
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -7075,6 +7198,26 @@ capabilities:
   tests:
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_the_first_admin_grants_verifies_and_audits
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_twice_keeps_one_assignment
+- id: C-CONSOLE-05
+  statement: 'The admin console serves in front of the composition''s assigned token issuer, not a module
+    named identity: sandloom generate writes the issuer and the login entry that issuer declared on its
+    registration into admin-manifest.json and /admin/config.json serves them. No assigned issuer, an issuer
+    without a usable login entry, or a manifest without the issuer field is a 503 naming the fix; a login entry
+    that is not a route path of the application is refused at registration, at generate and by the console;
+    the issuer is never taken from the iss of a token (unverified input).'
+  sources:
+  - docs/admin-console/index.md
+  - docs/adr/0012-kernel-boundary.md#4. The admin battery
+  tests:
+  - src/sandloom/core/tests/test_console_issuer.py::test_the_assigned_issuer_and_its_declaration_reach_the_renderer
+  - src/sandloom/core/tests/test_console_issuer.py::test_only_the_map_assigns_the_issuer_not_a_module_claiming_it
+  - src/sandloom/core/tests/test_console_issuer.py::test_a_declaration_the_app_does_not_serve_is_refused
+  - src/sandloom/core/tests/test_console_issuer.py::test_a_login_entry_that_could_leave_the_app_is_refused
+  - src/sandloom_admin/tests/test_console.py::test_the_issuer_need_not_be_a_module_named_identity
+  - src/sandloom_admin/tests/test_console.py::test_no_assigned_issuer_is_a_configuration_error
+  - src/sandloom_admin/tests/test_console.py::test_a_manifest_without_the_issuer_field_fails_closed
+  - src/sandloom_admin/tests/test_console.py::test_an_issuer_without_a_usable_login_entry_is_named
+  - src/sandloom_admin/tests/test_console.py::test_a_forged_iss_changes_nothing
 - id: C-TEST-01
   statement: The sandloom.core.testing pytest plugin (-p sandloom.core.testing.plugin) loads .env.test before any
     settings import, honours a composition-root ini option and exposes the db/client/db_uow fixtures binding
@@ -7582,6 +7725,18 @@ capabilities:
   - src/sandloom/core/tests/test_module_settings.py::test_override_settings_nests_and_restores
   - src/sandloom/core/tests/test_module_settings.py::test_override_settings_without_an_application
   - src/sandloom/core/tests/test_module_settings.py::test_validate_settings_is_the_loaders_validation
+- id: C-TEST-17
+  statement: 'sandloom.core.testing.settings_gate.semantic_ratchet_problems(Model, baseline=, ceiling=) is a
+    module''s own semantic ratchet for its tests: a semantic setting outside the baseline, a baseline name that
+    left the semantic tier and a count over the ceiling are reported, so a module''s semantic setting cannot
+    slip in as ops unreviewed; billing runs it over BillingSettings.'
+  sources:
+  - docs/adr/0015-module-settings.md#5. Ratchets and completeness
+  - docs/reference/testing.md
+  tests:
+  - src/sandloom/core/tests/test_settings_gate.py::test_the_semantic_ratchet_helper
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_semantic_name_that_is_no_field_is_flagged
+  - src/sandloom/core/tests/test_config_tiers.py::test_billing_keeps_its_own_semantic_ratchet
 - id: C-TENANT-10
   statement: The TenantScoped mixin declares no plain tenant_id index on a table whose primary key, unique constraint
     or unique index leads with tenant_id (that key serves the lookups), and keeps it otherwise.
@@ -7909,7 +8064,7 @@ removed:
 
 issued:
   C-AUTH: 9
-  C-CONSOLE: 4
+  C-CONSOLE: 5
   C-DECL: 5
   C-DEPLOY: 9
   C-EFFECT: 2
@@ -7929,7 +8084,7 @@ issued:
   C-SDK: 6
   C-SPLIT: 7
   C-TENANT: 10
-  C-TEST: 16
+  C-TEST: 17
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
@@ -7939,8 +8094,8 @@ issued:
   G-BLOCK: 8
   G-CMD: 9
   G-COMPAT: 8
-  G-CONFIG: 12
-  G-CONTRACT: 23
+  G-CONFIG: 14
+  G-CONTRACT: 25
   G-DECL: 7
   G-EFFECT: 5
   G-EVENT: 14
@@ -7958,7 +8113,7 @@ issued:
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 27
-  G-RISK: 14
+  G-RISK: 15
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33
@@ -8565,7 +8720,8 @@ adr_sections:
   0013-contract-ownership.md:
     "Context": informational
     "Decision": informational
-    "1. Home rule": planned
+    "1. Home rule":
+    - G-CONTRACT-25
     "2. `consumes` is the single source of what a consumer requires":
     - G-CONTRACT-20
     "3. Expectation files and narrowing":
@@ -8580,8 +8736,11 @@ adr_sections:
     - G-CONTRACT-22
     "8. Collisions and copies":
     - G-CONTRACT-23
-    "9. C5 leaves the kernel": planned
-    "10. Migration list": planned
+    "9. C5 leaves the kernel":
+    - G-CONTRACT-25
+    "10. Migration list":
+    - G-CONTRACT-25
+    - C-GEN-03
     "11. When B2 is adopted": planned
     "Mechanisms": informational
     "Alternatives considered": informational
@@ -8603,7 +8762,8 @@ adr_sections:
     - G-AUTH-24
     "5. Sealed mint, service tokens, test tokens":
     - G-AUTH-25
-    "6. Contract-name ownership for access-bearing contracts": planned
+    "6. Contract-name ownership for access-bearing contracts":
+    - G-CONTRACT-24
     "7. Billing claims: option (c)":
     - G-AUTH-20
     - G-AUTH-22
@@ -8637,14 +8797,26 @@ adr_sections:
     "3. Validation before `setup`, one check after loading":
     - G-CONFIG-11
     - G-CONFIG-12
-    "4. Risk namespaces": planned
-    "5. Ratchets and completeness": planned
-    "6. Env names": planned
-    "7. Static gate in `sandloom check` and `sandloom test`": planned
+    "4. Risk namespaces":
+    - G-RISK-15
+    "5. Ratchets and completeness":
+    - G-CONFIG-02
+    - G-CONFIG-13
+    - C-TEST-17
+    "6. Env names":
+    - G-CONFIG-13
+    - G-CONFIG-12
+    "7. Static gate in `sandloom check` and `sandloom test`":
+    - G-CONFIG-13
     "8. `config dump` and what \"activation\" means": planned
-    "9. Refresh-session settings move to identity": planned
+    "9. Refresh-session settings move to identity":
+    - G-CONFIG-14
     "10. Password hashing stays a kernel mechanism (H1)": planned
-    "11. What moves": planned
+    "11. What moves":
+    - G-BILLING-18
+    - G-AUTH-19
+    - G-CONFIG-14
+    - C-CONSOLE-02
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
