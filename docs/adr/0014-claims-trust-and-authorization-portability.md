@@ -493,8 +493,14 @@ They are removed only after:
   reads the `features` / `limits` claim with zero I/O, as the kernel atom does, with the same
   indeterminates. For an organization account it asks that check live, with its parameters as
   contract arguments, so they reach billing over internal RPC too. Billing's plans declare no
-  features or limits yet, so both checks answer `False`. Giving billing a plan entitlements
-  source is the owner's decision before KB-34.
+  features or limits yet. The owner decided (2026-11-09, KB-33c) that a missing source is never
+  `False`: a `False` is a confirmed deny, and `Not` or `~` would turn it into an allow. A
+  provider that cannot answer raises `AccessUnknown` (a contract error, 501, the same class
+  in-process and over RPC). The generated atom maps it to an indeterminate 501
+  `access_unknown` inside the algebra, as it maps a missing provider (501) and a provider that
+  is down (503, K5). Billing's checks raise it until a per-plan features and limits catalogue
+  ships, which is a later task. `Feature` and `WithinLimit` stay supported, and a third-party
+  module can provide them through its own contract with no kernel change.
 - `Roles` and `Permissions` constants (no importer, B-N15) move to identity, the owner of the rows
   they name. The owner confirms (decision.md, A6) on the condition of an I-17 review in KB-34: the
   public API baseline and beginner tier diff, the upgrade step naming the new import, no alias

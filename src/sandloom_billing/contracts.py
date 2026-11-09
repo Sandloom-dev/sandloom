@@ -83,11 +83,12 @@ class EntitlementsContract:
     )
     async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
         """True when the account's plan enables the feature flag ``key``.
-        Billing's plans declare no feature flags yet: False for every
-        account, as the ``features`` claim billing contributes (none). Its
-        claim atom ``Feature(key, of=...)`` reads that claim for
+        Billing keeps no per-plan feature catalogue yet: this raises
+        ``AccessUnknown`` (501), never a False it cannot vouch for. Its
+        claim atom ``Feature(key, of=...)`` reads the ``features`` claim for
         ``Account.user()`` with no call and asks this method for an
-        organization account (403 when it answers False)."""
+        organization account (indeterminate 501 while billing has no
+        catalogue; 403 when a source answers False)."""
         return await EntitlementsService.plan_feature(tenant_type, tenant_id, key)
 
     @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
@@ -101,11 +102,12 @@ class EntitlementsContract:
         self, tenant_type: str, tenant_id: UUID, key: str, used: int
     ) -> bool:
         """True when ``used`` is strictly below the account's plan limit
-        ``key``. Billing's plans declare no limits yet (an absent limit is 0):
-        False for every account. Its claim atom ``WithinLimit(key, used,
-        of=...)`` reads the ``limits`` claim for ``Account.user()`` with no
-        call and asks this method for an organization account (quota
-        exceeded when it answers False)."""
+        ``key``. Billing keeps no per-plan limits catalogue yet: this raises
+        ``AccessUnknown`` (501), never a False it cannot vouch for. Its claim
+        atom ``WithinLimit(key, used, of=...)`` reads the ``limits`` claim
+        for ``Account.user()`` with no call and asks this method for an
+        organization account (indeterminate 501 while billing has no
+        catalogue; quota exceeded when a source answers False)."""
         return await EntitlementsService.plan_limit_allows(
             tenant_type, tenant_id, key, used
         )

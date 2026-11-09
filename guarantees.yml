@@ -2846,7 +2846,10 @@ guarantees:
     generated Feature / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
     decide as the kernel atoms on every trust case of the claims with zero I/O, and for an organization account
     ask billing's live check once with their parameters, in-process and over internal RPC alike (501 without
-    a provider, never an allow).
+    a provider, never an allow). A provider with no source for the answer (billing has no per-plan features /
+    limits catalogue yet) raises AccessUnknown, an indeterminate 501 access_unknown in mono and split, never
+    a deny, so Not and Or over it never allow; an explicit off or exceeded limit from a source still denies,
+    and a third-party contract provides the same atoms with no kernel change.
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
@@ -2857,6 +2860,12 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_without_a_provider_the_organization_path_is_501
   - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_atoms_equal_the_kernel_atoms
   - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_atoms_carry_their_parameters_over_rpc
+  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_without_a_catalogue_is_501_never_an_allow
+  - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_without_a_catalogue_is_501_never_an_allow
+  - tests/integration/with_batteries/test_plan_atoms.py::test_without_a_catalogue_the_user_claims_path_is_unchanged
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_no_source_is_501_and_never_allows
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_a_third_party_source_decides_alike_mono_and_split
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator

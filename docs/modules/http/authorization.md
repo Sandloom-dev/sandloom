@@ -97,7 +97,7 @@ genuinely allows.
 | `unauthenticated` | 401 |
 | `forbidden`, `tenant_inactive`, `resource_forbidden` | 403 |
 | `payment_required`, `quota_exceeded` | 402 |
-| `policy_misconfigured` | 500 (unregistered fact); 501 when a contract or fact source is absent from the deployment |
+| `policy_misconfigured` | 500 (unregistered fact); 501 when a contract or fact source is absent from the deployment, or its provider has no answer (`access_unknown`) |
 
 Subscription and credit gates answer `402`. `AccessDenied` is an
 `HTTPException`, so the response carries the decision's status and a
@@ -229,6 +229,10 @@ contract. A consumer imports it from its generated package and writes
 
 - A `False` answer denies with the declared category.
 - No provider is `501`.
+- A provider that has no answer raises `AccessUnknown` (`sandloom.sdk.authz`).
+  It never returns a `False` it cannot vouch for. The atom answers `501
+  access_unknown` inside the algebra: `Not` never allows, and `Or` allows
+  only on another branch. The same applies in-process and over internal RPC.
 - A provider that no longer matches the generated atom is `501
   contract_mismatch` inside the algebra: `Or` may still allow, `Not` never
   allows.
@@ -240,6 +244,13 @@ Tenancy declares `OrgRole`; billing declares `SubscriptionActive` and
 
 Billing's claim atom `Subscribed` accepts only the statuses and claim keys
 billing declares. Without billing in the composition it answers `501`.
+
+Billing also declares `Feature` and `WithinLimit` (`claim_atom` above
+`has_feature` / `is_within_limit`). Billing has no features and limits
+catalogue yet, so for an organization account both answer `501
+access_unknown`, never a deny
+([billing](../batteries/billing.md#features-and-limits)). A module with its
+own catalogue declares the same atoms on its own contract.
 
 Until the kernel atoms are removed, both forms exist. They decide the same
 with the same calls.
