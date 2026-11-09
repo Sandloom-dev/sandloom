@@ -100,6 +100,12 @@ class _FacadeState:
         # and explicit per-contract database overrides.
         self._service_owners: dict[str, str] = {}
         self._service_databases: dict[str, str] = {}
+        # Access-bearing contract names (ADR-0014 decision 6): the root's
+        # access_providers (contract -> provider import path) and the reader
+        # of which names bear access, both bound by create_app; unbound (a
+        # bare facade) keeps the first-registrant rule for every name.
+        self._access_assignment: dict[str, str] = {}
+        self._access_classifier: Callable[[], frozenset[str]] | None = None
         # claims owner (short name) -> full module name that registered it, so
         # a contributor runs on ITS module's database even when its
         # ``<owner>.claims.v1`` contract could not be registered.

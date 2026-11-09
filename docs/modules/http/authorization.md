@@ -71,6 +71,19 @@ billing's entitlements and tenancy's membership contracts. Cross-cutting atoms
 reference other modules by string, never by import; a module's own
 domain-specific atoms live in its package.
 
+A contract an adapter asks decides access, so only its provider may register
+it: the module its first segment names, or the module your composition root
+assigns. To serve tenancy's membership contract from your own module, assign
+it in `asgi.py`:
+
+```python
+app = create_app(access_providers={"tenancy.membership.v1": "acme_orgs"})
+```
+
+Any other module that registers it refuses the boot (`SANDLOOM-B034`). In a
+split deployment the `SERVICE_BINDINGS` entry is the assignment. See
+[the security model](../../advanced/security-model.md#authorization).
+
 ## Three-valued decisions
 
 A decision is **allow**, **deny** or **indeterminate** (the policy could not
