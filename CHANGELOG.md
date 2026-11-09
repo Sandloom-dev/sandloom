@@ -696,6 +696,15 @@ website renders this same changelog.
 
 ### Fixed
 
+- **A module named by its import path is known by its module name, and the
+  platform bindings view says "unverified"** (KB-55). The risk-namespace rule
+  (ADR-0015 decision 4) read a `SANDLOOM_MODULES` entry such as `sandloom_billing`
+  by its last path segment, so an image naming the path knew a module
+  `sandloom_billing` and not `billing`; it now uses the module's name (the
+  entry point's, else the last segment). The admin platform view showed a
+  required contract with no expectation (`contract_unverified`) as an
+  unreachable peer; it shows `unverified` with the reason.
+
 - **A registered driver whose package is missing no longer passes the
   preflight; SANDLOOM-B037 names what is missing** (KB-IC-1). The built-in
   `celery` taskqueue and `redis` cache drivers are registered whether or not

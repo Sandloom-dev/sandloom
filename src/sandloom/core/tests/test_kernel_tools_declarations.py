@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 import sandloom.core.config.module_settings as ms
+from sandloom.core.admin.api import platform
 from sandloom.core.app_factory import ops
 from sandloom.core.cli import doctor
 from sandloom.core.cli.config import module_config
@@ -303,3 +304,78 @@ def test_module_config_lists_values_with_origin_and_redaction() -> None:
     assert {e.module for e in rows.values()} == {"shop"}
     clear = {e.name: e for e in module_config(core, redact=False)}
     assert clear["SHOP_SIGNING_KEY"].value == "s3cret"
+
+
+# ----------------------------------------- SEC-7: known modules by their names ----
+
+
+class _EntryPoints:
+    def __init__(self, *pairs: tuple[str, str]) -> None:
+        self._eps = [SimpleNamespace(name=n, value=v) for n, v in pairs]
+
+    def select(self, *, group: str) -> list[Any]:
+        return self._eps if group == ms.MODULES_ENTRY_POINT_GROUP else []
+
+
+def test_known_modules_name_an_import_path_by_its_module_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SEC-7: ``SANDLOOM_MODULES`` entries are import paths (``sandloom_billing``)
+    but a risk namespace is the module's name (``billing``, the entry point's):
+    an image that names the path must know ``billing.fake_psp_in_prod`` as the
+    module's, and never ``sandloom_billing`` as a module of its own."""
+    monkeypatch.setattr(
+        ms.metadata,
+        "entry_points",
+        lambda: _EntryPoints(("billing", "sandloom_billing"), ("identity", "sandloom_identity")),
+    )
+    kernel = Settings.model_construct(
+        sandloom_modules=["sandloom_billing", "app.modules.shop_eu", "identity"],
+        sandloom_accepted_risks=[],
+    )
+    assert ms.known_module_names(kernel) == {
+        "billing",
+        "identity",
+        "shop_eu",
+    }
+
+
+def test_an_identity_only_image_treats_a_billing_risk_as_inert_not_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ms.metadata,
+        "entry_points",
+        lambda: _EntryPoints(("billing", "sandloom_billing"), ("identity", "sandloom_identity")),
+    )
+    kernel = _kernel("prod", "billing.fake_psp_in_prod", "sandloom_billing.fake_psp_in_prod")
+    kernel.sandloom_modules = ["sandloom_identity"]
+    outcome = ms.post_load_check([], kernel, _snapshot(), loaded_modules=["identity"])
+    assert [r for r in outcome.risks.inert] == ["billing.fake_psp_in_prod"]
+    # the path is no namespace: it is refused as unknown, never accepted
+    assert any("sandloom_billing" in p for p in outcome.risks.problems)
+
+
+# ------------------------------------------- the platform bindings view ----
+
+
+def test_the_bindings_view_says_unverified_for_a_contract_with_no_expectation() -> None:
+    """KB-21: a required contract with no expectation fails ``/ready`` with
+    ``contract_unverified``; the platform view shows it as ``unverified``, not as
+    an unreachable peer."""
+    core = SimpleNamespace(
+        settings=SimpleNamespace(
+            service_bindings={"a.b.v1": {"required": True}, "c.d.v1": {}}
+        ),
+        service_registry=SimpleNamespace(contains=lambda name: False),
+    )
+    details = {
+        "remote_services": {
+            "a.b.v1": {"contract_unverified": ["no expectation: consume it"]},
+            "c.d.v1": {"error": "connection refused"},
+        }
+    }
+    by_name = {v.contract: v for v in platform._bindings(core, details)}
+    assert by_name["a.b.v1"].status == "unverified"
+    assert "no expectation" in (by_name["a.b.v1"].detail or "")
+    assert by_name["c.d.v1"].status == "unreachable"

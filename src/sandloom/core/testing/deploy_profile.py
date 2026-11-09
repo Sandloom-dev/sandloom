@@ -1018,8 +1018,12 @@ def _profile_module_settings(
     processes load, in first-use order; none for a text that is no compose
     mapping."""
     try:
-        compose = importlib.import_module("yaml").safe_load(compose_text)
-    except Exception:  # noqa: BLE001 - not a compose file: no module to read
+        yaml = importlib.import_module("yaml")  # optional: the check extra ships it
+    except ImportError:
+        return []
+    try:
+        compose = yaml.safe_load(compose_text)
+    except yaml.YAMLError:  # not a compose file: no module to read
         return []
     if not isinstance(compose, dict):
         return []

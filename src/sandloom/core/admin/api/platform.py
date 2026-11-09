@@ -567,6 +567,9 @@ def _bindings(core: Any, details: dict[str, Any]) -> list[BindingView]:
         elif isinstance(failure, dict) and failure.get("contract_incompatible"):
             status = "incompatible"
             detail = safe_error("; ".join(map(str, failure["contract_incompatible"])))
+        elif isinstance(failure, dict) and failure.get("contract_unverified"):
+            status = "unverified"
+            detail = safe_error("; ".join(map(str, failure["contract_unverified"])))
         elif failure is not None:
             status = "unreachable"
             detail = safe_error(str(failure.get("error", "unreachable")))

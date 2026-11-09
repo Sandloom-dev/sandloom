@@ -640,16 +640,20 @@ MODULES_ENTRY_POINT_GROUP = "sandloom.modules"
 def known_module_names(kernel: Any) -> set[str]:
     """The modules known in the deployment without importing one: the
     installed ``sandloom.modules`` entry points (metadata only) and the
-    modules ``SANDLOOM_MODULES`` names (by name, or the last segment of the
-    import path). The known-namespace rule of answer #27 (K1 and the
-    composition's modules)."""
-    names = {
-        str(ep.name)
-        for ep in metadata.entry_points().select(group=MODULES_ENTRY_POINT_GROUP)
-        if ep.name
-    }
+    modules ``SANDLOOM_MODULES`` names. An entry is a module name or an import
+    path; a path is the module's name when an installed entry point provides
+    it (``sandloom_billing`` is ``billing``, the namespace of its risks), else
+    the last segment of the path (``descriptors.module_names.module_name``).
+    The known-namespace rule of answer #27 (K1 and the composition's
+    modules)."""
+    by_path: dict[str, str] = {}
+    for ep in metadata.entry_points().select(group=MODULES_ENTRY_POINT_GROUP):
+        if ep.name:
+            by_path.setdefault(str(ep.value).split(":", 1)[0].strip(), str(ep.name))
+    names = set(by_path.values())
     for entry in getattr(kernel, "sandloom_modules", None) or ():
-        names.add(str(entry).split(":", 1)[0].rsplit(".", 1)[-1])
+        path = str(entry).split(":", 1)[0]
+        names.add(by_path.get(path, path.rsplit(".", 1)[-1]))
     return names
 
 

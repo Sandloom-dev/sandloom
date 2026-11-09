@@ -43,6 +43,7 @@ from pydantic_settings import (
     SecretsSettingsSource,
 )
 
+from sandloom.core.composition import load_composition_core
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config.settings import effective_secrets_dir, settings
 from sandloom.core.observability.guardrails import is_secret_name
@@ -121,6 +122,19 @@ class ModuleConfigEntry(ConfigEntry):
 
     module: str = ""
 
+
+#: What building the composition fails with that is no module's refusal (a
+#: composition root that does not import or expose a core, a failed module
+#: load); anything else is a defect and keeps its traceback.
+_BUILD_FAILURES = (
+    ImportError,
+    AttributeError,
+    LookupError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    OSError,
+)
 
 #: ``ModuleConfigEntry.source`` of a diagnosed problem.
 INVALID = "invalid"
@@ -253,16 +267,12 @@ def _build_module_entries(
     """The modules' settings and diagnosed problems of the composition the
     deployment runs, and a reason when the composition could not be built at
     all (collect mode reports a module's refusal, not another failure)."""
-    from sandloom.core.composition import (  # noqa: PLC0415 - cold: the composition import builds the app; --kernel-only never does
-        load_composition_core,
-    )
-
     core = None
     failure: str | None = None
     with _module_settings.collect_mode() as diagnosed:
         try:
             core = load_composition_core()
-        except Exception as exc:  # noqa: BLE001 - reported below, never swallowed
+        except _BUILD_FAILURES as exc:  # reported below, never swallowed
             failure = f"{type(exc).__name__}: {exc}"
         except SystemExit as exc:
             failure = str(exc.code if exc.code is not None else exc)

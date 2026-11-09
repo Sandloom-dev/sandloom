@@ -2444,6 +2444,7 @@
         "tests/fixtures/specs/api10-ledger-delta-kbw1trust.md",
         "tests/fixtures/specs/api10-ledger-delta-kb11b.md",
         "tests/fixtures/specs/api10-ledger-delta-kb52.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb55.md",
         "tests/fixtures/specs/api10-ledger-delta-layout.md",
         "tests/fixtures/specs/api10-ledger-delta-modprod.md",
         "tests/fixtures/specs/api10-ledger-delta-sqlite.md",
