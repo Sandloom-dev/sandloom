@@ -16,8 +16,8 @@ from sandloom.core.testing.workers import seed_test_environ
 
 #: Settings ``.env.test`` must not leak into the framework suite's snapshot:
 #: the suite runs as ``ENVIRONMENT=dev`` (it gates on ``is_prod``, never
-#: ``is_test``); the composition root is chosen below, by what is installed.
-_SEED_SKIP = frozenset({"ENVIRONMENT", "SANDLOOM_COMPOSITION_ROOT"})
+#: ``is_test``).
+_SEED_SKIP = frozenset({"ENVIRONMENT"})
 
 
 def _seed_test_env() -> None:
@@ -60,18 +60,10 @@ def _standard_root_when_installed() -> None:
     ``sandloom-standard`` tests the
     standard composition, ``sandloom_standard.main`` with its trust map; the
     ``kernel-without-batteries`` venv has no ``sandloom-standard`` and keeps
-    the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins, except the
-    standard root ``.env.test`` names (loaded by the plugin before this file)
-    where ``sandloom-standard`` is not installed.
+    the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins.
     """
-    standard = "sandloom_standard.main"
     if importlib.util.find_spec("sandloom_standard") is not None:
-        os.environ.setdefault("SANDLOOM_COMPOSITION_ROOT", standard)
-    elif os.environ.get("SANDLOOM_COMPOSITION_ROOT") == standard:
-        del os.environ["SANDLOOM_COMPOSITION_ROOT"]
-        loaded = sys.modules.get("sandloom.core.config.settings")
-        if loaded is not None:  # its snapshot took the variable too
-            loaded.settings.sandloom_composition_root = None
+        os.environ.setdefault("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
 
 
 _standard_root_when_installed()

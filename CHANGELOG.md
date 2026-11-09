@@ -33,9 +33,11 @@ website renders this same changelog.
   `ClaimAuthorities` mappings are read-only.
   **Upgrade:** run every process from a root with a map. In a framework
   checkout or worktree without a `.env`, export
-  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` (`.env.example` and
-  `.env.test` set it), or `sandloom generate`, `sandloom migrate` and the
-  other commands that build the app refuse with `SANDLOOM-B035`; run the API
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` (`.env.example` sets
+  it), or `sandloom generate`, `sandloom migrate`, the gates of
+  `sandloom test` and the other commands that build the app refuse with
+  `SANDLOOM-B035` (the pytest suites pick the standard root in the root
+  `conftest.py`); run the API
   as `uvicorn sandloom_standard.main:app`. An application root composing an
   issuer passes `create_app(claim_authorities={...})` (`sandloom new` writes
   it). A map entry giving `email`/`email_verified` to a module other than the
