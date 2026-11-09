@@ -185,7 +185,9 @@ _TASK_SCRIPT = """
 import asyncio, sys
 from sqlalchemy import text
 
-import sandloom.main  # composition root: create_app() binds the active core
+from sandloom.core.composition import load_composition_core
+
+load_composition_core()  # the composition root binds the active core
 from sandloom.core import async_runner
 from sandloom.core.di import db_session, run_async
 
@@ -202,7 +204,7 @@ print("PIDS", first, second)
 if sys.argv[1] == "run_async":
     # worker_process_shutdown: dispose the pools on the loop that opened them
     from sandloom.core import worker
-    worker._teardown_core = worker.load_composition_core("sandloom.main")
+    worker._teardown_core = worker.load_composition_core()
     async_runner.add_loop_cleanup(worker.dispose_worker_infra)
     async_runner.shutdown_loop()
     print("CLOSED")

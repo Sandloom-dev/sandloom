@@ -24,10 +24,8 @@ def assert_route_snapshot(app: Any, *modules: str) -> None:
     --write`` and review the diff. With no ``modules`` every loaded module is
     checked. A module test pins its own::
 
-        def test_routes_are_approved() -> None:
-            from sandloom.main import app
-
-            assert_route_snapshot(app, "sandloom.notes")
+        def test_routes_are_approved(sandloom_app: Any) -> None:
+            assert_route_snapshot(sandloom_app, "sandloom.notes")
     """
     problems = snapshot_problems(app, modules or None)
     if problems:

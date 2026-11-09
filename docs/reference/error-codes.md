@@ -93,7 +93,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B032`](#sandloom-b032) | `sqlite-unavailable` | boot | a SQLite database the driver cannot open: in memory, without an async DBAPI in its URL, or without aiosqlite installed | active |
 | [`SANDLOOM-B033`](#sandloom-b033) | `database-feature-missing` | boot | a module needs a database feature the instance it runs on lacks | active |
 | [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
-| [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (a path naming no module, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer mismatch) | active |
+| [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (no map with an issuer loaded, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer field given to another module, an issuer mismatch) | active |
 | [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
 | [`SANDLOOM-B037`](#sandloom-b037) | `capability-unavailable` | boot | a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import) | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
@@ -1362,7 +1362,7 @@ another owner_module.
 
 ### SANDLOOM-B035
 
-**the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (a path naming no module, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer mismatch)**
+**the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (no map with an issuer loaded, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer field given to another module, an issuer mismatch)**
 
 Slug: `token-issuer-obligation` · kind: boot · status: active
 
@@ -1384,17 +1384,33 @@ The issuer mints only the claims the composition root assigned
 ADR-0014): a protected claim (roles, permissions, tenant_ids, email,
 email_verified, the billing claims and every key the map names) is kept only
 from its authority, the module loaded from the assigned import path or its
-&lt;m>.claims.v1 binding. Startup refuses, naming the key and the module: an
-assigned path that names no module (a typo); in the issuing process, an
-authority neither loaded nor bound, loaded under its name from another path,
-or loaded without a claims contributor; a non-critical authority (contributor
-critical=False, or binding "critical": false) of a claim whose readers have
-no fallback (only subscription_status, plan_code, features and limits may
-have one, decision 7); an issues_tokens module that is not the map's issuer,
-or the map's issuer loaded without issues_tokens=True. A root's default map
-(sandloom_standard.main) keeps only the entries whose module is composed.
+&lt;m>.claims.v1 binding. Startup refuses, naming the key and the module:
 
-**Fix:** give the issuer a durable consumer of core.auth.user_blocked.v1 that ends the user's refresh sessions, or declare define_module(..., refresh_sessions=False) and remove what the refusal names; fix the claim_authorities entry the refusal names (the path, the composition, critical=True, or the issuer entry)
+- a composition that loads a token issuer (issues_tokens=True) with no map at
+  all: the lean root sandloom.main assigns nothing, so every login would be
+  refused (503). Boot the root that assigns the authorities: the standard
+  root sandloom_standard.main (SANDLOOM_COMPOSITION_ROOT, as the shipped
+  image and profiles set it), the app's own &lt;app>.asgi, or a root passing
+  create_app(claim_authorities={...});
+- in the issuing process, an authority neither loaded nor bound (an assigned
+  path that names no module, a typo, is reported this way, with "a typo of
+  '&lt;loaded path>'?" when it is close to a loaded one), loaded under its name
+  from another path, or loaded without a claims contributor;
+- a non-critical authority (contributor critical=False, or binding
+  "critical": false) of a claim whose readers have no fallback (only
+  subscription_status, plan_code, features and limits may have one,
+  decision 7);
+- an issuer field (email, email_verified) assigned to a module other than the
+  map's issuer, or in a map without an issuer: the issuer writes them itself,
+  through the same mint check (a map with an issuer that names none assigns
+  them to it);
+- an issues_tokens module that is not the map's issuer, or the map's issuer
+  loaded without issues_tokens=True.
+
+A root's default map (sandloom_standard.main) keeps only the entries whose
+module is composed.
+
+**Fix:** give the issuer a durable consumer of core.auth.user_blocked.v1 that ends the user's refresh sessions, or declare define_module(..., refresh_sessions=False) and remove what the refusal names; boot a composition root with a claim_authorities map (sandloom_standard.main, or the app's own &lt;app>.asgi); fix the entry the refusal names (the path, the composition, critical=True, or the issuer entry)
 
 **More:** `docs/advanced/security-model.md`
 

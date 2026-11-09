@@ -98,8 +98,9 @@ def test_composition_root_must_expose_core(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_real_composition_root_resolves_driver_built_app() -> None:
-    """End to end against ``sandloom.main``: the app is the taskqueue driver's."""
-    core = worker.load_composition_core("sandloom.main")
+    """End to end against the suite's composition root: the app is the
+    taskqueue driver's."""
+    core = worker.load_composition_core()
     app = worker.build_worker_app(core)
     assert hasattr(app, "send_task")
     if "sandloom_identity" in core.loaded_modules:

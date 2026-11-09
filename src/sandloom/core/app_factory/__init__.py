@@ -168,7 +168,8 @@ def create_app(
     honour (SANDLOOM-B035). ``default_claim_authorities`` applies when
     ``claim_authorities`` is not given and keeps only the entries whose module
     is part of the composition (loaded, or bound through its
-    ``<m>.claims.v1``). With neither, no claim is assigned.
+    ``<m>.claims.v1``). With neither, no claim is assigned, and a composition
+    that loads a token issuer (``issues_tokens=True``) refuses the boot.
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)

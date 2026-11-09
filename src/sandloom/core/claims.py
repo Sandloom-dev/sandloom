@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
@@ -46,8 +47,10 @@ ISSUER_ENTRY = "issuer"
 #: Always protected: the kernel's own authorization concepts (``Role``,
 #: ``Perm``, ``TenantScope`` and PostgreSQL row security read them).
 ALWAYS_PROTECTED: frozenset[str] = frozenset({"roles", "permissions", "tenant_ids"})
-#: The issuer's fields (answer #10): protected, written by their assigned
-#: authority only.
+#: The issuer's fields (answer #10): protected and the map's issuer's only.
+#: A map entry naming another module for one refuses the boot; a map with an
+#: issuer that names none assigns them to the issuer, which writes them at
+#: the mint through the same check (``collect_claims(issuer_claims=...)``).
 ISSUER_FIELDS: frozenset[str] = frozenset({"email", "email_verified"})
 #: Keys the kernel's claim atoms read to grant access (``Subscribed``,
 #: ``Feature``, ``WithinLimit``): protected whether or not the map names them
@@ -74,6 +77,11 @@ class ClaimAuthorities:
     token issuer (``None``: none assigned). ``assigned`` is ``False`` only
     when the composition root passed no map at all (a lean root): every
     protected key is then unassigned, so no contributor may write one.
+
+    Immutable: ``authorities`` and ``owners`` are read-only views of copies
+    taken at construction, so the one-shot assignment
+    (``CoreFacade._assign_claim_authorities``) cannot be edited in place
+    after the startup checks passed.
     """
 
     authorities: Mapping[str, str] = field(default_factory=dict)
@@ -84,9 +92,10 @@ class ClaimAuthorities:
     protected: frozenset[str] = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "protected", PROTECTED_BASE | frozenset(self.authorities)
-        )
+        authorities = MappingProxyType(dict(self.authorities))
+        object.__setattr__(self, "authorities", authorities)
+        object.__setattr__(self, "owners", MappingProxyType(dict(self.owners)))
+        object.__setattr__(self, "protected", PROTECTED_BASE | frozenset(authorities))
 
     def owner_of(self, key: str) -> str | None:
         """Short name of ``key``'s authority (``None``: unassigned)."""

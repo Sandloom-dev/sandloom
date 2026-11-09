@@ -55,8 +55,9 @@ def _standard_root_when_installed() -> None:
     """Compose the suite with the standard root when it is installed.
 
     The lean ``sandloom.main`` assigns no claim authorities (ADR-0012
-    decision 3, ADR-0014), so with the batteries installed every identity
-    mint would refuse (503). A checkout with ``sandloom-standard`` tests the
+    decision 3, ADR-0014), so with the batteries installed it refuses the
+    boot (identity issues tokens, SANDLOOM-B035). A checkout with
+    ``sandloom-standard`` tests the
     standard composition, ``sandloom_standard.main`` with its trust map; the
     ``kernel-without-batteries`` venv has no ``sandloom-standard`` and keeps
     the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins.

@@ -160,7 +160,7 @@ def main() -> int:
             "SANDLOOM_MODULES": (
                 '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
             ),
-            "SANDLOOM_COMPOSITION_ROOT": "sandloom.main",
+            "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
             "INTERNAL_API_TOKEN": secrets.token_urlsafe(32),
             "SERVICE_BINDINGS": "{}",
             "EVENT_BUS_BACKEND": "memory",
@@ -203,7 +203,7 @@ def main() -> int:
                         str(ROOT / ".venv/bin/python"),
                         "-m",
                         "uvicorn",
-                        "sandloom.main:app",
+                        "sandloom_standard.main:app",
                         "--host",
                         "127.0.0.1",
                         "--port",

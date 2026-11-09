@@ -16,6 +16,7 @@ scaffolded module never touches this process's shared ``Base.metadata``:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -210,6 +211,11 @@ def test_revision_respects_composition_root(tmp_path: Path, scratch_db: str) -> 
 
 def test_revision_unknown_module_fails_cleanly(tmp_path: Path) -> None:
     env = _env(tmp_path, _async_url(), SANDLOOM_MODULES="[]")
+    if importlib.util.find_spec("sandloom_standard") is not None:
+        # Every installed module composes: with the batteries (identity
+        # issues tokens) only a root with a claim authorities map boots
+        # (SANDLOOM-B035), the standard one.
+        env["SANDLOOM_COMPOSITION_ROOT"] = "sandloom_standard.main"
     proc = subprocess.run(
         [
             sys.executable,

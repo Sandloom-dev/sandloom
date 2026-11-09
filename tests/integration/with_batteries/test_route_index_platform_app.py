@@ -51,7 +51,7 @@ def _resolve(routes: Any, scope: Scope) -> tuple[BaseRoute | None, str]:
 
 
 def test_platform_app_resolution_is_identical_to_linear_scan() -> None:
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     router = app.router
     dispatch = router.middleware_stack
@@ -62,7 +62,7 @@ def test_platform_app_resolution_is_identical_to_linear_scan() -> None:
     routes = list(router.routes)
     assert len(routes) > 40, _t011(
         f"the platform app mounts only {len(routes)} routes",
-        "sandloom.main's installed modules did not load; run `sandloom check`",
+        "sandloom_standard.main's installed modules did not load; run `sandloom check`",
     )
     paths = {_sample(getattr(r, "path", "/")) for r in routes}
     paths |= {p + "/" for p in paths} | {"/", "/nope", "/health", ""}

@@ -112,10 +112,12 @@ def test_module_cases_build_once_the_configuration_is_fixed(tmp_path: Path) -> N
         **_MODULE_BASE,
         "SANDLOOM_MODULES": ["sandloom_identity", "sandloom_billing"],
         "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
-        "SANDLOOM_ACCEPTED_RISKS": ["fake_psp_in_prod"],
+        "SANDLOOM_ACCEPTED_RISKS": ["fake_psp_in_prod", "log_notifier_in_prod"],
     }
     proc = _run(
-        [sys.executable, "-c", "import sandloom.main; print('built')"], values, tmp_path
+        [sys.executable, "-c", "import sandloom_standard.main; print('built')"],
+        values,
+        tmp_path,
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert proc.stdout.strip().endswith("built")
@@ -127,7 +129,9 @@ def test_asymmetric_issuer_with_jwt_secret_builds(tmp_path: Path) -> None:
     once ``JWT_SECRET`` is set, so that case fails on its own reason only."""
     values = {**_ASYMMETRIC_ISSUER, "SANDLOOM_MODULES": ["sandloom_identity"]}
     proc = _run(
-        [sys.executable, "-c", "import sandloom.main; print('built')"], values, tmp_path
+        [sys.executable, "-c", "import sandloom_standard.main; print('built')"],
+        values,
+        tmp_path,
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert proc.stdout.strip().endswith("built")

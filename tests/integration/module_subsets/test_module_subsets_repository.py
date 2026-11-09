@@ -4,8 +4,9 @@ The repository's environment is the extras' install: ``sandloom[standard]``
 (Celery and Redis included) with every module importable, admin from
 ``packages/editable/sandloom-admin`` (the pytest ``pythonpath``; installed it
 would join every composition). Each subset runs in a fresh interpreter with
-``SANDLOOM_MODULES`` naming it through the lean root ``sandloom.main``; the
-empty subset is the kernel factory with no default modules, since an empty
+``SANDLOOM_MODULES`` naming it through the lean root ``sandloom.main`` (a
+subset with identity through ``sandloom_standard.main``: the lean root
+refuses a token issuer, SANDLOOM-B035); the empty subset is the kernel factory with no default modules, since an empty
 ``SANDLOOM_MODULES`` means the root's defaults. The clean-venv profiles (P2
 wheels, P3 extras) are ``test_module_subsets_wheels.py`` (slow).
 """
@@ -37,6 +38,15 @@ pytestmark = pytest.mark.subprocess_probe
 ADMIN_SOURCE = REPO / "packages" / "editable" / "sandloom-admin"
 
 
+def _root(subset: tuple[str, ...]) -> str:
+    """The kernel factory for the empty subset; the lean root, except for a
+    subset with identity (a token issuer): the lean root assigns no claim
+    authorities and refuses it (SANDLOOM-B035), so the standard root."""
+    if not subset:
+        return "kernel"
+    return "sandloom_standard.main" if "identity" in subset else "sandloom.main"
+
+
 @pytest.fixture(scope="module")
 def repository_runs(
     tmp_path_factory: pytest.TempPathFactory,
@@ -52,7 +62,7 @@ def repository_runs(
             subset,
             python=python,
             sandloom=python.parent / "sandloom",
-            root="sandloom.main" if subset else "kernel",
+            root=_root(subset),
             cwd=cwd,
             env=probe_environment(extra),
         )

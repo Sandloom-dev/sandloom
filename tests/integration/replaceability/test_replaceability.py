@@ -110,6 +110,14 @@ SPLIT_BINDINGS: dict[str, dict[str, Any]] = {
 
 #: The installed identity battery claims the module name ``identity`` (B020).
 IDENTITY_BATTERY = importlib.util.find_spec("sandloom_identity") is not None
+#: The core-chain migration composes every installed module: with the
+#: batteries installed (identity issues tokens) only a root with a claim
+#: authorities map boots (SANDLOOM-B035), the standard one.
+MIGRATE_ROOT = (
+    {"SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main"}
+    if importlib.util.find_spec("sandloom_standard") is not None
+    else {}
+)
 
 UNAVAILABLE_FORGED = "Token claims from 'forged' are unavailable; try again later"
 UNAVAILABLE_ISSUER = (
@@ -289,6 +297,7 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
                 "BROKER_URL": broker,
                 "JWT_SECRET": f"replace-migrate-{uuid.uuid4().hex}",
                 "SANDLOOM_MODULES": "[]",
+                **MIGRATE_ROOT,
             },
             capture_output=True,
             text=True,

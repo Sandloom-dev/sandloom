@@ -37,7 +37,7 @@ def _url(path: Path) -> str:
 _BOOT = """
 import asyncio, json
 import httpx
-from sandloom.main import app
+from sandloom_standard.main import app
 from sandloom.sdk.testing import as_user
 
 async def main():

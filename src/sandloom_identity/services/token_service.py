@@ -123,6 +123,11 @@ class TokenService:
         # contributors run in that module's own Unit of Work, locally or over
         # RPC (SERVICE_BINDINGS ``<module>.claims.v1``). A critical contributor
         # failure raises ClaimsUnavailable (503) — never a reduced token.
+        # The issuer's own fields pass the same mint check (``issuer_claims``):
+        # ``email_verified`` lets other modules (e.g. tenancy invitation
+        # accept) trust ``email`` only when the user proved ownership of the
+        # address, so neither is written after the check. Without a core
+        # there is no check, so neither is minted.
         extra_claims = (
             await core.collect_claims(
                 user.id,
@@ -133,19 +138,19 @@ class TokenService:
                     if identity_claims is not None
                     else None
                 ),
+                issuer_claims={
+                    "email": user.email,
+                    "email_verified": user.is_verified is True,
+                },
             )
             if core
             else {}
         )
 
         # Create access token (token_type lets guards reject non-access JWTs).
-        # ``email_verified`` lets other modules (e.g. tenancy invitation accept)
-        # trust ``email`` only when the user proved ownership of the address.
         claims: dict[str, Any] = {
             **extra_claims,
             "sub": str(user.id),
-            "email": user.email,
-            "email_verified": user.is_verified is True,
             "token_type": "access",
         }
         if auth_time is not None:

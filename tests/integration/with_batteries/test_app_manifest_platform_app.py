@@ -7,10 +7,11 @@ the bundled modules, so they run where the batteries are installed.
 
 from __future__ import annotations
 
+from sandloom_standard.main import app
+
 from sandloom.core.loader.manifest import (
     AppManifest,
 )
-from sandloom.main import app
 
 
 def test_create_app_publishes_the_manifest() -> None:

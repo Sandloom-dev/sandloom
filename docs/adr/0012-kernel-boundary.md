@@ -170,9 +170,9 @@ standard composition root and the standard trust map:
   own map there (`sandloom new`).
 - The kernel keeps `sandloom.main` as the lean root: installed modules, no authorities. An
   application can assign its own authorities without installing `sandloom-standard`. A lean
-  root with an issuer whose contributor is critical and writes a protected key refuses every
-  mint (503) rather than minting untrusted claims silently (trust PoC T-6), and startup logs
-  that no authority map is set.
+  root never mints untrusted claims silently (trust PoC T-6): a process that loads a token
+  issuer under it refuses the boot (SANDLOOM-B035), rather than running an app whose every
+  mint is refused (503) (W1 review of KB-10).
 
 ### 4. The admin battery
 

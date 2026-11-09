@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from sandloom.core.app_factory import _install_ops_endpoints
+from sandloom.core.composition import composition_root_name
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor
 from sandloom.core.consumers.runtime import (
     ConsumerRuntime,
@@ -32,7 +34,6 @@ from sandloom.core.projections import (
 )
 from sandloom.core.runtime import get_active_core, set_active_core
 from sandloom.core.tests._schemas import PermissiveSchemaRegistry
-from sandloom.main import create_app
 
 
 async def _noop(_session: Any, _envelope: Any) -> None:
@@ -628,7 +629,8 @@ async def test_lifespan_aborts_when_required_consumer_cannot_start(
         "sandloom.core.app_factory.settings.outbox_relay_enabled", "off"
     )
     try:
-        application = create_app()
+        # the suite's composition root (conftest.py), built afresh
+        application = importlib.import_module(composition_root_name()).create_app()
 
         with pytest.raises(ConsumerStartupError):
             async with application.router.lifespan_context(application):
