@@ -123,9 +123,19 @@ def test_a_forged_untrusted_marker_is_never_read_from_the_token() -> None:
 
 
 def test_an_unassigned_key_is_a_definite_deny() -> None:
-    out = apply(token(sources=["identity"], features=["x"]), policy())
+    """A key a module declares (a fail-safe declaration or an imported claim
+    atom's key, B-N12) that the map does not assign: nobody vouches."""
+    pol = dataclasses.replace(policy(), declared=frozenset({"features"}))
+    out = apply(token(sources=["identity"], features=["x"]), pol)
     assert "features" not in out
     assert view.untrusted_reasons(out)["features"] == view.UNASSIGNED
+
+
+def test_a_key_nothing_declares_is_not_the_kernels_to_protect() -> None:
+    """B-N12: the kernel names no module's key; undeclared and unassigned,
+    ``features`` is an ordinary claim (no claim atom here reads it)."""
+    out = apply(token(sources=["identity"], features=["x"]), policy())
+    assert out["features"] == ["x"]
 
 
 def test_another_digest_issued_before_the_map_took_effect_is_outdated() -> None:

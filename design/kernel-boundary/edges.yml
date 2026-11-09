@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 12, fixed: 31, retained: 4}
+  current_status: {open: 11, fixed: 32, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -648,20 +648,19 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-33, KB-34]
+    prs: [KB-30, KB-33, KB-34, kb-rev56-keys]
     invariants: [I-13, I-16, I-23, H-2]
     tests:
       - authorization stand: Subscribed, SubscriptionActive, Credits equal counts and decisions
       - Feature / WithinLimit parameters carried locally and over RPC (KB-33)
       - Subscribed statuses= / claim_key= bound to billing's declaration
+      - fail-safe and protected claim keys read from declarations (billing's add_claims_contributor fail_safe=, the root's Authority(fail_safe=True), the imported claim atoms' keys); the kernel names none (kb-rev56-keys)
     anchors:
       - {path: sandloom/shared/authz/atoms_claims.py, symbol: ACTIVE_SUBSCRIPTION_STATUSES}
       - {path: sandloom/shared/authz/atoms_claims.py, literal: '"subscription_status"'}
-      - {path: sandloom/shared/authz/atoms_claims.py, literal: '"features"'}
-      - {path: sandloom/shared/authz/atoms_claims.py, literal: '"limits"'}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
       - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}
     note: Feature / WithinLimit move only through KB-33, never removed automatically (answer #21).

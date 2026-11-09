@@ -369,7 +369,13 @@ def register_health_check(self, name: str, fn: HealthCheck) -> None
 #### `ModuleAPI.add_claims_contributor`
 
 ```python
-def add_claims_contributor(self, fn: Any, *, critical: bool = False) -> None
+def add_claims_contributor(
+    self,
+    fn: Any,
+    *,
+    critical: bool = False,
+    fail_safe: Iterable[str] = (),
+) -> None
 ```
 
 Register a contributor of JWT claims (`async (user_id) -> dict`).
@@ -379,7 +385,10 @@ database (read it with `contract_session`); it is also exposed as
 the `<module>.claims.v1` contract so a token issuer in another process
 can collect it over RPC (`SERVICE_BINDINGS`). `critical=True`
 aborts token minting (503) if the contributor fails (use for security
-claims like roles/permissions and tenant allowlists).
+claims like roles/permissions and tenant allowlists). `fail_safe`
+names the keys whose every reader escalates or answers indeterminate
+when they are absent: only those may come from a non-critical
+contributor (ADR-0014 decision 7), and they are protected claims.
 
 #### `ModuleAPI.register_query_projection`
 

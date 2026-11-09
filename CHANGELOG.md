@@ -15,6 +15,19 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **Fail-safe claim keys are declared** (kb-rev56-keys, ADR-0014 decision 7,
+  edge B-N12). The kernel's `FAIL_SAFE_KEYS` (billing's four keys) is gone:
+  a key may come from a non-critical authority only when its local authority
+  declares it (`add_claims_contributor(fn, fail_safe=[...])`, billing does)
+  or the composition root does (`Authority(name, fail_safe=True)`, the only
+  declaration of an authority bound remotely `"critical": false`; the
+  standard root and `examples/oidc-identity` write it for billing). A
+  declared key, and every key an imported generated claim atom reads, is
+  protected even when the map does not name it; a claim atom imported after
+  `create_app` reading an unprotected key refuses the start (B035). A
+  contract whose implementation carries `@access_check` methods is
+  access-bearing in every process, a provider-only one included (B034).
+  Upgrade: `docs/operate/upgrade-1.0.md`.
 - **The kernel ships no domain atoms** (KB-34g, ADR-0014 decisions 8, 14,
   15). `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`, `Feature`,
   `WithinLimit`, `ACTIVE_SUBSCRIPTION_STATUSES`, `register_live_adapter`,

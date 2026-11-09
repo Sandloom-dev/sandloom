@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import sandloom.core.config.module_settings as _module_settings
@@ -69,7 +70,7 @@ class ModuleRegistrationDraft:
         self.health: list[tuple[str, Any]] = []
         self.event_schemas: list[tuple[str, str, dict[str, Any] | None]] = []
         self.event_schema_objs: list[Any] = []
-        self.claims_contributors: list[tuple[Any, bool]] = []
+        self.claims_contributors: list[tuple[Any, bool, tuple[str, ...]]] = []
         self.query_projections: list[Any] = []
         self.projection_consumers: list[Any] = []
         self.projection_rebuilders: list[tuple[str, Any]] = []
@@ -120,8 +121,10 @@ class ModuleRegistrationDraft:
                 facade.add_shutdown_task(shutdown_task)
             for hc_name, fn in self.health:
                 facade.register_health_check(hc_name, fn)
-            for contributor, critical in self.claims_contributors:
-                facade.add_claims_contributor(contributor, critical=critical)
+            for contributor, critical, fail_safe in self.claims_contributors:
+                facade.add_claims_contributor(
+                    contributor, critical=critical, fail_safe=fail_safe
+                )
             for channel, schema_name, schema in self.event_schemas:
                 facade.register_event_schema(channel, schema_name, schema)
             for obj in self.event_schema_objs:
@@ -160,6 +163,9 @@ class ModuleRegistrationDraft:
     def _preflight_services(self, facade: CoreFacade, errors: list[str]) -> None:
         seen: set[str] = set()
         for name, impl in self.services:
+            # An access-checked implementation classifies its name even when
+            # this draft is refused (ADR-0014 decision 6).
+            facade._note_access_declaration(name, impl)
             try:
                 _validate_service_name(name)
             except ServiceRegistryError as exc:
@@ -435,7 +441,9 @@ class ModuleAPI:
             self._facade.register_health_check(name, fn)
 
     # -- Token claims -----------------------------------------------------
-    def add_claims_contributor(self, fn: Any, *, critical: bool = False) -> None:
+    def add_claims_contributor(
+        self, fn: Any, *, critical: bool = False, fail_safe: Iterable[str] = ()
+    ) -> None:
         """Register a contributor of JWT claims (``async (user_id) -> dict``).
 
         The contributor runs in the module's OWN Unit of Work on its own
@@ -443,12 +451,19 @@ class ModuleAPI:
         the ``<module>.claims.v1`` contract so a token issuer in another process
         can collect it over RPC (``SERVICE_BINDINGS``). ``critical=True``
         aborts token minting (503) if the contributor fails (use for security
-        claims like roles/permissions and tenant allowlists).
+        claims like roles/permissions and tenant allowlists). ``fail_safe``
+        names the keys whose every reader escalates or answers indeterminate
+        when they are absent: only those may come from a non-critical
+        contributor (ADR-0014 decision 7), and they are protected claims.
         """
+        if isinstance(fail_safe, str):
+            raise ValueError("fail_safe is a collection of claim keys")
         if self._draft is not None:
-            self._draft.claims_contributors.append((fn, critical))
+            self._draft.claims_contributors.append((fn, critical, tuple(fail_safe)))
         else:
-            self._facade.add_claims_contributor(fn, critical=critical)
+            self._facade.add_claims_contributor(
+                fn, critical=critical, fail_safe=fail_safe
+            )
 
     # -- Query projections (Cross-Module Query layer) ---------------------
     def register_query_projection(self, descriptor: Any) -> None:

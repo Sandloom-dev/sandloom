@@ -275,9 +275,17 @@ administrator gate.
 Startup refuses an assignment the composition cannot honour
 (`SANDLOOM-B035`). Examples: an authority the issuing process neither loads
 nor binds, or an issuer mismatch. A claim whose readers have no fallback
-needs a critical authority. Only the billing claims may come from a
-non-critical one: every reader treats their absence as unknown, never as
-granted. A billing outage still lets users log in.
+needs a critical authority. Only a claim declared fail-safe may come from a
+non-critical one: every reader treats its absence as unknown, never as
+granted. The kernel names no such claim. The authority declares its own
+with `add_claims_contributor(fn, fail_safe=[...])`; billing declares its four
+claims. An issuer that binds the authority remotely with `"critical": false`
+reads the declaration from the composition root instead:
+`Authority("sandloom_billing", fail_safe=True)`, as the standard root writes
+it. `roles`, `permissions`, `tenant_ids` and the issuer's fields are never
+fail-safe. A billing outage still lets users log in. A declared key is a
+protected claim even when the map does not name it. So is every key that a
+generated claim atom imported in the process reads.
 
 While the billing authority is down, `Feature` and `WithinLimit` on the user's
 token answer `503` (indeterminate, never an allow). `Subscribed` with an absent

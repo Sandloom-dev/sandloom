@@ -4,9 +4,10 @@ A contract the authorization layer asks to decide access is registered
 in-process only by the module its first segment names, or by the module
 ``create_app(access_providers=...)`` assigns, checked by its real identity
 (owner confirmation X3): the loaded import path, not only the short name.
-Which names bear access is read from the consumer's side (the assignment's
-keys, the contracts of the imported generated access checks), never from a
-list in the kernel. Every other contract name keeps the first-registrant rule.
+Which names bear access is read from the declarations of this process (the
+assignment's keys, the contracts of the imported generated access checks, an
+implementation carrying ``@access_check`` methods), never from a list in the
+kernel. Every other contract name keeps the first-registrant rule.
 """
 
 from __future__ import annotations
@@ -42,8 +43,16 @@ SEATS = "acme.seats.v1"
 
 
 class _Membership:
-    """A third-party implementation of the membership contract."""
+    """A third-party implementation of the membership contract, carrying
+    its access check as tenancy's provider does: the implementation alone
+    makes the name access-bearing (ADR-0014 decision 6), with no consumer's
+    generated atom imported (a provider-only process)."""
 
+    @access_check(
+        "OrgRole",
+        bind={"org_id": From.org(), "user_id": From.subject_id()},
+        values={"minimum": ["member", "admin", "owner"]},
+    )
     @classmethod
     @contract_method
     async def has_role_at_least(cls, org_id: UUID, user_id: UUID, minimum: str) -> bool:
@@ -256,6 +265,45 @@ def test_an_unclassified_contract_is_first_registrant() -> None:
     assert core.access_provider_problems() == []
 
 
+def test_an_access_check_on_the_implementation_classifies_its_contract() -> None:
+    """L1: a provider-only process (no consumer imported a generated atom,
+    no assignment) still refuses a module that is not the first-segment
+    provider of an implementation carrying ``@access_check`` methods."""
+    assert SEATS not in _contract_check.generated_access_contracts()
+    core = _core()
+    with pytest.raises(ForeignOwnerRegistration, match="'acme.seats.v1'"):
+        _register(core, "evil", SEATS, _SeatsContract)
+    assert not core.service_registry.contains(SEATS)
+    _register(core, "acme", SEATS, _SeatsContract)
+    assert core.contract_owner(SEATS) == "acme"
+    assert core.access_provider_problems() == []
+
+
+def test_a_refused_attempt_keeps_the_name_access_bearing() -> None:
+    """The first registrant without an access check cannot keep a name an
+    access-checked implementation was offered for: the provider's refused
+    attempt classifies it, and the post-load sweep refuses the boot."""
+    core = _core()
+    _register(core, "evil", SEATS, _Seats)  # nothing classifies it yet
+    with pytest.raises(ModuleRegistrationConflict):
+        _register(core, "acme", SEATS, _SeatsContract)
+    with pytest.raises(ConfigurationError, match="SANDLOOM-B034") as exc:
+        _access.enforce_access_providers(core, log=LOG)
+    assert "'evil'" in str(exc.value)
+
+
+def test_an_access_check_on_a_base_class_classifies_its_contract() -> None:
+    """An implementation deriving from the declared ``@contract`` class
+    inherits its access checks: the name is access-bearing."""
+
+    class _Derived(_SeatsContract):
+        """A subclass of the declared contract."""
+
+    core = _core()
+    with pytest.raises(ForeignOwnerRegistration, match="'acme.seats.v1'"):
+        _register(core, "evil", SEATS, _Derived())
+
+
 def test_a_bare_facade_keeps_the_first_registrant_rule() -> None:
     """No ``create_app`` assignment bound: nothing is classified."""
     core = CoreFacade(app=FastAPI())
@@ -289,9 +337,11 @@ _PROVIDER = """
 from uuid import UUID
 
 from sandloom.core.module_api import contract_method, define_module
+from sandloom.shared.authz import From, access_check
 
 
 class Membership:
+    @access_check("OrgRole", bind={"org_id": From.org(), "user_id": From.subject_id()})
     @classmethod
     @contract_method
     async def has_role_at_least(cls, org_id: UUID, user_id: UUID, minimum: str) -> bool:

@@ -5,9 +5,14 @@ The modules are fake import paths (``acme.*``) registered on a facade with
 fake databases, so no I/O happens. The claim atoms ``Feature`` /
 ``WithinLimit`` are the ones ``sandloom generate`` writes beside a consumer's
 stub of a fixture plans contract (``acme.plans.v1``, declared as billing
-declares them; ADR-0014 decision 15); ``Subscribed`` is billing's generated
-atom (its stub rendered from billing's contract, its fact registered
-locally, nothing called). The running-process rows (T-1..T-8, mono and split) are in
+declares them; ADR-0014 decision 15). No bundled module is imported (the
+kernel runs without batteries): billing's generated ``Subscribed`` answers
+the trusted view's rows in
+``tests/integration/with_batteries/test_claims_trust_billing.py``. The
+fail-safe keys and the protected ones come from declarations only (B-N12):
+a claims contributor's ``fail_safe=``, the root's ``Authority(...,
+fail_safe=True)``, the claim keys of the imported generated claim atoms.
+The running-process rows (T-1..T-8, mono and split) are in
 ``tests/integration/replaceability/test_trust_rows.py``.
 """
 
@@ -29,14 +34,15 @@ from sandloom.core.app_factory.claim_authorities import (
     ClaimAuthorityError,
     build_claim_authorities,
     claim_authority_problems,
+    declared_policy,
     filter_to_composition,
     install_claim_authorities,
 )
 from sandloom.core.auth import claims_view as view
 from sandloom.core.claims import (
     AUTHORITY_CLAIM,
-    FAIL_SAFE_KEYS,
     ISSUER_FIELDS,
+    NEVER_FAIL_SAFE,
     NO_AUTHORITIES,
     PROTECTED_BASE,
     Authority,
@@ -46,6 +52,7 @@ from sandloom.core.cli.generated import render_stub
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.facade._claims import CLAIMS_VIOLATIONS_METRIC, RESERVED_CLAIM_KEYS
+from sandloom.core.lifecycle import CriticalStartupError, run_startup
 from sandloom.core.tests._entry_points_support import (
     FakeEntryPoint,
     installed_entry_points,
@@ -61,10 +68,9 @@ from sandloom.shared.authz import (
     access_check,
     claim_atom,
 )
+from sandloom.shared.authz import contract_check as _contract_check
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
-from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
-from sandloom_billing.contracts import EntitlementsContract
 
 ACME_ID = "acme.modules.acme_identity"
 IDP = "acme.idp"
@@ -79,6 +85,7 @@ MAP = {
     "tenant_ids": GRANTS,
     "subscription_status": PLANS,
 }
+LOADED = {"idp": IDP, "grants": GRANTS, "plans": PLANS}
 
 
 class _FakeUoW:
@@ -146,11 +153,16 @@ def _core(mapping: dict[str, str] | None = MAP) -> CoreFacade:
 
 
 def _register(
-    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
+    core: CoreFacade,
+    path: str,
+    result: dict[str, Any],
+    *,
+    critical: bool = False,
+    fail_safe: tuple[str, ...] = (),
 ) -> _Counted:
     fn = _Counted(result)
     with core.module_registration(path) as api:
-        api.add_claims_contributor(fn, critical=critical)
+        api.add_claims_contributor(fn, critical=critical, fail_safe=fail_safe)
     return fn
 
 
@@ -214,11 +226,14 @@ def test_the_map_is_read_only() -> None:
 
 
 def test_no_map_assigns_nothing_and_protects_the_base_keys() -> None:
-    """A lean root: nothing assigned, the kernel's keys still protected."""
+    """A lean root: nothing assigned, the kernel's keys still protected,
+    and no module's key named by the kernel (B-N12): nothing is fail-safe
+    until something declares it."""
     assert build_claim_authorities(None) is NO_AUTHORITIES
     assert not NO_AUTHORITIES.assigned
     assert {"roles", "permissions", "tenant_ids", "email"} <= NO_AUTHORITIES.protected
-    assert FAIL_SAFE_KEYS <= NO_AUTHORITIES.protected
+    assert NO_AUTHORITIES.protected == PROTECTED_BASE == NEVER_FAIL_SAFE
+    assert NO_AUTHORITIES.fail_safe == frozenset()
 
 
 @pytest.mark.parametrize("bad", [{"roles": ""}, {"": IDP}, {"roles": 3}])
@@ -228,12 +243,24 @@ def test_a_malformed_entry_is_refused(bad: dict[str, Any]) -> None:
         build_claim_authorities(bad)
 
 
-def test_only_fail_safe_keys_may_have_a_non_critical_authority() -> None:
-    """Decision 7: ``Role``/``Perm``/``TenantScope`` keys need a critical one."""
+def test_only_declared_fail_safe_keys_may_have_a_non_critical_authority() -> None:
+    """Decision 7: ``Role``/``Perm``/``TenantScope`` keys need a critical
+    one; a module key needs a declaration."""
+    policy = declared_policy(
+        build_claim_authorities(PLAN_MAP),
+        loaded=LOADED,
+        declared={"plans": frozenset({"features", "limits"})},
+    )
     for key in ("roles", "permissions", "tenant_ids", "email", "loyalty_tier"):
-        assert ClaimAuthorities.critical_required(key)
-    for key in FAIL_SAFE_KEYS:
-        assert not ClaimAuthorities.critical_required(key)
+        assert policy.critical_required(key)
+    for key in ("features", "limits"):
+        assert not policy.critical_required(key)
+    # Declared by nobody: needs a critical authority like any module key.
+    assert policy.critical_required("subscription_status")
+    # Never fail-safe, whatever a policy carries.
+    forced = ClaimAuthorities(fail_safe=NEVER_FAIL_SAFE | {"features"})
+    assert all(forced.critical_required(key) for key in NEVER_FAIL_SAFE)
+    assert not forced.critical_required("features")
 
 
 # --------------------------------------------------------------------------- #
@@ -451,20 +478,26 @@ async def test_a_failed_non_critical_fail_safe_authority_still_mints() -> None:
 # startup refusals (SANDLOOM-B035)
 # --------------------------------------------------------------------------- #
 
-LOADED = {"idp": IDP, "grants": GRANTS, "plans": PLANS}
 CONTRIBUTORS = {"idp": True, "grants": True, "plans": False}
+#: What the plans module declares fail-safe with its (non-critical)
+#: contributor, as billing declares its four keys.
+DECLARED = {"plans": frozenset({"subscription_status", "features", "limits"})}
 
 
 def _problems(
-    mapping: dict[str, str],
+    mapping: dict[str, Any],
     *,
     loaded: dict[str, str] = LOADED,
     contributors: dict[str, bool] = CONTRIBUTORS,
     bindings: dict[str, Any] | None = None,
     issuers: tuple[str, ...] = (IDP,),
+    declared: dict[str, frozenset[str]] = DECLARED,
 ) -> list[str]:
+    policy = declared_policy(
+        build_claim_authorities(mapping), loaded=loaded, declared=declared
+    )
     return claim_authority_problems(
-        build_claim_authorities(mapping),
+        policy,
         loaded=loaded,
         contributors=contributors,
         bindings=bindings or {},
@@ -518,16 +551,85 @@ def test_startup_refuses_a_non_critical_binding_of_a_rights_key() -> None:
 
 
 def test_a_non_critical_fail_safe_authority_is_accepted_local_and_bound() -> None:
-    """Billing option (c), mono and split."""
+    """Billing option (c), mono and split: locally the authority's own
+    declaration, remotely the root's (the only one the issuer has)."""
     assert _problems(MAP) == []
+    root = {**MAP, "subscription_status": Authority(PLANS, fail_safe=True)}
     assert (
         _problems(
-            MAP,
+            root,
             loaded={"idp": IDP, "grants": GRANTS},
             bindings={"plans.claims.v1": {"base_url": "http://p", "critical": False}},
         )
         == []
     )
+
+
+def test_an_undeclared_key_needs_a_critical_authority_local_and_bound() -> None:
+    """B-N12: no kernel list. The plans module declaring nothing, its
+    non-critical contributor is refused; bound remotely ``critical: false``
+    with no root declaration, the binding is refused and the fix is named."""
+    (local,) = _problems(MAP, declared={})
+    assert "'subscription_status'" in local and "critical=False" in local
+    assert "fail_safe" in local
+    (bound,) = _problems(
+        MAP,
+        loaded={"idp": IDP, "grants": GRANTS},
+        bindings={"plans.claims.v1": {"base_url": "http://p", "critical": False}},
+    )
+    assert "whose binding plans.claims.v1 is critical: false" in bound
+    assert "fail_safe=True" in bound
+
+
+def test_a_declaration_counts_only_for_the_assigned_authority() -> None:
+    """Another module declaring the key, or a module of the authority's
+    name loaded from another path, makes nothing fail-safe."""
+    other = _problems(MAP, declared={"grants": frozenset({"subscription_status"})})
+    assert len(other) == 1 and "'subscription_status'" in other[0]
+    policy = declared_policy(
+        build_claim_authorities(MAP),
+        loaded={**LOADED, "plans": "myapp.modules.plans"},
+        declared=DECLARED,
+    )
+    assert policy.critical_required("subscription_status")
+    # Declared keys are protected wherever they come from.
+    assert {"features", "limits"} <= policy.protected
+
+
+@pytest.mark.parametrize("key", sorted(NEVER_FAIL_SAFE))
+def test_a_contributor_declaring_a_kernel_key_fail_safe_is_refused(key: str) -> None:
+    """Decision 7 is not a module's to relax for ``roles`` & co."""
+    core = _core(None)
+    with pytest.raises(ValueError, match="never are"):
+        _register(core, PLANS, {}, fail_safe=(key,))
+    with pytest.raises(ValueError, match="collection"):
+        _register(core, PLANS, {}, fail_safe="features")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("key", [*sorted(NEVER_FAIL_SAFE), "issuer"])
+def test_a_root_declaring_a_kernel_key_fail_safe_is_refused(key: str) -> None:
+    """Nor the composition root's: ``roles`` / the issuer are never fail-safe."""
+    entry = Authority(IDP, fail_safe=True)
+    with pytest.raises(ClaimAuthorityError, match="never fail-safe"):
+        build_claim_authorities({"issuer": IDP, key: entry})
+
+
+def test_the_roots_declaration_survives_the_default_map_filter() -> None:
+    """A split issuer whose default map keeps a bound authority keeps its
+    root declaration; a left-out key leaves it."""
+    default = build_claim_authorities(
+        {
+            **MAP,
+            "subscription_status": Authority(PLANS, fail_safe=True),
+            "features": Authority(ROGUE, fail_safe=True),
+        }
+    )
+    kept = filter_to_composition(
+        default,
+        loaded={"idp": IDP, "grants": GRANTS},
+        bindings={"plans.claims.v1": {}},
+    )
+    assert kept.fail_safe == {"subscription_status"}
 
 
 def test_startup_refuses_an_authority_without_a_contributor() -> None:
@@ -735,6 +837,102 @@ def test_the_default_map_keeps_only_the_composed_authorities() -> None:
 
 def _descriptor(path: str, *, issues_tokens: bool = False) -> Any:
     return SimpleNamespace(name=path, issues_tokens=issues_tokens)
+
+
+def test_install_reads_the_declarations_at_boot(gen: Any) -> None:
+    """B-N12: the assigned authority's own declaration makes its key
+    fail-safe and protected, the imported claim atoms' keys are protected,
+    and nothing the kernel names: zero I/O, read once at boot."""
+    core = _core(None)
+    _register(core, IDP, {}, critical=True)
+    _register(core, GRANTS, {}, critical=True)
+    _register(core, PLANS, {}, fail_safe=("subscription_status",))
+    assert {"features", "limits"} <= _contract_check.generated_claim_keys()
+    policy = install_claim_authorities(
+        core,
+        [_descriptor(IDP, issues_tokens=True), _descriptor(GRANTS), _descriptor(PLANS)],
+        claim_authorities=MAP,
+        default_claim_authorities=None,
+        bindings={},
+        log=logging.getLogger("test"),
+    )
+    assert policy.fail_safe == {"subscription_status"}
+    assert {"subscription_status", "features", "limits"} <= policy.protected
+    assert policy.critical_required("features")  # read here, declared by nobody
+
+
+@pytest.mark.asyncio
+async def test_a_declared_key_without_a_map_is_nobodys() -> None:
+    """A lean root (no map, no issuer) composing a module that declares its
+    keys fail-safe: they are protected and unassigned, so its contribution
+    is dropped as before B-N12, never minted unvouched."""
+    core = _core(None)
+    _register(
+        core,
+        PLANS,
+        {"subscription_status": "active"},
+        fail_safe=("subscription_status",),
+    )
+    policy = install_claim_authorities(
+        core,
+        [_descriptor(PLANS)],
+        claim_authorities=None,
+        default_claim_authorities=None,
+        bindings={},
+        log=logging.getLogger("test"),
+    )
+    assert not policy.assigned and "subscription_status" in policy.protected
+    claims = await _mint(core)
+    assert "subscription_status" not in claims
+    assert "plans" in claims["claims_sources_failed"]
+
+
+@contract("acme.seats.v1")
+class SeatsContract:
+    """A fixture provider whose claim atom a consumer imports late."""
+
+    @claim_atom("SeatsLeft", claim_key="seats_left", entry="key")
+    @access_check(
+        "LiveSeatsLeft",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+    )
+    async def has_seats(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when ``key`` has seats left."""
+        return False
+
+
+@pytest.mark.asyncio
+async def test_a_claim_atom_imported_after_the_boot_refuses_the_startup(
+    tmp_path: Any,
+) -> None:
+    """The protected set is fixed at boot: a generated claim atom imported
+    after ``create_app`` reads a key it does not protect, so the critical
+    startup recheck refuses (SANDLOOM-B035) before the app serves."""
+    core = _core(None)
+    install_claim_authorities(
+        core,
+        [],
+        claim_authorities=None,
+        default_claim_authorities=None,
+        bindings={},
+        log=logging.getLogger("test"),
+    )
+    path = tmp_path / "acme_seats_v1.py"
+    path.write_text(render_stub("acme.seats.v1", SeatsContract))
+    spec = importlib.util.spec_from_file_location("_trust_acme_seats_v1", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        assert "seats_left" in _contract_check.generated_claim_keys()
+        with pytest.raises(CriticalStartupError) as refused:
+            await run_startup(core)
+        assert "SANDLOOM-B035" in str(refused.value.__cause__)
+        assert "seats_left" in str(refused.value.__cause__)
+    finally:
+        sys.modules.pop(spec.name, None)
+        _contract_check._CLAIM_ATOMS.discard(module.SeatsLeft)
 
 
 def test_install_assigns_the_checked_map_and_the_explicit_map_wins() -> None:
@@ -1086,51 +1284,27 @@ async def test_a_split_verifier_without_the_authority_is_indeterminate(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.fixture(scope="module")
-def billing_gen(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
-    """Billing's generated atoms (``billing.entitlements.v1``), imported as a
-    consumer imports them: ``Subscribed`` is a ``ClaimFactCheck``."""
-    path = tmp_path_factory.mktemp("stub") / "billing_entitlements_v1.py"
-    path.write_text(render_stub("billing.entitlements.v1", EntitlementsContract))
-    spec = importlib.util.spec_from_file_location("_trust_billing_v1", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    yield module
-    sys.modules.pop(spec.name, None)
-
-
-#: (the atom over the generated modules, the claim key it reads): the
-#: generated atoms only. ``Subscribed`` is billing's generated atom on its
-#: default and its verbatim path (KB-33f: it answers the view's 401 / 503
-#: as the kernel atom did).
-CLAIM_ATOMS: list[tuple[Callable[[Any, Any], Any], str]] = [
-    (lambda g, _b: ATOMS["Feature"](g), "features"),
-    (lambda g, _b: ATOMS["WithinLimit"](g), "limits"),
-    (lambda _g, b: b.Subscribed(of=Account.user()), "subscription_status"),
-    (
-        lambda _g, b: b.Subscribed(frozenset({"active"}), of=Account.user()),
-        "subscription_status",
-    ),
+#: (the atom over the generated module, the claim key it reads): the
+#: generated claim atoms of the fixture plans contract. Billing's generated
+#: ``Subscribed`` (a ``ClaimFactCheck``) answers the same rows in
+#: ``tests/integration/with_batteries/test_claims_trust_billing.py``.
+CLAIM_ATOMS: list[tuple[Callable[[Any], Any], str]] = [
+    (lambda g: ATOMS["Feature"](g), "features"),
+    (lambda g: ATOMS["WithinLimit"](g), "limits"),
 ]
-CLAIM_IDS = ["Feature", "WithinLimit", "Subscribed", "Subscribed-statuses"]
+CLAIM_IDS = ["Feature", "WithinLimit"]
 
 
 def _viewed(key: str, reason: str) -> AuthzContext:
     """A context whose ``key`` the trusted view removed for ``reason``; the
-    plans and billing authorities ran (billing's fact registered locally)."""
+    plans authority ran."""
     subject = UserContext(
         user_id=uuid4(),
-        claims_sources={"idp", "plans", "billing"},
+        claims_sources={"idp", "plans"},
         claims_sources_failed=set(),
         **{view.UNTRUSTED_KEY: {key: reason}},
     )
     ctx: AuthzContext = _authz(subject)
-    core = ctx.core()
-    core.get_access_fact = lambda name: (
-        SUBSCRIPTION_ACTIVE_FACT if name == SUBSCRIPTION_ACTIVE_FACT.name else None
-    )
     return ctx
 
 
@@ -1141,8 +1315,7 @@ def _viewed(key: str, reason: str) -> AuthzContext:
 )
 async def test_a_claim_atom_honours_the_views_indeterminate(
     gen: Any,
-    billing_gen: Any,
-    atom: Callable[[Any, Any], Any],
+    atom: Callable[[Any], Any],
     key: str,
     reason: str,
     status: int,
@@ -1152,10 +1325,10 @@ async def test_a_claim_atom_honours_the_views_indeterminate(
     answers that indeterminate, never a 402/403 for the token's life, and
     its negation never allows."""
     ctx = _viewed(key, reason)
-    decision = await atom(gen, billing_gen).decide(ctx)
+    decision = await atom(gen).decide(ctx)
     assert decision.indeterminate and decision.http_status == status
     assert decision.code == reason
-    negated = await Not(atom(gen, billing_gen)).decide(ctx)
+    negated = await Not(atom(gen)).decide(ctx)
     assert not negated.allowed and negated.indeterminate
     assert (negated.http_status, negated.code) == (status, reason)
 
@@ -1163,16 +1336,16 @@ async def test_a_claim_atom_honours_the_views_indeterminate(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("atom", "key"), CLAIM_ATOMS, ids=CLAIM_IDS)
 async def test_a_definite_untrusted_reason_never_allows(
-    gen: Any, billing_gen: Any, atom: Callable[[Any, Any], Any], key: str
+    gen: Any, atom: Callable[[Any], Any], key: str
 ) -> None:
     """An unassigned key, or one whose authority was absent at the mint (the
     view's other reasons), its authority otherwise vouching for the token:
-    nobody vouched for the claim, 501 ``access_unknown`` (KB-33d, KB-33e,
-    KB-33f), and its negation never allows."""
+    nobody vouched for the claim, 501 ``access_unknown`` (KB-33d, KB-33e),
+    and its negation never allows."""
     for reason in (view.UNASSIGNED, view.SOURCE_ABSENT):
         ctx = _viewed(key, reason)
-        assert _unknown(await atom(gen, billing_gen).decide(ctx)), reason
-        assert _unknown(await Not(atom(gen, billing_gen)).decide(ctx)), reason
+        assert _unknown(await atom(gen).decide(ctx)), reason
+        assert _unknown(await Not(atom(gen)).decide(ctx)), reason
 
 
 # --------------------------------------------------------------------------- #
