@@ -73,7 +73,7 @@ No longer settings. Still configured with the inert value they log a warning; wi
 | `JWT_ALLOW_SHARED_SECRET_SPLIT` | 0.8 | `false` | accept the risk explicitly: SANDLOOM_ACCEPTED_RISKS=["shared_hs_secret_split"] |
 | `RPC_AUTH_MODE` | 0.8 | `service_mac` | internal RPC is always pair-MAC authenticated (ADR-0004): give every service RPC_DH_PRIVATE_KEY / RPC_SERVICE_DH_KEYS (and RPC_PRIVATE_KEY to sign commands); INTERNAL_API_TOKEN only guards the ops endpoints |
 | `RPC_RESPONSE_BINDING` | 0.8 | `strict` | every RPC response is keyed to its request and pinned provider (the former strict mode) |
-| `AUTH_REVOCATION_STRICT_PATH_PREFIXES` | 1.0 | `[]` | every authenticated request reads the subject-state record live (ADR-0009): there is no staleness budget left to override |
+| `AUTH_REVOCATION_STRICT_PATH_PREFIXES` | 1.0 | `[]` | every authenticated request reads the subject-state record live (ADR-0009): there is no staleness budget left to override | <!-- stale-ok: removed setting documented for migration -->
 | `MODULE_FS_SCAN` | 0.7 | `false` | modules are no longer packages under sandloom.*: list them in SANDLOOM_MODULES (import path or `sandloom.modules` entry-point name) or set MODULE_LOAD_ENTRYPOINTS=true to load every installed module |
 
 ## Ops tier
