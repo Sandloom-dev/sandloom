@@ -310,7 +310,7 @@ Targets:
 | **A3** declared vocabulary ownership | its startup gate duplicates small fix A (merged as #72) and the claim-key manifest answer #15 defers; adds a vocabulary format versioned with the generator |
 | **A4** distribution and behaviour boundary only | cannot express I-03 (a literal or a computed import passes); about ten rows have no behavioural symptom. Its checks are adopted as fitness tests of this ADR |
 | Default map in `sandloom.main` (X1 option 1) | a kernel edge that must vary with the installed subset or refuse in 15 of 16 subsets (I-19); failed `test_the_kernel_names_no_module` in the trust PoC |
-| Default derived from installed first-party distributions (X1 option 2) | trust by name, which answer #9 excludes; research-trust e-5 |
+| Default derived from installed first-party distributions (X1 option 2) | trust by name, which answer #9 excludes; `_archive/research-trust.md` e-5 |
 | The issuer registering the revocation applier | D1 stays for any composition without identity |
 | A startup refusal without identity instead of a kernel applier | tenancy alone, or a replacement issuer, could not run |
 | One fixed consumer group for the kernel applier | refused by the consumer runtime in a split (one group, two databases' inboxes) |
@@ -367,7 +367,7 @@ the reference for decisions; each PR re-measures base against candidate on `c9b9
 
 | item | where | result |
 |---|---|---|
-| baseline of 46 judged rows and 18 protocol rows | `baseline.md` at `b8d8506`; transcripts `_evidence/` | 32 violation, 13 disputed, 1 allowed |
+| baseline of 46 judged rows and 18 protocol rows | `baseline.md` at `b8d8506`; transcripts `_archive/_evidence/` | 32 violation, 13 disputed, 1 allowed |
 | replaceability: identity, tenancy, billing replaced outside the kernel | `validation.md` §1, `poc/replace/out/head.txt`, commit `47c31de` | rights, tenant grants and an unrelated fact work with no kernel change, mono and split; every failure is a trust gap (ADR-0014) or a module name in kernel code (this ADR) |
 | default map in `sandloom.main` is a kernel edge | `poc/trust/results.md` T-17, finding 3; commit `627c9c9` | `test_the_kernel_names_no_module` fails by design; 6504 passed otherwise |
 | kernel revocation applier with a per-deployment group | `poc/trust/results.md` T-16, finding 4 | without identity: group `sandloom:auth@tokens_revoked@url:…` running, cache out → redelivered, back → mark written, older token 401; split conformance passes with identity's applier removed; a fixed group raised `ConsumerConfigurationError` in split. The PoC named the group from the database identity (`url:…`) when no service name was set; decision 5 withdraws that fallback, so KB-09 re-runs the rows with `SANDLOOM_SERVICE_NAME` set and adds the two-services-one-database scenario |

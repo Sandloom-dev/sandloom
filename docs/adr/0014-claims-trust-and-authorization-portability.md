@@ -26,8 +26,8 @@ search:
 - **Related:** [ADR-0012](0012-kernel-boundary.md) (the standard trust map lives in
   `sandloom-standard`; the kernel revocation applier), [ADR-0013](0013-contract-ownership.md)
   (where generated atoms live; expectations)
-- **Research and evidence:** `design/kernel-boundary/research-trust.md`,
-  `research-authz-portability.md`, `alternatives-c-authz.md`, `adversarial.md` §4,
+- **Research and evidence:** `design/kernel-boundary/_archive/research-trust.md`,
+  `_archive/research-authz-portability.md`, `_archive/alternatives-c-authz.md`, `adversarial.md` §4,
   `poc/trust/results.md` (commit `627c9c9`), `poc/authz/results.md` (commit `ccc420e`),
   `perf-dx-baseline.md` (commit `162d84a`), `validation.md` §1, `guarantee-map.md`
 
