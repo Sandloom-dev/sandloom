@@ -1,18 +1,20 @@
 """The authorization stand as a CI count test (ADR-0014 decision 9; KB-30).
 
 The PoC stand (``design/kernel-boundary/poc/authz/stand.py``) promoted: every
-policy shape of the stand is decided twice on the real tenancy and billing
-providers over the real test database, once with the kernel atoms
-(``sandloom.shared.authz``) and once with the atoms ``sandloom generate``
+policy shape of the stand is decided on the real tenancy and billing
+providers over the real test database with the atoms ``sandloom generate``
 writes beside the consumer's stubs (``tenancy.membership.v1``'s committed
-copy, ``billing.entitlements.v1`` rendered here as generate renders it). For
-each case, steady state (the second evaluation):
+copy, ``billing.entitlements.v1`` rendered here as generate renders it). The
+kernel atoms they were once compared to are gone (KB-34); what that
+comparison established is pinned here instead. For each case, steady state
+(the second evaluation):
 
-* the decision (allowed, status, category, code, indeterminate) is equal;
-* the provider calls and their order are equal (what was ASKED);
-* the I/O is equal and pinned: database round trips of the providers'
-  units (every statement plus each BEGIN / COMMIT / ROLLBACK), internal-RPC
-  requests, and in a split the consumer touches no database at all.
+* the decision (allowed, status, category, code, indeterminate, label) is
+  the pinned one, mono and split alike;
+* the provider calls and their order are the pinned ones (what was ASKED);
+* the I/O is pinned: database round trips of the providers' units (every
+  statement plus each BEGIN / COMMIT / ROLLBACK), internal-RPC requests, and
+  in a split the consumer touches no database at all.
 
 Two topologies:
 
@@ -29,7 +31,8 @@ Pinned numbers (the plan's budget, KB-30, KB-37): the decisive shape
 calls / 6 database round trips mono, 2 RPC / 6 provider round trips / 0
 consumer split (3 / 9 before answer #23: the tenant kind's membership call
 is saved by the allowing ``OrgRole``, the witness of the assigned tenant
-authority); ``Credits`` 1 / 4; the claims tier 0 / 0.
+authority); ``Credits`` 1 / 4 (one ``has_credits_at_least``: the comparison
+is billing's, answer #24); the claims tier 0 / 0.
 
 ADR-0014 K5 (KB-35, Z-9 / C-F7): with ``tenancy.membership.v1`` bound to a
 provider no connection reaches, the generated ``OrgRole`` is indeterminate
@@ -58,7 +61,6 @@ import pytest_asyncio
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
-import sandloom.shared.authz as kernel
 from sandloom.core import rpc
 from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.generated import render_stub
@@ -92,7 +94,7 @@ PROVIDER, CONSUMER = "provider", "api"
 
 
 # --------------------------------------------------------------------------- #
-# The two atom sets: the kernel's and the generated ones
+# The generated atoms
 # --------------------------------------------------------------------------- #
 @pytest.fixture(scope="module")
 def generated(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
@@ -112,14 +114,6 @@ def generated(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
         Subscribed=module.Subscribed,
     )
     sys.modules.pop(spec.name, None)
-
-
-KIT_KERNEL = SimpleNamespace(
-    OrgRole=kernel.OrgRole,
-    SubscriptionActive=kernel.SubscriptionActive,
-    Credits=kernel.Credits,
-    Subscribed=kernel.Subscribed,
-)
 
 
 @dataclass(frozen=True)
@@ -202,6 +196,92 @@ EXPECTED: dict[str, tuple[int, int]] = {
     "or_sub_user.admin": (1, 3),
     "not_member.admin": (1, 3),
     "invalid_org": (0, 0),
+}
+
+#: The decision: (allowed, status, category, code, indeterminate, label).
+Key = tuple[bool, int, str | None, str, bool, str | None]
+_ALLOW: Key = (True, 200, None, "ok", False, None)
+_NOT_ADMIN: Key = (
+    False,
+    403,
+    "forbidden",
+    "OrgRole",
+    False,
+    "organization role 'admin'",
+)
+_INACTIVE: Key = (
+    False,
+    402,
+    "payment_required",
+    "SubscriptionActive",
+    False,
+    "active subscription",
+)
+#: Steady state per request: the decision. ``past_due`` is billing's grace
+#: period (its registered fact), the canceled ORG2 subscription a 402.
+DECISIONS: dict[str, Key] = {
+    "role.admin": _ALLOW,
+    "subscribed": _ALLOW,
+    "subscribed.past_due": _ALLOW,
+    "subactive": _ALLOW,
+    "credits": _ALLOW,
+    "credits.short": (
+        False,
+        402,
+        "payment_required",
+        "Credits",
+        False,
+        "at least 1000 credits",
+    ),
+    "role_or_credits.admin": _ALLOW,
+    "role_or_credits.user": _ALLOW,
+    "orgrole": _ALLOW,
+    "orgrole_and_subactive": _ALLOW,
+    "orgrole_and_subactive.outsider": _NOT_ADMIN,
+    "bound.decisive": _ALLOW,
+    "bound.member": _NOT_ADMIN,
+    "bound.admin_inactive": _INACTIVE,
+    "bound.outsider": _NOT_ADMIN,
+    "bound.subscribed": _ALLOW,
+    "or_sub_user.admin": _ALLOW,
+    "not_member.admin": (
+        False,
+        403,
+        "forbidden",
+        "negation_failed",
+        False,
+        "NOT organization role 'member'",
+    ),
+    "invalid_org": (
+        False,
+        400,
+        "forbidden",
+        "invalid_tenant",
+        True,
+        "organization role 'admin'",
+    ),
+}
+
+_MEMBERSHIP = "tenancy.membership.v1.has_role_at_least"
+_SUBSCRIPTION = "billing.entitlements.v1.check_subscription_active"
+_CREDITS = "billing.entitlements.v1.has_credits_at_least"
+#: Steady state per request: the provider methods asked, in order. ``Credits``
+#: compares in billing (answer #24): one ``has_credits_at_least``.
+ASKED: dict[str, list[str]] = {
+    "subactive": [_SUBSCRIPTION],
+    "credits": [_CREDITS],
+    "credits.short": [_CREDITS],
+    "role_or_credits.user": [_CREDITS],
+    "orgrole": [_MEMBERSHIP],
+    "orgrole_and_subactive": [_MEMBERSHIP, _SUBSCRIPTION],
+    "orgrole_and_subactive.outsider": [_MEMBERSHIP],
+    "bound.decisive": [_MEMBERSHIP, _SUBSCRIPTION],
+    "bound.member": [_MEMBERSHIP],
+    "bound.admin_inactive": [_MEMBERSHIP, _SUBSCRIPTION],
+    "bound.outsider": [_MEMBERSHIP],
+    "bound.subscribed": [_MEMBERSHIP, _SUBSCRIPTION],
+    "or_sub_user.admin": [_MEMBERSHIP],
+    "not_member.admin": [_MEMBERSHIP],
 }
 
 
@@ -377,26 +457,13 @@ async def _seed(engine: Any) -> None:
 
 Outcome = tuple[tuple[Any, ...], list[str], int, list[str]]
 
-#: The one planned difference (answer #24): ``Credits`` compares in billing
-#: now, through the new read with the same query and binding.
-_RENAMED = {
-    "billing.entitlements.v1.get_credit_balance": (
-        "billing.entitlements.v1.has_credits_at_least"
-    ),
-    "/_sandloom/rpc/billing.entitlements.v1/get_credit_balance": (
-        "/_sandloom/rpc/billing.entitlements.v1/has_credits_at_least"
-    ),
-}
 
-
-def _as_candidate(outcome: Outcome) -> Outcome:
-    key, calls, sql, rpcs = outcome
-    renamed = [_RENAMED.get(c, c) for c in calls]
-    posts = []
-    for r in rpcs:
-        method, _, path = r.partition(" ")
-        posts.append(f"{method} {_RENAMED.get(path, path)}")
-    return key, renamed, sql, posts
+def _check(name: str, outcome: Outcome) -> None:
+    """The steady-state decision and provider calls are the pinned ones."""
+    key, calls, sql, _rpc = outcome
+    assert key == DECISIONS[name], key
+    assert calls == ASKED.get(name, [])
+    assert (len(calls), sql) == EXPECTED[name]
 
 
 async def _decide(core: Any, kit: Any, name: str, meter: Meter) -> Outcome:
@@ -542,27 +609,25 @@ async def _consumer(
 # The checks
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("name", sorted(CASES))
-async def test_mono_generated_atoms_equal_the_kernel_atoms(
+async def test_mono_generated_atoms_decide_as_pinned(
     mono: Any, generated: Any, meter: Meter, name: str
 ) -> None:
-    base = await _decide(mono, KIT_KERNEL, name, meter)
-    candidate = await _decide(mono, generated, name, meter)
-    assert candidate == _as_candidate(base)
-    calls, sql = EXPECTED[name]
-    assert (len(candidate[1]), candidate[2], candidate[3]) == (calls, sql, [])
+    outcome = await _decide(mono, generated, name, meter)
+    _check(name, outcome)
+    assert outcome[3] == []  # in-process: no RPC
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-async def test_split_generated_atoms_equal_the_kernel_atoms(
+async def test_split_generated_atoms_decide_as_pinned(
     split: CoreFacade, generated: Any, meter: Meter, name: str
 ) -> None:
-    base = await _decide(split, KIT_KERNEL, name, meter)
-    candidate = await _decide(split, generated, name, meter)
-    assert candidate == _as_candidate(base)
-    calls, sql = EXPECTED[name]
-    # every call one POST to the provider; its database work in its own units
-    assert (len(candidate[1]), candidate[2], len(candidate[3])) == (calls, sql, calls)
-    assert all(r.startswith("POST /_sandloom/rpc/") for r in candidate[3])
+    outcome = await _decide(split, generated, name, meter)
+    _check(name, outcome)
+    # every call one POST to the provider (the method asked); its database
+    # work in its own units, the consumer's none
+    assert outcome[3] == [
+        "POST /_sandloom/rpc/" + call.replace("v1.", "v1/", 1) for call in outcome[1]
+    ]
 
 
 async def test_the_decisive_shape_asks_two_calls(
