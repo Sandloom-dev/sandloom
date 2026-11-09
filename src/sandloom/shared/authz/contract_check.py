@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
 import sandloom.shared.authz.facts as _facts
+from sandloom.core.facade import facts_contract_name
 from sandloom.shared.authz._resolve import (
     ContractUnavailable,
     resolve_contract,
@@ -399,7 +400,10 @@ class ContractCheck(Requirement):
             args = [bound[a] if a in bound else self.params[a] for a in self._args]
         except KeyError as exc:
             raise _mismatch(
-                self._contract, self._method, f"no value for {exc.args[0]!r}", requirement
+                self._contract,
+                self._method,
+                f"no value for {exc.args[0]!r}",
+                requirement,
             ) from exc
         try:
             method = getattr(service, self._method)
@@ -501,7 +505,7 @@ class ClaimFactCheck(Requirement):
 
     def contracts(self) -> frozenset[str]:
         atom = self.__sandloom_atom__
-        needed = {_facts.facts_contract_name(str(atom["owner"]))}
+        needed = {facts_contract_name(str(atom["owner"]))}
         if self.account.kind != "user" and self._otherwise is not None:
             needed.add(str(self._otherwise.__sandloom_atom__["contract"]))
         return frozenset(needed)
@@ -544,12 +548,16 @@ class ClaimFactCheck(Requirement):
         owner must be part of the composition (loaded, or its facts contract
         bound), else nobody vouches for the claim."""
         owner = str(self.__sandloom_atom__["owner"])
-        if not _facts.fact_owner_present(ctx, str(self.__sandloom_atom__["fact"]), owner):
+        if not _facts.fact_owner_present(
+            ctx, str(self.__sandloom_atom__["fact"]), owner
+        ):
             raise self._owner_absent()
         status = ctx.subject.claim(self.claim_key)
         allowed = self.statuses
         if allowed is None:
-            allowed = frozenset(str(s) for s in self.__sandloom_atom__.get("statuses") or ())
+            allowed = frozenset(
+                str(s) for s in self.__sandloom_atom__.get("statuses") or ()
+            )
         return isinstance(status, str) and status in allowed
 
     async def _via_fact(self, ctx: AuthzContext) -> bool:
@@ -567,10 +575,7 @@ class ClaimFactCheck(Requirement):
         if fact is None:
             raise self._owner_absent()
         subject = ctx.subject
-        if (
-            _facts._claim_trustworthy(fact, ctx)
-            or not subject.provenance_authoritative
-        ):
+        if _facts._claim_trustworthy(fact, ctx) or not subject.provenance_authoritative:
             return fact.interpret_claim(status)
         try:
             return await _facts.resolve_fact(fact, ctx, mode=_facts.MODE_LIVE)

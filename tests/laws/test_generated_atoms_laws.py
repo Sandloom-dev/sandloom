@@ -29,8 +29,8 @@ from hypothesis import strategies as st
 from sandloom.core.di import ServiceNotFound
 from sandloom.core.module_api._errors import ContractArgumentError
 from sandloom.shared.authz import And, Not, Or, PolicyIndeterminate
-from sandloom.shared.authz.contract_check import CONTRACT_MISMATCH, ContractCheck
 from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.authz.contract_check import CONTRACT_MISMATCH, ContractCheck
 from sandloom.shared.subject import UserContext
 
 #: How an indeterminate leaf is produced, chosen by its id.
@@ -80,7 +80,10 @@ def _atom_class(ident: int) -> type[ContractCheck]:
 
 
 def build(
-    tree: laws.Tree, log: list[int], core: _Core, outcome_of: dict[int, str] | None = None
+    tree: laws.Tree,
+    log: list[int],
+    core: _Core,
+    outcome_of: dict[int, str] | None = None,
 ) -> Any:
     if isinstance(tree, laws.Atom):
         if tree.tier != 3:

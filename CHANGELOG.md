@@ -324,6 +324,26 @@ website renders this same changelog.
 
 ### Added
 
+- **Contract-anchored access checks** (ADR-0014 decisions 8 to 12, KB-30).
+  A provider marks a boolean contract read with
+  `@access_check("OrgRole", bind={"organization_id": From.org(param="org_id"),
+  "user_id": From.subject_id()}, values=..., risk=..., category=...)`
+  (`sandloom.sdk.authz`, advanced); `sandloom generate` writes the typed atom
+  beside each consumer's stub (a `ContractCheck` subclass carrying the
+  declaration as a literal, and a `ClaimFactCheck` subclass for an owner's
+  `AccessFact(atom=...)` named with `claim=`), evaluated by one generic
+  kernel evaluator: the same provider method, arguments and unit as the
+  kernel atom, equal decisions and I/O mono and split (the authorization
+  stand is a CI count test). A literal the provider no longer matches is
+  indeterminate 501 `contract_mismatch` inside the algebra. The declaration
+  is part of the describe document and snapshot: removing, re-binding or
+  lowering the risk of one is incompatible (SANDLOOM-T004). Tenancy declares
+  `OrgRole` on `has_role_at_least`; billing declares `SubscriptionActive`,
+  `Credits` (the new read `has_credits_at_least`, the query of
+  `get_credit_balance`) and the claim atom `Subscribed`, whose `statuses=` and
+  `claim_key=` are bound to billing's declaration and which is 501 when
+  billing is neither loaded nor bound. The kernel atoms stay; nothing to
+  change in callers.
 - **Modules declare their own settings** (ADR-0015, KB-50).
   `define_module(..., settings=InventorySettings)` (or
   `api.declare_settings(InventorySettings)` in a hand-written `register`)

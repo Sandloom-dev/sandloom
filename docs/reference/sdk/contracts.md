@@ -333,6 +333,7 @@ class ContractMethodRuntime(
     idempotency_key: str | None = None,
     idempotency_scope: tuple[str, ...] = (),
     risk: str | None = None,
+    access_check: dict[str, Any] | None = None,
 ) -> None
 ```
 

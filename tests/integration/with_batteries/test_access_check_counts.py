@@ -38,7 +38,6 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from uuid import UUID
@@ -122,17 +121,23 @@ class Case:
     status: str = "active"
 
 
-_DECISIVE = lambda k: k.OrgRole("admin") & k.SubscriptionActive(  # noqa: E731
-    of=Account.bound_tenant()
-)
+def _DECISIVE(k: Any) -> Any:
+    """The decisive shape: bound tenant, organization role and subscription."""
+    return k.OrgRole("admin") & k.SubscriptionActive(of=Account.bound_tenant())
+
+
 CASES: dict[str, Case] = {
     "role.admin": Case(lambda k: Role("admin")),
     "subscribed": Case(lambda k: k.Subscribed(of=Account.user())),
-    "subscribed.past_due": Case(lambda k: k.Subscribed(of=Account.user()), status="past_due"),
+    "subscribed.past_due": Case(
+        lambda k: k.Subscribed(of=Account.user()), status="past_due"
+    ),
     "subactive": Case(lambda k: k.SubscriptionActive(of=Account.user())),
     "credits": Case(lambda k: k.Credits(10, of=Account.user())),
     "credits.short": Case(lambda k: k.Credits(1000, of=Account.user())),
-    "role_or_credits.admin": Case(lambda k: Role("admin") | k.Credits(10, of=Account.user())),
+    "role_or_credits.admin": Case(
+        lambda k: Role("admin") | k.Credits(10, of=Account.user())
+    ),
     "role_or_credits.user": Case(
         lambda k: Role("admin") | k.Credits(10, of=Account.user()), subject="user"
     ),
@@ -150,12 +155,16 @@ CASES: dict[str, Case] = {
     "bound.member": Case(_DECISIVE, subject="member", bound=ORG),
     "bound.admin_inactive": Case(_DECISIVE, bound=ORG2),
     "bound.outsider": Case(_DECISIVE, subject="outsider", bound=ORG),
-    "bound.subscribed": Case(lambda k: k.Subscribed(of=Account.bound_tenant()), bound=ORG),
+    "bound.subscribed": Case(
+        lambda k: k.Subscribed(of=Account.bound_tenant()), bound=ORG
+    ),
     "or_sub_user.admin": Case(
         lambda k: k.OrgRole("admin") | k.SubscriptionActive(of=Account.user()),
         path={"org_id": str(ORG)},
     ),
-    "not_member.admin": Case(lambda k: Not(k.OrgRole("member")), path={"org_id": str(ORG)}),
+    "not_member.admin": Case(
+        lambda k: Not(k.OrgRole("member")), path={"org_id": str(ORG)}
+    ),
     "invalid_org": Case(lambda k: k.OrgRole("admin"), path={"org_id": "nope"}),
 }
 
@@ -271,7 +280,12 @@ async def _seed(engine: Any) -> None:
             Organization.__table__,
             [
                 {"id": ORG, "name": "Stand", "slug": "stand", "owner_id": USER},
-                {"id": ORG2, "name": "Inactive", "slug": "inactive", "owner_id": MEMBER},
+                {
+                    "id": ORG2,
+                    "name": "Inactive",
+                    "slug": "inactive",
+                    "owner_id": MEMBER,
+                },
             ],
         ),
         (
@@ -282,11 +296,21 @@ async def _seed(engine: Any) -> None:
                 {"organization_id": ORG2, "user_id": USER, "role": "admin"},
             ],
         ),
-        (BillingProduct.__table__, [{"id": 9001, "name": "Stand plan", "type": "subscription"}]),
+        (
+            BillingProduct.__table__,
+            [{"id": 9001, "name": "Stand plan", "type": "subscription"}],
+        ),
         (
             BillingPrice.__table__,
-            [{"id": 9001, "product_id": 9001, "amount": 1000, "currency": "usd",
-              "recurring_interval": "month"}],
+            [
+                {
+                    "id": 9001,
+                    "product_id": 9001,
+                    "amount": 1000,
+                    "currency": "usd",
+                    "recurring_interval": "month",
+                }
+            ],
         ),
     ]
     customers = {"user": (USER, None), "org": (None, ORG), "org2": (None, ORG2)}
@@ -308,7 +332,8 @@ async def _seed(engine: Any) -> None:
                     "customer_id": ids[k],
                     "price_id": 9001,
                     "status": "canceled" if k == "org2" else "active",
-                    "current_period_end": now + (timedelta(days=-1) if k == "org2" else timedelta(days=30)),
+                    "current_period_end": now
+                    + (timedelta(days=-1) if k == "org2" else timedelta(days=30)),
                     "cancel_at_period_end": False,
                     "origin": "legacy",
                 }
@@ -326,7 +351,9 @@ async def _seed(engine: Any) -> None:
         for table, values in rows:
             for value in values:
                 defaults = {
-                    c.name: c.default.arg(None) if callable(c.default.arg) else c.default.arg
+                    c.name: c.default.arg(None)
+                    if callable(c.default.arg)
+                    else c.default.arg
                     for c in table.columns
                     if c.default is not None
                     and c.name not in value
@@ -366,7 +393,8 @@ async def _decide(core: Any, kit: Any, name: str, meter: Meter) -> Outcome:
     for _ in range(2):
         calls = _Calls(core)
         policy = case.policy(kit)
-        ctx = AuthzContext(_subject(case), request=_Req(case.path), core=calls)
+        request: Any = _Req(case.path)
+        ctx = AuthzContext(_subject(case), request=request, core=calls)
         meter.reset()
         with ExitStack() as stack:
             if case.bound is not None:
@@ -389,7 +417,9 @@ async def _decide(core: Any, kit: Any, name: str, meter: Meter) -> Outcome:
 # Topologies
 # --------------------------------------------------------------------------- #
 @pytest_asyncio.fixture
-async def mono(real_uow_client: Any, sandloom_core: Any, db_engine: Any) -> AsyncIterator[Any]:
+async def mono(
+    real_uow_client: Any, sandloom_core: Any, db_engine: Any
+) -> AsyncIterator[Any]:
     await _seed(db_engine)
     yield sandloom_core
 
@@ -419,7 +449,7 @@ async def split(
     client = httpx.AsyncClient(transport=transport, base_url="http://provider")
     monkeypatch.setattr(rpc_proxy, "_rpc_client", lambda: client)
 
-    from fastapi import FastAPI  # noqa: PLC0415 - cold: one fixture
+    from fastapi import FastAPI
 
     app = FastAPI()
     cfg = settings.model_copy(

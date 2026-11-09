@@ -337,7 +337,9 @@ def _literal_block(literal: Mapping[str, Any]) -> str:
 def _def_init(params: list[str], call: str) -> str:
     """``def __init__(...) -> None:`` and its ``super().__init__`` body."""
     head: list[str] = []
-    for line in _dto_copies.fit_lines(f"    def __init__({', '.join(params)}) -> None:"):
+    for line in _dto_copies.fit_lines(
+        f"    def __init__({', '.join(params)}) -> None:"
+    ):
         stripped = line.lstrip(" ")
         if stripped.startswith("] | "):
             # A split subscript followed by ``| X``: ruff breaks before the

@@ -273,7 +273,9 @@ def _method_runtime(
         ok = False
     access = _access_check(attr)
     if access is not None:
-        ok = _access_check_problems(name, kind, access, params, returns, problems) and ok
+        ok = (
+            _access_check_problems(name, kind, access, params, returns, problems) and ok
+        )
     if not ok:
         return None
     return ContractMethodRuntime(
@@ -321,17 +323,23 @@ def _access_check_problems(
         problems.append(f"{where} is declared on a command (a check is a read)")
     if returns is not bool:
         problems.append(f"{where} returns {returns!r}, not bool")
-    for arg in sorted(binds - names):
-        problems.append(f"{where} binds {arg!r}, which is not a parameter")
+    problems.extend(
+        f"{where} binds {arg!r}, which is not a parameter"
+        for arg in sorted(binds - names)
+    )
     own = names - binds
-    for arg in sorted(set(access.get("values") or {}) - own):
-        problems.append(f"{where}: values names {arg!r}, not an unbound parameter")
-    for risk, conditions in (access.get("risk") or {}).items():
-        for arg in sorted(set(conditions) - own):
-            problems.append(
-                f"{where}: risk {risk!r} names {arg!r}, not an unbound parameter"
-            )
-    for param in params:
-        if param.name not in binds and param.kind is param.POSITIONAL_ONLY:
-            problems.append(f"{where}: {param.name!r} is positional-only")
+    problems.extend(
+        f"{where}: values names {arg!r}, not an unbound parameter"
+        for arg in sorted(set(access.get("values") or {}) - own)
+    )
+    problems.extend(
+        f"{where}: risk {risk!r} names {arg!r}, not an unbound parameter"
+        for risk, conditions in (access.get("risk") or {}).items()
+        for arg in sorted(set(conditions) - own)
+    )
+    problems.extend(
+        f"{where}: {param.name!r} is positional-only"
+        for param in params
+        if param.name not in binds and param.kind is param.POSITIONAL_ONLY
+    )
     return len(problems) == found

@@ -7,15 +7,16 @@ Public API 1.0 (spec §2.2, Appendix C).
 beginner: Credits, OrgRole, Owner, Subscribed, SubscriptionActive,
     authorize_resource, require
 advanced: ACTIVE_SUBSCRIPTION_STATUSES, AccessDecision, AccessDenied,
-    AccessFact, Account, And, AuthzContext, Category, ClaimRule, ENTITLEMENTS,
-    Entitled, EntitlementsAdapter, FactDenied, FactOwnerUnreachable,
-    FactUnavailable, Feature, MEMBERSHIP, MODE_AUTO, MODE_CLAIM, MODE_LIVE,
-    MODE_PROJECTION, MembershipAdapter, Not, Or, Perm, Permissions,
-    PolicyIndeterminate, Requirement, Role, Roles, SOURCE_HTTP,
-    SOURCE_INTERNAL, SOURCE_SYSTEM, SOURCE_TASK, TIER_CLAIM, TIER_LIVE,
-    TIER_RESOURCE, WithinLimit, authorize, current_context, enforce,
-    lookup_access_fact, make_rebuild_gate, register_authz_projection,
-    register_live_adapter, resolve_fact, service_subject, system_subject
+    AccessFact, Account, And, AuthzContext, Category, ClaimFactCheck,
+    ClaimRule, ContractCheck, ENTITLEMENTS, Entitled, EntitlementsAdapter,
+    FactDenied, FactOwnerUnreachable, FactUnavailable, Feature, From,
+    MEMBERSHIP, MODE_AUTO, MODE_CLAIM, MODE_LIVE, MODE_PROJECTION,
+    MembershipAdapter, Not, Or, Perm, Permissions, PolicyIndeterminate,
+    Requirement, Role, Roles, SOURCE_HTTP, SOURCE_INTERNAL, SOURCE_SYSTEM,
+    SOURCE_TASK, TIER_CLAIM, TIER_LIVE, TIER_RESOURCE, WithinLimit,
+    access_check, authorize, current_context, enforce, lookup_access_fact,
+    make_rebuild_gate, register_authz_projection, register_live_adapter,
+    resolve_fact, service_subject, system_subject
 docs: docs/reference/sdk/authz.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """

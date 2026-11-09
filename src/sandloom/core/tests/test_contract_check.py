@@ -58,16 +58,15 @@ from sandloom.shared.authz import (
     From,
     Not,
     Or,
-    PolicyIndeterminate,
     Role,
     access_check,
 )
 from sandloom.shared.authz.algebra import TIER_CLAIM, TIER_LIVE
+from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.contract_check import (
     CONTRACT_MISMATCH,
     generated_access_contracts,
 )
-from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
 
 pytestmark = pytest.mark.asyncio
@@ -226,14 +225,14 @@ async def test_the_atoms_are_generated_in_their_final_layout(tmp_path: Path) -> 
     for name in ("class HasSeat(ContractCheck):", "class SeatRole(ContractCheck):"):
         assert name in first
     assert "class Seated(ClaimFactCheck):" in first
-    assert "level: Literal[\"viewer\", \"editor\", \"owner\"]" in first
+    assert 'level: Literal["viewer", "editor", "owner"]' in first
     assert "# sandloom: advanced generated code" in first
     path = tmp_path / "seatco_seats_v1.py"
     assert _dto_copies.ruff_formatted(first, path, cwd=Path.cwd()) == first
 
 
 async def test_the_generated_signature_is_the_atoms_own(gen: Any) -> None:
-    import inspect  # noqa: PLC0415 - cold: one test
+    import inspect
 
     params = inspect.signature(gen.SeatRole.__init__).parameters
     assert list(params) == ["self", "level", "region", "org_param"]
@@ -251,7 +250,9 @@ async def test_the_provider_is_called_once_in_signature_order(gen: Any) -> None:
     org, user = uuid4(), uuid4()
     core = _Core({SEATS: seats})
     atom = gen.SeatRole("editor", region="us")
-    ctx = _ctx(core, request=_Req(path={"org_id": str(org)}), user_id=user, tenants=[org])
+    ctx = _ctx(
+        core, request=_Req(path={"org_id": str(org)}), user_id=user, tenants=[org]
+    )
     assert (await atom.decide(ctx)).allowed
     assert seats.calls == [("has_level", (org, user, "editor", "us"))]
 
@@ -299,7 +300,9 @@ class _Refusing(_Seats):
     [_Refusing(), _Seats(answer=1), _Seats(answer=None), SimpleNamespace()],
     ids=["arguments-refused", "int-result", "none-result", "method-gone"],
 )
-async def test_a_shape_mismatch_is_501_inside_the_algebra(gen: Any, provider: Any) -> None:
+async def test_a_shape_mismatch_is_501_inside_the_algebra(
+    gen: Any, provider: Any
+) -> None:
     core = _Core({SEATS: provider})
     atom = gen.HasSeat(of=Account.user())
     decision = await atom.decide(_ctx(core))
@@ -309,7 +312,9 @@ async def test_a_shape_mismatch_is_501_inside_the_algebra(gen: Any, provider: An
     allowed = await Or(atom, Role("admin")).decide(_ctx(core, user_id=uuid4()))
     assert not allowed.allowed  # no genuine allow: still never an error
     subject = UserContext(user_id=uuid4(), roles=["admin"])
-    assert (await Or(atom, Role("admin")).decide(AuthzContext(subject, core=core))).allowed
+    assert (
+        await Or(atom, Role("admin")).decide(AuthzContext(subject, core=core))
+    ).allowed
 
 
 async def test_an_invalid_request_value_is_refused_before_any_call(gen: Any) -> None:

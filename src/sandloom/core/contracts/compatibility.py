@@ -403,7 +403,9 @@ def _compare_method(  # noqa: C901
         )
     if exp.get("idempotency_scope", []) != act.get("idempotency_scope", []):
         report.errors.append(f"{where}: idempotency scope changed")
-    _compare_access_check(where, exp.get("access_check"), act.get("access_check"), report)
+    _compare_access_check(
+        where, exp.get("access_check"), act.get("access_check"), report
+    )
     exp_params = list(exp.get("params") or ())
     act_params = list(act.get("params") or ())
     act_by_name = {str(p.get("name")): p for p in act_params}
@@ -476,8 +478,17 @@ def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) 
         if exp.get(key) != act.get(key):
             report.errors.append(f"{label}: {key} changed")
     _narrowed(label, "values", exp.get("values"), act.get("values"), report)
-    exp_risk = exp.get("risk") or {}
-    act_risk = act.get("risk") or {}
+    _risk_lowered(label, exp.get("risk") or {}, act.get("risk") or {}, report)
+    _claim_changed(label, exp.get("claim"), act.get("claim"), report)
+
+
+def _risk_lowered(
+    label: str,
+    exp_risk: Mapping[str, Any],
+    act_risk: Mapping[str, Any],
+    report: CompatReport,
+) -> None:
+    """Each declared risk must still apply to every value it applied to."""
     for risk, conditions in exp_risk.items():
         now = act_risk.get(risk)
         if not isinstance(now, Mapping):
@@ -490,7 +501,13 @@ def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) 
             report.errors.append(
                 f"{label}: risk {risk!r} gained the condition {param!r} (lowered)"
             )
-    exp_claim, act_claim = exp.get("claim"), act.get("claim")
+
+
+def _claim_changed(
+    label: str, exp_claim: Any, act_claim: Any, report: CompatReport
+) -> None:
+    """A claim atom keeps its fact, owner, key and category, and loses no
+    declared status or claim key."""
     if not isinstance(exp_claim, Mapping):
         return
     if not isinstance(act_claim, Mapping):
