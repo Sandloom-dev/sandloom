@@ -967,6 +967,9 @@ jobs:
           JWT_SECRET: ci-examples-not-a-real-secret-0123456789
           CACHE_URL: redis://127.0.0.1:6380/0
           BROKER_URL: redis://127.0.0.1:6380/1
+          # oidc-identity's issuer module requires its provider settings.
+          ACME_IDP_ISSUER: https://idp.example.test
+          ACME_IDP_CLIENT_ID: storefront-web
         run: |
           db="mig_${{ matrix.app }}"
           psql -h localhost -p 5433 -U test_user -d sandloom_test -c "CREATE DATABASE $db"
