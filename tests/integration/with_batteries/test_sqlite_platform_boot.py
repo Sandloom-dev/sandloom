@@ -35,10 +35,10 @@ def _url(path: Path) -> str:
 
 
 _BOOT = """
-import asyncio, json
+import asyncio, json, uuid
 import httpx
 from sandloom_standard.main import app
-from sandloom.sdk.testing import as_user
+from sandloom.sdk.security import create_service_token
 
 async def main():
     out = {}
@@ -50,7 +50,11 @@ async def main():
                 "email": "lite@example.com", "password": "Lite-pass-0123456789!",
                 "full_name": "Lite"})
             out["register"] = r.status_code
-            _, headers = as_user(tenant=False)
+            # Outside pytest the kernel test authority (as_user) does not
+            # exist: an authenticated caller with no rights is enough here.
+            token = create_service_token(
+                data={"sub": str(uuid.uuid4()), "token_type": "access"})
+            headers = {"Authorization": f"Bearer {token}"}
             r = await c.post("/api/v1/orgs", json={"name": "Acme", "slug": "acme"},
                              headers=headers)
             out["create_org"] = r.status_code

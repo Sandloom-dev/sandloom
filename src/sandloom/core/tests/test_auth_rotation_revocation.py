@@ -19,12 +19,8 @@ from pydantic import ValidationError
 from starlette.testclient import TestClient
 
 from sandloom.core.auth import bearer, marks, revocation, tokens
-from sandloom.core.auth.claims_view import TEST_AUTHORITY, TEST_CPV
 from sandloom.core.config.settings import Settings, settings
-
-#: The kernel test authority vouches for these raw tokens' claims
-#: (a test composition only; ADR-0014 trusted view).
-_KIT = {"cpv": TEST_CPV, "claims_sources": [TEST_AUTHORITY]}
+from sandloom.core.testing.auth import mint_test_token
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _STRONG_2 = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b"
@@ -113,9 +109,9 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> _MemoryCache:
 
 def _token(sub: str, *, iat_offset: int = 0, **extra: Any) -> str:
     now = datetime.now(UTC) + timedelta(seconds=iat_offset)
-    return tokens.create_access_token(
-        {"sub": sub, "token_type": "access", "iat": now, **_KIT, **extra}
-    )
+    # The kernel test authority vouches for the claims (a test composition
+    # only; ADR-0014 sealed mint).
+    return mint_test_token({"sub": sub, "token_type": "access", "iat": now, **extra})
 
 
 # --------------------------------------------------------------------------- #
@@ -287,11 +283,10 @@ async def test_revoked_token_is_rejected_by_every_framework_guard(
     # A token minted after the revocation by an issuer that saw it (this
     # context revoked) is stamped past the mark — skew margin included — and
     # works (test_revocation_windows pins the precise rule).
-    fresh = tokens.create_access_token(
+    fresh = mint_test_token(
         {
             "sub": uid,
             "token_type": "access",
-            **_KIT,
             "permissions": ["x.read"],
             "tenant_ids": [tenant],
         }
@@ -400,9 +395,7 @@ def test_idempotency_and_tenant_scope_ignore_non_access_bearers() -> None:
     from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
 
     tid = str(uuid.uuid4())
-    refresh = tokens.create_access_token(
-        {"sub": "u-r", "token_type": "refresh", "tenant_id": tid}
-    )
+    refresh = mint_test_token({"sub": "u-r", "token_type": "refresh", "tenant_id": tid})
     access = _token("u-r", tenant_id=tid)
 
     def _req(token: str) -> Request:

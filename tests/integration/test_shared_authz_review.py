@@ -23,13 +23,12 @@ import jwt
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 
-from sandloom.core.auth.claims_view import TEST_AUTHORITY, TEST_CPV
-from sandloom.core.auth.tokens import create_access_token
 from sandloom.core.config.settings import settings
 from sandloom.core.di import bind_tenant, get_db
 from sandloom.core.facade import CoreFacade
 from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
+from sandloom.core.testing.auth import mint_test_token
 from sandloom.shared.authz import (
     ENTITLEMENTS,
     AccessDecision,
@@ -59,10 +58,6 @@ from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.live_contracts import reset_live_adapters
 from sandloom.shared.authz.metrics import increment
 from sandloom.shared.subject import UserContext
-
-#: The kernel test authority vouches for these raw tokens' claims
-#: (a test composition only; ADR-0014 trusted view).
-_KIT = {"cpv": TEST_CPV, "claims_sources": [TEST_AUTHORITY]}
 
 pytestmark = pytest.mark.asyncio
 
@@ -333,9 +328,9 @@ async def test_not_over_missing_live_service_denies() -> None:
 
 
 def _token(**claims: object) -> str:
-    data: dict[str, object] = {"sub": str(USER), "token_type": "access", **_KIT}
+    data: dict[str, object] = {"sub": str(USER), "token_type": "access"}
     data.update(claims)
-    return create_access_token(data=data)
+    return mint_test_token(data)
 
 
 def _app(core: object) -> tuple[FastAPI, list[str]]:

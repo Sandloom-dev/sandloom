@@ -1948,6 +1948,34 @@ guarantees:
     rule, src/sandloom/core/tests/test_claims_cpv_identity.py::test_the_digest_is_the_assignment_not_the_implementation);
     an assignment revision that invalidates old tokens without a new import path is not built.'
   gap_size: S
+- id: G-AUTH-25
+  statement: Protected claims, the tenant selectors (tenant_id, org_id), provenance (claims_sources, claims_sources_failed),
+    cpv and UserContext's structural fields reach a token only inside the sealed, read-only result of collect_claims
+    (create_access_token(data, claims=sealed)); in data, in an unsealed or spread result, or as a data key
+    overriding a sealed claim they are refused with SANDLOOM-R017. collect_claims resolves the issuer from the
+    module that registered the contributor it is given, never from a name, and accepts precomputed only with
+    the issuer's session, for the issuer's own contributors and with keys claim_authorities assigns to the
+    issuer. create_service_token refuses the same keys and stamps an empty provenance and the current cpv, so
+    Role, Perm, platform admission and TenantScope deny it. The kernel test authority (as_user, mint_test_token,
+    sealed_claims) mints only while the sandloom pytest plugin or the framework's harness is active, and a test
+    that states claims_sources gets that provenance checked (ADR-0014 decision 5, owner answer #13).
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#5. Sealed mint, service tokens, test tokens
+  tests:
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_hand_minted_sealed_key_is_refused
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_spread_sealed_result_is_a_plain_dict_and_refused
+  - src/sandloom/core/tests/test_sealed_mint.py::test_data_never_overrides_a_sealed_claim
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuer_is_never_a_string
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuer_is_resolved_from_the_registering_module
+  - src/sandloom/core/tests/test_sealed_mint.py::test_precomputed_carries_only_the_issuers_assigned_keys
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_service_token_is_denied_by_every_gate
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_token_passes_every_gate_in_a_test_app
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_stating_claims_sources_gets_that_provenance_checked
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_test_authority_is_refused_outside_a_test_composition
+  gap: 'Mistakes only (threat T4): kernel code can still build a sealed result, and any module holding the
+    core runtime can call collect_claims for an arbitrary user_id and mint that user''s real rights
+    (impersonation, adversarial C-a6); hostile in-process code is outside the threat model (goals.md).'
+  gap_size: S
 - id: G-REVOKE-01
   statement: An access token is revoked iff its issue instant iat_us (microseconds) is <= its subject's
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
@@ -7876,7 +7904,7 @@ issued:
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
-  G-AUTH: 24
+  G-AUTH: 25
   G-AUTHZ: 13
   G-BILLING: 22
   G-BLOCK: 8
@@ -8544,7 +8572,8 @@ adr_sections:
     "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
     - G-RISK-14
     - G-AUTH-24
-    "5. Sealed mint, service tokens, test tokens": planned
+    "5. Sealed mint, service tokens, test tokens":
+    - G-AUTH-25
     "6. Contract-name ownership for access-bearing contracts": planned
     "7. Billing claims: option (c)":
     - G-AUTH-20
