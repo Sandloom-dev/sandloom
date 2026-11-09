@@ -843,8 +843,6 @@ x-app-env: &app-env
   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
   # billing.fake_psp_in_prod (comma-separated).
   SANDLOOM_ACCEPTED_RISKS: $${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
-  # The optional admin console (sandloom-admin) is off in production by default.
-  ADMIN_CONSOLE_ENABLED: $${ADMIN_CONSOLE_ENABLED:-false}
   JWT_SECRET: $${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
   INTERNAL_API_TOKEN: $${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
 
@@ -986,14 +984,20 @@ volumes:
 """
 )
 
-# Billing refuses the fake PSP in prod, so a batteries app must choose.
+# The starter environment of a bundled module ``sandloom new`` was asked for,
+# written before the package is installed (edge row B-N6): a copy of the
+# ``deploy`` lines its settings declare (``module_env``, what ``sandloom add
+# deploy`` writes from the installed package), kept equal to them by
+# ``tests/integration/with_batteries/test_starter_env_declared.py``.
 # identity refuses to start in prod without a dedicated 2FA encryption key.
-_IDENTITY_ENV = """\
-  # identity encrypts TOTP secrets with a dedicated key (comma-separated,
-  # newest first, for rotation) — required in prod.
-  TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY \
-(openssl rand -hex 32)}
-"""
+_IDENTITY_ENV: tuple[str, ...] = (
+    "# identity encrypts TOTP secrets with a DEDICATED key (no JWT_SECRET",
+    "# fallback in prod); comma-separated, newest first, for rotation.",
+    "TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY "
+    "(openssl rand -hex 32) - required when identity is loaded}",
+    "# Refresh-session lifetime: identity's setting (the issuer's sessions).",
+    "REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}",
+)
 
 # identity and tenancy REQUIRE an email notifier; the default log driver
 # delivers none, so in prod the app refuses to start on it.
@@ -1013,13 +1017,30 @@ _NOTIFIER_ENV = """\
   SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
 """
 
-_BILLING_ENV = """\
-  # billing refuses the fake PSP in prod: choose explicitly.
-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake \
-with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-"""
+# Billing refuses the fake PSP in prod, so a batteries app must choose.
+_BILLING_ENV: tuple[str, ...] = (
+    "# billing refuses the fake PSP in prod: the operator must choose.",
+    "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
+    "fake with SANDLOOM_ACCEPTED_RISKS="
+    "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
+    "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
+    "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+    "# Past-due policy: billing's setting (other services read it through the",
+    "# access fact billing describes, never from their own environment).",
+    "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
+)
+# The console is off in production by default.
+_ADMIN_ENV: tuple[str, ...] = (
+    "# The admin console is off in production unless switched on here.",
+    "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}",
+)
+
+
+def _env_text(lines: tuple[str, ...]) -> str:
+    """Declared ``deploy`` lines as the monolith profile's ``x-app-env``
+    entries (indented as ``sandloom add deploy`` indents them)."""
+    return "".join(f"  {line}\n" for line in lines)
+
 
 _CI_WORKFLOW = Template(
     """# CI for $app: architecture rules, lint and tests on every change.
@@ -1375,9 +1396,10 @@ def generate_project(
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
         ),
-        "billing_env": (_IDENTITY_ENV if "identity" in bundled else "")
+        "billing_env": (_env_text(_IDENTITY_ENV) if "identity" in bundled else "")
         + (_NOTIFIER_ENV if {"identity", "tenancy"} & set(bundled) else "")
-        + (_BILLING_ENV if "billing" in bundled else ""),
+        + (_env_text(_BILLING_ENV) if "billing" in bundled else "")
+        + (_env_text(_ADMIN_ENV) if "admin" in bundled else ""),
     }
     example_ctx = {
         **ctx,

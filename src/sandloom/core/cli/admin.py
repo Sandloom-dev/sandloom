@@ -82,6 +82,7 @@ from sandloom.core.cli.operator_owner import (
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
+from sandloom.core.route_markers import route_module
 from sandloom.core.rpc.errors import RemoteServiceUnavailable
 
 #: Where the link points outside production when FRONTEND_URL is not set and
@@ -156,21 +157,63 @@ def _frontend_url() -> str | None:
 #: module's setting). A module that serves no such page is the reset email's
 #: frontend case.
 LINK_PAGE_ROUTE = "set_password_page"
+#: The path the console answers at (the start page's probe): the module that
+#: mounted it is the console module, the only one whose page a link opens.
+CONSOLE_ENTRY = "/admin"
+
+
+def _gets(route: Any) -> bool:
+    return "GET" in (getattr(route, "methods", None) or ())
+
+
+def _console_module(routes: Sequence[Any]) -> str | None:
+    """The module that mounted the console's entry page (the import path or
+    entry-point name the loader registered it under, stamped on each route it
+    mounts), else ``None``: no module serves it, or more than one claims it."""
+    owners = {
+        route_module(route)
+        for route in routes
+        if _gets(route) and str(getattr(route, "path", "")).rstrip("/") == CONSOLE_ENTRY
+    }
+    return next(iter(owners)) if len(owners) == 1 else None
 
 
 def _page_path(core: Any) -> str | None:
-    """The path of the set-password page the composed application serves, or
-    ``None``: a mounted ``GET`` route of that name (never a pattern). A link
-    carries a single-use token, so it is never built on a route that is not
-    mounted."""
-    for route in getattr(getattr(core, "app", None), "routes", ()):
-        path = getattr(route, "path", "")
+    """The path of the set-password page the composed application's console
+    serves, or ``None``.
+
+    A link carries a single-use token, so it opens only a mounted ``GET``
+    route of that name (never a pattern) that the console module mounted:
+    a route of that name another module or the application mounts is not
+    the console's page (``None``: the frontend's page, else a refusal). Two
+    routes of that name are refused before anything is done: which one a
+    link would open is ambiguous.
+    """
+    routes = list(getattr(getattr(core, "app", None), "routes", ()))
+    named = [r for r in routes if getattr(r, "name", None) == LINK_PAGE_ROUTE]
+    if len(named) > 1:
+        where = ", ".join(
+            sorted(
+                f"{getattr(r, 'path', '?')} (mounted by "
+                f"{route_module(r) or 'the application'})"
+                for r in named
+            )
+        )
+        raise SystemExit(
+            f"error: {len(named)} routes are named {LINK_PAGE_ROUTE!r}: "
+            f"{where}. A set-password link carries a single-use token and "
+            "opens only the console's page: rename the other routes"
+        )
+    console = _console_module(routes)
+    for route in named:
+        path = str(getattr(route, "path", ""))
         if (
-            getattr(route, "name", None) == LINK_PAGE_ROUTE
-            and "GET" in (getattr(route, "methods", None) or ())
+            console is not None
+            and route_module(route) == console
+            and _gets(route)
             and "{" not in path
         ):
-            return str(path)
+            return path
     return None
 
 

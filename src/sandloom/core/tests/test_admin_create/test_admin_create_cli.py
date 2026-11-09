@@ -30,8 +30,11 @@ from sandloom.core.cli.security import grant_admin
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
 from sandloom.core.module_api._service_registry import ServiceNotFound
+from sandloom.core.route_markers import stamp_routes
 
 TOKEN = "tok.en.sig"
+#: The import path the console module was loaded from (its routes' stamp).
+CONSOLE_MODULE = "sandloom_admin"
 GOOD = "Long-Enough-Passw0rd!"
 IDENTITY = "sandloom_identity"
 SECURITY_CONTRACT = "identity.security.v1"
@@ -166,7 +169,8 @@ class _Core:
             [] if security is None else [SimpleNamespace(name=IDENTITY)]
         )
         self.settings = settings
-        routes = [
+        console = [
+            SimpleNamespace(path="/admin", name="console_index", methods={"GET"}),
             SimpleNamespace(path="/admin/{path:path}", name="console", methods={"GET"}),
             SimpleNamespace(
                 path="/admin/set-password",
@@ -174,7 +178,9 @@ class _Core:
                 methods={"GET"},
             ),
         ]
-        self.app = SimpleNamespace(routes=routes)
+        # The loader stamps every route a module mounts with that module.
+        stamp_routes(console, CONSOLE_MODULE)
+        self.app = SimpleNamespace(routes=[*_PAGE["before"], *console])
         self.service_registry = SimpleNamespace(try_get=self._local)
 
     def _local(self, name: str) -> Any:
@@ -212,13 +218,18 @@ class _Stream(io.StringIO):
 
 #: Whether the fake composed application mounts the console's set-password
 #: page (the console module names the route only while it serves it).
-_PAGE = {"served": True}
+_PAGE: dict[str, Any] = {"served": True, "before": []}
 
 
 def _console_switch(monkeypatch: pytest.MonkeyPatch, served: bool) -> None:
     """The composed application serves the console's set-password page, or
     mounts a route of another name (ADR-0015, edge rows B-C10 / B-N3)."""
     monkeypatch.setitem(_PAGE, "served", served)
+
+
+def _mounted_first(monkeypatch: pytest.MonkeyPatch, *routes: Any) -> None:
+    """Routes the composed application mounts before the console's."""
+    monkeypatch.setitem(_PAGE, "before", list(routes))
 
 
 @pytest.fixture
@@ -502,6 +513,78 @@ def test_no_page_and_no_frontend_refuses_before_acting(
     )
     assert code == 2 and "serves no set-password page" in err
     assert security.calls == [] and "set-password#" not in out + err
+
+
+def _squatter(path: str = "/notes/set-password") -> SimpleNamespace:
+    """Another module's page carrying the console page's route name."""
+    route = SimpleNamespace(path=path, name="set_password_page", methods={"GET"})
+    stamp_routes([route], "app.modules.notes")
+    return route
+
+
+def test_a_page_of_that_name_another_module_mounts_gets_no_token(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the console module's page opens a link: another module's route of
+    that name (mounted first, the console off) is not the console's page, so
+    the link goes to the frontend's reset page."""
+    _frontend(monkeypatch, "https://app.example.com")
+    _console_switch(monkeypatch, False)
+    _mounted_first(monkeypatch, _squatter())
+    code, out, _ = run(
+        _Security(), "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 0
+    assert "https://app.example.com/auth/reset-password#token=" in out
+    assert "/notes/set-password" not in out
+
+
+def test_a_squatter_without_a_frontend_is_refused_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_switch(monkeypatch, False)
+    _mounted_first(monkeypatch, _squatter())
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == [] and "/notes/set-password" not in out + err
+
+
+def test_a_second_console_entry_leaves_no_console_page(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two modules answering the console's entry path: neither is the
+    console module, so no page of theirs opens a link."""
+    entry = SimpleNamespace(path="/admin/", name="other_index", methods={"GET"})
+    stamp_routes([entry], "app.modules.notes")
+    _console_switch(monkeypatch, True)
+    _mounted_first(monkeypatch, entry)
+    security = _Security()
+    code, _, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == []
+
+
+@pytest.mark.parametrize("served", [True, False])
+def test_two_routes_of_that_name_are_refused_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch, served: bool
+) -> None:
+    """Which page a link would open is ambiguous: refused, nothing done."""
+    _frontend(monkeypatch, "https://app.example.com")
+    _console_switch(monkeypatch, served)
+    _mounted_first(monkeypatch, _squatter(), _squatter("/other/set-password"))
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2
+    assert "routes are named 'set_password_page'" in err
+    assert "/notes/set-password (mounted by app.modules.notes)" in err
+    assert security.calls == [] and "#token=" not in out
 
 
 def test_production_invite_needs_frontend_url(

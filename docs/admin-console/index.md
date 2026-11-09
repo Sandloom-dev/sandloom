@@ -56,7 +56,9 @@ uv run sandloom admin create --email you@example.com --invite --if-missing
 The command prints a link to the console's set-password page. The page comes from
 the running application, not from a setting. While the console serves it, the
 console names that route `set_password_page`, and the command builds the link on
-its path. Whoever opens it sets the password and is signed in. The link works once and only for 15 minutes, so it is
+its path. Only the module that serves the console (`/admin`) counts. A route of that
+name from another module gets no link. Two routes of that name are refused before
+anything is done. Whoever opens it sets the password and is signed in. The link works once and only for 15 minutes, so it is
 safe to pass on in a chat. `--if-missing` makes a second run do nothing when the
 address is already an administrator.
 

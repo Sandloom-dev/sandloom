@@ -451,7 +451,7 @@ edges:
       - sandloom admin create picks the link target from the composed app's console route, not a setting
     anchors:
       - {path: sandloom/core/cli/admin.py, symbol: _CONSOLE_SWITCH}
-      - {path: sandloom/core/cli/admin.py, literal: "the admin console is off (ADMIN_CONSOLE_ENABLED)"}
+      - {path: sandloom/core/cli/admin.py, literal: ADMIN_CONSOLE}
     note: >-
       KB-proto-operator-b2: `sandloom admin create` / `invite` take the link target from the composed
       app's console route (the route the console names `set_password_page` while it serves it), found on
@@ -506,7 +506,7 @@ edges:
       - moves with sandloom admin create in the CLI phase
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: "/admin/set-password"}
-      - {path: sandloom/core/cli/admin.py, literal: "the admin console is off (ADMIN_CONSOLE_ENABLED)"}
+      - {path: sandloom/core/cli/admin.py, literal: ADMIN_CONSOLE}
     note: "KB-proto-operator-b2 - the page path comes from the composed app's served set-password route, not a kernel literal; the switch name is gone (owner question A5, ADR-0015)."
   - id: B-N4
     class: b
@@ -522,7 +522,7 @@ edges:
     tests:
       - start page in a lean app names no module command
     anchors:
-      - {path: sandloom/core/app_factory/pages.py, literal: "<code>uv run sandloom admin create --email &lt;address&gt;</code>"}
+      - {path: sandloom/core/app_factory/pages.py, literal: <code>uv run sandloom admin}
     note: "KB-proto-operator-b2 - the start page names no module command; the /admin route probe stays (generic) and the console's own startup log says how to create the first administrator."
   - id: B-N5
     class: b
@@ -547,12 +547,12 @@ edges:
     class: b
     type: naming
     scope: composition_text
-    owner: [identity, billing]
+    owner: [identity, billing, admin]
     baseline_verdict: disputed
     current_status: retained
     target: retained
     adr: ADR-0012
-    reason: "starter env and README text for the bundled packages `sandloom new` was asked for, written before they are installed: module_env reads the declarations of installed packages only (KB-55 writes the same text from them at `sandloom add deploy`)"
+    reason: "starter env and README text for the bundled packages `sandloom new` was asked for, written before they are installed: module_env reads the declarations of installed packages only (KB-55 writes the same text from them at `sandloom add deploy`); each env copy (_IDENTITY_ENV, _BILLING_ENV, _ADMIN_ENV) equals its module's declared deploy lines (tests/integration/with_batteries/test_starter_env_declared.py)"
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
@@ -560,6 +560,7 @@ edges:
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
       - {path: sandloom/core/cli/project.py, symbol: _BILLING_ENV}
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_ENV}
+      - {path: sandloom/core/cli/project.py, symbol: _ADMIN_ENV}
     note: Starter phase; env text can be generated from KB-50 declarations.
 
   - id: B-N7
@@ -611,6 +612,7 @@ edges:
     tests: [composition_text scope of the kernel-edge check]
     anchors:
       - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: sandloom_identity sandloom_tenancy sandloom_billing}
+      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: identity, local: true}
       - {path: sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl, literal: "loading identity"}
       - {path: sandloom/core/cli/keys.py, literal: "issuer ONLY (identity)"}
     note: Deploy templates and key text; generated from declarations in the starter phase.

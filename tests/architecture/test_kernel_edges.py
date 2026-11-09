@@ -405,11 +405,14 @@ _FIXED = [r for r in ke.load_register().rows if r.current_status == "fixed"]
 def test_every_fixed_row_of_the_register_is_detectable(row: ke.Row) -> None:
     """Each fixed row of the live register (B-I1, B-N19, ...) fails as a
     regression when its anchor literal is planted in a kernel file it is not
-    anchored on: the scan sees every closed edge, wherever it comes back."""
+    anchored on: the scan sees every closed edge, wherever it comes back. A
+    ``local`` anchor regresses in its own file only
+    (``test_a_local_anchor_regresses_in_its_own_file_only``); a row needs one
+    literal anchor that is not."""
     assert _FIXED, "no fixed row: the test would pass vacuously"
     register = ke.load_register()
-    literals = [a for a in row.anchors if a.literal]
-    assert literals, f"{row.id} has no literal anchor"
+    literals = [a for a in row.anchors if a.literal and not a.local]
+    assert literals, f"{row.id} has no literal anchor matched in every kernel file"
     for anchor in literals:
         value = anchor.exact or anchor.literal
         planted = f"KNOWN = {{'t': {{{value!r}}}}}\n"
@@ -461,6 +464,32 @@ def test_a_static_import_of_a_fixed_edge_fails_as_its_regression() -> None:
         and "static-import 'sandloom_identity.password_policy'" in p
         for p in problems
     ), problems
+
+
+def test_a_local_anchor_regresses_in_its_own_file_only(tmp_path: Path) -> None:
+    """A fixed row's ``local`` literal (a shell script naming a module by a
+    word) is not matched in the kernel's Python files, where the same word is
+    anything else; in its own file the word back is the regression."""
+    script = "sandloom/core/cli/templates/init.sh"
+    row = _row(
+        current_status="fixed",
+        anchors=[
+            {"path": "sandloom/core/x.py", "literal": '"crm"'},
+            {"path": script, "literal": "crm", "local": True},
+        ],
+    )
+    files = {
+        "sandloom/core/y.py": 'KEY = "crm_session_key"\n',
+        script: "for db in $DATABASES; do createdb $db; done\n",
+    }
+    src = _tree(tmp_path, files)
+    assert _problems(src, _register(edges=[row])) == []
+    (src / script).write_text("for db in sandloom_crm; do createdb $db; done\n")
+    (problem,) = _problems(src, _register(edges=[row]))
+    assert "row R1 is fixed but the edge is back" in problem
+    unanchored = _row(current_status="fixed", anchors=[{"path": script, "local": True}])
+    with pytest.raises(ke.RegisterError, match="on a literal anchor"):
+        _register(edges=[unanchored])
 
 
 @pytest.mark.parametrize("status", ["open", "retained"])

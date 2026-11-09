@@ -327,7 +327,9 @@ def claim_owner(self, key: str) -> str | None
 
 The public name of the module the composition's
 `claim_authorities` assigns the protected claim key `key`
-(`"roles"`), or `None` when it names none. Call it when a startup
+(`"roles"`), or `None` when it names none or that module has no
+name this process can vouch for (none declared in the map, not
+installed, not loaded here). Call it when a startup
 task runs, not from `setup` (the map is installed after the modules
 register); the owner's reserved `<name>.security.v1` is the
 contract that answers operator questions about that claim.

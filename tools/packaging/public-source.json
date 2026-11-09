@@ -2604,6 +2604,7 @@
         "tests/integration/with_batteries/test_sdk_schema_bundled_events.py",
         "tests/integration/with_batteries/test_sqlite_platform_boot.py",
         "tests/integration/with_batteries/test_sqlite_saga_harness.py",
+        "tests/integration/with_batteries/test_starter_env_declared.py",
         "tests/integration/with_batteries/test_static_cli_check_bundled_manifest.py",
         "tests/integration/with_batteries/test_subscribed_no_customer.py",
         "tests/integration/with_batteries/test_subscribed_agree.py",

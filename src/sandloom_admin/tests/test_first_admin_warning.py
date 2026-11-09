@@ -10,7 +10,10 @@ import pytest
 from sandloom.sdk.contracts import (
     ContractRef,  # sandloom: advanced the owner's reserved contract
 )
-from sandloom.sdk.errors import ContractCallError
+from sandloom.sdk.errors import (  # sandloom: advanced the failures a remote owner gives
+    ContractCallError,
+    RemoteServiceUnavailable,
+)
 from sandloom.sdk.testing import fake_contract
 from sandloom_admin import startup as admin_setup
 
@@ -165,3 +168,82 @@ async def test_an_unreachable_database_is_not_a_traceback(
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert not any(r.exc_info for r in caplog.records)
     assert admin_setup._warned is False
+
+
+class _RemoteProxy:
+    """A remote binding's proxy: every name is a method (the provider's
+    describe decides), so a missing method is found only by calling it."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        async def call(*args: Any, **kwargs: Any) -> Any:
+            self.calls.append(name)
+            raise self.error
+
+        return call
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RemoteServiceUnavailable("people.security.v1", reason="connection refused"),
+        RemoteServiceUnavailable(
+            "people.security.v1",
+            reason="this caller is not allowed",
+            code="rpc_caller_forbidden",
+        ),
+        ContractCallError("no such method", status_code=404),
+    ],
+    ids=["unreachable", "no-grant", "no-method"],
+)
+async def test_a_remote_owner_that_cannot_answer_is_not_a_failed_task(
+    caplog: pytest.LogCaptureFixture, error: Exception
+) -> None:
+    """Over RPC the proxy offers every name: an owner without the method, a
+    withheld grant or an unreachable provider is the quiet debug line, never
+    a failed startup task."""
+    proxy = _RemoteProxy(error)
+    with (
+        fake_contract(PEOPLE_SECURITY_V1, proxy),
+        caplog.at_level(logging.DEBUG),
+    ):
+        await admin_setup.warn_without_admin(_owner)
+    assert proxy.calls == ["platform_admin_exists"]
+    assert "first-administrator check not made" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup._warned is False
+
+
+async def test_another_shape_is_not_this_owners_answer(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The console's expectation: no argument, a yes/no answer. A method of
+    that name taking an argument is not called; an answer of another type is
+    not read as one."""
+
+    class _Asks:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def platform_admin_exists(self, tenant_id: str) -> bool:
+            self.calls += 1
+            return False
+
+    class _Counts:
+        async def platform_admin_exists(self) -> int:
+            return 0
+
+    asks = _Asks()
+    with caplog.at_level(logging.DEBUG):
+        with fake_contract(PEOPLE_SECURITY_V1, asks):
+            await admin_setup.warn_without_admin(_owner)
+        with fake_contract(PEOPLE_SECURITY_V1, _Counts()):
+            await admin_setup.warn_without_admin(_owner)
+    assert asks.calls == 0
+    assert "offers no platform_admin_exists()" in caplog.text
+    assert "answered int, not bool" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup.EXPECTED == {"platform_admin_exists": ((), bool)}

@@ -214,6 +214,20 @@ def test_a_module_reads_the_roles_owner_through_the_facade_and_the_api() -> None
     assert api.claim_owner("features") is None
 
 
+def test_claim_owner_never_guesses_a_name_from_an_import_path() -> None:
+    """A path the root names without ``Authority(name, module=...)``, that no
+    installed distribution provides and that is not loaded here (its package
+    is not even importable in this process) has no name: ``None``, never its
+    last import segment. Loaded here from that path, it has the loader's."""
+    path = "acme_unimportable_pkg.modules.idp"
+    facade = CoreFacade(app=FastAPI())
+    facade._claim_authorities = build_claim_authorities({"issuer": path, "roles": path})
+    api = ModuleAPI(facade)
+    assert api.claim_owner("roles") is None
+    facade.module_descriptors = [SimpleNamespace(name=path)]
+    assert api.claim_owner("roles") == "idp"
+
+
 # --- reservation (B034) ------------------------------------------------------
 
 
