@@ -74,6 +74,10 @@ from sandloom.shared.authz.account import (
     tenant_witness,
 )
 from sandloom.shared.authz.algebra import TIER_CLAIM, TIER_LIVE, Requirement
+from sandloom.shared.authz.atoms_claims import (
+    _claim_authority_failed,
+    _raise_if_policy_indeterminate,
+)
 from sandloom.shared.authz.metrics import increment
 from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
 
@@ -579,6 +583,16 @@ class ClaimFactCheck(Requirement):
     the owner neither loaded nor bound it is indeterminate 501 (nobody may
     vouch for the claim). For an organization account it delegates to the
     owner's live access check (``otherwise`` in the literal).
+
+    The verbatim read is three-valued from the token (KB-33e, the rows of
+    G-AUTHZ-12 as amended by KB-33d): a status present decides (allow when
+    it is among the statuses, else a definite deny); the claim removed by
+    the view for a reason a refresh or a retry may change is its 401 / 503;
+    absent because its authority failed at the mint is 503
+    ``claim_authority_failed``; absent otherwise (its authority wrote none,
+    the view removed it as unassigned / unvouched, a legacy token) or not a
+    string is 501 ``access_unknown``. ``Not`` and ``Or`` never allow on any
+    of these; zero I/O on every row.
     """
 
     __sandloom_atom__: ClassVar[dict[str, Any]] = {}
@@ -686,19 +700,45 @@ class ClaimFactCheck(Requirement):
     def _via_statuses(self, ctx: AuthzContext) -> bool:
         """The claim read verbatim against the chosen statuses, zero I/O; the
         owner must be part of the composition (loaded, or its facts contract
-        bound), else nobody vouches for the claim."""
+        bound), else nobody vouches for the claim. An absent or malformed
+        claim is indeterminate, never a deny (see the class)."""
         owner = str(self.__sandloom_atom__["owner"])
         if not _facts.fact_owner_present(
             ctx, str(self.__sandloom_atom__["fact"]), owner
         ):
             raise self._owner_absent()
         status = ctx.subject.claim(self.claim_key)
+        if status is None:
+            # Absence of a source is never a negative fact (KB-33e, the
+            # KB-33d rows): the view's 401 / 503 first, then an authority
+            # that failed at the mint 503, else unknown 501. Never a False
+            # that Not would turn into an allow.
+            _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
+            if _claim_authority_failed(ctx, self.claim_key):
+                raise self._indeterminate(
+                    "claim_authority_failed",
+                    f"claim {self.claim_key!r} is not in the token: its authority "
+                    "failed when the token was minted; try again later or sign "
+                    "in again",
+                    503,
+                )
+            raise self._claim_unknown(
+                f"claim {self.claim_key!r} is not in the token: no source "
+                "vouches for the status, so it is unknown, not denied"
+            )
+        if not isinstance(status, str):
+            raise self._claim_unknown(f"claim {self.claim_key!r} is not a string")
         allowed = self.statuses
         if allowed is None:
             allowed = frozenset(
                 str(s) for s in self.__sandloom_atom__.get("statuses") or ()
             )
-        return isinstance(status, str) and status in allowed
+        return status in allowed
+
+    def _claim_unknown(self, reason: str) -> Exception:
+        return _indeterminate(
+            ACCESS_UNKNOWN, reason, 501, self.describe(), {"claim": self.claim_key}
+        )
 
     async def _via_fact(self, ctx: AuthzContext) -> bool:
         """The owner's fact decides (local, or described over its facts
