@@ -10,13 +10,13 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.sdk.testing import set_environment
+from sandloom.sdk.testing import validate_settings
+from sandloom_billing.config import BillingSettings
 from sandloom_billing.models import BillingSubscription, StripeEvent
 from sandloom_billing.psp import (
     FakeStripeClient,
     StripeHttpClient,
     StripeSignatureError,
-    psp_configuration_error,
     sign_stripe_payload,
 )
 from sandloom_billing.services import BillingService
@@ -27,14 +27,12 @@ NOW = int(time.time())
 
 
 @pytest.fixture
-def _intentless_subscriptions_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+def _intentless_subscriptions_grant(billing_config: Any) -> None:
     """Opt-in for the tests below that assert ACCESS from an intent-less
     event (no ``sandloom_intent_id``): granting those is an explicit policy
     (ADR-0003 open item 9, default off). Every other test in this module runs
     under the default (intent-less subscriptions grant nothing)."""
-    from sandloom.sdk.infra import settings
-
-    monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
+    billing_config(billing_grant_intentless_subscriptions=True)
 
 
 def _signed(payload: dict) -> tuple[bytes, dict[str, str]]:
@@ -193,42 +191,50 @@ class TestForgedWebhooks:
         assert resp.status_code == 400
         assert await BillingService.get_credit_balance(customer.id, test_db) == 0
 
-    def test_prod_refuses_fake_psp(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from sandloom.sdk.infra import settings
+    def test_prod_refuses_fake_psp(self) -> None:
+        """billing's settings refuse the fake PSP in prod (the implicit default
+        included) unless ``billing.fake_psp_in_prod`` is accepted (G-RISK-07)."""
+        stripe = {
+            "BILLING_PROVIDER": "stripe",
+            "STRIPE_SECRET_KEY": "sk_test_x",
+            "STRIPE_WEBHOOK_SECRET": "whsec_x",
+        }
+        for env in ({}, {"BILLING_PROVIDER": "fake"}):
+            validate_settings(BillingSettings, env, environment="dev")
+            with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
+                validate_settings(BillingSettings, env, environment="prod")
+            demo = validate_settings(
+                BillingSettings,
+                env,
+                environment="prod",
+                accepted_risks=["billing.fake_psp_in_prod"],
+            )
+            assert demo.billing_provider == "fake"  # explicit demo opt-in
+            # the former flat id is not an alias (ADR-0015 decision 4)
+            with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
+                validate_settings(
+                    BillingSettings,
+                    env,
+                    environment="prod",
+                    accepted_risks=["fake_psp_in_prod"],
+                )
+        assert (
+            validate_settings(
+                BillingSettings, stripe, environment="prod"
+            ).billing_provider
+            == "stripe"
+        )
 
-        monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
-        monkeypatch.setattr(settings, "billing_provider", "fake")
-        set_environment(monkeypatch, "dev")
-        assert psp_configuration_error(settings) is None
-
-        set_environment(monkeypatch, "prod")
-        error = psp_configuration_error(settings)
-        assert error is not None and "BILLING_PROVIDER=fake" in error
-
-        monkeypatch.setattr(settings, "sandloom_accepted_risks", ["fake_psp_in_prod"])
-        assert psp_configuration_error(settings) is None  # explicit demo opt-in
-        monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
-
-        monkeypatch.setattr(settings, "billing_provider", "stripe")
-        assert psp_configuration_error(settings) is None
-
-    def test_register_refuses_fake_psp_in_prod(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Registration itself refuses, so no entry point builds past it."""
-        from unittest.mock import MagicMock
-
-        from sandloom.sdk.infra import settings
-        from sandloom_billing import register
-
-        monkeypatch.setattr(settings, "billing_provider", "fake")
-        set_environment(monkeypatch, "prod")
-        monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
-
-        recorder = MagicMock()
-        with pytest.raises(SystemExit, match="BILLING_PROVIDER=fake"):
-            register(recorder)
-        recorder.add_startup_task.assert_not_called()
+    def test_register_refuses_fake_psp_in_prod(self) -> None:
+        """The refusal is the module's own settings check, run by the loader
+        before its ``setup`` (every entry point; the subprocess matrix of
+        ``test_module_refusal_stops_every_composed_entry_point`` proves it):
+        the message names the variables and the namespaced risk."""
+        with pytest.raises(SystemExit) as refused:
+            validate_settings(BillingSettings, {}, environment="prod")
+        message = str(refused.value)
+        assert "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod" in message
+        assert "billing.fake_psp_in_prod" in message
 
 
 # --------------------------------------------------------------------------- #

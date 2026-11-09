@@ -277,10 +277,13 @@ subscription status in the webhook service.
   `BILLING_PROVIDER=stripe` **fails fast at startup** unless `STRIPE_SECRET_KEY`
   and `STRIPE_WEBHOOK_SECRET` are set.
 - With `ENVIRONMENT=prod` the fake PSP is refused unless
-  `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]`. An explicit
-  `BILLING_PROVIDER=fake` fails settings validation. On the implicit default,
-  billing refuses to register: the app, the worker, beat, `sandloom migrate` and
-  the operator commands all stop.
+  `SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"]`. An explicit
+  `BILLING_PROVIDER=fake`, like the implicit default, is refused by billing's
+  own settings before it registers. The app, the worker, beat, `sandloom
+  migrate` and the operator commands all stop. A process that does not load
+  billing does not check it. These are billing's declared settings
+  (`sandloom_billing.config.BillingSettings`): read them with
+  `settings_of(BillingSettings)`.
 - `BILLING_DENY_ON_PAST_DUE` — `past_due` loses access immediately (default:
   access kept until `current_period_end`).
 

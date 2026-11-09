@@ -837,7 +837,7 @@ x-app-env: &app-env
   # The weaker guarantees this stack accepts (logged at every start):
   # single-host local storage, persisted below — use a driver plugin for
   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
-  # fake_psp_in_prod (comma-separated).
+  # billing.fake_psp_in_prod (comma-separated).
   SANDLOOM_ACCEPTED_RISKS: $${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
   # The optional admin console (sandloom-admin) is off in production by default.
   ADMIN_CONSOLE_ENABLED: $${ADMIN_CONSOLE_ENABLED:-false}
@@ -1012,7 +1012,7 @@ _NOTIFIER_ENV = """\
 _BILLING_ENV = """\
   # billing refuses the fake PSP in prod: choose explicitly.
   BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake \
-with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
+with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
 """

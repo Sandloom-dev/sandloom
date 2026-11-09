@@ -9,7 +9,7 @@
 #
 # (mail: identity and tenancy need NOTIFIER_BACKEND=smtp + SMTP_HOST + SMTP_FROM;
 # demo stack without Stripe and without a mail server: BILLING_PROVIDER=fake
-# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod,log_notifier_in_prod)
+# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod)
 #
 # Same code, same image as the microservices profile — only configuration differs.
 
@@ -52,8 +52,8 @@ x-app-env: &app-env
   EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
   # The weaker guarantees this stack accepts (sandloom.core.config.accepted_risks; logged
   # at every start): demo single-host local storage, shared by every process
-  # (not multi-host HA). A demo without Stripe adds fake_psp_in_prod:
-  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod
+  # (not multi-host HA). A demo without Stripe adds billing.fake_psp_in_prod:
+  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod
   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
   SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
   # Labels consumer ids, the subscription inventory and diagnostics.
@@ -106,7 +106,7 @@ x-app-env: &app-env
   # in prod); comma-separated, newest first, for rotation.
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32) - required when identity is loaded}
   # Billing refuses the fake PSP in prod — the operator must choose.
-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
+  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
   # Internal endpoints (/_sandloom/rpc, /diagnostics, /metrics, /health details)

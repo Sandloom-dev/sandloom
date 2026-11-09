@@ -505,12 +505,12 @@ edges:
     scope: runtime
     owner: [identity, billing, admin]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-50, KB-52, KB-53, KB-54]
     anchors:
-      - {path: sandloom/core/config/modules.py, symbol: ModulesConfig}
+      - {path: sandloom/core/config/modules.py, literal: ModulesConfig}
   - id: B-C2
     class: b
     type: configuration
@@ -542,24 +542,24 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52]
     anchors:
-      - {path: sandloom/core/config/settings.py, symbol: _billing_requirements}
+      - {path: sandloom/core/config/settings.py, literal: "BILLING_PROVIDER=fake is not allowed"}
   - id: B-C5
     class: b
     type: configuration
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-51, KB-52]
     anchors:
-      - {path: sandloom/core/config/accepted_risks.py, literal: fake_psp_in_prod}
+      - {path: sandloom/core/config/accepted_risks.py, literal: "\"fake_psp_in_prod\""}
       - {path: sandloom/core/config/accepted_risks.py, literal: BILLING_PROVIDER=fake}
   - id: B-C6
     class: b
@@ -567,14 +567,12 @@ edges:
     scope: runtime
     owner: [billing, identity, admin]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-54]
     anchors:
       - {path: sandloom/core/config/tiers.py, literal: BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS}
-      - {path: sandloom/core/config/tiers.py, symbol: OPS}
-      - {path: sandloom/core/config/tiers.py, symbol: REMOVED}
   - id: B-C7
     class: b
     type: configuration
@@ -586,7 +584,6 @@ edges:
     adr: ADR-0015
     prs: [KB-55]
     anchors:
-      - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_DENY_ON_PAST_DUE}
       - {path: sandloom/core/testing/deploy_profile.py, literal: TWOFA_ENCRYPTION_KEY}
       - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_PROVIDER}
   - id: B-C8

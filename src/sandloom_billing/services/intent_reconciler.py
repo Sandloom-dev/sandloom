@@ -82,8 +82,8 @@ from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.data import WallClock, conflict_insert, open_uow
-from sandloom.sdk.infra import settings
 from sandloom.sdk.module import HealthResult, HealthStatus
+from sandloom_billing.config import billing_settings
 from sandloom_billing.models import (
     INTENT_FAILED,
     INTENT_METADATA_KEY,
@@ -162,12 +162,11 @@ class IntentReconciler:
         batch: int = DEFAULT_BATCH,
     ) -> ReconcileReport:
         now = now or datetime.now(UTC)
+        cfg = billing_settings()
         if stale_after is None:
-            stale_after = timedelta(
-                minutes=settings.billing_intent_reconcile_after_minutes
-            )
+            stale_after = timedelta(minutes=cfg.billing_intent_reconcile_after_minutes)
         if max_attempts is None:
-            max_attempts = settings.billing_intent_reconcile_max_attempts
+            max_attempts = cfg.billing_intent_reconcile_max_attempts
         report = ReconcileReport()
         for candidate in await cls._stale_pending(
             now - stale_after, max_attempts, batch

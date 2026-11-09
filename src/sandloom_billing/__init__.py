@@ -19,12 +19,12 @@ its ``operation_key`` and NOT atomic with the caller's transaction (saga).
 """
 
 from sandloom.sdk import define_module
-from sandloom.sdk.infra import settings
 from sandloom.sdk.module import CapabilityRequirement, ContractRequirement, ModuleAPI
 
 from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
 from .claims import contribute_billing_claims
+from .config import BillingSettings
 from .services.intent_reconciler import RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck
 from .services.operations import OPERATIONS
 
@@ -37,19 +37,13 @@ MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 def _setup(core: ModuleAPI) -> None:
     """Register billing's PSP client, claims, access facts and reads.
 
-    Raises ``SystemExit`` (the loader's configuration refusal) when the PSP
-    configuration is refused in this environment (the implicit fake PSP in
-    prod without the accepted risk ``fake_psp_in_prod``).
+    The PSP configuration (the fake PSP in prod without the accepted risk
+    ``billing.fake_psp_in_prod``, Stripe without its keys) is refused earlier,
+    by ``BillingSettings``: the loader validates the model before this setup
+    runs, so every process that builds the composition (the app, worker, beat,
+    ``sandloom migrate``, the operator CLIs) stops with the kernel's
+    INVALID_CONFIGURATION refusal before the PSP client is built.
     """
-    # Production must never run on the fake PSP (fake checkouts; forged-event
-    # risk). Refused here, at registration, so every process that builds the
-    # composition (the app, worker, beat, ``sandloom migrate``, the operator
-    # CLIs) stops with the kernel's INVALID_CONFIGURATION refusal before the
-    # PSP client is built.
-    config_error = psp.psp_configuration_error(settings)
-    if config_error is not None:
-        raise SystemExit(config_error)
-
     core.add_shutdown_task(psp.close_psp_client)
 
     # The PSP client is billing-INTERNAL (it can create checkout sessions and
@@ -107,6 +101,7 @@ register = define_module(
         ),
     ],
     setup=_setup,
+    settings=BillingSettings,
 )
 
 __all__ = [

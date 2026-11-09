@@ -83,7 +83,7 @@ repository. The steps are in [Deploy an application](deploy.md) and
 
 - **Shared security settings.** Every security- or auth-relevant setting
   (`JWT_*` except the issuer-only keys, token lifetimes,
-  `INTERNAL_API_TOKEN`, notifier and SMTP, `BILLING_DENY_ON_PAST_DUE`) lives
+  `INTERNAL_API_TOKEN`, notifier and SMTP) lives
   in the shared environment anchor and is identical in every process.
 - **One cache.** `CACHE_URL` is shared by all services: revocation state,
   rate limits, idempotency records and the bus live there.

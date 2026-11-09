@@ -21,6 +21,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sandloom.sdk.data import Reads, conflict_insert
 from sandloom.sdk.infra import settings
 from sandloom_billing import events
+from sandloom_billing.config import billing_settings
 from sandloom_billing.exceptions import (
     CreditOperationConflictError,
     InsufficientCreditsError,
@@ -242,8 +243,9 @@ class BillingService:
         The newest subscription that grants access (same predicate as the live
         check) wins; otherwise the newest one. Returns ``(sub, grants)``.
         """
-        deny_on_past_due = settings.billing_deny_on_past_due
-        allow_intentless = settings.billing_grant_intentless_subscriptions
+        cfg = billing_settings()
+        deny_on_past_due = cfg.billing_deny_on_past_due
+        allow_intentless = cfg.billing_grant_intentless_subscriptions
         for sub in subs:
             if subscription_grants_access(
                 sub,
@@ -503,7 +505,7 @@ class BillingService:
         if (
             not grants
             and sub.status == STATUS_PAST_DUE
-            and not settings.billing_deny_on_past_due
+            and not billing_settings().billing_deny_on_past_due
         ):
             claim_status = CLAIM_STATUS_EXPIRED  # grace window elapsed
         claims: dict[str, object] = {"subscription_status": claim_status}

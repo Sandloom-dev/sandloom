@@ -50,7 +50,7 @@ class TrustConfig(BaseModel):
     )
     # The ONE list of weaker guarantees this deployment accepts in prod
     # (sandloom.core.config.accepted_risks; JSON list or comma-separated ids, e.g.
-    # ["fake_psp_in_prod"]). An unknown id fails startup; every accepted risk is
+    # ["billing.fake_psp_in_prod"]). An unknown id fails startup; every accepted risk is
     # logged at every start, exported as sandloom_accepted_risk_active{risk} and
     # listed by /diagnostics/core and `sandloom doctor`.
     sandloom_accepted_risks: Annotated[list[str], NoDecode] = Field(

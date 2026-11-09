@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 29, fixed: 14, retained: 4}
+  current_status: {open: 25, fixed: 18, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -281,7 +281,7 @@ edges:
     scope: runtime
     owner: [identity, billing, admin]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-50, KB-52, KB-53, KB-54]
@@ -290,8 +290,8 @@ edges:
       - fixture module declares settings with no kernel edit (P1)
       - G-CONFIG-07 process matrix with module settings errors (P2)
     anchors:
-      - {path: sandloom/core/config/modules.py, symbol: ModulesConfig}
-    note: Closed when the last of the three ports (KB-52, KB-53, KB-54) removes ModulesConfig.
+      - {path: sandloom/core/config/modules.py, literal: ModulesConfig}
+    note: "Closed by KB-52, the last of the three ports (KB-52, KB-53, KB-54): ModulesConfig is deleted."
 
   - id: B-C2
     class: b
@@ -334,7 +334,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52]
@@ -342,7 +342,7 @@ edges:
     tests:
       - G-BILLING-18, G-RISK-07; explicit fake PSP no longer refused in a process without billing
     anchors:
-      - {path: sandloom/core/config/settings.py, symbol: _billing_requirements}
+      - {path: sandloom/core/config/settings.py, literal: "BILLING_PROVIDER=fake is not allowed"}
 
   - id: B-C5
     class: b
@@ -350,7 +350,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-51, KB-52]
@@ -358,7 +358,7 @@ edges:
     tests:
       - risk namespace rule (a)-(d) in a split with one shared anchor (P4)
     anchors:
-      - {path: sandloom/core/config/accepted_risks.py, literal: "fake_psp_in_prod"}
+      - {path: sandloom/core/config/accepted_risks.py, literal: '"fake_psp_in_prod"'}
       - {path: sandloom/core/config/accepted_risks.py, literal: "BILLING_PROVIDER=fake"}
     note: Becomes billing.fake_psp_in_prod, declared by billing; one-time migration, no alias (owner answer #28).
 
@@ -368,7 +368,7 @@ edges:
     scope: runtime
     owner: [billing, identity, admin]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-54]
@@ -377,8 +377,6 @@ edges:
       - core/tests/test_config_tiers.py at 12 / 14; per-module ratchet helper (P8)
     anchors:
       - {path: sandloom/core/config/tiers.py, literal: "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS"}
-      - {path: sandloom/core/config/tiers.py, symbol: OPS}
-      - {path: sandloom/core/config/tiers.py, symbol: REMOVED}
 
   - id: B-C7
     class: b
@@ -394,7 +392,6 @@ edges:
     tests:
       - T014 unions shared fields of the modules each service loads (P9, P14)
     anchors:
-      - {path: sandloom/core/testing/deploy_profile.py, literal: "BILLING_DENY_ON_PAST_DUE"}
       - {path: sandloom/core/testing/deploy_profile.py, literal: "TWOFA_ENCRYPTION_KEY"}
       - {path: sandloom/core/testing/deploy_profile.py, literal: "BILLING_PROVIDER"}
 

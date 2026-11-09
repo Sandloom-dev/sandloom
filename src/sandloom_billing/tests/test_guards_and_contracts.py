@@ -66,13 +66,11 @@ class TestSharedGuards:
         async_client: AsyncClient,
         test_db: AsyncSession,
         catalog,
-        monkeypatch: pytest.MonkeyPatch,
+        billing_config: Any,
     ):
-        from sandloom.sdk.infra import settings
-
         # An intent-less (PSP-created) subscription grants only under the
         # explicit policy (ADR-0003 open item 9).
-        monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
+        billing_config(billing_grant_intentless_subscriptions=True)
         user_id, headers = make_user_headers()
         customer = await BillingService.get_or_create_customer(test_db, user_id=user_id)
         customer.stripe_customer_id = "cus_guarded"

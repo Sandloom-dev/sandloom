@@ -44,8 +44,8 @@ from sandloom.sdk.authz import (
     FactUnavailable,
 )
 from sandloom.sdk.errors import ServiceNotFound
-from sandloom.sdk.infra import settings
 from sandloom.sdk.tenant import current_tenant_id_optional
+from sandloom_billing.config import billing_settings
 from sandloom_billing.entitlements import ENTITLEMENTS_SERVICE_V1
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -74,7 +74,7 @@ def subscription_claim_rule() -> ClaimRule:
     processes (so they interpret the claim exactly like billing does).
     """
     statuses = set(ACTIVE_SUBSCRIPTION_STATUSES)
-    if not settings.billing_deny_on_past_due:
+    if not billing_settings().billing_deny_on_past_due:
         statuses.add(_PAST_DUE)
     return ClaimRule.one_of(statuses)
 

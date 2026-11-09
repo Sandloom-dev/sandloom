@@ -36,6 +36,7 @@ from pydantic_core import PydanticUndefined  # noqa: E402
 
 from sandloom.core.config import tiers  # noqa: E402
 from sandloom.core.config.settings import Settings  # noqa: E402
+from sandloom_billing.config import BillingSettings  # noqa: E402
 from sandloom_identity.config import IdentitySettings  # noqa: E402
 from sandloom_tenancy.config import TenancySettings  # noqa: E402
 
@@ -51,7 +52,12 @@ def _admin_settings() -> type:
     return module.AdminSettings  # type: ignore[no-any-return]
 
 
-_MODULE_SETTINGS = (IdentitySettings, TenancySettings, _admin_settings())
+_MODULE_SETTINGS = (
+    BillingSettings,
+    IdentitySettings,
+    TenancySettings,
+    _admin_settings(),
+)
 
 # Curated grouping: alias -> category. Aliases not listed fall into "Other".
 _CATEGORIES: dict[str, str] = {
@@ -307,7 +313,8 @@ def render_pages() -> dict[str, str]:
     # Removed names are migration data, deliberately shown in this catalogue.
     tier_page = "\n".join(
         line + " <!-- stale-ok: removed setting documented for migration -->"
-        if line.startswith("| `AUTH_REVOCATION_STRICT_PATH_PREFIXES`") else line
+        if line.startswith("| `AUTH_REVOCATION_STRICT_PATH_PREFIXES`")
+        else line
         for line in tier_page.split("\n")
     )
     return {
