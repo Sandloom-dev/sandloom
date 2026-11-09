@@ -15,6 +15,25 @@ website renders this same changelog.
 
 ### Security
 
+- **A consumer-only install is checked from its own expectations; no
+  expectation is never a warning** (KB-21, ADR-0013 decisions 3 and 4,
+  closes D4). The startup compatibility check now reads what a caller
+  expects of each remote contract from the `<stem>.describe.json` its
+  module ships beside the generated stub (`_generated/contracts/`, narrowed
+  to the methods its composed `consumes` lists), then
+  `CONTRACT_SNAPSHOT_PATHS`, then the provider's package; `<m>.claims.v1`
+  and `<m>.facts.v1` are held to the kernel's own schema. A required remote
+  contract with no expectation (or with a hand-edited one) used to be
+  logged as a WARNING and skipped, also under `CONTRACT_COMPAT_CHECK=strict`;
+  now `strict` refuses startup before any probe
+  (`ContractUnverifiedError`) and `ready` fails `/ready` with
+  `contract_unverified`. The expectations are resolved once at startup:
+  `/ready` reads no file, and a contract call sends the same requests as
+  before. **Upgrade:** a service whose `SERVICE_BINDINGS` names a contract
+  it has no expectation for (no consumer copy, no snapshot in its image,
+  no `CONTRACT_SNAPSHOT_PATHS` entry) now fails `/ready`: run
+  `sandloom generate` in the consuming module, ship the provider's
+  snapshot, or declare the client `optional=True`.
 - **A token issuer without claim authorities refuses the boot; the issuer's
   fields pass the mint check; plan atoms answer 503 while billing is down**
   (W1 review of KB-10). A composition that loads an `issues_tokens=True`

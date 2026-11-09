@@ -46,7 +46,7 @@ NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 2,
     "BLE001": 203,
-    "C901": 81,
+    "C901": 80,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
     # the `sandloom[redis]` extra and `sandloom test --help` must run in a
