@@ -219,6 +219,17 @@ website renders this same changelog.
 
 ### Changed
 
+- **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
+  required mail is sent** (kb-ic-6). Identity and tenancy require an email
+  notifier, so a prod stack on the default `log` driver already refuses to
+  start. `deploy/compose/monolith.yml`, `deploy/compose/microservices.yml`, the
+  microservices template and the compose file of an app with identity or
+  tenancy now document `NOTIFIER_BACKEND=smtp` with `SMTP_HOST` / `SMTP_FROM`
+  (an app's compose passes the `SMTP_*` settings through) and name the demo
+  choice: a stack without a mail server adds `log_notifier_in_prod` to
+  `SANDLOOM_ACCEPTED_RISKS`; no mail is delivered. Upgrade: a production stack
+  sets `NOTIFIER_BACKEND=smtp` and `SMTP_HOST`; a demo stack adds
+  `log_notifier_in_prod` (CI's microservices smoke does).
 - **Modules declare the infrastructure their code needs; startup checks it,
   also where it is only derived** (owner decision on module infrastructure
   dependencies, item 2; kb-ic-2). The `taskqueue` capability has a new
