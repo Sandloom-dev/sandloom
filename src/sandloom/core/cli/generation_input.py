@@ -23,7 +23,11 @@ from typing import Any
 
 from fastapi.routing import APIRoute
 
-from sandloom.core.descriptors import GenerationInput, GenerationModule
+from sandloom.core.descriptors import (
+    GenerationInput,
+    GenerationIssuer,
+    GenerationModule,
+)
 from sandloom.core.descriptors.module_names import module_name
 
 #: What a declaration or a renderer raises for a declaration to fix.
@@ -74,7 +78,39 @@ def collect(app: Any) -> GenerationInput:
         if isinstance(route, APIRoute)
         for method in sorted(route.methods)
     }
-    return GenerationInput(openapi=app.openapi(), routes=routes, modules=tuple(modules))
+    return GenerationInput(
+        openapi=app.openapi(),
+        routes=routes,
+        modules=tuple(modules),
+        issuer=_issuer(app, summary.loaded, routes),
+    )
+
+
+def _issuer(
+    app: Any, loaded: Any, routes: dict[tuple[str, str], str]
+) -> GenerationIssuer | None:
+    """The claim-authorities map's issuer and the login entry it declared.
+
+    The issuer is what the composition root assigned (``claim_authorities``),
+    never anything read from a token. Its declared ``login_entry`` must be a
+    ``POST`` route of the composed app served by the issuer's own package: a
+    declaration the app does not serve is a ``ValueError`` (SANDLOOM-T016)
+    instead of a login the console would send an operator's password to.
+    """
+    authorities = getattr(getattr(app.state, "core", None), "claim_authorities", None)
+    path = getattr(authorities, "issuer", None)
+    if path is None:  # no map, or no facade: nothing is assigned
+        return None
+    descriptor = next((d for d in loaded if d.name == path), None)
+    entry = getattr(descriptor, "login_entry", None)
+    if entry is not None:
+        served = routes.get((entry, "POST"), "")
+        if served != path and not served.startswith(path + "."):
+            raise ValueError(
+                f"the issuer {path!r} declares login_entry={entry!r}, but no POST "
+                f"route of {path} serves it: declare the path of its login endpoint"
+            )
+    return GenerationIssuer(path, module_name(path), entry)
 
 
 def _problem(name: str) -> str | None:

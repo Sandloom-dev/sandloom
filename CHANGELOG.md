@@ -221,6 +221,27 @@ website renders this same changelog.
   (`guardrails.is_secret_name`), and the log redactor keeps its broader
   substring markers on top. Lookup keys such as `operation_key`,
   `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
+- **The admin console serves in front of the composition's assigned issuer,
+  not a module named `identity`** (KB-41, ADR-0012 decision 4, owner's X4).
+  `/admin/config.json` answered 503 unless the manifest listed a module
+  `identity`. It now reads the claim-authorities map's `issuer` and the login
+  entry that issuer declared on its registration, both written into
+  `admin-manifest.json` by `sandloom generate` (new `issuer` field:
+  `{"module", "login_entry"}`, `null` without an assigned issuer), and
+  serves `issuer` and `login_entry` in `config.json`. No issuer, or an issuer
+  that declares no login entry, is a 503 naming the fix (the console never
+  signs in through a guess); a login entry that is not a route path of the
+  application (a URL, `//host`, `..`, a query) is refused at registration,
+  at `sandloom generate` (the issuer's own package must serve it with `POST`)
+  and again by the console. The issuer is never taken from the `iss` of a
+  token, which is unverified input. Upgrade: declare
+  `define_module(..., issues_tokens=True, login_entry="/auth/login")` on your
+  token issuer (the bundled identity module does), then run
+  `sandloom generate` (or `sandloom admin export`) and restart. New public
+  API: `define_module(login_entry=)`, `ModuleDescriptor.login_entry` and
+  `sandloom.sdk.module.GenerationIssuer` (`GenerationInput.issuer`).
+  The console UI still requires the manifest to list `identity`
+  (a follow-up).
 
 ### Added
 

@@ -117,8 +117,8 @@ def test_window_risk_ids_are_registered_accepted_risks() -> None:
 
 
 def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom.core import app_factory
     from sandloom.core.config.settings import settings
+    from sandloom.core.tests._root_support import create_root_app
 
     monkeypatch.setattr(settings, "contract_command_dedupe_ttl_seconds", 5)
     monkeypatch.setattr(settings, "environment", "prod")
@@ -133,4 +133,4 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
         [*settings.sandloom_accepted_risks, "fake_psp_in_prod", "log_notifier_in_prod"],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
-        app_factory.create_app()
+        create_root_app()
