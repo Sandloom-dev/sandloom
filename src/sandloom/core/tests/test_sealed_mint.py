@@ -7,8 +7,8 @@ owner answer #13, adversarial C-a2; SANDLOOM-R017).
   (``create_service_token``) authenticates and every gate answers 403.
 * ``collect_claims`` seals its inputs: the issuer is resolved from the
   module that registered the contributor it is identified by (never a
-  string), ``precomputed`` is the verified issuer's own and carries only
-  keys the map assigns to it.
+  string), its session is the map's token issuer's only, and no claim
+  value is taken from the caller (SEC-2: every claim is a contributor's).
 * T-12: ``as_user`` / ``mint_test_token`` grant rights through the kernel
   test authority in a test composition and are refused outside one; a test
   that states ``claims_sources`` gets that provenance checked.
@@ -36,7 +36,7 @@ from sandloom.core.claims import (
     SealedClaims,
     UnsealedClaimsError,
 )
-from sandloom.core.facade import CoreFacade
+from sandloom.core.facade import ClaimsUnavailable, CoreFacade, CoreRuntime
 from sandloom.core.runtime import use_active_core
 from sandloom.core.testing.auth import make_user_headers, mint_test_token, sealed_claims
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
@@ -205,7 +205,7 @@ def test_r017_is_in_the_catalogue() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# collect_claims seals its inputs: the issuer and precomputed (C-a2)
+# collect_claims seals its inputs: the issuer and its session (C-a2)
 # --------------------------------------------------------------------------- #
 
 
@@ -225,154 +225,102 @@ async def test_the_issuer_is_a_registered_contributor(core: CoreFacade) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_issuer_is_resolved_from_the_registering_module() -> None:
-    """The issuer's fields pass the check only for the module that
-    registered the contributor it names: ``acme.rogue``'s own contributor
-    cannot mint the issuer's ``email``."""
-    core = _core()
-    idp = _register(core, IDP, {"roles": []}, critical=True)
-    rogue = _register(core, ROGUE, {})
-    fields = {"email": "u@example.com", "email_verified": True}
-    sealed = await core.collect_claims(uuid4(), issuer=idp, issuer_claims=fields)
-    assert sealed["email"] == "u@example.com"
-    assert "idp" in sealed["claims_sources"]
-    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(uuid4(), issuer=rogue, issuer_claims=fields)
-
-
-@pytest.mark.asyncio
-async def test_precomputed_needs_the_issuer_and_its_session(core: CoreFacade) -> None:
-    idp = core._contributors_of("idp")[0]
-    with pytest.raises(UnsealedClaimsError, match="only with issuer"):
-        await core.collect_claims(uuid4(), precomputed={idp: {"roles": ["x"]}})
-    with pytest.raises(UnsealedClaimsError, match="only with issuer"):
-        await core.collect_claims(
-            uuid4(), issuer=idp, precomputed={idp: {"roles": ["x"]}}
-        )
-
-
-@pytest.mark.asyncio
-async def test_precomputed_is_the_issuers_own_contributor(core: CoreFacade) -> None:
-    idp = core._contributors_of("idp")[0]
-    grants = core._contributors_of("grants")[0]
-    with pytest.raises(UnsealedClaimsError, match="not a claims contributor of"):
-        await core.collect_claims(
-            uuid4(), object(), issuer=idp, precomputed={grants: {"tenant_ids": []}}
-        )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "contributed",
-    [{"tenant_ids": [TENANT]}, {"nickname": "eve"}, {"claims_sources": ["idp"]}],
-)
-async def test_precomputed_carries_only_the_issuers_assigned_keys(
-    core: CoreFacade, contributed: dict[str, Any]
+@pytest.mark.parametrize("given", ["precomputed", "issuer_claims"])
+async def test_collect_claims_takes_no_claim_value(
+    core: CoreFacade, given: str
 ) -> None:
+    """SEC-2: no entry hands the mint a claim value. ``precomputed`` and
+    ``issuer_claims`` are gone (no alias), on the facade and on the
+    ``CoreRuntime`` view module code holds; nothing runs."""
     idp = core._contributors_of("idp")[0]
-    with pytest.raises(UnsealedClaimsError, match="does not assign"):
-        await core.collect_claims(
-            uuid4(), object(), issuer=idp, precomputed={idp: contributed}
+    value = {idp: {"roles": ["owner"]}} if given == "precomputed" else {"email": "e"}
+    with pytest.raises(TypeError, match=given):
+        await core.collect_claims(uuid4(), object(), issuer=idp, **{given: value})
+    with pytest.raises(TypeError, match=given):
+        await CoreRuntime(core).collect_claims(
+            uuid4(), object(), issuer=idp, **{given: value}
         )
-
-
-@pytest.mark.asyncio
-async def test_precomputed_replaces_the_issuers_call(core: CoreFacade) -> None:
-    idp = core._contributors_of("idp")[0]
-    sealed = await core.collect_claims(
-        uuid4(), object(), issuer=idp, precomputed={idp: {"roles": ["cas"]}}
-    )
-    assert sealed["roles"] == ["cas"]
     assert idp.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_the_issuers_fields_come_from_its_own_contributor() -> None:
+    """``email`` / ``email_verified`` are what the issuer's contributor
+    returned in this pass, run once in the issuer's session."""
+    core = _core()
+    fields = {"roles": [], "email": "u@example.com", "email_verified": True}
+    idp = _register(core, IDP, fields, critical=True)
+    sealed = await core.collect_claims(uuid4(), object(), issuer=idp)
+    assert sealed["email"] == "u@example.com" and sealed["email_verified"] is True
     assert "idp" in sealed["claims_sources"]
+    assert idp.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_another_module_writing_the_issuers_fields_is_a_violator() -> None:
+    """``acme.rogue`` writes ``email``: optional, it loses its whole result;
+    critical, it refuses the mint. The issuer's value is never replaced."""
+    core = _core()
+    idp = _register(
+        core, IDP, {"email": "u@example.com", "email_verified": False}, critical=True
+    )
+    _register(core, ROGUE, {"email": "eve@example.com", "email_verified": True})
+    sealed = await core.collect_claims(uuid4(), object(), issuer=idp)
+    assert sealed["email"] == "u@example.com" and sealed["email_verified"] is False
+    assert sealed["claims_sources_failed"] == ["rogue"]
+
+    critical = _core()
+    idp = _register(critical, IDP, {"email": "u@example.com"}, critical=True)
+    _register(critical, ROGUE, {"email_verified": True}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await critical.collect_claims(uuid4(), object(), issuer=idp)
+    assert refused.value.owner == "rogue"
 
 
 # --------------------------------------------------------------------------- #
-# the mint issuer binding (SEC-2): ``precomputed`` and ``issuer_claims`` are
-# the map's issuer's only, identified by its short name AND import path
+# the mint issuer binding (SEC-2): the issuer session is the map's issuer's
+# only, identified by its short name AND import path
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.asyncio
-async def test_an_authority_that_is_not_the_issuer_cannot_precompute_its_keys(
+async def test_an_authority_that_is_not_the_issuer_takes_no_issuer_session(
     core: CoreFacade,
 ) -> None:
     """``acme.grants`` is the authority of ``tenant_ids`` but not the
     issuer: naming its own contributor as ``issuer`` with a stand-in session
-    must not mint a tenant grant its contributor never read."""
+    is refused before anything runs."""
     grants = core._contributors_of("grants")[0]
     with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(
-            uuid4(),
-            object(),
-            issuer=grants,
-            precomputed={grants: {"tenant_ids": ["t-foreign"]}},
-        )
+        await core.collect_claims(uuid4(), object(), issuer=grants)
     assert grants.calls == 0
-
-
-@pytest.mark.asyncio
-async def test_a_module_that_is_not_the_issuer_writes_no_issuer_claims(
-    core: CoreFacade,
-) -> None:
-    """``issuer_claims`` are the map's issuer's: another module's contributor
-    cannot mint even an unprotected key through them."""
-    grants = core._contributors_of("grants")[0]
-    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(
-            uuid4(), issuer=grants, issuer_claims={"nickname": "eve"}
-        )
 
 
 @pytest.mark.asyncio
 async def test_a_module_named_like_the_issuer_from_another_path_is_not_it() -> None:
     """``evil.idp`` registers under the issuer's short name ``idp``: the map
-    names ``acme.idp``, so its precomputed roles and its issuer fields are
-    refused before anything runs."""
+    names ``acme.idp``, so its session is refused before anything runs."""
     core = _core()
     impostor = _register(core, "evil.idp", {"roles": []}, critical=True)
     with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(
-            uuid4(), object(), issuer=impostor, precomputed={impostor: {"roles": []}}
-        )
-    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(
-            uuid4(),
-            issuer=impostor,
-            issuer_claims={"email": "u@example.com", "email_verified": True},
-        )
+        await core.collect_claims(uuid4(), object(), issuer=impostor)
+    assert impostor.calls == 0
 
 
 @pytest.mark.asyncio
-async def test_a_process_whose_map_names_no_issuer_takes_no_precomputed() -> None:
+async def test_a_process_whose_map_names_no_issuer_takes_no_issuer_session() -> None:
     """A process that does not compose the map's issuer (the filtered map
-    names none) mints no precomputed or issuer-written claims."""
+    names none) runs no contributor in a caller's session."""
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     core._assign_claim_authorities(build_claim_authorities({"roles": IDP}))
-    idp = _register(core, IDP, {"roles": []}, critical=True)
+    idp = _register(core, IDP, {"roles": ["admin"]}, critical=True)
     with pytest.raises(UnsealedClaimsError, match="names no issuer"):
-        await core.collect_claims(
-            uuid4(), object(), issuer=idp, precomputed={idp: {"roles": ["admin"]}}
-        )
-    with pytest.raises(UnsealedClaimsError, match="names no issuer"):
-        await core.collect_claims(uuid4(), issuer=idp, issuer_claims={"nickname": "x"})
-
-
-@pytest.mark.asyncio
-async def test_the_issuer_binding_reads_no_more_than_the_map(core: CoreFacade) -> None:
-    """The map's issuer still mints its precomputed roles and its fields in
-    one pass: its contributor is not called, no other step is added."""
-    idp = core._contributors_of("idp")[0]
-    sealed = await core.collect_claims(
-        uuid4(),
-        object(),
-        issuer=idp,
-        precomputed={idp: {"roles": ["cas"]}},
-        issuer_claims={"email": "u@example.com", "email_verified": True},
-    )
-    assert sealed["roles"] == ["cas"] and sealed["email_verified"] is True
+        await core.collect_claims(uuid4(), object(), issuer=idp)
     assert idp.calls == 0
+    # Without a session the contributor runs in its own unit, as any other.
+    sealed = await core.collect_claims(uuid4(), issuer=idp)
+    assert sealed["roles"] == ["admin"]
 
 
 # --------------------------------------------------------------------------- #

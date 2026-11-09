@@ -52,8 +52,9 @@ ISSUER_ENTRY = "issuer"
 ALWAYS_PROTECTED: frozenset[str] = frozenset({"roles", "permissions", "tenant_ids"})
 #: The issuer's fields (answer #10): protected and the map's issuer's only.
 #: A map entry naming another module for one refuses the boot; a map with an
-#: issuer that names none assigns them to the issuer, which writes them at
-#: the mint through the same check (``collect_claims(issuer_claims=...)``).
+#: issuer that names none assigns them to the issuer, whose own critical
+#: claims contributor writes them at the mint through the same check (no
+#: caller hands the mint a claim value).
 ISSUER_FIELDS: frozenset[str] = frozenset({"email", "email_verified"})
 #: Keys the kernel's claim atoms read to grant access (``Subscribed``,
 #: ``Feature``, ``WithinLimit``): protected whether or not the map names them

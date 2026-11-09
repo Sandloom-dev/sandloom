@@ -15,6 +15,23 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **`collect_claims` takes no claim value** (kb-sec2-issuer, ADR-0014
+  amendment "no claim value from the caller"). `precomputed=` and
+  `issuer_claims=` are removed from `CoreRuntime.collect_claims` and
+  `CoreFacade.collect_claims`, with no alias: passing either is a `TypeError`.
+  The signature is `collect_claims(user_id, issuer_session=None, *, issuer=None)`,
+  and every claim of the sealed result is what a registered contributor
+  returned in that pass. An `issuer_session` is now accepted only from the
+  token issuer `claim_authorities` names (SANDLOOM-R017 otherwise). Identity's
+  contributor returns `email` and `email_verified` itself, in its one
+  statement (a refresh still runs six), and
+  `TokenService.create_tokens(identity_claims=...)` is removed. `sandloom
+  check` (`kernel-handles`) now flags a module reaching `._facade` or
+  `.claims_contributors`. **Upgrade:** a token issuer of your own returns its
+  issuer fields (`email`, `email_verified`) from its own claims contributor
+  instead of passing `issuer_claims=`, and drops `precomputed=` (its
+  contributor runs in its session); a non-issuer module passes no
+  `issuer_session`. Nothing changes for a module that only contributes claims.
 - **The kernel ships no generated stub, DTO copy or event schema of a module**
   (KB-22, ADR-0013 decisions 9 and 10; edges C1 to C5 fixed).
   `sandloom.shared.contracts` (the stubs of `billing.credits.v1`,

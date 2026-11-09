@@ -2338,6 +2338,7 @@
         "tests/architecture/_fixtures/broken_module/api/correct_router.py.txt",
         "tests/architecture/_fixtures/broken_module/api/orm_leaks_router.py.txt",
         "tests/architecture/_fixtures/broken_module/broken_module_dto.py.txt",
+        "tests/architecture/_fixtures/broken_module/facade_handles.py.txt",
         "tests/architecture/_fixtures/broken_module/kernel_handles.py.txt",
         "tests/architecture/_fixtures/broken_module/models/untenanted.py.txt",
         "tests/architecture/_fixtures/broken_module/reflective_handles.py.txt",

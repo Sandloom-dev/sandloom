@@ -576,15 +576,12 @@ authority local, remote or absent.
   (`claim_authorities["issuer"]`). Another authority (which could otherwise precompute its own
   keys, e.g. a tenant grant its contributor never read), a module merely named like the issuer,
   or a process whose map names no issuer here is refused before anything runs (SANDLOOM-R017).
-  Two dictionary reads, no call. Tests: `test_sealed_mint.py` (the issuer binding).
-- **Recorded limit: code holding the issuer's contributor.** The issuer is still identified by
-  its registered contributor function. Code that reaches that function (by importing the
-  issuer's package, which the isolation gate refuses for a module, or through the kernel's
-  private state) can pass it with chosen `precomputed` values, as the issuer could. A capability
-  the kernel hands only to the `issues_tokens` module at registration would move that path to
-  "import the issuer's package" alone; it is a public API addition (`ModuleAPI`, the module
-  reference) and waits for that decision. Inside the threat model's line (hostile in-process
-  code, C-a6), as before.
+  Two dictionary reads, no call. Tests: `test_sealed_mint.py` (the issuer binding). Superseded
+  by the next amendment: both inputs are removed, the binding now guards `issuer_session`.
+- **Recorded limit: code holding the issuer's contributor.** Closed by the next amendment
+  (kb-sec2-issuer): no entry takes a claim value any more, so holding the contributor no longer
+  lets code choose the claims it mints.
+
 - **Claim atoms and the view (decision 3).** `Subscribed`, `Feature` and `WithinLimit` answer the
   view's indeterminate for their key (`token_policy_outdated` 401, `claims_policy_mismatch` 503)
   as `Role` and `Perm` do, never a 402/403 for the token's life that `~` would invert. "The
@@ -609,6 +606,46 @@ authority local, remote or absent.
   in (a long-lived one is refused by the view on its lifetime, another case). The trust PoC ran
   it once (`poc/trust/out/t9-base-token.txt`, L0). **Gap:** an install-matrix lane that builds the
   previous release's wheel, mints with it and replays the token against the current verifier.
+
+### Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)
+
+Closes the last mint input of decision 5 by removing it; no public name is added.
+
+- **`collect_claims(user_id, issuer_session, *, issuer=)` takes no claim value.**
+  `precomputed=` and `issuer_claims=` are removed from `CoreFacade.collect_claims` and the
+  `CoreRuntime` view, without an alias (passing one is a `TypeError`). Every claim of a sealed
+  result is what a registered contributor returned in that pass, checked against its
+  authority. `precomputed` had no production caller since the refresh reads its claims after
+  the issuance check; identity's `TokenService.create_tokens(identity_claims=...)` is removed
+  with it.
+- **The issuer's fields come from the issuer's contributor.** Identity's contributor reads
+  `email` and `email_verified` (`is_verified is True`) as two scalar subqueries in its one
+  statement, in the issuer's session (pending rows are flushed and seen); a missing user still
+  answers one row. No statement is added (a refresh stays at six). Another module writing them
+  is a violator. The startup check is unchanged: the issuer is checked as the issuer, so an
+  optional issuer contributor that fails mints a token without them (identity's is critical).
+- **The issuer session is the map's issuer's.** The binding of the previous amendment moves to
+  `issuer_session`: only the module registered from `claim_authorities["issuer"]` runs its
+  contributors in a caller's session (its uncommitted rows, e.g. roles assigned during
+  registration); another module, or a process whose map names no issuer here, is refused
+  (SANDLOOM-R017). Two dictionary reads, no call.
+- **The facade behind the runtime is a kernel handle.** `_facade` (the full facade behind
+  `CoreRuntime`) and `claims_contributors` (every module's registered contributor, so another
+  module's issuer) join the `kernel-handles` rule (`sandloom check`, by attribute and by name).
+- **Recorded limit, narrowed.** What is left needs deliberate forgery or write access to the
+  issuer's tables: code that reaches the issuer's contributor (by importing its package, refused
+  by the isolation gate, or through kernel private state, refused by `kernel-handles`) and passes
+  a forged duck-typed session, or uncommitted rows in the issuer's own tables, still yields
+  those rows' claims. That is the bar of reading the JWT signing key: hostile in-process code,
+  outside the threat model's line (C-a6), which Python cannot enforce. Refusing a session not
+  bound to the issuer database's engine is not done: the provider's engines are its own
+  (a request pool and a dedicated contract pool), and a forged session reports whatever bind it
+  is given, so the check would stop no forgery the line above leaves open.
+- Tests: `test_sealed_mint.py` (no claim value, the session binding, the issuer's fields from
+  its contributor, another module writing them), `test_claims_trust.py` (the startup check of
+  the issuer's contributor), `test_claims_read_unit.py`, identity's
+  `test_token_claims_and_revocation.py` and `test_refresh_identity_claims.py` (the fields in the
+  contributor's statement, six refresh statements), `test_no_kernel_handle_access.py`.
 
 ## Alternatives considered
 

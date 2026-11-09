@@ -1,4 +1,5 @@
-"""Refresh reads identity's roles / permissions after the issuance check.
+"""Refresh reads identity's claims (roles, permissions, email,
+email_verified) after the issuance check.
 
 The refresh loads the presented token with its user, runs the issuance check
 (``ensure_user_not_blocked``) and the compare-and-set consume, and only then
@@ -89,9 +90,12 @@ async def test_refresh_claims_equal_the_contributor_read_after_the_consume(
     assert expected == {
         "roles": ["editor_t11", "viewer_t11"],
         "permissions": ["posts.read_t11", "posts.write_t11"],
+        "email": "refresh-claims@example.com",
+        "email_verified": True,
     }
-    assert claims["roles"] == expected["roles"]
-    assert claims["permissions"] == expected["permissions"]
+    # Every identity claim, the issuer's fields included, is the
+    # contributor's: read in its one statement (REFRESH_STATEMENTS).
+    assert {key: claims[key] for key in expected} == expected
     assert "identity" in claims["claims_sources"]
     assert "identity" not in claims["claims_sources_failed"]
     # The claims were read after the consume: the compare-and-set comes

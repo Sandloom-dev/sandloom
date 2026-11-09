@@ -1775,16 +1775,20 @@ guarantees:
   - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_escalates_to_live_when_billing_failed_at_mint
 - id: G-AUTH-13
   statement: Claims contributors cannot write the identity claims. sub and token_type are the minting
-    code's (reserved); email and email_verified are the map's issuer's fields, which identity writes through
-    the mint check (collect_claims(issuer_claims=...)), never after it, so another module's value is dropped
-    as a violator and none is overwritten silently; with no core (no check) they are not minted.
+    code's (reserved); email and email_verified are the map's issuer's fields, which identity's own claims
+    contributor returns (read with its roles in its one statement, in the issuer's session) and the mint
+    check keeps only from it, never after it, so another module's value is dropped as a violator and none
+    is overwritten silently; collect_claims takes no claim value from its caller; with no core (no check)
+    they are not minted.
   sources:
   - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_unverified_user_and_contributors_cannot_override_identity
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_without_a_core_no_issuer_field_is_minted
+  - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_the_contributor_reads_the_issuer_fields_in_its_statement
   - src/sandloom/core/tests/test_claims_trust.py::test_the_issuers_fields_pass_the_check_and_win
   - src/sandloom/core/tests/test_claims_trust.py::test_without_a_map_the_issuers_fields_are_not_minted
+  - src/sandloom/core/tests/test_sealed_mint.py::test_another_module_writing_the_issuers_fields_is_a_violator
 - id: G-AUTH-14
   statement: Identity stamps auth_time (epoch seconds of the primary sign-in) and carries it unchanged
     through refresh; recency (step-up) checks read auth_time, never iat, so a refreshed token with a fresh
@@ -1953,9 +1957,9 @@ guarantees:
     cpv and UserContext's structural fields reach a token only inside the sealed, read-only result of collect_claims
     (create_access_token(data, claims=sealed)); in data, in an unsealed or spread result, or as a data key
     overriding a sealed claim they are refused with SANDLOOM-R017. collect_claims resolves the issuer from the
-    module that registered the contributor it is given, never from a name, and accepts precomputed only with
-    the issuer's session, for the issuer's own contributors and with keys claim_authorities assigns to the
-    issuer. create_service_token refuses the same keys and stamps an empty provenance and the current cpv, so
+    module that registered the contributor it is given, never from a name, and takes no claim value from its
+    caller; every claim is what a registered contributor returned in that pass, the issuer's email and
+    email_verified included. create_service_token refuses the same keys and stamps an empty provenance and the current cpv, so
     Role, Perm, platform admission and TenantScope deny it. The kernel test authority (as_user, mint_test_token,
     sealed_claims) mints only while the sandloom pytest plugin or the framework's harness is active, and a test
     that states claims_sources gets that provenance checked (ADR-0014 decision 5, owner answer #13).
@@ -1966,33 +1970,39 @@ guarantees:
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_spread_sealed_result_is_a_plain_dict_and_refused
   - src/sandloom/core/tests/test_sealed_mint.py::test_data_never_overrides_a_sealed_claim
   - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuer_is_never_a_string
-  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuer_is_resolved_from_the_registering_module
-  - src/sandloom/core/tests/test_sealed_mint.py::test_precomputed_carries_only_the_issuers_assigned_keys
+  - src/sandloom/core/tests/test_sealed_mint.py::test_collect_claims_takes_no_claim_value
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuers_fields_come_from_its_own_contributor
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_service_token_is_denied_by_every_gate
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_token_passes_every_gate_in_a_test_app
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_stating_claims_sources_gets_that_provenance_checked
   - src/sandloom/core/tests/test_sealed_mint.py::test_the_test_authority_is_refused_outside_a_test_composition
-  gap: 'Mistakes only (threat T4): kernel code can still build a sealed result, and any module holding the
+  gap: 'Mistakes only (threat T4): kernel code can still build a sealed result; any module holding the
     core runtime can call collect_claims for an arbitrary user_id and mint that user''s real rights
-    (impersonation, adversarial C-a6); hostile in-process code is outside the threat model (goals.md).'
+    (impersonation, adversarial C-a6); and code that reaches the issuer''s contributor and passes a forged
+    duck-typed session, or that has write access to the issuer''s tables, mints what it forged (the bar of
+    reading the JWT key). Hostile in-process code is outside the threat model (goals.md).'
   gap_size: S
 - id: G-AUTH-26
-  statement: collect_claims accepts precomputed and issuer_claims only when the module that registered the
-    issuer= contributor is claim_authorities' issuer (its short name and import path), else SANDLOOM-R017
-    before anything runs. Subscribed, Feature and WithinLimit answer the trusted view's indeterminate for
+  statement: collect_claims runs contributors in a caller's issuer_session only when the module that
+    registered the issuer= contributor is claim_authorities' issuer (its short name and import path), else
+    SANDLOOM-R017 before anything runs; it takes no precomputed or issuer_claims (a TypeError, no alias), and
+    sandloom check flags a module reaching the facade behind CoreRuntime (_facade) or the registered
+    contributors (claims_contributors). Subscribed, Feature and WithinLimit answer the trusted view's indeterminate for
     their key (401 token_policy_outdated, 503 claims_policy_mismatch), and read "authority failed at the
     mint" from the verifier's map. An installed previous= authority carries its own module name, and the
     verifier marker covers the owner names. At and after the compatibility window's end a token without cpv
     gives no rights at any gate (Role, Perm, require_platform_admin, platform_operator, TenantScope on a
     forged tenant; Role | AlwaysAllow allows, ~Role never), and TenantScope never answers a grant the view
-    dropped (ADR-0014 amendment "W2+W3 review fixes").
+    dropped (ADR-0014 amendments "W2+W3 review fixes" and "no claim value from the caller").
   sources:
   - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)'
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)'
   tests:
-  - src/sandloom/core/tests/test_sealed_mint.py::test_an_authority_that_is_not_the_issuer_cannot_precompute_its_keys
-  - src/sandloom/core/tests/test_sealed_mint.py::test_a_module_that_is_not_the_issuer_writes_no_issuer_claims
+  - src/sandloom/core/tests/test_sealed_mint.py::test_an_authority_that_is_not_the_issuer_takes_no_issuer_session
+  - src/sandloom/core/tests/test_sealed_mint.py::test_collect_claims_takes_no_claim_value
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_module_named_like_the_issuer_from_another_path_is_not_it
-  - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_precomputed
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_issuer_session
+  - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_the_facade_behind_the_runtime
   - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
   - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
   - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
@@ -2000,9 +2010,9 @@ guarantees:
   - src/sandloom/core/tests/test_claims_trust.py::test_a_key_the_authority_omitted_is_never_a_foreign_writers
   - src/sandloom/core/tests/test_claims_window_end.py::test_at_and_after_the_window_end_no_token_without_cpv_gives_rights
   - src/sandloom/core/tests/test_claims_window_end.py::test_inside_the_window_the_accepted_risk_reads_and_the_source_check_holds
-  gap: 'Code holding the issuer''s registered contributor function can still pass precomputed values of
-    its choice: a capability handed only to the issues_tokens module at registration is a public API
-    decision not taken. T-9''s previous-release token is simulated (the current merge without cpv), not
+  gap: 'A forged duck-typed issuer_session (or uncommitted rows in the issuer''s own tables) passed with
+    the issuer''s contributor still yields the claims it forged: deliberate forgery or write access to the
+    issuer''s tables, the bar of reading the JWT key (hostile in-process code, C-a6). T-9''s previous-release token is simulated (the current merge without cpv), not
     built from the previous release''s wheels.'
   gap_size: S
 - id: G-REVOKE-01
@@ -8824,6 +8834,8 @@ adr_sections:
     "Amendment 2026-11-09: the `cpv` identity of an authority":
     - G-AUTH-24
     "Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)":
+    - G-AUTH-26
+    "Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)":
     - G-AUTH-26
     "Mechanisms": informational
     "Alternatives considered": informational

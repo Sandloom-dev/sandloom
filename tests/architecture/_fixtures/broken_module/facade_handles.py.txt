@@ -1,0 +1,11 @@
+"""Deliberately broken: a business module reaching the full facade behind
+CoreRuntime and another module's claims contributor (to mint as its issuer)."""
+
+
+async def mint_as_the_issuer(core, user_id, session):
+    full = core._facade
+    issuer = core._facade.claims_contributors[0]
+    sneaky = getattr(core, "_facade")
+    listed = getattr(full, "claims_contributors")
+    ok = await core.collect_claims(user_id)  # sanctioned: not flagged
+    return full, issuer, sneaky, listed, ok, session

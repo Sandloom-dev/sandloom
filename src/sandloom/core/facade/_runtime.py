@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sandloom.core.config.settings import Settings
@@ -45,20 +45,13 @@ class CoreRuntime:
         issuer_session: Any = None,
         *,
         issuer: Callable[..., Any] | None = None,
-        precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
-        issuer_claims: Mapping[str, Any] | None = None,
     ) -> SealedClaims:
         """The sealed claims of ``user_id`` for ``create_access_token(data,
         claims=sealed)``; ``issuer`` is one of the minting module's own
-        registered claims contributors. See
+        registered claims contributors. Every claim is a registered
+        contributor's: no caller hands the mint a value. See
         :meth:`sandloom.core.facade.CoreFacade.collect_claims`."""
-        return await self._facade.collect_claims(
-            user_id,
-            issuer_session,
-            issuer=issuer,
-            precomputed=precomputed,
-            issuer_claims=issuer_claims,
-        )
+        return await self._facade.collect_claims(user_id, issuer_session, issuer=issuer)
 
     def get_access_fact(self, name: str) -> Any:
         return self._facade.get_access_fact(name)

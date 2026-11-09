@@ -34,7 +34,6 @@ from sandloom.core.claims import (
     PROTECTED_BASE,
     Authority,
     ClaimAuthorities,
-    UnsealedClaimsError,
 )
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
@@ -579,8 +578,9 @@ def test_no_map_refuses_an_issuing_process_only() -> None:
 
 
 def test_the_issuers_fields_need_no_contributor_of_their_own() -> None:
-    """The issuer writes them in its own critical mint step: an issuer whose
-    contributor is optional (or absent) is not refused for them."""
+    """The issuer's contributor writes them through the mint check, and the
+    issuer is checked as the issuer: an issuer whose contributor is optional
+    (or absent) is not refused for them at startup."""
     assert _problems({"issuer": IDP}, contributors={"idp": False}) == []
     assert _problems({"issuer": IDP}, contributors={}) == []
     assert _problems({"issuer": IDP, "email": IDP}, contributors={}) == []
@@ -701,24 +701,25 @@ def test_install_refuses_an_issuer_field_given_to_another_module() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# the issuer's own fields at the mint
+# the issuer's own fields at the mint: its contributor's, through the check
 # --------------------------------------------------------------------------- #
 
 FIELDS = {"email": "u@example.com", "email_verified": False}
 
 
 async def _issue(core: CoreFacade, fields: dict[str, Any] = FIELDS) -> Any:
-    """Collect as the issuer ``acme.idp``, identified by its own contributor
-    (registered here when the test did not)."""
-    mine = core._contributors_of("idp") or [_register(core, IDP, {}, critical=True)]
-    return await core.collect_claims(uuid4(), issuer=mine[0], issuer_claims=fields)
+    """Collect as the issuer ``acme.idp``, whose own contributor returns
+    ``fields`` (registered here when the test did not)."""
+    mine = core._contributors_of("idp") or [_register(core, IDP, fields, critical=True)]
+    return await core.collect_claims(uuid4(), issuer=mine[0])
 
 
 @pytest.mark.asyncio
 async def test_the_issuers_fields_pass_the_check_and_win() -> None:
-    """Kept from the issuer; a contributor writing one is a violator."""
+    """Kept from the issuer's contributor; another one writing one is a
+    violator and loses its whole result."""
     core = _core()
-    _register(core, IDP, {"roles": ["member"]}, critical=True)
+    _register(core, IDP, {"roles": ["member"], **FIELDS}, critical=True)
     _register(core, ROGUE, {"email_verified": True, "loyalty": 1})
     claims = await _issue(core)
     assert claims["email"] == "u@example.com"
@@ -729,21 +730,24 @@ async def test_the_issuers_fields_pass_the_check_and_win() -> None:
 
 @pytest.mark.asyncio
 async def test_without_a_map_the_issuers_fields_are_not_minted() -> None:
-    """No map: no issuer is named, so the issuer's fields are refused before
-    anything runs (SANDLOOM-R017)."""
+    """No map: no authority is assigned the issuer's fields, so the critical
+    contributor writing them refuses the mint (never a token carrying them)."""
     core = _core(None)
-    with pytest.raises(UnsealedClaimsError, match="names no issuer"):
+    with pytest.raises(ClaimsUnavailable) as refused:
         await _issue(core)
+    assert refused.value.owner == "idp"
 
 
 @pytest.mark.asyncio
 async def test_another_module_cannot_mint_the_issuer_fields() -> None:
-    """Only the map's issuer's: another module is refused (SANDLOOM-R017)."""
+    """Only the map's issuer's: another module naming its own contributor as
+    the issuer still writes them as a violator."""
     core = _core()
-    _register(core, IDP, {"roles": []}, critical=True)
-    rogue = _register(core, ROGUE, {})
-    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
-        await core.collect_claims(uuid4(), issuer=rogue, issuer_claims=FIELDS)
+    _register(core, IDP, {"roles": [], **FIELDS}, critical=True)
+    rogue = _register(core, ROGUE, {"email": "eve@example.com"})
+    claims = await core.collect_claims(uuid4(), issuer=rogue)
+    assert claims["email"] == "u@example.com"
+    assert claims["claims_sources_failed"] == ["rogue"]
 
 
 @pytest.mark.asyncio
@@ -753,13 +757,6 @@ async def test_the_issuer_writes_no_reserved_key(key: str) -> None:
     core = _core()
     with pytest.raises(ClaimsUnavailable):
         await _issue(core, {**FIELDS, key: "x"})
-
-
-@pytest.mark.asyncio
-async def test_issuer_claims_need_the_issuer() -> None:
-    """They are checked as the issuer's: no issuer, no check, a ValueError."""
-    with pytest.raises(ValueError, match="needs issuer"):
-        await _core().collect_claims(uuid4(), issuer_claims=FIELDS)
 
 
 # --------------------------------------------------------------------------- #
