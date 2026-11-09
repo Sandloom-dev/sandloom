@@ -94,6 +94,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B034`](#sandloom-b034) | `foreign-owner-registration` | boot | a module registers an access fact, a claims contributor or a &lt;m>.claims.v1 / &lt;m>.facts.v1 contract under another module's name, or one of them is registered outside a module's registration | active |
 | [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (a path naming no module, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer mismatch) | active |
 | [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
+| [`SANDLOOM-B037`](#sandloom-b037) | `capability-unavailable` | boot | a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import) | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1391,6 +1392,34 @@ composition (the app, the worker and beat, `sandloom migrate`, the composed
 operator CLIs), naming both owners (ADR-0015 decision 3).
 
 **Fix:** rename the module's setting: a module's environment names start with its prefix (INVENTORY_ for inventory); two modules that need one value each declare their own name
+
+### SANDLOOM-B037
+
+**a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import)**
+
+Slug: `capability-unavailable` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A module declares the capabilities it needs (define_module(capabilities=...)),
+and the application chooses the driver of each instance. At load, build-free,
+the kernel checks every required capability: an instance is configured, its
+driver is registered and advertises the requested features, and the packages
+the driver needs are installed (importlib.util.find_spec: nothing is imported,
+no connection is opened). A built-in driver is registered whether or not its
+package is installed, so this is what tells a registered driver from a usable
+one. Every unmet requirement of the module is refused at once, naming the
+module, the capability, the instance, the driver, the missing feature or
+package, and the install hint or the INFRA alternative. An optional
+requirement only warns. An instance INFRA selects on an uninstalled driver
+refuses startup the same way, and so does a dependency that fails to import
+while a driver is built (strict startup in production). A synthesized default
+instance nothing requires is neither opened nor probed; the instances the
+kernel uses (database, cache, event bus) stay required.
+
+**Fix:** install what the refusal names (pip install 'sandloom[celery]', 'sandloom[redis]'), or select in INFRA an installed driver that advertises the features the module requires
+
+**More:** `docs/infrastructure/index.md`
 
 ### SANDLOOM-B020
 
