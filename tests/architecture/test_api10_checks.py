@@ -11,6 +11,7 @@ import json
 import textwrap
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -19,6 +20,10 @@ from sandloom.core.archcheck import api10_rules as a10
 from sandloom.core.archcheck import atom_metadata
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.archcheck.runner import API10_RULES, PENDING_RULES, RULES, run_checks
+from sandloom.core.cli.generated import render_stub
+from sandloom.sdk import contract
+from sandloom.sdk.authz import AccessFact, ClaimRule
+from sandloom.shared.authz import Category, From, access_check, claim_atom
 
 
 def _write(tmp_path: Path, name: str, source: str) -> Path:
@@ -277,19 +282,81 @@ def test_c026_ambiguous_unions_in_contracts(tmp_path: Path) -> None:
     assert "L2.legacy" in hits[1]
 
 
+_SUBSCRIPTION_FACT = AccessFact(
+    name="subscription.active",
+    owner_module="billing",
+    claim_key="subscription_status",
+    claim_rule=ClaimRule.one_of(("active", "trialing")),
+    live_service="billing.entitlements.v1",
+    deny_category=Category.PAYMENT_REQUIRED,
+    atom="Subscribed",
+    atom_statuses=("active", "trialing"),
+    atom_claim_keys=("subscription_status",),
+    atom_describe="active subscription",
+)
+_ACCOUNT = {"tenant_type": From.account_type(), "tenant_id": From.account_id()}
+
+
+@contract("billing.entitlements.v1")
+class _EntitlementsContract:
+    """The account atoms of billing's entitlements, declared as billing
+    declares them (a fixture: the kernel job has no battery installed)."""
+
+    @access_check(
+        "SubscriptionActive",
+        bind=_ACCOUNT,
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+        claim=_SUBSCRIPTION_FACT,
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+    @access_check(
+        "Credits",
+        bind=_ACCOUNT,
+        category=Category.PAYMENT_REQUIRED,
+        describe="at least {minimum} credits",
+    )
+    async def has_credits_at_least(
+        self, tenant_type: str, tenant_id: UUID, minimum: int
+    ) -> bool:
+        """True when the balance is at least ``minimum``."""
+        return True
+
+    @claim_atom("Feature", claim_key="features", entry="key")
+    @access_check("LiveFeature", bind=_ACCOUNT, describe="feature '{key}'")
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when the plan enables ``key``."""
+        return True
+
+    @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
+    @access_check(
+        "LiveWithinLimit",
+        bind=_ACCOUNT,
+        category=Category.QUOTA_EXCEEDED,
+        describe="within limit '{key}'",
+    )
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """True when ``used`` is below the limit."""
+        return True
+
+
 def test_c027_organization_routes_and_the_personal_account(
     atoms_on_path: Path,
 ) -> None:
     """The account atoms are the generated ones of ``billing.entitlements.v1``
     (rendered as ``sandloom generate`` writes them), read from their literals."""
-    from sandloom.core.cli.generated import render_stub
-    from sandloom_billing.contracts import EntitlementsContract
-
     tmp_path = atoms_on_path
     _write(
         tmp_path,
         "billing_entitlements_v1.py",
-        render_stub("billing.entitlements.v1", EntitlementsContract),
+        render_stub("billing.entitlements.v1", _EntitlementsContract),
     )
     path = _write(
         tmp_path,
@@ -333,13 +400,10 @@ def test_c027_organization_routes_and_the_personal_account(
 def test_c027_a_generated_claim_read_atom_is_checked_too(
     atoms_on_path: Path,
 ) -> None:
-    from sandloom.core.cli.generated import render_stub
-    from sandloom_billing.contracts import EntitlementsContract
-
     _write(
         atoms_on_path,
         "billing_entitlements_v1.py",
-        render_stub("billing.entitlements.v1", EntitlementsContract),
+        render_stub("billing.entitlements.v1", _EntitlementsContract),
     )
     path = _write(
         atoms_on_path,

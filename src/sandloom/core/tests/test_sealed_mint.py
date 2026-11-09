@@ -20,6 +20,7 @@ beyond the in-memory revocation cache).
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -41,7 +42,6 @@ from sandloom.core.runtime import use_active_core
 from sandloom.core.testing.auth import make_user_headers, mint_test_token, sealed_claims
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
 from sandloom.core.tests.test_claims_split_matrix import GATES, statuses
-from sandloom.core.tests.test_claims_trust import _FakeDatabase, _register
 
 mem_cache = _revocation.mem_cache
 
@@ -84,6 +84,57 @@ SEALED_ONLY = (
     "claims",
     AUTHORITY_CLAIM,
 )
+
+
+class _FakeUoW:
+    def __init__(self) -> None:
+        """A unit whose session has an empty ``info`` mapping."""
+        self.session = SimpleNamespace(info={})
+
+    async def __aenter__(self) -> _FakeUoW:
+        """Enter the unit; nothing to open."""
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        """Leave the unit; nothing to commit."""
+        return None
+
+
+class _FakeDatabase:
+    def uow_factory(self) -> Any:
+        """The fake unit-of-work class."""
+        return _FakeUoW
+
+    def outbox(self) -> None:
+        """No outbox."""
+        return None
+
+    def audit(self) -> None:
+        """No audit sink."""
+        return None
+
+
+class _Counted:
+    """A contributor answering ``result`` and counting its calls."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        """Remember the answer."""
+        self.result = result
+        self.calls = 0
+
+    async def __call__(self, user_id: Any) -> dict[str, Any]:
+        """Answer and count."""
+        self.calls += 1
+        return dict(self.result)
+
+
+def _register(
+    core: CoreFacade, path: str, result: dict[str, Any], *, critical: bool = False
+) -> _Counted:
+    fn = _Counted(result)
+    with core.module_registration(path) as api:
+        api.add_claims_contributor(fn, critical=critical)
+    return fn
 
 
 def _core() -> CoreFacade:

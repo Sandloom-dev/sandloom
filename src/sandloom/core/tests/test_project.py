@@ -13,12 +13,34 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from sandloom.core.cli.project import generate_project
+
+
+def _forget_probe_app() -> None:
+    for name in [m for m in sys.modules if m == "probe" or m.startswith("probe.")]:
+        del sys.modules[name]
+
+
+@pytest.fixture(autouse=True)
+def _a_fresh_probe_app() -> Iterator[None]:
+    """Each test generates its own ``probe`` app in its own directory. A
+    ``probe`` package another test left in ``sys.modules`` (or this file's own
+    gate imports) would be imported instead of the generated one
+    (SANDLOOM-T019: ``probe.modules.gadgets`` cannot be imported), so none is
+    kept before or after a test."""
+    path = list(sys.path)
+    _forget_probe_app()
+    try:
+        yield
+    finally:
+        sys.path[:] = path
+        _forget_probe_app()
 
 
 def _read(root: Path, rel: str) -> str:

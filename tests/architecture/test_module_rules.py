@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from uuid import UUID
 
 import sandloom.core.archcheck.module_rules as mr
 from sandloom.core.archcheck import analyzers as az
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.archcheck.runner import run_checks
+from sandloom.core.cli.generated import render_stub
+from sandloom.sdk import contract
+from sandloom.shared.authz import Category, From, access_check
 
 
 def _write(root: Path, files: dict[str, str]) -> list[Path]:
@@ -102,10 +106,25 @@ def test_unknown_router_dependency_may_authenticate(tmp_path: Path) -> None:
     assert mr.find_guard_order_problems(files) == []
 
 
-def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
-    from sandloom.core.cli.generated import render_stub
-    from sandloom_billing.contracts import EntitlementsContract
+@contract("billing.entitlements.v1")
+class EntitlementsContract:
+    """The subscription check, declared as billing declares it (a fixture:
+    the kernel job has no battery installed)."""
 
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+
+def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
     files = _write(
         tmp_path,
         {
