@@ -11,8 +11,11 @@ CI configuration or the kernel entry points to find out how they work:
 2. CI by path: the path filters and the commands of ``ci.yml``, ``docs.yml``,
    ``architecture-check.yml``, ``packages.yml``, ``admin.yml`` and
    ``tools/ci/required_ci.py``;
-3. kernel map: ``file:line`` of the entry points, read from the AST;
-4. plan index: KB id -> line range in ``design/kernel-boundary/migration-plan.md``.
+3. kernel map: file and symbol of the entry points (no line numbers, so a PR that
+   moves code does not drift; the build fails only when a symbol vanishes, read
+   from the AST);
+4. plan index: KB id, wave, dependencies, M-metrics and heading text of
+   ``design/kernel-boundary/migration-plan.md`` (no line numbers).
 
 ``sandloom generate`` calls :func:`render` (the repository checkout only: the
 hook looks for this file) and ``tests/architecture/test_agent_reference.py``
@@ -53,35 +56,31 @@ EXAMPLE_ANCHORS = (
 REGISTRIES = """\
 ## 1. Registries (shared files: never open whole, never reorder others' lines)
 
-Add only your own lines; the orchestrator resolves merge conflicts. Find
-neighbours with `grep -n`, read 20 lines around the hit.
+Add only your own lines (the orchestrator resolves conflicts); find neighbours with `grep -n`.
 
-**guarantees.yml** (G-/C- ledger; page `docs/reference/guarantees.md` is generated)
+**guarantees.yml** (page `docs/reference/guarantees.md` is generated)
 ```yaml
 - id: G-TENANT-01
   statement: <one sentence, behaviour that must never weaken>
   sources: [docs/modules/database/multi-tenancy.md]
   tests: [src/sandloom/core/tests/test_tenant_isolation.py::test_no_tenant_bound_fails_closed]
 ```
-Other enforcement keys: `rules:` (`sandloom check` rule), `import_contracts:`; none ->
-`gap` + `gap_size` (S/M/L). New id: also bump `issued:` (never reuse an id; dropping one
-needs `removed:` with approved_by). New ADR heading: `adr_sections:`. Top keys:
-`grep -n '^[a-z_]*:' guarantees.yml`; neighbours: `grep -n 'id: G-TENANT' guarantees.yml`.
-Gate: `uv run python tools/checks/guarantees.py check`; then `... render` rewrites the page;
-`... show G-TENANT-01` prints one entry.
+Or `rules:` / `import_contracts:`; none -> `gap` + `gap_size` (S/M/L). A new id also bumps
+`issued:` (ids are never reused; `removed:` needs approved_by); new ADR heading: `adr_sections:`.
+Find: `grep -n 'id: G-TENANT' guarantees.yml`. Gate: `uv run python tools/checks/guarantees.py check`,
+then `... render` for the page.
 
-**tests/architecture/kernel_edges.yml** (live kernel-edge register, SANDLOOM-T017) and
-**design/kernel-boundary/edges.yml** (the design copy; same ids, kind, class, target, adr,
-anchors, current_status, compared by `test_kernel_edges.py`; its `summary:` counts must match)
+**tests/architecture/kernel_edges.yml** (SANDLOOM-T017) and **design/kernel-boundary/edges.yml**
+(same ids and fields; `test_kernel_edges.py` compares them, and its `summary:` counts)
 ```yaml
   - id: B-N20
-    kind: documentation          # runtime when absent
+    kind: documentation
     class: b
     type: naming
     scope: runtime
     owner: tenancy
     baseline_verdict: allowed
-    current_status: retained     # open | fixed | retained; fixed needs a literal anchor
+    current_status: retained     # open | fixed | retained
     target: retained
     adr: ADR-0012
     reason: docstring example    # required when retained
@@ -89,42 +88,31 @@ anchors, current_status, compared by `test_kernel_edges.py`; its `summary:` coun
     anchors:
       - {path: sandloom/core/contract_cache_shadow.py, literal: tenancy.membership.v1}
 ```
-A PR that carries a row to its target flips `current_status` in both files. Rows:
-`grep -n '^  - id: ' <file>`; neighbours: `grep -n -A3 'id: B-S' <file>`. Check:
-`uv run python tests/architecture/kernel_edges.py --report --base origin/arch/kernel-boundary`.
+A PR that closes a row flips `current_status` in both. Find: `grep -n -A3 'id: B-S' <file>`. Check: `uv run python tests/architecture/kernel_edges.py --report --base origin/arch/kernel-boundary`.
 
 **src/sandloom/core/error_codes.py** (`CATALOGUE`; page `docs/reference/error-codes.md` is generated)
 ```python
-    _entry(
-        "SANDLOOM-T016", "declared-generated-file", "test",   # code, slug, kind
-        "<title>", "<fix, one line>",
-        \"\"\"<explain: what happened, why, how to fix>\"\"\",
-        docs="docs/admin-console/add-your-module.md",
-    ),
+    _entry("SANDLOOM-T016", "declared-generated-file", "test",   # code, slug, kind
+        "<title>", "<fix, one line>", \"\"\"<explain>\"\"\",
+        docs="docs/admin-console/add-your-module.md"),
 ```
-Newest first at the top of the tuple, but not strictly by number: list codes with
-`grep -n '^        "SANDLOOM-T' src/sandloom/core/error_codes.py`, take the next free
-number, never reuse or renumber. Then `uv run python tools/docs/docs_reference.py` (page;
-`--check` verifies) and `uv run sandloom explain SANDLOOM-T016`.
+Not ordered by number: `grep -n '^        "SANDLOOM-T' src/sandloom/core/error_codes.py`, take the
+next free one. Then `uv run python tools/docs/docs_reference.py` (page), `uv run sandloom explain <code>`.
 
-**tools/packaging/public-source.json** (every tracked file is classified)
-`include` = `[{"reason": ..., "paths": [exact paths]}]`, then `exclude_files` / `exclude_trees`
-(`{path: reason}`), `symlinks`. Example line in the tests group:
-`"tests/architecture/test_docs_generated.py",`. A new file goes into the group whose
-reason fits, next to its siblings (`grep -n '"tests/architecture/test_d' tools/packaging/public-source.json`);
-owner-local files go to `exclude_files`. Check: `python3 tools/packaging/export_repository.py --check`.
+**tools/packaging/public-source.json** (every tracked file is classified): `include` =
+`[{"reason": ..., "paths": [exact paths]}]`, then `exclude_files` / `exclude_trees` (`{path: reason}`).
+Line: `"tests/architecture/test_docs_generated.py",`. Put a new file beside its siblings
+(`grep -n '"tests/architecture/test_d' <file>`); owner-local: `exclude_files`. Check: `python3 tools/packaging/export_repository.py --check`.
 
 **public_api_baseline.json** (`{module: {name: {kind, members, signature}}}`, SANDLOOM-T008)
 ```json
 "sandloom.core.contract_testing": { "ContractConformanceError": { "kind": "class",
   "members": ["add_note", "args", "with_traceback"], "signature": null } }
 ```
-Never hand-edit. `uv run python tools/packaging/check_public_api.py` is the gate,
-`... --update` rewrites it; a new public name is an API decision (upgrade steps in the
-CHANGELOG). Find a module: `grep -n '^  "sandloom\\.sdk' public_api_baseline.json`.
+Never hand-edit: `uv run python tools/packaging/check_public_api.py [--update]`. A new public name
+is an API decision (upgrade steps). Find: `grep -n '^  "sandloom\\.sdk' public_api_baseline.json`.
 
-**CHANGELOG.md**: a bullet under `## [Unreleased]` in `### Breaking changes`, `### Security`,
-`### Added`, `### Changed` or `### Fixed` (`grep -n '^### ' CHANGELOG.md | head -6`).
+**CHANGELOG.md**: a bullet under `## [Unreleased]`, in its `###` kind.
 """
 
 #: Names a CI command line must start with to be listed.
@@ -132,17 +120,28 @@ _COMMAND = re.compile(
     r"^(uv run|uv export|uvx|python3 |npm run|npm test|node |deploy/|tools/|"
     r"docker compose|\.venv-kernel|\$BIN/)"
 )
-_AREA_NOTE = "Omitted from the globs: `.github/**`, `pyproject.toml`, `uv.lock`, `tools/packaging/**/*.py` repeats."
 _SKIP_GLOBS = {".github/workflows/ci.yml", "pyproject.toml", "uv.lock"}
-_WIDTH = 100
+_WIDTH = 72
 _NOISE = (
     "--self-test",
     "RUNNER_TEMP",
     "pip-audit",
     "no_batteries.py install",
     "# idempotent",
+    "sync_release",
+    "check_wheel_rpc",
+    "tutorial_check",
+    "twine",
 )
-_PLAN_PARTS = ("Rules", "Waves", "Edge ")
+_SKIP_AREAS = ("benchmarks", "dependency_review")
+_SKIP_JOBS = (
+    "kernel-without-batteries",
+    "supply-chain",
+    "backend-tests",
+    "second-db-test-lane",
+    "skip-ledger",
+    "admin-ui",
+)
 
 
 def _load(path: Path) -> ModuleType:
@@ -200,16 +199,15 @@ def _ci(root: Path) -> str:
     for job_id, area in required.PR_JOBS.items():
         by_area[area].append(job_id)
     lines = [
-        "## 2. CI by path (a path in the filter runs the area's jobs; `ci-required` needs them all)",
+        "## 2. CI by path (a path in the filter runs the area's jobs; globs omit .github, pyproject, uv.lock)",
         "",
-        _AREA_NOTE,
-        "Local runner: `tools/ci/ci_local.py --list`; local gates: `uv run sandloom test <module>`.",
-        f"Full-validation only (not per PR): {', '.join(sorted(required.FULL_JOBS))}.",
-        "Always: `workflow-policy`: " + " ; ".join(commands("workflow-policy")[1:]),
+        "Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGENTS.md`, `tools/ci/ci_local.py --list`.",
         "",
     ]
     shown: set[str] = set()
     for area, area_jobs in by_area.items():
+        if area in _SKIP_AREAS:
+            continue
         globs = [
             g
             for g in filters.get(area, [])
@@ -221,7 +219,7 @@ def _ci(root: Path) -> str:
         repeated = [j for j in area_jobs if j in shown]
         for job_id in area_jobs:
             cmds = commands(job_id)
-            if job_id in shown or not cmds:
+            if job_id in shown or job_id in _SKIP_JOBS or not cmds:
                 continue
             shown.add(job_id)
             lines.append(f"- {job_id}: " + " ; ".join(cmds))
@@ -237,7 +235,6 @@ KERNEL_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         "src/sandloom/core/app_factory/__init__.py",
         (
             "create_app",
-            "_new_application",
             "_bind_infrastructure",
             "_validate_and_index_routes",
         ),
@@ -246,14 +243,11 @@ KERNEL_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         "src/sandloom/core/loader/plugin_loader.py",
         (
             "load_modules",
-            "load_modules_with_summary",
             "load_module_topology",
             "_load_with_summary",
             "_load_list",
             "_load_entry_points",
-            "_invoke_register",
             "_preflight_consumes",
-            "_check_module_settings",
         ),
     ),
     (
@@ -261,19 +255,16 @@ KERNEL_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "define_module",
             "discover",
-            "_Collector",
-            "_register_declarations",
-            "import_conventional",
         ),
     ),
     (
         "src/sandloom/core/cli/generated.py",
-        ("plan", "apply", "main", "module_surface", "render_stub", "_consumer_plan"),
+        ("plan", "apply", "main", "render_stub"),
     ),
     ("src/sandloom/core/cli/inspection/generation.py", ("finish",)),
     (
         "src/sandloom/core/error_codes.py",
-        ("CATALOGUE", "_entry", "lookup", "render_catalogue_markdown"),
+        ("CATALOGUE", "_entry"),
     ),
 )
 
@@ -294,7 +285,7 @@ def _top_level_lines(source: str) -> dict[str, int]:
 
 def _kernel(root: Path) -> str:
     lines = [
-        "## 3. Kernel map (file:line of the definition; read 40 lines from there, not the file)",
+        "## 3. Kernel map (file · symbols; `grep -n '^def create_app' <file>`)",
         "",
     ]
     for rel, names in KERNEL_MAP:
@@ -304,10 +295,7 @@ def _kernel(root: Path) -> str:
             raise SystemExit(
                 f"agent_reference: {rel} no longer defines {', '.join(missing)}"
             )
-        lines.append(
-            f"- `{rel.removeprefix('src/sandloom/')}`: "
-            + ", ".join(f"{n} {table[n]}" for n in names)
-        )
+        lines.append(f"- `{rel.removeprefix('src/sandloom/')}` · " + ", ".join(names))
     lines.append("")
     return "\n".join(lines)
 
@@ -319,6 +307,11 @@ def _plan(root: Path) -> str:
         for i, line in enumerate(text)
         if (m := re.match(r"^### (KB-\d+)", line))
     ]
+    titles = {
+        m.group(1): m.group(2)[:24]
+        for line in text
+        if (m := re.match(r"^### (KB-\d+) (.*)", line))
+    }
     sections = {
         line[3:]: i + 1 for i, line in enumerate(text) if line.startswith("## ")
     }
@@ -350,24 +343,19 @@ def _plan(root: Path) -> str:
         if extra:
             deps.setdefault(extra.group(2), []).append(extra.group(1))
     out = [
-        "## 4. Plan index (`grep -n '^### KB-30' <plan>` then read the range; KB-50..56 wait for KB-49)",
+        "## 4. Plan index (`grep -n '^### KB-30' <plan>`, read to the next `###`; KB-50..56 wait for KB-49)",
         "",
-        f"`{PLAN}`: "
-        + ", ".join(
-            f"{name.split(' (')[0].lower()} L{n}-{end(n)}"
-            for name, n in sections.items()
-            if name[:5] in _PLAN_PARTS
-        ),
-        "",
-        "id L<first>-<last> wave <- depends on | measurements",
+        f"`{PLAN}` (also `## Rules every PR follows`, `## Waves`, `## Edge closure`)",
+        "id wave <needs> [metrics] heading",
     ]
     for start, kb in heads:
         body = "\n".join(text[start - 1 : end(start)])
         metrics = list(dict.fromkeys(re.findall(r"\bM-[a-z]+\b", body)))
-        needs = ",".join(dict.fromkeys(deps.get(kb, []))) or "-"
         out.append(
-            f"{kb} L{start}-{end(start)} {wave.get(kb, '?')} <- {needs}"
-            + (f" | {' '.join(metrics)}" if metrics else "")
+            f"{kb} {wave.get(kb, '?')}"
+            + (f" <{','.join(dict.fromkeys(deps[kb]))}>" if deps.get(kb) else "")
+            + (f" [{' '.join(metrics)}]" if metrics else "")
+            + f" {titles[kb]}"
         )
     out.append("")
     return "\n".join(out)

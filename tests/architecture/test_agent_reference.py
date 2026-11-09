@@ -27,7 +27,7 @@ def test_the_agent_reference_is_current() -> None:
 
 def test_the_agent_reference_stays_small() -> None:
     size = len(REFERENCE.read_bytes())
-    assert size < 14_000, f"{size} bytes: an agent reads it whole, trim a section"
+    assert size <= 8_192, f"{size} bytes: an agent reads it whole, trim a section"
 
 
 def test_an_application_gets_no_agent_reference(tmp_path: Path) -> None:
