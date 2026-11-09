@@ -59,8 +59,8 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 3, fixed: 36, retained: 8}
-  target: {fixed: 37, retained: 8, deferred: 2}
+  current_status: {fixed: 39, retained: 8}
+  target: {fixed: 39, retained: 8}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
