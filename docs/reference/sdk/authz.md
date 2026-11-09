@@ -33,7 +33,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`AccessDenied`](#accessdenied) | exception | Raised by `enforce` (and the HTTP guards) when a policy is not satisfied. |
 | [`AccessFact`](#accessfact) | class | Declarative binding of a fact name to its three resolution paths. |
 | [`AccessUnknown`](#accessunknown) | exception | An access check's provider has no source for the answer (501). |
-| [`Account`](#account) | class | The billing account an atom checks (`of=`); build it with `user`, `org` or `bound_tenant`. |
+| [`Account`](#account) | class | The account an access check targets (`of=`); build it with `user`, `org` or `bound_tenant`. |
 | [`And`](#and) | class | Conjunction: all operands must hold. Short-circuits on first non-allow. |
 | [`authorize`](#authorize) | async function | Inline check over an already-loaded `resource`; raises on failure. |
 | [`AuthzContext`](#authzcontext) | class | Inputs available to a `Requirement` during evaluation. |
@@ -414,7 +414,7 @@ class Account(
 ) -> None
 ```
 
-The billing account an atom checks (`of=`); build it with
+The account an access check targets (`of=`); build it with
 `user`, `org` or `bound_tenant`.
 
 #### `Account.user`

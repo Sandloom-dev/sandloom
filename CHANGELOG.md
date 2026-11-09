@@ -1072,6 +1072,15 @@ website renders this same changelog.
 
 ### Fixed
 
+- **The docs describe the final KB-34 behaviour** (kb-34-p8b). The ADR-0014,
+  authorization, security-model, billing, tenancy, testing and upgrade pages
+  state the absent-claim rows of KB-33g / KB-33h (`absent_claim="deny"` is a
+  `402`, the default `"unknown"` a `501`, billing failed at the mint a `503`)
+  and the declared fail-safe keys. The kernel text no longer names billing:
+  the `tenant_kind_unresolved` message says "no account to check" instead of
+  "no billing account to check", and the B034 explanation names generated
+  access atoms instead of live adapters. The beginner-tier test is named
+  `test_the_beginner_tier_is_the_26_names`.
 - **A module named by its import path is known by its module name, and the
   platform bindings view says "unverified"** (KB-55). The risk-namespace rule
   (ADR-0015 decision 4) read a `SANDLOOM_MODULES` entry such as `sandloom_billing`

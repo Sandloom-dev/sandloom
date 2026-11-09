@@ -5867,7 +5867,7 @@ guarantees:
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
   tests:
-  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_30_names
+  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_26_names
   - tests/sdk/test_sdk_generators.py::test_generated_code_uses_only_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_examples_importing_the_sdk_stay_in_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_the_pin_reports_an_unmarked_advanced_name
@@ -8972,6 +8972,10 @@ adr_sections:
     - G-AUTH-26
     "Amendment 2026-11-09: KB-34, the kernel domain atoms are removed":
     - G-AUTHZ-05
+    - G-AUTHZ-12
+    "Amendment 2026-11-09: the absent claim and declared fail-safe keys":
+    - G-AUTH-12
+    - G-AUTH-20
     - G-AUTHZ-12
     "Mechanisms": informational
     "Alternatives considered": informational

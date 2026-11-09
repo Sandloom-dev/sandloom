@@ -29,7 +29,7 @@ from fastapi import Depends
 from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
 from myapp.shared.contracts.tenancy_membership_v1 import OrgRole
 from sandloom.sdk import require
-from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
+from sandloom.sdk.authz import Account  # sandloom: advanced account target
 
 ORG = Account.org(param="org_id")
 
@@ -66,7 +66,7 @@ guide](../../operate/upgrade-1.0.md#billing-and-tenancy-atoms-leave-the-kernel).
 | Atom | Tier | Reads |
 | --- | --- | --- |
 | `Perm(code)`, `Role(code)` | claim | the `permissions` / `roles` claims |
-| `Subscribed(statuses=None, *, of, claim_key="subscription_status")` | claim with `of=Account.user()`; live with an organization | the `subscription_status` claim (`active` / `trialing` pass; `past_due` passes during the grace period unless `BILLING_DENY_ON_PAST_DUE`), or billing live |
+| `Subscribed(statuses=None, *, of, claim_key="subscription_status")` | claim with `of=Account.user()`; live with an organization | the `subscription_status` claim (`active` / `trialing` pass; `past_due` passes during the grace period unless `BILLING_DENY_ON_PAST_DUE`; a status billing proves absent denies, see below), or billing live |
 | `SubscriptionActive(*, of)` | live | billing's entitlements, authoritative |
 | `Credits(minimum, *, of)` | live | the real-time credit balance (never a token claim); it only checks, and spending goes through `billing.credits.v1` |
 | `Feature(key, *, of, claim_key="features")`, `WithinLimit(key, used, *, of, claim_key="limits")` | claim with `Account.user()`; live with an organization | the `features` / `limits` claims, or billing's `has_feature` / `is_within_limit` checks (three-valued, see below) |
@@ -146,7 +146,7 @@ Three notions are separate:
 | --- | --- | --- |
 | tenant identity | the bound tenant id; scopes data | the signed token via the tenant binding |
 | tenant kind | `personal`, `organization`, `canonical` or `unknown` | authoritative only: `canonical` from `TENANCY_MODE=single`; `personal` when it equals the caller's user id; `organization` when the membership contract confirms it; else `unknown` (`await tenant_kind(tenant_id)`, memoised per request) |
-| authorization subject | the billing account an atom checks | stated in code with `of=` |
+| authorization subject | the account an atom checks (for billing's atoms, the billing account) | stated in code with `of=` |
 
 `Subscribed`, `SubscriptionActive`, `Credits`, `Feature` and `WithinLimit`
 take a keyword-only, required `of=`. Without it the atom refuses to construct
@@ -213,9 +213,11 @@ A route's gate names the contracts it calls, and they join the module's
 derived `consumes` as optional requirements. A generated atom adds its
 provider's contract: `SubscriptionActive` / `Credits` add
 `billing.entitlements.v1` and `OrgRole` adds `tenancy.membership.v1`.
-`Entitled(fact)` adds the fact owner's `<owner>.facts.v1`, and `Subscribed`
-adds `billing.facts.v1`. The startup preflight warns when one is unbound,
-and `sandloom add deploy` binds them in the microservices profile.
+`Entitled(fact)` adds the fact owner's `<owner>.facts.v1`. A generated claim
+atom adds its fact owner's too: billing's `Subscribed` adds `billing.facts.v1`,
+and for an organization account also the live check's contract. The startup
+preflight warns when one is unbound. `sandloom add deploy` binds them in the
+microservices profile.
 
 ## Access checks declared by a provider
 
@@ -255,9 +257,23 @@ Tenancy declares `OrgRole`; billing declares `SubscriptionActive` and
 `Credits` (`has_credits_at_least`).
 
 Billing's claim atom `Subscribed` accepts only the statuses and claim keys
-billing declares. Without billing in the composition it answers `501`. An
-absent `subscription_status` answers `503` when its authority failed at the
-mint and `501` otherwise.
+billing declares. Without billing in the composition it answers `501`.
+`Subscribed()` and `Subscribed(statuses=...)` share one trust rule for
+`Account.user()` (`statuses=` changes the accepted statuses, not the trust
+rules), with zero I/O beyond the fact's declarative rule:
+
+| The token | Answer |
+| --- | --- |
+| a status billing vouched for | decided by billing's rule (`Subscribed()`) or by the chosen statuses; outside them `402` |
+| no `subscription_status`, billing ran at the mint under the intact claim policy and wrote none | `402`, because billing's fact declares `absent_claim="deny"` |
+| no `subscription_status` because billing failed at the mint | `503 claim_authority_failed`, never asked live |
+| removed by the trusted view | `401 token_policy_outdated` / `503 claims_policy_mismatch` |
+| no authority assigned for the key, billing did not run, a token without provenance, another declared `claim_key=`, a value that is not a string | `501 access_unknown` |
+
+An absent key never equals a status (`statuses={"none"}` does not match it).
+`Not` allows only on a proven deny. `AccessFact(absent_claim=)` defaults to
+`"unknown"`. A fact of your own declares `"deny"` only when an absent claim
+really means "no". Otherwise a proven absence answers `501`.
 
 Billing also declares `Feature` and `WithinLimit` (`claim_atom` above
 `has_feature` / `is_within_limit`). Billing has no features and limits
@@ -276,10 +292,6 @@ With `Account.user()` the generated atoms read the token with zero I/O:
 
 `Not` never allows on any of these unknowns. A writer of such a claim writes
 the whole mapping or none.
-
-Until the kernel atoms are removed, both forms exist. They decide the same
-with the same calls where the token carries a well-formed claim. The kernel
-atoms still deny on an absent or malformed claim.
 
 ## What breaks it
 

@@ -12,7 +12,7 @@ as its own package or read a discovery error.
 
 ## The beginner tier
 
-Thirty names cover CRUD, events and cross-module calls. Generated code
+Twenty-six names (20 for code, 6 for tests) cover CRUD, events and cross-module calls. Generated code
 and the examples use only these (`sandloom test` checks it,
 [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009)); any other name is advanced
 and its import line says why: `# sandloom: advanced <reason>`.

@@ -19,6 +19,19 @@ Both deny `402` (`deny_category=PAYMENT_REQUIRED`, consistent with
 `Subscribed` / `SubscriptionActive` / `Credits`); the org fact refuses a
 non-member or a request without an organization with `403`.
 
+`subscription.active` declares `absent_claim="deny"`. For `Account.user()`,
+a `subscription_status` that billing proved absent is its own definite `402`.
+Billing ran at the mint under the intact claim policy and wrote none, as for
+a user with no customer. `Subscribed()` and `Subscribed(statuses=...)` agree.
+Billing failed at the mint is `503 claim_authority_failed`, never asked live.
+A token without provenance or `cpv` is `501 access_unknown`. The table is in
+[Authorization](../http/authorization.md#three-valued-decisions).
+
+Billing declares its four claims fail-safe with
+`add_claims_contributor(..., fail_safe=[...])`, so a billing outage does not
+break a login. An issuer that binds billing remotely declares them in its
+root with `Authority("sandloom_billing", fail_safe=True)`.
+
 ## Domain entities
 
 | Model | Table | Description |
@@ -352,7 +365,7 @@ from fastapi import Depends
 
 from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
 from sandloom.sdk import require
-from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
+from sandloom.sdk.authz import Account  # sandloom: advanced account target
 
 @router.get("/report", dependencies=[Depends(require(Subscribed(of=Account.user())))])
 ```

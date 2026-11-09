@@ -24,7 +24,7 @@ membership and entitlements contracts; no tenancy or billing data is needed.
 
     from fastapi import Depends
     from sandloom.sdk import CurrentUser, require
-    from sandloom.sdk.authz import Account  # sandloom: advanced billing account
+    from sandloom.sdk.authz import Account  # sandloom: advanced account target
     from <app>.shared.contracts.billing_entitlements_v1 import SubscriptionActive
     from <app>.shared.contracts.tenancy_membership_v1 import OrgRole
 
