@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 22, fixed: 21, retained: 4}
+  current_status: {open: 21, fixed: 22, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -135,17 +135,16 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-31]
     invariants: [I-10, I-13, I-23]
     tests:
-      - bound_tenant() with and without the assigned tenant authority's witness; four kinds kept
-      - decisive shape still 3 calls / 9 DB until KB-37
+      - tests/integration/test_tenant_witness.py (with and without the assigned authority's witness; four kinds; replacement authority without a membership method)
+      - decisive shape 3 calls / 9 DB with KB-31 alone, 2 / 6 with KB-37
     anchors:
-      - {path: sandloom/shared/authz/account.py, symbol: _is_member}
-      - {path: sandloom/shared/authz/account.py, symbol: tenant_kind}
+      - {path: sandloom/shared/authz/account.py, literal: get_live_adapter(MEMBERSHIP)}
     note: Kind from the application-assigned tenant authority's declared witness (owner #7).
 
   - id: B-R3
