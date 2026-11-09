@@ -67,6 +67,49 @@ class GenerationModule:
     admin_resources: Any = None
 
 
+def login_entry_problem(value: object) -> str | None:
+    """Why ``value`` is not a login entry (``None``: it is one).
+
+    A login entry is a route path of this application ("/auth/login"): it
+    starts with one ``/`` and is not a URL, a scheme-relative reference, a
+    backslash form or anything with whitespace, control characters, a query or
+    a fragment. A client sends the operator's credentials there, so a value
+    that could leave the application is refused rather than normalised.
+    """
+    if not isinstance(value, str) or not value:
+        return "must be a non-empty route path such as '/auth/login'"
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or any(c in value for c in ("\\", "?", "#", ":", "@", "%"))
+        or any(c.isspace() or not c.isprintable() for c in value)
+        or any(part in ("..", ".") for part in value.split("/"))
+    ):
+        return (
+            "must be a route path of this application such as '/auth/login' (one "
+            "leading '/', no URL, scheme, host, query, fragment, escape, '..' "
+            "or whitespace)"
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class GenerationIssuer:
+    """The composition's assigned token issuer as a generated file's renderer sees it.
+
+    ``package`` is the import path the ``claim_authorities`` map assigns as
+    ``issuer`` (never read from a token), ``name`` its module name and
+    ``login_entry`` the login route the issuer declared on its registration
+    (``define_module(login_entry=...)``; ``None``: it declared none). A
+    declaration the composition cannot honour is a ``ValueError`` of the
+    collector, never a silent ``None``.
+    """
+
+    package: str
+    name: str
+    login_entry: str | None = None
+
+
 @dataclass(frozen=True)
 class GenerationInput:
     """What ``sandloom generate`` hands a module's generated-file renderer.
@@ -79,6 +122,8 @@ class GenerationInput:
     openapi: Mapping[str, Any]
     routes: Mapping[tuple[str, str], str]
     modules: tuple[GenerationModule, ...]
+    #: The map's assigned issuer (``None``: the composition assigns none).
+    issuer: GenerationIssuer | None = None
 
 
 #: Renders one module-declared generated file (its full text) from the
@@ -185,12 +230,33 @@ class ModuleDescriptor:
     # a stateless issuer, verified at startup against its refresh routes,
     # session tables and consumers (ADR-0012 decision 5, SANDLOOM-B035).
     refresh_sessions: bool = True
+    # Only read on the issuer: the route path of its login endpoint, which a
+    # client of the composition (the admin console) is sent to. A path of this
+    # application ("/auth/login"), never a URL; ``None`` declares none and
+    # a console in front of this issuer is then a configuration error naming
+    # it (ADR-0012 decision 4, X4).
+    login_entry: str | None = None
     # Files ``sandloom generate`` writes into the app's shared package for this
     # module: file name -> renderer, checked by ``generate --check`` and
     # ``sandloom test`` like every generated file (SANDLOOM-T016).
     generated_files: dict[str, GeneratedFileRenderer] = field(
         default_factory=lambda: cast(dict[str, GeneratedFileRenderer], {})
     )
+
+    def __post_init__(self) -> None:
+        if self.login_entry is None:
+            return
+        if not self.issues_tokens:
+            raise ValueError(
+                f"module {self.name!r} declares login_entry={self.login_entry!r} "
+                "but not issues_tokens=True: only the token issuer declares a "
+                "login entry"
+            )
+        problem = login_entry_problem(self.login_entry)
+        if problem:
+            raise ValueError(
+                f"module {self.name!r}: login_entry={self.login_entry!r} {problem}"
+            )
 
     def effective_capabilities(self) -> list[CapabilityRequirement]:
         """Capabilities to preflight at load: the declared ones, plus what the

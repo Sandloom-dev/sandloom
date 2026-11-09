@@ -120,9 +120,9 @@ _STRONG_KEY = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 
 
 def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom.core import app_factory
     from sandloom.core.config import module_settings
     from sandloom.core.config.settings import settings
+    from sandloom.core.tests._root_support import create_root_app
 
     monkeypatch.setattr(settings, "contract_command_dedupe_ttl_seconds", 5)
     monkeypatch.setattr(settings, "environment", "prod")
@@ -139,4 +139,4 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
         [*settings.sandloom_accepted_risks, "fake_psp_in_prod", "log_notifier_in_prod"],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
-        app_factory.create_app()
+        create_root_app()

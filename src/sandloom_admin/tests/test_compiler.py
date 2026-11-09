@@ -330,3 +330,45 @@ def test_audit_binding_is_explicit_and_uses_a_real_detail_field() -> None:
     declaration["audit"]["id_field"] = "missing_psp_id"
     with pytest.raises(ValueError, match="audit"):
         _compile(app, "demo.catalog", [declaration])
+
+
+def test_the_manifest_carries_the_assigned_issuer_and_its_login_entry() -> None:
+    app, declaration = catalog()
+    source = SimpleNamespace(
+        openapi=app.openapi(),
+        routes=_routes(app),
+        modules=(
+            SimpleNamespace(
+                package="demo.catalog", name="catalog", admin_resources=[declaration]
+            ),
+        ),
+        issuer=SimpleNamespace(
+            package="acme.test_identity",
+            name="test_identity",
+            login_entry="/auth/login",
+        ),
+    )
+    assert compile_manifest(source)["issuer"] == {
+        "module": "test_identity",
+        "login_entry": "/auth/login",
+    }
+    source.issuer.login_entry = None
+    assert compile_manifest(source)["issuer"] == {
+        "module": "test_identity",
+        "login_entry": None,
+    }
+
+
+def test_a_composition_without_an_issuer_says_none() -> None:
+    app, declaration = catalog()
+    source = SimpleNamespace(
+        openapi=app.openapi(),
+        routes=_routes(app),
+        modules=(
+            SimpleNamespace(
+                package="demo.catalog", name="catalog", admin_resources=[declaration]
+            ),
+        ),
+        issuer=None,
+    )
+    assert compile_manifest(source)["issuer"] is None
