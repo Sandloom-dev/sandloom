@@ -434,7 +434,7 @@ website renders this same changelog.
   `require_org_role` pattern are gone; the kernel's own atoms are read through a
   transitional table KB-34 deletes with them). The gate-order rule also reads
   `module_router()` routes. New rule `handwritten-access-check`
-  ([SANDLOOM-C034](docs/reference/error-codes.md#sandloom-c034)): a hand-written
+  ([SANDLOOM-C034](https://sandloom.dev/docs/reference/error-codes/#sandloom-c034)): a hand-written
   class calling a declared access check with another tier, category or risk than its
   declaration is an error. A hand-written `require_org_role`-style dependency is no
   longer tagged by name: state `sensitive("admin")` on its routes.
