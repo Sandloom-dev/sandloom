@@ -420,7 +420,7 @@ async def test_withdrawing_deny_is_a_breaking_contract_change() -> None:
             claim["absent_claim"] = value
         check["claim"] = claim
         methods[method]["access_check"] = check
-        return {**doc, "methods": methods}
+        return {"methods": methods}  # another document: no shared hash
 
     withdrawn = with_absent(expected, "holds_licence", "unknown")
     errors = compare_contract(SEATS, expected, withdrawn).errors
