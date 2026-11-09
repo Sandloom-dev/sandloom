@@ -2307,7 +2307,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None, owner:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
     "flush_owned_redis": {
       "kind": "function",
@@ -3035,7 +3035,7 @@
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, owner:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -3244,7 +3244,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",
@@ -5646,7 +5646,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None, owner:KEYWORD_ONLY|str | None=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
     "fake_contract": {
       "kind": "function",
@@ -6296,7 +6296,7 @@
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, owner:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -6493,7 +6493,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",

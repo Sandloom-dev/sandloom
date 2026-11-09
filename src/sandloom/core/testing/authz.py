@@ -1,28 +1,36 @@
 """Authorization seams for tests: fake an access fact (an entitlement).
 
-A module gating on ``Entitled("subscription.active")`` (or any fact another
-module owns) needs that owner to resolve it — billing, in practice. A module
-test must not import billing; :func:`fake_access_fact` answers the fact on the
-active application for the duration of a block::
+A module gating on ``Entitled("subscription.active", owner="billing")`` (or
+any fact another module owns) needs that owner to resolve it — billing, in
+practice. A module test must not import billing; :func:`fake_access_fact`
+answers the fact on the active application for the duration of a block::
 
-    with fake_access_fact("subscription.active", True):
+    with fake_access_fact("subscription.active", True, owner="billing"):
         assert (await client.post(...)).status_code == 201
     with fake_access_fact(
-        "subscription.active", False, deny_category="payment_required"
+        "subscription.active",
+        False,
+        owner="billing",
+        deny_category="payment_required",
     ):
         assert (await client.post(...)).status_code == 402
-    with fake_access_fact("quota.ok", lambda ctx: ctx.subject.user_id == alice):
+    with fake_access_fact(
+        "quota.ok", lambda ctx: ctx.subject.user_id == alice, owner="quotas"
+    ):
         ...
 
 ``value`` is a bool, or a callable of the authz context returning one (sync
-or async; it may raise ``FactDenied``). The previous registration, if any, is
-restored afterwards. A policy that names the fact's owner
-(``Entitled(name, owner="billing")``) accepts only that owner's fact: fake it
-with ``owner="billing"``.
+or async; it may raise ``FactDenied``). ``owner`` is required: a fact is
+identified by its owner module and its name, so the fake answers only a
+policy naming the same owner (``fake_access_fact(name, owner="rogue")`` never
+satisfies ``Entitled(name, owner="billing")``). A missing, empty or invalid
+``owner`` raises ``InvalidFactOwner`` (SANDLOOM-B038). The previous
+registration, if any, is restored afterwards.
 
-It answers a fact by name and nothing else: a generated atom (``OrgRole``,
-``SubscriptionActive``, ``Credits``, ``Subscribed``, ...) asks its provider's
-contract, so a test serves that contract with ``fake_contract(REF, Fake())``.
+It answers a fact by name and owner and nothing else: a generated atom
+(``OrgRole``, ``SubscriptionActive``, ``Credits``, ``Subscribed``, ...) asks
+its provider's contract, so a test serves that contract with
+``fake_contract(REF, Fake())``.
 """
 
 from __future__ import annotations
@@ -34,9 +42,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import sandloom.core.runtime as _runtime
-
-#: The ``owner_module`` of a faked fact when the test names no owner.
-_FAKE_OWNER = "sandloom.core.testing"
+from sandloom.core.descriptors.module_names import require_fact_owner
 
 
 @dataclass(frozen=True)
@@ -45,8 +51,8 @@ class _FakeFact:
 
     name: str
     value: bool | Callable[[Any], Any]
+    owner_module: str
     deny_category: str | None = None
-    owner_module: str = _FAKE_OWNER
     claim_key: str | None = None
     claim_rule: Any = None
     live_service: str | None = None
@@ -74,12 +80,13 @@ def fake_access_fact(
     name: str,
     value: bool | Callable[[Any], Any] = True,
     *,
+    owner: str,
     deny_category: str | None = None,
     core: Any = None,
-    owner: str | None = None,
 ) -> Iterator[None]:
-    """Answer the access fact ``name`` with ``value`` inside the block
-    (registered under ``owner`` when the policy names one)."""
+    """Answer the access fact ``(owner, name)`` with ``value`` inside the
+    block; only a policy naming the same ``owner`` sees it."""
+    owner = require_fact_owner(owner, name, "fake_access_fact")
     if core is None:
         core = _runtime.get_active_core()
     if core is None:
@@ -91,7 +98,7 @@ def fake_access_fact(
     facts: dict[str, Any] = core._access_facts
     missing = object()
     previous = facts.get(name, missing)
-    facts[name] = _FakeFact(name, value, deny_category, owner or _FAKE_OWNER)
+    facts[name] = _FakeFact(name, value, owner, deny_category)
     try:
         yield
     finally:

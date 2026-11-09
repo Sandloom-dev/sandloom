@@ -421,7 +421,8 @@ class _ServicesMixin(_FacadeState):
         """Register an :class:`~sandloom.shared.authz.facts.AccessFact`.
 
         Binds a fact name (e.g. ``"subscription.active"``) to its claim /
-        projection / live resolution paths so ``Entitled(name)`` policies can
+        projection / live resolution paths so ``Entitled(name, owner=...)``
+        policies can
         resolve it by configuration. Raises on a duplicate name, naming the
         module that holds it. The fact's ``owner_module`` must be the
         registering module's short name (SANDLOOM-B034): a module answers only

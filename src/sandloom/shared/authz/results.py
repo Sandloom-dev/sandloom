@@ -117,7 +117,8 @@ class AccessDecision:
         """An *indeterminate* denial: the requirement could not be evaluated.
 
         Distinct from :meth:`deny` (the subject definitively lacks the
-        requirement): combinators propagate it unchanged, so ``~Entitled(x)``
+        requirement): combinators propagate it unchanged, so
+        ``~Entitled(x, owner=m)``
         with ``x`` unregistered / its service down DENIES with this category and
         status instead of inverting the failure into an allow.
         """

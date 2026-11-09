@@ -97,6 +97,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B035`](#sandloom-b035) | `token-issuer-obligation` | boot | the token issuer's startup contract is broken: an issues_tokens module cannot end its sessions on an emergency block (no durable consumer of core.auth.user_blocked.v1, or refresh_sessions=False contradicted), or the composition cannot honour its claim_authorities (no map with an issuer loaded, an authority neither loaded nor bound, a non-critical authority of a claim with no fallback, an issuer field given to another module, an issuer with no or an optional claims contributor, an issuer mismatch) | active |
 | [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
 | [`SANDLOOM-B037`](#sandloom-b037) | `capability-unavailable` | boot | a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import) | active |
+| [`SANDLOOM-B038`](#sandloom-b038) | `fact-owner-missing` | boot | an access-fact policy or fake names no valid owner module | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1531,6 +1532,32 @@ kernel uses (database, cache, event bus) stay required.
 **Fix:** install what the refusal names (pip install 'sandloom[celery]', 'sandloom[redis]'), or select in INFRA an installed driver that advertises the features the module requires
 
 **More:** `docs/infrastructure/index.md`
+
+### SANDLOOM-B038
+
+**an access-fact policy or fake names no valid owner module**
+
+Slug: `fact-owner-missing` · kind: boot · status: active
+
+**What happened and why it matters**
+
+An access fact is identified for authorization by its owner module and its
+name, never by its name alone: two modules may name a fact alike, and only the
+module the policy means may answer it. Entitled(fact_name, owner=...) and
+fake_access_fact(name, value, owner=...) therefore take owner= as a required
+keyword. Leaving it out is Python's TypeError naming owner (a type checker
+flags it first); None, a non-string, an empty string or a string that is not a
+module name (a Python identifier) raises this code when the policy is built,
+at import, before any request. The policy accepts only that module's fact:
+registered in this process by that module, or described by that module's
+bound &lt;owner>.facts.v1. Another module's fact of the same name never satisfies
+it; an owner neither loaded nor bound answers 501 fact_unregistered, an owner
+whose contract cannot be reached 503 fact_owner_unavailable, both
+indeterminate, so a negation never turns them into an allow.
+
+**Fix:** state the module that registers the fact: Entitled("subscription.active", owner="billing"), fake_access_fact(name, value, owner="billing")
+
+**More:** `docs/modules/http/authorization.md`
 
 ### SANDLOOM-B020
 

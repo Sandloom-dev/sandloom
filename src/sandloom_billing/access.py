@@ -20,7 +20,7 @@ Two facts, one per billing tenant kind:
 
 Both facts are part of billing's PUBLIC contract: registering them exposes
 ``billing.facts.v1`` (``describe`` / ``evaluate``), so a process WITHOUT
-billing that binds it resolves ``Entitled(...)`` /
+billing that binds it resolves ``Entitled(..., owner="billing")`` /
 ``Subscribed(of=Account.user())`` exactly
 like the monolith (claim read with :func:`subscription_claim_rule`, live
 answered by billing).

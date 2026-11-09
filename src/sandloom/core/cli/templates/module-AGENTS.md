@@ -111,9 +111,9 @@ To talk to another module:
   The `client` fixture shares the rolled-back `db`; `real_uow_client` commits.
   `_, headers = as_user(tenant_id=tid)`; `assert len(published(NoteCreated)) == 1`;
   `await deliver(NoteCreated(...), times=2)` drives the real consumer runtime;
-  `with fake_contract(STATS_QUOTA_V1, Fake()):`; `fake_access_fact(name, value)`.
+  `with fake_contract(STATS_QUOTA_V1, Fake()):`; `fake_access_fact(name, value, owner=...)`.
 - `uv run sandloom generate` after a declaration change (`sandloom test` never writes);
-  `sandloom test <module>` (its tests, then the fast suite and every gate); `--full` at the end.
+  `sandloom test <module>` (its tests, the fast suite, every gate); `--full` last.
 
 Docs: `modules/index.md`, `modules/database/units.md`, `modules/http/route-policy.md`,
 `modules/between/events.md`, `modules/between/contracts.md`, `modules/http/authorization.md`;

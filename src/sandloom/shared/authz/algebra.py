@@ -212,7 +212,8 @@ class Or(Requirement):
     """Disjunction: any operand may hold. Short-circuits on first allow.
 
     Only a genuinely satisfied operand allows — and one that does allows even
-    if a sibling is indeterminate (``Role("admin") | Entitled("x")`` admits an
+    if a sibling is indeterminate (``Role("admin") | Entitled("x", owner="m")``
+    admits an
     admin while the ``x`` fact is unregistered): the grant comes from the
     satisfied operand, never from inverting or guessing the broken one. When
     none allows and at least one operand was indeterminate, the disjunction is
@@ -275,7 +276,8 @@ class Not(Requirement):
     """Negation of a single requirement.
 
     Negates only a *definite* answer: an indeterminate inner decision is
-    returned unchanged (deny), so ``~Entitled("account.suspended")`` never
+    returned unchanged (deny), so
+    ``~Entitled("account.suspended", owner="accounts")`` never
     allows because the fact is unregistered or its service is down.
     """
 

@@ -15,6 +15,22 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **An access fact is identified by its owner and its name** (KB-34k, owner
+  decision 2026-11-09, W5+W6 security review M2). `owner=` is a required
+  keyword of `Entitled`, `fake_access_fact` and `lookup_access_fact`: write
+  `Entitled("subscription.active", owner="billing")`,
+  `fake_access_fact(name, value, owner="billing")`. A missing owner is a
+  `TypeError` when the policy is built; `None`, an empty string or a
+  non-identifier raises `SANDLOOM-B038` (`InvalidFactOwner`, both a
+  `TypeError` and a `ValueError`). The lookup accepts only that module's fact
+  (its local registration, or its bound `<owner>.facts.v1`) and asks no other
+  module's facts contract: another module's fact of the same name never
+  satisfies the policy, an owner neither loaded nor bound is 501
+  `fact_unregistered`, an unreachable one 503 with no fallback, both
+  indeterminate under `Not` / `Or`. `Entitled.contracts()` names
+  `<owner>.facts.v1`, never one derived from the fact's first segment. The
+  request-local fact cache and the remote descriptor cache are keyed by owner
+  too. Upgrade: `docs/operate/upgrade-1.0.md`.
 - **Fail-safe claim keys are declared** (kb-rev56-keys, ADR-0014 decision 7,
   edge B-N12). The kernel's `FAIL_SAFE_KEYS` (billing's four keys) is gone:
   a key may come from a non-critical authority only when its local authority

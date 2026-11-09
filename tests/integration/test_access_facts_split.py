@@ -227,7 +227,10 @@ async def test_entitled_subscription_same_decision_in_split(
     # mint; billing's generated Subscribed (KB-34) is 503 there with zero
     # I/O (KB-33g), mono and split alike.
     Subscribed = generated_atoms.Subscribed
-    for policy in (Entitled("subscription.active"), Subscribed(of=Account.user())):
+    for policy in (
+        Entitled("subscription.active", owner="billing"),
+        Subscribed(of=Account.user()),
+    ):
         mono, remote = await _both(split, policy, _subject(**claims))
         assert _key(remote) == _key(mono), policy
         if isinstance(policy, Subscribed) and claims == BILLING_FAILED:
@@ -245,7 +248,9 @@ async def test_owner_settings_drive_the_remote_claim_rule(
     billing_config(billing_deny_on_past_due=True)
     split["consumer"].remote_access_fact_cache.clear()
     subject = _subject(**MINTED, subscription_status="past_due")
-    mono, remote = await _both(split, Entitled("subscription.active"), subject)
+    mono, remote = await _both(
+        split, Entitled("subscription.active", owner="billing"), subject
+    )
     assert _key(remote) == _key(mono)
     assert not mono.allowed and mono.http_status == 402
 
@@ -255,7 +260,7 @@ async def test_claim_mode_needs_no_live_rpc_after_describe(
 ) -> None:
     subject = _subject(**MINTED, subscription_status="active")
     ctx = AuthzContext(subject, core=split["consumer"])
-    assert (await Entitled("subscription.active").decide(ctx)).allowed
+    assert (await Entitled("subscription.active", owner="billing").decide(ctx)).allowed
     assert STATE.get("live_calls") is None  # answered from the claim
 
 
@@ -279,7 +284,7 @@ async def test_entitled_org_subscription_same_decision_in_split(
         STATE["active"][("organization", org_id)] = org_active
     mono, remote = await _both(
         split,
-        Entitled("organization.subscription.active"),
+        Entitled("organization.subscription.active", owner="billing"),
         _subject(**MINTED),
         _request(org_id),
     )
@@ -289,7 +294,9 @@ async def test_entitled_org_subscription_same_decision_in_split(
 
 
 async def test_unknown_fact_is_501_in_both(split: dict[str, Any]) -> None:
-    mono, remote = await _both(split, Entitled("nope.fact"), _subject(**MINTED))
+    mono, remote = await _both(
+        split, Entitled("nope.fact", owner="billing"), _subject(**MINTED)
+    )
     assert _key(remote) == _key(mono)
     assert mono.indeterminate and mono.http_status == 501
     assert mono.code == "fact_unregistered"
@@ -297,13 +304,13 @@ async def test_unknown_fact_is_501_in_both(split: dict[str, Any]) -> None:
 
 async def test_unbound_fact_is_501_not_500(split: dict[str, Any]) -> None:
     lonely = _consumer({})
-    decision = await Entitled("subscription.active").decide(
+    decision = await Entitled("subscription.active", owner="billing").decide(
         AuthzContext(_subject(**MINTED), core=lonely)
     )
     assert decision.indeterminate and not decision.allowed
     assert decision.http_status == 501
     # Negation never turns it into an allow.
-    negated = await (~Entitled("subscription.active")).decide(
+    negated = await (~Entitled("subscription.active", owner="billing")).decide(
         AuthzContext(_subject(**MINTED), core=lonely)
     )
     assert not negated.allowed and negated.http_status == 501
@@ -320,7 +327,7 @@ async def test_unreachable_owner_is_503(
     consumer = _consumer(
         {"billing.facts.v1": {"base_url": "http://billing", "service_id": "billing"}}
     )
-    decision = await Entitled("subscription.active").decide(
+    decision = await Entitled("subscription.active", owner="billing").decide(
         AuthzContext(_subject(**MINTED, subscription_status="active"), core=consumer)
     )
     assert decision.indeterminate and decision.http_status == 503
@@ -342,8 +349,12 @@ async def test_describe_is_declarative_and_cached(split: dict[str, Any]) -> None
 
     consumer = split["consumer"]
     ctx = AuthzContext(_subject(**MINTED, subscription_status="active"), core=consumer)
-    await Entitled("subscription.active").decide(ctx)
-    assert ("fact", "subscription.active") in consumer.remote_access_fact_cache
-    assert ("fact", "organization.subscription.active") in (
+    await Entitled("subscription.active", owner="billing").decide(ctx)
+    assert (
+        "fact",
+        "billing",
+        "subscription.active",
+    ) in consumer.remote_access_fact_cache
+    assert ("fact", "billing", "organization.subscription.active") in (
         consumer.remote_access_fact_cache
     )

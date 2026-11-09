@@ -56,7 +56,7 @@ These 20 code names are importable from `sandloom.sdk` directly; the six testing
 | [`UtcDateTime`](data.md#utcdatetime) | `sandloom.sdk.data` | class | A timezone-aware time: always read back aware, in UTC on asyncpg and SQLite. |
 | [`as_user`](testing.md#as_user) | `sandloom.sdk.testing` | function | `(user_id, headers)` with a freshly minted access token. |
 | [`deliver`](testing.md#deliver) | `sandloom.sdk.testing` | async function | Deliver one event to every consumer of its channel; returns how many. |
-| [`fake_access_fact`](testing.md#fake_access_fact) | `sandloom.sdk.testing` | function | Answer the access fact `name` with `value` inside the block (registered under `owner` when the policy names one). |
+| [`fake_access_fact`](testing.md#fake_access_fact) | `sandloom.sdk.testing` | function | Answer the access fact `(owner, name)` with `value` inside the block; only a policy naming the same `owner` sees it. |
 | [`fake_contract`](testing.md#fake_contract) | `sandloom.sdk.testing` | function | Serve contract `ref` from `impl` for the block: |
 | [`published`](testing.md#published) | `sandloom.sdk.testing` | function | The events of `event`'s channel published by the code under test: |
 | [`client`](testing/plugin.md#client) | `sandloom.sdk.testing.plugin` | fixture | HTTP client on the app; every request runs on the test's `db`. |

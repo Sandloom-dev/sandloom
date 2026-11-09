@@ -573,7 +573,8 @@ class ModuleAPI:
         """Register an :class:`~sandloom.shared.authz.facts.AccessFact`.
 
         Binds a fact name to its claim/projection/live resolution paths so
-        ``Entitled(name)`` policies resolve it by configuration.
+        ``Entitled(name, owner=<this module>)`` policies resolve it by
+        configuration.
         """
         if self._draft is not None:
             self._draft.access_facts.append(fact)

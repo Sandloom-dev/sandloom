@@ -15,7 +15,7 @@ non-critical: if billing is down, the token is minted with ``billing`` in
 Organization subscriptions are deliberately NOT claimed: a user may belong to
 many organizations and the token has no per-organization claim slot, so an
 org-scoped gate MUST be live — ``SubscriptionActive(of=Account.org())``
-or ``Entitled("organization.subscription.active")`` (see
+or ``Entitled("organization.subscription.active", owner="billing")`` (see
 :mod:`sandloom_billing.access`). Money-sensitive checks (credit balance) are never
 claimed either; they use the live ``Credits`` atom.
 """
