@@ -20,6 +20,19 @@ x-app-env: &app-env
   # identity encrypts TOTP secrets with a dedicated key (comma-separated,
   # newest first, for rotation) — required in prod.
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32)}
+  # identity / tenancy send mail (recovery, invitations) and REQUIRE an email
+  # notifier: with ENVIRONMENT=prod the default `log` driver (no mail) is
+  # refused at startup. Production: NOTIFIER_BACKEND=smtp with SMTP_HOST and
+  # SMTP_FROM (SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true). A demo
+  # without mail adds log_notifier_in_prod to SANDLOOM_ACCEPTED_RISKS (mail is
+  # NOT delivered).
+  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-25}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
   # billing refuses the fake PSP in prod: choose explicitly.
   BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=fake_psp_in_prod for demos)}
   # The weaker guarantees this stack accepts (logged at every start).

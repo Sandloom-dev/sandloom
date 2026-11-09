@@ -1180,7 +1180,9 @@ jobs:
     env:
       COMPOSE_FILE: deploy/compose/microservices.yml
       BILLING_PROVIDER: fake
-      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,fake_psp_in_prod
+      # Smoke stack: no mail server, so the log notifier stands in for the
+      # email identity and tenancy require (mail is NOT delivered).
+      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,fake_psp_in_prod,log_notifier_in_prod
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Dummy secrets (never real; fresh per run)
