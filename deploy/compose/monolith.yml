@@ -7,8 +7,9 @@
 #   STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... \
 #     docker compose -f deploy/compose/monolith.yml up --build
 #
-# (demo stack without Stripe: BILLING_PROVIDER=fake
-# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod)
+# (mail: identity and tenancy need NOTIFIER_BACKEND=smtp + SMTP_HOST + SMTP_FROM;
+# demo stack without Stripe and without a mail server: BILLING_PROVIDER=fake
+# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod,log_notifier_in_prod)
 #
 # Same code, same image as the microservices profile — only configuration differs.
 
@@ -81,6 +82,12 @@ x-app-env: &app-env
   REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}
+  # Mail. identity and tenancy REQUIRE an email notifier (notification +
+  # email), so with ENVIRONMENT=prod this stack refuses to start on the default
+  # `log` driver, which delivers no mail. Production: NOTIFIER_BACKEND=smtp with
+  # SMTP_HOST, SMTP_FROM, and SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true.
+  # A demo that runs without mail adds log_notifier_in_prod to
+  # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-25}

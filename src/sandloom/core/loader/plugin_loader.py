@@ -4,6 +4,7 @@ import dataclasses
 import importlib
 import logging
 import os
+import re
 import types
 from collections.abc import Iterable, Sequence
 from importlib import metadata
@@ -77,6 +78,10 @@ class _DuplicateModule(_RegistrationControlFlow):
         self.module_name = module_name
 
 
+#: A boot refusal named in a module's load failure (``[SANDLOOM-B037]``).
+_BOOT_CODE = re.compile(r"\[(SANDLOOM-B\d{3})\]")
+
+
 class ModuleLoadError(RuntimeError):
     """Raised when required module(s) fail to load (aggregated)."""
 
@@ -91,6 +96,15 @@ class ModuleLoadError(RuntimeError):
         )
         super().__init__(msg)
         self.summary = summary
+        # A load failure is SANDLOOM-B001 unless every failed required module
+        # names one boot refusal (B033, B037, ...): then that code, so the
+        # entry points and `sandloom check --boot` report the precise cause.
+        codes = {
+            found.group(1) if (found := _BOOT_CODE.search(f.error)) else None
+            for f in failed_required
+        }
+        if len(codes) == 1 and None not in codes:
+            self.sandloom_code = codes.pop()
 
 
 class ContractBindingError(RuntimeError):
@@ -431,14 +445,15 @@ def _preflight_capabilities(core: CoreFacade, desc: ModuleDescriptor) -> None:
     """Verify every capability a module declares is available before serving.
 
     Resolves each :class:`CapabilityRequirement` through the infrastructure
-    registry (no I/O — providers build lazily; feature checks are in-memory). A
-    ``required`` requirement that cannot be satisfied raises a diagnostic
-    :class:`CapabilityError`, which — inside the registration transaction —
-    rolls back the module's registration and aborts startup if the module is
-    required or was selected (``SANDLOOM_MODULES``; optional or not, see
-    :func:`_selected_explicitly`). Optional requirements only warn. The
-    requirements are the effective ones: declared, plus derived from the
-    module's code (:meth:`ModuleDescriptor.effective_capabilities`).
+    registry (no I/O — providers build lazily; feature and package checks are
+    in-memory and ``find_spec``). Every ``required`` requirement that cannot be
+    satisfied is refused at once with one ``CapabilityUnavailable``
+    (SANDLOOM-B037, a :class:`CapabilityError`), which — inside the
+    registration transaction — rolls back the module's registration and aborts
+    startup if the module is required or was selected (``SANDLOOM_MODULES``;
+    optional or not, see :func:`_selected_explicitly`). Optional requirements
+    only warn. The requirements are the effective ones: declared, plus derived
+    from the module's code (:meth:`ModuleDescriptor.effective_capabilities`).
 
     Skipped entirely when no infrastructure registry is bound (bare facades in
     unit tests), so test apps need no infra wiring.
@@ -450,31 +465,22 @@ def _preflight_capabilities(core: CoreFacade, desc: ModuleDescriptor) -> None:
         return
     _preflight_database_features(registry, desc)
 
-    for req in desc.effective_capabilities():
-        try:
-            # Build-free validation: capability spec, instance, driver and
-            # declared features are checked WITHOUT instantiating the provider,
-            # so a plugin's factory cannot run network/connection code here.
-            registry.validate_requirement(
-                req.capability,
-                req.instance,
-                features=req.features or None,
-                version=req.version,
-            )
-        except Exception as exc:  # optional reqs must not abort
-            # A required capability is fatal (rolls back the module's
-            # registration; aborts startup if the module is required). An
-            # optional one (search/vector/workflow a module can live without)
-            # only warns — even on an unexpected driver-metadata error.
-            if req.required:
-                raise
-            logger.warning(
-                "[plugin_loader] Optional capability %s/%s unavailable for %s: %s",
-                req.capability,
-                req.instance,
-                desc.name,
-                exc,
-            )
+    # Build-free validation: capability spec, instance, driver, declared
+    # features and the driver's packages are checked WITHOUT instantiating the
+    # provider, so a plugin's factory cannot run network/connection code here.
+    # An optional requirement (search/vector/workflow a module can live
+    # without) only warns, even on an unexpected driver-metadata error.
+    unmet_optional = registry.check_module_requirements(
+        desc.name, desc.effective_capabilities()
+    )
+    for req, exc in unmet_optional:
+        logger.warning(
+            "[plugin_loader] Optional capability %s/%s unavailable for %s: %s",
+            req.capability,
+            req.instance,
+            desc.name,
+            exc,
+        )
 
 
 def _preflight_database_features(registry: Any, desc: ModuleDescriptor) -> None:

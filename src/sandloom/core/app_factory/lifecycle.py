@@ -197,6 +197,11 @@ def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> No
         return await _capability_health(core_facade, "cache")
 
     async def storage_health() -> HealthResult:
+        # The kernel uses no object store: a synthesized one nothing requires
+        # is neither built nor probed (database, cache and eventbus are the
+        # kernel's own, KERNEL_INSTANCES, and always probed).
+        if not infra.in_use("objectstore"):
+            return HealthResult(status="ok", details={"status": "unused"})
         return await _capability_health(core_facade, "objectstore")
 
     async def eventbus_health() -> HealthResult:
