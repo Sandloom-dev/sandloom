@@ -355,7 +355,8 @@ Owner decisions #3 and #4. The billing claims authority may be non-critical for 
 ordinary login does not break when billing is down. The startup rule of decision 1 accepts a
 non-critical authority only when every reader of its keys has a verifiable live fallback or
 returns indeterminate: claim-mode facts that escalate to the live check when the authority is in
-`claims_sources_failed` (they do today). `Role`, `Perm` and `TenantScope` have no live fallback,
+`claims_sources_failed` (they did when this was decided; the generated `Subscribed` for
+`Account.user()` no longer asks live, it answers 503, see the amendment of KB-33g below). `Role`, `Perm` and `TenantScope` have no live fallback,
 so the authorities of `roles`, `permissions` and `tenant_ids` stay critical.
 
 - An absent billing value never means allow.
@@ -725,12 +726,46 @@ or tenancy semantics, and no alias is left (H-9).
   organization with no source answers 501 `access_unknown`; for a user, a claim mapping is a
   complete snapshot (an entry that is on allows; off or absent denies), a whole claim that is
   absent answers 501, and a claim whose authority failed at the mint answers 503. `Not` never
-  allows on an unknown. `Subscribed(statuses=...)` follows the same rule: an absent
-  `subscription_status` with a failed authority answers 503, absent otherwise 501. Standard billing
-  has no features and limits catalogue yet (a later task); `Feature` and `WithinLimit` remain
+  allows on an unknown. `Subscribed(statuses=...)` first followed the same rule (an absent
+  `subscription_status` answered 503 with a failed authority, 501 otherwise); KB-33g and KB-33h
+  replaced that row (see [the amendment](#amendment-2026-11-09-the-absent-claim-and-declared-fail-safe-keys)).
+  Standard billing has no features and limits catalogue yet (a later task); `Feature` and `WithinLimit` remain
   public capabilities for a third-party provider.
 - **Documentation:** the upgrade guide (`operate/upgrade-1.0.md`) lists the import per name, the
   adapter replacement and this behaviour change; ADR-0010 records the beginner tier after the move.
+
+### Amendment 2026-11-09: the absent claim and declared fail-safe keys
+
+KB-33g, KB-33h and kb-rev56-keys (G-AUTH-12, G-AUTHZ-12, G-AUTH-20) change three statements above
+without changing a decision.
+
+- **Decision 7 and the KB-34 amendment: how `Subscribed` reads an absent status.** The owner's rule:
+  `statuses=` changes the accepted statuses, not the trust rules, so `Subscribed()` and
+  `Subscribed(statuses=...)` agree on every row for `Account.user()`, with zero I/O beyond the fact's
+  declarative rule:
+
+  | the token | `Subscribed` | its `Not` |
+  |---|---|---|
+  | a status billing vouched for, inside the accepted statuses | allow | deny |
+  | a status billing vouched for, outside them | deny 402 | allow |
+  | the claim proven absent (billing ran at the mint under the intact claim policy, wrote none, the view removed nothing) | deny 402, because billing's fact declares `absent_claim="deny"` | allow |
+  | the same proof for a fact that keeps the default `absent_claim="unknown"` | 501 `access_unknown` | 501 |
+  | absent because billing failed at the mint | 503 `claim_authority_failed`, never asked live | 503 |
+  | removed by the view | 401 `token_policy_outdated` / 503 `claims_policy_mismatch` | the same |
+  | no authority assigned, billing did not run, no provable claim policy, a legacy token, another declared `claim_key=`, not a string | 501 `access_unknown` | 501 |
+
+  Provenance proves who ran, not that a claim the authority did not write means "no" (KB-33h), so a
+  proven absence is a definite deny only where the fact declares it: `AccessFact(absent_claim=)`,
+  default `"unknown"`, travelling in the generated literal, the describe document and the
+  `<owner>.facts.v1` descriptor. A provider that withdraws `"deny"` fails the compatibility check.
+  An organization account still delegates to the owner's live check.
+- **Decision 7: fail-safe keys are declared.** The kernel list of billing's four keys is gone. A key
+  may come from a non-critical authority only when its local authority declares it
+  (`add_claims_contributor(fn, fail_safe=[...])`) or the composition root does
+  (`Authority(name, fail_safe=True)`, the only declaration for an authority bound remotely as
+  `"critical": false`). `roles`, `permissions`, `tenant_ids` and the issuer's fields can never be
+  declared. Every declared key, and every key an imported generated claim atom reads, is protected
+  even when the map does not name it (B035).
 
 ## Alternatives considered
 

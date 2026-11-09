@@ -1,7 +1,8 @@
-"""The billing-account subject of ``sandloom.sdk.authz`` (spec §2.3, §7).
+"""The account subject of ``sandloom.sdk.authz`` (spec §2.3, §7).
 
-``Subscribed``, ``SubscriptionActive``, ``Credits``, ``Feature`` and
-``WithinLimit`` take a required ``of=``: ``Account.user()``,
+Every generated access atom (e.g. ``Subscribed``, ``SubscriptionActive``,
+``OrgRole`` from the provider's stub) takes a required ``of=`` where it
+checks an account: ``Account.user()``,
 ``Account.org(param=...)`` or ``Account.bound_tenant()`` (H1, WS-A).
 """
 

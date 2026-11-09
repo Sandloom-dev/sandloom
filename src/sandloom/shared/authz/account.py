@@ -1,12 +1,14 @@
-"""Authorization subjects: which billing account an atom checks (spec §7).
+"""Authorization subjects: which account an access check targets (spec §7).
 
 Three separate notions (§7.1): the tenant IDENTITY (the bound tenant UUID,
 which scopes data), the tenant KIND (:func:`tenant_kind`, from authoritative
-sources only) and the authorization SUBJECT — the billing account an atom
-checks, stated in code with ``of=`` (required, no default, §7.2):
+sources only) and the authorization SUBJECT — the account an access check
+targets (the provider's account: a billing account, a seat pool, ...), stated
+in code with ``of=`` (required, no default, §7.2):
 
 * ``Account.user()`` — the caller's personal account (today's
-  ``tenant_type="user"``; ``Subscribed(of=Account.user())`` stays claims-only);
+  ``tenant_type="user"``; a claim atom such as ``Subscribed(of=Account.user())``
+  stays claims-only);
 * ``Account.org(param="org_id")`` — the organization from the path or query
   parameter ``param``, else ``X-Tenant-Id``, else the bound tenant, validated
   against the signed allowlist / membership; ``param=None`` reads only the
@@ -17,7 +19,7 @@ checks, stated in code with ``of=`` (required, no default, §7.2):
   unknown → indeterminate.
 
 The binding of a route (``TenantScope``) is about isolation only; it never
-chooses a billing account by itself.
+chooses an account by itself.
 """
 
 from __future__ import annotations
@@ -51,14 +53,14 @@ _current_authz: ContextVar[tuple[Any, Any] | None] = ContextVar(
 
 
 class AuthzSubjectMissingError(TypeError):
-    """A billing atom without ``of=`` (SANDLOOM-B017)."""
+    """An access atom without ``of=`` (SANDLOOM-B017)."""
 
     sandloom_code = "SANDLOOM-B017"
 
 
 @dataclass(frozen=True, slots=True)
 class Account:
-    """The billing account an atom checks (``of=``); build it with
+    """The account an access check targets (``of=``); build it with
     :meth:`user`, :meth:`org` or :meth:`bound_tenant`."""
 
     kind: AccountKind
@@ -279,7 +281,7 @@ async def resolve_account(
         return "organization", bound
     raise _indeterminate(
         "tenant_kind_unresolved",
-        f"the bound tenant is {kind}: no billing account to check "
+        f"the bound tenant is {kind}: no account to check "
         "(state of=Account.user() or Account.org(...))",
         403,
         requirement,

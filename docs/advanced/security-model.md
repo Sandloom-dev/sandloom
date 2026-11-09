@@ -288,11 +288,25 @@ protected claim even when the map does not name it. So is every key that a
 generated claim atom imported in the process reads.
 
 While the billing authority is down, `Feature` and `WithinLimit` on the user's
-token answer `503` (indeterminate, never an allow). `Subscribed` with an absent
-`subscription_status` answers the same. A claim that is absent although its
-authority ran answers `501`: no source speaks, and a deny would let `Not`
-allow. A claim map that is present is a complete snapshot, and an entry it does
-not list denies.
+token answer `503` (indeterminate, never an allow). So does `Subscribed` with an absent
+`subscription_status`. It never asks billing live.
+
+A claim that is absent although its authority ran answers `501`. Provenance
+proves which authority ran. It does not prove that a claim the authority did
+not write means "no", and a deny would let `Not` allow. The one exception is a
+fact that declares it: `AccessFact(absent_claim="deny")` makes the proven
+absence of its own primary claim a definite deny. Billing's
+`subscription.active` declares it, so a user with no billing customer is `402`.
+
+"Proven" means all of these hold:
+
+- the key is assigned to the owner and verified;
+- the owner ran at the mint and did not fail;
+- the token's `cpv` for the key is the digest the verifier accepts;
+- the view removed nothing.
+
+A claim map that is present is a complete snapshot, and an entry it
+does not list denies.
 
 `email` and `email_verified` belong to the map's issuer: a map that
 assigns them to another module refuses the boot. A lean root with no map
@@ -332,8 +346,9 @@ module may write a given claim key is the assignment above.
 
 A contract that decides access has one provider per composition. A live
 atom is generated from the provider's `access_check` and asks that contract.
-`OrgRole` asks `tenancy.membership.v1`. `SubscriptionActive` and `Credits` ask
-`billing.entitlements.v1`. A third-party atom asks its own contract. The kernel
+Tenancy's `OrgRole` asks `tenancy.membership.v1`. Billing's `SubscriptionActive`
+and `Credits` ask `billing.entitlements.v1`. A third-party atom asks its own
+contract; the kernel treats all of them alike. The kernel
 keeps no adapter table and no list of fact owners. Such
 a contract is access-bearing, and only two modules may register it
 in-process:

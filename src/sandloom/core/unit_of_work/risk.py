@@ -3,9 +3,10 @@
 **Sources** (static tags; each sets :data:`RISK_ATTR` on the callable, so the
 route policy and the route snapshot see a tagged dependency):
 
-* the framework's admin gates (``require_platform_admin``, ``require(Role(
-  "admin"))``, ``require(OrgRole("admin" | "owner"))``, tenancy's
-  ``require_org_role("admin" | "owner")``): ``admin``;
+* the framework's admin gates (``require_platform_admin``,
+  ``require(Role("admin"))``) and a provider's ``access_check(risk=...)``
+  (tenancy's ``OrgRole("admin" | "owner")``, generated beside the consumer's
+  stub): ``admin``;
 * :func:`sensitive_effect` on an effect service (``money`` for operation
   intents, ``security`` with a step-up for credential changes);
 * ``contract_method(command=True, risk="money")`` and the ``MoneyLedger``
