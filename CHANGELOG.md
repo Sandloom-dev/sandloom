@@ -197,6 +197,38 @@ website renders this same changelog.
   billing that ran (no customer) still denies 402. Upgrade: nothing; a
   token minted before the claim policy now gets the 401 that one refresh
   fixes, instead of a 402.
+- **`Subscribed()` and `Subscribed(statuses=...)` agree** (KB-33g, G-AUTH-12,
+  an amendment of G-AUTHZ-12). The owner's decision: `statuses=` changes
+  the accepted statuses, not the trust rules. Before, a user with no billing
+  customer (billing's `subscription_claims()` returns `{}`) was denied 402
+  by `Subscribed()` but got 501 from `Subscribed(statuses=...)`. Both reads
+  of billing's generated `Subscribed` for `Account.user()` now share one
+  trust rule, with zero I/O beyond billing's declarative rule for a present
+  status:
+  - Billing's own claim proven absent is billing's 402 on both. Proven means
+    the key is the fact's claim, the verifier's map assigns it to billing,
+    billing is in `claims_sources` and not in `claims_sources_failed`, the
+    token's `cpv` entry for the key is the digest the verifier accepts for
+    billing, and the view removed nothing. An absent key never matches a
+    status, so `statuses={"none"}` does not match it.
+  - A status present that billing vouched for decides: outside the accepted
+    statuses it denies 402.
+  - Billing failed at the mint: 503 `claim_authority_failed` on both. The
+    default read no longer asks billing live.
+  - No authority assigned for the key, another authority, billing not run,
+    no `cpv` or another policy's digest, a token without provenance, removed
+    by the view as unassigned or unvouched, another declared `claim_key=`,
+    or a value that is not a string: 501 `access_unknown` on both.
+  - The view's 401 `token_policy_outdated` / 503 `claims_policy_mismatch`
+    stay as they were.
+
+  `~Subscribed` allows only on a proven deny. `Not`, `Or` and `And` never
+  allow on an indeterminate. Features, limits and application claims are
+  unchanged. Upgrade: with billing failed at the mint, `Subscribed()`
+  answers 503 until the user signs in again instead of asking billing live.
+  An absent status on a token without provenance or `cpv` answers 501
+  instead of 402. A user with no billing customer gets 402 from
+  `Subscribed(statuses=...)` instead of 501.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`

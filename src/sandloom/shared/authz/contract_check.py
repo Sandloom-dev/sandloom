@@ -57,6 +57,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
 import sandloom.shared.authz.facts as _facts
+from sandloom.core.auth import claims_view as _view
+from sandloom.core.claims import CPV_CLAIM, CPV_VERSION
 from sandloom.core.facade import facts_contract_name
 from sandloom.core.module_api import AccessUnknown
 from sandloom.shared.authz._resolve import (
@@ -584,23 +586,33 @@ class ClaimFactCheck(Requirement):
     vouch for the claim). For an organization account it delegates to the
     owner's live access check (``otherwise`` in the literal).
 
-    The verbatim read is three-valued from the token (KB-33e, the rows of
-    G-AUTHZ-12 as amended by KB-33d): a status present decides (allow when
-    it is among the statuses, else a definite deny); the claim removed by
-    the view for a reason a refresh or a retry may change is its 401 / 503;
-    absent because its authority failed at the mint is 503
-    ``claim_authority_failed``; absent otherwise (its authority wrote none,
-    the view removed it as unassigned / unvouched, a legacy token) or not a
-    string is 501 ``access_unknown``. ``Not`` and ``Or`` never allow on any
-    of these; zero I/O on every row.
+    Both reads share one trust rule (KB-33g, owner decision 2026-11-09:
+    ``statuses=`` changes the accepted statuses, not the trust rules), so
+    the default read and the verbatim read agree on every row, with zero
+    I/O beyond the owner's declarative rule:
 
-    The default read (KB-33f) shares the first row: the claim removed by the
-    view for a reason a refresh or a retry may change is its 401 / 503 with
-    zero I/O, before the fact is looked up. A claim the owner did not vouch
-    for (it failed at the mint, or did not run) is asked live, 503 without a
-    live check; a value the view removed although the owner vouched for the
-    token is 501 ``access_unknown``; otherwise the owner's rule reads the
-    claim (an absent one from an owner that ran is its "no").
+    * a status present that the owner vouched for decides: the default read
+      by the owner's rule (e.g. a grace period), the verbatim read by the
+      chosen statuses; outside them a definite deny (the declared 402);
+    * the owner's own claim proven absent is the owner's definite deny too:
+      the key is the fact's claim, assigned to the owner and verified, the
+      owner ran at the mint (in ``claims_sources``, not failed) under the
+      token's intact claim policy (its ``cpv`` entry is the one the
+      verifier accepts for the owner), and the view removed nothing. An
+      absent key never equals any status (``statuses={"none"}`` does not
+      match it);
+    * the claim removed by the view for a reason a refresh or a retry may
+      change: its 401 ``token_policy_outdated`` / 503
+      ``claims_policy_mismatch``;
+    * absent (or present but unvouched) because its authority failed at the
+      mint: 503 ``claim_authority_failed``, never asked live;
+    * absent otherwise (no authority assigned for the key, another
+      authority, the owner did not run, no provable claim policy, a legacy
+      token, removed by the view as unassigned / unvouched, another
+      declared ``claim_key=``), or not a string: 501 ``access_unknown``.
+
+    Only a definite deny is a ``False``: ``Not`` allows only on a proven
+    deny, and ``Not`` / ``Or`` / ``And`` never allow on an indeterminate.
     """
 
     __sandloom_atom__: ClassVar[dict[str, Any]] = {}
@@ -698,9 +710,14 @@ class ClaimFactCheck(Requirement):
             # may change is its 401 / 503 first, zero I/O, never a deny that
             # Not would turn into an allow.
             _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
+        # One trust rule for both reads (KB-33g): the status the owner
+        # vouched for, None when the owner's claim is proven absent.
+        status = self._vouched_status(ctx)
+        if status is None:
+            return False
         if self._verbatim:
-            return self._via_statuses(ctx)
-        return await self._via_fact(ctx)
+            return status in self._accepted_statuses()
+        return await self._via_fact(ctx, status)
 
     def _owner_absent(self) -> Exception:
         atom = self.__sandloom_atom__
@@ -711,55 +728,72 @@ class ClaimFactCheck(Requirement):
             501,
         )
 
-    def _via_statuses(self, ctx: AuthzContext) -> bool:
-        """The claim read verbatim against the chosen statuses, zero I/O; the
-        owner must be part of the composition (loaded, or its facts contract
-        bound), else nobody vouches for the claim. An absent or malformed
-        claim is indeterminate, never a deny (see the class)."""
-        owner = str(self.__sandloom_atom__["owner"])
-        if not _facts.fact_owner_present(
-            ctx, str(self.__sandloom_atom__["fact"]), owner
-        ):
+    def _accepted_statuses(self) -> frozenset[str]:
+        if self.statuses is not None:
+            return self.statuses
+        return frozenset(str(s) for s in self.__sandloom_atom__.get("statuses") or ())
+
+    def _vouched_status(self, ctx: AuthzContext) -> str | None:
+        """The claim under the owner's provenance, the one trust rule of both
+        reads (KB-33g), zero I/O: the status (a string) the owner vouched
+        for, ``None`` when the owner's claim is proven absent (its definite
+        deny), else the row's indeterminate (see the class). The view's
+        401 / 503 were raised by :meth:`evaluate`."""
+        atom = self.__sandloom_atom__
+        owner = str(atom["owner"])
+        if not _facts.fact_owner_present(ctx, str(atom["fact"]), owner):
+            # The owner is neither loaded nor bound: nobody vouches.
             raise self._owner_absent()
-        status = ctx.subject.claim(self.claim_key)
+        subject = ctx.subject
+        key = self.claim_key
+        status = subject.claim(key)
         if status is None:
-            # Absence of a source is never a negative fact (KB-33e, the
-            # KB-33d rows): the view's 401 / 503 were raised by evaluate,
-            # then an authority that failed at the mint 503, else unknown
-            # 501. Never a False that Not would turn into an allow.
-            if _claim_authority_failed(ctx, self.claim_key):
-                raise self._indeterminate(
-                    "claim_authority_failed",
-                    f"claim {self.claim_key!r} is not in the token: its authority "
-                    "failed when the token was minted; try again later or sign "
-                    "in again",
-                    503,
+            if _claim_authority_failed(ctx, key):
+                raise self._authority_failed()
+            if key in (getattr(subject, "untrusted_claims", None) or {}):
+                # The view removed the value (unassigned, another
+                # authority's digest, its source absent): nobody vouches
+                # for this claim, so unknown, never the owner's "no".
+                raise self._claim_unknown(
+                    f"claim {key!r} was removed by the trusted view: no "
+                    "authority vouches for the status, so it is unknown, not "
+                    "denied"
                 )
+            if key == str(atom["claim_key"]) and _absence_proven(ctx, key, owner):
+                return None
             raise self._claim_unknown(
-                f"claim {self.claim_key!r} is not in the token: no source "
-                "vouches for the status, so it is unknown, not denied"
+                f"claim {key!r} is not in the token: no source vouches for the "
+                "status, so it is unknown, not denied"
+            )
+        if not _value_vouched(ctx, key, owner):
+            if owner in subject.claims_sources_failed:
+                raise self._authority_failed()
+            raise self._claim_unknown(
+                f"claim {key!r} was not minted by its owner {owner!r}: no "
+                "authority vouches for the status, so it is unknown, not denied"
             )
         if not isinstance(status, str):
-            raise self._claim_unknown(f"claim {self.claim_key!r} is not a string")
-        allowed = self.statuses
-        if allowed is None:
-            allowed = frozenset(
-                str(s) for s in self.__sandloom_atom__.get("statuses") or ()
-            )
-        return status in allowed
+            raise self._claim_unknown(f"claim {key!r} is not a string")
+        return status
+
+    def _authority_failed(self) -> Exception:
+        return self._indeterminate(
+            "claim_authority_failed",
+            f"claim {self.claim_key!r} is not vouched for: its authority failed "
+            "when the token was minted; try again later or sign in again",
+            503,
+        )
 
     def _claim_unknown(self, reason: str) -> Exception:
         return _indeterminate(
             ACCESS_UNKNOWN, reason, 501, self.describe(), {"claim": self.claim_key}
         )
 
-    async def _via_fact(self, ctx: AuthzContext) -> bool:
-        """The owner's fact decides (local, or described over its facts
-        contract once and cached): its claim under provenance, else its live
-        answer when the owner did not contribute to this token; never a
-        "no" for a value the view removed (see the class)."""
+    async def _via_fact(self, ctx: AuthzContext, status: str) -> bool:
+        """The owner's declarative rule reads the vouched status (the fact
+        local, or described over its facts contract once and cached); never
+        asked live for ``Account.user()`` (KB-33g)."""
         atom = self.__sandloom_atom__
-        status = ctx.subject.claim(self.claim_key)
         try:
             fact = await _facts.lookup_access_fact(
                 ctx, str(atom["fact"]), owner=str(atom["owner"])
@@ -768,32 +802,77 @@ class ClaimFactCheck(Requirement):
             raise self._indeterminate("fact_owner_unavailable", str(exc), 503) from exc
         if fact is None:
             raise self._owner_absent()
-        subject = ctx.subject
-        if _facts._claim_trustworthy(fact, ctx) or not subject.provenance_authoritative:
-            if status is None and self.claim_key in (
-                getattr(subject, "untrusted_claims", None) or {}
-            ):
-                # The owner vouched for the token, but the view removed the
-                # value it wrote (unassigned, another authority's digest):
-                # nobody vouches for this claim, so unknown, never the
-                # owner's "no" (KB-33f).
-                raise self._claim_unknown(
-                    f"claim {self.claim_key!r} was removed by the trusted view: "
-                    "no authority vouches for the status, so it is unknown, "
-                    "not denied"
-                )
-            return fact.interpret_claim(status)
-        try:
-            return await _facts.resolve_fact(fact, ctx, mode=_facts.MODE_LIVE)
-        except _facts.FactDenied:
-            return False
-        except _facts.FactUnavailable as exc:
-            raise self._indeterminate(
-                "claim_unverifiable",
-                f"claim not minted by {fact.owner_module!r} and no live check is "
-                f"available: {exc}",
-                503,
-            ) from exc
+        return fact.interpret_claim(status)
+
+
+def _value_vouched(ctx: AuthzContext, key: str, owner: str) -> bool:
+    """Whether the present claim ``key`` is vouched for, zero I/O: a legacy
+    token (no authoritative provenance) as before; else the owner ran at the
+    mint, or the verifier's map assigns the key and the trusted view kept
+    the value (an accepted authority vouched, a ``previous=`` one in a
+    rollout included)."""
+    subject = ctx.subject
+    if not getattr(subject, "provenance_authoritative", False):
+        return True
+    if owner in subject.claims_sources and owner not in subject.claims_sources_failed:
+        return True
+    authorities = getattr(ctx.core(), "claim_authorities", None)
+    return bool(
+        authorities is not None
+        and getattr(authorities, "assigned", False)
+        and authorities.accepted.get(key)
+    )
+
+
+def _absence_proven(ctx: AuthzContext, key: str, owner: str) -> bool:
+    """Whether the token proves that ``owner``, the key's assigned and
+    verified authority, ran at the mint under the intact claim policy and
+    wrote no ``key`` (KB-33g), zero I/O. Provenance, never the key's name:
+
+    * the verifier's map assigns ``key`` to ``owner`` (its current
+      authority, verified at boot);
+    * the token's authoritative provenance lists ``owner`` in
+      ``claims_sources`` and not in ``claims_sources_failed``;
+    * the token's ``cpv`` entry for ``key`` is a digest the verifier accepts
+      for ``owner`` (the issuer's policy is the verifier's). A token without
+      a ``cpv`` (a legacy token, the bounded compatibility window) proves
+      nothing. In a test composition a test-kit token is read as the view
+      reads it: vouched for by the kernel test authority, or its stated
+      provenance checked without a digest.
+
+    The caller has already ruled out a value, a view removal and a failed
+    authority.
+    """
+    subject = ctx.subject
+    sources = subject.claims_sources
+    failed = subject.claims_sources_failed
+    cpv = subject.claim(CPV_CLAIM)
+    test_token = _view.test_authority_enabled() and cpv == _view.TEST_CPV
+    if (
+        test_token
+        and _view.TEST_AUTHORITY in sources
+        and _view.TEST_AUTHORITY not in failed
+    ):
+        return True
+    if not getattr(subject, "provenance_authoritative", False):
+        return False
+    if owner not in sources or owner in failed:
+        return False
+    authorities = getattr(ctx.core(), "claim_authorities", None)
+    if authorities is None or not getattr(authorities, "assigned", False):
+        return False
+    accepted = authorities.accepted.get(key) or ()
+    if not accepted or accepted[0][0] != owner:
+        return False
+    if test_token:
+        return True
+    if not isinstance(cpv, Mapping) or cpv.get("v") != CPV_VERSION:
+        return False
+    entries = cpv.get("k")
+    if not isinstance(entries, Mapping):
+        return False
+    digest = entries.get(key)
+    return any(name == owner and digest == want for name, want in accepted)
 
 
 __all__ = [

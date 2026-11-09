@@ -1764,7 +1764,10 @@ guarantees:
 - id: G-AUTH-12
   statement: Every minted token carries claims_sources / claims_sources_failed; a module's claim is trusted
     only when that module is in claims_sources and not in claims_sources_failed, otherwise the fact is
-    unknown and escalates to a live check.
+    unknown and escalates to a live check. Amended 2026-11-09 (KB-33g), billing's generated Subscribed for
+    Account.user() escalates to no live check; with billing failed at the mint it is 503
+    claim_authority_failed with zero I/O, on Subscribed() and Subscribed(statuses=...) alike, never an
+    allow or a deny.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authorization
@@ -1772,7 +1775,7 @@ guarantees:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_claims_provenance_always_stamped
   - tests/integration/test_claims_provenance_and_subscribed.py::test_authoritative_provenance_trusts_only_listed_owner
   - tests/integration/test_claims_provenance_and_subscribed.py::test_owner_in_both_lists_is_not_trusted
-  - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_escalates_to_live_when_billing_failed_at_mint
+  - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_is_503_when_billing_failed_at_mint
 - id: G-AUTH-13
   statement: Claims contributors cannot write the identity claims. sub and token_type are the minting
     code's (reserved); email and email_verified are the map's issuer's fields, which identity's own claims
@@ -2878,7 +2881,21 @@ guarantees:
     mismatch it is 401 token_policy_outdated / 503 claims_policy_mismatch, no longer the 402 that Not turned
     into an allow; a value the view removed although billing vouched for the token is 501 access_unknown;
     billing failed at the mint is still asked live (503 without a live check), and otherwise billing's
-    rule reads the claim (an absent one from a billing that ran is its 402).
+    rule reads the claim (an absent one from a billing that ran is its 402). Amended 2026-11-09 (KB-33g,
+    owner decision, statuses= changes the accepted statuses, not the trust rules), Subscribed() and
+    Subscribed(statuses=...) share one trust rule and agree on every row, with zero I/O for Account.user()
+    beyond billing's declarative rule for a present status. Billing's own claim proven absent is billing's
+    definite 402 on both; the key is the fact's claim, assigned to billing in the verifier's map, billing
+    is in claims_sources and not in claims_sources_failed, the token's cpv entry for the key is the digest
+    the verifier accepts for billing, and the view removed nothing (billing's subscription_claims() is {}
+    for a user with no billing customer). An absent key never equals a status (statuses={"none"} does not
+    match it). A status present that billing vouched for decides (outside the accepted statuses 402);
+    removed by the view 401 token_policy_outdated / 503 claims_policy_mismatch; billing failed at the mint
+    503 claim_authority_failed, no longer asked live; no authority assigned for the key, another authority,
+    billing not run, no cpv or another policy's digest, a legacy token, removed by the view as unassigned /
+    unvouched, another declared claim_key=, or not a string 501 access_unknown. ~Subscribed allows only on
+    a proven deny; Not, Or and And never allow on an indeterminate. Never extended to features, limits or
+    application claims.
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
@@ -2900,8 +2917,15 @@ guarantees:
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_escalates_when_billing_failed
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
   - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
+  - src/sandloom/core/tests/test_subscribed_agree.py::test_both_paths_answer_every_row_alike
+  - src/sandloom/core/tests/test_subscribed_agree.py::test_an_absent_status_never_equals_none
+  - src/sandloom/core/tests/test_subscribed_agree.py::test_a_remote_billing_denies_a_proven_absence_with_no_call
+  - src/sandloom/core/tests/test_subscribed_agree.py::test_a_previous_authority_of_another_name_proves_no_absence
+  - src/sandloom/core/tests/test_subscribed_agree.py::test_another_declared_claim_key_proves_no_absence
+  - tests/integration/with_batteries/test_subscribed_no_customer.py::test_no_billing_customer_is_402_on_both_reads
+  - tests/integration/with_batteries/test_subscribed_no_customer.py::test_the_decision_does_no_io
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator
