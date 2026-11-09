@@ -957,6 +957,14 @@ the view removed it as unassigned / unvouched, a legacy token) or not a
 string is 501 `access_unknown`. `Not` and `Or` never allow on any
 of these; zero I/O on every row.
 
+The default read (KB-33f) shares the first row: the claim removed by the
+view for a reason a refresh or a retry may change is its 401 / 503 with
+zero I/O, before the fact is looked up. A claim the owner did not vouch
+for (it failed at the mint, or did not run) is asked live, 503 without a
+live check; a value the view removed although the owner vouched for the
+token is 501 `access_unknown`; otherwise the owner's rule reads the
+claim (an absent one from an owner that ran is its "no").
+
 #### `ClaimFactCheck.org_params`
 
 ```python

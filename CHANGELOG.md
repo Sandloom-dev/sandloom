@@ -163,6 +163,24 @@ website renders this same changelog.
   vouch for is asked live, 503 without a live check. Upgrade: a
   `Subscribed(statuses=..., of=Account.user())` gate on a token without the
   claim answers 501 or 503 instead of 402.
+- **`Subscribed()`: a status the trusted view removed is never a deny that
+  `Not` turns into an allow** (KB-33f, G-AUTH-26, an amendment of
+  G-AUTHZ-12). On its default path (no `statuses=`), billing's generated
+  `Subscribed` read a `subscription_status` the view removed as outdated or
+  mismatch as an absent status and denied 402, so
+  `~Subscribed(of=Account.user())` allowed on an untrusted claim. The kernel
+  atom it replaces answered 401 / 503. Both paths now share one check, with
+  zero I/O and before the fact is looked up:
+  - Removed as outdated: 401 `token_policy_outdated`. Removed as mismatch:
+    503 `claims_policy_mismatch`.
+  - Removed for another reason (unassigned, another authority's digest)
+    while billing vouched for the token: 501 `access_unknown`.
+
+  Billing failed at the mint is still asked live (503 without a live check).
+  Otherwise billing's rule reads the claim, so an absent status from a
+  billing that ran (no customer) still denies 402. Upgrade: nothing; a
+  token minted before the claim policy now gets the 401 that one refresh
+  fixes, instead of a 402.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`

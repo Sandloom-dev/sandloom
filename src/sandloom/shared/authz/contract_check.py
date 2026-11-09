@@ -593,6 +593,14 @@ class ClaimFactCheck(Requirement):
     the view removed it as unassigned / unvouched, a legacy token) or not a
     string is 501 ``access_unknown``. ``Not`` and ``Or`` never allow on any
     of these; zero I/O on every row.
+
+    The default read (KB-33f) shares the first row: the claim removed by the
+    view for a reason a refresh or a retry may change is its 401 / 503 with
+    zero I/O, before the fact is looked up. A claim the owner did not vouch
+    for (it failed at the mint, or did not run) is asked live, 503 without a
+    live check; a value the view removed although the owner vouched for the
+    token is 501 ``access_unknown``; otherwise the owner's rule reads the
+    claim (an absent one from an owner that ran is its "no").
     """
 
     __sandloom_atom__: ClassVar[dict[str, Any]] = {}
@@ -684,6 +692,12 @@ class ClaimFactCheck(Requirement):
                         501,
                     )
                 return await self._otherwise({}, of=self.account).evaluate(ctx)
+        if ctx.subject.claim(self.claim_key) is None:
+            # One code path for both reads (KB-33f, G-AUTH-26): the claim
+            # removed by the trusted view for a reason a refresh or a retry
+            # may change is its 401 / 503 first, zero I/O, never a deny that
+            # Not would turn into an allow.
+            _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
         if self._verbatim:
             return self._via_statuses(ctx)
         return await self._via_fact(ctx)
@@ -710,10 +724,9 @@ class ClaimFactCheck(Requirement):
         status = ctx.subject.claim(self.claim_key)
         if status is None:
             # Absence of a source is never a negative fact (KB-33e, the
-            # KB-33d rows): the view's 401 / 503 first, then an authority
-            # that failed at the mint 503, else unknown 501. Never a False
-            # that Not would turn into an allow.
-            _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
+            # KB-33d rows): the view's 401 / 503 were raised by evaluate,
+            # then an authority that failed at the mint 503, else unknown
+            # 501. Never a False that Not would turn into an allow.
             if _claim_authority_failed(ctx, self.claim_key):
                 raise self._indeterminate(
                     "claim_authority_failed",
@@ -743,7 +756,8 @@ class ClaimFactCheck(Requirement):
     async def _via_fact(self, ctx: AuthzContext) -> bool:
         """The owner's fact decides (local, or described over its facts
         contract once and cached): its claim under provenance, else its live
-        answer when the owner did not contribute to this token."""
+        answer when the owner did not contribute to this token; never a
+        "no" for a value the view removed (see the class)."""
         atom = self.__sandloom_atom__
         status = ctx.subject.claim(self.claim_key)
         try:
@@ -756,6 +770,18 @@ class ClaimFactCheck(Requirement):
             raise self._owner_absent()
         subject = ctx.subject
         if _facts._claim_trustworthy(fact, ctx) or not subject.provenance_authoritative:
+            if status is None and self.claim_key in (
+                getattr(subject, "untrusted_claims", None) or {}
+            ):
+                # The owner vouched for the token, but the view removed the
+                # value it wrote (unassigned, another authority's digest):
+                # nobody vouches for this claim, so unknown, never the
+                # owner's "no" (KB-33f).
+                raise self._claim_unknown(
+                    f"claim {self.claim_key!r} was removed by the trusted view: "
+                    "no authority vouches for the status, so it is unknown, "
+                    "not denied"
+                )
             return fact.interpret_claim(status)
         try:
             return await _facts.resolve_fact(fact, ctx, mode=_facts.MODE_LIVE)
