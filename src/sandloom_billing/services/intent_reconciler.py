@@ -55,20 +55,35 @@ and one log line — WARNING when anything is still failing or escalated). The
 durable signal for alerting is the table itself (``reconcile_attempts``,
 ``followup_at``); the framework's Celery worker exports no Prometheus
 endpoint, so no counter is incremented here.
+
+The operational criterion (that the reconciler RUNS, not only that the broker
+answers): every completed run records its end in ``billing_reconciler_runs``
+(:func:`record_reconciler_run`); the ``billing_reconciler`` health check
+(:class:`ReconcilerHealthCheck`, registered by the module) fails when no run
+completed within :data:`RECONCILE_MAX_SILENCE_SECONDS` — no worker, no beat,
+a broker down for longer than that, or a run that keeps raising. It feeds
+``/health`` and ``/ready`` of every process that loads billing, so a stopped
+reconciler is never hidden behind a green ``/ready``. A process gives the
+reconciler one allowed interval after it starts before it judges (a fresh
+deployment, or one restarted after downtime, has not run it yet).
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.sdk.data import open_uow
+from sandloom.sdk.data import WallClock, conflict_insert, open_uow
 from sandloom.sdk.infra import settings
+from sandloom.sdk.module import HealthResult, HealthStatus
 from sandloom_billing.models import (
     INTENT_FAILED,
     INTENT_METADATA_KEY,
@@ -76,6 +91,7 @@ from sandloom_billing.models import (
     INTENT_REVOKED,
     OPERATION_CHECKOUT,
     BillingCustomer,
+    BillingReconcilerRun,
     OperationIntent,
 )
 from sandloom_billing.psp import (
@@ -490,4 +506,155 @@ def _owner_and_status(c: _Candidate) -> tuple[Any, ...]:
     )
 
 
-__all__ = ["DEFAULT_BATCH", "IntentReconciler", "ReconcileReport"]
+# --- the operational criterion: the reconciler runs ---------------------------
+
+#: How often beat runs the reconciler (seconds). The staleness threshold of an
+#: intent is ``BILLING_INTENT_RECONCILE_AFTER_MINUTES``; this only bounds the
+#: delay.
+RECONCILE_INTERVAL_SECONDS = 300.0
+#: The allowed processing interval: the longest time without a completed run
+#: before the reconciler counts as not running. Three periods, so one missed
+#: tick, a worker restart or a broker outage of a few minutes stays within it.
+RECONCILE_MAX_SILENCE_SECONDS = 3 * RECONCILE_INTERVAL_SECONDS
+#: The job name of the reconciler's run record.
+RECONCILER_JOB = "reconcile_operation_intents"
+#: The health check's name (``/health`` checks, ``/ready`` health_checks).
+RECONCILER_HEALTH_CHECK = "billing_reconciler"
+
+
+async def record_reconciler_run(db: AsyncSession) -> None:
+    """Record that a reconciler run completed (the database's clock).
+
+    One upsert on a one-row table, in the run's last unit: a run that raises
+    before it records nothing, so a reconciler that keeps failing shows as
+    one that does not run.
+    """
+    stmt = conflict_insert(BillingReconcilerRun, session=db).values(
+        name=RECONCILER_JOB, finished_at=WallClock(), runs=1
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[BillingReconcilerRun.name],
+            set_={
+                "finished_at": WallClock(),
+                "runs": BillingReconcilerRun.runs + 1,
+            },
+        )
+    )
+
+
+async def last_reconciler_run() -> tuple[datetime, int] | None:
+    """``(finished_at, runs)`` of the last completed run, or ``None``."""
+    async with open_uow() as db:
+        row = (
+            await db.execute(
+                select(
+                    BillingReconcilerRun.finished_at, BillingReconcilerRun.runs
+                ).where(BillingReconcilerRun.name == RECONCILER_JOB)
+            )
+        ).one_or_none()
+    if row is None:
+        return None
+    finished_at, runs = row
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=UTC)
+    return finished_at, int(runs)
+
+
+class ReconcilerHealthCheck:
+    """The ``billing_reconciler`` health check: did a run complete within the
+    allowed interval?
+
+    ========================  ======  ==========================================
+    state                     status  meaning
+    ========================  ======  ==========================================
+    ``startup_grace``         ok      this process started less than one allowed
+                                      interval ago; nothing is read
+    ``running``               ok      the last run ended within the interval
+    ``never_ran``             fail    no run was ever recorded: no worker or no
+                                      beat runs the reconciler
+    ``overdue``               fail    the last run ended longer ago than the
+                                      interval: the worker, the beat or the
+                                      broker stopped, or every run raises
+    ========================  ======  ==========================================
+
+    One primary-key read per probe, and the kernel caches the probe for the
+    health TTL (one read per TTL however many ``/ready`` hits arrive). The
+    write is the worker's (:func:`record_reconciler_run`), with the database's
+    clock; the age is measured against this host's clock.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_silence_seconds: float = RECONCILE_MAX_SILENCE_SECONDS,
+        monotonic: Callable[[], float] = time.monotonic,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        read: Callable[[], Any] = last_reconciler_run,
+    ) -> None:
+        self._max_silence = float(max_silence_seconds)
+        self._monotonic = monotonic
+        self._now = now
+        self._read = read
+        self._started = monotonic()
+
+    def _result(self, status: HealthStatus, state: str, **details: Any) -> HealthResult:
+        return HealthResult(
+            status=status,
+            details={
+                "job": RECONCILER_JOB,
+                "state": state,
+                "max_silence_seconds": self._max_silence,
+                **details,
+            },
+        )
+
+    async def __call__(self) -> HealthResult:
+        """Probe the run record (see the class docstring)."""
+        uptime = self._monotonic() - self._started
+        if uptime < self._max_silence:
+            return self._result(
+                "ok",
+                "startup_grace",
+                grace_left_seconds=round(self._max_silence - uptime, 1),
+            )
+        last = await self._read()
+        if last is None:
+            return self._result(
+                "fail",
+                "never_ran",
+                error="no reconciler run recorded: no worker or no beat runs "
+                f"{RECONCILER_JOB} (start `celery -A sandloom.core.worker worker` "
+                "and one `celery -A sandloom.core.worker beat`)",
+            )
+        finished_at, runs = last
+        age = max(0.0, (self._now() - finished_at).total_seconds())
+        details = {
+            "last_run_at": finished_at.isoformat(),
+            "seconds_since_last_run": round(age, 1),
+            "runs": runs,
+        }
+        if age > self._max_silence:
+            return self._result(
+                "fail",
+                "overdue",
+                error=f"the last reconciler run ended {age:.0f}s ago (allowed "
+                f"{self._max_silence:.0f}s): the worker, the beat or the broker "
+                "stopped, or every run fails",
+                **details,
+            )
+        return self._result("ok", "running", **details)
+
+
+__all__ = [
+    "DEFAULT_BATCH",
+    "RECONCILER_HEALTH_CHECK",
+    "RECONCILER_JOB",
+    "RECONCILE_INTERVAL_SECONDS",
+    "RECONCILE_MAX_SILENCE_SECONDS",
+    "IntentReconciler",
+    "ReconcileReport",
+    "ReconcilerHealthCheck",
+    "last_reconciler_run",
+    "record_reconciler_run",
+]

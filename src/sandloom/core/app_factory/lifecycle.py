@@ -220,9 +220,12 @@ def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> No
 
         Default db/cache/storage are covered by the dedicated checks above;
         this surfaces additional databases/caches/object-stores declared via
-        INFRA so /ready reflects them too.
+        INFRA so /ready reflects them too. The taskqueue is never probed
+        here: readiness owns it (the processes that use it on the request
+        path), so ``/health`` opens no broker connection and a broker outage
+        never fails it.
         """
-        results = await infra.health_all()
+        results = await infra.health_all(skip=frozenset({"taskqueue"}))
         failures = {
             key: res.details
             for key, res in results.items()

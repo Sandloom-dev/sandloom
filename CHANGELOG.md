@@ -257,6 +257,42 @@ website renders this same changelog.
   `SANDLOOM_ACCEPTED_RISKS`; no mail is delivered. Upgrade: a production stack
   sets `NOTIFIER_BACKEND=smtp` and `SMTP_HOST`; a demo stack adds
   `log_notifier_in_prod` (CI's microservices smoke does).
+- **Readiness and the taskqueue: transient trouble only, keyed on the
+  requirement** (owner decision on module infrastructure dependencies,
+  answers 3 and 4; KB-IC-3). `/ready`'s taskqueue term now follows each
+  loaded module's REQUIRED taskqueue requirement (declared or derived), not
+  the presence of a `tasks.py`. A module that uses the queue while serving
+  (no feature named, or `delay` / `idempotency_key`) makes `/ready` 503 when
+  its broker cannot be reached, naming the instance. A module that needs only
+  `periodic` keeps the web process ready during a broker outage: the worker
+  and beat run that work. The internal block lists such modules under
+  `background_modules`. An optional requirement is never probed. The internal
+  `taskqueue` block now holds per-instance results under `instances`, and
+  `instance` / `details` are gone from its top level. The `celery` driver's
+  `health()` now connects to the broker once per probe, bounded by
+  `HEALTH_CHECK_TIMEOUT_SECONDS` and with no retry; before, it always answered
+  `ok`. `/ready` caches it with the other probes, so the broker gets one
+  connection per TTL however many hits arrive. **Upgrade:** a deployment whose
+  `/ready` was 503 only because Celery was missing is now refused at startup
+  (kb-ic-1). A monitor reading `taskqueue.status` or `taskqueue.details` reads
+  `taskqueue.instances.<name>` instead.
+- **Billing watches that its intent reconciler runs** (KB-IC-3). A reachable
+  broker is not enough. Every completed run of `reconcile_operation_intents`
+  records its end in the new table `billing_reconciler_runs` (migration
+  `0012_billing`). The `billing_reconciler` health check fails when no run
+  completed within 15 minutes (three periods): `never_ran` means no worker or
+  no beat, and `overdue` means one of them, or the broker, stopped, or every
+  run fails. The check is part of `/health` and `/ready` in every process that
+  loads billing, after a 15-minute grace from process start in which it reads
+  nothing. **Upgrade:** run `sandloom migrate upgrade-all --apply`, and run a
+  worker and one beat wherever billing runs; in development without them,
+  `/ready` turns 503 on this check after 15 minutes.
+- **`sandloom doctor` has a `periodic` section, and `/diagnostics/core` a
+  `periodic` block** (KB-IC-3). For each loaded module whose taskqueue
+  requirement asks for `periodic`, they show whether a beat holds the lease
+  for this module set. If none does, a required need fails and an optional
+  one warns: identity's token cleanup is optional, and without it
+  `refresh_tokens` grows without bound (documented on the identity page).
 - **Modules declare the infrastructure their code needs; startup checks it,
   also where it is only derived** (owner decision on module infrastructure
   dependencies, item 2; kb-ic-2). The `taskqueue` capability has a new

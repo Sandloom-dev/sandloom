@@ -138,6 +138,28 @@ retried. Failed PSP steps are bounded by
 `followup_at` for an operator. An `issued` intent is never touched. Details:
 [ADR-0003, "Intent reconciliation"](../../adr/0003-fewer-sync-rpc-membership-reads.md#intent-reconciliation-72).
 
+The reconciler needs a worker and one beat; billing checks that they run it.
+A reachable broker is not enough, because the broker can answer while no
+worker or beat is running:
+
+- every completed run writes its end time to `billing_reconciler_runs`. A run
+  that raises writes nothing;
+- the `billing_reconciler` health check fails when no run completed in the
+  last 15 minutes (three periods). Its `state` says why: `never_ran` (no
+  worker or no beat), or `overdue` (the worker, the beat or the broker
+  stopped, or every run fails). The check is part of `/health` and `/ready`
+  in every process that loads billing, so those processes stop being ready;
+- a process waits 15 minutes after it starts before it judges
+  (`startup_grace`), because a fresh or restarted deployment has not run the
+  reconciler yet. In that time it reads nothing. After that it reads one row
+  per health TTL;
+- `sandloom doctor`'s `periodic` section fails when no beat holds the lease for
+  this module set.
+
+In development without a worker, `/ready` turns 503 on `billing_reconciler`
+after 15 minutes. Start `celery -A sandloom.core.worker worker -B`, or ignore
+that one check.
+
 ## Webhooks
 
 - Signature is always verified; a bad or missing signature is `400`. Without

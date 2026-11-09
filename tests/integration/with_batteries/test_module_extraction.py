@@ -440,7 +440,7 @@ def test_extract_crash_resume_verify_and_cleanup(monolith: tuple[str, str]) -> N
     # drop-source: dry-run first, then apply.
     dry = _billing(src, dst).drop_source(writes_stopped=True, apply=False)
     assert not dry.applied and not dry.problems
-    assert _count(src, "pg_tables", "tablename LIKE 'billing_%'") == 10
+    assert _count(src, "pg_tables", "tablename LIKE 'billing_%'") == 11
     dropped = _billing(src, dst).drop_source(writes_stopped=True, apply=True)
     assert dropped.applied
     assert _count(src, "pg_tables", "tablename LIKE 'billing_%'") == 0
