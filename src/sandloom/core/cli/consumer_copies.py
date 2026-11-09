@@ -30,7 +30,7 @@ refused (SANDLOOM-T018). ``sandloom check`` refuses any other file in
 ``_generated/`` (SANDLOOM-C032). DTO copies are
 rendered in their final layout by the generator, never by the project's
 formatter (decision 6). Kernel contract families (``<m>.claims.v1``,
-``<m>.facts.v1``) have kernel-defined shapes and get no copy.
+``<m>.facts.v1``, only ``.v1``) have kernel-defined shapes and get no copy.
 """
 
 from __future__ import annotations
@@ -93,9 +93,11 @@ class Planned:
 
 
 def is_kernel_family(contract: str) -> bool:
-    """``<m>.claims.v1`` / ``<m>.facts.v1``: kernel-shaped, never copied."""
+    """``<m>.claims.v1`` / ``<m>.facts.v1``: kernel-shaped, never copied. Only
+    ``.v1``: the runtime reserves exactly those names (claim authorities,
+    access providers), so a ``<m>.claims.v2`` is an ordinary contract."""
     parts = contract.split(".")
-    return len(parts) == 3 and parts[1] in ("claims", "facts")
+    return len(parts) == 3 and parts[1] in ("claims", "facts") and parts[2] == "v1"
 
 
 def stem_of(contract: str) -> str:

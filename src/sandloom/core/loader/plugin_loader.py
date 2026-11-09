@@ -552,6 +552,24 @@ def _record_failure(
             pass
 
 
+def _diagnose(
+    name: str, refusal: ConfigurationError, summary: ModuleLoadSummary
+) -> None:
+    """A module refused its configuration (ADR-0015 decision 8).
+
+    Outside collect mode (every serving entry point) the refusal propagates:
+    exit 1, an optional module cannot swallow it. In collect mode
+    (``sandloom config dump`` / ``doctor``) it is reported and the module is
+    left out of the composition, so the other modules' problems are found too.
+    """
+    found = _module_settings.collecting()
+    if found is None:
+        raise refusal
+    message = _guardrails.scrub_text(str(refusal)).removeprefix(INVALID_CONFIGURATION)
+    found.append(_module_settings.Diagnosed(name, message))
+    summary.failed.append(FailedModule(name=name, error=message, required=False))
+
+
 def _load_list(  # noqa: C901
     module_names: Sequence[str],
     core: CoreFacade,
@@ -624,6 +642,8 @@ def _load_list(  # noqa: C901
                     raise exc from None
                 continue
             queue.append(name)
+        except ConfigurationError as refusal:
+            _diagnose(name, refusal, summary)
         except Exception as e:
             # A selected module whose required capability is unmet refuses
             # startup even when it is optional (_selected_explicitly).
@@ -696,6 +716,8 @@ def _load_entry_points(core: CoreFacade, summary: ModuleLoadSummary) -> None:  #
             summary.skipped.append(
                 SkippedModule(name=dup.module_name, reason="duplicate")
             )
+        except ConfigurationError as refusal:
+            _diagnose(ep_label, refusal, summary)
         except Exception as e:
             _record_failure(ep_label, desc, e, summary)
             # Same rule as _load_list (see _fail_fast): any failure aborts when
@@ -851,11 +873,18 @@ def _check_module_settings(core: CoreFacade) -> None:
         loaded_modules=core.loaded_modules,
     )
     core.module_settings.risk_report = outcome.risks
+    core.module_settings.overrides = list(outcome.overrides)
     log = logging.getLogger("sandloom.settings")
     for warning in outcome.warnings:
         log.warning(warning)
     if outcome.problems:
-        raise _module_settings.refusal(outcome.problems)
+        found = _module_settings.collecting()
+        if found is None:
+            raise _module_settings.refusal(outcome.problems)
+        found.extend(
+            _module_settings.Diagnosed("(composition)", p) for p in outcome.problems
+        )
+        return
     _tiers.log_overrides(kernel, log, outcome.overrides)
     if _metrics_mod is not None:
         for item in outcome.overrides:

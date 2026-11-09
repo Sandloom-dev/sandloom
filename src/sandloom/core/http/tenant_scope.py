@@ -163,7 +163,11 @@ _parsed_tenant_ids: dict[str, frozenset[uuid.UUID]] = {}
 
 
 def _granted_tenant_ids(values: Any, token: str | None) -> frozenset[uuid.UUID]:
-    if not isinstance(values, (list, tuple, set)):
+    # No grant in THESE claims: nothing, whatever the memo holds for the
+    # token. The trusted view drops ``tenant_ids`` from a token it trusted
+    # until then (the compatibility window's end), so the memo's earlier
+    # parse is no longer this token's grant (ADR-0014 decision 4).
+    if not values or not isinstance(values, (list, tuple, set)):
         return frozenset()
     if token is not None:
         cached = _parsed_tenant_ids.get(token)

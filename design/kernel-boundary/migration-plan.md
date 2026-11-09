@@ -560,7 +560,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 - **Scope:** billing's eight fields, Stripe validator, fake-PSP production check, risk
   `billing.fake_psp_in_prod` (one-time migration, upgrade notes), its removed settings, semantic
   tier and ratchet, console-visible `billing_provider`; kernel ratchet 13 → 12 / 15 → 14.
-- **Edges:** B-C4, B-C5, B-C9 fixed; B-C1, B-C6 billing part. **Invariants:** I-02, I-18.
+- **Edges:** B-C4, B-C5 fixed; B-C1, B-C6 billing part (B-C9 moved to KB-55, which owns the console settings list). **Invariants:** I-02, I-18.
 - **Tests:** G-BILLING-18, G-RISK-07, G-CONFIG-07; P8, P10.
 - **No extra I/O / measure:** M-boot.
 - **Must not touch:** env names.
@@ -578,10 +578,11 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 ### KB-54 tenancy and admin settings
 
 - **Blocked by:** KB-49 (all 16 settings scenarios recorded).
-- **Scope:** `TENANT_CLAIMS_MAX_ORGANIZATIONS` to tenancy; `ADMIN_CONSOLE_*` to admin; the kernel
-  CLI's link-target choice reads the composed app's console route instead of
-  `admin_console_enabled`.
-- **Edges:** B-C2, B-C10 fixed; B-C1 closed with KB-52, KB-53; B-C6 admin part.
+- **Scope:** `TENANT_CLAIMS_MAX_ORGANIZATIONS` to tenancy; `ADMIN_CONSOLE_*` to admin. The kernel
+  CLI's link-target choice (the composed app's console route instead of the declared name
+  `ADMIN_CONSOLE_ENABLED`) moved to KB-60 by owner decision 2026-11-09.
+- **Edges:** B-C2 fixed; B-C1 closed with KB-52, KB-53; B-C6 admin part (B-C10 moved to KB-60, owner
+  decision 2026-11-09: the CLI link-target choice stays on the declared name until the CLI phase).
   **Invariants:** I-02, I-03, I-18.
 - **Tests:** tenancy claims bound; `sandloom admin create` link with and without the console.
 - **No extra I/O / measure:** none beyond M-boot.
@@ -593,7 +594,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 - **Scope:** tiers and `/diagnostics/core`, doctor, backup notes, console list, T014 shared keys
   and dev env, docs generator, deploy scaffold env from declarations; `config dump` collect mode
   (context variable) and `--kernel-only`.
-- **Edges:** B-C7, B-C8, B-N8 fixed. **Invariants:** I-03, I-18, answer #31, D-B2.
+- **Edges:** B-C7, B-C8, B-C9, B-N8 fixed. **Invariants:** I-03, I-18, answer #31, D-B2.
 - **Tests:** P11 (socket spy, byte-identical `--kernel-only`, diagnosed invalid value, collect mode
   unset in serving entry points), P14.
 - **No extra I/O:** the dump builds the composition without lifespan or connections. **Measure:**
@@ -615,7 +616,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 
 | PR | scope | edges |
 |---|---|---|
-| KB-60 identity CLI | identity's user commands (`admin create/invite/list`, `security revoke-sessions/force-password-reset/grant-admin`) leave the kernel, kept where possible through the standard composition or a CLI extension; set-password link target; start page hint (owner #14) | B-R4, B-R5, B-N3, B-N4 |
+| KB-60 identity CLI | identity's user commands (`admin create/invite/list`, `security revoke-sessions/force-password-reset/grant-admin`) leave the kernel, kept where possible through the standard composition or a CLI extension; set-password link target (from the composed app's console route, not the declared name: B-C10); start page hint (owner #14) | B-R4, B-R5, B-N3, B-N4, B-C10 |
 | KB-61 starter, templates, recipes | `sandloom new`, wizard, deploy templates, keys text, skill template, recipes generated from declarations or scoped as composition text | B-N5, B-N6, B-N7, B-N9, B-N10, B-N11 |
 
 ## Edge closure by PR
@@ -638,9 +639,9 @@ the tenant-kind change K1 of KB-31.
 | KB-32 | B-N17, B-N18 |
 | KB-34 | A19, B-R1, B-R3, B-R6, B-N12, B-N13, B-N14, B-N15 |
 | KB-40 | B-N1, B-N2 |
-| KB-52 | B-C4, B-C5, B-C9 |
+| KB-52 | B-C4, B-C5 |
 | KB-53 | B-C3 |
-| KB-54 | B-C1, B-C2, B-C6, B-C10 (B-C1 and B-C6 with KB-52, KB-53) |
-| KB-55 | B-C7, B-C8, B-N8 |
-| KB-60 | B-R4, B-R5, B-N3, B-N4 (deferred rows) |
+| KB-54 | B-C1, B-C2, B-C6 (B-C1 and B-C6 with KB-52, KB-53) |
+| KB-55 | B-C7, B-C8, B-C9, B-N8 |
+| KB-60 | B-R4, B-R5, B-N3, B-N4 (deferred rows), B-C10 (moved from KB-54) |
 | KB-61 | B-N5, B-N6, B-N7, B-N9, B-N10, B-N11 (deferred rows) |

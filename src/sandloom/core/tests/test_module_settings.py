@@ -449,7 +449,10 @@ def test_known_modules_are_the_installed_entry_points_and_the_composition(
         sandloom_modules=["app.modules.shop_eu", "sandloom_identity"],
         sandloom_accepted_risks=[],
     )
-    assert ms.known_module_names(kernel) == installed | {"shop_eu", "sandloom_identity"}
+    # an import path is the module's name where an entry point provides it
+    # (sandloom_identity is identity), else its last segment (app.modules.shop_eu)
+    assert ms.known_module_names(kernel) == installed | {"shop_eu"}
+    assert "sandloom_identity" not in ms.known_module_names(kernel)
     # the default reads them: shop_eu, named by the composition, is absent here
     records = _records(("shop", ShopEuNeighbour))
     foreign = _snapshot(SHOP_EU_REGIONS="eu-west")

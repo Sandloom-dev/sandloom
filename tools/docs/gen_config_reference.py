@@ -15,8 +15,8 @@ always win because we only set a default when the variable is absent.
 
 from __future__ import annotations
 
-import importlib.util
 import os
+import sys
 from pathlib import Path
 
 # Seed the mandatory settings with build-only placeholders so importing the
@@ -32,32 +32,40 @@ _DOCS_BUILD_ENV = {
 for _key, _value in _DOCS_BUILD_ENV.items():
     os.environ.setdefault(_key, _value)
 
+from pydantic import BaseModel  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
-from sandloom.core.config import tiers  # noqa: E402
+from sandloom.core.config import module_settings, tiers  # noqa: E402
 from sandloom.core.config.settings import Settings  # noqa: E402
-from sandloom_billing.config import BillingSettings  # noqa: E402
-from sandloom_identity.config import IdentitySettings  # noqa: E402
-from sandloom_tenancy.config import TenancySettings  # noqa: E402
+from sandloom.core.descriptors.module_names import installed_modules  # noqa: E402
 
 
-def _admin_settings() -> type:
-    """The console's settings model, loaded from its file: sandloom-admin is
-    importable only in its own tests, never installed with the framework."""
-    path = Path(__file__).resolve().parents[2] / "src/sandloom_admin/config.py"
-    spec = importlib.util.spec_from_file_location("_sandloom_admin_config", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.AdminSettings  # type: ignore[no-any-return]
+def _module_packages() -> list[str]:
+    """Import paths of the modules whose settings the page lists: every
+    installed ``sandloom.modules`` entry point, plus the framework repository's
+    own module packages (``src/sandloom_*``) that are not installed with it
+    (the admin console ships separately). The page names no module."""
+    src = Path(__file__).resolve().parents[2] / "src"
+    packages = [module.path for module in installed_modules()]
+    for directory in sorted(src.glob("sandloom_*")):
+        if directory.is_dir() and directory.name not in packages:
+            if str(src) not in sys.path:
+                sys.path.append(str(src))  # after the installed packages
+            packages.append(directory.name)
+    return packages
 
 
-_MODULE_SETTINGS = (
-    BillingSettings,
-    IdentitySettings,
-    TenancySettings,
-    _admin_settings(),
-)
+def _module_settings_models() -> list[type[BaseModel]]:
+    """The settings models those packages declare (``define_module(settings=)``)."""
+    models = []
+    for package in _module_packages():
+        model = module_settings.declared_model(package)
+        if model is not None:
+            models.append(model)
+    return models
+
+
+_MODULE_SETTINGS = _module_settings_models()
 
 # Curated grouping: alias -> category. Aliases not listed fall into "Other".
 _CATEGORIES: dict[str, str] = {
@@ -245,7 +253,7 @@ def render_pages() -> dict[str, str]:
         category = _CATEGORIES.get(alias, "Other")
         buckets.setdefault(category, []).append((alias, field))
     # The settings the bundled modules declare (ADR-0015) are read from their
-    # models, not from ``Settings``; KB-55 reads every loaded module's.
+    # models, not from ``Settings``.
     for model in _MODULE_SETTINGS:
         for name, field in model.model_fields.items():
             alias = field.alias or name.upper()

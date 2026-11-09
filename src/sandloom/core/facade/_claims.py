@@ -414,9 +414,12 @@ class _ClaimsMixin(_ServicesMixin):
         stamped in ``claims_sources`` exactly as if it had been, and any of the
         issuer's contributors NOT in the mapping still runs. It is accepted
         only with ``issuer`` + ``issuer_session``, only for the issuer's own
-        contributors and only with keys the composition assigns to the
-        issuer (SANDLOOM-R017 otherwise): a caller never supplies another
-        module's claims, or a key its issuer is not the authority of.
+        contributors, only with keys the composition assigns to the
+        issuer, and only when that module IS the map's token issuer
+        (``claim_authorities["issuer"]``: its short name and import path;
+        SANDLOOM-R017 otherwise): a caller never supplies another module's
+        claims, a key its issuer is not the authority of, or an authority's
+        own keys without its contributor running.
 
         A non-critical contributor that fails is logged and recorded in
         ``claims_sources_failed`` (so claim-mode facts escalate to
@@ -434,7 +437,9 @@ class _ClaimsMixin(_ServicesMixin):
         critical step of ``issuer`` through the same check: a key the
         composition does not assign to the issuer refuses the mint
         (:class:`ClaimsUnavailable`), so an issuer field is never minted
-        unchecked (no map: nothing is assigned). No call is added.
+        unchecked. Like ``precomputed`` they are accepted only from the
+        map's token issuer (SANDLOOM-R017; no map names none). No call is
+        added.
         """
         if issuer_session is not None and issuer is None:
             raise ValueError(
@@ -450,6 +455,8 @@ class _ClaimsMixin(_ServicesMixin):
         owner = self._resolve_issuer(issuer)
         if precomputed:
             self._check_precomputed(owner, issuer_session, precomputed)
+        if precomputed or issuer_claims:
+            self._require_map_issuer(owner)
         plan = self._claims_plan(user_id, owner, issuer_session, precomputed)
         outcomes = await _run_claims_plan(plan)
         return _seal_claims(
@@ -486,6 +493,33 @@ class _ClaimsMixin(_ServicesMixin):
                 "identified by one of its own registered contributors"
             )
         return owner
+
+    def _require_map_issuer(self, owner: str | None) -> None:
+        """Refuse ``precomputed`` / ``issuer_claims`` unless ``owner`` is the
+        token issuer the composition's map names (SANDLOOM-R017).
+
+        Both hand the mint values no contributor computed in this pass, so
+        they are the issuer's alone (ADR-0014 decision 5): the step's owner is
+        the module registered under the map's issuer short name FROM the
+        map's issuer import path. An authority of other keys, or a module
+        merely named like the issuer, is not it; a map naming no issuer here
+        (none, or one this process does not compose) takes neither. Two
+        dictionary reads, no call (the mint path stays as it was).
+        """
+        expected = self._claim_authorities.issuer
+        if expected is None:
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
+                "is the token issuer's, and this composition's claim_authorities "
+                "names no issuer here"
+            )
+        if owner is None or self._claims_owner_modules.get(owner) != expected:
+            registered = self._claims_owner_modules.get(owner or "")
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
+                f"is the token issuer's: the module {registered!r} (registered "
+                f"as {owner!r}) is not the claim_authorities issuer {expected!r}"
+            )
 
     def _check_precomputed(
         self,

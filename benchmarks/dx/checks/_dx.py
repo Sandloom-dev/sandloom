@@ -82,10 +82,12 @@ def root_package() -> str:
     return _rules().get("modules_package", "sandloom").split(".")[0]
 
 
-def contracts_package() -> str:
-    """Where ``sandloom test`` writes contract stubs: ``sandloom.shared.contracts`` or
-    ``<app>.shared.contracts``."""
-    return f"{root_package()}.shared.contracts"
+def contracts_package(consumer: str = "tenancy") -> str:
+    """Where ``sandloom generate`` writes contract stubs: ``sandloom_<consumer>._generated.contracts``
+    (the consuming module's copies, framework tree) or ``<app>.shared.contracts``."""
+    if app_mode():
+        return f"{root_package()}.shared.contracts"
+    return f"sandloom_{consumer}._generated.contracts"
 
 
 def module_dir(name: str) -> Path:
@@ -596,7 +598,10 @@ def contract_callers(root: Path) -> list[str]:
 
 
 def shared_contract_stubs() -> list[Path]:
-    """Generated contract stubs (written by ``sandloom test``): ``sandloom/shared/contracts``
-    of the framework tree, or ``<app>/shared/contracts`` of an app."""
-    stubs = source_root().joinpath(*contracts_package().split("."))
-    return sorted(stubs.glob("*.py")) if stubs.exists() else []
+    """Generated contract stubs (written by ``sandloom generate``): each module's
+    ``sandloom_<module>/_generated/contracts`` of the framework tree, or
+    ``<app>/shared/contracts`` of an app."""
+    if app_mode():
+        stubs = source_root().joinpath(*contracts_package().split("."))
+        return sorted(stubs.glob("*.py")) if stubs.exists() else []
+    return sorted(source_root().glob("sandloom_*/_generated/contracts/*.py"))

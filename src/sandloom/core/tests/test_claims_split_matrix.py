@@ -10,7 +10,9 @@ authority) reads each token through ``decode_token`` and the kernel gates:
 console's ``platform_operator`` and ``TenantScope``.
 
 * the identity -> acme_identity key change, steps 0-3 and rollback a-c, with
-  a real previous-release token (minted in the pre-KB-11 shape: no ``cpv``),
+  a previous-release token (the current merge without ``cpv``, the only wire
+  difference of the release before KB-11; built from that release's wheels
+  only by the trust PoC: ADR-0014, amendment "W2+W3 review fixes"),
   the negative rows at step 2, and the change without ``previous=`` (either
   order answers 503 ``claims_policy_mismatch``, never a 401 a refresh cannot
   fix);
@@ -507,12 +509,16 @@ async def test_the_window_bounds_hold_on_real_tokens(
 ) -> None:
     """A token without ``cpv`` issued at or after ``until``, or living longer
     than ``ACCESS_TOKEN_EXPIRE_MINUTES``, gives no rights, ``legacy_tokens``
-    still written; inside the window the same claims read."""
+    still written; inside the window the same claims read.
+
+    ``until`` in the past is the ``iat >= until`` bound (the token is minted
+    now), not the window END (``until + lifetime + leeway``): that one is
+    ``test_claims_window_end.py``, the view's clock controlled."""
     user = uuid4()
     old = issuers(ID, old=True)
     now = time.time()
-    ended = verifier(roles_map(ID), legacy_until=now - 5)
-    assert await statuses(ended, await old.mint(user)) == ALL_401
+    issued_after_until = verifier(roles_map(ID), legacy_until=now - 5)
+    assert await statuses(issued_after_until, await old.mint(user)) == ALL_401
     open_ = verifier(roles_map(ID), legacy_until=now + 3600)
     claims = await old.claims(user)
     long_lived = tokens.create_access_token(

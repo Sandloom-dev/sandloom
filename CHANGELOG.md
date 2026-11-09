@@ -41,6 +41,22 @@ website renders this same changelog.
 
 ### Security
 
+- **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
+  ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
+  and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
+  contributor's module is the `claim_authorities` issuer (short name and import
+  path); another authority, a same-named module or a process whose map names
+  no issuer gets SANDLOOM-R017 (it was a 503 or, for an authority's own keys,
+  accepted). `Subscribed`, `Feature` and `WithinLimit` answer the view's 401
+  `token_policy_outdated` / 503 `claims_policy_mismatch` instead of a definite
+  deny; a split verifier reads "authority failed at the mint" from the
+  verifier's map (503, not a deny `~` inverts). An installed `previous=`
+  module must carry its own name (SANDLOOM-B035); the verified-token cache
+  marker covers the owner names. `TenantScope` no longer answers a
+  `tenant_ids` grant the view dropped from a token it had parsed before.
+  Upgrade: nothing for an issuer that is the map's; a module that passed
+  `precomputed` / `issuer_claims` without being the issuer stops doing so.
+
 - **Sealed mint, service tokens, test tokens** (KB-12, ADR-0014 decision 5,
   owner answer #13; SANDLOOM-R017). `collect_claims` returns a sealed,
   read-only result, the only carrier of a token's protected claims (`roles`,
@@ -450,6 +466,32 @@ website renders this same changelog.
 
 ### Changed
 
+- **The kernel's tools read the modules' settings declarations; `config dump`
+  lists module settings** (KB-55; ADR-0015 decisions 8 and 11; edges B-C7, B-C8,
+  B-C9 and B-N8 fixed). A settings model may carry plain class attributes the
+  tools read: `console` (field names the admin console's settings view lists),
+  `shared` (env names identical in every process that loads the module: the
+  deploy-profile check SANDLOOM-T014 holds only those processes to them),
+  `backup` (secrets and what losing one costs, for `sandloom backup plan`),
+  `deploy` (the compose environment `sandloom add deploy` writes for a service
+  that loads the module), `dev_env` and `dev_risks` (what `sandloom keys
+  dev-env` sets). Billing and identity declare theirs; the kernel's deploy
+  scaffold, dev env, backup plan, platform settings view and docs generator no
+  longer name a module's setting. `/diagnostics/core` and `sandloom doctor` show
+  the loaded modules' accepted risks (a module's risk id that does not apply
+  in this process is listed as such), semantic overrides and tier counts
+  beside the kernel's, and doctor lists every module's refusal as one failed
+  check. `sandloom config dump` now also lists, per loaded module, the settings
+  it declares, each with its source and redaction, and shows a module's invalid
+  value as a diagnosed entry with exit 0 instead of exiting. It builds the
+  composition without serving it (no lifespan, no connection; measured:
+  about 2.5 s against 1.65 s with the three batteries). **Upgrade:**
+  `sandloom config dump --kernel-only` prints exactly what the command printed
+  before (the kernel's settings, no composition); the default `--json` output
+  gains module entries (with a `module` key) after the kernel's, and a
+  diagnosed one (`"source": "invalid"`). A module's own `deploy` lines replace
+  the kernel's former per-module env table: declare `deploy` on its settings model.
+
 - **Billing declares its own settings** (KB-52; ADR-0015). `BILLING_PROVIDER`,
   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_DENY_ON_PAST_DUE`,
   `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`, `BILLING_INTENT_RECONCILE_AFTER_MINUTES`,
@@ -721,6 +763,27 @@ website renders this same changelog.
 
 ### Fixed
 
+- **A module named by its import path is known by its module name, and the
+  platform bindings view says "unverified"** (KB-55). The risk-namespace rule
+  (ADR-0015 decision 4) read a `SANDLOOM_MODULES` entry such as `sandloom_billing`
+  by its last path segment, so an image naming the path knew a module
+  `sandloom_billing` and not `billing`; it now uses the module's name (the
+  entry point's, else the last segment). The admin platform view showed a
+  required contract with no expectation (`contract_unverified`) as an
+  unreachable peer; it shows `unverified` with the reason.
+
+- **Review fixes of waves 2 and 3** (KB-RF-ledger). The SANDLOOM-R017 fix text
+  and `docs/advanced/security-model.md` show the keyword-only mint,
+  `create_access_token(data=..., claims=...)`. `is_kernel_family` (the
+  generator's rule for contracts that get no consumer copy) matches only
+  `<m>.claims.v1` and `<m>.facts.v1`, the names the runtime reserves: a
+  `<m>.claims.v2` is an ordinary contract and gets its copy. Identity's tests
+  register the `sandloom_db_feature` marker, so `sandloom test identity` runs
+  alone. The ledger gains the entries of KB-13, KB-22, KB-41, KB-51, KB-53 and
+  KB-56 and maps the ADR-0013, ADR-0014 and ADR-0015 sections they built.
+  Edge B-C10 is open again with KB-60: `sandloom admin create` still reads the
+  declared `ADMIN_CONSOLE_ENABLED` by name, and the owner moved the composed
+  console-route test to the CLI phase.
 - **A replacement provider's DTOs decode into the consumer's generated copy on
   the untyped path** (KB-23, I-06; contracts PoC section 3.3). A remote
   `core.get_service(name)` call resolved a model or Enum result to the

@@ -32,8 +32,10 @@ subagent): pass no actor on tm calls.
   `sandloom/shared/events/*.json`, `module.snapshot.json`): run it.
 - One simple command per call in a worktree: no `for` loop, `source`, `&&`
   chain or heredoc around `git`, since the worktree isolation check refuses
-  them. Several steps: write a helper script into the scratchpad and run it
-  with one command.
+  them. Temp files, logs and helper scripts live in `.agent-tmp/` inside
+  your own worktree (gitignored), never outside it. Several steps or
+  multi-line Python: Write a file into `.agent-tmp/` and run it with one
+  command; no heredoc.
 
 ## Checks
 - Run the tests of what you touched plus every test that references the

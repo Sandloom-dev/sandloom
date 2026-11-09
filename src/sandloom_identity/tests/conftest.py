@@ -26,6 +26,15 @@ from sandloom_identity.models.user_role import UserRole
 DEFAULT_PASSWORD = "TestPassword123!"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    # skip_unless_db_feature's marker (the plugin registers it for apps)
+    config.addinivalue_line(
+        "markers",
+        "sandloom_db_feature(*features, database='default'): skip unless the "
+        "database instance has the features (skip_unless_db_feature)",
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _cheap_password_hashing() -> Iterator[None]:
     """Production-cost argon2 is ~60ms per hash/verify; tests only need the
