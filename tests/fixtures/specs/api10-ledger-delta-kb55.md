@@ -4,13 +4,13 @@
   that module declares (same source labels and redaction), builds the
   composition in collect mode to do it, and takes `--kernel-only` for the
   kernel's table alone, byte for byte as before. The statement and its tests
-  are G-CONFIG-13's.
-- G-CONFIG-13 (new): the dump's contract: module values with provenance and
+  are G-CONFIG-15's.
+- G-CONFIG-15 (new): the dump's contract: module values with provenance and
   redaction, a module's invalid setting diagnosed with exit 0, collect mode a
   context variable only `config dump` and `doctor` set (off in every serving
   entry point), no lifespan, no served request, no connection (socket spy over
   the bundled modules), `--kernel-only` unchanged.
-- G-CONFIG-14 (new): the kernel's tools read the loaded modules' declarations
+- G-CONFIG-16 (new): the kernel's tools read the loaded modules' declarations
   (`console`, `shared`, `backup`, `deploy`, `dev_env`, `dev_risks`) and name no
   module's setting: tiers and `/diagnostics/core` show the modules' accepted
   risks, overrides and tier counts, doctor the same and every module's refusal,

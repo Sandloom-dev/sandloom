@@ -36,7 +36,7 @@ from sandloom.core.claims import (
     SealedClaims,
     UnsealedClaimsError,
 )
-from sandloom.core.facade import ClaimsUnavailable, CoreFacade
+from sandloom.core.facade import CoreFacade
 from sandloom.core.runtime import use_active_core
 from sandloom.core.testing.auth import make_user_headers, mint_test_token, sealed_claims
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
@@ -236,9 +236,8 @@ async def test_the_issuer_is_resolved_from_the_registering_module() -> None:
     sealed = await core.collect_claims(uuid4(), issuer=idp, issuer_claims=fields)
     assert sealed["email"] == "u@example.com"
     assert "idp" in sealed["claims_sources"]
-    with pytest.raises(ClaimsUnavailable) as refused:
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
         await core.collect_claims(uuid4(), issuer=rogue, issuer_claims=fields)
-    assert refused.value.owner == "rogue"
 
 
 @pytest.mark.asyncio
@@ -286,6 +285,94 @@ async def test_precomputed_replaces_the_issuers_call(core: CoreFacade) -> None:
     assert sealed["roles"] == ["cas"]
     assert idp.calls == 0
     assert "idp" in sealed["claims_sources"]
+
+
+# --------------------------------------------------------------------------- #
+# the mint issuer binding (SEC-2): ``precomputed`` and ``issuer_claims`` are
+# the map's issuer's only, identified by its short name AND import path
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_an_authority_that_is_not_the_issuer_cannot_precompute_its_keys(
+    core: CoreFacade,
+) -> None:
+    """``acme.grants`` is the authority of ``tenant_ids`` but not the
+    issuer: naming its own contributor as ``issuer`` with a stand-in session
+    must not mint a tenant grant its contributor never read."""
+    grants = core._contributors_of("grants")[0]
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
+        await core.collect_claims(
+            uuid4(),
+            object(),
+            issuer=grants,
+            precomputed={grants: {"tenant_ids": ["t-foreign"]}},
+        )
+    assert grants.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_a_module_that_is_not_the_issuer_writes_no_issuer_claims(
+    core: CoreFacade,
+) -> None:
+    """``issuer_claims`` are the map's issuer's: another module's contributor
+    cannot mint even an unprotected key through them."""
+    grants = core._contributors_of("grants")[0]
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
+        await core.collect_claims(
+            uuid4(), issuer=grants, issuer_claims={"nickname": "eve"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_module_named_like_the_issuer_from_another_path_is_not_it() -> None:
+    """``evil.idp`` registers under the issuer's short name ``idp``: the map
+    names ``acme.idp``, so its precomputed roles and its issuer fields are
+    refused before anything runs."""
+    core = _core()
+    impostor = _register(core, "evil.idp", {"roles": []}, critical=True)
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
+        await core.collect_claims(
+            uuid4(), object(), issuer=impostor, precomputed={impostor: {"roles": []}}
+        )
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
+        await core.collect_claims(
+            uuid4(),
+            issuer=impostor,
+            issuer_claims={"email": "u@example.com", "email_verified": True},
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_process_whose_map_names_no_issuer_takes_no_precomputed() -> None:
+    """A process that does not compose the map's issuer (the filtered map
+    names none) mints no precomputed or issuer-written claims."""
+    core = CoreFacade(app=FastAPI())
+    core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
+    core._assign_claim_authorities(build_claim_authorities({"roles": IDP}))
+    idp = _register(core, IDP, {"roles": []}, critical=True)
+    with pytest.raises(UnsealedClaimsError, match="names no issuer"):
+        await core.collect_claims(
+            uuid4(), object(), issuer=idp, precomputed={idp: {"roles": ["admin"]}}
+        )
+    with pytest.raises(UnsealedClaimsError, match="names no issuer"):
+        await core.collect_claims(uuid4(), issuer=idp, issuer_claims={"nickname": "x"})
+
+
+@pytest.mark.asyncio
+async def test_the_issuer_binding_reads_no_more_than_the_map(core: CoreFacade) -> None:
+    """The map's issuer still mints its precomputed roles and its fields in
+    one pass: its contributor is not called, no other step is added."""
+    idp = core._contributors_of("idp")[0]
+    sealed = await core.collect_claims(
+        uuid4(),
+        object(),
+        issuer=idp,
+        precomputed={idp: {"roles": ["cas"]}},
+        issuer_claims={"email": "u@example.com", "email_verified": True},
+    )
+    assert sealed["roles"] == ["cas"] and sealed["email_verified"] is True
+    assert idp.calls == 0
 
 
 # --------------------------------------------------------------------------- #

@@ -1802,7 +1802,7 @@ kernel test authority (as_user, mint_test_token, sealed_claims) exists only
 while the sandloom.sdk.testing plugin or the framework's test harness is
 active; anywhere else it refuses.
 
-**Fix:** mint a user token with create_access_token(data, claims=await core.collect_claims(user_id, issuer=&lt;your contributor>)), data holding only the envelope (sub, token_type, auth_time); a token with no user rights with create_service_token; a test token with as_user or mint_test_token (sandloom.sdk.testing)
+**Fix:** mint a user token with create_access_token(data=..., claims=await core.collect_claims(user_id, issuer=&lt;your contributor>)), data holding only the envelope (sub, token_type, auth_time); a token with no user rights with create_service_token; a test token with as_user or mint_test_token (sandloom.sdk.testing)
 
 **More:** `docs/advanced/security-model.md`
 

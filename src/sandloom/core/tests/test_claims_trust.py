@@ -25,21 +25,37 @@ from sandloom.core.app_factory.claim_authorities import (
     filter_to_composition,
     install_claim_authorities,
 )
+from sandloom.core.auth import claims_view as view
 from sandloom.core.claims import (
     AUTHORITY_CLAIM,
     FAIL_SAFE_KEYS,
     ISSUER_FIELDS,
     NO_AUTHORITIES,
     PROTECTED_BASE,
+    Authority,
     ClaimAuthorities,
+    UnsealedClaimsError,
 )
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.facade._claims import CLAIMS_VIOLATIONS_METRIC, RESERVED_CLAIM_KEYS
-from sandloom.shared.authz import Account, Feature, Not, Or, Role, WithinLimit
+from sandloom.core.tests._entry_points_support import (
+    FakeEntryPoint,
+    installed_entry_points,
+)
+from sandloom.shared.authz import (
+    Account,
+    Feature,
+    Not,
+    Or,
+    Role,
+    Subscribed,
+    WithinLimit,
+)
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
 
+ACME_ID = "acme.modules.acme_identity"
 IDP = "acme.idp"
 GRANTS = "acme.grants"
 PLANS = "acme.plans"
@@ -713,20 +729,20 @@ async def test_the_issuers_fields_pass_the_check_and_win() -> None:
 
 @pytest.mark.asyncio
 async def test_without_a_map_the_issuers_fields_are_not_minted() -> None:
-    """No map: nothing is assigned, so the issuer's fields refuse the mint."""
+    """No map: no issuer is named, so the issuer's fields are refused before
+    anything runs (SANDLOOM-R017)."""
     core = _core(None)
-    with pytest.raises(ClaimsUnavailable) as refused:
+    with pytest.raises(UnsealedClaimsError, match="names no issuer"):
         await _issue(core)
-    assert refused.value.owner == "idp"
 
 
 @pytest.mark.asyncio
 async def test_another_module_cannot_mint_the_issuer_fields() -> None:
-    """Only the map's issuer's: a step named otherwise refuses the mint."""
+    """Only the map's issuer's: another module is refused (SANDLOOM-R017)."""
     core = _core()
     _register(core, IDP, {"roles": []}, critical=True)
     rogue = _register(core, ROGUE, {})
-    with pytest.raises(ClaimsUnavailable):
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
         await core.collect_claims(uuid4(), issuer=rogue, issuer_claims=FIELDS)
 
 
@@ -833,3 +849,179 @@ async def test_not_and_or_never_allow_on_a_failed_authority() -> None:
     either = await Or(Role("ops"), FEATURE).decide(ctx)
     assert not either.allowed and either.http_status == 503
     assert (await Or(Role("member"), FEATURE).decide(ctx)).allowed
+
+
+# --------------------------------------------------------------------------- #
+# SEC-4: a split verifier reads the authority from the verifier's map
+# --------------------------------------------------------------------------- #
+
+
+def _split_verifier() -> CoreFacade:
+    """A service running neither the plans authority nor the issuer: its
+    mint map is narrowed to what it composes, the verifier's map is whole."""
+    core = CoreFacade(app=FastAPI())
+    core._assign_claim_authorities(
+        filter_to_composition(build_claim_authorities(PLAN_MAP), loaded={}, bindings={})
+    )
+    return core
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
+async def test_a_split_verifier_without_the_authority_is_indeterminate(
+    atom: Any,
+) -> None:
+    """The plans authority failed at the mint and runs in another service:
+    the token proves nothing here either, so 503, and ``Not`` never allows
+    (the narrowed mint map would read the key as unassigned: a deny that
+    ``~Feature`` turns into an allow)."""
+    ctx = AuthzContext(_subject(failed={"plans"}), core=_split_verifier())
+    decision = await atom.decide(ctx)
+    assert decision.indeterminate and decision.http_status == 503
+    negated = await Not(atom).decide(ctx)
+    assert not negated.allowed and negated.indeterminate
+
+
+# --------------------------------------------------------------------------- #
+# SEC-3: Subscribed / Feature / WithinLimit honour the view's 401 / 503
+# --------------------------------------------------------------------------- #
+
+SUBSCRIBED = Subscribed(of=Account.user())
+SUBSCRIBED_VERBATIM = Subscribed(frozenset({"active"}), of=Account.user())
+#: (atom, the claim key it reads)
+CLAIM_ATOMS = [
+    (FEATURE, "features"),
+    (LIMIT, "limits"),
+    (SUBSCRIBED, "subscription_status"),
+    (SUBSCRIBED_VERBATIM, "subscription_status"),
+]
+CLAIM_IDS = ["Feature", "WithinLimit", "Subscribed", "Subscribed-statuses"]
+
+
+def _viewed(key: str, reason: str) -> UserContext:
+    """A subject whose ``key`` the trusted view removed for ``reason``."""
+    return UserContext(
+        user_id=uuid4(),
+        claims_sources={"idp", "plans"},
+        claims_sources_failed=set(),
+        **{view.UNTRUSTED_KEY: {key: reason}},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("atom", "key"), CLAIM_ATOMS, ids=CLAIM_IDS)
+@pytest.mark.parametrize(
+    ("reason", "status"), [(view.OUTDATED, 401), (view.MISMATCH, 503)]
+)
+async def test_a_claim_atom_honours_the_views_indeterminate(
+    atom: Any, key: str, reason: str, status: int
+) -> None:
+    """The view removed the atom's key because the token predates the claim
+    policy (one refresh fixes it) or issuer and verifier disagree: the atom
+    answers that indeterminate, never a 402/403 for the token's life, and
+    its negation never allows."""
+    ctx = _authz(_viewed(key, reason))
+    decision = await atom.decide(ctx)
+    assert decision.indeterminate and decision.http_status == status
+    assert decision.code == reason
+    negated = await Not(atom).decide(ctx)
+    assert not negated.allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("atom", "key"), CLAIM_ATOMS, ids=CLAIM_IDS)
+async def test_a_definite_untrusted_reason_still_denies(atom: Any, key: str) -> None:
+    """An unassigned key, or one whose authority was absent at the mint, is
+    a definite deny (the view's other reasons), as before."""
+    for reason in (view.UNASSIGNED, view.SOURCE_ABSENT):
+        decision = await atom.decide(_authz(_viewed(key, reason)))
+        assert not decision.allowed and not decision.indeterminate, reason
+
+
+# --------------------------------------------------------------------------- #
+# SEC-5: a previous= authority's name is its module's; owners in the marker
+# --------------------------------------------------------------------------- #
+
+
+def _entry_point(name: str, path: str) -> FakeEntryPoint:
+    return FakeEntryPoint(name, path, f"dist-{name}")
+
+
+def test_a_previous_authority_named_unlike_its_installed_module_is_refused() -> None:
+    """``sandloom_identity`` is installed as ``identity``: a ``previous=``
+    naming it ``billing`` would make the verifier read ``billing``'s
+    provenance for a digest identity's mint stamped. Refused at the map."""
+    entry = Authority(
+        ACME_ID, previous=Authority("billing", module="sandloom_identity")
+    )
+    with installed_entry_points(), pytest.raises(ClaimAuthorityError, match="billing"):
+        build_claim_authorities({"issuer": ACME_ID, "roles": entry})
+
+
+def test_a_previous_authority_named_unlike_its_app_module_is_refused() -> None:
+    """Whatever the path, an installed module has one name: ``acme.idp``
+    installed as ``idp`` is never ``grants``."""
+    entry = Authority(ACME_ID, previous=Authority("grants", module=IDP))
+    with installed_entry_points(_entry_point("idp", IDP)):
+        with pytest.raises(ClaimAuthorityError, match="grants"):
+            build_claim_authorities({"issuer": ACME_ID, "roles": entry})
+
+
+def test_a_previous_authority_no_longer_installed_keeps_its_declared_name() -> None:
+    """After the rollout the old module may be gone from the image: its
+    entry-point name cannot be read back, so the declared name stands."""
+    entry = Authority(
+        ACME_ID, previous=Authority("identity", module="sandloom_identity")
+    )
+    with installed_entry_points(_entry_point("tenancy", "sandloom_tenancy")):
+        policy = build_claim_authorities({"issuer": ACME_ID, "roles": entry})
+    assert dict(policy.previous_owners) == {"roles": "identity"}
+
+
+def test_the_verifier_marker_covers_the_owners() -> None:
+    """The verified-token cache is keyed by the marker: two policies that
+    differ only in the short name they accept a key's authority under (now
+    or as ``previous=``) must not share cached views."""
+    base: dict[str, Any] = {
+        "authorities": {"roles": IDP},
+        "owners": {"roles": "idp"},
+        "issuer": IDP,
+        "assigned": True,
+        "previous": {"roles": GRANTS},
+        "previous_owners": {"roles": "grants"},
+    }
+    marker = ClaimAuthorities(**base).marker
+    assert ClaimAuthorities(**{**base, "owners": {"roles": "other"}}).marker != marker
+    renamed = {**base, "previous_owners": {"roles": "other"}}
+    assert ClaimAuthorities(**renamed).marker != marker
+    assert ClaimAuthorities(**base).marker == marker
+
+
+# --------------------------------------------------------------------------- #
+# The gate probe G2-G4 shape at the mint: the authority ran and omitted the
+# key, a non-authority contributor wrote it (ADR-0014 Context)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["roles", "permissions", "tenant_ids"])
+async def test_a_key_the_authority_omitted_is_never_a_foreign_writers(key: str) -> None:
+    """``acme.idp`` / ``acme.grants`` ran and wrote nothing for ``key``;
+    ``acme.rogue`` (optional) wrote it: the rogue loses its whole result,
+    the token carries no ``key`` and records the rogue as failed. Critical,
+    the rogue refuses the mint."""
+    core = _core()
+    _register(core, IDP, {}, critical=True)
+    _register(core, GRANTS, {}, critical=True)
+    _register(core, ROGUE, {key: ["admin"], "loyalty": 1})
+    claims = await _mint(core)
+    assert key not in claims and "loyalty" not in claims
+    assert claims["claims_sources_failed"] == ["rogue"]
+    assert {"idp", "grants"} <= set(claims["claims_sources"])
+    critical = _core()
+    _register(critical, IDP, {}, critical=True)
+    _register(critical, GRANTS, {}, critical=True)
+    _register(critical, ROGUE, {key: ["admin"]}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await _mint(critical)
+    assert refused.value.owner == "rogue"

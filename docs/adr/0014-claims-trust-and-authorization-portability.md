@@ -567,6 +567,49 @@ the assigned module; another module behind the assigned short name on the pinned
 refused by the binding; the same-path rule; a `previous=` rollout reads alike with the new
 authority local, remote or absent.
 
+### Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)
+
+- **The mint issuer binding (decision 5).** `collect_claims(precomputed=...)` and
+  `collect_claims(issuer_claims=...)` hand the mint values no contributor computed in that pass,
+  so they are the token issuer's only: the module that registered the `issuer=` contributor must
+  be the one registered under the map's issuer short name **from the map's issuer import path**
+  (`claim_authorities["issuer"]`). Another authority (which could otherwise precompute its own
+  keys, e.g. a tenant grant its contributor never read), a module merely named like the issuer,
+  or a process whose map names no issuer here is refused before anything runs (SANDLOOM-R017).
+  Two dictionary reads, no call. Tests: `test_sealed_mint.py` (the issuer binding).
+- **Recorded limit: code holding the issuer's contributor.** The issuer is still identified by
+  its registered contributor function. Code that reaches that function (by importing the
+  issuer's package, which the isolation gate refuses for a module, or through the kernel's
+  private state) can pass it with chosen `precomputed` values, as the issuer could. A capability
+  the kernel hands only to the `issues_tokens` module at registration would move that path to
+  "import the issuer's package" alone; it is a public API addition (`ModuleAPI`, the module
+  reference) and waits for that decision. Inside the threat model's line (hostile in-process
+  code, C-a6), as before.
+- **Claim atoms and the view (decision 3).** `Subscribed`, `Feature` and `WithinLimit` answer the
+  view's indeterminate for their key (`token_policy_outdated` 401, `claims_policy_mismatch` 503)
+  as `Role` and `Perm` do, never a 402/403 for the token's life that `~` would invert. "The
+  authority failed at the mint" (decision 7) is read from the verifier's map
+  (`verified_owners`, and the `previous=` owner), so a split verifier running no plans authority
+  answers 503, not a deny.
+- **`previous=` names its module.** An installed `previous=` module must carry the declared name
+  (its entry-point name); one no longer installed keeps the declared name, which cannot be read
+  back. The verifier's cache marker covers the owner names it reads provenance under.
+- **The window end at the gates** (`test_claims_window_end.py`): real signed tokens without `cpv`
+  in the G2-G4 shape, the view's clock at and after `until + lifetime + leeway` while PyJWT keeps
+  the real clock (so the view, not expiry, refuses): every gate 401 `token_policy_outdated`,
+  `Role | AlwaysAllow` 200, `~Role` never allows, diagnostics `ended`. It found `TenantScope`'s
+  per-token `tenant_ids` parse memo answering a grant the view had since dropped; an absent grant
+  now reads as none whatever the memo holds.
+- **T-9's previous-release token is simulated, not built from wheels.** The kernel suite mints it
+  with the current merge and drops `cpv` (`test_claims_split_matrix.py`, `old=True`): the release
+  before KB-11 differs from it on the wire by `cpv` alone (KB-11 added `cpv`; KB-12 sealed the
+  mint's inputs, not its output), and the token is signed by the same `create_access_token`. A
+  token built from the previous release's wheels needs that release's source tree, a wheel build
+  and a venv per run, and expires within `ACCESS_TOKEN_EXPIRE_MINUTES`, so it cannot be checked
+  in (a long-lived one is refused by the view on its lifetime, another case). The trust PoC ran
+  it once (`poc/trust/out/t9-base-token.txt`, L0). **Gap:** an install-matrix lane that builds the
+  previous release's wheel, mints with it and replays the token against the current verifier.
+
 ## Alternatives considered
 
 | alternative | why not |

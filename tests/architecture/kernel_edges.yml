@@ -618,12 +618,12 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: fixed
+    current_status: open
     target: fixed
     adr: ADR-0015
-    prs: [KB-54]
+    prs: [KB-60]
     anchors:
-      - {path: sandloom/core/cli/admin.py, literal: "\"admin_console_enabled\""}
+      - {path: sandloom/core/cli/admin.py, symbol: _CONSOLE_SWITCH}
   - id: B-N1
     class: b
     type: naming

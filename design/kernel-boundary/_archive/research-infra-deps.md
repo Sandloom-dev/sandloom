@@ -375,9 +375,11 @@ availability and fed incomplete declarations. Fixing those two inputs is the cha
 
 ## 4. Recommendation: exact changes
 
-Codes below are placeholders: **B0xx** is the next free boot code (B036 is named in the trust
-PoC patch, `design/kernel-boundary/poc/trust/ta1-kernel.patch:435`); **C0xx** is the next free
-check code (C032 is reserved by the authz plan, `migration-plan.md:419`).
+Codes below are placeholders: **B0xx** is the next free boot code and **C0xx** the next free
+check code. When this was written B036 was only named in the trust PoC patch
+(`design/kernel-boundary/poc/trust/ta1-kernel.patch`) and C032 was reserved by the authz plan;
+both are real codes now (`sandloom.core.error_codes`: B036 and C032 are taken, the next free
+are B038 and C034).
 
 1. **Capability spec.** Add the feature `periodic` to `TASKQUEUE_CAPABILITY`
    (`capabilities.py:199-204`), and to `CELERY_TASKQUEUE_FEATURES`

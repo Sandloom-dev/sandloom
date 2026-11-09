@@ -286,7 +286,7 @@ boot rather than refusing every login.
 
 The mint is sealed. `collect_claims` returns a read-only result. Only
 that result carries a token's protected claims, its provenance and `cpv`:
-`create_access_token(data, claims=sealed)`. `data` holds the envelope
+`create_access_token(data=..., claims=sealed)`. `data` holds the envelope
 (`sub` and `token_type` with `auth_time`) and unprotected keys. A protected
 claim or a tenant selector in `data` is refused (`SANDLOOM-R017`). So are
 provenance and `cpv`. So is a copy or spread of the sealed result. The
@@ -295,8 +295,9 @@ takes the issuer from the module that registered it, never from a name.
 `precomputed` may carry only the keys the map assigns to that issuer. A
 token for a service or a test client that needs no user rights comes from
 `create_service_token`. Every `Role` gate denies it, and so does every `Perm`
-gate. The platform and `TenantScope` gates deny it too. `as_user` and `mint_test_token` mint through the kernel test
-authority, which exists only while the testing plugin runs. These checks
+gate. The platform and `TenantScope` gates deny it too. `as_user` and
+`mint_test_token` mint through the kernel test authority, which exists only
+while the testing plugin runs. These checks
 stop mistakes. Code that holds the signing key can still sign anything, and
 that is outside the threat model.
 
