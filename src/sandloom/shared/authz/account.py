@@ -28,6 +28,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sandloom.core.di import settings
+from sandloom.core.facade._tenant_witness import TenantWitness
 from sandloom.shared.authz._resolve import (
     ContractUnavailable,
     _bound_tenant,
@@ -35,7 +36,6 @@ from sandloom.shared.authz._resolve import (
     resolve_org_id,
 )
 from sandloom.shared.authz.context import AuthzContext
-from sandloom.shared.authz.live_contracts import MEMBERSHIP, get_live_adapter
 from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
 
 TenantKind = Literal["personal", "organization", "canonical", "unknown"]
@@ -150,30 +150,67 @@ def _memo(request: Any) -> dict[UUID, TenantKind] | None:
     return memo
 
 
+def tenant_witness(ctx: AuthzContext) -> TenantWitness | None:
+    """The membership witness of the composition's assigned tenant authority
+    (resolved at boot, ADR-0014 decision 13), else ``None``."""
+    witness = getattr(ctx.core(), "tenant_witness", None)
+    return witness if isinstance(witness, TenantWitness) else None
+
+
 async def _is_member(ctx: AuthzContext, org_id: UUID) -> bool:
-    adapter = get_live_adapter(MEMBERSHIP)
+    """Whether the assigned tenant authority's witness confirms the caller's
+    membership of ``org_id``: today's one call
+    (``has_role_at_least(org, user, "member")`` for tenancy). No witness or
+    no provider: ``False`` (the kind stays unknown; ``tenant_ids`` alone
+    never proves an organization)."""
+    witness = tenant_witness(ctx)
+    if witness is None:
+        return False
     try:
-        service = resolve_contract(ctx, adapter.service)
+        service = resolve_contract(ctx, witness.contract)
     except ContractUnavailable:
-        return False  # no membership authority: the kind stays unknown
-    return bool(
-        await adapter.has_role_at_least(
-            service,
-            org_id=org_id,
-            user_id=ctx.subject.user_id,
-            minimum="member",
-            ctx=ctx,
-        )
-    )
+        return False
+    method = getattr(service, witness.method, None)
+    if method is None:
+        return False
+    answer = await method(*witness.arguments(org_id, ctx.subject.user_id))
+    return answer is True
+
+
+def record_membership(
+    ctx: AuthzContext, contract: str, method: str, org_id: Any, user_id: Any
+) -> None:
+    """An allowing check of the witness (``contract.method``) just proved
+    the caller a member of ``org_id``: record ``organization`` in this
+    request's tenant-kind memo, so ``tenant_kind`` does not ask again
+    (answer #23, KB-37). Only the assigned tenant authority's own witness
+    counts, only for the caller, never for the caller's personal id, and
+    never under ``TENANCY_MODE=single``; the answer is this request's, so
+    membership freshness is unchanged."""
+    witness = tenant_witness(ctx)
+    if (
+        witness is None
+        or (witness.contract, witness.method) != (contract, method)
+        or not isinstance(org_id, UUID)
+        or user_id != ctx.subject.user_id
+        or org_id == ctx.subject.user_id
+    ):
+        return
+    memo = _memo(ctx.request)
+    if memo is not None:
+        memo.setdefault(org_id, "organization")
 
 
 async def tenant_kind(
     tenant_id: UUID, *, ctx: AuthzContext | None = None
 ) -> TenantKind:
-    """The kind of ``tenant_id`` from authoritative sources only (spec §7.1),
-    memoised per request: ``canonical`` under ``TENANCY_MODE=single``,
-    ``personal`` when it is the caller's user id, ``organization`` when the
-    membership contract confirms the caller's membership, else ``unknown``.
+    """The kind of ``tenant_id`` from authoritative sources only (spec §7.1,
+    ADR-0014 decision 13), memoised per request: ``canonical`` under
+    ``TENANCY_MODE=single``, ``personal`` when it is the caller's user id,
+    ``organization`` when the membership witness of the assigned tenant
+    authority (``claim_authorities["tenant_ids"]``) confirms the caller's
+    membership, else ``unknown`` (no witness, no provider, or not a member:
+    the token's ``tenant_ids`` alone never proves an organization).
     Without ``ctx`` it uses the request ``current_context`` authenticated."""
     if ctx is None:
         current = _current_authz.get()
@@ -183,19 +220,18 @@ async def tenant_kind(
             )
         request, subject = current
         ctx = AuthzContext(subject, request=request)
+    if getattr(settings, "tenancy_mode", "multi") == "single":
+        return "canonical"
+    if tenant_id == ctx.subject.user_id:
+        return "personal"
     memo = _memo(ctx.request)
     if memo is not None and tenant_id in memo:
         return memo[tenant_id]
     kind: TenantKind
-    if getattr(settings, "tenancy_mode", "multi") == "single":
-        kind = "canonical"
-    elif tenant_id == ctx.subject.user_id:
-        kind = "personal"
-    else:
-        try:
-            kind = "organization" if await _is_member(ctx, tenant_id) else "unknown"
-        except PolicyIndeterminate:
-            kind = "unknown"
+    try:
+        kind = "organization" if await _is_member(ctx, tenant_id) else "unknown"
+    except PolicyIndeterminate:
+        kind = "unknown"
     if memo is not None:
         memo[tenant_id] = kind
     return kind

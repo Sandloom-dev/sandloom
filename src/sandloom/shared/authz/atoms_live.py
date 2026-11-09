@@ -34,6 +34,7 @@ from sandloom.shared.authz.account import (
     _MISSING,
     Account,
     account_org_params,
+    record_membership,
     require_account,
     resolve_account,
 )
@@ -41,6 +42,7 @@ from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
 from sandloom.shared.authz.live_contracts import (
     ENTITLEMENTS,
     MEMBERSHIP,
+    DefaultMembershipAdapter,
     get_live_adapter,
 )
 from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
@@ -217,7 +219,7 @@ class OrgRole(Requirement):
         service = _resolve_service(
             ctx, adapter.service, "Tenancy membership", self.describe()
         )
-        return bool(
+        allowed = bool(
             await adapter.has_role_at_least(
                 service,
                 org_id=org_id,
@@ -226,6 +228,13 @@ class OrgRole(Requirement):
                 ctx=ctx,
             )
         )
+        if allowed and type(adapter) is DefaultMembershipAdapter:
+            # Any role proves membership: tell this request's tenant kind
+            # (answer #23), when this contract is the tenant authority's witness.
+            record_membership(
+                ctx, adapter.service, "has_role_at_least", org_id, ctx.subject.user_id
+            )
+        return allowed
 
     def describe(self) -> str:
         return f"organization role '{self.minimum}'"
