@@ -88,6 +88,37 @@ def refresh_installed_modules() -> None:
         _cache = None
 
 
+class InvalidFactOwner(TypeError, ValueError):
+    """SANDLOOM-B038: a reference to an access fact names no valid owner module.
+
+    A fact's identity for authorization is ``(owner, fact_name)``: an
+    ``Entitled(...)`` policy or a ``fake_access_fact(...)`` states the module
+    that owns the fact. Raised when that ``owner=`` is ``None``, not a string,
+    empty, or not a module name (a Python identifier). Both a ``TypeError``
+    and a ``ValueError``.
+    """
+
+    sandloom_code = "SANDLOOM-B038"
+
+
+def require_fact_owner(owner: object, fact_name: object, what: str) -> str:
+    """``owner`` checked as the owning module of access fact ``fact_name``.
+
+    ``what`` names the caller in the message (``"Entitled"``). Raises
+    :class:`InvalidFactOwner` (SANDLOOM-B038) unless ``owner`` is a non-empty
+    module name (a Python identifier, e.g. ``"billing"``).
+    """
+    if isinstance(owner, str) and owner.isidentifier():
+        return owner
+    got = "no owner" if owner is None else f"owner={owner!r}"
+    raise InvalidFactOwner(
+        f"SANDLOOM-B038: {what}({fact_name!r}) has {got}: an access fact is "
+        "identified by its owner module and its name, so state the module "
+        f'that registers it, e.g. {what}({fact_name!r}, owner="billing") '
+        "(`sandloom explain SANDLOOM-B038`)"
+    )
+
+
 def _last_segment(path: str) -> str:
     return path.rsplit(".", 1)[-1]
 

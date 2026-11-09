@@ -13,7 +13,8 @@ on one freshness/cost curve:
                    when the owner is a different service).
 
 Which mode is used is **configuration, not code**: an endpoint composes
-``Entitled("subscription.active")`` and the deployment picks the mode via the
+``Entitled("subscription.active", owner="billing")`` and the deployment picks
+the mode via the
 ``ACCESS`` setting (per fact) or the fact's ``default_mode`` — but never weaker
 than the fact's ``min_freshness`` floor (a money check declares ``live`` and
 config can't downgrade it). ``auto`` prefers the cheapest *available* mode
@@ -27,10 +28,12 @@ fact as a wire-safe descriptor — its claim key, a DECLARATIVE claim
 interpretation (:class:`ClaimRule`, never a Python callable), freshness floor,
 default mode, deny category and what an absent claim means — and
 ``evaluate(name, subject, request)`` answers the fact authoritatively in the
-owner's process. A consumer process
-without the owner looks an unknown fact up on first use through the bound
-``<owner>.facts.v1`` (cached), so ``Entitled("subscription.active")`` decides
-the same in a monolith and in a split deployment (:func:`lookup_access_fact`).
+owner's process. A fact's identity for authorization is ``(owner, name)``,
+never its name alone: a consumer process without the owner looks the fact up
+on first use through that owner's bound ``<owner>.facts.v1`` only (cached), so
+``Entitled("subscription.active", owner="billing")`` decides the same in a
+monolith and in a split deployment and never accepts another module's fact of
+the same name (:func:`lookup_access_fact`).
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from sandloom.core.descriptors.module_names import require_fact_owner
 from sandloom.core.facade import facts_contract_name
 from sandloom.shared.authz._resolve import ContractUnavailable, resolve_contract
 from sandloom.shared.authz.metrics import increment
@@ -395,9 +399,10 @@ async def resolve_fact(
     ``mode`` overrides the configured mode (used by tests and to force a path);
     otherwise the mode comes from settings, clamped to the fact's floor.
     """
-    # Keyed by (name, requested mode): a forced ``mode="live"`` must never be
+    # Keyed by (owner, name, requested mode): another module's fact of the
+    # same name never answers this one, and a forced ``mode="live"`` is never
     # answered from a cheaper mode's cached result for the same fact.
-    cache_key = (fact.name, mode)
+    cache_key = (str(getattr(fact, "owner_module", "")), fact.name, mode)
     if cache_key in ctx.fact_cache:
         return ctx.fact_cache[cache_key]
 
@@ -580,15 +585,14 @@ async def _describe_owner(core: Any, owner: str) -> dict[str, AccessFact]:
     return found
 
 
-def fact_owner_contract(name: str, owner: str | None = None) -> str:
-    """The ``<owner>.facts.v1`` contract that publishes fact ``name``.
+def fact_owner_contract(owner: str) -> str:
+    """The ``<owner>.facts.v1`` contract that publishes ``owner``'s facts.
 
     The owner is the one the caller states (a generated atom's literal, an
-    ``Entitled(..., owner=)``, a registered fact's ``owner_module``), else
-    the fact's first dotted segment (the lookup order of
-    :func:`lookup_access_fact`). The kernel keeps no table of owners (B-R3).
+    ``Entitled(..., owner=)``, a registered fact's ``owner_module``); never
+    derived from the fact's name. The kernel keeps no table of owners (B-R3).
     """
-    return facts_contract_name(owner or name.split(".", 1)[0])
+    return facts_contract_name(owner)
 
 
 def fact_owner_present(ctx: AuthzContext, name: str, owner: str) -> bool:
@@ -605,70 +609,60 @@ def fact_owner_present(ctx: AuthzContext, name: str, owner: str) -> bool:
     return callable(owners_fn) and owner in set(owners_fn())
 
 
-async def lookup_access_fact(  # noqa: C901
-    ctx: AuthzContext, name: str, *, owner: str | None = None
+async def lookup_access_fact(
+    ctx: AuthzContext, name: str, *, owner: str
 ) -> AccessFact | None:
-    """The fact ``name``: the local registration, else the owner's public one.
+    """The fact ``(owner, name)``: the local registration, else the owner's
+    public one; never another module's fact of the same name.
 
-    Order: ``core.get_access_fact(name)`` (owner co-deployed) → every bound
-    ``<owner>.facts.v1`` with no local provider (the owner named by the fact's
-    first dotted segment first), whose ``describe()`` is cached on the core for
-    :data:`REMOTE_FACT_TTL_SECONDS`. ``None`` when no owner knows the fact (the
-    caller reports 501); :class:`FactOwnerUnreachable` (503) when a bound owner
-    could not be asked and none of the others knows it. ``owner=`` (a
-    generated atom's literal) accepts only that module's fact and asks only
-    its facts contract.
+    A fact's identity for authorization is its owner module and its name.
+    Order: ``core.get_access_fact(name)`` when its ``owner_module`` is
+    ``owner`` (the owner co-deployed) → ``owner``'s bound ``<owner>.facts.v1``
+    (no local provider), whose ``describe()`` is cached on the core for
+    :data:`REMOTE_FACT_TTL_SECONDS`; a descriptor naming another
+    ``owner_module`` is ignored (SANDLOOM-B034). No other owner's contract is
+    asked, so there is no fallback. ``None`` when ``owner`` is neither loaded
+    nor bound, or does not know the fact (the caller reports 501);
+    :class:`FactOwnerUnreachable` (503) when ``owner``'s contract could not be
+    asked. An ``owner`` that is not a module name raises ``InvalidFactOwner``
+    (SANDLOOM-B038).
     """
+    owner = require_fact_owner(owner, name, "lookup_access_fact")
     core = ctx.core()
     if core is None:
         return None
     get_fact = getattr(core, "get_access_fact", None)
     local = get_fact(name) if callable(get_fact) else None
-    if local is not None and (owner is None or local.owner_module == owner):
+    if local is not None and getattr(local, "owner_module", None) == owner:
         return cast(AccessFact, local)
     owners_fn = getattr(core, "remote_fact_owners", None)
-    owners = list(owners_fn()) if callable(owners_fn) else []
-    if owner is not None:
-        owners = [o for o in owners if o == owner]
-    if not owners:
+    if not callable(owners_fn) or owner not in set(owners_fn()):
         return None
     cache = getattr(core, "remote_access_fact_cache", None)
     if not isinstance(cache, dict):
         cache = {}
     now = time.monotonic()
-    hit = cache.get(("fact", name))
-    if (
-        hit is not None
-        and hit[0] > now
-        and (owner is None or hit[1].owner_module == owner)
-    ):
+    hit = cache.get(("fact", owner, name))
+    if hit is not None and hit[0] > now:
         return cast(AccessFact, hit[1])
-    prefix = name.split(".", 1)[0]
-    owners.sort(key=lambda o: o != prefix)
-    failures: list[str] = []
-    for owner in owners:
-        described = cache.get(("owner", owner))
-        if described is not None and described[0] > now:
-            continue  # described recently and the fact was not among them
-        try:
-            facts = await _describe_owner(core, owner)
-        except Exception as exc:  # noqa: BLE001 - owner down / RPC error
-            logger.warning(
-                "access fact %r: could not describe %r: %s",
-                name,
-                facts_contract_name(owner),
-                exc,
-            )
-            failures.append(f"{facts_contract_name(owner)}: {exc}")
-            continue
-        expires = now + REMOTE_FACT_TTL_SECONDS
-        cache[("owner", owner)] = (expires, None)
-        for fact_name, fact in facts.items():
-            cache[("fact", fact_name)] = (expires, fact)
-        if name in facts:
-            return facts[name]
-    if failures:
-        raise FactOwnerUnreachable(
-            f"access fact {name!r}: owner unreachable ({'; '.join(failures)})"
+    described = cache.get(("owner", owner))
+    if described is not None and described[0] > now:
+        return None  # described recently and the fact was not among them
+    try:
+        facts = await _describe_owner(core, owner)
+    except Exception as exc:  # owner down / RPC error: re-raised as 503
+        logger.warning(
+            "access fact %r: could not describe %r: %s",
+            name,
+            facts_contract_name(owner),
+            exc,
         )
-    return None
+        raise FactOwnerUnreachable(
+            f"access fact {name!r}: owner unreachable "
+            f"({facts_contract_name(owner)}: {exc})"
+        ) from exc
+    expires = now + REMOTE_FACT_TTL_SECONDS
+    cache[("owner", owner)] = (expires, None)
+    for fact_name, fact in facts.items():
+        cache[("fact", owner, fact_name)] = (expires, fact)
+    return facts.get(name)

@@ -27,7 +27,7 @@ The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
 | `published(E)` | the `E` events the code under test published with `E(...).publish()`, in order |
 | `await deliver(event, payload=None, *, times=1, event_id=None, session=None, core=None)` | runs every consumer of the event's channel through the real consumer runtime; returns how many consumers ran |
 | `fake_contract(REF, impl)` | serves contract `REF` from `impl` for a `with` block |
-| `fake_access_fact(name, value=True, *, deny_category=None, core=None, owner=None)` | answers an access fact by name (`Entitled(name)`) without loading its owner (`owner=` for `Entitled(name, owner=...)`, which accepts only that module's fact); a generated atom is faked with `fake_contract` |
+| `fake_access_fact(name, value=True, *, owner, deny_category=None, core=None)` | answers the access fact `owner` registers under `name` (`Entitled(name, owner=...)`) without loading the owner; only a policy naming the same owner sees it. A generated atom is faked with `fake_contract` |
 
 ## Activate the plugin
 
@@ -285,8 +285,8 @@ async def test_quota_refuses(client) -> None:
   `SubscriptionActive`, `Credits`, and an organization `Subscribed`,
   `Feature`, `WithinLimit`) asks its provider's contract, so a test serves
   that contract with `fake_contract(REF, Fake())`, importing `REF` and the
-  atom from the app's generated module. `fake_access_fact(name, value)` only
-  answers a fact by name (`Entitled(name)`); it has no billing branch and
+  atom from the app's generated module. `fake_access_fact(name, value, owner=...)`
+  only answers a fact (`Entitled(name, owner=...)`); it has no billing branch and
   does not stand in for a contract. Raise `AccessUnknown` from a fake method
   to test the `501`.
 

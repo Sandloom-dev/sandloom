@@ -6174,6 +6174,25 @@ guarantees:
   - tests/laws/test_authz_algebra_laws.py::test_or_allows_on_a_genuine_allow_beside_an_indeterminate
   - tests/laws/test_authz_algebra_laws.py::test_evaluate_agrees_with_decide
   - tests/laws/test_authz_algebra_laws.py::test_the_known_order_dependence_is_kept
+- id: G-AUTHZ-14
+  statement: 'An access fact is identified by its owner module and its name: Entitled(name, owner=) accepts
+    only that module''s fact, registered in the process or described by that module''s bound <owner>.facts.v1,
+    and asks no other module''s facts contract, in a monolith and in a split alike; another module''s fact
+    of the same name (local, bound or faked) never satisfies it, an owner neither loaded nor bound is 501,
+    one bound but unreachable 503 with no fallback, both indeterminate under Not / Or; a missing or invalid
+    owner= fails when the policy is built (SANDLOOM-B038).'
+  sources:
+  - docs/operate/upgrade-1.0.md#Access facts are identified by owner and name
+  tests:
+  - tests/integration/test_fact_owner_identity.py::test_billing_deny_is_the_answer_while_rogue_allows
+  - tests/integration/test_fact_owner_identity.py::test_billing_absent_is_501_whatever_rogue_answers
+  - tests/integration/test_fact_owner_identity.py::test_billing_down_is_503_never_rogue
+  - tests/integration/test_fact_owner_identity.py::test_both_available_only_billing_is_asked
+  - tests/integration/test_fact_owner_identity.py::test_one_request_never_serves_rogue_answer_to_billing
+  - tests/integration/test_fact_owner_identity.py::test_owner_contract_describing_another_owner_is_ignored
+  - tests/integration/test_fact_owner_identity.py::test_negation_and_disjunction_never_allow
+  - tests/integration/test_fact_owner_identity.py::test_entitled_invalid_owner_fails_at_construction
+  - tests/integration/test_fact_owner_identity.py::test_fake_of_another_owner_does_not_satisfy_billing
 - id: G-SENS-07
   statement: 'Risk is a join: Requirement.risks() is the union over And / Or and empty under Not; a
     route''s resolved risk is the union of its sources (admin gates, @sensitive_effect dependencies,
@@ -8256,7 +8275,7 @@ issued:
   C-WORKER: 6
   G-AUDIT: 2
   G-AUTH: 26
-  G-AUTHZ: 13
+  G-AUTHZ: 14
   G-BILLING: 22
   G-BLOCK: 8
   G-CMD: 9

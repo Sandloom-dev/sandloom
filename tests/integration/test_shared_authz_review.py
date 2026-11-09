@@ -142,7 +142,7 @@ def _sub_fact(**over: object) -> AccessFact:
 
 async def test_not_over_unregistered_fact_denies_misconfigured() -> None:
     core = _StubCore()  # "account.suspended" NOT registered
-    decision = await (~Entitled("account.suspended")).decide(
+    decision = await (~Entitled("account.suspended", owner="billing")).decide(
         _ctx(_subject(), core=core)
     )
     assert not decision.allowed
@@ -157,7 +157,9 @@ async def test_not_over_unavailable_fact_denies_501() -> None:
     core = _StubCore(services={})  # live service absent
     core.facts["account.suspended"] = _sub_fact(name="account.suspended")
     s = _subject()  # no provenance -> auto must go live -> unavailable
-    decision = await Not(Entitled("account.suspended")).decide(_ctx(s, core=core))
+    decision = await Not(Entitled("account.suspended", owner="billing")).decide(
+        _ctx(s, core=core)
+    )
     assert not decision.allowed and decision.indeterminate
     assert decision.http_status == 501
 
@@ -165,14 +167,16 @@ async def test_not_over_unavailable_fact_denies_501() -> None:
 async def test_not_evaluate_raises_instead_of_inverting() -> None:
     core = _StubCore()
     with pytest.raises(PolicyIndeterminate):
-        await Not(Entitled("nope")).evaluate(_ctx(_subject(), core=core))
+        await Not(Entitled("nope", owner="billing")).evaluate(
+            _ctx(_subject(), core=core)
+        )
     with pytest.raises(PolicyIndeterminate):
-        await Entitled("nope").evaluate(_ctx(_subject(), core=core))
+        await Entitled("nope", owner="billing").evaluate(_ctx(_subject(), core=core))
 
 
 async def test_or_with_erroring_branch_does_not_allow() -> None:
     core = _StubCore()
-    policy = Perm("x") | ~Entitled("account.suspended")
+    policy = Perm("x") | ~Entitled("account.suspended", owner="billing")
     decision = await policy.decide(_ctx(_subject(), core=core))
     assert not decision.allowed
     assert decision.indeterminate and decision.http_status == 501
@@ -180,7 +184,7 @@ async def test_or_with_erroring_branch_does_not_allow() -> None:
 
 async def test_or_genuine_branch_still_allows() -> None:
     core = _StubCore()
-    policy = Role("admin") | Entitled("broken")
+    policy = Role("admin") | Entitled("broken", owner="billing")
     decision = await policy.decide(_ctx(_subject(roles={"admin"}), core=core))
     assert decision.allowed
 
@@ -234,7 +238,7 @@ async def test_or_genuine_allow_wins_over_indeterminate_sibling_any_order() -> N
 
 async def test_and_propagates_indeterminate() -> None:
     core = _StubCore()
-    policy = Role("admin") & ~Entitled("broken")
+    policy = Role("admin") & ~Entitled("broken", owner="billing")
     decision = await policy.decide(_ctx(_subject(roles={"admin"}), core=core))
     assert decision.indeterminate and decision.category == Category.POLICY_MISCONFIGURED
     # And.evaluate must not silently answer False either
@@ -244,14 +248,21 @@ async def test_and_propagates_indeterminate() -> None:
 
 async def test_double_negation_of_error_still_denies() -> None:
     core = _StubCore()
-    decision = await Not(Not(Entitled("broken"))).decide(_ctx(_subject(), core=core))
+    decision = await Not(Not(Entitled("broken", owner="billing"))).decide(
+        _ctx(_subject(), core=core)
+    )
     assert not decision.allowed and decision.indeterminate
 
 
 async def test_enforce_maps_indeterminate_to_access_denied_501() -> None:
     core = _StubCore()
     with pytest.raises(AccessDenied) as exc:
-        await enforce(~Entitled("broken"), subject=_subject(), core=core, source="task")
+        await enforce(
+            ~Entitled("broken", owner="billing"),
+            subject=_subject(),
+            core=core,
+            source="task",
+        )
     assert exc.value.status_code == 501
     assert exc.value.decision.indeterminate
     assert core.metrics.get("access_indeterminate_total") == 1
@@ -371,7 +382,9 @@ def _app(core: object, atoms: SimpleNamespace) -> tuple[FastAPI, list[str]]:
     async def _sub() -> dict[str, str]:
         return {"ok": "sub"}
 
-    @app.get("/fact", dependencies=[Depends(require(Entitled("nope")))])
+    @app.get(
+        "/fact", dependencies=[Depends(require(Entitled("nope", owner="billing")))]
+    )
     async def _fact() -> dict[str, str]:
         return {"ok": "fact"}
 

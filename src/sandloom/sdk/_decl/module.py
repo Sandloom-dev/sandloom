@@ -379,7 +379,7 @@ def _policy_requirements(routers: Sequence[APIRouter]) -> list[ContractRequireme
     ``require(...)`` / ``authorize_resource(...)`` tag their dependency with
     the policy; each atom names the contracts it resolves
     (``Requirement.contracts()``: ``SubscriptionActive`` / ``Credits`` ->
-    the entitlements contract, ``Entitled(fact)`` -> ``<owner>.facts.v1``,
+    the entitlements contract, ``Entitled(fact, owner=o)`` -> ``<o>.facts.v1``,
     ``OrgRole`` -> the membership contract). Optional: a module tested alone
     with ``fake_access_fact`` still boots, the preflight warns when one is
     unbound, and ``sandloom add deploy`` binds them.

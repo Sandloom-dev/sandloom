@@ -30,9 +30,11 @@ MODULE = module_dir(NAME)  # the exporting module
 ADMIN_GATES = ("require_org_role", "ROLE_ADMIN", 'OrgRole("admin"', "OrgRole('admin'")
 #: Billing's live, organization-scoped access fact (``billing/access.py``): it
 #: takes the org from the ``org_id`` path param, checks membership and is
-#: live-only, so ``Entitled(<it>)`` is equivalent to
+#: live-only, so ``Entitled(<it>, owner="billing")`` is equivalent to
 #: ``SubscriptionActive(of=Account.org(param="org_id"))``.
 ORG_FACT = "organization.subscription.active"
+#: The module that owns ``ORG_FACT`` (a fact is identified by owner and name).
+FACT_OWNER = "billing"
 #: Contracts that make billing's subscription state reachable from the module.
 BILLING_CONTRACTS = ("billing.facts.v1", "billing.entitlements.v1")
 
@@ -71,7 +73,8 @@ def test_fn_tests_changed() -> None:
 
 def test_dev_live_subscription_gate() -> None:
     """'Check at request time' = the live SubscriptionActive() or the live org
-    fact Entitled("organization.subscription.active"), not claim-only
+    fact Entitled("organization.subscription.active", owner="billing"), not
+    claim-only
     Subscribed()."""
     assert any(
         "SubscriptionActive(" in (blob := _gate_text(r)) or _org_fact_gate(blob)
@@ -192,12 +195,17 @@ def _of_org(term: ast.expr) -> bool:
 
 
 def _org_fact(term: ast.expr) -> bool:
-    """``Entitled("organization.subscription.active")`` (constants resolved)."""
+    """``Entitled("organization.subscription.active", owner="billing")``
+    (constants resolved): a fact is billing's only when the policy names
+    billing as its owner."""
     if _callee(term) != "Entitled":
         return False
     assert isinstance(term, ast.Call)
     values = [*term.args[:1], *(k.value for k in term.keywords if k.arg == "fact_name")]
-    return any(isinstance(v, ast.Constant) and v.value == ORG_FACT for v in values)
+    owners = [k.value for k in term.keywords if k.arg == "owner"]
+    return any(
+        isinstance(v, ast.Constant) and v.value == ORG_FACT for v in values
+    ) and any(isinstance(o, ast.Constant) and o.value == FACT_OWNER for o in owners)
 
 
 def _org_account(route: Route, root: Path) -> bool:

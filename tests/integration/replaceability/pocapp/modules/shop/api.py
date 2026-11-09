@@ -36,7 +36,9 @@ async def tenant(
 
 @router.get(
     "/items/{sku}/buy",
-    dependencies=[Depends(require(Entitled("inventory.stock.available")))],
+    dependencies=[
+        Depends(require(Entitled("inventory.stock.available", owner="inventory")))
+    ],
 )
 async def buy(sku: str, user: CurrentUser) -> dict[str, str]:
     return {"bought": sku}

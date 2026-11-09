@@ -287,7 +287,9 @@ async def test_fact_rejects_bad_freshness() -> None:
 
 async def test_entitled_unregistered_is_misconfigured() -> None:
     core = _StubCore()
-    decision = await Entitled("nope").decide(_ctx(_subject(), core=core))
+    decision = await Entitled("nope", owner="billing").decide(
+        _ctx(_subject(), core=core)
+    )
     assert decision.category == Category.POLICY_MISCONFIGURED
     assert decision.code == "fact_unregistered"
 
@@ -298,13 +300,19 @@ async def test_entitled_satisfied_and_denied() -> None:
     s_ok = _subject(subscription_status="active", claims_sources={"billing"})
     assert (
         await Entitled(
-            "subscription.active", category=Category.PAYMENT_REQUIRED, mode="claim"
+            "subscription.active",
+            owner="billing",
+            category=Category.PAYMENT_REQUIRED,
+            mode="claim",
         ).decide(_ctx(s_ok, core=core))
     ).allowed
 
     s_no = _subject(subscription_status=None, claims_sources={"billing"})
     deny = await Entitled(
-        "subscription.active", category=Category.PAYMENT_REQUIRED, mode="claim"
+        "subscription.active",
+        owner="billing",
+        category=Category.PAYMENT_REQUIRED,
+        mode="claim",
     ).decide(_ctx(s_no, core=core))
     assert not deny.allowed and deny.category == Category.PAYMENT_REQUIRED
 
@@ -319,18 +327,23 @@ async def test_entitled_uses_fact_deny_category() -> None:
         deny_category=Category.PAYMENT_REQUIRED
     )
     s_no = _subject(subscription_status=None, claims_sources={"billing"})
-    deny = await Entitled("subscription.active", mode="claim").decide(
+    deny = await Entitled("subscription.active", owner="billing", mode="claim").decide(
         _ctx(s_no, core=core)
     )
     assert deny.category == Category.PAYMENT_REQUIRED and deny.http_status == 402
     override = await Entitled(
-        "subscription.active", category=Category.FORBIDDEN, mode="claim"
+        "subscription.active",
+        owner="billing",
+        category=Category.FORBIDDEN,
+        mode="claim",
     ).decide(_ctx(s_no, core=core))
     assert override.http_status == 403
 
     # No deny_category -> forbidden (403), the historical default.
     core.facts["plain"] = _sub_fact(name="plain")
-    plain = await Entitled("plain", mode="claim").decide(_ctx(s_no, core=core))
+    plain = await Entitled("plain", owner="billing", mode="claim").decide(
+        _ctx(s_no, core=core)
+    )
     assert plain.category == Category.FORBIDDEN and plain.http_status == 403
 
     async def _refuse(service: object, ctx: object) -> bool:
@@ -343,7 +356,9 @@ async def test_entitled_uses_fact_deny_category() -> None:
         deny_category=Category.PAYMENT_REQUIRED,
         min_freshness="live",
     )
-    refused = await Entitled("org.fact").decide(_ctx(_subject(), core=core))
+    refused = await Entitled("org.fact", owner="billing").decide(
+        _ctx(_subject(), core=core)
+    )
     assert not refused.allowed and not refused.indeterminate
     assert refused.code == "not_a_member" and refused.http_status == 403
 
@@ -355,7 +370,9 @@ async def test_entitled_unavailable_is_501() -> None:
     )
     # claim namespace absent + service unconfigured -> auto exhausts -> 501
     s = _subject(claims_sources={"identity"})
-    deny = await Entitled("subscription.active").decide(_ctx(s, core=core))
+    deny = await Entitled("subscription.active", owner="billing").decide(
+        _ctx(s, core=core)
+    )
     assert deny.http_status == 501
     assert deny.code == "fact_unavailable"
 

@@ -128,9 +128,9 @@ with no replacement name:
 | Removed | Instead |
 | --- | --- |
 | `ACTIVE_SUBSCRIPTION_STATUSES` | billing's `AccessFact` declaration; `Subscribed(statuses=...)` names the statuses |
-| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table. A fact whose name does not start with its owner is named with `Entitled(name, owner=...)`, e.g. `Entitled("subscription.active", owner="billing")` |
+| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table. Every `Entitled` names it: `Entitled("subscription.active", owner="billing")` (see [Access facts are identified by owner and name](#access-facts-are-identified-by-owner-and-name)) |
 | `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter`, `ENTITLEMENTS`, `MEMBERSHIP` | `access_check` on the provider, `access_providers` / `SERVICE_BINDINGS` on the deployment ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)) |
-| the billing branch of `fake_access_fact` | `fake_contract(REF, Fake())` for the provider's contract; `fake_access_fact` keeps stubbing a fact by name |
+| the billing branch of `fake_access_fact` | `fake_contract(REF, Fake())` for the provider's contract; `fake_access_fact` keeps stubbing a fact by owner and name, `fake_access_fact(name, value, owner="billing")` |
 | `Roles`, `Permissions` | `sandloom_identity.rbac` in identity's own code; any other module writes the code string, e.g. `Perm("perm.users.read")` |
 
 **Custom adapters.** A project that called `register_live_adapter(ENTITLEMENTS,
@@ -168,8 +168,18 @@ Standard billing has no feature or limit catalogue yet. `Feature` and
 `WithinLimit` stay public capabilities for a third-party provider and for
 claims your own authority writes.
 
-`Subscribed(statuses=...)` follows the same rule: an absent `subscription_status`
-with a failed authority answers 503, absent otherwise answers 501.
+`Subscribed()` and `Subscribed(statuses=...)` share one trust rule for
+`Account.user()`; `statuses=` changes the accepted statuses only:
+
+| The token | Answer |
+| --- | --- |
+| no `subscription_status`, billing ran at the mint and wrote none | `402`: billing's fact declares `absent_claim="deny"` (a fact without that declaration answers `501`) |
+| no `subscription_status` because billing failed at the mint | `503 claim_authority_failed` |
+| removed by the trusted view | `401 token_policy_outdated` / `503 claims_policy_mismatch` |
+| no source vouches for the key (billing did not run, no authority assigned) | `501 access_unknown` |
+
+The full table is in
+[Authorization](../modules/http/authorization.md#access-checks-declared-by-a-provider).
 
 **Fail-safe claim keys are declared, not built in.** The kernel no longer
 knows billing's keys (`subscription_status`, `plan_code`, `features`,
@@ -196,6 +206,41 @@ A contract whose implementation carries `@access_check` methods is now
 access-bearing in every process, also where no consumer imported its
 generated atoms. Only the module its first segment names registers it, or
 the one `access_providers` assigns (`SANDLOOM-B034`).
+
+### Access facts are identified by owner and name
+
+An access fact is identified by the module that owns it and its name, never
+by its name alone. `owner=` is a required keyword wherever a fact is named:
+
+| Before | After |
+| --- | --- |
+| `Entitled("subscription.active")` | `Entitled("subscription.active", owner="billing")` |
+| `Entitled("organization.subscription.active")` | `Entitled("organization.subscription.active", owner="billing")` |
+| `Entitled(name, category=...)` | `Entitled(name, owner="<module>", category=...)` |
+| `fake_access_fact(name, value)` | `fake_access_fact(name, value, owner="<module>")` |
+| `lookup_access_fact(ctx, name)` | `lookup_access_fact(ctx, name, owner="<module>")` |
+
+`<module>` is the short name of the module that registers the fact, its
+`owner_module`. Billing owns its two facts, so they take `"billing"`. A
+missing `owner=` is Python's `TypeError` when the policy is built, at import.
+`None`, an empty string or a value that is not a module name raises
+`SANDLOOM-B038`.
+
+The policy accepts only that module's fact: registered in this process by
+that module, or described by that module's bound `<owner>.facts.v1`. It no
+longer accepts another module's fact of the same name, and it asks no other
+module's facts contract:
+
+| The owner module is | Answer |
+| --- | --- |
+| loaded or bound, and answers | its answer |
+| neither loaded nor bound (another module's fact of that name present or not) | 501 `fact_unregistered` |
+| bound but unreachable | 503 `fact_owner_unavailable`, no fallback |
+
+Both errors are indeterminate, so `~Entitled(...)` and `Not(...)` never turn
+them into an allow. A test that faked a fact by name names the owner the
+policy names: `fake_access_fact(name, True, owner="rogue")` does not satisfy
+`Entitled(name, owner="billing")`.
 
 ### Commands
 

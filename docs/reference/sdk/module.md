@@ -485,7 +485,8 @@ def register_access_fact(self, fact: Any) -> None
 Register an `sandloom.shared.authz.facts.AccessFact`.
 
 Binds a fact name to its claim/projection/live resolution paths so
-`Entitled(name)` policies resolve it by configuration.
+`Entitled(name, owner=<this module>)` policies resolve it by
+configuration.
 
 #### `ModuleAPI.register_operations`
 

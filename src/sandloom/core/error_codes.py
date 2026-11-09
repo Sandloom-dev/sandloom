@@ -1545,6 +1545,30 @@ kernel uses (database, cache, event bus) stay required.
         "docs/infrastructure/index.md",
     ),
     _entry(
+        "SANDLOOM-B038",
+        "fact-owner-missing",
+        "boot",
+        "an access-fact policy or fake names no valid owner module",
+        'state the module that registers the fact: Entitled("subscription.active", '
+        'owner="billing"), fake_access_fact(name, value, owner="billing")',
+        """
+An access fact is identified for authorization by its owner module and its
+name, never by its name alone: two modules may name a fact alike, and only the
+module the policy means may answer it. Entitled(fact_name, owner=...) and
+fake_access_fact(name, value, owner=...) therefore take owner= as a required
+keyword. Leaving it out is Python's TypeError naming owner (a type checker
+flags it first); None, a non-string, an empty string or a string that is not a
+module name (a Python identifier) raises this code when the policy is built,
+at import, before any request. The policy accepts only that module's fact:
+registered in this process by that module, or described by that module's
+bound <owner>.facts.v1. Another module's fact of the same name never satisfies
+it; an owner neither loaded nor bound answers 501 fact_unregistered, an owner
+whose contract cannot be reached 503 fact_owner_unavailable, both
+indeterminate, so a negation never turns them into an allow.
+""",
+        "docs/modules/http/authorization.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",

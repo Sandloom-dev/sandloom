@@ -50,7 +50,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`FactOwnerUnreachable`](#factownerunreachable) | exception | The fact's owner is bound but could not describe its facts (503). |
 | [`FactUnavailable`](#factunavailable) | exception | A fact could not be resolved in any acceptable mode (a misconfiguration). |
 | [`From`](#from) | class | Where an access check's argument comes from (the kernel's sources). |
-| [`lookup_access_fact`](#lookup_access_fact) | async function | The fact `name`: the local registration, else the owner's public one. |
+| [`lookup_access_fact`](#lookup_access_fact) | async function | The fact `(owner, name)`: the local registration, else the owner's public one; never another module's fact of the same name. |
 | [`make_rebuild_gate`](#make_rebuild_gate) | function | A startup task that rebuilds an authz projection from its sources. |
 | [`MODE_AUTO`](#mode_auto) | constant |  |
 | [`MODE_CLAIM`](#mode_claim) | constant |  |
@@ -271,7 +271,8 @@ def error(
 An *indeterminate* denial: the requirement could not be evaluated.
 
 Distinct from `deny` (the subject definitively lacks the
-requirement): combinators propagate it unchanged, so `~Entitled(x)`
+requirement): combinators propagate it unchanged, so
+`~Entitled(x, owner=m)`
 with `x` unregistered / its service down DENIES with this category and
 status instead of inverting the failure into an allow.
 
@@ -1038,10 +1039,10 @@ allow `AccessDecision` on success so callers may inspect it.
 class Entitled(Requirement)(
     fact_name: str,
     *,
+    owner: str,
     category: str | None = None,
     code: str | None = None,
     mode: str | None = None,
-    owner: str | None = None,
 ) -> None
 ```
 
@@ -1052,7 +1053,7 @@ Subject satisfies the registered access fact `fact_name`.
 - `fact_name`: name of an `AccessFact` registered via `core.register_access_fact(...)`.
 - `category`: denial category when the fact is False. Defaults to the fact's own `deny_category` (billing's subscription facts declare `Category.PAYMENT_REQUIRED` → 402), else `forbidden` (403). A resolver raising `FactDenied` picks its own category.
 - `mode`: force a resolution mode, overriding the `ACCESS` setting (for tests / special endpoints). Normally left `None`.
-- `owner`: the module that owns the fact (its `owner_module`). Stated, only that module's fact is accepted (local, or described by its `<owner>.facts.v1`) and the policy names that contract; omitted, the owner is the fact's first dotted segment for the contract the policy names, and the lookup accepts the fact from whichever bound owner describes it. The kernel keeps no table of fact owners: `Entitled("subscription.active", owner="billing")`.
+- `owner`: required, the module that owns the fact (its `owner_module`): a fact is identified by its owner and its name, never by its name alone. Only that module's fact is accepted, local or described by that module's bound `<owner>.facts.v1` (the contract the policy names); another module's fact of the same name never satisfies it. Missing, empty or not a module name raises `InvalidFactOwner` (SANDLOOM-B038) here, before any request. The kernel keeps no table of fact owners: `Entitled("subscription.active", owner="billing")`.
 
 #### `Entitled.contracts`
 
@@ -1193,20 +1194,24 @@ async def lookup_access_fact(
     ctx: AuthzContext,
     name: str,
     *,
-    owner: str | None = None,
+    owner: str,
 ) -> AccessFact | None
 ```
 
-The fact `name`: the local registration, else the owner's public one.
+The fact `(owner, name)`: the local registration, else the owner's
+public one; never another module's fact of the same name.
 
-Order: `core.get_access_fact(name)` (owner co-deployed) → every bound
-`<owner>.facts.v1` with no local provider (the owner named by the fact's
-first dotted segment first), whose `describe()` is cached on the core for
-`REMOTE_FACT_TTL_SECONDS`. `None` when no owner knows the fact (the
-caller reports 501); `FactOwnerUnreachable` (503) when a bound owner
-could not be asked and none of the others knows it. `owner=` (a
-generated atom's literal) accepts only that module's fact and asks only
-its facts contract.
+A fact's identity for authorization is its owner module and its name.
+Order: `core.get_access_fact(name)` when its `owner_module` is
+`owner` (the owner co-deployed) → `owner`'s bound `<owner>.facts.v1`
+(no local provider), whose `describe()` is cached on the core for
+`REMOTE_FACT_TTL_SECONDS`; a descriptor naming another
+`owner_module` is ignored (SANDLOOM-B034). No other owner's contract is
+asked, so there is no fallback. `None` when `owner` is neither loaded
+nor bound, or does not know the fact (the caller reports 501);
+`FactOwnerUnreachable` (503) when `owner`'s contract could not be
+asked. An `owner` that is not a module name raises `InvalidFactOwner`
+(SANDLOOM-B038).
 
 ### `make_rebuild_gate`
 
@@ -1266,7 +1271,8 @@ class Not(Requirement)(inner: Requirement) -> None
 Negation of a single requirement.
 
 Negates only a *definite* answer: an indeterminate inner decision is
-returned unchanged (deny), so `~Entitled("account.suspended")` never
+returned unchanged (deny), so
+`~Entitled("account.suspended", owner="accounts")` never
 allows because the fact is unregistered or its service is down.
 
 #### `Not.evaluate`
@@ -1356,7 +1362,8 @@ class Or(Requirement)(*parts: Requirement) -> None
 Disjunction: any operand may hold. Short-circuits on first allow.
 
 Only a genuinely satisfied operand allows — and one that does allows even
-if a sibling is indeterminate (`Role("admin") | Entitled("x")` admits an
+if a sibling is indeterminate (`Role("admin") | Entitled("x", owner="m")`
+admits an
 admin while the `x` fact is unregistered): the grant comes from the
 satisfied operand, never from inverting or guessing the broken one. When
 none allows and at least one operand was indeterminate, the disjunction is

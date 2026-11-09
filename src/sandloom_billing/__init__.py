@@ -70,9 +70,11 @@ def _setup(core: ModuleAPI) -> None:
     # Subscription/plan claims baked into minted access tokens.
     core.add_claims_contributor(contribute_billing_claims, fail_safe=BILLING_CLAIM_KEYS)
 
-    # Configurable access facts: Entitled("subscription.active") (personal
-    # tenant; claim / live / auto per the ACCESS setting) and
-    # Entitled("organization.subscription.active") (request's org; live).
+    # Configurable access facts, owned by billing:
+    # Entitled("subscription.active", owner="billing") (personal tenant;
+    # claim / live / auto per the ACCESS setting) and
+    # Entitled("organization.subscription.active", owner="billing")
+    # (request's org; live).
     core.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
     core.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
 

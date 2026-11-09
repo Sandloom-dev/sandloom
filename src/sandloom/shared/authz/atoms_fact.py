@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sandloom.core.descriptors.module_names import require_fact_owner
 from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
 from sandloom.shared.authz.facts import (
     FactDenied,
@@ -41,13 +42,16 @@ class Entitled(Requirement):
             A resolver raising ``FactDenied`` picks its own category.
         mode: force a resolution mode, overriding the ``ACCESS`` setting (for
             tests / special endpoints). Normally left ``None``.
-        owner: the module that owns the fact (its ``owner_module``). Stated,
-            only that module's fact is accepted (local, or described by its
-            ``<owner>.facts.v1``) and the policy names that contract;
-            omitted, the owner is the fact's first dotted segment for the
-            contract the policy names, and the lookup accepts the fact from
-            whichever bound owner describes it. The kernel keeps no table of
-            fact owners: ``Entitled("subscription.active", owner="billing")``.
+        owner: required, the module that owns the fact (its
+            ``owner_module``): a fact is identified by its owner and its
+            name, never by its name alone. Only that module's fact is
+            accepted, local or described by that module's bound
+            ``<owner>.facts.v1`` (the contract the policy names); another
+            module's fact of the same name never satisfies it. Missing,
+            empty or not a module name raises ``InvalidFactOwner``
+            (SANDLOOM-B038) here, before any request. The kernel keeps no
+            table of fact owners: ``Entitled("subscription.active",
+            owner="billing")``.
     """
 
     tier = TIER_LIVE
@@ -56,21 +60,21 @@ class Entitled(Requirement):
         self,
         fact_name: str,
         *,
+        owner: str,
         category: str | None = None,
         code: str | None = None,
         mode: str | None = None,
-        owner: str | None = None,
     ) -> None:
+        self.owner = require_fact_owner(owner, fact_name, "Entitled")
         self.fact_name = fact_name
         # Explicit override; None defers to the fact's deny_category.
         self._explicit_category = category
         self.category = category or Category.FORBIDDEN
         self.code = code
         self._mode = mode
-        self.owner = owner
 
     def contracts(self) -> frozenset[str]:
-        return frozenset({fact_owner_contract(self.fact_name, self.owner)})
+        return frozenset({fact_owner_contract(self.owner)})
 
     async def evaluate(self, ctx: AuthzContext) -> bool:
         # Raises PolicyIndeterminate on misconfiguration — never a bare False
@@ -79,7 +83,8 @@ class Entitled(Requirement):
 
     async def decide(self, ctx: AuthzContext) -> AccessDecision:
         try:
-            # Local registration, else the owner's public <owner>.facts.v1.
+            # The owner's local registration, else its <owner>.facts.v1; no
+            # other module's fact of this name.
             fact = await lookup_access_fact(ctx, self.fact_name, owner=self.owner)
         except FactOwnerUnreachable as exc:
             return AccessDecision.error(
@@ -90,16 +95,18 @@ class Entitled(Requirement):
                 failed_requirement=self.describe(),
             )
         if fact is None:
-            # Indeterminate: neither registered here nor described by any
-            # bound owner — not implemented in THIS deployment (501). It must
-            # deny even when negated (``~Entitled("account.suspended")``).
+            # Indeterminate: the owner neither registered it here nor
+            # describes it over its bound contract — not implemented in THIS
+            # deployment (501). It must deny even when negated
+            # (``~Entitled("account.suspended", owner="accounts")``).
             return AccessDecision.error(
                 code="fact_unregistered",
                 category=Category.POLICY_MISCONFIGURED,
                 http_status=501,
                 reason=(
-                    f"access fact {self.fact_name!r} is not registered and no "
-                    "bound <owner>.facts.v1 contract describes it"
+                    f"access fact {self.fact_name!r} of module {self.owner!r} "
+                    "is not registered here and its bound "
+                    f"{fact_owner_contract(self.owner)} does not describe it"
                 ),
                 failed_requirement=self.describe(),
             )

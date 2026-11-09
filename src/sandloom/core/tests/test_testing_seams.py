@@ -89,11 +89,13 @@ async def test_fake_access_fact_answers_entitled_without_its_owner() -> None:
     subject = UserContext(user_id=uuid.uuid4())
 
     async def decide() -> Any:
-        return await Entitled("plan.pro").decide(AuthzContext(subject, core=core))
+        return await Entitled("plan.pro", owner="plans").decide(
+            AuthzContext(subject, core=core)
+        )
 
-    with fake_access_fact("plan.pro", True, core=core):
+    with fake_access_fact("plan.pro", True, owner="plans", core=core):
         assert (await decide()).allowed
-    with fake_access_fact("plan.pro", lambda ctx: False, core=core):
+    with fake_access_fact("plan.pro", lambda ctx: False, owner="plans", core=core):
         assert not (await decide()).allowed
     assert core.get_access_fact("plan.pro") is None  # restored
 

@@ -100,14 +100,20 @@ def register(core: ModuleAPI) -> ModuleDescriptor:
 
     @router.get(
         "/entitled/personal",
-        dependencies=[Depends(require(Entitled("subscription.active")))],
+        dependencies=[
+            Depends(require(Entitled("subscription.active", owner="billing")))
+        ],
     )
     async def entitled_personal() -> dict[str, bool]:
         return {"ok": True}
 
     @router.get(
         "/entitled/org/{org_id}",
-        dependencies=[Depends(require(Entitled("organization.subscription.active")))],
+        dependencies=[
+            Depends(
+                require(Entitled("organization.subscription.active", owner="billing"))
+            )
+        ],
     )
     async def entitled_org(org_id: UUID) -> dict[str, bool]:
         return {"ok": True}
