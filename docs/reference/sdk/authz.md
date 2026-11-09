@@ -282,9 +282,10 @@ decision's own status (e.g. `Subscribed(of=Account.user())` → 402, a
 missing contract → 501);
 `status_code` is an explicit override for definite denials.
 
-A claims-only policy (every atom tier 1) never opens a database session /
-Unit of Work; only policies that may reach a live atom depend on
-`get_db`.
+A policy opens a database session / Unit of Work (`get_db`) only when
+one of its atoms may use it (`Requirement.needs_request_session`): a
+claims-only policy never does, nor does a contract-anchored check, whose
+provider runs in its own unit.
 
 Raises `ValueError` at wiring time if `policy` contains a resource-scoped
 atom (e.g. `Owner`): `require` has no request resource, so such a policy
@@ -722,6 +723,21 @@ Used by `require()` to reject resource-scoped policies at wiring time
 (they belong in `authorize_resource`/`authorize`), turning a runtime
 500 into a clear startup error.
 
+#### `And.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
+
 #### `And.org_params`
 
 ```python
@@ -1113,6 +1129,21 @@ Sync contracts evaluating this requirement may call (wiring time).
 A module's derived `consumes` includes them (optional), so the
 startup preflight reports an unbound one and `sandloom add deploy`
 binds it in a split deployment. Default: none (a claims-only atom).
+
+#### `ContractCheck.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
 
 #### `ContractCheck.risks`
 
@@ -1535,6 +1566,21 @@ Used by `require()` to reject resource-scoped policies at wiring time
 (they belong in `authorize_resource`/`authorize`), turning a runtime
 500 into a clear startup error.
 
+#### `Not.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
+
 #### `Not.org_params`
 
 ```python
@@ -1614,6 +1660,21 @@ True if evaluating this requirement needs the request resource.
 Used by `require()` to reject resource-scoped policies at wiring time
 (they belong in `authorize_resource`/`authorize`), turning a runtime
 500 into a clear startup error.
+
+#### `Or.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
 
 #### `Or.org_params`
 
@@ -1826,6 +1887,21 @@ Sync contracts evaluating this requirement may call (wiring time).
 A module's derived `consumes` includes them (optional), so the
 startup preflight reports an unbound one and `sandloom add deploy`
 binds it in a split deployment. Default: none (a claims-only atom).
+
+#### `Requirement.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
 
 #### `Requirement.risks`
 

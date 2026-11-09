@@ -490,7 +490,8 @@ def test_startup_refuses_an_authority_neither_loaded_nor_bound() -> None:
 def test_startup_refuses_a_non_critical_authority_of_a_rights_key() -> None:
     """T-5 / decision 7: ``roles`` from a critical=False contributor."""
     problems = _problems(MAP, contributors={**CONTRIBUTORS, "idp": False})
-    assert len(problems) == 2  # roles and permissions
+    # roles, permissions, and the issuer's own fields (email, email_verified)
+    assert len(problems) == 3
     assert all("critical=False" in p for p in problems)
 
 
@@ -552,7 +553,8 @@ def test_a_map_without_issuer_refuses_a_loaded_issuer() -> None:
     """An assigned map with no ``issuer`` entry and an issuing module."""
     mapping = {k: v for k, v in MAP.items() if k != "issuer"}
     (problem,) = _problems(mapping)
-    assert "but the claim_authorities issuer is None" in problem
+    assert "but the claim_authorities map names no issuer" in problem
+    assert "is None" not in problem
 
 
 def test_a_non_issuing_process_checks_only_the_issuer() -> None:
@@ -577,13 +579,130 @@ def test_no_map_refuses_an_issuing_process_only() -> None:
     )
 
 
-def test_the_issuers_fields_need_no_contributor_of_their_own() -> None:
-    """The issuer's contributor writes them through the mint check, and the
-    issuer is checked as the issuer: an issuer whose contributor is optional
-    (or absent) is not refused for them at startup."""
-    assert _problems({"issuer": IDP}, contributors={"idp": False}) == []
-    assert _problems({"issuer": IDP}, contributors={}) == []
-    assert _problems({"issuer": IDP, "email": IDP}, contributors={}) == []
+def _roots(monkeypatch: pytest.MonkeyPatch, *roots: tuple[str, Any]) -> None:
+    """The installed roots' registered maps (``sandloom.composition_roots``)."""
+    monkeypatch.setattr(_ca, "_installed_roots", lambda: list(roots))
+
+
+def test_no_map_leads_with_the_root_that_composes_the_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding 3: the fix comes first, the booted root is named, and no
+    installed root is suggested when none registered a map naming this
+    issuer (the kernel names no root of its own accord)."""
+    _roots(monkeypatch, ("std.main", {"issuer": "acme.other_idp"}))
+    for booted, named in (
+        (None, "the booted root 'sandloom.main' (the lean root"),
+        ("acme.asgi", "the booted root 'acme.asgi' (SANDLOOM_COMPOSITION_ROOT)"),
+    ):
+        (problem,) = claim_authority_problems(
+            NO_AUTHORITIES,
+            loaded=LOADED,
+            contributors={},
+            bindings={},
+            issuers=[IDP],
+            booted_root=booted,
+        )
+        assert problem.index("the root that composes 'acme.idp' must pass") < (
+            problem.index(named)
+        )
+        assert "std.main" not in problem
+        assert "sandloom_standard" not in problem
+
+
+def test_no_map_suggests_a_registered_root_whose_map_names_the_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A root that registered its map (``sandloom_standard.main`` does) is
+    suggested only for the issuer that map names, never for itself."""
+    _roots(
+        monkeypatch,
+        ("std.main", {"issuer": IDP, "roles": IDP}),
+        ("other.main", {"issuer": "acme.other_idp"}),
+        ("broken.main", ["not", "a", "map"]),
+        ("acme.asgi", {"issuer": IDP}),
+    )
+    (problem,) = claim_authority_problems(
+        NO_AUTHORITIES,
+        loaded=LOADED,
+        contributors={},
+        bindings={},
+        issuers=[IDP],
+        booted_root="acme.asgi",
+    )
+    assert problem.endswith(
+        "an installed root assigns this issuer's authorities: "
+        "SANDLOOM_COMPOSITION_ROOT=std.main"
+    )
+    assert "other.main" not in problem
+
+
+def test_a_broken_root_hint_never_hides_the_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An entry point that fails to load is skipped, the refusal stands."""
+
+    class _Broken:
+        name = "broken.main"
+
+        def load(self) -> Any:
+            raise ImportError("gone")
+
+    monkeypatch.setattr(
+        _ca.metadata,
+        "entry_points",
+        lambda: SimpleNamespace(select=lambda group: [_Broken()]),
+    )
+    (problem,) = claim_authority_problems(
+        NO_AUTHORITIES, loaded=LOADED, contributors={}, bindings={}, issuers=[IDP]
+    )
+    assert "no claim_authorities map is set" in problem
+    assert "installed root" not in problem
+
+
+def test_the_issuer_needs_a_critical_contributor_of_its_own() -> None:
+    """Decision 7: the issuer fields have no other writer and no fallback,
+    so an issuer without a contributor, or with an optional one, is refused
+    (its every invitation accept would otherwise fail closed)."""
+    (absent,) = _problems({"issuer": IDP}, contributors={})
+    assert "issuer 'acme.idp' registers no claims contributor" in absent
+    (optional,) = _problems({"issuer": IDP}, contributors={"idp": False})
+    assert "registers its claims contributor critical=False" in optional
+    assert "email, email_verified" in optional
+    assert _problems({"issuer": IDP}, contributors={"idp": True}) == []
+    assert _problems({"issuer": IDP, "email": IDP}, contributors={"idp": True}) == []
+
+
+def test_only_the_issuing_process_checks_the_issuers_contributor() -> None:
+    """A split's other process neither loads the issuer nor mints."""
+    assert _problems({"issuer": IDP}, loaded={}, contributors={}, issuers=()) == []
+
+
+def test_a_left_out_default_issuer_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 4: a default map whose issuer is not composed here, with
+    another issuer loaded, names the left-out issuer, not "issuer is None"."""
+    core = _core(None)
+    acme = "acme.oidc"
+    _register(core, acme, {}, critical=True)
+    with pytest.raises(ConfigurationError) as refused:
+        install_claim_authorities(
+            core,
+            [_descriptor(acme, issues_tokens=True)],
+            claim_authorities=None,
+            default_claim_authorities={"issuer": IDP, "roles": IDP},
+            bindings={},
+            log=logging.getLogger("test"),
+            booted_root="std.main",
+        )
+    message = str(refused.value)
+    assert "SANDLOOM-B035" in message
+    assert (
+        "the default claim-authority map of the booted root 'std.main' "
+        "(SANDLOOM_COMPOSITION_ROOT) names the issuer 'acme.idp', which this "
+        "composition does not load"
+    ) in message
+    assert "create_app(claim_authorities={'issuer': 'acme.oidc', ...})" in message
+    assert "is None" not in message
 
 
 def test_the_default_map_keeps_only_the_composed_authorities() -> None:

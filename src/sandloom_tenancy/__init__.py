@@ -11,7 +11,7 @@ side (add / change role / remove) is deliberately NOT part of any contract.
 Contract semantics: the methods take NO session — every call runs in tenancy's
 own read-only Unit of Work on tenancy's database, identically in-process and
 over internal RPC (``SERVICE_BINDINGS``). The ``tenant_ids`` claims contributor
-is likewise exposed as ``tenancy.claims.v1`` so an identity service deployed
+is likewise exposed as ``tenancy.claims.v1`` so the token issuer deployed
 alone still mints tokens with the allowlist; it is critical, so if tenancy
 cannot answer, token issuance fails with 503 rather than minting a token
 without ``tenant_ids``.

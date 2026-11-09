@@ -36,6 +36,7 @@ from sandloom.core.production_profile import (
 )
 from sandloom.core.rpc import (
     check_remote_contract_compat,
+    describe_remote_bindings,
 )
 from sandloom.core.runtime import use_active_core
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -181,12 +182,22 @@ def _register_contract_compat_check(core_facade: CoreFacade) -> None:
         """
         await check_remote_contract_compat(core_facade)
 
-    if settings.contract_compat_check != "off" and settings.service_bindings:
+    async def describe_bindings() -> None:
+        """Describe every remote binding to seed the proxy's describe cache
+        (ADR-0014 K6): no describe ``GET`` on a first request."""
+        await describe_remote_bindings(core_facade)
+
+    if not settings.service_bindings:
+        return
+    if settings.contract_compat_check != "off":
+        # The compat probe also describes (and seeds) every remote binding.
         core_facade.add_startup_task(
             contract_compat_check,
             critical=settings.contract_compat_check == "strict",
             phase="post",
         )
+    else:
+        core_facade.add_startup_task(describe_bindings, critical=False, phase="post")
 
 
 def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> None:

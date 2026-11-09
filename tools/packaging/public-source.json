@@ -1620,6 +1620,7 @@
         "src/sandloom/core/tests/test_consumes_preflight.py",
         "src/sandloom/core/tests/test_contract_cache_shadow.py",
         "src/sandloom/core/tests/test_contract_check.py",
+        "src/sandloom/core/tests/test_contract_check_outage.py",
         "src/sandloom/core/tests/test_contract_codec_v2.py",
         "src/sandloom/core/tests/test_contract_compat.py",
         "src/sandloom/core/tests/test_contract_compat_expectations.py",
