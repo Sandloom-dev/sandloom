@@ -223,6 +223,21 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
   [Configuration Reference](../../reference/configuration.md). For OAuth2 provider
   setup, see the [SSO guide](sso.md).
 
+### Token cleanup (optional)
+
+Identity schedules two cleanup tasks. They delete refresh tokens that
+expired, and tokens revoked more than 30 days ago. They need a worker and one
+beat. Identity declares that taskqueue need as optional.
+
+Without the cleanup, identity stays correct: an expired or revoked token is
+refused on every use. What you lose is storage. The `refresh_tokens` table
+keeps one row per login and per refresh, and it grows without bound.
+
+`sandloom doctor` warns about it in its `periodic` section, and
+`/diagnostics/core` shows `"beat": "absent"`. Run the worker and beat, or
+delete old rows yourself: `expires_at` in the past, or `revoked_at` older
+than 30 days.
+
 ## How other modules use identity
 
 Identity exposes these service contracts:

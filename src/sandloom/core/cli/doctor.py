@@ -6,7 +6,7 @@ serving traffic and without changing anything::
     sandloom doctor                    # human report
     sandloom doctor --json             # machine-readable
     sandloom doctor --skip consumers   # sections: config, modules, infra,
-                                  # migrations, consumers, rls, sagas
+                                  # periodic, migrations, consumers, rls, sagas
     sandloom doctor --timeout 10       # per-section budget (seconds)
 
 Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
@@ -22,7 +22,12 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
   modules are loaded; required consumed contracts are bound.
 * **infra** — every configured instance (databases, caches, object stores,
   task queue / broker, event bus) answers its health probe within the
-  timeout — the same probes as ``/diagnostics/infra``.
+  timeout — the same probes as ``/diagnostics/infra`` (the ``celery``
+  taskqueue's probe connects to its broker).
+* **periodic** — each loaded module whose taskqueue requirement asks for
+  ``periodic``: whether a beat schedules its jobs for this composition (the
+  beat's singleton lease is held). Missing for a required requirement fails;
+  for an optional one (identity's token cleanup) warns.
 * **migrations** — per database, the applied revision of the core chain and
   of each module chain vs the code's heads
   (:func:`sandloom.core.migrations.migrations.migration_status`; read-only
@@ -54,6 +59,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import sandloom.core.beat_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
 from sandloom.core.cli.config import mask_url_credentials, redact_value
 from sandloom.core.cli.migrate import _hosting_databases
@@ -73,6 +79,7 @@ SECTIONS = (
     "config",
     "modules",
     "infra",
+    "periodic",
     "migrations",
     "consumers",
     "rls",
@@ -306,6 +313,75 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
         if status == FAIL:
             message += f": {details.get('error') or result.status}"
         report.add("infra", key, status, message, **details)
+
+
+# -------------------------------------------------------------- periodic ----
+
+
+def _holder_identity(token: str) -> str:
+    """``<host>:<pid>`` of a lease token ``<fence>:<host>:<pid>:<nonce>``."""
+    parts = token.split(":")
+    return ":".join(parts[1:-1]) if len(parts) >= 4 else token
+
+
+async def check_periodic(report: Report, core: Any, budget: float) -> None:
+    """Whether a beat schedules the periodic jobs the loaded modules need.
+
+    Keyed on each module's effective taskqueue requirement with feature
+    ``periodic``. Without a beat, a required one fails and an optional one
+    warns (the module degrades without its jobs; its docs say how). The beat
+    is seen through its singleton lease for THIS composition (one cache read
+    per taskqueue instance). A held lease shows a beat schedules the jobs, not
+    that a worker runs them: a module that must know (billing's reconciler)
+    watches its own runs in its readiness check.
+    """
+    needs = _beat_lease.periodic_needs(
+        getattr(core, "module_descriptors", []) or [],
+        getattr(core, "loaded_modules", []) or [],
+    )
+    if not needs:
+        report.add(
+            "periodic", "periodic jobs", SKIP, "no loaded module needs periodic jobs"
+        )
+        return
+    if not hasattr(core, "cache"):
+        report.add("periodic", "periodic jobs", SKIP, "no cache capability bound")
+        return
+    for instance in sorted({need.instance for need in needs}):
+        state, value = await _beat_lease.read_beat_lease(
+            core, instance=instance, limit_seconds=budget
+        )
+        for need in (n for n in needs if n.instance == instance):
+            report.add(
+                "periodic",
+                f"{need.module} periodic jobs",
+                *_periodic_verdict(state, value, instance, required=need.required),
+                instance=instance,
+                required=need.required,
+            )
+
+
+def _periodic_verdict(
+    state: str, value: str | None, instance: str, *, required: bool
+) -> tuple[str, str]:
+    """``(status, message)`` of one module's periodic need."""
+    if state == "held":
+        return OK, (
+            f"a beat schedules them on taskqueue/{instance} (lease held by "
+            f"{_holder_identity(value or '')})"
+        )
+    if state == "unknown":
+        return WARN, value or "the beat lease cannot be read"
+    absent = f"no beat holds the lease of this module set on taskqueue/{instance}: "
+    if required:
+        return FAIL, absent + (
+            "they do not run (required: start a worker and one "
+            "`celery -A sandloom.core.worker beat`)"
+        )
+    return WARN, absent + (
+        "they do not run (optional: the module works without them and degrades "
+        "as its docs describe)"
+    )
 
 
 # ------------------------------------------------------------ migrations ----
@@ -571,6 +647,10 @@ async def run_doctor(  # noqa: C901
             check_modules(report, core)
         if "infra" not in skip:
             await _guarded(report, "infra", lambda: check_infra(report, core, timeout))
+        if "periodic" not in skip:
+            await _guarded(
+                report, "periodic", lambda: check_periodic(report, core, timeout)
+            )
         if "migrations" not in skip:
             await _guarded(
                 report, "migrations", lambda: check_migrations(report, core, timeout)

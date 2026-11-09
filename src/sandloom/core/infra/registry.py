@@ -1092,13 +1092,17 @@ class InfraRegistry:
     # ------------------------------------------------------------------ #
     # Lifecycle
     # ------------------------------------------------------------------ #
-    async def health_all(self) -> dict[str, HealthResult]:
+    async def health_all(
+        self, *, skip: frozenset[str] = frozenset()
+    ) -> dict[str, HealthResult]:
         """Health-probe every instance in use (builds them as needed).
 
         Keys are ``"<capability>:<name>"``. Every probe has its own bounded
         timeout; an unavailable instance cannot serially delay every probe.
         A synthesized instance nothing requires (:meth:`in_use`) is neither
-        built nor probed; :meth:`describe` lists it as ``unused``.
+        built nor probed; :meth:`describe` lists it as ``unused``. The
+        capabilities in ``skip`` are not probed at all (``/health`` skips the
+        taskqueue, whose reachability only readiness reads).
         """
 
         await self._close_retired()
@@ -1120,6 +1124,7 @@ class InfraRegistry:
                 *(
                     probe(capability, name)
                     for capability, instances in self._config.items()
+                    if capability not in skip
                     for name in instances
                     if not self._unused(capability, name)
                 )

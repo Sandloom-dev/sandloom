@@ -2,10 +2,9 @@
 and the contract endpoints."""
 
 import asyncio
-import importlib.util
 import time
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Generic, TypeVar
 
 from fastapi import Depends, FastAPI, Request, Response
@@ -16,6 +15,7 @@ from pydantic import BaseModel
 
 import sandloom.core.app_factory.revocation_applier as _applier
 import sandloom.core.auth.revocation as _revocation
+import sandloom.core.beat_lease as _beat_lease
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.route_policy as _route_policy
 from sandloom.core import planner as _planner
@@ -115,42 +115,72 @@ class _HealthCache(Generic[_T]):
         return self._value
 
 
-#: Submodule of a business module that declares its tasks and its beat hook
-#: (``sandloom.core.worker.TASKS_SUBMODULE``: the worker imports exactly these).
-_TASKS_SUBMODULE = "tasks"
-#: The taskqueue instance whose tasks the loaded modules enqueue.
-_TASKQUEUE_INSTANCE = "default"
+#: Taskqueue features a process never uses to serve a request: a module that
+#: requires only these has its work run by the worker and beat processes
+#: (``periodic``: the beat schedules it, a worker runs it). A broker outage
+#: does not stop this process from serving, so it does not drop its readiness
+#: (owner decision on infrastructure dependencies, answer 3); the module's own
+#: check watches that the background work runs.
+BACKGROUND_TASKQUEUE_FEATURES = frozenset({"periodic"})
 
 
-def _task_modules(module_names: Iterable[str]) -> list[str]:
-    """Loaded modules that register tasks or periodic tasks.
+@dataclass(frozen=True)
+class TaskqueueUse:
+    """How the loaded modules use the taskqueue, read from their requirements.
 
-    A module does so in its ``<pkg>.tasks`` submodule, the one the worker
-    imports (:func:`sandloom.core.worker.discover_task_modules`); the beat hook
-    lives there too. Found with ``find_spec``, so ``tasks`` is not imported.
+    ``request_path``: instance -> the modules whose REQUIRED taskqueue
+    requirement this process uses while it serves (a feature beyond
+    :data:`BACKGROUND_TASKQUEUE_FEATURES`, or none named: enqueue is the
+    capability's contract). ``background``: the modules whose required
+    taskqueue requirement asks only for background features.
     """
-    found: list[str] = []
-    for pkg in module_names:
-        try:
-            spec = importlib.util.find_spec(f"{pkg}.{_TASKS_SUBMODULE}")
-        except (ImportError, ValueError):
-            spec = None
-        if spec is not None:
-            found.append(pkg)
-    return found
+
+    request_path: dict[str, list[str]]
+    background: list[str]
 
 
-async def _taskqueue_health(core_facade: CoreFacade) -> HealthResult:
-    """Open the configured taskqueue and probe it.
+def taskqueue_use(descriptors: Iterable[Any], loaded: Iterable[str]) -> TaskqueueUse:
+    """The taskqueue use of the ``loaded`` modules, from each descriptor's
+    effective requirements (declared, plus what the kernel derives). An
+    optional requirement never feeds readiness: the module degrades without
+    the queue, and ``sandloom doctor`` says so."""
+    names = set(loaded)
+    request_path: dict[str, list[str]] = {}
+    background: list[str] = []
+    for descriptor in descriptors:
+        if getattr(descriptor, "name", None) not in names:
+            continue
+        effective = getattr(descriptor, "effective_capabilities", None)
+        requirements = (
+            effective()
+            if callable(effective)
+            else getattr(descriptor, "capabilities", [])
+        )
+        for requirement in requirements:
+            if requirement.capability != "taskqueue" or not requirement.required:
+                continue
+            features = frozenset(requirement.features)
+            if features and features <= BACKGROUND_TASKQUEUE_FEATURES:
+                if descriptor.name not in background:
+                    background.append(descriptor.name)
+                continue
+            users = request_path.setdefault(requirement.instance or "default", [])
+            if descriptor.name not in users:
+                users.append(descriptor.name)
+    return TaskqueueUse(request_path=request_path, background=background)
 
-    Building the provider is what fails when the driver cannot open (for
-    ``celery``: Celery not installed); building sends nothing to the broker.
-    Bounded by ``HEALTH_CHECK_TIMEOUT_SECONDS`` like every other probe.
+
+async def _taskqueue_health(core_facade: CoreFacade, instance: str) -> HealthResult:
+    """Open taskqueue ``instance`` and probe it.
+
+    The driver's ``health()`` probes its broker (for ``celery``: one bounded
+    broker connection); building the provider fails when the driver cannot
+    open. Bounded by ``HEALTH_CHECK_TIMEOUT_SECONDS`` like every other probe.
     """
     timeout = settings.health_check_timeout_seconds
     try:
         return await asyncio.wait_for(
-            _capability_health(core_facade, "taskqueue", name=_TASKQUEUE_INSTANCE),
+            _capability_health(core_facade, "taskqueue", name=instance),
             timeout=timeout,
         )
     except TimeoutError:
@@ -158,13 +188,20 @@ async def _taskqueue_health(core_facade: CoreFacade) -> HealthResult:
 
 
 class _TaskqueueReadiness:
-    """The readiness term for the taskqueue (I-20: no silent degradation).
+    """The readiness term for the taskqueue (I-19, I-20: a configured
+    capability that is temporarily unavailable shows in the readiness of the
+    processes that use it).
 
-    While a loaded module registers tasks or periodic tasks, a taskqueue that
-    cannot open makes the process not ready, naming the capability. With no
-    such module the taskqueue is never probed. Readiness only: ``/health``
-    never carries it. The probe shares the TTL/single-flight cache of the
-    other readiness probes, so a ``/ready`` hit adds no I/O of its own.
+    Keyed on the loaded modules' REQUIRED taskqueue requirements, never on the
+    presence of a ``tasks.py``: while one of them uses the queue on the request
+    path, a taskqueue whose probe fails (an unreachable broker) makes the
+    process not ready, naming the capability and the instance. A module that
+    needs only background features (``periodic``) does not: this process does
+    not use the broker to serve, so a short broker outage keeps it ready. With
+    no request-path use the taskqueue is never probed. Readiness only:
+    ``/health`` never carries it. The probe shares the TTL / single-flight
+    cache of the other readiness probes, so a ``/ready`` hit adds no I/O of its
+    own: one probe per instance per TTL, however many hits arrive.
     """
 
     def __init__(self, core_facade: CoreFacade, *, ttl: float) -> None:
@@ -174,33 +211,53 @@ class _TaskqueueReadiness:
             self._probe, ttl=ttl
         )
         self._loaded: tuple[str, ...] | None = None
-        self._task_modules: list[str] = []
+        self._use = TaskqueueUse(request_path={}, background=[])
 
     async def _probe(self) -> dict[str, HealthResult]:
-        return {"taskqueue": await _taskqueue_health(self._core)}
+        instances = sorted(self.use().request_path)
+        results = await asyncio.gather(
+            *(_taskqueue_health(self._core, name) for name in instances)
+        )
+        return dict(zip(instances, results, strict=True))
 
-    def task_modules(self) -> list[str]:
-        """The loaded modules that use the taskqueue, looked up once per
-        loaded set (fixed once the app serves), not on every probe."""
+    def use(self) -> TaskqueueUse:
+        """The loaded modules' taskqueue use, read once per loaded set (fixed
+        once the app serves), not on every probe."""
         loaded = tuple(self._core.loaded_modules)
         if loaded != self._loaded:
-            self._task_modules = _task_modules(loaded)
+            self._use = taskqueue_use(self._core.module_descriptors, loaded)
             self._loaded = loaded
-        return self._task_modules
+        return self._use
 
     async def check(self) -> tuple[str, dict[str, object] | None]:
-        """``(status, internal block)``: status ``ok`` / ``fail`` (the probe's
-        own status) or ``unused`` with no block when no loaded module has
-        tasks."""
-        modules = self.task_modules()
-        if not modules:
-            return "unused", None
-        result = (await self._cache.get())["taskqueue"]
-        return result.status, {
+        """``(status, internal block)``: ``ok`` / ``fail`` (the worst probe of
+        the instances used on the request path), or ``unused`` when no loaded
+        module uses the queue on the request path. No block when no loaded
+        module requires the taskqueue at all."""
+        use = self.use()
+        if not use.request_path:
+            if not use.background:
+                return "unused", None
+            return "unused", {
+                "capability": "taskqueue",
+                "status": "unused",
+                "task_modules": [],
+                "background_modules": list(use.background),
+                "instances": {},
+            }
+        results = await self._cache.get()
+        status = "ok" if all(r.status == "ok" for r in results.values()) else "fail"
+        return status, {
             "capability": "taskqueue",
-            "instance": _TASKQUEUE_INSTANCE,
-            "task_modules": modules,
-            **asdict(result),
+            "status": status,
+            "task_modules": sorted(
+                {module for users in use.request_path.values() for module in users}
+            ),
+            "background_modules": list(use.background),
+            "instances": {
+                name: {"task_modules": list(use.request_path[name]), **asdict(result)}
+                for name, result in results.items()
+            },
         }
 
 
@@ -287,8 +344,8 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         # Readiness = infrastructure health + required modules + at least one
         # business module when any was requested + every required
         # side-effect/projection subscription actively consuming + every
-        # remote binding explicitly marked ``"required": true`` + a usable
-        # taskqueue while a loaded module registers tasks.
+        # remote binding explicitly marked ``"required": true`` + a reachable
+        # taskqueue while a loaded module uses it on the request path.
         results, peers, (taskqueue_status, taskqueue) = await asyncio.gather(
             health_cache.get(), peer_cache.get(), taskqueue_readiness.check()
         )
@@ -348,7 +405,7 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
             "health_status": status,
             "required_services_status": peers_status,
             "revocations_pending": revocations_pending,
-            # ``ok`` | ``fail`` | ``unused`` (no loaded module registers tasks).
+            # ``ok`` | ``fail`` | ``unused`` (no loaded module enqueues while serving).
             "taskqueue_status": taskqueue_status,
             "revocation_consumers_ready": revocation_consumers.ready,
         }
@@ -388,6 +445,35 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         return JSONResponse(status_code=200 if ready else 503, content=body)
 
 
+async def _periodic_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]:
+    """Each loaded module needing periodic jobs, and whether a beat schedules
+    them for this composition (its singleton lease is held): one cache read
+    per taskqueue instance, only when an operator asks."""
+    needs = _beat_lease.periodic_needs(
+        core_facade.module_descriptors, core_facade.loaded_modules
+    )
+    beats: dict[str, dict[str, Any]] = {}
+    for instance in sorted({need.instance for need in needs}):
+        state, value = await _beat_lease.read_beat_lease(
+            core_facade,
+            instance=instance,
+            limit_seconds=settings.health_check_timeout_seconds,
+        )
+        if state == "unknown":
+            beats[instance] = {"beat": "unknown", "error": value}
+        else:
+            beats[instance] = {"beat": "scheduling" if state == "held" else "absent"}
+    return [
+        {
+            "module": need.module,
+            "instance": need.instance,
+            "required": need.required,
+            **beats[need.instance],
+        }
+        for need in needs
+    ]
+
+
 def _saga_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]:
     runtime = getattr(core_facade, "saga_runtime", None)
     registry = getattr(runtime, "registry", None)
@@ -423,6 +509,9 @@ def _install_diagnostics_endpoints(
             "event_bus_metrics": get_event_bus_metrics(),
             # registered saga definitions and versions (ADR-0008)
             "sagas": _saga_diagnostics(core_facade),
+            # modules needing periodic jobs, and whether a beat schedules them
+            # (an optional need without a beat: the module degrades)
+            "periodic": await _periodic_diagnostics(core_facade),
             # declared operations: the executor the kernel picked, and why
             "planner": {
                 "optimized_executor_enabled": bool(settings.planner_optimized_executor),

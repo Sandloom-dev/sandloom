@@ -25,6 +25,7 @@ from sandloom.sdk.module import CapabilityRequirement, ContractRequirement, Modu
 from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
 from .claims import contribute_billing_claims
+from .services.intent_reconciler import RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck
 from .services.operations import OPERATIONS
 
 ENTITLEMENTS_SERVICE_V1 = "billing.entitlements.v1"
@@ -68,6 +69,12 @@ def _setup(core: ModuleAPI) -> None:
     # Declared reads of GET /subscription and GET /credits (execution
     # planner; planned at startup, a schema error fails the boot).
     core.register_operations(*OPERATIONS)
+
+    # The reconciler's operational criterion (G-OPS-24): /health and /ready
+    # of every process that loads billing fail when no reconciler run
+    # completed within the allowed interval (no worker, no beat, a broker
+    # down for longer, or every run failing). `broker ok` alone is not it.
+    core.register_health_check(RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck())
 
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the

@@ -33,6 +33,7 @@ from .intent import (
     OPERATION_CUSTOMER_PORTAL,
     OperationIntent,
 )
+from .reconciler import BillingReconcilerRun
 from .stripe_event import (
     EVENT_STATUS_FAILED,
     EVENT_STATUS_PROCESSED,
@@ -70,6 +71,7 @@ __all__ = [
     "DISPUTE_WON",
     "DISPUTE_LOST",
     "StripeEvent",
+    "BillingReconcilerRun",
     "OperationIntent",
     "INTENT_PENDING",
     "INTENT_ISSUED",

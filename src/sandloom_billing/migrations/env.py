@@ -19,6 +19,7 @@ run_migrations(
         "billing_operation_intents",
         "billing_credit_grants",
         "billing_psp_payment_states",
+        "billing_reconciler_runs",
     },
     model_modules=["sandloom_billing.models"],
 )
