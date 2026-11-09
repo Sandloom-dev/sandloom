@@ -297,6 +297,29 @@ Over RPC, the binding names the owner. A consumer drops a fact that
 `SANDLOOM-B034`. The check compares names with the registering module; which
 module may write a given claim key is the assignment above.
 
+A contract that decides access has one provider per composition. A live
+atom asks a contract through its adapter: `OrgRole` asks
+`tenancy.membership.v1`, `SubscriptionActive` and `Credits` ask
+`billing.entitlements.v1`, and a custom adapter asks its own contract. Such
+a contract is access-bearing, and only two modules may register it
+in-process:
+
+- the module its first segment names, from its installed distribution when
+  one provides a module of that name;
+- the module the composition root assigns:
+  `create_app(access_providers={"tenancy.membership.v1": "acme_orgs"})`.
+
+The provider is checked by its import path, not by its name. An app module
+named `acme_orgs` is not the assigned `acme_orgs` package, and an app module
+named `tenancy` is not the installed tenancy. Anyone else, or a registration
+made outside a module's registration, refuses the boot (`SANDLOOM-B034`).
+The access-bearing contracts are read from the assignment and the bound
+adapters. A provider cannot opt out by omitting a declaration. In a split
+deployment, `SERVICE_BINDINGS` is the assignment. The binding pins the
+provider's `service_id`: a process with other keys behind the same URL is
+refused (401 at the provider, 503 to the caller). Every
+other contract name keeps the first-registrant rule.
+
 ### Authority at commit (admin and money effects)
 
 A live read is fresh at read time only. Every authenticated write therefore

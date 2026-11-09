@@ -14,6 +14,13 @@ The built-in defaults keep the current wiring working unchanged:
 ``billing.entitlements.v1`` (``check_subscription_active`` /
 ``get_credit_balance``) and ``tenancy.membership.v1`` (``has_role_at_least``).
 
+The contract a bound adapter names is access-bearing: ``create_app`` lets
+only the module of its first segment, or the one
+``create_app(access_providers=...)`` assigns, register it in-process
+(:func:`live_adapter_contracts`, SANDLOOM-B034). Bind a custom adapter before
+``create_app`` finishes loading the modules (the composition root or a
+consumer's ``register(core)``) so its contract is protected at boot.
+
 Contract calls never carry the caller's session (``ctx.db``): the provider
 runs each call in its OWN Unit of Work on its own database — identically
 in-process and over internal RPC. A custom adapter must not pass one either.
@@ -167,6 +174,22 @@ def register_live_adapter(kind: str, adapter: Any) -> None:
 def get_live_adapter(kind: str) -> Any:
     """The adapter currently bound for ``kind``."""
     return _ADAPTERS[kind]
+
+
+def live_adapter_contracts() -> frozenset[str]:
+    """The contract names the bound adapters ask (their ``service``).
+
+    Each of them decides access, so ``create_app`` treats it as an
+    access-bearing contract: only the module of its first segment, or the one
+    ``create_app(access_providers=...)`` assigns, may provide it in-process
+    (ADR-0014 decision 6, SANDLOOM-B034). Read from whatever adapters are
+    bound, never from a list of known names.
+    """
+    return frozenset(
+        service
+        for adapter in _ADAPTERS.values()
+        if isinstance(service := getattr(adapter, "service", None), str) and service
+    )
 
 
 def reset_live_adapters() -> None:

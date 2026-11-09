@@ -2879,7 +2879,7 @@
     },
     "create_app": {
       "kind": "function",
-      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, legacy_tokens:KEYWORD_ONLY|sandloom.core.claims.LegacyClaimsTokens | None=None) -> fastapi.applications.FastAPI"
+      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, legacy_tokens:KEYWORD_ONLY|sandloom.core.claims.LegacyClaimsTokens | None=None, access_providers:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None) -> fastapi.applications.FastAPI"
     }
   },
   "sandloom.sdk.authz": {

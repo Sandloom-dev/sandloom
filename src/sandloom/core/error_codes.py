@@ -1335,11 +1335,14 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
         "boot",
         "a module registers an access fact, a claims contributor or a "
         "<m>.claims.v1 / <m>.facts.v1 contract under another module's name, "
-        "or one of them is registered outside a module's registration",
+        "or an access-bearing contract it is not the provider of, or one of "
+        "them is registered outside a module's registration",
         "register the fact, contributor or contract from the module whose "
         "short name it carries (its register() or setup=); give an access "
         "fact the registering module as owner_module and drop owner= that "
-        "names another module",
+        "names another module; to serve another module's access-bearing "
+        "contract, assign it in the composition root: "
+        "create_app(access_providers={contract: module})",
         """
 The kernel stamps a fact's owner_module and a claims contributor's owner
 into provenance (claims_sources), resolves claim-mode facts by them, and
@@ -1353,6 +1356,19 @@ from a startup task or the composition root), refuse the module's load and
 the boot. Over RPC a consumer reads facts from the <m>.facts.v1 binding and
 drops, with a logged SANDLOOM-B034 warning, any fact described under
 another owner_module.
+
+A contract that decides access is access-bearing: a key of
+create_app(access_providers=...), or the contract a bound live adapter asks
+(OrgRole asks tenancy.membership.v1; SubscriptionActive and Credits ask
+billing.entitlements.v1; a custom adapter its own). It is registered
+in-process only by the module its first segment names (from its installed
+distribution when one provides a module of that name) or by the module the
+composition root assigns, both checked by import path: an app module named
+like the assigned or the first-segment module is not it. Anyone else refuses
+that module's load; a registration a later adapter classifies refuses the
+boot. In a split deployment the SERVICE_BINDINGS entry, pinned to the
+provider's service_id, is the assignment. Every other contract name keeps the
+first-registrant rule.
 """,
         "docs/advanced/security-model.md",
     ),

@@ -15,6 +15,23 @@ website renders this same changelog.
 
 ### Security
 
+- **Access-bearing contracts have one provider** (KB-13, ADR-0014
+  decision 6; edge A19 started; SANDLOOM-B034 widened). A contract the
+  authorization layer asks to decide access is registered in-process only
+  by the module its first segment names, or by the one the composition
+  root assigns with the new `create_app(access_providers={contract:
+  module})`, checked by import path (a namesake module from another path
+  is refused). Access-bearing means a key of `access_providers` or the
+  `service` of any adapter in the live-adapter table, a custom one
+  included; every other contract name keeps the first-registrant rule.
+  Remotely, `SERVICE_BINDINGS` pinned to the provider's `service_id` is
+  the assignment. Checked at boot only (before and after the module load,
+  and once more before the app serves), never on a request. **Upgrade:** a
+  module that serves another module's access-bearing contract in-process
+  (for example a replacement for `tenancy.membership.v1`, or the contract
+  of a custom live adapter) now refuses the boot with SANDLOOM-B034;
+  assign it in the composition root:
+  `create_app(..., access_providers={"tenancy.membership.v1": "acme_orgs"})`.
 - **One trusted view per verified token; one platform admission; per-key
   `cpv`** (KB-11, ADR-0014 decisions 3 and 4, amended 2026-11-09; edges
   B-S1, B-S2 fixed). `decode_token` reduces every verified access token

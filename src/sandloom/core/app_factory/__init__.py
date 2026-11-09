@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from fastapi import FastAPI
 
 import sandloom.core.admin.api.platform as _platform
+import sandloom.core.app_factory.access_providers as _access_providers
 import sandloom.core.app_factory.claim_authorities as _claim_authorities
 import sandloom.core.app_factory.revocation_applier as _applier
 import sandloom.core.consumers.runtime as _runtime
@@ -155,6 +156,7 @@ def create_app(
     claim_authorities: Mapping[str, str | Authority] | None = None,
     default_claim_authorities: Mapping[str, str | Authority] | None = None,
     legacy_tokens: LegacyClaimsTokens | None = None,
+    access_providers: Mapping[str, str] | None = None,
 ) -> FastAPI:
     """Build a fully wired Sandloom application (kernel + modules + ops API).
 
@@ -183,6 +185,14 @@ def create_app(
     temporary risk, G-RISK-14): written for one upgrade, never by default,
     off by itself at ``until + ACCESS_TOKEN_EXPIRE_MINUTES +
     JWT_LEEWAY_SECONDS``.
+
+    ``access_providers`` assigns an access-bearing contract to the module
+    that provides it in-process (``{contract: import path or entry-point
+    name}``; ADR-0014 decision 6): a contract a live adapter asks, or a key
+    of this map, is registered only by the module its first segment names
+    or by the one assigned here, checked by import path; anyone else refuses
+    the boot (SANDLOOM-B034). Remotely, ``SERVICE_BINDINGS`` is the
+    assignment. Every other contract keeps the first-registrant rule.
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
@@ -214,8 +224,14 @@ def create_app(
     # reuse it), so the CLI never migrates a different module set than it runs.
     apply_module_defaults(list(default_modules), list(default_optional_modules))
 
+    # ADR-0014 decision 6: an access-bearing contract is registered only by
+    # its provider (bound before the load, swept again after it).
+    _access_providers.install_access_providers(
+        core_facade, access_providers=access_providers, log=main_logger
+    )
     # Load modules; a failed required module must abort startup loudly.
     module_summary: ModuleLoadSummary = load_modules_with_summary(core_facade)
+    _access_providers.enforce_access_providers(core_facade, log=main_logger)
     application.state.module_summary = module_summary
     # Every model is declared now: each SQL database is one its driver serves,
     # and every partial index can be restricted there (B024, R015).
