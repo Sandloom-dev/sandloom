@@ -507,12 +507,16 @@ async def test_the_window_bounds_hold_on_real_tokens(
 ) -> None:
     """A token without ``cpv`` issued at or after ``until``, or living longer
     than ``ACCESS_TOKEN_EXPIRE_MINUTES``, gives no rights, ``legacy_tokens``
-    still written; inside the window the same claims read."""
+    still written; inside the window the same claims read.
+
+    ``until`` in the past is the ``iat >= until`` bound (the token is minted
+    now), not the window END (``until + lifetime + leeway``): that one is
+    ``test_claims_window_end.py``, the view's clock controlled."""
     user = uuid4()
     old = issuers(ID, old=True)
     now = time.time()
-    ended = verifier(roles_map(ID), legacy_until=now - 5)
-    assert await statuses(ended, await old.mint(user)) == ALL_401
+    issued_after_until = verifier(roles_map(ID), legacy_until=now - 5)
+    assert await statuses(issued_after_until, await old.mint(user)) == ALL_401
     open_ = verifier(roles_map(ID), legacy_until=now + 3600)
     claims = await old.claims(user)
     long_lived = tokens.create_access_token(

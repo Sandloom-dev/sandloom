@@ -119,7 +119,15 @@ def _entry_path(key: Any, value: Any) -> tuple[str, Authority | None]:
 
 def _previous_entry(key: str, previous: Any) -> tuple[str, str]:
     """``(import path, short name)`` of a ``previous=`` authority: declared
-    with its identity in full, never by short name (ADR-0014 decision 4)."""
+    with its identity in full, never by short name (ADR-0014 decision 4).
+
+    The verifier reads the previous authority's provenance under ``name``,
+    so ``name`` must be the name ``module`` is loaded under: when the path
+    is installed here (an entry point), its entry-point name. A path no
+    longer installed (the old module left the image after the rollout) keeps
+    the declared name: its entry-point name cannot be read back, and the
+    last import segment is not it (``sandloom_identity`` is ``identity``).
+    """
     if (
         not isinstance(previous, Authority)
         or not previous.name
@@ -132,6 +140,15 @@ def _previous_entry(key: str, previous: Any) -> tuple[str, str]:
             "Authority('<name>', module='<import path>'), without a previous= "
             "of its own"
         )
+    if any(m.path == previous.module for m in installed_modules()):
+        loaded_as = module_name(previous.module)
+        if loaded_as != previous.name:
+            raise ClaimAuthorityError(
+                f"claim_authorities[{key!r}]: previous={previous!r} names "
+                f"{previous.module!r} {previous.name!r}, but it is installed as "
+                f"{loaded_as!r}: write Authority({loaded_as!r}, "
+                f"module={previous.module!r})"
+            )
     return previous.module, previous.name
 
 

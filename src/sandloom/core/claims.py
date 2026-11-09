@@ -241,6 +241,11 @@ class ClaimAuthorities:
                     (
                         sorted(verified.items()),
                         sorted(previous.items()),
+                        # The short names ``accepted`` reads provenance
+                        # under: two policies differing only in them never
+                        # share a cached view.
+                        sorted(verified_owners.items()),
+                        sorted(previous_owners.items()),
                         self.legacy_until,
                         self.effective_at,
                         self.assigned,

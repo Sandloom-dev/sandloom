@@ -450,6 +450,8 @@ class _ClaimsMixin(_ServicesMixin):
         owner = self._resolve_issuer(issuer)
         if precomputed:
             self._check_precomputed(owner, issuer_session, precomputed)
+        if precomputed or issuer_claims:
+            self._require_map_issuer(owner)
         plan = self._claims_plan(user_id, owner, issuer_session, precomputed)
         outcomes = await _run_claims_plan(plan)
         return _seal_claims(
@@ -486,6 +488,33 @@ class _ClaimsMixin(_ServicesMixin):
                 "identified by one of its own registered contributors"
             )
         return owner
+
+    def _require_map_issuer(self, owner: str | None) -> None:
+        """Refuse ``precomputed`` / ``issuer_claims`` unless ``owner`` is the
+        token issuer the composition's map names (SANDLOOM-R017).
+
+        Both hand the mint values no contributor computed in this pass, so
+        they are the issuer's alone (ADR-0014 decision 5): the step's owner is
+        the module registered under the map's issuer short name FROM the
+        map's issuer import path. An authority of other keys, or a module
+        merely named like the issuer, is not it; a map naming no issuer here
+        (none, or one this process does not compose) takes neither. Two
+        dictionary reads, no call (the mint path stays as it was).
+        """
+        expected = self._claim_authorities.issuer
+        if expected is None:
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
+                "is the token issuer's, and this composition's claim_authorities "
+                "names no issuer here"
+            )
+        if owner is None or self._claims_owner_modules.get(owner) != expected:
+            registered = self._claims_owner_modules.get(owner or "")
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
+                f"is the token issuer's: the module {registered!r} (registered "
+                f"as {owner!r}) is not the claim_authorities issuer {expected!r}"
+            )
 
     def _check_precomputed(
         self,
