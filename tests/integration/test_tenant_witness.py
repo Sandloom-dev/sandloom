@@ -37,8 +37,7 @@ from sandloom.core.facade._tenant_witness import (
 )
 from sandloom.core.loader.manifest import AppManifest, module_manifest
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
-from sandloom.shared.authz import Account, OrgRole, PolicyIndeterminate, Role
-from sandloom.shared.authz import SubscriptionActive as KernelSubscriptionActive
+from sandloom.shared.authz import Account, PolicyIndeterminate, Role
 from sandloom.shared.authz.account import (
     record_membership,
     resolve_account,
@@ -372,44 +371,56 @@ async def test_a_witness_answer_must_be_a_boolean_true() -> None:
 # --------------------------------------------------------------------------- #
 # KB-37: an allowing witness check records the kind (3 -> 2)
 # --------------------------------------------------------------------------- #
-def _decisive() -> Any:
-    return OrgRole("admin") & KernelSubscriptionActive(of=Account.bound_tenant())
+def _decisive(atoms: SimpleNamespace) -> Any:
+    """The decisive shape, of the generated atoms (``generated_atoms``)."""
+    return atoms.OrgRole("admin") & atoms.SubscriptionActive(of=Account.bound_tenant())
 
 
-async def _decide(core: _Core, user: UUID, org: UUID, bound: UUID) -> Any:
+async def _decide(
+    atoms: SimpleNamespace, core: _Core, user: UUID, org: UUID, bound: UUID
+) -> Any:
     ctx = _ctx(core, user, [org], path={"org_id": str(org)})
     with bind_tenant(bound):
-        decision = await _decisive().decide(ctx)
+        decision = await _decisive(atoms).decide(ctx)
     return (decision.allowed, decision.http_status, decision.code)
 
 
-async def test_an_allowing_witness_check_saves_the_second_membership_call() -> None:
+async def test_an_allowing_witness_check_saves_the_second_membership_call(
+    generated_atoms: SimpleNamespace,
+) -> None:
     user, org = uuid4(), uuid4()
     core = _Core({org}, WITNESS)
-    assert (await _decide(core, user, org, org))[0] is True
+    assert (await _decide(generated_atoms, core, user, org, org))[0] is True
     # decisive shape: one membership call, then the subscription
     assert core.calls == ["has_role_at_least:admin", "check_subscription_active"]
     # a denying check records nothing: the decision is unchanged (403)
     denied = _Core(set(), WITNESS)
-    outcome = await _decide(denied, user, org, org)
+    outcome = await _decide(generated_atoms, denied, user, org, org)
     assert outcome[0] is False
     assert denied.calls == ["has_role_at_least:admin"]
 
 
 async def test_decisions_equal_with_and_without_the_memo(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, generated_atoms: SimpleNamespace
 ) -> None:
-    import sandloom.shared.authz.atoms_live as atoms_live
+    import sandloom.shared.authz.contract_check as contract_check
 
+    atoms = generated_atoms
     user, org, other = uuid4(), uuid4(), uuid4()
     cases = [(members, bound) for members in ({org}, set()) for bound in (org, other)]
     for members, bound in cases:
-        with_memo = await _decide(_Core(set(members), WITNESS), user, org, bound)
-        monkeypatch.setattr(atoms_live, "record_membership", lambda *a, **k: None)
+        memo_core = _Core(set(members), WITNESS)
+        with_memo = await _decide(atoms, memo_core, user, org, bound)
+        monkeypatch.setattr(contract_check, "record_membership", lambda *a, **k: None)
         base_core = _Core(set(members), WITNESS)
-        without = await _decide(base_core, user, org, bound)
+        without = await _decide(atoms, base_core, user, org, bound)
         monkeypatch.undo()
         assert with_memo == without, (members, bound)
+        if members and bound == org:
+            # the memo is what saved the tenant kind's membership call
+            admin, sub = "has_role_at_least:admin", "check_subscription_active"
+            assert memo_core.calls == [admin, sub]
+            assert base_core.calls == [admin, "has_role_at_least:member", sub]
 
 
 async def test_only_the_authoritys_witness_records() -> None:
@@ -447,9 +458,9 @@ def _app_with(policy: Any) -> Any:
 
 
 async def test_a_bound_tenant_policy_without_a_witness_is_reported(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, generated_atoms: SimpleNamespace
 ) -> None:
-    app = _app_with(Role("admin") | _decisive())
+    app = _app_with(Role("admin") | _decisive(generated_atoms))
     [(route, _policy)] = bound_tenant_policies(app)
     assert route == "GET /reports"
     core = SimpleNamespace(app=app)
@@ -515,8 +526,11 @@ def _consumed(summary: ModuleLoadSummary, module: str) -> list[tuple[Any, ...]]:
     return [(u.name, u.required, u.methods) for u in entry.contracts_consumed]
 
 
-async def test_a_bound_tenant_policy_consumes_the_witness_contract() -> None:
-    app, summary = _composition({"reports": _decisive(), "notes": Role("admin")})
+async def test_a_bound_tenant_policy_consumes_the_witness_contract(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    decisive = _decisive(generated_atoms)
+    app, summary = _composition({"reports": decisive, "notes": Role("admin")})
     changed = _add(WITNESS, app, summary)
     assert changed == ["reports"]
     reports, notes = summary.loaded
@@ -534,12 +548,15 @@ async def test_a_bound_tenant_policy_consumes_the_witness_contract() -> None:
     assert _add(WITNESS, app, summary) == []
 
 
-async def test_a_declared_use_of_the_witness_contract_is_merged() -> None:
+async def test_a_declared_use_of_the_witness_contract_is_merged(
+    generated_atoms: SimpleNamespace,
+) -> None:
     declared = {
         "narrow": [ContractRequirement(MEM, required=True, methods=("list_members",))],
         "whole": [ContractRequirement(MEM, required=True)],
     }
-    app, summary = _composition({"narrow": _decisive(), "whole": _decisive()}, declared)
+    decisive = _decisive(generated_atoms)
+    app, summary = _composition({"narrow": decisive, "whole": decisive}, declared)
     assert _add(WITNESS, app, summary) == ["narrow"]
     narrow, whole = summary.loaded
     assert narrow.consumes == [
@@ -550,7 +567,9 @@ async def test_a_declared_use_of_the_witness_contract_is_merged() -> None:
     assert whole.consumes == declared["whole"]  # no method list: every method
 
 
-async def test_without_a_witness_nothing_is_consumed() -> None:
-    app, summary = _composition({"reports": _decisive()})
+async def test_without_a_witness_nothing_is_consumed(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    app, summary = _composition({"reports": _decisive(generated_atoms)})
     assert _add(None, app, summary) == []
     assert summary.loaded[0].consumes == []
