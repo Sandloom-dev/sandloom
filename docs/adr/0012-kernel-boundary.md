@@ -95,6 +95,19 @@ The kernel names protocol concepts in its own vocabulary, and these are not edge
   `admin`;
 - the families `<m>.claims.v1` and `<m>.facts.v1`, whose names the kernel builds from
   descriptors at run time (recorded as retained class (a) rows, adversarial A-9);
+- the reserved family `<m>.security.v1` (amended 2026-11-09, owner decision on
+  `kb-proto-operator`): the operator contract an operator command asks. The kernel builds
+  its name from the owner the composition root's claim-authority map assigns to the
+  operation (the issuer for sessions, accounts, credentials and the email-to-user lookup;
+  the `roles` authority for platform-administrator grants; the `tenant_ids` authority for
+  member enumeration), never from a module name in its source. Only module `m` registers
+  `m.security.v1` (SANDLOOM-B034). The kernel defines no shape for it: unlike the two
+  families above it is an ordinary module contract, held to every contract rule (DTOs,
+  describe, compatibility, consumer expectations and stubs). A claim authority is a
+  candidate owner, not proof: each operator command confirms each method by describe (the
+  local schema, or the bound provider's live describe pinned to the owner's own service)
+  and refuses before its first side effect when the owner, the method or the binding does
+  not hold (SANDLOOM-B039, SANDLOOM-B040);
 - the `core.*` events (`core.auth.tokens_revoked.v1`, `core.auth.user_blocked.v1`);
 - generic primitives with one consumer today that name no module: password hashing
   (ADR-0015, H1), `MoneyLedger`, `operation_intent`, `release_check`, `external_call`.

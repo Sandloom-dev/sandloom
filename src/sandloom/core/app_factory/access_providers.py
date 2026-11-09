@@ -107,7 +107,8 @@ def build_access_providers(mapping: Mapping[str, str] | None) -> dict[str, str]:
         if reserved_contract_owner(contract) is not None:
             raise AccessProviderError(
                 f"access_providers[{contract!r}]: {contract!r} is a reserved "
-                "claims/facts contract, provided only by the module it names; "
+                "claims/facts/security contract, provided only by the module it "
+                "names; "
                 "drop the entry"
             )
         try:

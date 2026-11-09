@@ -1569,6 +1569,73 @@ indeterminate, so a negation never turns them into an allow.
         "docs/modules/http/authorization.md",
     ),
     _entry(
+        "SANDLOOM-B039",
+        "operator-capability-unavailable",
+        "runtime",
+        "an operator command's owner cannot be confirmed to provide what the "
+        "command needs: no owner is assigned, its public name is unknown, its "
+        "<owner>.security.v1 is neither local nor bound, the contract lacks a "
+        "method, or this service may not call it",
+        "assign the owner in the composition root's claim_authorities "
+        "(Authority('<name>', module='<import path>')), run the command where "
+        "the owner is loaded or bind <owner>.security.v1 in SERVICE_BINDINGS, "
+        "add the method to the owner's <owner>.security.v1 (or do it at the "
+        "external provider), or grant the method in RPC_ALLOWED_CALLS",
+        """
+An operator command (sandloom security ..., sandloom admin ...) acts on what a
+module owns: sessions, accounts, credentials and the email-to-user lookup
+belong to the token issuer, platform-administrator roles to the authority of
+the roles claim, tenant members to the authority of tenant_ids. The kernel
+names none of them: it reads the candidate owner from the composition root's
+claim_authorities map (the whole declaration, also in a process of a split
+that does not load the owner) and asks that module's <owner>.security.v1.
+
+A claim authority is a candidate, not proof: the module that writes roles may
+read them from LDAP and have no way to grant one. So before the first side
+effect, a dry run included, the command confirms each capability by describe:
+the method is in the owner's contract, read from the local schema when the
+owner runs in this process, else from the bound provider's live describe
+(GET /_sandloom/rpc/<owner>.security.v1). It refuses, with exit status 1 and
+nothing done, when the map assigns no owner for the key; when the owner's
+public name is unknown here (a module neither installed nor loaded in this
+process: declare it as Authority('<name>', module='<import path>'), its
+last import segment is not its name); when <owner>.security.v1 is neither
+registered here nor in SERVICE_BINDINGS; when the contract has no such method
+(an external identity provider cannot reset a password: do it there, or add
+the method to the owner); when this service's RPC_ALLOWED_CALLS entry does
+not grant the method, or the provider answers 403; or when the provider
+cannot be described. The refusal names the command, the claim-map key, the
+owner module and its import path, the contract, the missing method and the
+fix.
+""",
+        "docs/operate/operator-reference.md",
+    ),
+    _entry(
+        "SANDLOOM-B040",
+        "operator-owner-substitution",
+        "runtime",
+        "the service an operator command would call for <owner>.security.v1 "
+        "is not the owner the claim map names: its binding names another "
+        "service than the owner's other bindings, or its describe states "
+        "another provider, or its answer is not bound to the pinned service",
+        "bind <owner>.security.v1 to the owner's own service (the service_id "
+        "of its other bindings, e.g. <owner>.claims.v1), and register the "
+        "contract from the module the claim map names",
+        """
+An operator command calls the owner the composition root's claim_authorities
+names, never a stand-in: a binding of <owner>.security.v1 that points at
+another service would hand session revocation or an administrator grant to
+whoever answers there. Before the first side effect the command checks that
+the binding is pinned to a service_id, that it is the same service_id as the
+owner's other bindings (<owner>.claims.v1 and every other <owner>.*), that
+the describe answer is bound to that service (the pair key, ADR-0004), and
+that the describe states the provider import path the claim map names; in
+one process, that the local contract was registered from that import path. A
+mismatch refuses the command with exit status 1 and nothing done.
+""",
+        "docs/operate/operator-reference.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -2160,6 +2227,8 @@ EXCEPTION_CODES: dict[str, str] = {
     "ForeignOwnerRegistration": "SANDLOOM-B034",
     "DriverUnavailableError": "SANDLOOM-B037",
     "CapabilityUnavailable": "SANDLOOM-B037",
+    "OperatorCapabilityUnavailable": "SANDLOOM-B039",
+    "OperatorOwnerSubstitution": "SANDLOOM-B040",
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",

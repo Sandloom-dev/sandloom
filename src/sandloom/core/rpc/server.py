@@ -33,6 +33,7 @@ from sandloom.core.rpc.inbound_auth import (
 from sandloom.core.rpc.wire import (
     _ACCEPT_CODEC_HEADER,
     ACCESS_LIFETIME_DESCRIBE_KEY,
+    PROVIDER_DESCRIBE_KEY,
     RpcRequest,
     _unpack,
 )
@@ -198,6 +199,12 @@ class _RpcEndpoints:
         lifetime = getattr(cfg, "access_token_expire_minutes", None)
         if isinstance(lifetime, int):
             describe[ACCESS_LIFETIME_DESCRIBE_KEY] = lifetime
+        # Additive: the import path of the module that registered it, so an
+        # operator command confirms who answers (``None``: the kernel).
+        owner = getattr(active_core, "contract_owner", None)
+        provider = owner(service_name) if callable(owner) else None
+        if isinstance(provider, str):
+            describe[PROVIDER_DESCRIBE_KEY] = provider
         return _ok_response(
             {
                 "ok": True,

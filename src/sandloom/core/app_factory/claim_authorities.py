@@ -143,6 +143,49 @@ def _entry_path(key: Any, value: Any) -> tuple[str, Authority | None]:
         ) from exc
 
 
+def _installed_name(path: str) -> str | None:
+    """The entry-point name of installed module ``path``, else ``None``
+    (entry-point metadata only, no import)."""
+    for module in installed_modules():
+        if module.path == path:
+            return module.name
+    return None
+
+
+def _public_name(key: str, value: Any, path: str) -> str | None:
+    """The stable public name of ``value``'s authority, when known without
+    guessing: the ``name`` of ``Authority(name, module=path)`` (an installed
+    distribution must carry it as its entry-point name), else the
+    entry-point name ``path`` is installed under, else ``None``."""
+    installed = _installed_name(path)
+    if not isinstance(value, Authority) or not value.module:
+        return installed
+    if not value.name.isidentifier():
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}] = {value!r}: with module= the name is "
+            "the module's public (entry-point) name, e.g. "
+            f"Authority('identity', module={path!r})"
+        )
+    if installed is not None and installed != value.name:
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}] = {value!r} names {path!r} "
+            f"{value.name!r}, but it is installed as {installed!r}: write "
+            f"Authority({installed!r}, module={path!r})"
+        )
+    return value.name
+
+
+def _note_name(names: dict[str, str], key: str, value: Any, path: str) -> None:
+    """Record ``path``'s public name in ``names`` (one name per module)."""
+    name = _public_name(key, value, path)
+    if name is not None and names.setdefault(path, name) != name:
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}] = {value!r} names {path!r} {name!r}, "
+            f"but another entry names it {names[path]!r}: one module has one "
+            "public name"
+        )
+
+
 def _previous_entry(key: str, previous: Any) -> tuple[str, str]:
     """``(import path, short name)`` of a ``previous=`` authority: declared
     with its identity in full, never by short name (ADR-0014 decision 4).
@@ -230,9 +273,11 @@ def build_claim_authorities(
     previous: dict[str, str] = {}
     previous_owners: dict[str, str] = {}
     fail_safe: set[str] = set()
+    names: dict[str, str] = {}
     issuer: str | None = None
     for key, value in mapping.items():
         path, prior = _entry_path(key, value)
+        _note_name(names, key, value, path)
         if _declared_fail_safe(key, value):
             fail_safe.add(key)
         if key == ISSUER_ENTRY:
@@ -259,13 +304,24 @@ def build_claim_authorities(
             )
     return ClaimAuthorities(
         authorities=authorities,
-        owners={key: module_name(path) for key, path in authorities.items()},
+        owners={
+            key: names.get(path) or module_name(path)
+            for key, path in authorities.items()
+        },
         issuer=issuer,
         assigned=assigned,
         previous=previous,
         previous_owners=previous_owners,
         fail_safe=frozenset(fail_safe),
+        declared_issuer=issuer,
+        names=names,
     )
+
+
+def _short(authorities: ClaimAuthorities, path: str) -> str:
+    """The short name ``path`` is composed under: its declared public name,
+    else the loader's rule (entry-point name, else the last segment)."""
+    return authorities.names.get(path) or module_name(path)
 
 
 def declared_policy(
@@ -288,7 +344,7 @@ def declared_policy(
     """
     fail_safe = set(authorities.fail_safe)
     for key, path in authorities.authorities.items():
-        short = module_name(path)
+        short = _short(authorities, path)
         if loaded.get(short) == path and key in declared.get(short, frozenset()):
             fail_safe.add(key)
     keys: set[str] = set(readers)
@@ -312,9 +368,8 @@ def _typo_hint(path: str, loaded: Mapping[str, str]) -> str:
 
 
 def _in_composition(
-    path: str, loaded: Mapping[str, str], bindings: Mapping[str, Any]
+    short: str, path: str, loaded: Mapping[str, str], bindings: Mapping[str, Any]
 ) -> bool:
-    short = module_name(path)
     return loaded.get(short) == path or f"{short}{_CLAIMS_SUFFIX}" in bindings
 
 
@@ -328,15 +383,17 @@ def filter_to_composition(
 
     An authority is part of the composition when it is loaded in this process
     or bound through its ``<m>.claims.v1``; the issuer when it is loaded. A
-    key whose authority is left out stays unassigned (a definite deny).
+    key whose authority is left out stays unassigned (a definite deny). The
+    root's whole declaration stays readable: ``verified`` (every key),
+    ``declared_issuer`` and the public ``names`` are never filtered.
     """
     kept = {
         key: path
         for key, path in authorities.authorities.items()
-        if _in_composition(path, loaded, bindings)
+        if _in_composition(_short(authorities, path), path, loaded, bindings)
     }
     issuer = authorities.issuer
-    if issuer is not None and loaded.get(module_name(issuer)) != issuer:
+    if issuer is not None and loaded.get(_short(authorities, issuer)) != issuer:
         issuer = None
     # The mint keeps only what is composed here; the verifier's map is the
     # root's whole map: in a split a verifier trusts an authority that runs
@@ -354,6 +411,8 @@ def filter_to_composition(
         previous_owners=authorities.previous_owners,
         fail_safe=authorities.fail_safe & frozenset(kept),
         declared=authorities.declared,
+        declared_issuer=authorities.declared_issuer,
+        names=authorities.names,
     )
 
 
@@ -387,7 +446,7 @@ def _authority_problem(
     bindings: Mapping[str, Mapping[str, Any]],
 ) -> str | None:
     """Why the issuing process cannot take ``key`` from ``path`` (else None)."""
-    short = module_name(path)
+    short = _short(authorities, path)
     if loaded.get(short) == path:
         return _local_authority_problem(key, path, contributors.get(short), authorities)
     if short in loaded:
@@ -472,7 +531,7 @@ def _issuer_problems(
         if path != expected
     ]
     if expected is not None:
-        short = module_name(expected)
+        short = _short(authorities, expected)
         if loaded.get(short) == expected and expected not in issuing:
             problems.append(
                 f"the claim_authorities issuer {expected!r} is loaded here but does "
@@ -597,7 +656,13 @@ def claim_authority_problems(
     issuer_list = list(issuers)
     if not authorities.assigned:
         return [_no_map_problem(issuer_list, booted_root)] if issuer_list else []
-    problems: list[str] = []
+    problems: list[str] = [
+        f"claim_authorities names {path!r} {name!r}, but it is loaded here as "
+        f"{short!r}: write Authority({short!r}, module={path!r})"
+        for short, path in sorted(loaded.items())
+        for name in [authorities.names.get(path)]
+        if name is not None and name != short
+    ]
     if issuer_list:
         # Only the issuing process mints, so only it needs every authority
         # loaded or bound; another process may not even have the module

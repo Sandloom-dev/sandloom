@@ -86,3 +86,8 @@ def _parse_codec(raw: str | None) -> int:
 #: Describe-document key carrying the provider's ACCESS_TOKEN_EXPIRE_MINUTES
 #: (additive; compared by the caller's readiness check, see rpc.readiness).
 ACCESS_LIFETIME_DESCRIBE_KEY = "access_token_expire_minutes"
+#: Describe-document key carrying the import path of the module that
+#: registered the contract (additive, not part of the hash): an operator
+#: command confirms that the bound service answers for the owner its claim
+#: map names, never a module of the same short name (ADR-0012 decision 1).
+PROVIDER_DESCRIBE_KEY = "provider"

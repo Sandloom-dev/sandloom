@@ -54,7 +54,11 @@ class Authority(
 One claim key's authority in `create_app(claim_authorities=...)`.
 
 A plain string value is `Authority(<value>)`. `module` is the import
-path when `name` is a short (entry-point) name; `previous` is the one
+path when `name` is a short (entry-point) name, and `name` is then
+kept as the authority's stable public name: the name its `<m>.claims.v1`
+and `<m>.security.v1` are served under, known even in a process where
+the module is not installed (an installed distribution must carry the
+same entry-point name); `previous` is the one
 other authority a verifier accepts for the key during a rollout
 (ADR-0014 decision 4): declared with its identity in full
 (`Authority("identity", module="sandloom_identity")`), never by short
