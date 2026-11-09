@@ -3,10 +3,13 @@
 Owner decision 2026-11-09: ``statuses=`` changes the accepted statuses, not
 the trust rules. Billing's contract: ``subscription_claims()`` returns ``{}``
 for a user with no billing customer, ``{"subscription_status": "none"}`` for
-a customer without a subscription. So billing's own claim proven absent (the
-key assigned to billing and verified, billing ran OK at the mint, the token's
-claim policy intact, the view removed nothing) is billing's definite 402 on
-both paths; every other source of absence stays indeterminate:
+a customer without a subscription, and its fact declares that
+(``AccessFact(absent_claim="deny")``, KB-33h). So billing's own claim proven
+absent (the key assigned to billing and verified, billing ran OK at the mint,
+the token's claim policy intact, the view removed nothing) is billing's
+definite 402 on both paths; every other source of absence stays
+indeterminate (a fact that declares nothing:
+``src/sandloom/core/tests/test_absent_claim_policy.py``):
 
 ==========================================================  ===================
 row                                                         both paths
@@ -47,8 +50,6 @@ from sandloom.core.cli.generated import render_stub
 from sandloom.core.facade import CoreFacade
 from sandloom.shared.authz import Account, Not, Or, Role
 from sandloom.shared.authz.context import AuthzContext
-from sandloom.shared.authz.contract_check import ATOM_ATTR, ClaimFactCheck
-from sandloom.shared.authz.facts import AccessFact, ClaimRule
 from sandloom.shared.authz.results import Category
 from sandloom.shared.subject import UserContext
 from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
@@ -402,6 +403,16 @@ async def test_both_paths_answer_every_row_alike(
         assert counted["lookup"] == 0, row
 
 
+def test_billing_declares_its_absent_claim_a_deny(gen: Any) -> None:
+    """The 402 on a proven absence is billing's declaration, carried by the
+    generated literal and the facts contract, never inferred from a name."""
+    assert SUBSCRIPTION_ACTIVE_FACT.absent_claim == "deny"
+    assert SUBSCRIPTION_ACTIVE_FACT.to_wire()["absent_claim"] == "deny"
+    literal = gen.Subscribed.__sandloom_atom__
+    assert literal["absent_claim"] == "deny"
+    assert literal["category"] == Category.PAYMENT_REQUIRED
+
+
 async def test_an_absent_status_never_equals_none(
     gen: Any, counted: dict[str, int]
 ) -> None:
@@ -492,68 +503,3 @@ async def test_a_test_kit_token_proves_absence_only_in_a_test_composition(
                 assert not decision.indeterminate and decision.http_status == 402
             else:
                 assert (decision.http_status, decision.code) == (501, "access_unknown")
-
-
-async def test_another_declared_claim_key_proves_no_absence() -> None:
-    """Only the owner's fact claim may be proven absent: another key the
-    owner declares for ``claim_key=`` stays 501 when absent, whatever the
-    provenance (never extended beyond the owner's own claim)."""
-    fact = AccessFact(
-        name="seat.active",
-        owner_module="seatco",
-        claim_key="seat_status",
-        claim_rule=ClaimRule.one_of(("active",)),
-        deny_category=Category.PAYMENT_REQUIRED,
-        atom="Seated",
-        atom_statuses=("active", "none"),
-        atom_claim_keys=("seat_status", "seat_status_eu"),
-    )
-
-    # The class sandloom generate writes, from the owner's literal.
-    literal = {
-        "name": "Seated",
-        "fact": "seat.active",
-        "owner": "seatco",
-        "claim_key": "seat_status",
-        "claim_keys": ["seat_status", "seat_status_eu"],
-        "statuses": ["active", "none"],
-        "category": Category.PAYMENT_REQUIRED,
-    }
-    seated: Any = type(
-        "Seated", (ClaimFactCheck,), {ATOM_ATTR: literal, "__module__": __name__}
-    )
-    mapping = {
-        "issuer": "sandloom_identity",
-        "roles": "sandloom_identity",
-        "permissions": "sandloom_identity",
-        "seat_status": "seatco",
-        "seat_status_eu": "seatco",
-    }
-
-    class _Seat(_NoIO):
-        def get_access_fact(self, name: str) -> Any:
-            return fact if name == fact.name else None
-
-    authorities = build_claim_authorities(mapping)
-    subject = UserContext(
-        user_id=uuid4(),
-        claims_sources=["identity", "seatco"],
-        claims_sources_failed=[],
-        **{CPV_CLAIM: {"v": CPV_VERSION, "k": dict(authorities.digests)}},
-    )
-    ctx = AuthzContext(subject, core=_Seat(mapping))
-    for atom, outcome in (
-        (seated(of=Account.user()), (402, "Seated")),
-        (seated(frozenset({"active"}), of=Account.user()), (402, "Seated")),
-        (
-            seated(of=Account.user(), claim_key="seat_status_eu"),
-            (501, "access_unknown"),
-        ),
-        (
-            seated(frozenset({"none"}), of=Account.user(), claim_key="seat_status_eu"),
-            (501, "access_unknown"),
-        ),
-    ):
-        decision = await atom.decide(ctx)
-        assert not decision.allowed
-        assert (decision.http_status, decision.code) == outcome, atom.claim_key

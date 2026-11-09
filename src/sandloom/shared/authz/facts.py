@@ -25,8 +25,9 @@ Facts are part of the owner's PUBLIC contract. Registering a fact
 contract (:mod:`sandloom.shared.authz.facts_contract`): ``describe()`` returns every
 fact as a wire-safe descriptor — its claim key, a DECLARATIVE claim
 interpretation (:class:`ClaimRule`, never a Python callable), freshness floor,
-default mode and deny category — and ``evaluate(name, subject, request)``
-answers the fact authoritatively in the owner's process. A consumer process
+default mode, deny category and what an absent claim means — and
+``evaluate(name, subject, request)`` answers the fact authoritatively in the
+owner's process. A consumer process
 without the owner looks an unknown fact up on first use through the bound
 ``<owner>.facts.v1`` (cached), so ``Entitled("subscription.active")`` decides
 the same in a monolith and in a split deployment (:func:`lookup_access_fact`).
@@ -66,6 +67,13 @@ REMOTE_FACT_TTL_SECONDS = 300.0
 _RULE_ONE_OF = "one_of"
 _RULE_TRUTHY = "truthy"
 _SCALAR = (str, int, float, bool)
+
+#: ``AccessFact.absent_claim``: what the fact's primary claim proven absent
+#: means (its owner's declaration, never inferred from a name). ``unknown``:
+#: indeterminate (501 ``access_unknown``); ``deny``: the fact's definite deny.
+ABSENT_UNKNOWN = "unknown"
+ABSENT_DENY = "deny"
+_ABSENT_CLAIM = frozenset({ABSENT_UNKNOWN, ABSENT_DENY})
 
 
 @dataclass(frozen=True)
@@ -207,8 +215,22 @@ class AccessFact:
     atom_claim_keys: tuple[str, ...] = ()
     #: The generated atom's denial label (``None``: its class name).
     atom_describe: str | None = None
+    #: What the generated atom reads when the fact's primary claim
+    #: (``claim_key``) is proven absent: the authority assigned to the key
+    #: and verified ran OK at the mint under the accepted claim policy, the
+    #: trusted view removed nothing, and it wrote no such claim. ``"unknown"``
+    #: (default): 501 ``access_unknown``, since provenance proves who ran, not
+    #: that absence is a negative fact. ``"deny"``: the owner declares that
+    #: absence means "no" (billing: no customer, no subscription), a definite
+    #: deny with ``deny_category``. Never extends to another ``claim_key=``.
+    absent_claim: str = ABSENT_UNKNOWN
 
     def __post_init__(self) -> None:
+        if self.absent_claim not in _ABSENT_CLAIM:
+            raise ValueError(
+                f"AccessFact {self.name!r}: absent_claim must be one of "
+                f"{sorted(_ABSENT_CLAIM)}, got {self.absent_claim!r}"
+            )
         if self.min_freshness not in _RANK:
             raise ValueError(
                 f"AccessFact {self.name!r}: min_freshness must be one of "
@@ -247,6 +269,7 @@ class AccessFact:
             "min_freshness": self.min_freshness,
             "default_mode": self.default_mode,
             "deny_category": self.deny_category,
+            "absent_claim": self.absent_claim,
             "evaluable": self.live_resolver is not None
             or self.projection_reader is not None,
         }
@@ -508,6 +531,11 @@ def remote_fact(descriptor: Any, contract: str) -> AccessFact | None:
     if default_mode not in _VALID_MODES:
         default_mode = MODE_AUTO
     deny = descriptor.get("deny_category")
+    # An owner that predates the field (or an unknown value) declares
+    # nothing: absence stays unknown, never a deny.
+    absent = descriptor.get("absent_claim")
+    if absent not in _ABSENT_CLAIM:
+        absent = ABSENT_UNKNOWN
     evaluable = descriptor.get("evaluable", True) is not False
     return AccessFact(
         name=name,
@@ -519,6 +547,7 @@ def remote_fact(descriptor: Any, contract: str) -> AccessFact | None:
         min_freshness=str(floor),
         default_mode=str(default_mode),
         deny_category=deny if isinstance(deny, str) else None,
+        absent_claim=str(absent),
     )
 
 

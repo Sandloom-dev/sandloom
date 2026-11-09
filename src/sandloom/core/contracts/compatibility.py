@@ -550,6 +550,15 @@ def _claim_changed(
             report.errors.append(
                 f"{label}: claim atom {key} removed {', '.join(map(str, missing))}"
             )
+    # A consumer whose atom reads an absent claim as the owner's deny must
+    # not keep doing so once the owner withdraws it (``Not`` would allow on
+    # what the owner now calls unknown). Gaining "deny" is wider; a
+    # description without the field (an older owner) means "unknown".
+    if (
+        exp_claim.get("absent_claim") == "deny"
+        and act_claim.get("absent_claim") != "deny"
+    ):
+        report.errors.append(f"{label}: claim atom absent_claim withdrew deny")
 
 
 def _narrowed(label: str, key: str, exp: Any, act: Any, report: CompatReport) -> None:
