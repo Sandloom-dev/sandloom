@@ -2851,12 +2851,18 @@ guarantees:
   statement: Feature / WithinLimit with an organization account read the owner's organization.features / organization.limits
     facts live (501 without a registered fact); with Account.user() they read the claims as before. Billing's
     generated Feature / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
-    decide as the kernel atoms on every trust case of the claims with zero I/O, and for an organization account
-    ask billing's live check once with their parameters, in-process and over internal RPC alike (501 without
-    a provider, never an allow). A provider with no source for the answer (billing has no per-plan features /
-    limits catalogue yet) raises AccessUnknown, an indeterminate 501 access_unknown in mono and split, never
-    a deny, so Not and Or over it never allow; an explicit off or exceeded limit from a source still denies,
-    and a third-party contract provides the same atoms with no kernel change.
+    read the claims with zero I/O, and for an organization account ask billing's live check once with their
+    parameters, in-process and over internal RPC alike (501 without a provider, never an allow). A provider
+    with no source for the answer (billing has no per-plan features / limits catalogue yet) raises AccessUnknown,
+    an indeterminate 501 access_unknown in mono and split, never a deny, so Not and Or over it never allow;
+    an explicit off or exceeded limit from a source still denies, and a third-party contract provides the
+    same atoms with no kernel change. Amended 2026-11-09 (KB-33d), for Account.user() the generated atoms are
+    three-valued from the token with zero I/O, no longer the kernel atoms' reading where no source speaks.
+    A present features / limits mapping is the complete entitlements snapshot (an explicit on allows, an
+    explicit off or an unlisted entry denies); the whole claim absent is 501 access_unknown, absent because
+    its authority failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503 (else
+    501), and a claim that is not a mapping or an entry of the wrong type 501 access_unknown; Not, Or and
+    And never allow on any of these. Billing writes no features / limits claim until its catalogue ships.
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
@@ -2873,6 +2879,8 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_no_source_is_501_and_never_allows
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_a_third_party_source_decides_alike_mono_and_split
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_path_is_three_valued_from_the_token
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_or_of_unknown_branches_never_allows
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator

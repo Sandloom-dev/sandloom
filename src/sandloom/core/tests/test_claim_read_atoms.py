@@ -10,10 +10,16 @@ kernel atoms they replace. Pinned here:
   rendered in their final layout with the kernel atoms' signatures
   (``Feature(key, *, of, claim_key)``, ``WithinLimit(key, used, *, of,
   claim_key)``), a malformed declaration is refused;
-* ``Account.user()``: decisions equal to the kernel atoms' on every trust case
-  (present, absent, an authority that failed at the mint 503, the view's 401 /
-  503, unassigned, legacy token), under ``Not`` and ``Or`` too, with zero
-  calls and no contract named;
+* ``Account.user()``: decisions equal to the kernel atoms' wherever a source
+  speaks (present, an authority that failed at the mint 503, the view's 401 /
+  503), under ``Not`` and ``Or`` too, with zero calls and no contract named;
+* ``Account.user()`` three-valued from the token (KB-33d, G-AUTHZ-12 as
+  amended, the owner's table): a present map is the complete snapshot (an
+  explicit on allows, an explicit off or an unlisted entry denies); the
+  whole claim absent with no failed authority, unvouched by the view, or
+  malformed is 501 ``access_unknown`` where the kernel atom denied (so
+  ``Not`` allowed); a failed authority 503; never an allow under ``Not``,
+  ``Or`` or ``And``, and nothing asked;
 * an organization account: the provider's live check asked once with the
   atom's parameters, decisions equal to the kernel atoms on a test producer
   (the owner's organization fact asking the same provider), the same calls;
@@ -323,11 +329,44 @@ def _key(decision: Any) -> tuple[Any, ...]:
     )
 
 
+#: Where the generated atom departs from the kernel atom (KB-33d, the owner's
+#: decision of 2026-11-09, G-AUTHZ-12 as amended): the kernel atom denies on
+#: no source, so ``Not`` allows; the generated atom answers 501
+#: ``access_unknown``. The subjects whose claims are absent with no failed
+#: authority to blame, or malformed.
+UNKNOWN_SUBJECTS = frozenset(
+    {"absent.ran", "absent.failed.unassigned", "absent.legacy", "malformed"}
+)
+#: Entries of the wrong type in :data:`CLAIMS` (a flag ``1``, a limit
+#: ``"3"`` or ``True``): malformed, 501 ``access_unknown`` when read.
+UNKNOWN_ATOMS = frozenset({"feature.truthy", "limit.text", "limit.bool"})
+
+
+def _departs(atom: str, subject: str) -> bool:
+    """Whether the generated atom answers ``access_unknown`` where the kernel
+    atom denies."""
+    key = "features" if atom.startswith("feature.") else "limits"
+    if subject.startswith("view."):
+        # a viewed subject carries no claim at all: only the view's own 401
+        # / 503 for the atom's key is a source's word, the rest is unknown
+        return subject not in {
+            f"view.{key}.{view.OUTDATED}",
+            f"view.{key}.{view.MISMATCH}",
+        }
+    if subject in UNKNOWN_SUBJECTS:
+        return True
+    return subject.startswith("present") and atom in UNKNOWN_ATOMS
+
+
 @pytest.mark.parametrize("wrap", sorted(WRAPS))
 @pytest.mark.parametrize("atom", sorted(USER_ATOMS))
 async def test_the_user_account_decides_as_the_kernel_atom(
     gen: Any, atom: str, wrap: str
 ) -> None:
+    """Equal to the kernel atom wherever a source speaks (present, empty,
+    the view's 401 / 503, an authority that failed); where none does, the
+    generated atom is 501 ``access_unknown`` and never allows (only a
+    reliable sibling of an ``Or`` does), with zero calls on every row."""
     provider = _Provider()
     for name, (subject, mapping) in SUBJECTS.items():
         core = _core(mapping)
@@ -335,12 +374,19 @@ async def test_the_user_account_decides_as_the_kernel_atom(
         ctx = AuthzContext(subject(), core=core)
         base = await WRAPS[wrap](USER_ATOMS[atom](kernel)).decide(ctx)
         candidate = await WRAPS[wrap](USER_ATOMS[atom](gen)).decide(ctx)
-        assert _key(candidate) == _key(base), name
+        if not _departs(atom, name):
+            assert _key(candidate) == _key(base), name
+        elif wrap == "or_allowed" and base.allowed:
+            assert candidate.allowed, name  # the sibling Role allowed reliably
+        else:
+            assert not candidate.allowed, name
+            assert candidate.indeterminate and candidate.http_status == 501, name
+            assert candidate.code == "access_unknown", name
     assert provider.calls == []
 
 
 async def test_the_trust_cases_keep_their_outcomes(gen: Any) -> None:
-    """The equality above is not vacuous: the claim atom allows, denies and
+    """The comparison above is not vacuous: the claim atom allows, denies and
     answers each indeterminate."""
     seen = {}
     for name in ("present", "absent.ran", "absent.failed", "absent.failed.no_map"):
@@ -350,7 +396,7 @@ async def test_the_trust_cases_keep_their_outcomes(gen: Any) -> None:
         seen[name] = (decision.allowed, decision.http_status, decision.code)
     assert seen == {
         "present": (True, 200, "ok"),
-        "absent.ran": (False, 403, "Feature"),
+        "absent.ran": (False, 501, "access_unknown"),
         "absent.failed": (False, 503, "claim_authority_failed"),
         "absent.failed.no_map": (False, 503, "claim_authority_failed"),
     }
@@ -358,6 +404,237 @@ async def test_the_trust_cases_keep_their_outcomes(gen: Any) -> None:
         AuthzContext(_viewed("limits", view.OUTDATED), core=_core())
     )
     assert outdated.indeterminate and outdated.http_status == 401
+
+
+# --------------------------------------------------------------------------- #
+# Account.user() is three-valued from the token (KB-33d, G-AUTHZ-12 amended)
+# --------------------------------------------------------------------------- #
+ALLOW = (True, None)
+DENY = (False, None)
+
+#: The owner's table (2026-11-09): row -> (subject, mapping, atom over the
+#: atom's kind, outcome). An outcome is ``ALLOW`` / ``DENY`` or the
+#: indeterminate ``(status, code)``.
+TOKEN: dict[str, Any] = {"features": {"export": True, "beta": False}, "limits": {"seats": 3}}
+TABLE: dict[str, tuple[Any, dict[str, str] | None, dict[str, Any], Any]] = {
+    "explicit.on": (
+        lambda: _subject(**TOKEN),
+        MAP,
+        {
+            "feature": lambda k: k.Feature("export", of=Account.user()),
+            "limit": lambda k: k.WithinLimit("seats", 2, of=Account.user()),
+        },
+        ALLOW,
+    ),
+    "explicit.off": (
+        lambda: _subject(**TOKEN),
+        MAP,
+        {
+            "feature": lambda k: k.Feature("beta", of=Account.user()),
+            "limit": lambda k: k.WithinLimit("seats", 3, of=Account.user()),
+        },
+        DENY,
+    ),
+    "complete.key_absent": (
+        lambda: _subject(**TOKEN),
+        MAP,
+        {
+            "feature": lambda k: k.Feature("nope", of=Account.user()),
+            "limit": lambda k: k.WithinLimit("nope", 0, of=Account.user()),
+        },
+        DENY,
+    ),
+    "complete.empty": (
+        lambda: _subject(features={}, limits={}),
+        MAP,
+        {
+            "feature": lambda k: k.Feature("export", of=Account.user()),
+            "limit": lambda k: k.WithinLimit("seats", 0, of=Account.user()),
+        },
+        DENY,
+    ),
+    "claim_absent.authority_ran": (
+        lambda: _subject(),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "claim_absent.other_source_failed": (
+        lambda: _subject(failed={"rogue"}),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "claim_absent.unassigned": (
+        lambda: _subject(failed={"plans"}),
+        UNASSIGNED_MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "claim_absent.legacy": (
+        lambda: _subject(failed=None),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "authority_failed": (
+        lambda: _subject(failed={"plans"}),
+        MAP,
+        {},
+        (503, "claim_authority_failed"),
+    ),
+    "authority_failed.no_map": (
+        lambda: _subject(failed={"plans"}),
+        None,
+        {},
+        (503, "claim_authority_failed"),
+    ),
+    "untrusted.outdated": (view.OUTDATED, MAP, {}, (401, view.OUTDATED)),
+    "untrusted.mismatch": (view.MISMATCH, MAP, {}, (503, view.MISMATCH)),
+    "untrusted.unassigned": (view.UNASSIGNED, MAP, {}, (501, "access_unknown")),
+    "untrusted.source_absent": (view.SOURCE_ABSENT, MAP, {}, (501, "access_unknown")),
+    "malformed.not_a_mapping": (
+        lambda: _subject(features=["export"], limits=3),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "malformed.entry": (
+        lambda: _subject(features={"export": 1}, limits={"seats": "3"}),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "malformed.entry_bool_limit": (
+        lambda: _subject(features={"export": "yes"}, limits={"seats": True}),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+    "malformed.entry_null": (
+        lambda: _subject(features={"export": None}, limits={"seats": None}),
+        MAP,
+        {},
+        (501, "access_unknown"),
+    ),
+}
+#: The atom a row with no atom of its own reads (``export`` / ``seats``).
+DEFAULT_ATOMS: dict[str, Any] = {
+    "feature": lambda k: k.Feature("export", of=Account.user()),
+    "limit": lambda k: k.WithinLimit("seats", 2, of=Account.user()),
+}
+#: How a wrap maps the atom's outcome: ``Not`` swaps a definite answer and
+#: keeps an indeterminate; an allowing sibling of ``Or`` allows on every row.
+TABLE_WRAPS: dict[str, tuple[Any, Any]] = {
+    "bare": (lambda a: a, lambda o: o),
+    "not": (Not, lambda o: {ALLOW: DENY, DENY: ALLOW}.get(o, o)),
+    "or_denied": (lambda a: Or(Role("ops"), a), lambda o: o),
+    "and_allowed": (lambda a: Role("member") & a, lambda o: o),
+    "not_and": (
+        lambda a: Not(Role("member") & a),
+        lambda o: {ALLOW: DENY, DENY: ALLOW}.get(o, o),
+    ),
+    "or_allowed": (lambda a: Or(Role("member"), a), lambda _o: ALLOW),
+}
+
+
+def _table_subject(row: str, kind: str) -> UserContext:
+    subject = TABLE[row][0]
+    if isinstance(subject, str):  # the view removed the atom's own claim
+        return UserContext(
+            user_id=uuid4(),
+            roles={"member"},
+            claims_sources={"idp", "plans"},
+            claims_sources_failed=set(),
+            **{
+                view.UNTRUSTED_KEY: {
+                    "features" if kind == "feature" else "limits": subject
+                }
+            },
+        )
+    built: UserContext = subject()
+    return built
+
+
+class _NoIO:
+    """A core whose services and facts may not be asked: the user path is
+    zero I/O (I-23), so any call is a failure."""
+
+    def __init__(self, mapping: dict[str, str] | None) -> None:
+        self.core = _core(mapping)
+        self.asked: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.core, name)
+
+    def get_service(self, name: str) -> Any:
+        self.asked.append(name)
+        raise AssertionError(f"the user path asked the contract {name!r}")
+
+    def get_access_fact(self, name: str) -> Any:
+        self.asked.append(name)
+        raise AssertionError(f"the user path asked the fact {name!r}")
+
+
+@pytest.mark.parametrize("wrap", sorted(TABLE_WRAPS))
+@pytest.mark.parametrize("kind", ["feature", "limit"])
+@pytest.mark.parametrize("row", sorted(TABLE))
+async def test_the_user_path_is_three_valued_from_the_token(
+    gen: Any, row: str, kind: str, wrap: str
+) -> None:
+    """Every row of the owner's table for Feature and WithinLimit, bare and
+    under ``Not``, ``Or`` and ``And``: a present map is a complete snapshot
+    (an unlisted entry denies), a missing or malformed claim is 501
+    ``access_unknown``, a failed authority 503, the view's 401 / 503 kept;
+    no indeterminate is ever an allow, and nothing is asked."""
+    _subject_fn, mapping, atoms, outcome = TABLE[row]
+    build, expect = TABLE_WRAPS[wrap]
+    core = _NoIO(mapping)
+    ctx = AuthzContext(_table_subject(row, kind), core=core)
+    atom = atoms.get(kind, DEFAULT_ATOMS[kind])(gen)
+    decision = await build(atom).decide(ctx)
+    expected = expect(outcome)
+    if expected == ALLOW:
+        assert decision.allowed and not decision.indeterminate, decision
+    elif expected == DENY:
+        assert not decision.allowed and not decision.indeterminate, decision
+        if wrap == "bare":
+            assert decision.code == ("Feature" if kind == "feature" else "WithinLimit")
+            assert decision.http_status == (403 if kind == "feature" else 402)
+    else:
+        status, code = expected
+        assert not decision.allowed, decision
+        assert decision.indeterminate, decision
+        assert (decision.http_status, decision.code) == (status, code), decision
+    assert core.asked == []
+
+
+async def test_an_or_of_unknown_branches_never_allows(gen: Any) -> None:
+    """Two branches without a source, and their negations: 501, never an allow."""
+    ctx = AuthzContext(_subject(), core=_NoIO(MAP))
+    feature = gen.Feature("export", of=Account.user())
+    limit = gen.WithinLimit("seats", 0, of=Account.user())
+    for policy in (
+        Or(feature, limit),
+        Or(Not(feature), Not(limit)),
+        Not(feature & limit),
+    ):
+        decision = await policy.decide(ctx)
+        assert not decision.allowed and decision.indeterminate, policy.describe()
+        assert (decision.http_status, decision.code) == (501, "access_unknown")
+
+
+async def test_an_unknown_names_the_claim_and_what_is_missing(gen: Any) -> None:
+    absent = await gen.Feature("export", of=Account.user()).decide(
+        AuthzContext(_subject(), core=_core())
+    )
+    assert "'features' is not in the token" in absent.reason
+    assert absent.failed_requirement == "feature 'export'"
+    malformed = await gen.WithinLimit("seats", 1, of=Account.user()).decide(
+        AuthzContext(_subject(limits={"seats": "3"}), core=_core())
+    )
+    assert "entry 'seats' is not an integer" in malformed.reason
+    assert malformed.failed_requirement == "within limit 'seats'"
 
 
 async def test_the_user_account_is_claim_tier_and_names_no_contract(gen: Any) -> None:

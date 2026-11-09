@@ -490,8 +490,8 @@ They are removed only after:
   KB-33 chose claim atoms: billing declares `Feature` and `WithinLimit` with `claim_atom` above
   its access checks `has_feature(tenant_type, tenant_id, key)` and
   `is_within_limit(tenant_type, tenant_id, key, used)`. For `Account.user()` the generated atom
-  reads the `features` / `limits` claim with zero I/O, as the kernel atom does, with the same
-  indeterminates. For an organization account it asks that check live, with its parameters as
+  reads the `features` / `limits` claim with zero I/O, three-valued from the token (amended by
+  KB-33d, below). For an organization account it asks that check live, with its parameters as
   contract arguments, so they reach billing over internal RPC too. Billing's plans declare no
   features or limits yet. The owner decided (2026-11-09, KB-33c) that a missing source is never
   `False`: a `False` is a confirmed deny, and `Not` or `~` would turn it into an allow. A
@@ -501,6 +501,30 @@ They are removed only after:
   is down (503, K5). Billing's checks raise it until a per-plan features and limits catalogue
   ships, which is a later task. `Feature` and `WithinLimit` stay supported, and a third-party
   module can provide them through its own contract with no kernel change.
+- **Amendment (2026-11-09, KB-33d): the user path is three-valued too.** The owner decided that
+  the same principle holds for `Account.user()`: the absence of a source is not a negative
+  fact. Billing writes `subscription_status` and `plan_code` but no `features` / `limits` claim
+  (it has no catalogue), and the kernel atom read an absent claim as a deny, so
+  `~Feature("x", of=Account.user())` allowed. The generated atom still decides from the token
+  and its verified provenance only, with zero I/O (I-23), and answers:
+
+  | the token | `Feature` / `WithinLimit` | its `Not` |
+  |---|---|---|
+  | a mapping, the entry explicitly on (limit above `used`) | allow | deny |
+  | a mapping, the entry explicitly off (limit reached) | deny | allow |
+  | a mapping that does not list the entry | deny | allow |
+  | the whole claim absent, its authority ran | 501 `access_unknown` | 501 |
+  | the whole claim absent, its authority failed at the mint | 503 `claim_authority_failed` | 503 |
+  | the claim removed by the view (decision 3) | 401 / 503 for outdated / mismatch, else 501 | the same |
+  | not a mapping, or an entry of the wrong type | 501 `access_unknown` | 501 |
+
+  A present mapping is therefore a **complete entitlements snapshot**: the contract of every
+  authority of a mapping claim is to write the mapping with every entitlement the account has, or
+  not to write it at all. Billing writes none until its catalogue ships: `features={}` would be a
+  false statement, and marking the whole contributor failed would discard the
+  `subscription_status` it did write. The kernel `Feature` / `WithinLimit` keep the old reading
+  until KB-34 removes them. This amends G-AUTHZ-12 (the generated atoms no longer decide as the
+  kernel atoms where no source speaks).
 - `Roles` and `Permissions` constants (no importer, B-N15) move to identity, the owner of the rows
   they name. The owner confirms (decision.md, A6) on the condition of an I-17 review in KB-34: the
   public API baseline and beginner tier diff, the upgrade step naming the new import, no alias

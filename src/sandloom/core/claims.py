@@ -58,12 +58,19 @@ ALWAYS_PROTECTED: frozenset[str] = frozenset({"roles", "permissions", "tenant_id
 ISSUER_FIELDS: frozenset[str] = frozenset({"email", "email_verified"})
 #: Keys the kernel's claim atoms read to grant access (``Subscribed``,
 #: ``Feature``, ``WithinLimit``): protected whether or not the map names them
-#: (answer #10). Every kernel reader takes an absent value as "not granted",
-#: never as allow: ``subscription_status`` escalates to its owner's live
-#: subscription fact when the writer is in ``claims_sources_failed``, the plan
-#: keys deny. So these are the only keys whose authority may be registered
-#: non-critical (decision 7, billing option (c)): a billing outage still mints
-#: a login.
+#: (answer #10). No reader takes an absent value as allow:
+#: ``subscription_status`` escalates to its owner's live subscription fact
+#: when the writer is in ``claims_sources_failed``. The plan keys ``features``
+#: / ``limits`` read by a generated ``Feature`` / ``WithinLimit``
+#: (``ClaimReadCheck``, G-AUTHZ-12 as amended by KB-33d) never take an absent
+#: claim as a deny either, since ``Not`` would invert it: absent while their
+#: authority failed is indeterminate 503 ``claim_authority_failed``, absent
+#: otherwise is indeterminate 501 ``access_unknown``; a present mapping is the
+#: complete snapshot (an entry it does not list denies), so a writer emits it
+#: whole or not at all. (The kernel ``Feature`` / ``WithinLimit``, removed by
+#: KB-34, still deny on an absent plan key.) So these are the only keys whose
+#: authority may be registered non-critical (decision 7, billing option (c)):
+#: a billing outage still mints a login.
 FAIL_SAFE_KEYS: frozenset[str] = frozenset(
     {"subscription_status", "plan_code", "features", "limits"}
 )

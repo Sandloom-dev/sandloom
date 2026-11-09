@@ -10,8 +10,9 @@ core with no module and no database binds the contracts to the standard app).
 Billing as shipped keeps no features or limits catalogue: its checks raise
 ``AccessUnknown``, so for an organization account every policy over them,
 ``Not`` and ``Or`` included, is indeterminate 501 ``access_unknown``, never an
-allow, mono and split (KB-33c, C-B5); ``Account.user()`` still reads the
-claims with zero I/O.
+allow, mono and split (KB-33c, C-B5). ``Account.user()`` reads the claims
+with zero I/O, and a token without ``features`` / ``limits`` (billing writes
+none) is 501 ``access_unknown`` too (KB-33d).
 
 Otherwise the producer is a test one: the plan reads behind billing's
 methods answer from a table here (an explicit off is a deny), and the
@@ -530,14 +531,38 @@ async def test_split_billing_without_a_catalogue_is_501_never_an_allow(
 async def test_without_a_catalogue_the_user_claims_path_is_unchanged(
     mono: Any, generated: Any, meter: Meter
 ) -> None:
-    """``Account.user()`` still reads the token's claims with zero I/O."""
+    """``Account.user()`` reads the token's claims with zero I/O (0 calls, 0
+    SQL, 0 RPC). Billing as shipped writes ``subscription_status`` but no
+    ``features`` / ``limits`` (it has no catalogue): such a token is 501
+    ``access_unknown`` under ``Not`` too, never a deny ``Not`` inverts; with
+    billing failed at the mint it is 503 (KB-33d, G-AUTHZ-12 as amended)."""
     request: Any = _Req({})
-    ctx = AuthzContext(_subject(), request=request, core=_Calls(mono))
+    calls = _Calls(mono)
+    ctx = AuthzContext(_subject(), request=request, core=calls)
     meter.reset()
     assert (await generated.Feature("export", of=Account.user()).decide(ctx)).allowed
     denied = await generated.WithinLimit("seats", 3, of=Account.user()).decide(ctx)
     assert not denied.allowed and denied.http_status == 402
-    assert meter.sql == 0 and meter.rpc == []
+    feature = generated.Feature("export", of=Account.user())
+    limit = generated.WithinLimit("seats", 0, of=Account.user())
+    policies = (feature, Not(feature), limit, Not(limit), Or(Not(feature), Not(limit)))
+    for failed, expected in (
+        ([], (501, "access_unknown")),
+        (["billing"], (503, "claim_authority_failed")),
+    ):
+        subject = UserContext(
+            user_id=USER,
+            tenant_ids=[str(ORG)],
+            claims={"subscription_status": "none"},
+            claims_sources=["identity", "tenancy", "billing"],
+            claims_sources_failed=failed,
+        )
+        bare = AuthzContext(subject, request=request, core=calls)
+        for policy in policies:
+            decision = await policy.decide(bare)
+            assert not decision.allowed and decision.indeterminate, policy.describe()
+            assert (decision.http_status, decision.code) == expected, policy.describe()
+    assert meter.sql == 0 and meter.rpc == [] and calls.log == []
 
 
 @pytest.mark.parametrize("name", sorted(CASES))

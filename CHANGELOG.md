@@ -121,6 +121,26 @@ website renders this same changelog.
   `AccessUnknown` when it has no answer. Upgrade: an organization gate on
   billing's `Feature` / `WithinLimit` that denied with 403 / 402 now answers
   501. Gate it with a provider that has a catalogue.
+- **`Account.user()`: an absent features or limits claim is unknown, not a
+  deny** (KB-33d, an amendment of G-AUTHZ-12, ADR-0014 decision 15). This is
+  a behaviour change. Billing writes no `features` / `limits` claim (it has no
+  catalogue yet). The generated `Feature` / `WithinLimit` read the absent
+  claim as a deny, so `~Feature("x", of=Account.user())` allowed. They now
+  decide from the token in three ways, still with zero I/O:
+  - A present mapping is the complete entitlements snapshot. An entry it
+    lists decides, and an entry it does not list denies.
+  - The whole claim absent is an indeterminate 501 `access_unknown`. When
+    its authority failed at the mint it is 503 `claim_authority_failed`.
+  - A claim that is not a mapping, or an entry of the wrong type (a flag
+    that is not a boolean, a limit that is not an integer), is 501
+    `access_unknown`.
+
+  `Not` never allows on an unknown, and `Or` allows only on another branch.
+  A claim authority of `features` / `limits` writes the whole mapping or
+  none. The kernel atoms keep the old reading until KB-34 removes them.
+  Upgrade: a personal-account gate on billing's `Feature` / `WithinLimit`
+  that denied with 403 / 402 now answers 501 until a catalogue writes the
+  claims, and its `Not` no longer allows.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
@@ -513,7 +533,8 @@ website renders this same changelog.
   `billing.entitlements.v1.has_feature(tenant_type, tenant_id, key)` and
   `is_within_limit(tenant_type, tenant_id, key, used)`. For `Account.user()`
   the generated atom reads the claim with zero I/O and gives the kernel
-  atom's decisions, indeterminates included. For an organization account it
+  atom's decisions where the token carries a well-formed claim (an absent or
+  malformed one is 501 since KB-33d, under Security). For an organization account it
   asks billing live with its parameters, which now reach the owner over
   internal RPC too. Billing's plans declare no features or limits yet, so
   both reads answer `False`. The kernel atoms stay; nothing to change in
