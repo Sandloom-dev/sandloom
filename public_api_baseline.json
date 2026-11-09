@@ -1057,6 +1057,17 @@
     "AUTO": {
       "kind": "value"
     },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "BACKWARD": {
       "kind": "value"
     },
@@ -2956,6 +2967,17 @@
         "to_wire"
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",
@@ -6369,6 +6391,17 @@
         "to_wire"
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+    },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",

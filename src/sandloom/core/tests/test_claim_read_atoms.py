@@ -18,6 +18,12 @@ kernel atoms they replace. Pinned here:
   atom's parameters, decisions equal to the kernel atoms on a test producer
   (the owner's organization fact asking the same provider), the same calls;
   no provider is 501 and ``Not`` never allows;
+* no source for the answer (KB-33c, C-B5): a provider raising
+  ``AccessUnknown`` is indeterminate 501 ``access_unknown``; ``Not`` and an
+  ``Or`` of such branches never allow;
+* a third-party source (``acme.plans.v1``, no battery, no kernel change):
+  the same decisions in-process and over the real internal RPC, an explicit
+  off / exceeded limit a deny, an unknown 501;
 * the compatibility rule: changing a claim atom's read is incompatible.
 """
 
@@ -40,14 +46,22 @@ from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.auth import claims_view as view
 from sandloom.core.cli import dto_copies as _dto_copies
 from sandloom.core.cli.generated import render_stub
+from sandloom.core.contract_testing import (
+    in_process_rpc_client,
+    rpc_proxy_for,
+    rpc_settings,
+)
 from sandloom.core.contracts.compatibility import compare_contract
 from sandloom.core.facade import CoreFacade
+from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.module_api import contract_schema
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
 from sandloom.core.rpc.errors import RemoteServiceUnavailable
+from sandloom.core.testing import InMemoryCache
 from sandloom.sdk import contract
 from sandloom.shared.authz import (
     AccessFact,
+    AccessUnknown,
     Account,
     Category,
     From,
@@ -104,10 +118,15 @@ class PlansContract:
         return False
 
 
-def _generated(tmp_path: Path) -> ModuleType:
-    path = tmp_path / "planco_plans_v1.py"
-    path.write_text(render_stub(PLANS_CONTRACT, PlansContract))
-    spec = importlib.util.spec_from_file_location("_kb33_planco_plans_v1", path)
+def _generated(
+    tmp_path: Path,
+    name: str = PLANS_CONTRACT,
+    provider: type = PlansContract,
+    as_name: str = "_kb33_planco_plans_v1",
+) -> ModuleType:
+    path = tmp_path / f"{name.replace('.', '_')}.py"
+    path.write_text(render_stub(name, provider))
+    spec = importlib.util.spec_from_file_location(as_name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -502,6 +521,275 @@ async def test_without_a_provider_the_organization_path_is_501(gen: Any) -> None
             assert not decision.allowed
             assert decision.indeterminate and decision.http_status == 501
             assert decision.code == "service_unavailable"
+
+
+# --------------------------------------------------------------------------- #
+# No source for the answer: AccessUnknown, indeterminate 501 (C-B5, KB-33c)
+# --------------------------------------------------------------------------- #
+class _NoSource:
+    """A provider that keeps no catalogue: every check is ``AccessUnknown``."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        self.calls += 1
+        raise AccessUnknown(f"no feature catalogue (feature {key!r})")
+
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        self.calls += 1
+        raise AccessUnknown(f"no limits catalogue (limit {key!r})")
+
+
+#: Policies over an organization's check with no source: none may allow.
+NO_SOURCE: dict[str, Any] = {
+    "feature": lambda k: k.Feature("beta", of=Account.org()),
+    "limit": lambda k: k.WithinLimit("seats", 3, of=Account.org()),
+    "not.feature": lambda k: Not(k.Feature("beta", of=Account.org())),
+    "not.limit": lambda k: Not(k.WithinLimit("seats", 3, of=Account.org())),
+    "or.both": lambda k: Or(
+        k.Feature("beta", of=Account.org()),
+        k.WithinLimit("seats", 3, of=Account.org()),
+    ),
+    "or.denied": lambda k: Or(Role("ops"), k.Feature("beta", of=Account.org())),
+    "or.not": lambda k: Or(Role("ops"), Not(k.Feature("beta", of=Account.org()))),
+}
+
+
+def _assert_unknown(decision: Any) -> None:
+    assert not decision.allowed
+    assert decision.indeterminate and decision.http_status == 501
+    assert decision.code == "access_unknown"
+    assert decision.category == Category.POLICY_MISCONFIGURED
+
+
+@pytest.mark.parametrize("policy", sorted(NO_SOURCE))
+async def test_no_source_is_501_and_never_allows(gen: Any, policy: str) -> None:
+    """A provider that cannot answer is never a deny ``Not`` turns into an
+    allow: indeterminate 501 ``access_unknown``, its words in the reason."""
+    org = uuid4()
+    provider = _NoSource()
+    subject = UserContext(user_id=uuid4(), roles={"member"}, tenant_ids=[str(org)])
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider, facts=False))
+    decision = await NO_SOURCE[policy](gen).decide(ctx)
+    _assert_unknown(decision)
+    assert "catalogue" in decision.reason
+    assert PLANS_CONTRACT in decision.reason
+    assert provider.calls >= 1
+
+
+async def test_no_source_still_lets_a_reliable_sibling_allow(gen: Any) -> None:
+    """``Or`` allows on another branch that reliably allowed (the algebra's
+    indeterminate rule), and the claims path never asks the provider."""
+    org = uuid4()
+    provider = _NoSource()
+    subject = _subject(tenant_ids=[str(org)], **CLAIMS)
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider, facts=False))
+    atom = gen.Feature("beta", of=Account.org())
+    assert (await Or(Role("member"), atom).decide(ctx)).allowed
+    assert (await gen.Feature("export", of=Account.user()).decide(ctx)).allowed
+    denied = await gen.Feature("beta", of=Account.user()).decide(ctx)
+    assert not denied.allowed and denied.http_status == 403
+    assert provider.calls == 0  # Or decided on its cheaper branch first
+
+
+# --------------------------------------------------------------------------- #
+# A third-party source (no battery), mono and split over the real internal RPC
+# --------------------------------------------------------------------------- #
+ACME_CONTRACT = "acme.plans.v1"
+ACME_SVC = "acme"
+ACME_ORG = UUID("00000000-0000-4000-8000-0000000ac0e1")
+ACME_NONE = UUID("00000000-0000-4000-8000-0000000ac0e2")
+#: The third party's plan catalogue, by organization.
+ACME_CATALOGUE: dict[UUID, dict[str, Any]] = {
+    ACME_ORG: {"features": {"export": True, "beta": False}, "limits": {"seats": 3}}
+}
+
+
+@contract(ACME_CONTRACT)
+class AcmePlansContract:
+    """A third-party plan catalogue: an organization it has no plan for is
+    unknown, a key its plan does not list is off (limit 0)."""
+
+    @claim_atom("Feature", claim_key="features", entry="key")
+    @access_check(
+        "LiveFeature",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        describe="feature '{key}'",
+    )
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when the plan enables ``key``; unknown without a plan."""
+        plan = ACME_CATALOGUE.get(tenant_id)
+        if plan is None:
+            raise AccessUnknown(f"acme has no plan for {tenant_id}")
+        return plan["features"].get(key) is True
+
+    @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
+    @access_check(
+        "LiveWithinLimit",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.QUOTA_EXCEEDED,
+        describe="within limit '{key}'",
+    )
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """True when ``used`` is below the plan limit; unknown without a plan."""
+        plan = ACME_CATALOGUE.get(tenant_id)
+        if plan is None:
+            raise AccessUnknown(f"acme has no plan for {tenant_id}")
+        limit: int = plan["limits"].get(key, 0)
+        return used < limit
+
+
+class _UoW:
+    async def __aenter__(self) -> _UoW:
+        self.session = SimpleNamespace(info={})
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        return None
+
+
+class _Database:
+    def uow_factory(self) -> Any:
+        return _UoW
+
+    def outbox(self) -> None:
+        return None
+
+    def audit(self) -> None:
+        return None
+
+
+@pytest.fixture
+def acme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    """The third-party provider registered on a core keyed for internal RPC,
+    and the atoms ``sandloom generate`` writes beside its stub."""
+    from sandloom.core.config.settings import settings
+
+    allowed = {ACME_SVC: [ACME_CONTRACT]}
+    for name, value in rpc_settings(ACME_SVC, allowed_calls=allowed).items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(idempotency_cache_store, "cache", lambda *_a, **_k: _MEM)
+    core = CoreFacade(app=FastAPI())
+    core.database = lambda name="default": _Database()  # type: ignore[method-assign]
+    core.register_service(ACME_CONTRACT, AcmePlansContract)
+    module = _generated(tmp_path, ACME_CONTRACT, AcmePlansContract, "_kb33c_acme")
+    yield SimpleNamespace(core=core, gen=module)
+    sys.modules.pop(module.__name__, None)
+
+
+_MEM = InMemoryCache()
+
+#: (policy, organization) -> (allowed, status, code) in both topologies.
+ACME_CASES: dict[str, tuple[Any, UUID, tuple[bool, int, str]]] = {
+    "feature.on": (
+        lambda k: k.Feature("export", of=Account.org()),
+        ACME_ORG,
+        (True, 200, "ok"),
+    ),
+    "feature.off": (
+        lambda k: k.Feature("beta", of=Account.org()),
+        ACME_ORG,
+        (False, 403, "Feature"),
+    ),
+    "not.feature.off": (
+        lambda k: Not(k.Feature("beta", of=Account.org())),
+        ACME_ORG,
+        (True, 200, "ok"),
+    ),
+    "limit.below": (
+        lambda k: k.WithinLimit("seats", 2, of=Account.org()),
+        ACME_ORG,
+        (True, 200, "ok"),
+    ),
+    "limit.equal": (
+        lambda k: k.WithinLimit("seats", 3, of=Account.org()),
+        ACME_ORG,
+        (False, 402, "WithinLimit"),
+    ),
+    "not.limit.equal": (
+        lambda k: Not(k.WithinLimit("seats", 3, of=Account.org())),
+        ACME_ORG,
+        (True, 200, "ok"),
+    ),
+    "unknown.feature": (
+        lambda k: k.Feature("export", of=Account.org()),
+        ACME_NONE,
+        (False, 501, "access_unknown"),
+    ),
+    "unknown.not.feature": (
+        lambda k: Not(k.Feature("export", of=Account.org())),
+        ACME_NONE,
+        (False, 501, "access_unknown"),
+    ),
+    "unknown.not.limit": (
+        lambda k: Not(k.WithinLimit("seats", 0, of=Account.org())),
+        ACME_NONE,
+        (False, 501, "access_unknown"),
+    ),
+    "unknown.or": (
+        lambda k: Or(
+            k.Feature("export", of=Account.org()),
+            k.WithinLimit("seats", 0, of=Account.org()),
+        ),
+        ACME_NONE,
+        (False, 501, "access_unknown"),
+    ),
+}
+
+
+class _Serving(_Core):
+    """A core serving one provider (local, or the RPC proxy) for the contract."""
+
+    def get_service(self, name: str) -> Any:
+        if name != ACME_CONTRACT:
+            raise ServiceUnavailableInDeployment(name)
+        return self.provider
+
+
+@pytest.mark.parametrize("case", sorted(ACME_CASES))
+async def test_a_third_party_source_decides_alike_mono_and_split(
+    acme: Any, case: str
+) -> None:
+    """``acme.plans.v1`` (not billing) implements Feature / WithinLimit through
+    its own generated atoms and contract, no kernel change: the same
+    decisions in-process and over the real internal RPC (signed call,
+    dispatch, error envelope), ``AccessUnknown`` reaching the remote
+    caller as the same 501."""
+    policy, org, expected = ACME_CASES[case]
+    subject = UserContext(user_id=uuid4(), tenant_ids=[str(org)])
+    async with in_process_rpc_client(acme.core) as client:
+        topologies = {
+            "mono": acme.core.get_service(ACME_CONTRACT),
+            "split": rpc_proxy_for(acme.core, ACME_CONTRACT, client),
+        }
+        outcomes = {}
+        for name, provider in topologies.items():
+            core = _Serving(provider, facts=False)
+            ctx = AuthzContext(subject, request=_req(org), core=core)
+            decision = await policy(acme.gen).decide(ctx)
+            outcomes[name] = _key(decision)
+    assert outcomes["split"] == outcomes["mono"]
+    assert outcomes["mono"][:2] == expected[:2]
+    assert outcomes["mono"][3] == expected[2]
+    assert outcomes["mono"][4] is (expected[2] == "access_unknown")
+
+
+async def test_access_unknown_is_the_same_class_local_and_remote(acme: Any) -> None:
+    """A direct caller gets the provider's 501 ``AccessUnknown`` either way."""
+    local = acme.core.get_service(ACME_CONTRACT)
+    with pytest.raises(AccessUnknown) as local_exc:
+        await local.has_feature("organization", ACME_NONE, "export")
+    async with in_process_rpc_client(acme.core) as client:
+        remote = rpc_proxy_for(acme.core, ACME_CONTRACT, client)
+        with pytest.raises(AccessUnknown) as remote_exc:
+            await remote.has_feature("organization", ACME_NONE, "export")
+    assert local_exc.value.status_code == remote_exc.value.status_code == 501
+    assert local_exc.value.detail == remote_exc.value.detail
 
 
 class _DownProvider:

@@ -120,6 +120,7 @@ from sandloom.core.module_api._context import (
 )
 from sandloom.core.module_api._define import AUTO, define_module
 from sandloom.core.module_api._errors import (
+    AccessUnknown,
     ContractArgumentError,
     ContractCallError,
     ContractCallInProgress,
@@ -187,6 +188,7 @@ __all__ = [
     "ModuleAPI",
     "ModuleRegistrationDraft",
     "ModuleRegistrationConflict",
+    "AccessUnknown",
     "ContractArgumentError",
     "ContractCallError",
     "ContractMethodRuntime",

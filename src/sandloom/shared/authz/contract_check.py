@@ -36,9 +36,13 @@ between the literal and the provider (an argument it no longer takes, a new
 required one, a method it no longer serves, a result that is not a boolean)
 is indeterminate 501 ``contract_mismatch`` inside the algebra, so ``Or`` may
 still allow on another branch and ``Not`` never allows (decision 12). A
-request value that does not bind (an invalid organization id) is refused
-before any call, as by the kernel atoms. A bound provider that is down
-(unreachable, a provider error, a timeout) is indeterminate 503
+provider that has no source for the answer raises
+:class:`~sandloom.core.module_api.AccessUnknown`: indeterminate 501
+``access_unknown`` inside the algebra, the same way (an unknown is never a
+``False`` that ``Not`` would turn into an allow). A request value that does
+not bind (an invalid organization id) is refused before any call, as by the
+kernel atoms. A bound provider that is down (unreachable, a provider error, a
+timeout) is indeterminate 503
 ``owner_unavailable`` inside the algebra, logged and counted per branch
 (K5, owner answer #19); an RPC authentication or allowlist refusal stays an
 error.
@@ -54,6 +58,7 @@ from uuid import UUID
 
 import sandloom.shared.authz.facts as _facts
 from sandloom.core.facade import facts_contract_name
+from sandloom.core.module_api import AccessUnknown
 from sandloom.shared.authz._resolve import (
     ContractUnavailable,
     resolve_contract,
@@ -90,6 +95,8 @@ _CATEGORIES = frozenset(
 #: Provider answers that mean "the call does not fit the method": the
 #: arguments do not bind, or the method is not served (local and remote).
 _MISMATCH_CODES = frozenset({"contract_argument_invalid", "method_not_found"})
+#: The decision code of a provider with no source for the answer.
+ACCESS_UNKNOWN = str(AccessUnknown.code)
 #: The decision code of a provider that is down (K5).
 OWNER_UNAVAILABLE = "owner_unavailable"
 #: RPC failures (503) that mean "the provider is down": unreachable, a
@@ -332,6 +339,22 @@ def _mismatch(contract: str, method: str, detail: str, requirement: str) -> Exce
     )
 
 
+def _access_unknown(
+    contract: str, method: str, detail: Any, requirement: str
+) -> Exception:
+    """The provider has no source for the answer: indeterminate 501 inside
+    the algebra (``Not`` never allows, ``Or`` only on another reliable
+    allow), the provider's own words in the reason."""
+    said = detail if isinstance(detail, str) and detail else "no source"
+    return _indeterminate(
+        ACCESS_UNKNOWN,
+        f"{contract}.{method} cannot answer {requirement!r}: {said}",
+        501,
+        requirement,
+        {"service": contract, "method": method},
+    )
+
+
 def _owner_unavailable(
     ctx: AuthzContext, contract: str, code: str, requirement: str
 ) -> Exception:
@@ -508,6 +531,13 @@ class ContractCheck(Requirement):
             result = await method(*args)
         except Exception as exc:
             code = getattr(exc, "code", None)
+            if code == ACCESS_UNKNOWN:
+                raise _access_unknown(
+                    self._contract,
+                    self._method,
+                    getattr(exc, "detail", None),
+                    requirement,
+                ) from exc
             if code in _MISMATCH_CODES:
                 raise _mismatch(
                     self._contract, self._method, str(exc), requirement
@@ -702,8 +732,10 @@ class ClaimFactCheck(Requirement):
 
 __all__ = [
     "ACCESS_CHECK_ATTR",
+    "ACCESS_UNKNOWN",
     "ATOM_ATTR",
     "CONTRACT_MISMATCH",
+    "AccessUnknown",
     "OWNER_UNAVAILABLE",
     "ClaimFactCheck",
     "ContractCheck",

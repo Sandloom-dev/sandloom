@@ -49,6 +49,7 @@ from sandloom.shared.authz.claim_read import ClaimReadCheck, claim_atom
 from sandloom.shared.authz.constants import Permissions, Roles
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.contract_check import (
+    AccessUnknown,
     ClaimFactCheck,
     ContractCheck,
     From,
@@ -137,6 +138,7 @@ __all__ = [
     # structured results
     "AccessDecision",
     "AccessDenied",
+    "AccessUnknown",
     "PolicyIndeterminate",
     "Category",
     # configurable resolution (facts)

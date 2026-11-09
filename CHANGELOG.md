@@ -96,6 +96,21 @@ website renders this same changelog.
 
 ### Security
 
+- **An unknown feature or limit is never a deny that `Not` turns into an
+  allow** (KB-33c, C-B5, G-AUTHZ-12). Billing has no per-plan features or
+  limits catalogue yet, and its `billing.entitlements.v1.has_feature` /
+  `is_within_limit` answered `False` for every organization. So
+  `Not(Feature(...))` and `~WithinLimit(...)` allowed. Both now raise the new
+  `AccessUnknown` (`sandloom.sdk.authz`, advanced), a 501 contract error
+  that reaches local and RPC callers as the same class. The generated atom
+  maps it to an indeterminate 501 `access_unknown` inside the algebra, so
+  `Not` never allows and `Or` allows only on another branch. With
+  `Account.user()` the atoms still read the claims with zero I/O. The
+  catalogue is a later task, and `Feature` / `WithinLimit` stay supported.
+  A provider with its own catalogue returns `True` / `False` and raises
+  `AccessUnknown` when it has no answer. Upgrade: an organization gate on
+  billing's `Feature` / `WithinLimit` that denied with 403 / 402 now answers
+  501. Gate it with a provider that has a catalogue.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
