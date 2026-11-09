@@ -11,7 +11,7 @@ touches only `core/facade/_claims.py` and `core/tests/test_claims_key_ownership.
 `file:line` is at HEAD; paths are under `src/sandloom/` unless they start with `sandloom_<m>/`
 or name a repository file.
 
-**Blinding.** This file and the two `_inputs/chatgpt-roadmap-*` files carry proposed solutions.
+**Blinding.** This file and the two `_archive/_inputs/chatgpt-roadmap-*` files carry proposed solutions.
 The alternatives tasks (`kb-alt-boundary`, `kb-alt-contracts`, `kb-alt-authz`,
 `kb-alt-settings`) stay blind: they read [problems.md](problems.md), goals.md and
 requirements.md, not this file or those inputs. Section 6 proposes amendments for the owner;
@@ -67,7 +67,7 @@ Status: **verified** (read at the cited line; "run" where a probe or experiment 
 | 14 | `AccessFact` has claim / projection / live paths, no parameter schema (§17.2) | verified, run | `shared/authz/facts.py:177-198`; the remote `evaluate` carries path, query and `X-Tenant-Id` only (validation C1, `facts.py:422-447`) |
 | 15 | `Or` allows on a definite branch even when another is indeterminate; `Not(indeterminate)` stays indeterminate (§5) | verified | `shared/authz/algebra.py:207-222`, `:259-262`; G-AUTHZ-13 law tests |
 | 16 | Statuses 402/403/501/503 and the risk order are the observable contract (§5) | verified | `shared/authz/results.py:38-50`; `atoms_live.py:57-73` (501); validation C2 (503) |
-| 17 | A19: `register_live_adapter` admits only `entitlements` and `membership`, one adapter per kind in the process-global `_ADAPTERS`; a second registration replaces the first (§17.1) | verified, run | `live_contracts.py:37-39`, `:114`, `:125-164`; baseline §3.1 probe (`_evidence/a19-live-adapter-probe.txt`) |
+| 17 | A19: `register_live_adapter` admits only `entitlements` and `membership`, one adapter per kind in the process-global `_ADAPTERS`; a second registration replaces the first (§17.1) | verified, run | `live_contracts.py:37-39`, `:114`, `:125-164`; baseline §3.1 probe (`_archive/_evidence/a19-live-adapter-probe.txt`) |
 | 18 | B-R2: `tenant_kind` classifies a tenant by asking the membership adapter (§16.3) | verified, run | `shared/authz/account.py:153-198`; perf-dx §2.1 (the extra membership call) |
 | 19 | `module_rules.py` and `api10_rules.py` recognise `OrgRole`, `Subscribed`, `Credits`, `require_org_role` by name, so aliases escape them (§17.3) | verified; alias bypass inferred | `core/archcheck/module_rules.py:57-64`, `:244-257` (bare call name); `api10_rules.py:167-178` (regex `\bOrgRole\(`), `:499-502`. Not run with an alias |
 | 20 | 46 judged edges: A19 + 40 B + 5 C; 32 V, 13 D, 1 A; the matrix rows carry baseline's verdicts (§14) | verified | baseline §2 and §3–5; every row of the v2 matrix matches |
@@ -229,7 +229,7 @@ Its Q-numbers are the first draft's. Mapping and our view (for the owner; no dec
 | M3 | Remote metadata on the request path: one `describe` per bound contract on first use, and facts metadata again every 300 s | perf-dx §2.2; `core/rpc/proxy.py:656`, `facts.py:64` | new #16 |
 | M4 | `OrgRole & SubscriptionActive(of=Account.bound_tenant())` makes 3 contract calls (3 RPCs in a split), not 2: `tenant_kind` asks membership again | perf-dx §2.1; `account.py:153-168`, `:239` | new #16 |
 | M5 | A combinator's tier is its most expensive operand at wiring time: `Role("admin") \| Credits(10)` opens a request DB session for an admin who never reaches `Credits` (≈ +0.5 M instructions) | perf-dx §2.1, §2.3; `algebra.py:209`; `deps.py:121-123` | #16 (context) |
-| M6 | The only typed, parameterised atom today is a 31-line `Requirement` the consumer writes over the provider's stub, with four advanced-tier names; no doc shows it; its provider outage is a proxy 503, not an indeterminate decision (no deny log, no metric) | perf-dx §3; `_evidence/perf-dx/dx/files/reports_access.py.txt` | new #15 |
+| M6 | The only typed, parameterised atom today is a 31-line `Requirement` the consumer writes over the provider's stub, with four advanced-tier names; no doc shows it; its provider outage is a proxy 503, not an indeterminate decision (no deny log, no metric) | perf-dx §3; `_archive/_evidence/perf-dx/dx/files/reports_access.py.txt` | new #15 |
 | M7 | A fact takes parameters only from the request (path, query, `X-Tenant-Id`); a handler-computed value cannot reach it | validation C gap 3 | #15 |
 | M8 | Without a tenant-grant provider in the token, any contributor writing `tenant_ids` gets those tenants bound and Postgres RLS opened to their rows | validation B6 | #1 |
 | M9 | D1: the durable applier of `core.auth.tokens_revoked.v1` and the refresh-session end on block exist only in identity; without identity a lost mark is only counted | guarantee-map D1, §3; I-21, Q12 | new #17 (silent degradations) |

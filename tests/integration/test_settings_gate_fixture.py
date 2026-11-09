@@ -1,5 +1,6 @@
 """``sandloom check`` / ``sandloom test`` settings gate over the fixture modules
-(ADR-0015 decision 7, KB-56; scenarios P6 and P9 of alternatives-d §11).
+(ADR-0015 decision 7, KB-56; scenarios P6 and P9 of
+design/kernel-boundary/_archive/alternatives-d-settings.md §11).
 
 The fixture modules of ``tests/fixtures/settings_modules`` are copied to a
 temporary source root with an ``architecture_rules.yml`` that lists them, so
