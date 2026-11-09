@@ -21,6 +21,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`block_user`](#block_user) | async function | Block `user_id` NOW: every authenticated request of theirs gets 401. |
 | [`ClaimsUnavailable`](#claimsunavailable) | exception | A CRITICAL claims contributor failed, or wrote a claim it may not write: the token must not be minted. |
 | [`create_access_token`](#create_access_token) | function | Create JWT access token via sandloom.core.auth (stable adapter). |
+| [`create_service_token`](#create_service_token) | function | A token that authenticates and grants no user rights (a service or a test client): no protected claim, tenant selector, provenance or `cp... |
 | [`decode_token`](#decode_token) | function | Decode JWT using sandloom.core.auth.tokens (stable adapter). |
 | [`decode_token_cached`](#decode_token_cached) | function | Per-request-cached JWT decode via sandloom.core.auth (stable adapter). |
 | [`ensure_token_not_revoked`](#ensure_token_not_revoked) | async function | Raise 401 when `claims` predate a revocation (503 on fail-closed outage). |
@@ -111,14 +112,34 @@ def create_access_token(
     data: dict[str, Any],
     expires_delta: int | None = None,
     claims_read_at: datetime | None = None,
+    claims: SealedClaims | None = None,
 ) -> str
 ```
 
 Create JWT access token via sandloom.core.auth (stable adapter).
 
+`claims`: the sealed result of `collect_claims`, the only carrier of
+protected claims, provenance and `cpv`; `data` carries the envelope
+(`sub`, `token_type`, `auth_time`) and unprotected keys, and a
+protected key, provenance or `cpv` in it is refused (SANDLOOM-R017).
 `claims_read_at`: when the token's claims were read; a revocation
 committed after it revokes the token (its revocation instant starts there).
 Import at call-time so test patches against security are honored.
+
+### `create_service_token`
+
+```python
+def create_service_token(
+    *,
+    data: dict[str, Any],
+    expires_delta: int | None = None,
+) -> str
+```
+
+A token that authenticates and grants no user rights (a service or a
+test client): no protected claim, tenant selector, provenance or `cpv`
+in `data` (SANDLOOM-R017); every `Role`, `Perm`, platform and
+`TenantScope` gate denies it with 403.
 
 ### `decode_token`
 

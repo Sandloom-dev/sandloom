@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -268,3 +268,131 @@ class ClaimAuthorities:
 
 #: A composition whose root passed no ``claim_authorities``: nothing assigned.
 NO_AUTHORITIES = ClaimAuthorities()
+
+
+# ---------------------------------------------------------------------------
+# The sealed mint (ADR-0014 decision 5, owner answer #13)
+# ---------------------------------------------------------------------------
+
+#: Provenance and the policy marker: only the merge (``collect_claims``) or
+#: the kernel test authority writes them into a token.
+PROVENANCE_KEYS: frozenset[str] = frozenset(
+    {"claims_sources", "claims_sources_failed", CPV_CLAIM}
+)
+#: The token envelope a minting caller may set in ``data``: the subject, the
+#: token type, the step-up instant and the registered claims
+#: ``create_access_token`` otherwise stamps itself.
+ENVELOPE_KEYS: frozenset[str] = frozenset(
+    {
+        "sub",
+        "token_type",
+        "auth_time",
+        "iss",
+        "aud",
+        "exp",
+        "nbf",
+        "iat",
+        "jti",
+        "iat_us",
+    }
+)
+#: ``UserContext``'s structural fields (shared/subject.py): formed by the
+#: kernel from the token, never minted by a caller (``user_id`` wins over
+#: ``sub``; ``provenance_authoritative`` decides how absent provenance reads;
+#: ``claims`` is merged into every owner's namespaced claims).
+SUBJECT_STRUCTURE_KEYS: frozenset[str] = frozenset(
+    {"user_id", "provenance_authoritative", "claims"}
+)
+
+
+class UnsealedClaimsError(ValueError):
+    """SANDLOOM-R017: a token mint received protected claims, provenance or
+    the claim policy marker outside a sealed ``collect_claims`` result, or a
+    service token carried one."""
+
+    sandloom_code = "SANDLOOM-R017"
+
+
+#: The kernel's seal: only code holding this object builds a
+#: :class:`SealedClaims` (``collect_claims`` and the kernel test authority).
+_SEAL = object()
+
+
+class SealedClaims(Mapping[str, Any]):
+    """The verified result of ``collect_claims``: the only carrier of
+    protected claims, provenance and ``cpv`` that ``create_access_token``
+    accepts (``create_access_token(data, claims=sealed)``).
+
+    Read-only. Spreading it (``{**sealed}``) or copying it gives a plain
+    ``dict``, which the mint refuses for those keys (SANDLOOM-R017): the
+    seal does not survive an edit.
+    """
+
+    __slots__ = ("_data", "_seal")
+
+    _data: Mapping[str, Any]
+    _seal: object
+
+    def __init__(self, data: Mapping[str, Any], *, seal: object = None) -> None:
+        if seal is not _SEAL:
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: SealedClaims are built by collect_claims only"
+            )
+        object.__setattr__(self, "_data", MappingProxyType(dict(data)))
+        object.__setattr__(self, "_seal", seal)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("SealedClaims are read-only")
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return f"SealedClaims({dict(self._data)!r})"
+
+    def is_sealed(self) -> bool:
+        """True for a result the kernel built (always, unless forged)."""
+        return self._seal is _SEAL
+
+
+def _seal_claims(data: Mapping[str, Any]) -> SealedClaims:
+    """Kernel-internal: seal a merge result (``collect_claims``) or the
+    kernel test authority's contribution (``sandloom.core.testing.auth``)."""
+    return SealedClaims(data, seal=_SEAL)
+
+
+def unsealed_keys(policy: ClaimAuthorities) -> frozenset[str]:
+    """The keys a mint accepts only inside :class:`SealedClaims`, under
+    ``policy``: every protected claim, the tenant selectors, provenance,
+    ``cpv``, ``UserContext``'s structural fields and the authority binding.
+    """
+    return (
+        policy.protected
+        | TENANT_SELECTORS
+        | PROVENANCE_KEYS
+        | SUBJECT_STRUCTURE_KEYS
+        | frozenset({AUTHORITY_CLAIM})
+    )
+
+
+def refuse_unsealed(
+    data: Mapping[str, Any], policy: ClaimAuthorities, what: str
+) -> None:
+    """Raise :class:`UnsealedClaimsError` when ``data`` carries a key of
+    :func:`unsealed_keys`."""
+    bad = sorted(k for k in data if k in unsealed_keys(policy))
+    if bad:
+        raise UnsealedClaimsError(
+            f"SANDLOOM-R017: {what} carries {', '.join(bad)} outside a sealed "
+            "collect_claims result: protected claims, provenance and cpv come "
+            "only from collect_claims (create_access_token(data, "
+            "claims=sealed)); a token that grants no user rights is "
+            "create_service_token; a test token is mint_test_token / as_user "
+            "(sandloom.sdk.testing)"
+        )

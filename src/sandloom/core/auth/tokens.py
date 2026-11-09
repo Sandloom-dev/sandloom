@@ -19,7 +19,15 @@ from sandloom.core.auth.marks import (
     _issue_instant_us,
     _seconds_to_us,
 )
-from sandloom.core.claims import NO_AUTHORITIES, ClaimAuthorities
+from sandloom.core.claims import (
+    CPV_CLAIM,
+    CPV_VERSION,
+    NO_AUTHORITIES,
+    ClaimAuthorities,
+    SealedClaims,
+    UnsealedClaimsError,
+    refuse_unsealed,
+)
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.config.settings import settings
@@ -36,8 +44,23 @@ def create_access_token(
     expires_delta: int | None = None,
     *,
     claims_read_at: datetime | None = None,
+    claims: SealedClaims | None = None,
 ) -> str:
     """Mint a JWT.
+
+    ``claims``: the sealed result of ``collect_claims``, the only carrier of
+    the token's protected claims (``roles``, ``permissions``, ``tenant_ids``,
+    ``email``, ``email_verified``, the billing claims and every key the
+    composition's ``claim_authorities`` names), its provenance
+    (``claims_sources``, ``claims_sources_failed``) and ``cpv`` (ADR-0014
+    decision 5, owner answer #13). ``data`` carries the envelope (``sub``,
+    ``token_type``, ``auth_time``, the registered claims) and unprotected
+    keys. A protected key, a tenant selector (``tenant_id``, ``org_id``),
+    provenance, ``cpv`` or ``UserContext``'s structural fields in ``data``,
+    a ``claims`` that is not sealed, or a ``data`` key that overrides one of
+    ``claims`` is refused (:class:`~sandloom.core.claims.UnsealedClaimsError`,
+    SANDLOOM-R017). A token that grants no user rights:
+    :func:`create_service_token`.
 
     Adds the standard registered claims every token should carry: ``iat``
     (issued-at), ``nbf`` (not-before) and a unique ``jti`` (token id, the hook a
@@ -61,10 +84,59 @@ def create_access_token(
     ``JWT_KID`` is configured it is stamped as the ``kid`` header so verifiers
     can pick the key directly during a rotation.
     """
+    if claims is not None and not (
+        isinstance(claims, SealedClaims) and claims.is_sealed()
+    ):
+        raise UnsealedClaimsError(
+            "SANDLOOM-R017: create_access_token(claims=...) takes the sealed "
+            f"result of collect_claims only, not a {type(claims).__name__}"
+        )
+    _core, policy = _claim_policy()
+    refuse_unsealed(data, policy, "create_access_token(data=...)")
     to_encode = data.copy()
     # A trusted view's verdict is never minted (a payload copied from a
     # verified token): every verifier computes its own.
     to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
+    if claims is not None:
+        overridden = sorted(k for k in claims if k in to_encode)
+        if overridden:
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: create_access_token(data=...) overrides "
+                f"{', '.join(overridden)} of the sealed collect_claims result"
+            )
+        to_encode.update(claims)
+    return _mint(to_encode, expires_delta, claims_read_at)
+
+
+def create_service_token(data: dict[str, Any], expires_delta: int | None = None) -> str:
+    """Mint a token that authenticates and grants no user rights.
+
+    The limited path for a service or a test client (ADR-0014 decision 5):
+    ``data`` is the envelope (``sub``, ``token_type``, ...) and unprotected
+    keys only. Every key :func:`create_access_token` takes only from a
+    sealed result is refused (SANDLOOM-R017): no protected claim, tenant
+    selector, provenance, ``cpv`` or subject structure. The kernel stamps an
+    empty provenance and the current ``cpv``, so the token's absent protected
+    claims read as a definite deny (403) on every gate (``Role``, ``Perm``,
+    platform admission, ``TenantScope``), never as "refresh" (401
+    ``token_policy_outdated``).
+    """
+    _core, policy = _claim_policy()
+    refuse_unsealed(data, policy, "create_service_token(data=...)")
+    to_encode = data.copy()
+    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
+    to_encode["claims_sources"] = []
+    to_encode["claims_sources_failed"] = []
+    to_encode[CPV_CLAIM] = {"v": CPV_VERSION, "k": dict(policy.digests)}
+    return _mint(to_encode, expires_delta, None)
+
+
+def _mint(
+    to_encode: dict[str, Any],
+    expires_delta: int | None,
+    claims_read_at: datetime | None,
+) -> str:
+    """Stamp the envelope on ``to_encode`` (in place) and sign it."""
     now = datetime.now(UTC)
     minutes = (
         settings.access_token_expire_minutes if expires_delta is None else expires_delta

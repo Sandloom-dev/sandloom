@@ -1741,6 +1741,44 @@ in-memory test database.
 """,
         docs="docs/infrastructure/database.md",
     ),
+    _entry(
+        "SANDLOOM-R017",
+        "unsealed-claims",
+        "runtime",
+        "a token mint received protected claims, provenance or the claim "
+        "policy marker outside a sealed collect_claims result, a service "
+        "token carried one, or collect_claims got an issuer or a precomputed "
+        "contribution it cannot verify",
+        "mint a user token with create_access_token(data, claims=await "
+        "core.collect_claims(user_id, issuer=<your contributor>)), data "
+        "holding only the envelope (sub, token_type, auth_time); a token "
+        "with no user rights with create_service_token; a test token with "
+        "as_user or mint_test_token (sandloom.sdk.testing)",
+        """
+Protected claims (roles, permissions, tenant_ids, email, email_verified, the
+access-granting billing claims and every key the composition root's
+claim_authorities assigns), the tenant selectors (tenant_id, org_id),
+claims_sources, claims_sources_failed, cpv and UserContext's structural
+fields reach a token only through the merge that checks each key against its
+assigned authority (ADR-0014 decision 5, owner answer #13). collect_claims
+returns that result sealed and read-only; a hand-assembled dict carrying any
+of them, a spread or copy of the sealed result, or a data key overriding one
+of its claims is refused at the mint.
+
+collect_claims takes the issuer as one of its own registered claims
+contributors (the module that registered it is the issuer, never a name), and
+precomputed only with the issuer and its session, for the issuer's own
+contributors, with keys claim_authorities assigns to the issuer.
+
+create_service_token is the limited path: it refuses every key above and
+stamps an empty provenance and the current cpv, so the token authenticates
+and every Role, Perm, platform and TenantScope gate denies it (403). The
+kernel test authority (as_user, mint_test_token, sealed_claims) exists only
+while the sandloom.sdk.testing plugin or the framework's test harness is
+active; anywhere else it refuses.
+""",
+        docs="docs/advanced/security-model.md",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",
@@ -2040,6 +2078,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",
+    "UnsealedClaimsError": "SANDLOOM-R017",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

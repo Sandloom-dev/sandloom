@@ -33,6 +33,6 @@ class MintOut(BaseModel):
 async def mint(body: MintIn, core: CoreRuntime = Depends(get_core)) -> MintOut:
     claims = await core.collect_claims(body.user_id)
     token = create_access_token(
-        data={**claims, "sub": str(body.user_id), "token_type": "access"}
+        data={"sub": str(body.user_id), "token_type": "access"}, claims=claims
     )
-    return MintOut(access_token=token, claims=claims)
+    return MintOut(access_token=token, claims=dict(claims))

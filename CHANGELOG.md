@@ -15,6 +15,37 @@ website renders this same changelog.
 
 ### Security
 
+- **Sealed mint, service tokens, test tokens** (KB-12, ADR-0014 decision 5,
+  owner answer #13; SANDLOOM-R017). `collect_claims` returns a sealed,
+  read-only result, the only carrier of a token's protected claims (`roles`,
+  `permissions`, `tenant_ids`, `email`, `email_verified`, the billing claims
+  and every key of `claim_authorities`), tenant selectors (`tenant_id`,
+  `org_id`), provenance (`claims_sources`, `claims_sources_failed`) and
+  `cpv`. `create_access_token(data, claims=sealed)` refuses any of them in
+  `data`, an unsealed or spread result, and a `data` key overriding a sealed
+  claim. `collect_claims(issuer=...)` takes one of the issuer's own
+  registered claims contributors (the issuer is the module that registered
+  it, never a name); `precomputed` is accepted only with the issuer's
+  session, for its own contributors and keys the map assigns to it. New:
+  `create_service_token` (`sandloom.sdk.security`), a token that
+  authenticates and that every `Role`, `Perm`, platform and `TenantScope`
+  gate denies; `mint_test_token` and `sealed_claims` (`sandloom.sdk.testing`)
+  mint through the kernel test authority, which, like `as_user`, exists only
+  while the testing plugin or harness is active and refuses anywhere else.
+  **Upgrade:** (1) an issuer mints `create_access_token(data={"sub": ...,
+  "token_type": "access", "auth_time": ...}, claims=await
+  core.collect_claims(user_id, session, issuer=<its contributor function>,
+  ...))` instead of spreading the result into `data`, and passes
+  `issuer=<contributor>` where it passed `issuer="<module name>"`; (2) a
+  service or machine token that put no protected claim in `data` keeps
+  `create_access_token`, one that needs none of the user's rights uses
+  `create_service_token`; (3) a test that hand-assembled protected claims,
+  provenance or `cpv` for `create_access_token` uses
+  `mint_test_token({...})` (or `as_user(...)`), and a test faking
+  `collect_claims` returns `sealed_claims({...})`; a stated `claims_sources`
+  is checked against the composition's map, `cpv=None` mints a token
+  without `cpv`; (4) a script that ran `as_user` outside pytest mints
+  with `create_service_token`.
 - **Access-bearing contracts have one provider** (KB-13, ADR-0014
   decision 6; edge A19 started; SANDLOOM-B034 widened). A contract the
   authorization layer asks to decide access is registered in-process only
