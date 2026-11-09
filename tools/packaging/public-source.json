@@ -1828,6 +1828,7 @@
         "src/sandloom/core/tests/test_streams_split_identity.py",
         "src/sandloom/core/tests/test_strict_mode.py",
         "src/sandloom/core/tests/test_subject_record.py",
+        "src/sandloom/core/tests/test_subscribed_verbatim.py",
         "src/sandloom/core/tests/test_tenant_criteria_prebuilt.py",
         "src/sandloom/core/tests/test_tenant_guard_cache.py",
         "src/sandloom/core/tests/test_tenant_guard_early_exit.py",

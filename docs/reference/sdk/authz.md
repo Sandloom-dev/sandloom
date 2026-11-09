@@ -947,6 +947,16 @@ the owner neither loaded nor bound it is indeterminate 501 (nobody may
 vouch for the claim). For an organization account it delegates to the
 owner's live access check (`otherwise` in the literal).
 
+The verbatim read is three-valued from the token (KB-33e, the rows of
+G-AUTHZ-12 as amended by KB-33d): a status present decides (allow when
+it is among the statuses, else a definite deny); the claim removed by
+the view for a reason a refresh or a retry may change is its 401 / 503;
+absent because its authority failed at the mint is 503
+`claim_authority_failed`; absent otherwise (its authority wrote none,
+the view removed it as unassigned / unvouched, a legacy token) or not a
+string is 501 `access_unknown`. `Not` and `Or` never allow on any
+of these; zero I/O on every row.
+
 #### `ClaimFactCheck.org_params`
 
 ```python
