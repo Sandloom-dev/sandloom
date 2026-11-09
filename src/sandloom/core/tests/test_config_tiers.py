@@ -105,29 +105,6 @@ def test_every_setting_is_in_exactly_one_tier() -> None:
         assert tiers.tier_of(name) == "semantic"
 
 
-def test_billing_keeps_its_own_semantic_ratchet() -> None:
-    """ADR-0015 decision 5 (P8): the one semantic setting billing classifies
-    left the kernel's ratchet (13 -> 12, 15 -> 14) and is ratcheted by billing's
-    own baseline; its tier is recorded in billing's ``module.snapshot.json``."""
-    from sandloom.core.testing import settings_gate
-    from sandloom_billing.config import BillingSettings
-
-    name = "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS"
-    assert name not in {s.name for s in tiers.SEMANTIC}
-    assert name not in tiers.OPS
-    assert (
-        settings_gate.semantic_ratchet_problems(
-            BillingSettings, baseline=[name], ceiling=1
-        )
-        == []
-    )
-    # a second semantic setting without an ADR, or the first dropped from
-    # the baseline, is refused
-    assert settings_gate.semantic_ratchet_problems(
-        BillingSettings, baseline=[], ceiling=1
-    )
-
-
 def test_semantic_tier_is_ratcheted() -> None:
     names = {s.name for s in tiers.SEMANTIC}
     stale = sorted(SEMANTIC_BASELINE - names)

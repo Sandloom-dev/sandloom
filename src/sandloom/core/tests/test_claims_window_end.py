@@ -40,6 +40,7 @@ from sandloom.core.di import TenantScope
 from sandloom.core.facade import CoreFacade
 from sandloom.core.runtime import use_active_core
 from sandloom.core.tests import test_claims_split_matrix as _matrix
+from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.shared.authz import Perm, Role, require
 from sandloom.shared.authz.algebra import Requirement
 from sandloom.shared.authz.context import AuthzContext
@@ -53,6 +54,17 @@ issuers = _matrix.issuers
 _close_shared_client = _matrix._close_shared_client
 
 ID = _matrix.ID
+
+
+@pytest.fixture(autouse=True)
+def _standard_entry_points() -> Iterator[None]:
+    """``sandloom_identity`` is the module ``identity`` by its entry point,
+    installed or not (the split matrix's fixture, which pytest does not share
+    through the import)."""
+    with installed_entry_points():
+        yield
+
+
 FOREIGN = str(uuid4())  # a tenant the user holds no grant for
 LIFETIME = settings.access_token_expire_minutes * 60
 LEEWAY = settings.jwt_leeway_seconds

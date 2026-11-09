@@ -10,6 +10,7 @@ environments warn. (``OUTBOX_RELAY_ENABLED=off`` is the accepted-risks list's
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from types import SimpleNamespace
 from typing import Any
 
@@ -133,14 +134,13 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     # (identity's own settings read the process's source read: re-take it)
     monkeypatch.setenv("TWOFA_ENCRYPTION_KEY", _STRONG_KEY)
     monkeypatch.setattr(module_settings, "_PROCESS_SNAPSHOT", None)
+    # billing's own risk id is known only where billing is installed (a risk
+    # naming an unknown module is refused, also in the no-batteries venv).
+    billing = ["billing.fake_psp_in_prod"] if find_spec("sandloom_billing") else []
     monkeypatch.setattr(
         settings,
         "sandloom_accepted_risks",
-        [
-            *settings.sandloom_accepted_risks,
-            "billing.fake_psp_in_prod",
-            "log_notifier_in_prod",
-        ],
+        [*settings.sandloom_accepted_risks, *billing, "log_notifier_in_prod"],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
         create_root_app()

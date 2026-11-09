@@ -988,22 +988,25 @@ async def test_a_drain_cancelling_the_coalescers_flush_leaves_no_cyclic_garbage(
             await asyncio.sleep(0)
         gc.collect()
         # An engine of an earlier test (SQLAlchemy's own cycles) may become
-        # unreachable in this window; what the kernel caches on it (a
-        # serial-writer database's nesting policy) goes with it and is no
-        # part of the job.
-        on_engines = {
-            id(value)
-            for obj in gc.garbage
-            if isinstance(obj, Engine)
-            for value in vars(obj).values()
-        }
+        # unreachable in this window; what hangs off it (the nesting policy
+        # the kernel caches on it, the reconnect gate its event listener
+        # holds, the column types its dialect memoizes) goes with it and is
+        # no part of the job: skip whatever the garbage engines reach.
+        garbage = {id(obj): obj for obj in gc.garbage}
+        engine_owned: set[int] = set()
+        pending = [obj for obj in gc.garbage if isinstance(obj, Engine)]
+        while pending:
+            for ref in gc.get_referents(pending.pop()):
+                if id(ref) in garbage and id(ref) not in engine_owned:
+                    engine_owned.add(id(ref))
+                    pending.append(ref)
         ours = [
             obj
             for obj in gc.garbage
             if (
                 type(obj).__module__.startswith("sandloom.") or isinstance(obj, _Marker)
             )
-            and id(obj) not in on_engines
+            and id(obj) not in engine_owned
         ]
     finally:
         gc.set_debug(0)
