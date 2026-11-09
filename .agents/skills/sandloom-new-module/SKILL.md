@@ -6,7 +6,7 @@ description: Create a new Sandloom business module (sandloom add module, migrate
 # Create a new Sandloom module
 
 1. **Read the module-author contract first.**
-   - In the framework tree, that is `src/sandloom/AGENTS.md`.
+   - In the framework tree, that is `.claude/rules/module-author.md`.
    - In an `sandloom new` app, it is the project's `AGENTS.md`.
    - No app yet? Create one with `--yes`:
      `uvx --from "sandloom==<version>" sandloom new <app> --yes`. Without

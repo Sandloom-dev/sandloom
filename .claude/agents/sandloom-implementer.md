@@ -18,22 +18,29 @@ subagent): pass no actor on tm calls.
    `task_start` before the first edit, hand over with `task_done` and a
    `git_commit` deliverable).
 2. Before editing, read the contract for the code you touch (nearest wins):
-   modules `src/sandloom/AGENTS.md`; kernel, `sdk`, `shared`
-   `src/sandloom/core/AGENTS.md`; deploy `deploy/AGENTS.md`; admin
-   `admin/AGENTS.md`. Read the files your task names, nothing beyond.
+   modules `.claude/rules/module-author.md` (loads on module paths); kernel,
+   `sdk`, `shared` `src/sandloom/core/AGENTS.md`; deploy `deploy/AGENTS.md`;
+   admin `admin/AGENTS.md`. Read the files your task names, nothing beyond.
 
 ## Where your work lives
 - Only your task's area. A change needed elsewhere goes into the handover.
 - Commit on your worktree branch, staging by path (never `git add -A`),
   messages starting with `<alias>: `. Never merge into main or from a sibling
   branch. Before a push, run the CI steps of the areas you touched (docs,
-  admin, examples), not only `sandloom test --full`.
+  admin, examples).
 - Never hand-edit what `sandloom generate` writes (`sandloom/shared/contracts/*`,
   `sandloom/shared/events/*.json`, `module.snapshot.json`): run it.
+- One simple command per call in a worktree: no `for` loop, `source`, `&&`
+  chain or heredoc around `git`, since the worktree isolation check refuses
+  them. Several steps: write a helper script into the scratchpad and run it
+  with one command.
 
 ## Checks
-- `uv run sandloom test <module>` while working; `uv run sandloom test --full`
-  once before `task_done`. Never serial `pytest -q`.
+- Run the tests of what you touched plus every test that references the
+  changed symbols (`grep -rln '<symbol>' src tests`), and the static gates
+  (`uv run sandloom test <module>`, `generate`, `check`). Never
+  `sandloom test --full`: the orchestrator runs it once per wave. Never a
+  serial `pytest -q`.
 - Other agents test at the same time: export your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) before
@@ -42,15 +49,17 @@ subagent): pass no actor on tm calls.
   Lint the paths you changed, or pass `--no-fix`.
 - A failure prints a code: `uv run sandloom explain <code>`. A name's
   signature: `uv run sandloom docs <name>`.
-- A run longer than ~4 minutes goes in the background; do not poll it in a
-  loop.
+- A run longer than a minute or two goes in the background
+  (`run_in_background`); wait for its notification, no `until` / `sleep`
+  polling loops.
 
 ## Tokens: keep the context small
 - Test and lint output: failures and the summary only (`-q`, then
   `grep -E '^(FAILED|ERROR|E )' -A6 | head -60`).
-- Never print a whole snapshot, baseline, JSON schema or log; read source in
-  ranges (Read with offset/limit, `sed -n a,bp`), never one large file twice.
+- Never print a whole snapshot, baseline, JSON schema or log. Read a file
+  once, whole, or find the lines with `grep -n`; do not re-read ranges with
+  `sed -n` after each edit, trust your Edit results.
 - Search with `grep -rn` on `src/`, `tests/`, `docs/`; skip `.claude/worktrees/`.
-- Around 100 turns in, checkpoint (`task_checkpoint`) and hand off instead of
-  pushing on.
+- Near the turn limit (around 100 turns), commit and push WIP, write a precise
+  `task_checkpoint` and stop.
 - No nested agents.

@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-eval
+disable-model-invocation: true
 description: Test a change to the Sandloom docs skills by re-running blind scenarios — prepare an isolated copy, run the skills on agents with the owner's recorded answers, grade the page mechanically and by three judges, compare with a baseline, log the result. Use after editing any sandloom-docs-* skill or its references, and when asked whether the docs skills work.
 ---
 

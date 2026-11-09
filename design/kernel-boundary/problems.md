@@ -1,6 +1,6 @@
 # Kernel boundary: the problems, in short
 
-Index of the architecture problems found by the kernel-boundary assessment (tm `kb-assess`). Evidence lives in [baseline.md](baseline.md) (commit b8d8506), [guarantee-map.md](guarantee-map.md), [validation.md](validation.md), [perf-dx-baseline.md](perf-dx-baseline.md) and the gate probe at HEAD `86aed8b` ([`_evidence/roadmap-review/gate-probe.txt`](_evidence/roadmap-review/gate-probe.txt), cases G1–G5); invariants `I-xx` in [requirements.md](requirements.md). This file lists problems, not solutions: the solutions are decided in the ADRs.
+Index of the architecture problems found by the kernel-boundary assessment (tm `kb-assess`). Evidence lives in [baseline.md](baseline.md) (commit b8d8506), [guarantee-map.md](guarantee-map.md), [validation.md](validation.md), [perf-dx-baseline.md](perf-dx-baseline.md) and the gate probe at HEAD `86aed8b` ([`_evidence/roadmap-review/gate-probe.txt`](_archive/_evidence/roadmap-review/gate-probe.txt), cases G1–G5); invariants `I-xx` in [requirements.md](requirements.md). This file lists problems, not solutions: the solutions are decided in the ADRs.
 
 | # | Problem | Priority | Root | Invariants | Status / tm |
 |---|---|---|---|---|---|

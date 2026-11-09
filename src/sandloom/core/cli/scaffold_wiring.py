@@ -46,8 +46,8 @@ from sandloom.sdk.testing.fixtures import *  # noqa: F403
 
 
 #: The module-author agent contract (AGENTS.md) the scaffold and ``sandloom new``
-#: ship. ``src/sandloom/AGENTS.md`` is a byte-equal copy for the framework
-#: tree (pinned by ``test_agent_context_budget.py``).
+#: ship. ``.claude/rules/module-author.md`` carries it for the framework tree
+#: below a ``paths:`` front matter (pinned by ``test_agent_context_budget.py``).
 MODULE_CONTRACT_PATH = Path(__file__).parent / "templates" / "module-AGENTS.md"
 #: First-line marker: an ancestor AGENTS.md carrying it already gives every
 #: module below it the contract, so the scaffold does not copy it again.

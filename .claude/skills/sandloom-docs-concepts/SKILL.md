@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-concepts
+disable-model-invocation: true
 description: Build or update the map of Sandloom's concepts in design/docs-writing/concept-map.md — each concept with its parent, what it depends on, its level, its home page, and the order to learn them from simple to complex. Use before restructuring the docs or the nav, when a brief or page needs a concept's home or level, when a new concept enters the framework, and when two pages explain the same thing.
 ---
 

@@ -27,7 +27,7 @@ ALWAYS_LOADED_MAX_BYTES = 16 * 1024
 NESTED_MAX_LINES = 120
 NESTED_MAX_BYTES = 8 * 1024
 #: Directory-scoped contracts; each has a sibling CLAUDE.md importing it.
-NESTED = ("src/sandloom", "src/sandloom/core", "deploy", "admin")
+NESTED = ("src/sandloom/core", "deploy", "admin")
 RULES_MAX_LINES = 60
 #: Paths the root index names before the work that adds them has merged
 #: (Public API 1.0, WS-C: the docs rewrite lands these pages).
@@ -78,13 +78,19 @@ def test_module_contract_template_budget() -> None:
     assert len(text.encode()) <= NESTED_MAX_BYTES
 
 
+MODULE_AUTHOR_RULE = ".claude/rules/module-author.md"
+
+
 def test_framework_tree_module_contract_is_the_shipped_template() -> None:
-    """``src/sandloom/AGENTS.md`` is what ``sandloom add module`` / ``sandloom new`` ship."""
-    assert _read("src/sandloom/AGENTS.md") == MODULE_CONTRACT_PATH.read_text(
-        encoding="utf-8"
-    ), (
-        "src/sandloom/AGENTS.md drifted from the template: edit "
-        "sandloom/core/cli/templates/module-AGENTS.md and copy it over"
+    """The module-author rule is what ``sandloom add module`` / ``sandloom new`` ship,
+    behind its ``paths:`` front matter."""
+    front, _, body = (
+        _read(MODULE_AUTHOR_RULE).removeprefix("---\n").partition("\n---\n")
+    )
+    assert front.startswith("paths:")
+    assert body == MODULE_CONTRACT_PATH.read_text(encoding="utf-8"), (
+        f"{MODULE_AUTHOR_RULE} drifted from the template: edit "
+        "sandloom/core/cli/templates/module-AGENTS.md and copy it below the front matter"
     )
 
 
@@ -111,6 +117,8 @@ def test_path_scoped_rules_are_short_and_scoped() -> None:
         assert text.startswith("---\npaths:"), (
             f"{rule.name}: needs a paths: front matter"
         )
+        if rule.name == Path(MODULE_AUTHOR_RULE).name:
+            continue  # the shipped contract: bounded by NESTED_MAX_* via its template
         assert len(text.splitlines()) <= RULES_MAX_LINES, rule.name
 
 

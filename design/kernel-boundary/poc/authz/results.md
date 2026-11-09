@@ -1,6 +1,6 @@
 # kb-poc-authz: results
 
-tm task `kb-poc-authz` (parent `kb-assess`). Scope: [alternatives-c-authz.md](../../alternatives-c-authz.md)
+tm task `kb-poc-authz` (parent `kb-assess`). Scope: [alternatives-c-authz.md](../../_archive/alternatives-c-authz.md)
 §8.2, build steps 1–5, rows Z-1…Z-16. This file records what was built and what each row
 measured; it decides nothing (ADR-C decides). Run on 2026-11-08, branch head `ceb3d66`.
 

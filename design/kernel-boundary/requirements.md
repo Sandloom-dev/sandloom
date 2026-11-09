@@ -1,5 +1,11 @@
 # Kernel boundary requirements: invariants, constraints, quality scenarios
 
+Sections (find one with `grep -n '^## '`): Changed by the owner's answers; 1. Problem
+statement; 2. Decisions in scope; 3. Invariants; 4. Hard constraints and trade-off
+criteria; 5. Quality scenarios; 6. The owner's answers. Research and alternatives this
+file cites by name (`research-trust`, `alternatives-c-authz`, `_evidence/...`) live in
+[_archive/](_archive/README.md).
+
 Status: **approved by the owner on 2026-11-08, conditionally** (answer #1 of
 [owner-answers.md](owner-answers.md)): I-01..I-23 and H-1..H-19 are the target requirements
 after the refinements the answers make, which are applied below and listed in "Changed by the
@@ -180,7 +186,7 @@ Not every entry point builds the composition through `create_app`: the static co
 add check explain docs context graph keys test`) build no settings by design, the deploy-profile
 tooling (`sandloom add deploy`, the T014 check) runs `register`/`setup` on a bare facade, and
 part of the admin CLI reads settings directly before or without building the app
-([research-settings.md](research-settings.md) §1.2, F7). A requirement stated "at every entry
+([research-settings.md](_archive/research-settings.md) §1.2, F7). A requirement stated "at every entry
 point" means every entry point that builds the composition, plus the stated outcome for those
 that do not (I-18).
 
@@ -369,7 +375,7 @@ error that signals a broken security invariant stays an error.
 - State: holds for the atoms the kernel defines. No proof for an atom or fact defined
   outside the kernel: the law tests use fixed-outcome test atoms. Provider down: a hand-written
   `Requirement` over a provider's stub surfaces the outage as a proxy 503 outside the algebra,
-  with no deny log and no metric ([research-authz-portability.md](research-authz-portability.md)
+  with no deny log and no metric ([research-authz-portability.md](_archive/research-authz-portability.md)
   §1.7; roadmap-review M6), so `A | B` with `B`'s provider down never reaches `A`'s allow.
 - Missing proof: run the law properties over atoms registered by a test module from
   outside `src/sandloom`, including one that raises and one whose owner is absent; the

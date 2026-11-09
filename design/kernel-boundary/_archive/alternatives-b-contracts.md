@@ -1,9 +1,9 @@
 # Alternatives B: where module contracts, DTOs and event schemas live
 
-Decision B of [requirements.md](requirements.md) §2: where contract DTOs, stubs and event
+Decision B of [requirements.md](../requirements.md) §2: where contract DTOs, stubs and event
 schemas live, who releases them, and how a consumer gets them. Task: tm `kb-alt-contracts`
-(parent `kb-assess`). Problem #4 of [problems.md](problems.md); baseline edges C1-C5, B-N11;
-degradation D4 of [guarantee-map.md](guarantee-map.md) §11.
+(parent `kb-assess`). Problem #4 of [problems.md](../problems.md); baseline edges C1-C5, B-N11;
+degradation D4 of [guarantee-map.md](../guarantee-map.md) §11.
 
 Commit read: `f40cb7f` (branch `arch/kernel-boundary`). `src/` is unchanged from `44451e4` to
 `f40cb7f`, so every `file:line` below holds at both. Written blind to the solution documents

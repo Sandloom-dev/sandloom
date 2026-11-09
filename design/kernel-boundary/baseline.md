@@ -5,7 +5,7 @@ Task: tm `kb-baseline` (parent `kb-assess`). This file describes; it proposes no
 Closed by tm `kb-baseline-close` (Codex review 2026-11-08): verdict, rationale and
 provisional-action columns on every (b) and (c) row; A19 reclassified as disputed
 (section 3.1); the installs and the graph run, not read (sections 7, 13); the
-security-authority facts (section 14). Transcripts: `_evidence/`.
+security-authority facts (section 14). Transcripts: `_archive/_evidence/`.
 
 ## 1. Scope, terms and method
 
@@ -139,7 +139,7 @@ Dynamic imports that name a business module: **1** (B-I1).
 
 Question: can a third-party module (e.g. `inventory`) add its own access check without
 a kernel change? Answer from code, run in the lean venv
-(`_evidence/a19-live-adapter-probe.txt`):
+(`_archive/_evidence/a19-live-adapter-probe.txt`):
 
 - **Not through this registry.** `register_live_adapter` accepts exactly the kinds
   `entitlements` and `membership`; any other kind raises `ValueError: unknown live
@@ -327,7 +327,7 @@ redaction list itself is generic substrings.
 
 Run in a throwaway worktree at `b8d8506` (`git worktree add --detach <scratch>/wt b8d8506`,
 `uv sync` there); the working copy was not touched. Transcript:
-`_evidence/graph-freshness-coverage.txt`.
+`_archive/_evidence/graph-freshness-coverage.txt`.
 
 ```bash
 uv run sandloom graph --format text                                     # before
@@ -375,7 +375,7 @@ uv run sandloom graph --format json --detail full --max-bytes 2000000   # after
   `core.auth.user_blocked.v1` and `core.auth.tokens_revoked.v1` (module → kernel).
 - Contract nodes are the five declared contracts. The auto-registered `<owner>.claims.v1`
   (identity, tenancy, billing) and `billing.facts.v1` are not nodes, though they exist at
-  run time (`_evidence/consumer-install.txt`, phase A: `billing.claims.v1`,
+  run time (`_archive/_evidence/consumer-install.txt`, phase A: `billing.claims.v1`,
   `billing.facts.v1` are local providers). Occurrences in the full JSON: `claims.v1` 0,
   `facts.v1` 0.
 
@@ -533,14 +533,14 @@ The inventory was produced at `main cc90200`; line numbers below are at `b8d8506
 
 Wheels: built by `tools/packaging/check_package_distributions.py --dist-dir` in a throwaway
 worktree at `b8d8506` (sdist round trip, license and layering checks included); sha256 in
-`_evidence/package-distributions-check.txt`. Every venv below is fresh and outside the
+`_archive/_evidence/package-distributions-check.txt`. Every venv below is fresh and outside the
 repository; no database, Redis or broker was contacted (dummy URLs,
 `EVENT_BUS_BACKEND=memory`).
 
 ### 13.1 Lean install (`sandloom` alone)
 
-Transcripts: `_evidence/package-distributions-check.txt` (the repository's own check),
-`_evidence/lean-install.txt` (the same steps by hand, plus the module-named paths).
+Transcripts: `_archive/_evidence/package-distributions-check.txt` (the repository's own check),
+`_archive/_evidence/lean-install.txt` (the same steps by hand, plus the module-named paths).
 
 | step | result |
 |---|---|
@@ -561,7 +561,7 @@ Not run in the lean venv: `sandloom admin create` beyond `--help`, a request thr
 
 ### 13.2 Consumer install (`sandloom` + `sandloom-billing`, tenancy absent)
 
-Transcript: `_evidence/consumer-install.txt`. Billing is the consumer: it calls
+Transcript: `_archive/_evidence/consumer-install.txt`. Billing is the consumer: it calls
 `tenancy.membership.v1` (optional) and imports tenancy's DTO copy from the kernel wheel
 (`sandloom_billing/services/tenant_resolver.py:56`).
 
@@ -580,7 +580,7 @@ Transcript: `_evidence/consumer-install.txt`. Billing is the consumer: it calls
 ## 14. Security authority model (facts)
 
 Read at `b8d8506`; the merge, mint and gate were also run together from the lean wheel
-(`_evidence/claims-authority-probe.txt`: the real `CoreFacade._merge_claim_outcomes`,
+(`_archive/_evidence/claims-authority-probe.txt`: the real `CoreFacade._merge_claim_outcomes`,
 identity's mint dict copied from `token_service.py:144-152`, `create_access_token`,
 `require_platform_admin`; no database, no login).
 

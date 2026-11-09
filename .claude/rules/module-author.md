@@ -1,3 +1,8 @@
+---
+paths:
+  - "src/sandloom_*/**"
+  - "examples/*/*/modules/**"
+---
 <!-- sandloom:module-contract v2 · source: sandloom/core/cli/templates/module-AGENTS.md -->
 # Sandloom module-author contract (Public API 1.0)
 

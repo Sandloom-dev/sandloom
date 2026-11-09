@@ -1,7 +1,7 @@
 # kb-poc-trust: the claims trust model (TA-1) against running code
 
 tm task `kb-poc-trust` (parent `kb-assess`). Builds TA-1 of
-[alternatives-c-authz.md](../../alternatives-c-authz.md) §2.2 (M1–M5, R1, R2) in a patched
+[alternatives-c-authz.md](../../_archive/alternatives-c-authz.md) §2.2 (M1–M5, R1, R2) in a patched
 kernel copy and runs rows T-1…T-18 of its §8.1, with the TA-0 subset as the control on the same
 fixture. It decides nothing; ADR-C decides. Written for validation.md's owner to fold in (this
 task does not edit validation.md).
