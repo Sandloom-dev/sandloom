@@ -131,6 +131,14 @@ With no expectation for a required remote contract, `strict` refuses startup nam
 - **Kernel contract families exempt.** `<m>.claims.v1` and `<m>.facts.v1` have kernel-defined
   shapes, the same for every owner; they are compared against the kernel's own schema, not
   against a consumer copy (adversarial B-1, X4).
+- **`<m>.security.v1` is reserved, not exempt** (amended 2026-11-09, owner decision on
+  `kb-proto-operator`). The operator contract an operator command asks is reserved by name
+  like the two families above (only module `m` registers it, SANDLOOM-B034), but the kernel
+  defines no shape for it: each owner shapes its own (an external identity provider has no
+  password methods). It is held to every rule of this ADR as any module contract: DTOs,
+  describe, compatibility, the consumer's expectation file and stub, and this decision's
+  refusals. An operator command confirms the methods it needs from the owner's describe
+  before its first side effect (ADR-0012 decision 1).
 - **A hand-written `ContractRef(name)` without a stub** for a required remote contract is
   refused under `strict` and fails `/ready` under `ready`, naming the contract and the fix
   (generate a stub, or declare it `optional=True`, which needs no expectation because an absent

@@ -14,6 +14,7 @@ from typing import Any
 
 import sandloom.core.contract_wire as _contract_wire
 import sandloom.core.module_api as _module_api
+from sandloom.core.claims import SECURITY_CONTRACT_SUFFIX
 from sandloom.core.descriptors.module_names import (
     installed_modules as _installed_modules,
 )
@@ -51,17 +52,34 @@ def _short_module_name(name: str | None) -> str | None:
     return _module_name(name) or None
 
 
+def _suffix_owner(name: str, suffixes: tuple[str, ...]) -> str | None:
+    for suffix in suffixes:
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
 def reserved_contract_owner(name: str) -> str | None:
     """The module a reserved contract name belongs to, else ``None``.
 
     ``<m>.claims.v1`` and ``<m>.facts.v1`` are the two contract families the
-    kernel reads provenance from: ``"billing.facts.v1"`` -> ``"billing"``.
-    Any other name (``"billing.entitlements.v1"``) is not reserved.
+    kernel reads provenance from, and ``<m>.security.v1`` the one operator
+    commands ask: ``"billing.facts.v1"`` -> ``"billing"``. Only module ``m``
+    registers one (SANDLOOM-B034). Any other name
+    (``"billing.entitlements.v1"``) is not reserved.
     """
-    for suffix in (CLAIMS_CONTRACT_SUFFIX, FACTS_CONTRACT_SUFFIX):
-        if name.endswith(suffix) and len(name) > len(suffix):
-            return name[: -len(suffix)]
-    return None
+    return _suffix_owner(
+        name,
+        (CLAIMS_CONTRACT_SUFFIX, FACTS_CONTRACT_SUFFIX, SECURITY_CONTRACT_SUFFIX),
+    )
+
+
+def _kernel_family_owner(name: str) -> str | None:
+    """The owner of a kernel-shaped reserved contract (``<m>.claims.v1`` /
+    ``<m>.facts.v1``), else ``None``. ``<m>.security.v1`` is reserved but
+    has no kernel shape: every other contract rule applies to it, the
+    access-provider check included."""
+    return _suffix_owner(name, (CLAIMS_CONTRACT_SUFFIX, FACTS_CONTRACT_SUFFIX))
 
 
 class ForeignOwnerRegistration(RuntimeError):
@@ -69,7 +87,8 @@ class ForeignOwnerRegistration(RuntimeError):
 
     Raised when a module registers an access fact whose ``owner_module`` is
     another module, a claims contributor with another module's ``owner=``,
-    another module's ``<m>.claims.v1`` / ``<m>.facts.v1`` contract, or an
+    another module's ``<m>.claims.v1`` / ``<m>.facts.v1`` / ``<m>.security.v1``
+    contract, or an
     access-bearing contract it is not the provider of (ADR-0014 decision 6),
     and when any of these is registered outside a module's registration.
     """
@@ -176,17 +195,18 @@ class _ServicesMixin(_FacadeState):
         The registering module (if any) is recorded as the contract's owner so
         the contract runtime opens the provider's Unit of Work on the database
         that module declares; ``database`` overrides it explicitly. A reserved
-        name (``<m>.claims.v1``, ``<m>.facts.v1``) is registered only by
-        module ``m`` itself; an access-bearing name (once ``create_app`` has
-        assigned the providers) only by its provider (SANDLOOM-B034, see
-        :func:`access_provider_problem`). Any other name keeps the
-        first-registrant rule.
+        name (``<m>.claims.v1``, ``<m>.facts.v1``, ``<m>.security.v1``) is
+        registered only by module ``m`` itself; an access-bearing name (once
+        ``create_app`` has assigned the providers) only by its provider
+        (SANDLOOM-B034, see :func:`access_provider_problem`). Any other name
+        keeps the first-registrant rule. ``<m>.security.v1`` has no kernel
+        shape, so it is also held to the access-provider rule.
         """
         self._note_access_declaration(name, impl)
         reserved = reserved_contract_owner(name)
         if reserved is not None:
             self._require_own_name(reserved, f"contract {name!r}")
-        elif name in self._access_bearing():
+        if _kernel_family_owner(name) is None and name in self._access_bearing():
             problem = access_provider_problem(
                 name, self._registering_module, self._access_assignment
             )
@@ -237,7 +257,7 @@ class _ServicesMixin(_FacadeState):
         if (
             self._access_declares is not None
             and name not in self._access_declared
-            and reserved_contract_owner(name) is None
+            and _kernel_family_owner(name) is None
             and self._access_declares(impl)
         ):
             self._access_declared.add(name)
@@ -265,7 +285,7 @@ class _ServicesMixin(_FacadeState):
             bearing = bearing | {witness.contract}
         problems: list[str] = []
         for name in sorted(self.service_registry.list()):
-            if name not in bearing or reserved_contract_owner(name) is not None:
+            if name not in bearing or _kernel_family_owner(name) is not None:
                 continue
             problem = access_provider_problem(
                 name, self._service_owners.get(name), self._access_assignment

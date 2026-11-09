@@ -17,21 +17,32 @@ fail_safe=True)``, ADR-0014 decision 7) as billing declares them itself: an
 issuer that binds billing remotely ``"critical": false`` (the microservices
 profile) has no other declaration of them, and a billing outage still signs
 a user in.
+
+Each authority is declared with its public name and its import path
+(``Authority("identity", module="sandloom_identity")``), so a process of a
+split that does not install a battery still knows the name its contracts are
+served under (``identity.claims.v1``, ``identity.security.v1``): the last
+import segment is not it.
 """
 
 from sandloom.sdk.app import Authority  # sandloom: advanced composition root
 
+#: Identity, the token issuer and the authority of the rights and the
+#: issuer fields.
+_IDENTITY = Authority("identity", module="sandloom_identity")
+#: Tenancy, the authority of ``tenant_ids``.
+_TENANCY = Authority("tenancy", module="sandloom_tenancy")
 #: Billing, the authority of its fail-safe keys.
-_BILLING = Authority("sandloom_billing", fail_safe=True)
+_BILLING = Authority("billing", module="sandloom_billing", fail_safe=True)
 
-#: The standard batteries' claim authorities (import paths) and the issuer.
+#: The standard batteries' claim authorities and the issuer.
 STANDARD_CLAIM_AUTHORITIES: dict[str, str | Authority] = {
-    "issuer": "sandloom_identity",
-    "roles": "sandloom_identity",
-    "permissions": "sandloom_identity",
-    "email": "sandloom_identity",
-    "email_verified": "sandloom_identity",
-    "tenant_ids": "sandloom_tenancy",
+    "issuer": _IDENTITY,
+    "roles": _IDENTITY,
+    "permissions": _IDENTITY,
+    "email": _IDENTITY,
+    "email_verified": _IDENTITY,
+    "tenant_ids": _TENANCY,
     "subscription_status": _BILLING,
     "plan_code": _BILLING,
     "features": _BILLING,

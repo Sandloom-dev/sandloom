@@ -83,13 +83,28 @@ CPV_VERSION = 1
 #: never reaches a token.
 AUTHORITY_CLAIM = "sandloom.authority"
 
+#: The operator contract of a module that owns an operator capability (its
+#: claim-map entry names it the candidate owner): reserved to that module
+#: (SANDLOOM-B034), with no kernel shape (ADR-0012 decision 1, ADR-0013
+#: decision 4).
+SECURITY_CONTRACT_SUFFIX = ".security.v1"
+
+
+def security_contract_name(owner: str) -> str:
+    """``"identity"`` -> ``"identity.security.v1"``."""
+    return f"{owner}{SECURITY_CONTRACT_SUFFIX}"
+
 
 @dataclass(frozen=True)
 class Authority:
     """One claim key's authority in ``create_app(claim_authorities=...)``.
 
     A plain string value is ``Authority(<value>)``. ``module`` is the import
-    path when ``name`` is a short (entry-point) name; ``previous`` is the one
+    path when ``name`` is a short (entry-point) name, and ``name`` is then
+    kept as the authority's stable public name: the name its ``<m>.claims.v1``
+    and ``<m>.security.v1`` are served under, known even in a process where
+    the module is not installed (an installed distribution must carry the
+    same entry-point name); ``previous`` is the one
     other authority a verifier accepts for the key during a rollout
     (ADR-0014 decision 4): declared with its identity in full
     (``Authority("identity", module="sandloom_identity")``), never by short
@@ -210,6 +225,18 @@ class ClaimAuthorities:
     #: an unassigned one is nobody's (the merge drops it, the view removes
     #: it).
     declared: frozenset[str] = frozenset()
+    #: The root's declared issuer (import path), kept whole: never cleared
+    #: by ``filter_to_composition`` in a process that does not load it, so
+    #: an operator command there still finds who owns sessions and accounts
+    #: (``issuer`` is the issuer composed here, the one that mints).
+    declared_issuer: str | None = None
+    #: Import path -> stable public module name of every authority the root
+    #: declares (issuer included), where it is known without guessing: the
+    #: ``name`` of ``Authority(name, module=path)``, else the entry-point
+    #: name of an installed distribution. Never filtered; a path missing
+    #: here has no name this process can vouch for (the last import segment
+    #: is not it: ``sandloom_identity`` is ``identity``).
+    names: Mapping[str, str] = field(default_factory=dict)
     #: Every protected key: :data:`PROTECTED_BASE`, the map's keys and
     #: :attr:`declared`.
     protected: frozenset[str] = field(init=False)
@@ -237,6 +264,7 @@ class ClaimAuthorities:
         object.__setattr__(self, "previous_owners", MappingProxyType(previous_owners))
         object.__setattr__(self, "fail_safe", frozenset(self.fail_safe))
         object.__setattr__(self, "declared", frozenset(self.declared))
+        object.__setattr__(self, "names", MappingProxyType(dict(self.names)))
         object.__setattr__(
             self,
             "protected",

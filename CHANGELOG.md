@@ -151,6 +151,29 @@ website renders this same changelog.
 
 ### Security
 
+- **`<m>.security.v1` is reserved to module `m`; operator owners are resolved
+  and confirmed** (kb-proto-operator-a, ADR-0012 decision 1, ADR-0013
+  decision 4 amended). Only module `m` registers `m.security.v1`
+  (SANDLOOM-B034); the kernel defines no shape for it and every contract rule
+  applies. The new resolver `sandloom.core.cli.operator_owner` reads the
+  candidate owner of an operator capability from the composition root's whole
+  claim-authority map (issuer: sessions, accounts, credentials, email lookup;
+  `roles` authority: platform-admin roles; `tenant_ids` authority: member
+  enumeration) and confirms each method by describe before the first side
+  effect, dry runs included: a missing owner, name, binding, method or
+  `RPC_ALLOWED_CALLS` grant refuses with SANDLOOM-B039, a binding to another
+  service than the owner's other bindings or a provider of another import path
+  with SANDLOOM-B040 (exit 1). The RPC describe answer states the registering
+  module's import path (`provider`). `ClaimAuthorities` keeps the declared
+  issuer (`declared_issuer`) and the authorities' public names (`names`) in a
+  process that does not load them. `Authority(name, module=path)` now keeps
+  `name` as the module's public name (the verifier's owner, the
+  `<m>.claims.v1` binding a split looks for); the standard map declares
+  `identity`, `tenancy` and `billing` this way. Upgrade: an
+  `Authority(name, module=path)` whose `name` is not the installed entry-point
+  name (or, for a module loaded by path, its last segment) is now refused
+  (SANDLOOM-B035); write the module's real name.
+
 - **SANDLOOM-C034 sees every spelling of a hand-written contract client**
   (kb-rev56-c034, W5+W6 review M1). A ContractRef reached through a module
   alias, a lowercase or star re-export, a local alias or a hand-written
