@@ -144,8 +144,8 @@ def test_the_tenant_selectors_fall_with_the_grant() -> None:
 # --- the key change identity -> acme_identity (ADR-0014 decision 4) ------
 M1 = (ID, "identity")
 M2 = (ACME, "acme_identity")
-T1 = {"sources": ["identity"], "digest_of": ID}
-T2 = {"sources": ["acme_identity"], "digest_of": ACME}
+T1: dict[str, Any] = {"sources": ["identity"], "digest_of": ID}
+T2: dict[str, Any] = {"sources": ["acme_identity"], "digest_of": ACME}
 
 
 @pytest.mark.parametrize(

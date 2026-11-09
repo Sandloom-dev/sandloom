@@ -26,6 +26,7 @@ from sandloom.core.app_factory.claim_authorities import (
     install_claim_authorities,
 )
 from sandloom.core.claims import (
+    AUTHORITY_CLAIM,
     FAIL_SAFE_KEYS,
     ISSUER_FIELDS,
     NO_AUTHORITIES,
@@ -374,7 +375,7 @@ async def test_a_remote_authority_is_its_binding(
         },
     )
     proxies = {
-        "grants.claims.v1": _Proxy({"tenant_ids": ["t"]}),
+        "grants.claims.v1": _Proxy({"tenant_ids": ["t"], AUTHORITY_CLAIM: GRANTS}),
         "rogue.claims.v1": _Proxy({"roles": ["admin"], "tenant_ids": ["x"]}),
     }
     core.set_service_resolver(lambda name, binding, **_: proxies[name])
@@ -396,7 +397,7 @@ async def test_the_mint_check_adds_no_call(monkeypatch: pytest.MonkeyPatch) -> N
         "service_bindings",
         {"grants.claims.v1": {"base_url": "http://grants"}},
     )
-    proxy = _Proxy({"tenant_ids": []})
+    proxy = _Proxy({"tenant_ids": [], AUTHORITY_CLAIM: GRANTS})
     core.set_service_resolver(lambda name, binding, **_: proxy)
     await _mint(core)
     assert (idp.calls, rogue.calls, proxy.calls) == (1, 1, 1)

@@ -77,6 +77,12 @@ TENANT_SELECTORS: frozenset[str] = frozenset({"tenant_id", "org_id"})
 #: decision #10): ``{"v": 1, "k": {key: digest of (key, authority)}}``.
 CPV_CLAIM = "cpv"
 CPV_VERSION = 1
+#: The key of a ``<m>.claims.v1`` answer naming the import path of the
+#: module that served it (the authority binding, ADR-0014 decision 4): the
+#: issuer refuses a remote authority whose service answers for another
+#: module than the map's, whatever its short name. The kernel writes it; it
+#: never reaches a token.
+AUTHORITY_CLAIM = "sandloom.authority"
 
 
 @dataclass(frozen=True)

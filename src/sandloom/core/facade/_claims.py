@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fastapi import HTTPException, status
 
 from sandloom.core.claims import (
+    AUTHORITY_CLAIM,
     CPV_CLAIM,
     CPV_VERSION,
     NO_AUTHORITIES,
@@ -113,8 +114,17 @@ RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
         "cpv",
         # The verifier's trusted-view verdict (core.auth.claims_view).
         "sandloom.untrusted",
+        # The authority binding of a ``<m>.claims.v1`` answer (the kernel's).
+        AUTHORITY_CLAIM,
     }
 )
+
+
+class ClaimsAuthorityMismatch(RuntimeError):
+    """A remote ``<m>.claims.v1`` answer served by another module than the
+    one the map assigns (or naming none): the step fails, so a critical
+    authority refuses the mint (ADR-0014 decision 4, the authority binding).
+    """
 
 
 #: One planned claims owner: ``(owner, critical, call, database)`` — the
@@ -215,6 +225,15 @@ async def _run_claims_plan(plan: list[_ClaimsStep]) -> dict[int, _ClaimsOutcome]
     return outcomes
 
 
+def _local_answer(answer: Any) -> Any:
+    """A local ``contribute`` answer without its authority binding: a local
+    authority is bound by its registration (the mint check). A value a
+    contributor wrote stays, for the mint check to refuse."""
+    if isinstance(answer, dict) and isinstance(answer.get(AUTHORITY_CLAIM), str):
+        del answer[AUTHORITY_CLAIM]
+    return answer
+
+
 #: Attribute of the issuer step's call (runs on the issuer's own session).
 _ISSUER_ATTR = "_sandloom_claims_issuer"
 
@@ -238,8 +257,23 @@ class ClaimsContributorContract:
 
     @contract_method
     async def contribute(self, user_id: Any) -> dict[str, Any]:
-        """Merged claims of this module's contributors for ``user_id``."""
-        return await self._merge(user_id, None)
+        """Merged claims of this module's contributors for ``user_id``.
+
+        The answer names, under :data:`~sandloom.core.claims.AUTHORITY_CLAIM`,
+        the import path of the module registered under this owner: a remote
+        issuer binds it to its map (the pinned ``service_id`` proves the
+        service, this proves which module the service runs under the name).
+        """
+        merged = await self._merge(user_id, None)
+        path = self._facade._claims_owner_modules.get(self._owner or "")
+        if AUTHORITY_CLAIM in merged:
+            # A contributor wrote the kernel's key: it stays a reserved-key
+            # violation locally and fails the binding remotely, never the
+            # kernel's answer.
+            merged[AUTHORITY_CLAIM] = {"written_by": "a contributor"}
+        elif path:
+            merged[AUTHORITY_CLAIM] = path
+        return merged
 
     async def _merge(
         self,
@@ -459,7 +493,7 @@ class _ClaimsMixin(_ServicesMixin):
             with _module_api.bind_contract_session(issuer_session):
                 if precomputed:
                     return await contract._merge(user_id, precomputed)
-                return await contract.contribute(user_id)
+                return _local_answer(await contract.contribute(user_id))
 
         setattr(_issuer_call, _ISSUER_ATTR, True)
         return _issuer_call
@@ -480,7 +514,7 @@ class _ClaimsMixin(_ServicesMixin):
                     database=self._claims_owner_database(owner),
                     name=claims_contract_name(owner) if owner is not None else "claims",
                 )
-            return await contract.contribute(user_id)
+            return _local_answer(await contract.contribute(user_id))
 
         return _local_call
 
@@ -488,11 +522,48 @@ class _ClaimsMixin(_ServicesMixin):
         self, owner: str, user_id: Any
     ) -> Callable[[], Awaitable[Any]]:
         async def _remote_call() -> Any:
-            return await self.get_service(claims_contract_name(owner)).contribute(
+            answer = await self.get_service(claims_contract_name(owner)).contribute(
                 user_id
             )
+            if isinstance(answer, dict):
+                self._bind_remote_authority(owner, answer.pop(AUTHORITY_CLAIM, None))
+            return answer
 
         return _remote_call
+
+    def _bind_remote_authority(self, owner: str, reported: Any) -> None:
+        """The authority binding of a remote ``<owner>.claims.v1`` answer.
+
+        When the map assigns a protected key to ``owner``, the answering
+        service must name the assigned import path: the pinned
+        ``service_id`` and the pair MAC prove which service answered, not
+        which module it runs under the short name. Another path, or none
+        (a provider older than this check), fails the step
+        (:class:`ClaimsAuthorityMismatch`); a critical authority then
+        refuses the mint (503). No call is added: the path rides on the
+        answer. An owner the map assigns nothing is not bound (it may write
+        only unprotected keys, which the mint check enforces).
+        """
+        authorities = self._claim_authorities
+        expected = {
+            path
+            for key, path in authorities.authorities.items()
+            if authorities.owners.get(key) == owner
+        }
+        if not expected or expected == {reported}:
+            return
+        self.logger.error(
+            "claims authority %r answered over RPC as %r, but claim_authorities "
+            "assigns %s: its claims are refused (the pinned service_id proves "
+            "the service, not the module it runs under that name)",
+            owner,
+            reported,
+            ", ".join(sorted(repr(p) for p in expected)),
+        )
+        raise ClaimsAuthorityMismatch(
+            f"{owner}.claims.v1 is served by {reported!r}, not by "
+            f"{', '.join(sorted(expected))}"
+        )
 
     def _merge_claim_outcomes(
         self,
