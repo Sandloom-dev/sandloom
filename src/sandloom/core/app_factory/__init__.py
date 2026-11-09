@@ -264,6 +264,7 @@ def create_app(
         legacy_tokens=legacy_tokens,
         lifetime_seconds=settings.access_token_expire_minutes * 60,
         leeway_seconds=settings.jwt_leeway_seconds,
+        booted_root=settings.sandloom_composition_root,
     )
     # Sagas (ADR-0008): check every registered definition against its
     # contracts, install the advance consumers and the timer sweep.
