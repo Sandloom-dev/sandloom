@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from collections.abc import AsyncIterator, Iterator
@@ -50,6 +51,7 @@ def _manifest(package: Path, **overrides: object) -> None:
                 "version": 1,
                 "modules": ["identity", "core"],
                 "resources": [],
+                "issuer": {"module": "test_identity", "login_entry": "/auth/login"},
                 **overrides,
             }
         )
@@ -188,6 +190,8 @@ async def test_the_manifest_comes_from_the_application(
     assert response.headers["cache-control"] == "no-store"
     assert (await client.get("/admin/config.json")).json() == {
         "modules": ["identity"],
+        "issuer": "test_identity",
+        "login_entry": "/auth/login",
         "development": True,
     }
 
@@ -220,17 +224,82 @@ async def test_production_config_does_not_say_development(
     _manifest(package)
     config.environment = SimpleNamespace(value="prod")
     config.admin_console_enabled = True
-    assert (await client.get("/admin/config.json")).json() == {"modules": ["identity"]}
+    assert (await client.get("/admin/config.json")).json() == {
+        "modules": ["identity"],
+        "issuer": "test_identity",
+        "login_entry": "/auth/login",
+    }
 
 
-async def test_the_console_needs_identity(
+async def test_the_issuer_need_not_be_a_module_named_identity(
     client: AsyncClient, application_package: tuple[Path, str]
 ) -> None:
+    """The console serves in front of whichever module the map assigns."""
     package, _ = application_package
     _manifest(package, modules=["billing"])
     response = await client.get("/admin/config.json")
+    assert response.status_code == 200
+    assert response.json()["issuer"] == "test_identity"
+
+
+async def test_no_assigned_issuer_is_a_configuration_error(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    package, _ = application_package
+    _manifest(package, issuer=None)
+    response = await client.get("/admin/config.json")
     assert response.status_code == 503
-    assert "identity" in response.json()["detail"]
+    assert "claim_authorities" in response.json()["detail"]
+
+
+async def test_a_manifest_without_the_issuer_field_fails_closed(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    """A manifest written before the field existed: nothing is assumed."""
+    package, _ = application_package
+    manifest = {"version": 1, "modules": ["identity", "core"], "resources": []}
+    (package / "admin-manifest.json").write_text(json.dumps(manifest))
+    assert (await client.get("/admin/config.json")).status_code == 503
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        None,
+        "",
+        "auth/login",
+        "//evil.example/login",
+        "https://evil.example/login",
+        "/auth/../login",
+        "/auth/login?next=//evil",
+        "/auth\\login",
+        7,
+    ],
+)
+async def test_an_issuer_without_a_usable_login_entry_is_named(
+    client: AsyncClient, application_package: tuple[Path, str], entry: object
+) -> None:
+    package, _ = application_package
+    _manifest(package, issuer={"module": "test_identity", "login_entry": entry})
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 503
+    assert "test_identity" in response.json()["detail"]
+    assert "login_entry" in response.json()["detail"]
+
+
+async def test_a_forged_iss_changes_nothing(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    """The issuer is the map's, never a token's ``iss`` (an unverified input)."""
+    package, _ = application_package
+    forged = "x." + base64.urlsafe_b64encode(b'{"iss":"identity"}').decode() + ".y"
+    headers = {"Authorization": f"Bearer {forged}"}
+    _manifest(package, issuer=None)
+    assert (await client.get("/admin/config.json", headers=headers)).status_code == 503
+    _manifest(package)
+    body = (await client.get("/admin/config.json", headers=headers)).json()
+    assert body["issuer"] == "test_identity"
+    assert body["login_entry"] == "/auth/login"
 
 
 async def test_a_newer_manifest_version_is_refused(
