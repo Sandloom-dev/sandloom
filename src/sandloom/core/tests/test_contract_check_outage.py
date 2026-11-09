@@ -41,7 +41,6 @@ from sandloom.sdk import contract
 from sandloom.shared.authz import (
     Account,
     Category,
-    Credits,
     From,
     Not,
     Or,
@@ -50,6 +49,7 @@ from sandloom.shared.authz import (
     access_check,
     require,
 )
+from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.contract_check import OWNER_UNAVAILABLE
 from sandloom.shared.subject import UserContext
@@ -299,14 +299,24 @@ async def test_a_contract_check_opens_no_request_session(gen: Any) -> None:
         assert not _opens_session(policy), policy.describe()
 
 
+class _LiveAtom(Requirement):
+    """A live-tier atom that is not contract-anchored (an app's own adapter):
+    it keeps the default tier rule."""
+
+    tier = TIER_LIVE
+
+    async def evaluate(self, ctx: AuthzContext) -> bool:  # pragma: no cover
+        return True
+
+
 async def test_the_tier_rule_stays_the_default(gen: Any) -> None:
     assert not Role("admin").needs_request_session()
     assert not _opens_session(Role("admin"))
-    credits = Credits(10, of=Account.user())  # a kernel live atom: unchanged
-    assert credits.needs_request_session() and _opens_session(credits)
+    live = _LiveAtom()  # any other live atom: unchanged
+    assert live.needs_request_session() and _opens_session(live)
     for policy in (
-        credits | gen.OrgRole("admin"),
-        gen.OrgRole("admin") & Not(credits),
+        live | gen.OrgRole("admin"),
+        gen.OrgRole("admin") & Not(live),
     ):
         assert policy.needs_request_session() and _opens_session(policy)
     assert Owner(lambda r: r.owner_id).needs_request_session()

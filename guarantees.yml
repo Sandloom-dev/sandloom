@@ -1902,13 +1902,15 @@ guarantees:
 - id: G-AUTH-22
   statement: Feature and WithinLimit on the user's token are indeterminate (503, never an allow, so Not
     cannot invert them) when the claim is absent because its authority is in claims_sources_failed (or no
-    assignment is readable and a source failed); an authority that ran and wrote no value denies, as does
-    an unassigned key or a token without provenance (ADR-0014 decision 7, billing option (c)).
+    assignment is readable and a source failed); an authority that ran and wrote an empty mapping denies
+    (ADR-0014 decision 7, billing option (c)). Amended 2026-11-09 (KB-33d, pinned on the generated atoms by
+    KB-34b) - a claim absent otherwise (the authority ran and wrote none, an unassigned key, a token without
+    provenance) is 501 access_unknown, never a deny Not could invert.
   sources:
   - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_claims_trust.py::test_a_failed_authority_is_indeterminate_503
-  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_and_gave_nothing_denies
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_denies_only_on_its_complete_map
   - src/sandloom/core/tests/test_claims_trust.py::test_not_and_or_never_allow_on_a_failed_authority
   - src/sandloom/core/tests/test_claims_trust.py::test_without_a_readable_assignment_a_failure_is_indeterminate
 - id: G-AUTH-23
@@ -7818,13 +7820,14 @@ capabilities:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_a_module_with_periodic_tasks_and_no_beat_is_reported
 - id: C-TEST-15
   statement: fake_contract(REF, impl) also serves the contract to kernel code that resolves it through the active
-    application (core.get_service - the billing and membership authz atoms), and fake_access_fact on the
-    subscription facts drives the live SubscriptionActive / Subscribed(of=Account.org(...)) atoms, with or without
-    billing loaded.
+    application (core.get_service - the generated billing and membership access atoms), so
+    fake_contract("billing.entitlements.v1", Fake()) drives the generated SubscriptionActive /
+    Subscribed(of=Account.org(...)) atoms with no billing loaded (ADR-0014 decision 15; fake_access_fact keeps
+    the generic fact-by-name stubbing).
   sources:
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_testing_seams.py::test_fake_access_fact_drives_the_org_billing_atoms_without_billing
+  - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_drives_the_org_billing_atoms_without_billing
   - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_reaches_the_kernels_get_service
 - id: C-TEST-16
   statement: 'override_settings(Model, ...) replaces a module''s declared settings for a test, nested overrides
