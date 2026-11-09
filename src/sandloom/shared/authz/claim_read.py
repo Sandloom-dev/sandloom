@@ -13,15 +13,31 @@ literal), as it writes the other access atoms.
 
 Two reads, the kernel's claim atoms' own:
 
-* ``flag`` (no ``below``): the entry is ``True``;
+* ``flag`` (no ``below``): the entry is ``True`` (a boolean);
 * ``limit`` (``below=<parameter>``): the parameter is strictly below the
-  entry, an integer (an absent or non-integer entry is ``0``: denied).
+  entry (an integer).
 
-From the claims (the semantics of the claim atoms, ADR-0014 decisions 3 and
-7): the view's indeterminate for the key (``token_policy_outdated`` 401,
-``claims_policy_mismatch`` 503) first; an absent claim whose authority failed
-at the mint is indeterminate 503 ``claim_authority_failed``; an authority that
-ran and wrote no value for the entry denies. Never an allow on missing data.
+From the claims, three-valued (ADR-0014 decisions 3, 7 and 15, G-AUTHZ-12 as
+amended by KB-33d): absence of a source is never a negative fact.
+
+* the view's indeterminate for the key first (``token_policy_outdated`` 401,
+  ``claims_policy_mismatch`` 503);
+* the whole claim absent because its authority failed at the mint:
+  indeterminate 503 ``claim_authority_failed``;
+* the whole claim absent otherwise (its authority ran and wrote none, or the
+  view removed it as unassigned / unvouched): indeterminate 501
+  ``access_unknown``. The token says nothing about the entitlements;
+* a claim that is not a mapping, or an entry of the wrong type (a flag that
+  is not a boolean, a limit that is not an integer): indeterminate 501
+  ``access_unknown``;
+* a mapping present: a COMPLETE snapshot of the account's entitlements. An
+  entry it lists decides (``True`` / ``False``, the limit); an entry it does
+  not list is off (a flag) or ``0`` (a limit): a definite deny.
+
+The writer's contract (documented for any claim authority of a mapping key):
+write the mapping only with every entitlement the account has, never a
+subset; write no mapping at all when there is no catalogue to read it from.
+``Not`` and ``Or`` never allow on an indeterminate; zero I/O on every row.
 """
 
 from __future__ import annotations
@@ -42,6 +58,7 @@ from sandloom.shared.authz.atoms_claims import (
     _raise_if_policy_indeterminate,
 )
 from sandloom.shared.authz.contract_check import (
+    ACCESS_UNKNOWN,
     ATOM_ATTR,
     ContractCheck,
     _indeterminate,
@@ -147,7 +164,11 @@ class ClaimReadCheck(Requirement):
     calling ``super().__init__(params, of=..., claim_key=...)``.
     ``Account.user()`` (or a bound personal tenant) reads the claim with zero
     I/O; an organization account asks the live check with the same
-    parameters.
+    parameters. From the claims it is three-valued: a present mapping is the
+    complete snapshot (an entry it does not list denies); the claim absent
+    or malformed is indeterminate 501 ``access_unknown``, absent because its
+    authority failed at the mint 503 ``claim_authority_failed``, never a
+    deny ``Not`` would turn into an allow.
     """
 
     __sandloom_atom__: ClassVar[dict[str, Any]] = {}
@@ -195,7 +216,7 @@ class ClaimReadCheck(Requirement):
         self.params = dict(params or {})
         # Fixed by the parameters: resolved once, not per decision.
         self._flag = str(atom.get("read") or READ_FLAG) == READ_FLAG
-        self._key = self.params.get(str(atom.get("entry")))
+        self._key: Any = self.params.get(str(atom.get("entry")))
         self._used: int = 0 if self._flag else self.params[str(atom.get("below"))]
         # The live check, built once (it validates the parameters' values).
         self._live = self._otherwise(self.params, of=self.account)
@@ -238,10 +259,11 @@ class ClaimReadCheck(Requirement):
                 return await self._live.evaluate(ctx)
         return self._from_claims(ctx)
 
-    def _claim(self, ctx: AuthzContext) -> Any:
-        """The token's claim; indeterminate when it is absent for a reason a
-        refresh (401) or a retry (503) may change, or because its authority
-        failed at the mint (503)."""
+    def _claim(self, ctx: AuthzContext) -> Mapping[str, Any]:
+        """The token's claim, a mapping; indeterminate when it is absent for
+        a reason a refresh (401) or a retry (503) may change, because its
+        authority failed at the mint (503), for any other reason (501: no
+        source says anything), or when it is not a mapping (501)."""
         value = ctx.subject.claim(self.claim_key)
         if value is None:
             _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
@@ -254,15 +276,36 @@ class ClaimReadCheck(Requirement):
                     503,
                     self.describe(),
                 )
+            raise self._unknown(
+                f"claim {self.claim_key!r} is not in the token: no source "
+                "vouches for the entitlement, so it is unknown, not denied"
+            )
+        if not isinstance(value, Mapping):
+            raise self._unknown(f"claim {self.claim_key!r} is not a mapping")
         return value
+
+    def _unknown(self, reason: str) -> Exception:
+        return _indeterminate(
+            ACCESS_UNKNOWN, reason, 501, self.describe(), {"claim": self.claim_key}
+        )
 
     def _from_claims(self, ctx: AuthzContext) -> bool:
         mapping = self._claim(ctx)
-        raw = mapping.get(self._key) if isinstance(mapping, dict) else None
+        if self._key not in mapping:
+            # A present mapping is the complete snapshot: an entry it does
+            # not list is off (a flag) or 0 (a limit), a definite deny.
+            return False
+        raw = mapping[self._key]
         if self._flag:
-            return raw is True
+            if not isinstance(raw, bool):
+                raise self._unknown(
+                    f"claim {self.claim_key!r}: entry {self._key!r} is not a boolean"
+                )
+            return raw
         if isinstance(raw, bool) or not isinstance(raw, int):
-            return False  # an absent or non-integer limit is 0: denied
+            raise self._unknown(
+                f"claim {self.claim_key!r}: entry {self._key!r} is not an integer"
+            )
         return self._used < raw
 
 

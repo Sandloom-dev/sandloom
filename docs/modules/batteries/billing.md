@@ -50,6 +50,22 @@ from the contract's generated stub. With `Account.user()` they read the
 token's `features` and `limits` claims with zero I/O. With an organization
 account they ask billing live.
 
+With `Account.user()` the token decides in three ways:
+
+- A `features` / `limits` mapping in the token is the account's complete
+  entitlements. An entry it lists decides, and an entry it does not list
+  denies (a flag off, a limit of 0).
+- No mapping in the token is unknown: an indeterminate `501` with code
+  `access_unknown`. When billing failed while the token was minted, it is a
+  `503` with code `claim_authority_failed`.
+- A mapping that is malformed is also `501 access_unknown`.
+
+None of the unknowns is a deny: `Not` over them never allows. Billing
+writes `subscription_status` and `plan_code` but no `features` or `limits`
+claim until the catalogue ships. Until then both atoms answer `501` for a
+personal account. A module that writes such a claim writes the whole
+mapping or none.
+
 Billing does not have a per-plan features and limits catalogue yet; it is
 planned as a later task. Until it ships, billing cannot answer either check
 for an organization, and both methods raise `AccessUnknown`. The atom then

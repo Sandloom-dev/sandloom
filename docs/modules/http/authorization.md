@@ -252,8 +252,20 @@ access_unknown`, never a deny
 ([billing](../batteries/billing.md#features-and-limits)). A module with its
 own catalogue declares the same atoms on its own contract.
 
+With `Account.user()` the generated atoms read the token with zero I/O:
+
+- A present `features` / `limits` mapping is the complete snapshot. An entry
+  it does not list denies.
+- An absent claim is `501 access_unknown`, or `503 claim_authority_failed`
+  when its authority failed at the mint.
+- A malformed claim is `501 access_unknown`.
+
+`Not` never allows on any of these unknowns. A writer of such a claim writes
+the whole mapping or none.
+
 Until the kernel atoms are removed, both forms exist. They decide the same
-with the same calls.
+with the same calls where the token carries a well-formed claim. The kernel
+atoms still deny on an absent or malformed claim.
 
 ## What breaks it
 

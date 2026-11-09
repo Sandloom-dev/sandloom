@@ -1009,7 +1009,11 @@ A generated subclass sets `__sandloom_atom__` (`read`, `claim_key`,
 calling `super().__init__(params, of=..., claim_key=...)`.
 `Account.user()` (or a bound personal tenant) reads the claim with zero
 I/O; an organization account asks the live check with the same
-parameters.
+parameters. From the claims it is three-valued: a present mapping is the
+complete snapshot (an entry it does not list denies); the claim absent
+or malformed is indeterminate 501 `access_unknown`, absent because its
+authority failed at the mint 503 `claim_authority_failed`, never a
+deny `Not` would turn into an allow.
 
 #### `ClaimReadCheck.org_params`
 
