@@ -230,6 +230,11 @@ class _ServicesMixin(_FacadeState):
         if self._access_classifier is None:
             return []
         bearing = self._access_classifier()
+        # The tenant authority's membership witness decides tenant kind: a
+        # trust decision like any access check (ADR-0014 decision 13).
+        witness = getattr(self, "tenant_witness", None)
+        if witness is not None:
+            bearing = bearing | {witness.contract}
         problems: list[str] = []
         for name in sorted(self.service_registry.list()):
             if name not in bearing or reserved_contract_owner(name) is not None:

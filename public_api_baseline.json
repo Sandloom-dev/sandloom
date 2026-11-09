@@ -1006,7 +1006,8 @@
         "startup_task_phased_specs",
         "startup_task_specs",
         "startup_tasks",
-        "taskqueue"
+        "taskqueue",
+        "tenant_witness"
       ],
       "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
     },
@@ -3429,7 +3430,7 @@
     },
     "access_check": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None) -> Callable[[Any], Any]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None, witnesses_membership:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> Callable[[Any], Any]"
     },
     "authorize": {
       "kind": "function",
@@ -4706,7 +4707,8 @@
         "startup_task_phased_specs",
         "startup_task_specs",
         "startup_tasks",
-        "taskqueue"
+        "taskqueue",
+        "tenant_witness"
       ],
       "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
     },
@@ -6829,7 +6831,7 @@
     },
     "access_check": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None) -> Callable[[Any], Any]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None, witnesses_membership:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> Callable[[Any], Any]"
     },
     "authorize": {
       "kind": "function",

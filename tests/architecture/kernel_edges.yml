@@ -403,13 +403,12 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-31]
     anchors:
-      - {path: sandloom/shared/authz/account.py, symbol: _is_member}
-      - {path: sandloom/shared/authz/account.py, symbol: tenant_kind}
+      - {path: sandloom/shared/authz/account.py, literal: get_live_adapter(MEMBERSHIP)}
   - id: B-R3
     class: b
     type: runtime_call
@@ -845,27 +844,25 @@ edges:
     scope: runtime
     owner: [tenancy, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
     anchors:
       - {path: sandloom/core/archcheck/api10_rules.py, literal: require_org_role}
-      - {path: sandloom/core/archcheck/api10_rules.py, symbol: BILLING_ATOMS}
-      - {path: sandloom/core/archcheck/module_rules.py, symbol: ORG_ATOMS}
   - id: B-N18
     class: b
     type: naming
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
     anchors:
-      - {path: sandloom/core/error_codes.py, literal: SANDLOOM-B017}
-      - {path: sandloom/core/archcheck/runner.py, literal: account-route-mismatch}
+      - {path: sandloom/core/error_codes.py, literal: a billing atom has no of= subject}
+      - {path: sandloom/core/archcheck/runner.py, literal: gates billing with}
   - id: B-N19
     class: b
     type: naming

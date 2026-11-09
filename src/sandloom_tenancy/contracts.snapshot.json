@@ -30,7 +30,7 @@
       }
     },
     "tenancy.membership.v1": {
-      "hash": "43e39d1d6fe9cddc1dba13372867682b",
+      "hash": "02904ecc05fea4fac472695042e261c7",
       "methods": {
         "get_member_state": {
           "idempotency_key": null,
@@ -164,6 +164,9 @@
                 "admin",
                 "owner"
               ]
+            },
+            "witnesses_membership": {
+              "minimum": "member"
             }
           },
           "idempotency_key": null,

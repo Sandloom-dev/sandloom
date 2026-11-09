@@ -133,7 +133,8 @@ def test_privileged_bit_removal_preserves_executable_and_ignores_links(
 
 
 @pytest.mark.parametrize(
-    "name", ["academy", "helpdesk", "linkly", "projecthub", "tutorial"]
+    "name",
+    ["academy", "helpdesk", "linkly", "oidc-identity", "projecthub", "tutorial"],
 )
 def test_shipped_examples_have_the_same_runtime_boundary(name: str) -> None:
     profile = yaml.safe_load(

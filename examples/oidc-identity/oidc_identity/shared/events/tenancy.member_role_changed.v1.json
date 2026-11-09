@@ -1,0 +1,62 @@
+{
+  "description": "A member's role changed (both sides of an ownership transfer too).\n\nOrdering: delivery is at-least-once and unordered, and ``version`` is\noptional within ``.v1`` (a tenancy still on an older release publishes\nnone during a rolling upgrade). Decide per event: ``version`` present:\napply it when it is newer than the version you stored (or you stored\nnone), else skip it; ``version`` absent: refresh, re-reading\n``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role\nand version in one statement) and storing that unless it is older than\nwhat you stored.",
+  "properties": {
+    "actor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actor Id",
+      "x-sandloom-default": true
+    },
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Role",
+      "x-sandloom-default": true
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version",
+      "x-sandloom-default": true
+    }
+  },
+  "required": [
+    "organization_id",
+    "user_id"
+  ],
+  "title": "MemberRoleChanged",
+  "type": "object"
+}

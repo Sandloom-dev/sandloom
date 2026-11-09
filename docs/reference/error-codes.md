@@ -53,13 +53,14 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C024`](#sandloom-c024) | `unsafe-tenant-query` | check | a raw query on a non-relational store outside unscoped() | active |
 | [`SANDLOOM-C025`](#sandloom-c025) | `event-view-compat` | check | an event view is incompatible with (or unverified against) its producer, or a view calls .publish() | active |
 | [`SANDLOOM-C026`](#sandloom-c026) | `contract-union-hint` | check | a contract signature uses an ambiguous union (information) | active |
-| [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates billing with of=Account.user() | active |
+| [`SANDLOOM-C027`](#sandloom-c027) | `account-route-mismatch` | check | a route with an organization parameter gates an account atom with of=Account.user() | active |
 | [`SANDLOOM-C028`](#sandloom-c028) | `dialect-imports` | check | a database dialect (sqlalchemy.dialects) imported in module code | active |
 | [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
 | [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
 | [`SANDLOOM-C031`](#sandloom-c031) | `portable-sql` | check | a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them | active |
 | [`SANDLOOM-C032`](#sandloom-c032) | `generated-reserved` | check | a hand-written file in a module's _generated/ package, or an import of another module's _generated package | active |
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
+| [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -76,7 +77,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B014`](#sandloom-b014) | `money-effect-outside-write-store` | boot | a money effect sits in an opted-out secondary store | active |
 | [`SANDLOOM-B015`](#sandloom-b015) | `event-definition` | boot | an invalid Event class | active |
 | [`SANDLOOM-B016`](#sandloom-b016) | `consumer-definition` | boot | an invalid @on consumer | active |
-| [`SANDLOOM-B017`](#sandloom-b017) | `authz-subject-missing` | boot | a billing atom has no of= subject | active |
+| [`SANDLOOM-B017`](#sandloom-b017) | `authz-subject-missing` | boot | an access check that binds an account has no of= subject | active |
 | [`SANDLOOM-B018`](#sandloom-b018) | `contract-definition` | boot | an invalid @contract class | active |
 | [`SANDLOOM-B019`](#sandloom-b019) | `capability-replay` | boot | a token issuer, intent or money route has the wrong idempotency guard or an intent route a request session | active |
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
@@ -553,15 +554,18 @@ hint only points at the faster fully typed codec (owner decision Q3).
 
 ### SANDLOOM-C027
 
-**a route with an organization parameter gates billing with of=Account.user()**
+**a route with an organization parameter gates an account atom with of=Account.user()**
 
 Slug: `account-route-mismatch` · kind: check · status: active
 
 **What happened and why it matters**
 
-A route under /orgs/{org_id} that checks the caller's personal subscription
-or credits almost always meant the organization's account. The check refuses
-the combination unless the atom states why (spec §7.3).
+A route under /orgs/{org_id} that checks the caller's personal account (a
+subscription, credits, a quota) almost always meant the organization's account.
+The check refuses the combination unless the atom states why (spec §7.3). An
+atom is an account atom when its generated __sandloom_atom__ literal binds an
+account (sandloom check reads the literal of the file the name is imported
+from, not the name).
 
 **Fix:** use of=Account.org(param=...) for an organization route, or state Account.user(reason="...") when the personal account is intended
 
@@ -730,6 +734,31 @@ startup check stays the last line of defence.
 **Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a beat hook (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
 
 **More:** `docs/modules/background/tasks.md`
+
+### SANDLOOM-C034
+
+**a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration**
+
+Slug: `handwritten-access-check` · kind: check · status: active
+
+**What happened and why it matters**
+
+A provider declares an access check once (access_check): its tier, its category
+(the status a denial carries) and the risks of its arguments. sandloom generate
+writes the atom with that declaration in its __sandloom_atom__ literal; the
+route policy, the startup classification and sandloom check all read it. A
+hand-written Requirement whose body calls the same method through
+Contract(REF) is a second declaration the others do not see: a lower tier
+skips the live check where a claim decides, another category answers with
+another status, a missing risks() hides an administrative gate from the route
+policy. sandloom check compares the class with the literal and refuses a
+difference. Not seen: a call through getattr, an atom built at run time, an
+authority decided in a function body. Those are not proven statically; every
+route is classified independently at startup and the runtime checks apply.
+
+**Fix:** use the generated atom (sandloom generate writes it beside your stub), or state the declared tier, category and risks() on your class
+
+**More:** `docs/adr/0014-claims-trust-and-authorization-portability.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
@@ -1002,15 +1031,18 @@ that does not exist on E is refused (spec §5.4).
 
 ### SANDLOOM-B017
 
-**a billing atom has no of= subject**
+**an access check that binds an account has no of= subject**
 
 Slug: `authz-subject-missing` · kind: boot · status: active
 
 **What happened and why it matters**
 
-Subscribed, SubscriptionActive, Credits, Feature and WithinLimit take a
-required of=: a default could check another billing account than the one the
-route means (owner decision 1, spec §7.2).
+An access check whose declaration binds an account (its generated class takes a
+required of=, and the atom's __sandloom_atom__ literal binds account_type /
+account_id or names a claim fact) cannot guess the account: a default could
+check another account than the one the route means (owner decision 1, spec
+§7.2). Subscribed, SubscriptionActive, Credits, Feature and WithinLimit are such
+checks today.
 
 **Fix:** state the account: of=Account.user(), of=Account.org(param=...) (a route under /orgs/{...}) or of=Account.bound_tenant()
 

@@ -18,6 +18,7 @@ import pytest
 
 from sandloom.core.config.settings import settings
 from sandloom.core.di import bind_tenant
+from sandloom.core.facade._tenant_witness import TenantWitness
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
 from sandloom.shared.authz import (
     Account,
@@ -40,12 +41,23 @@ pytestmark = pytest.mark.asyncio
 
 ENT = "billing.entitlements.v1"
 MEM = "tenancy.membership.v1"
+#: The assigned tenant authority's membership witness (ADR-0014 decision 13).
+WITNESS = TenantWitness(
+    MEM,
+    "has_role_at_least",
+    ("organization_id", "user_id", "minimum"),
+    "organization_id",
+    "user_id",
+    {"minimum": "member"},
+    authority="tenancy",
+)
 
 
 class _Core:
     def __init__(self, members: set[UUID]) -> None:
         self.asked: list[tuple[str, UUID]] = []
         self.members = members
+        self.tenant_witness: TenantWitness | None = WITNESS
         core = self
 
         async def check_subscription_active(tt: str, tid: UUID) -> bool:

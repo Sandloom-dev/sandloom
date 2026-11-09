@@ -22,7 +22,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`current_tenant_id_optional`](#current_tenant_id_optional) | function | Return the bound tenant or `None` (does not raise). |
 | [`scoped`](#scoped) | function | Add a fail-closed tenant filter to `stmt` for `model`. |
 | [`tenant_filter`](#tenant_filter) | function | A `model.tenant_id == <current tenant>` clause (raises if unbound). |
-| [`tenant_kind`](#tenant_kind) | async function | The kind of `tenant_id` from authoritative sources only (spec §7.1), memoised per request: `canonical` under `TENANCY_MODE=single`, `pers... |
+| [`tenant_kind`](#tenant_kind) | async function | The kind of `tenant_id` from authoritative sources only (spec §7.1, ADR-0014 decision 13), memoised per request: `canonical` under `TENAN... |
 | [`TenantKind`](#tenantkind) | callable |  |
 | [`unscoped`](#unscoped) | function | Disable tenant enforcement for deliberate admin/system work. |
 
@@ -78,10 +78,13 @@ A `model.tenant_id == <current tenant>` clause (raises if unbound).
 async def tenant_kind(tenant_id: UUID, *, ctx: AuthzContext | None = None) -> TenantKind
 ```
 
-The kind of `tenant_id` from authoritative sources only (spec §7.1),
-memoised per request: `canonical` under `TENANCY_MODE=single`,
-`personal` when it is the caller's user id, `organization` when the
-membership contract confirms the caller's membership, else `unknown`.
+The kind of `tenant_id` from authoritative sources only (spec §7.1,
+ADR-0014 decision 13), memoised per request: `canonical` under
+`TENANCY_MODE=single`, `personal` when it is the caller's user id,
+`organization` when the membership witness of the assigned tenant
+authority (`claim_authorities["tenant_ids"]`) confirms the caller's
+membership, else `unknown` (no witness, no provider, or not a member:
+the token's `tenant_ids` alone never proves an organization).
 Without `ctx` it uses the request `current_context` authenticated.
 
 ### `TenantKind`

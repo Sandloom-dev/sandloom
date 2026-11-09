@@ -1,0 +1,36 @@
+{
+  "capabilities": [
+    {
+      "capability": "database",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    }
+  ],
+  "consumers": [],
+  "consumes": [],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "issuer": {
+    "refresh_sessions": false
+  },
+  "module": "oidc_identity.modules.acme_idp",
+  "projections": [],
+  "sagas": [],
+  "settings": {
+    "ACME_IDP_ADMIN_GROUP": {
+      "tier": "ops"
+    },
+    "ACME_IDP_CLIENT_ID": {
+      "tier": "ops"
+    },
+    "ACME_IDP_ISSUER": {
+      "tier": "ops"
+    },
+    "ACME_IDP_JWKS_TTL_SECONDS": {
+      "tier": "ops"
+    }
+  }
+}

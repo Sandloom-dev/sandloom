@@ -428,6 +428,7 @@ def access_check(
     risk: Mapping[str, Mapping[str, Iterable[Any]]] | None = None,
     describe: str | None = None,
     claim: Any = None,
+    witnesses_membership: Mapping[str, Any] | None = None,
 ) -> Callable[[Any], Any]
 ```
 
@@ -445,6 +446,13 @@ denial category of a `False` answer (`Category.PAYMENT_REQUIRED`:
 allowed. `claim` is the owner's
 `sandloom.shared.authz.facts.AccessFact` naming a claim-tier
 `atom` this check answers for an organization account.
+`witnesses_membership` declares the check a membership witness: a
+`True` answer, for any value of its own parameters, proves the
+subject (`From.subject_id()`) a member of the organization
+(`From.org()`); the mapping gives the value of each own parameter
+that asks about membership alone (`{"minimum": "member"}`). The
+tenant authority's witness decides `tenant_kind` (ADR-0014 decision
+13); only the authority the root assigned to `tenant_ids` counts.
 
 The declaration is part of the method's describe document and the
 contract snapshot: removing it, re-binding it or lowering a risk is an

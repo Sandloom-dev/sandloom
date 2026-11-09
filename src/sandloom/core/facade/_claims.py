@@ -48,6 +48,7 @@ from sandloom.core.sql_alchemy.portable import is_error_kind
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
+import sandloom.core.facade._tenant_witness as _tenant_witness
 import sandloom.core.module_api as _module_api
 
 #: Optional contributions dropped by the violator rule (ADR-0014 decision 2),
@@ -293,6 +294,7 @@ class _ClaimsMixin(_ServicesMixin):
     #: The composition's claim authorities (``create_app`` assigns them).
     _claim_authorities: ClaimAuthorities = NO_AUTHORITIES
     _claim_authorities_assigned: bool = False
+    _assigned_witness: _tenant_witness.TenantWitness | None = None
 
     # -----------------
     # Token claims contributors
@@ -743,8 +745,21 @@ class _ClaimsMixin(_ServicesMixin):
             )
         self._claim_authorities = authorities
         self._claim_authorities_assigned = True
+        # The tenant kind follows the tenant authority (ADR-0014 decision
+        # 13): its membership witness is resolved from the same assignment,
+        # once, here at boot, never on a request.
+        witness, why = _tenant_witness.resolve_tenant_witness(self)
+        self._assigned_witness = witness
+        _tenant_witness.report(self, witness, why)
 
     @property
     def claim_authorities(self) -> ClaimAuthorities:
         """The composition's claim-authority assignment."""
         return self._claim_authorities
+
+    @property
+    def tenant_witness(self) -> _tenant_witness.TenantWitness | None:
+        """The assigned tenant authority's membership witness, which
+        ``tenant_kind`` asks (``None``: none, every organization tenant's
+        kind is ``unknown``)."""
+        return self._assigned_witness

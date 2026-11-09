@@ -1,0 +1,48 @@
+{
+  "format": 3,
+  "module": "oidc_identity.modules.acme_idp",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "POST",
+      "path": "/api/v1/acme_idp/accounts/{user_id}/block",
+      "policy": {
+        "audit": "automatic",
+        "effect": "write",
+        "idempotency": "none (blocking twice is blocking once)",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check before commit",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/api/v1/acme_idp/backchannel-logout",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none (revoking twice is revoking once)",
+        "public_reason": "OIDC back-channel logout: the provider signs the request",
+        "session": "none",
+        "write_store": "default"
+      }
+    },
+    {
+      "auth": "public",
+      "method": "POST",
+      "path": "/api/v1/acme_idp/login",
+      "policy": {
+        "effect": "write",
+        "idempotency": "none (a sign-in mints a new token per call)",
+        "issues_tokens": true,
+        "public_reason": "OIDC sign-in: the caller has no token yet",
+        "session": "none",
+        "write_store": "default"
+      }
+    }
+  ]
+}
