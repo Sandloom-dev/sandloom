@@ -31,7 +31,7 @@
         "idempotency": "none",
         "risk": {
           "admin": [
-            "sandloom.shared.authz.deps.require.<locals>._guard"
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
           ]
         },
         "session": "live, re-check if a unit writes"

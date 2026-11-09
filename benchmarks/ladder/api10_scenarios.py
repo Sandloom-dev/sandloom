@@ -297,7 +297,7 @@ async def _seed_subscriptions(common: Any, platform: Any) -> None:
 
 
 async def scenario_orggate(n: int) -> dict[str, Any]:
-    from benchsuite import common, platform
+    from benchsuite import common, compat, platform
 
     env = platform.server_env()
     env["DATABASE_URL"] = os.environ.get("PLATFORM_DATABASE_URL", env["DATABASE_URL"])
@@ -307,8 +307,10 @@ async def scenario_orggate(n: int) -> dict[str, Any]:
 
     from sandloom.core.http.route_runtime import install_route_runtime
     from sandloom_standard.main import app
-    from sandloom.shared.authz import Subscribed, current_context, require
+    from sandloom.shared.authz import current_context, require
     from sandloom.shared.authz.account import Account
+
+    Subscribed = compat.subscribed_atom()
 
     router = APIRouter(prefix="/a10gate", dependencies=[Depends(current_context)])
 
