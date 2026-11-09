@@ -743,3 +743,27 @@ What the fixes did, and what is left:
   (object counts per op on both builds).
 
 Data: `ladder/results/cg_infra_agnostic_2026-11-05.json` (`after_fixes`).
+
+## E. Trusted claims view (KB-11, `claims_rungs.py`)
+
+What the per-key `cpv` and the trusted view cost on `Role`, `Perm`,
+`TenantScope`, `decode_token` and a mint, with no database and no network
+(an in-memory revocation cache), so the number is the authorization's own
+cost. One kernel process mints real tokens through `collect_claims` +
+`create_access_token`; the same file runs on a build before the view
+(`f8e1bb7^`: tokens without `cpv`) and after it. Rungs: `KRole` `KPerm`
+`KTen` (a cached token), `KRoleC` `KTenC` (a fresh token each op), `KDec`
+`KDecC` (`decode_token`), `KMintC` `KMint`, and the parts `KLoads` `KCtx`
+`KVerify` `KView` (`KView` needs the view).
+
+```bash
+LADDER_CG_GC=freeze CG_K=1000 ladder/cg/run_cg.sh \
+  KRole KPerm KTen KRoleC KTenC KDec KDecC KMintC KMint KVerify KView
+CG_K=20000 ladder/cg/run_cg.sh KLoads KCtx KDec   # small rungs need a large K
+```
+
+Run base and candidate each from its own checkout (`git worktree add`, the
+two stand files copied into the base). A rung under about 50 k Ir/op needs
+K of 20 000: at K = 200 the 1 M Ir of run-to-run noise is 5 k per op. The
+numbers of the KB-11 measurement are in
+`tests/fixtures/specs/api10-ledger-delta-kb11c.md`.
